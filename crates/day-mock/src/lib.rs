@@ -96,6 +96,8 @@ pub struct MockWindow {
 
 #[derive(Default)]
 pub struct MockState {
+    /// Simulate native navigation that has not settled yet in engine tests.
+    pub ui_busy: bool,
     next: u64,
     pub widgets: HashMap<u64, MockWidget>,
     pub log: Vec<String>,
@@ -1777,7 +1779,7 @@ impl Toolkit for MockToolkit {
         // No native transitions exist; idle is immediate, but log the poll so scripted runs
         // can assert dayscript's settle path touched it.
         self.state.borrow_mut().log("ui_idle".into());
-        true
+        !self.state.borrow().ui_busy
     }
 
     fn on_suspend(&mut self) {

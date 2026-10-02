@@ -63,6 +63,13 @@ pub fn register_child(pid: u32) {
     }
 }
 
+/// A helper has been reaped; its pid must not remain in the exit-time kill list.
+pub(crate) fn forget_child(pid: u32) {
+    if let Ok(mut children) = CHILDREN.lock() {
+        children.retain(|child| child.pid != pid);
+    }
+}
+
 /// Track the app itself, spawned as a child by a desktop launch. Killed like any other child on
 /// interrupt and on the normal-exit path, unless [`forget_app_children`] spares it first.
 pub fn register_app_child(pid: u32) {

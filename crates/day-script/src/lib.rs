@@ -988,6 +988,9 @@ fn exec(step: Step) -> Reply {
             }
             Step::WaitIdle => {
                 day_reactive::flush_sync();
+                if !with_tree(|t| t.ui_idle()) {
+                    return Err(Reply::fail("ui transitions still settling", true));
+                }
                 Ok(Reply::ok())
             }
             Step::Tap {
@@ -996,6 +999,17 @@ fn exec(step: Step) -> Reply {
                 at,
                 modifiers,
             } => {
+                // Finding a node is not proof that a user can activate it. In particular,
+                // Button's enabled gate silently ignores Pressed while an async operation
+                // is finishing. Retry BEFORE dispatch, never replay an accepted action.
+                day_reactive::flush_sync();
+                if !with_tree(|t| t.ui_idle()) {
+                    return Err(Reply::fail("ui transitions still settling", true));
+                }
+                visible(&id)?;
+                if !probe(&id)?.enabled {
+                    return Err(Reply::fail(format!("{id:?} is disabled"), true));
+                }
                 // Deliver a button `Pressed` and a gesture `Tap` (at `at`, or the node's local
                 // center), so one step exercises buttons (which ignore `Tap`) and
                 // shape/`.on_tap` pieces (which ignore `Pressed`) alike; the native
@@ -2071,6 +2085,47 @@ pub fn b64decode(s: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tap_waits_for_navigation_and_enabled_state_before_dispatching_once() {
+        use day_pieces::prelude::*;
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        day_core::uninstall_tree();
+        let enabled = Signal::new(false);
+        let presses = Signal::new(0);
+        let (mock, probe) = day_mock::MockToolkit::new();
+        day_core::launch_with(mock, day_spec::WindowOptions::default(), move || {
+            button("Fixture download")
+                .enabled(move || enabled.get())
+                .action(move || presses.update(|n| *n += 1))
+                .id("fixture-download")
+                .height(50.)
+                .grow_w()
+                .any()
+        });
+        let tap = || {
+            exec(
+                serde_json::from_value(serde_json::json!({
+                    "op": "tap", "id": "fixture-download"
+                }))
+                .unwrap(),
+            )
+        };
+        let reply = tap();
+        assert!(!reply.ok && reply.retryable);
+        assert!(reply.error.unwrap().contains("disabled"));
+        assert_eq!(presses.get(), 0);
+        enabled.set(true);
+        probe.state.borrow_mut().ui_busy = true;
+        assert!(!tap().ok);
+        assert!(!exec(Step::WaitIdle).ok);
+        assert_eq!(presses.get(), 0);
+        probe.state.borrow_mut().ui_busy = false;
+        assert!(exec(Step::WaitIdle).ok);
+        assert!(tap().ok);
+        assert_eq!(presses.get(), 1);
+        day_core::uninstall_tree();
+    }
 
     /// Serialize the env mutation below (`set_var` is unsafe under concurrency in edition 2024).
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

@@ -16,6 +16,19 @@ owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted w
 is [Tier 3](https://daybrite.dev/docs/platforms#support-tiers): tested, but not comprehensively, and
 not yet exercised by shipping applications.
 
+## Launch logs
+
+Attached launches resolve the application's PID with `hdc shell pidof <app-id>` and
+stream `hilog -P <pid>`. Each device has one reader. Starting another variant or stopping
+the app kills and reaps the old reader, so locale/theme sweeps do not accumulate log streams.
+The filter includes the current process's buffered startup messages, not earlier launches
+or unrelated system services. Device-wide log buffers are never cleared.
+
+If PID lookup fails, Day prints a diagnostic and skips streaming rather than falling back
+to the entire device log. Separate WebView renderer/service processes are outside the filter;
+use `hdc shell hilog` manually when those diagnostics are needed. See the
+[OpenHarmony hilog options](https://github.com/openharmony/docs/blob/master/zh-cn/application-dev/dfx/hilog.md).
+
 ## Architecture
 
 It mirrors the Android backend: a managed UI runtime (ArkTS) hosts the window, native Rust builds the

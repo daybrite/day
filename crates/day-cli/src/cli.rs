@@ -2207,11 +2207,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     ops::status(
                                         "Script",
                                         &format!(
-                                            "{}{tag}: {}/{} steps passed · {} skipped · {} screenshot(s)",
+                                            "{}{tag}: {}/{} steps passed · {} skipped · {} aborted · {} screenshot(s)",
                                             target.name,
                                             run.steps_total - run.steps_skipped - run.steps_failed,
                                             run.steps_total - run.steps_skipped,
                                             run.steps_skipped,
+                                            run.steps_aborted,
                                             run.screenshots.len()
                                         ),
                                     );

@@ -20,6 +20,7 @@ use anstream::eprintln;
 pub struct ScriptRun {
     pub steps_total: usize,
     pub steps_skipped: usize,
+    pub steps_aborted: usize,
     pub steps_failed: usize,
     /// How many of `steps_failed` the engine marked retryable: an element not realized yet,
     /// an assert still pending. Those are the failures a race can produce, so a run whose only
@@ -75,20 +76,26 @@ fn expand_project(v: &mut serde_json::Value, root: &str) {
     }
 }
 
-fn parse_flow(
-    path: &Path,
-    project_root: &Path,
-) -> Result<Vec<(String, serde_json::Value)>, String> {
+#[derive(Debug, PartialEq)]
+struct Flow {
+    steps: Vec<(String, serde_json::Value)>,
+    stop_on_failure: bool,
+}
+
+fn parse_flow(path: &Path, project_root: &Path) -> Result<Flow, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     parse_flow_text(&text, project_root)
 }
 
-fn parse_flow_text(
-    text: &str,
-    project_root: &Path,
-) -> Result<Vec<(String, serde_json::Value)>, String> {
+fn parse_flow_text(text: &str, project_root: &Path) -> Result<Flow, String> {
     let doc: serde_json::Value =
         serde_norway::from_str(text.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
+    let stop_on_failure = match doc.get("on_failure").and_then(|v| v.as_str()) {
+        None if doc.get("on_failure").is_none() => false,
+        Some("continue") => false,
+        Some("stop") => true,
+        _ => return Err("on_failure must be stop or continue".into()),
+    };
     let flow = doc
         .get("flow")
         .and_then(|f| f.as_array())
@@ -127,7 +134,10 @@ fn parse_flow_text(
         expand_project(&mut step, &project_root.to_string_lossy());
         steps.push((op.clone(), step));
     }
-    Ok(steps)
+    Ok(Flow {
+        steps,
+        stop_on_failure,
+    })
 }
 
 /// Perform a `resize:` step's geometry change, host-side (docs/size-classes.md).
@@ -793,6 +803,7 @@ pub fn run_scripts(
     let mut run = ScriptRun {
         steps_total: 0,
         steps_skipped: 0,
+        steps_aborted: 0,
         steps_failed: 0,
         retryable_failed: 0,
         screenshots: Vec::new(),
@@ -800,7 +811,26 @@ pub fn run_scripts(
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     for script in scripts {
-        let steps = parse_flow(script, &project.root).map_err(ScriptError::Other)?;
+        let Flow {
+            steps,
+            stop_on_failure,
+        } = parse_flow(script, &project.root).map_err(ScriptError::Other)?;
+        let failures_before_script = run.steps_failed;
+        let planned = steps.len();
+        if stop_on_failure {
+            // A stopped retry must not leave old "successful" captures for steps it never
+            // reached. Clear only this flow's named outputs in the current variant.
+            for (op, step) in &steps {
+                if op == "screenshot" {
+                    let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
+                    let path = dir.join(format!("{name}.png"));
+                    if path.exists() {
+                        std::fs::remove_file(path)
+                            .map_err(|e| ScriptError::Other(e.to_string()))?;
+                    }
+                }
+            }
+        }
         // `expect_exit` tolerates the app dying, so it must be terminal: a step after it could
         // never run (the connection is gone). Reject a misplaced one before driving anything.
         if let Some(pos) = steps.iter().position(|(op, _)| op == "expect_exit")
@@ -832,7 +862,16 @@ pub fn run_scripts(
         // A gate token nothing can match is a typo, reported once per token: `only_on: [iso]`
         // would otherwise drop the step on every target without a word.
         let mut warned_gates: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (op, step) in steps {
+        for (index, (op, step)) in steps.into_iter().enumerate() {
+            if stop_on_failure && run.steps_failed > failures_before_script {
+                let remaining = planned - index;
+                run.steps_aborted += remaining;
+                eprintln!(
+                    "  {WARN}–{WARN:#} stopping {} after failure; {remaining} dependent steps not run",
+                    script.display()
+                );
+                break;
+            }
             run.steps_total += 1;
             // The target gates run before the runner-side steps below (`pause`, `expect_exit`):
             // those `continue` on their own, so evaluating them first made a gated `pause` sleep
@@ -1408,8 +1447,12 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
             );
         }
         TargetKind::HarmonyOs => {
+            let key = crate::ops::selected_ohos_key()
+                .map(str::to_owned)
+                .unwrap_or_else(crate::ohos::ohos_target);
+            crate::ohos::stop_hilog(&key);
             let _ = crate::ops::status_within(
-                crate::ohos::hdc().args([
+                crate::ohos::hdc_for(&key).args([
                     "shell",
                     "aa",
                     "force-stop",
@@ -1537,13 +1580,96 @@ mod gate_tests {
     use super::{gate_is_known, gate_names};
 
     #[test]
+    fn a_failed_prerequisite_stops_only_the_opted_in_flow() {
+        use std::io::{BufRead, Write};
+        for policy in ["stop", "continue"] {
+            let root = std::env::temp_dir()
+                .join(format!("day-flow-failure-{}-{policy}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let script = root.join("flow.yaml");
+            std::fs::write(&script, format!("on_failure: {policy}\nflow:\n- wait_for: {{ id: missing }}\n- tap: {{ id: must-not-run }}\n- screenshot: stale\n")).unwrap();
+            let project = crate::meta::Project {
+                root: root.clone(),
+                manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+            };
+            let stale = super::shot_dir(
+                &project,
+                crate::targets::find("macos-appkit").unwrap(),
+                None,
+                None,
+                None,
+            )
+            .join("stale.png");
+            std::fs::create_dir_all(stale.parent().unwrap()).unwrap();
+            std::fs::write(&stale, b"old fixture capture").unwrap();
+            let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut seen = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    if reader.read_line(&mut line).unwrap() == 0 {
+                        break;
+                    }
+                    let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    seen.push(request["step"]["op"].as_str().unwrap().to_string());
+                    writeln!(
+                        stream,
+                        "{{\"ok\":false,\"retryable\":true,\"error\":\"fixture failure\"}}"
+                    )
+                    .unwrap();
+                }
+                seen
+            });
+            let run = super::run_scripts(
+                &project,
+                crate::targets::find("macos-appkit").unwrap(),
+                port,
+                "fixture-token",
+                &[script],
+                None,
+                None,
+                None,
+                true,
+                false,
+            )
+            .unwrap();
+            let seen = server.join().unwrap();
+            if policy == "stop" {
+                assert_eq!(seen, ["wait_for"]);
+                assert_eq!(run.steps_failed, 1);
+                assert_eq!(run.retryable_failed, 1);
+                assert_eq!(run.steps_aborted, 2);
+                assert!(!stale.exists());
+            } else {
+                assert_eq!(seen, ["wait_for", "tap", "screenshot"]);
+                assert_eq!(run.steps_failed, 3);
+                assert_eq!(run.steps_aborted, 0);
+            }
+            std::fs::remove_dir_all(root).unwrap();
+        }
+        let root = std::path::Path::new("/fixture");
+        assert!(super::parse_flow_text("on_failure: typo\nflow: []", root).is_err());
+        assert!(
+            !super::parse_flow_text("flow: []", root)
+                .unwrap()
+                .stop_on_failure
+        );
+    }
+
+    #[test]
     fn windows_utf8_bom_preserves_script_text_and_project_expansion() {
         let script = "flow:\n  - input: { id: name, text: 'Français ${project}' }\n";
         let root = std::path::Path::new("C:/Showcase");
         let plain = super::parse_flow_text(script, root).unwrap();
         let bom = super::parse_flow_text(&format!("\u{feff}{script}"), root).unwrap();
         assert_eq!(bom, plain);
-        assert_eq!(bom[0].1["text"], "Français C:/Showcase");
+        assert_eq!(bom.steps[0].1["text"], "Français C:/Showcase");
     }
 
     /// A gate opts a step in or out by target, toolkit, platform or flavor; nothing else.

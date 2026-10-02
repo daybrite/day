@@ -1189,11 +1189,13 @@ macro_rules! day_start_arkui {
         /// Deep-link intake (docs/deep-links.md): day-arkui's NAPI `deepLink(uri)` calls this
         /// from the app cdylib for cold and warm links alike; `request_route` buffers before
         /// launch and navigates on the UI thread after.
+        ///
+        /// # Safety
+        /// `uri` must be null or point to a NUL-terminated string valid for this call.
         #[cfg(target_env = "ohos")]
         #[unsafe(no_mangle)]
-        pub extern "C" fn day_arkui_deeplink(uri: *const ::core::ffi::c_char) {
-            // SAFETY: day-arkui passes a NUL-terminated copy of the ArkTS string, valid for
-            // the call, or null.
+        pub unsafe extern "C" fn day_arkui_deeplink(uri: *const ::core::ffi::c_char) {
+            // SAFETY: forwarded under the caller's string lifetime contract.
             unsafe { $crate::arkui::deeplink(uri) };
         }
     };
@@ -1310,7 +1312,7 @@ pub mod arkui {
     /// call, buffered until the first mount and applied on the UI thread after it.
     ///
     /// # Safety
-    /// `uri` is null or a NUL-terminated string valid for the call.
+    /// `uri` must be null or point to a NUL-terminated string valid for this call.
     pub unsafe fn deeplink(uri: *const core::ffi::c_char) {
         if uri.is_null() {
             return;

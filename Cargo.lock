@@ -1197,6 +1197,8 @@ version = "0.4.10"
 dependencies = [
  "day-core",
  "day-fluent",
+ "day-mock",
+ "day-pieces",
  "day-reactive",
  "day-spec",
  "log",

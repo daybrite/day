@@ -2764,9 +2764,10 @@ release artifacts without the opt-in contain no engine). It:
   controlled-text path), on the main thread, between flushes (`flush_sync`, [§3.3](#33-threading-model-and-the-turn-state-machine)) — deterministic
   and toolkit-uniform. (Driving *native* input synthesis instead is deliberately rejected for v1:
   per-toolkit event forgery is flaky and permission-gated. DP-13.)
-- does **not** enforce the designed actionability preconditions (enabled/occlusion checks,
-  auto-scroll-into-view) — that gating was never built; scripts scroll explicitly where needed
-  and target ids they know to be interactive ([Appendix C](#appendix-c--dayscript-reference-v1) notes this per step).
+- before `tap`, flushes reactive changes and waits for `Toolkit::ui_idle`, a nonzero frame,
+  and the control's enabled probe. A pending precondition retries without dispatching an action;
+  once dispatched, an action is never replayed by the step. Native occlusion/hit testing and
+  automatic scrolling remain outside this contract; scripts scroll explicitly where needed.
 - is honest about **what it cannot verify**: the native keyboard and IME, native hit-testing,
   native animations, and out-of-process UI. Manual checks in M2/M5/M6 acceptance carry that load.
 - serves the **transport** ([§14.5](#145-transport-and-rendezvous)), implements `screenshot` via `Toolkit::snapshot_window` (on a
@@ -2783,8 +2784,8 @@ release artifacts without the opt-in contain no engine). It:
 ### §14.3 Waits and flakiness
 
 Every retryable step has an implicit bounded wait (5 s default) — element not found yet and
-pending assertions poll rather than fail instantly. `wait_idle` flushes the reactive drain;
-`screenshot` additionally waits on `Toolkit::ui_idle` (native transitions settled), which is
+pending assertions poll rather than fail instantly. `wait_idle` flushes the reactive drain
+and waits on `Toolkit::ui_idle`; `tap` and `screenshot` also wait on `Toolkit::ui_idle` (native transitions settled), which is
 what keeps captures from showing half-dismissed dialogs. (The designed richer idle definition —
 in-flight `Resource`s, `busy_scope()` — remains unbuilt even now that `Resource` shipped
 ([§4.5](#45-async)): the bounded-retry asserts absorb async gaps, as the showcase's Resource
@@ -2804,6 +2805,26 @@ CLI device log forwarding uses fallible writes. A saturated or closed CI output 
 the affected diagnostic line rather than panicking and stopping the forwarding thread;
 subsequent device lines are still drained. `ops::log_format_tests` covers recovery after
 `WouldBlock` and `BrokenPipe`.
+
+A flow may set top-level `on_failure: stop` to abort its remaining steps after any failure.
+The flow clears its named captures for the current variant before starting, so an aborted
+retry cannot publish older screenshots. The default, `continue`, preserves aggregate assertion collection. Aborted steps are reported
+separately from failures and platform skips; later independent scripts/locale variants still run.
+This prevents a missing reader from generating minutes of dependent `web_eval` timeouts and
+misleading screenshots. Existing bounded whole-variant retries still apply to a single retryable
+failure; a stopped flow does not repeatedly dispatch its failed action. The CLI's socket-backed
+regression test covers stop/continue behavior, and the engine's mock test checks that taps wait
+for enabled state and native settling before dispatching exactly once.
+
+Harmony's CLI owns one `hilog -P <app-pid>` reader per device, resolving the pid after launch.
+Replacing or terminating the run kills and reaps that reader and unregisters its host pid.
+It never clears device-wide logs or falls back to unfiltered output when pid lookup fails.
+This retains this process's startup diagnostics without replaying earlier variants' logs.
+Separate WebView/service processes are not included; use manual device logging to inspect them.
+The ArkUI deep-link C export and Rust bridge are unsafe functions: callers provide a null
+pointer or a NUL-terminated URI valid for the duration of the call; the ABI is unchanged.
+The `day-arkui` NAPI wrapper owns the URI string while calling the app's C export.
+See [docs/harmonyos.md](docs/harmonyos.md) and the CLI's log-reader lifecycle tests.
 
 ### §14.4 Results
 
@@ -6227,8 +6248,8 @@ well-written scripts; `pause` exists for demos and settle-time.
 | step | fields | notes |
 |---|---|---|
 | `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
-| `wait_idle` | — | flush the reactive drain |
-| `tap` | `id`, `repeat?`, `at?`, `modifiers?` | delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching |
+| `wait_idle` | — | flush the reactive drain and wait for native transitions |
+| `tap` | `id`, `repeat?`, `at?`, `modifiers?` | waits for native settling, a nonzero frame, and enabled state; then delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching |
 | `drag` | `id`, `from`, `to`, `steps?`, `modifiers?` | a whole gesture in the element's own coordinates: `Began` at `from`, `steps` (default 4) `Changed` samples along the way, `Ended` at `to`. `modifiers` are held for every phase — a drag reads them once, when it starts |
 | `key` | `key`, `id?`, `modifiers?` | a non-text key (`Event::Key`, web `KeyboardEvent.key` names — `ArrowRight`, …) delivered the way the platform delivers one: to the named piece, or to whatever holds FOCUS. Pair it with `focus:` to drive the whole route; with nothing focused and no `id` the step fails rather than dropping the key — [docs/menus.md](docs/menus.md) |
 | `input` | `id`, `text?` \| `key?` + `args?` | `key:` resolves a Fluent key in the run's locale — locale-portable typing |
@@ -6276,9 +6297,9 @@ web byte clipboard adapter waits for preceding writes before programmatic reads,
 Copy → Paste ordering without a timer. Native paste events retain their captured payload and
 do not wait; write failures cannot poison later reads. The promise-ordering regression in
 `scripts/ci/webdom-clipboard-test.mjs` runs in the web-dom CI job ([docs/clipboard.md](docs/clipboard.md)). The
-`focus` step is the deliberate exception that drives a real toolkit duty. The designed
-actionability preconditions (enabled/occlusion checks, auto-scroll-into-view) are **not
-implemented** — scripts scroll explicitly and the walkthrough is written accordingly.
+`focus` step is the deliberate exception that drives a real toolkit duty. `tap` checks the
+control's enabled state and nonzero frame after native navigation settles. Occlusion checks
+and automatic scrolling are not implemented; scripts scroll explicitly.
 
 Any step may carry `skip_on: [<target-or-toolkit-or-platform>, …]` (2026-07): the RUNNER drops it on the
 named targets before sending, so one script drives every platform while staying honest about

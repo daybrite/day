@@ -723,7 +723,7 @@ fn fport_listed(listing: &str, key: &str, port: u16) -> bool {
 }
 
 /// A fresh `hdc` command pinned to connect key `key` (`-t <key>`), for multi-device install/launch.
-fn hdc_for(key: &str) -> Command {
+pub(crate) fn hdc_for(key: &str) -> Command {
     let mut c = Command::new(hdc_bin());
     c.args(["-t", key]);
     c
@@ -1595,8 +1595,7 @@ pub fn launch_ohos(
             } else {
                 outcome.target.to_string()
             };
-            let key = dev.key.clone();
-            log_threads.push(std::thread::spawn(move || stream_hilog(&key, &label)));
+            log_threads.push(start_hilog(&dev.key, &bundle, &label));
         }
     }
     Ok(std::thread::spawn(move || {
@@ -1787,34 +1786,154 @@ fn parse_size(v: &str) -> Option<(u32, u32)> {
     (w > 0 && h > 0).then_some((w, h))
 }
 
-/// Stream one target's hilog into the day log with `label` (best-effort). Returns its exit code.
-fn stream_hilog(key: &str, label: &str) -> i32 {
-    match hdc_for(key)
-        .args(["shell", "hilog"])
-        .stdout(Stdio::piped())
-        .spawn()
+// One log process per device, owned by this CLI invocation. Script variants must not
+// accumulate readers that each replay the device ring buffer and keep streaming forever.
+type LogChild = std::sync::Arc<std::sync::Mutex<std::process::Child>>;
+static HILOG_READERS: std::sync::Mutex<std::collections::BTreeMap<String, LogChild>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+pub(crate) fn stop_hilog(key: &str) {
+    let child = HILOG_READERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(key);
+    if let Some(child) = child {
+        // Child::kill cannot target a reused pid: the reader owns and reaps this Child.
+        let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+    }
+}
+
+fn hilog_pids(output: &str) -> Option<String> {
+    let pids: Vec<_> = output.split_whitespace().collect();
+    if pids.is_empty()
+        || pids.len() > 5
+        || pids
+            .iter()
+            .any(|pid| pid.parse::<u32>().is_err() || *pid == "0")
     {
-        Ok(mut child) => {
-            crate::signals::register_child(child.id());
-            if let Some(out) = child.stdout.take() {
-                for line in
-                    std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok)
-                {
-                    emit_log(label, LogStream::Out, &line);
-                }
-            }
-            child.wait().map(|s| s.code().unwrap_or(0)).unwrap_or(0)
-        }
+        return None;
+    }
+    Some(pids.join(","))
+}
+
+fn start_hilog(key: &str, bundle: &str, label: &str) -> std::thread::JoinHandle<i32> {
+    stop_hilog(key);
+    // Query AFTER aa start. Filtering by the new app pid preserves startup diagnostics,
+    // excludes earlier launches and avoids clearing any user's device-wide log buffer.
+    let pids = crate::ops::output_within(
+        hdc_for(key).args(["shell", "pidof", bundle]),
+        Duration::from_secs(5),
+    )
+    .filter(|o| o.status.success())
+    .and_then(|o| hilog_pids(&String::from_utf8_lossy(&o.stdout)));
+    let Some(pids) = pids else {
+        emit_log(
+            label,
+            LogStream::Err,
+            "could not resolve the app pid; skipping hilog (no unfiltered fallback)",
+        );
+        return std::thread::spawn(|| 0);
+    };
+    let mut command = hdc_for(key);
+    command.args(["shell", "hilog", "-P", &pids]);
+    spawn_hilog(command, key, label)
+}
+
+fn spawn_hilog(mut command: Command, key: &str, label: &str) -> std::thread::JoinHandle<i32> {
+    stop_hilog(key);
+    let mut child = match command.stdout(Stdio::piped()).spawn() {
+        Ok(child) => child,
         Err(e) => {
             emit_log(label, LogStream::Err, &format!("hdc hilog: {e}"));
-            1
+            return std::thread::spawn(|| 0);
         }
-    }
+    };
+    let pid = child.id();
+    let out = child.stdout.take().expect("piped hilog output");
+    crate::signals::register_child(pid);
+    let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+    HILOG_READERS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key.into(), child.clone());
+    let key = key.to_owned();
+    let label = label.to_owned();
+    std::thread::spawn(move || {
+        for line in std::io::BufRead::lines(std::io::BufReader::new(out)).map_while(Result::ok) {
+            emit_log(&label, LogStream::Out, &line);
+        }
+        // EOF can precede process exit. Do not hold the mutex in Child::wait: stop_hilog
+        // must still be able to acquire it and kill a helper that closed stdout but hung.
+        loop {
+            match child.lock().unwrap_or_else(|e| e.into_inner()).try_wait() {
+                Ok(None) => {}
+                Ok(Some(_)) | Err(_) => break,
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        crate::signals::forget_child(pid);
+        let mut readers = HILOG_READERS.lock().unwrap_or_else(|e| e.into_inner());
+        if readers
+            .get(&key)
+            .is_some_and(|current| std::sync::Arc::ptr_eq(current, &child))
+        {
+            readers.remove(&key);
+        }
+        // Logging is best effort, including deliberate termination between variants.
+        0
+    })
 }
 
 #[cfg(test)]
 mod identity_tests {
     use super::replace_json5_string;
+
+    #[test]
+    fn hilog_filter_accepts_only_concrete_app_pids() {
+        assert_eq!(super::hilog_pids("123 456\n").as_deref(), Some("123,456"));
+        for bad in [
+            "",
+            "0",
+            "no process",
+            "[Fail] device offline",
+            "1 2 3 4 5 6",
+        ] {
+            assert!(super::hilog_pids(bad).is_none(), "{bad}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn replacing_and_stopping_hilog_reaps_each_reader() {
+        use std::process::Command;
+        let key = "fixture-log-device";
+        let spawn = || {
+            let mut command = Command::new("sh");
+            // A helper can close its pipe before exiting; replacement must still kill it.
+            command.args(["-c", "exec 1>&-; exec sleep 60"]);
+            super::spawn_hilog(command, key, "fixture")
+        };
+        let first = spawn();
+        let second = spawn();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !first.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let first_stopped = first.is_finished();
+        super::stop_hilog(key);
+        assert!(
+            first_stopped,
+            "replacing a reader must stop the old process"
+        );
+        assert_eq!(first.join().unwrap(), 0);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !second.is_finished() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(second.is_finished(), "stopping must unblock the log reader");
+        assert_eq!(second.join().unwrap(), 0);
+        assert!(!super::HILOG_READERS.lock().unwrap().contains_key(key));
+    }
 
     #[test]
     fn identity_ignores_comments_and_handles_json5_escapes() {

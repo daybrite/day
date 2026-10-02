@@ -56,6 +56,23 @@ given, else the [locale](/docs/glossary#locale), else `default`. Several `--scri
 `--locale` makes the run a localization test at the same time; assertions can reference [Fluent](/docs/glossary#fluent)
 keys instead of literal strings, so the same script passes in every language.
 
+For a walkthrough whose later steps require earlier navigation or downloads to succeed,
+add `on_failure: stop` beside `name`:
+
+```yaml
+name: reader
+on_failure: stop
+flow:
+  - tap: { id: open-book }
+  - wait_for: { id: book-webview, timeout_secs: 60 }
+  - screenshot: reading
+```
+
+A failure stops the remaining steps in that script. The summary reports them as aborted;
+independent scripts and locale/theme variants can still run. The default is
+`on_failure: continue`, which collects all assertion failures. A single retryable failure
+can still trigger Day's existing one-time retry of the variant.
+
 A `screenshot:` step can carry what the gallery shows about the capture, and what the store
 listing takes from it:
 
@@ -105,7 +122,11 @@ does, so it never races the push it is meant to undo.
 
 Every locating step waits (bounded, five seconds by default) rather than failing instantly, so
 scripts need no hand-tuned sleeps. Acting steps synthesize Day events on the
-main thread between reactive updates. Native behavior can still differ between toolkits,
+main thread between reactive updates. `tap` waits for native navigation to settle and for the
+control to have a nonzero frame and be enabled. Those checks happen before dispatch, so a
+pending button is not reported as successfully pressed and an accepted action is not replayed.
+`wait_idle` also waits for native transitions. These checks do not detect occlusion or replace
+native hit testing. Native behavior can still differ between toolkits,
 so run the walkthrough on the targets you intend to ship.
 Target elements by ids you know to be interactive, and scroll explicitly when a step needs an
 element brought into view.
