@@ -2798,6 +2798,9 @@ walkthrough steps show.) No sleeps in
 well-written scripts; `pause` exists for demos. Text assertions normalize Fluent's FSI/PDI
 isolation marks ([§12.2](#122-api)).
 
+The CLI's `harmony_capture_tests` uses a fake `hdc` to verify that acknowledged captures
+bypass the legacy delay and accept identical images without retrying; it needs no emulator.
+
 The CLI's socket read window covers the step's retry budget, one final UI-thread dispatch,
 and 10 seconds for the reply. The dispatch allowance defaults to 30 seconds, honors a positive
 finite `DAY_SCRIPT_MAIN_TIMEOUT_SECS`, and is never shorter than the step's budget. The

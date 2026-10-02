@@ -1908,7 +1908,6 @@ mod window_tests {
     /// and a longer window (a slow device, a long step budget) is never shortened.
     #[test]
     fn first_read_window_covers_startup_without_shortening_a_longer_window() {
-<<<<<<< Updated upstream
         // Pass the override explicitly so the runner's environment cannot alter this test.
         let normal = reply_window(20, 5.0, None);
         assert_eq!(normal, Duration::from_secs(45));
@@ -1922,14 +1921,6 @@ mod window_tests {
             assert_eq!(window, Duration::from_secs(expected_secs));
             assert_eq!(first_read_window(window), window);
         }
-=======
-        assert_eq!(read_window(20, 5.0), Duration::from_secs(45));
-        assert_eq!(
-            first_read_window(20, 5.0),
-            Duration::from_secs(STARTUP_SECS)
-        );
-        assert_eq!(first_read_window(120, 5.0), Duration::from_secs(120));
-        assert_eq!(first_read_window(20, 90.0), Duration::from_secs(190));
     }
 }
 
@@ -1992,6 +1983,5 @@ esac
             std::thread::sleep(Duration::from_millis(10));
         }
         std::fs::remove_dir_all(root).unwrap();
->>>>>>> Stashed changes
     }
 }
