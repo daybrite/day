@@ -41,6 +41,14 @@ plist = "1"
 # HarmonyOS JSON5: round-trip parsing retains comments and whitespace during manifest edits.
 json-five = "=0.3.1"
 sha2 = "0.11"
+# The screenshot frame archive (`day screenshot pack` / `unpack`, src/screenshot.rs). `png` decodes
+# captures to pixels and writes them back; it is already compiled for day-vector's rasterizer.
+# `zstd` links libzstd for the long-window, level-19 stream the archive is: on a release's
+# captures that is an eighth of the PNGs' size, where lossless H.264 through ffmpeg reached a
+# third. The pure-Rust encoders stop at the fast levels and have no long-distance matcher, and a
+# linked library lets a site build or a store queue unpack with the CLI alone.
+png = "0.18"
+zstd = { version = "0.13", default-features = false, features = ["zstdmt"] }
 # The vector engine behind `day icon build` and resource/vectors staging (docs/icons.md,
 # docs/vectors.md): SVG parse/raster + the platform icon-format writers.
 day-vector = { workspace = true }

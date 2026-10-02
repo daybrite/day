@@ -1169,6 +1169,18 @@ pub fn run_scripts(
                     }
                 }
                 if saved {
+                    // One file shape for every target, whatever tool took the capture
+                    // (screenshot.rs `normalize_capture`). `DAY_SCREENSHOT_RAW=1` keeps the
+                    // file as the capture tool wrote it, for diagnosing that tool.
+                    if std::env::var_os("DAY_SCREENSHOT_RAW").is_none() {
+                        match crate::screenshot::normalize_capture(&path) {
+                            Ok(true) => {}
+                            Ok(false) => eprintln!(
+                                "    (screenshot {name} kept as captured: it is 16-bit or embeds a color profile other than sRGB)"
+                            ),
+                            Err(e) => eprintln!("    (screenshot {name} kept as captured: {e})"),
+                        }
+                    }
                     // Record the capture in the target's gallery index (screenshot.rs): the
                     // step's metadata plus the saved file's facts. The subdir name is the
                     // variant key the published index uses.

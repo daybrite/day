@@ -209,6 +209,24 @@ icu_segmenter = { version = "2.2", features = ["compiled_data", "auto"] }
 icu_casemap = { version = "2.2", features = ["compiled_data"] }
 intl-memoizer = "0.5"
 
+# The dayscript runner re-encodes every capture it saves, and `day screenshot pack` compresses
+# them (crates/day-cli/src/screenshot.rs). Unoptimized, the PNG codec takes 1.4 s per 2560×1600
+# capture, where it takes 10 ms optimized, so a debug CLI builds these few crates optimized.
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.flate2]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.simd-adler32]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.zstd-sys]
+opt-level = 3
+
 [profile.release]
 # `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO makes an internal symbol
 # external so it can be inlined across modules, renaming it with a `.llvm.<hash>` suffix to avoid

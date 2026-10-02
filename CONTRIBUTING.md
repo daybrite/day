@@ -32,11 +32,16 @@ Once a discussion lands on "yes, send a patch":
    [Developing Day and an app together](https://daybrite.dev/docs/local-development) covers the
    workflow. A framework feature usually lands with a Day-Showcase screen that demonstrates it,
    as a second PR that follows the framework change.
-4. Before pushing, run `cargo fmt --all`, `scripts/ci/lint.sh` (the full fmt + clippy matrix CI
-   runs), and `cargo test` for the crates you touched. For the host-only Clippy gate during
-   development, run `bash scripts/ci/host-clippy.sh`; CI and the full local lint script share
-   this entry point. It includes test targets and denies warnings. Builds and tests alone
-   do not replace lint validation; report any skipped platform checks when handing off work.
+4. Before reporting work ready to commit or push, run `cargo fmt --all` and
+   `bash scripts/ci/check-ready.sh` against all outstanding changes. This checks generated
+   matrices, formatting, and host Clippy with test targets and warnings denied. Regenerate
+   stale tables using their `scripts/ci/*-matrix.sh` generators, then rerun the gate. The
+   checks accept correct uncommitted tables and never rewrite them. Run `scripts/ci/lint.sh`
+   for the full available platform Clippy matrix and `cargo test` for the crates you touched;
+   report skipped platform checks when handing off work. Install the tracked hook once per
+   clone with `bash scripts/install-hooks.sh`: it runs the readiness gate and separately
+   checks staged matrix inputs, so an unstaged correction cannot hide stale generated
+   content in the commit. Builds and tests do not replace lint validation.
 5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 

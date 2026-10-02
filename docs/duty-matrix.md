@@ -59,10 +59,11 @@ implement them, and this table proves it.
 | `encode_formats` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
 | `release_image` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `prepare_snapshot` | · | · | · | ✓ | · | · | ✓ | ✓ | ✓ | · |
 | `snapshot_window_chrome` | · | ✓ | ✓ | ✓ | · | · | ✓ | · | · | · |
 | `toggle_sidebar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |
 | `native_back` | · | · | ✓ | · | · | · | ✓ | · | · | · |
-| `ui_idle` | · | · | ✓ | ✓ | · | · | ✓ | ✓ | ✓ | ✓ |
+| `ui_idle` | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

@@ -8787,7 +8787,18 @@ const CG_WINDOW_LIST_INCLUDING_WINDOW: u32 = 1 << 3;
 /// makes the returned image exactly `window.frame()` at the backing scale.
 const CG_WINDOW_IMAGE_IGNORE_FRAMING: u32 = 1 << 0;
 
+/// Encode a captured rep as PNG, in sRGB.
+///
+/// A capture arrives in the color space of the display it was composited for, and a PNG of it
+/// embeds that display's ICC profile: the same color then has different sample values on every
+/// machine, and on every other Day target, which all capture sRGB. Converting first makes a
+/// macOS capture's samples comparable with theirs and independent of the capturing display.
 fn png_of_rep(rep: &objc2_app_kit::NSBitmapImageRep) -> Result<Vec<u8>, String> {
+    let srgb = rep.bitmapImageRepByConvertingToColorSpace_renderingIntent(
+        &objc2_app_kit::NSColorSpace::sRGBColorSpace(),
+        objc2_app_kit::NSColorRenderingIntent::Default,
+    );
+    let rep = srgb.as_deref().unwrap_or(rep);
     let data = unsafe {
         rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
     }

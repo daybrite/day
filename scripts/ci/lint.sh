@@ -72,8 +72,9 @@ app_leg() {
   leg "$label" env -C "$SHOWCASE" "$@"
 }
 
-# 1) Formatting: the whole workspace, the exact command CI fails on.
-leg "fmt --all --check" cargo fmt --all -- --check
+# 1) The mandatory readiness gate checks matrices, formatting, and host Clippy against
+# working-tree content. Correct, uncommitted generated files are valid inputs.
+leg "readiness (matrices, fmt, host clippy)" bash scripts/ci/check-ready.sh
 
 # 1b) Spelling + the American-English rule (typos.toml, STYLE_GUIDE.md), the local twin of
 # ci.yml's `spelling` job. Not installed is a skip rather than a failure, since it is the one leg
@@ -84,8 +85,7 @@ else
   skip "typos (spelling + en-us)" "not installed — brew install typos-cli, or cargo install typos-cli"
 fi
 
-# 2) Host clippy: share the exact CI gate, including model/persistence regression tests.
-leg "clippy host" bash scripts/ci/host-clippy.sh
+# 2) The showcase exercises the framework through an app's dependency graph.
 app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features mock --all-targets
 
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,
@@ -198,19 +198,6 @@ leg "doc links" scripts/ci/doc-links.py
 # a LinkError at instantiate or a silently swallowed TypeError in a DOM handler (a button that
 # does nothing). Both are static facts, so they are checked here rather than in a browser.
 leg "web shim ABI" scripts/ci/web-shim-abi.py
-
-# 6) Generated conformance tables (docs/duty-matrix.md, docs/coverage-matrix.md): the same drift
-# checks CI runs. Two ways to fail: changing the Toolkit trait or a backend without regenerating,
-# or changing the shape the generators detect (renaming a realize match arm, moving the kinds
-# table) so a generator silently stops seeing what it measures; that one emits an empty table
-# rather than an error, so only the diff catches it. Runs last because it rewrites the two files
-# in place: on failure they are left regenerated, so `git diff` shows exactly what moved.
-drift() { # drift <generator> <generated-file>
-  "$1" >/dev/null && git diff --exit-code -- "$2" >/dev/null
-}
-leg "duty-matrix drift" drift scripts/ci/duty-matrix.sh docs/duty-matrix.md
-leg "coverage-matrix drift" drift scripts/ci/coverage-matrix.sh docs/coverage-matrix.md
-leg "recorder-matrix drift" drift scripts/ci/recorder-matrix.sh docs/recorder-matrix.md
 
 # ── summary ────────────────────────────────────────────────────────────────────────────────────
 printf '\n\033[1m── lint summary ──\033[0m\n'

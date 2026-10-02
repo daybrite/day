@@ -18,12 +18,14 @@
 # the full event vocabulary, mapped or not.
 #
 #     scripts/ci/recorder-matrix.sh
+#     scripts/ci/recorder-matrix.sh --check  # check without rewriting the table
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-python3 - <<'EOF'
+python3 -B - "$@" <<'EOF'
 import re
 from pathlib import Path
+from scripts.ci.generated import write_or_check
 
 spec = Path("crates/day-spec/src/lib.rs").read_text()
 record = Path("crates/day-script/src/record.rs").read_text()
@@ -106,6 +108,6 @@ out = [
 out += [f"| `{v}` | {step} | {disp} |" for v, step, disp in rows]
 out.append("")
 
-Path("docs/recorder-matrix.md").write_text("\n".join(out))
+write_or_check("docs/recorder-matrix.md", "\n".join(out))
 print(f"docs/recorder-matrix.md: {recorded}/{len(rows)} Event variants recorded")
 EOF

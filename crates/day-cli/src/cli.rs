@@ -635,6 +635,36 @@ pub enum ScreenshotCmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
+    /// Pack an index's captures into one frame archive
+    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
+    Pack {
+        /// The gallery.json that `day screenshot index` wrote
+        index: PathBuf,
+        /// Capture tree the index's paths resolve in (default: the index's directory)
+        #[arg(long, value_name = "DIR")]
+        root: Option<PathBuf>,
+        /// Archive to write (default: screenshots.frames.zst beside the index)
+        #[arg(long, value_name = "FILE")]
+        out: Option<PathBuf>,
+        /// Where to write the index describing the archive (default: over the input)
+        #[arg(long = "index-out", value_name = "FILE")]
+        index_out: Option<PathBuf>,
+    },
+    /// Check a frame archive against its index and write the captures back as PNG files
+    #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
+    Unpack {
+        /// A gallery.json with an archive block
+        index: PathBuf,
+        /// The archive (default: the file the index names, beside the index)
+        #[arg(long, value_name = "FILE")]
+        archive: Option<PathBuf>,
+        /// Directory for the capture tree and its gallery.json
+        #[arg(long, value_name = "DIR", required_unless_present = "check")]
+        out: Option<PathBuf>,
+        /// Check every checksum and write nothing
+        #[arg(long, conflicts_with = "out")]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1403,11 +1433,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 }
             },
         },
-        Cmd::Screenshot { cmd } => with_project(cli.project.as_deref(), |project| match cmd {
+        Cmd::Screenshot { cmd } => match cmd {
             ScreenshotCmd::Index {
                 screenshot_paths,
                 out,
-            } => {
+            } => with_project(cli.project.as_deref(), |project| {
                 let opts = crate::screenshot::IndexOptions {
                     screenshot_paths,
                     out,
@@ -1415,8 +1445,35 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 crate::screenshot::index(project, &opts)
                     .map(|_| 0)
                     .map_err(CliError::failure)
-            }
-        }),
+            }),
+            // The archive commands read an index and files, so they run outside a project too:
+            // a site build or a store queue unpacks a release it downloaded.
+            ScreenshotCmd::Pack {
+                index,
+                root,
+                out,
+                index_out,
+            } => crate::screenshot::pack(&crate::screenshot::PackOptions {
+                index,
+                root,
+                out,
+                index_out,
+            })
+            .map(|_| 0)
+            .map_err(CliError::failure),
+            ScreenshotCmd::Unpack {
+                index,
+                archive,
+                out,
+                check: _,
+            } => crate::screenshot::unpack(&crate::screenshot::UnpackOptions {
+                index,
+                archive,
+                out,
+            })
+            .map(|()| 0)
+            .map_err(CliError::failure),
+        },
         Cmd::Localize { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::localize::run(project, &cmd).map(|()| 0)
         }),

@@ -1421,6 +1421,16 @@ Title-size number has a taller ascent than the Caption beside it.
 
 ### §8.1 The `Toolkit` trait
 
+The [duty matrix](docs/duty-matrix.md) is generated from the trait and backend implementations.
+Before reporting changes ready, `scripts/ci/check-ready.sh` checks this table and the coverage
+and recorder matrices against working-tree source, then verifies Rust formatting and host
+Clippy. The generators' `--check` mode compares content without rewriting files or depending
+on Git staging. CI uses the same check mode. The installed pre-commit hook also checks a
+complete temporary snapshot of the Git index, including piece manifests used to discover
+renderers, so missing snapshot inputs cannot invent drift and a correct unstaged table cannot
+mask a stale commit. Backend Clippy remains a separate platform check; unavailable SDKs must be reported.
+`scripts/ci/test-readiness.py` exercises drift, staged/unstaged mismatches, and lint failures.
+
 > [!NOTE]
 > **Status: shipped and grown, exactly as the evolution policy intended.** The original v1
 > surface froze, and every later subsystem arrived as a defaulted duty. The listing below is
@@ -3104,6 +3114,25 @@ a project site build its RELEASE channel from the release alone ([§19](#19-repo
 a release made before the bundle existed still works, because its per-target
 `screenshots-<target>.zip` assets unzip to the same tree and the CLI merges their indexes.
 
+> [!NOTE]
+> **Frame archive (2026-10).** `day screenshot pack` stores an index's captures as one file,
+> `screenshots.frames.zst`: the decoded pixels of every capture in a long-window Zstandard
+> stream, one independent Zstandard frame per platform and device profile, with the captures in
+> shot order so a page's variants are adjacent. The index gains an `archive` block (file name,
+> size, sha-256, the groups' offsets) and a `frame` per capture (group, offset, length, pixel
+> format, sha-256 of the pixels). `day screenshot unpack` holds the file and every capture to
+> those checksums and writes the PNG tree and its index back; the pixels are the captured ones
+> and the PNG bytes are new encodings. Day-Showcase's 392 iPad captures are 191 MB as PNG and
+> 24 MB packed. `dayapp.yml` ships a release's captures this way with `screenshot-bundle:
+> frames`, and its website job reads either form. The format and the measurements behind it are
+> in [docs/screenshot-archive.md](docs/screenshot-archive.md).
+>
+> **Normalized captures (2026-10).** The runner rewrites each capture it saves as 8-bit RGB
+> (RGBA when a pixel is translucent) with an `sRGB` chunk and no other ancillary chunk, keeping
+> the pixels, so the eleven targets' capture tools produce one file shape and the index's
+> `bytes` and `sha256` are comparable. The AppKit backend converts its capture from the
+> display's color space to sRGB first. `DAY_SCREENSHOT_RAW=1` keeps the tool's own file.
+
 ---
 
 ## §15 Extensibility: pieces, parts, and tweaks
@@ -3724,6 +3753,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
+| `day screenshot pack <index>` / `day screenshot unpack <index>` | the frame archive ([docs/screenshot-archive.md](docs/screenshot-archive.md)): `pack` writes the captures an index names as one `screenshots.frames.zst` (`--root` the capture tree, `--out` the archive, `--index-out` the index describing it); `unpack` checks the archive's and every capture's sha-256 and writes the PNG tree and its `gallery.json` to `--out`, or with `--check` verifies and writes nothing. Both run outside a project |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time ([docs/agent.md](docs/agent.md) — the agent inner loop) |

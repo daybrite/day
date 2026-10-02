@@ -13,12 +13,14 @@
 # same fact.
 #
 #     scripts/ci/coverage-matrix.sh
+#     scripts/ci/coverage-matrix.sh --check  # check without rewriting the table
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-python3 - <<'EOF'
+python3 -B - "$@" <<'EOF'
 import re
 from pathlib import Path
+from scripts.ci.generated import write_or_check
 
 BACKENDS = [
     ("appkit", "toolkits/day-appkit/src/lib.rs", "lib-appkit.rs"),
@@ -183,7 +185,7 @@ for cap in caps:
     )
 out.append("")
 
-Path("docs/coverage-matrix.md").write_text("\n".join(out))
+write_or_check("docs/coverage-matrix.md", "\n".join(out))
 print(
     f"docs/coverage-matrix.md: {len(kinds)} kinds, {len(pieces)} pieces, {len(caps)} caps "
     f"x {len(BACKENDS)} backends"

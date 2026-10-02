@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Format Rust before it becomes a commit — the same `cargo fmt --all` CI fails on.
+# Format Rust and enforce matrix, formatting, and host Clippy readiness before a commit.
 #
 # Tracked here rather than in .git/hooks (which git does not version) and wired up with
 # `git config core.hooksPath .githooks`, so a fresh clone gets it from one command:
@@ -27,9 +27,14 @@ read_paths() { # usage: read_paths <array-name> < <(git … -z)
     done
 }
 
-# Nothing Rust in this commit: docs- and workflow-only commits pay nothing.
+# Check the staged matrix inputs even on documentation-only commits. This is read-only:
+# an unstaged regeneration must not hide the stale file about to be committed.
+bash scripts/ci/check-matrices.sh --staged
+
+# The readiness gate also checks outstanding Rust changes outside the staged selection.
 read_paths staged < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.rs')
 if [ "${#staged[@]}" -eq 0 ]; then
+    bash scripts/ci/check-ready.sh
     exit 0
 fi
 
@@ -71,3 +76,7 @@ if [ "${#others[@]}" -gt 0 ]; then
     echo "pre-commit: also reformatted (left unstaged, not part of this commit):"
     printf '  %s\n' "${others[@]}"
 fi
+
+bash scripts/ci/check-ready.sh
+# Formatting must not have made the staged generated tables stale.
+bash scripts/ci/check-matrices.sh --staged

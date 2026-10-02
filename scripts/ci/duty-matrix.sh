@@ -7,12 +7,14 @@
 # implementation without regenerating the matrix is a red build.
 #
 #     scripts/ci/duty-matrix.sh
+#     scripts/ci/duty-matrix.sh --check  # fail on drift without rewriting the table
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-python3 - <<'EOF'
+python3 -B - "$@" <<'EOF'
 import re
 from pathlib import Path
+from scripts.ci.generated import write_or_check
 
 spec = Path("crates/day-spec/src/lib.rs").read_text()
 m = re.search(r"pub trait Toolkit[^\n]*\{(.*?)\n\}", spec, re.S)
@@ -64,7 +66,6 @@ for name, required in duties:
     lines.append("| " + " | ".join(row) + " |")
 lines.append("")
 
-Path("docs/duty-matrix.md").write_text("\n".join(lines))
 missing = []
 for name, required in duties:
     if not required:
@@ -75,5 +76,6 @@ for name, required in duties:
             missing.append(f"{bname}: {name}")
 if missing:
     raise SystemExit("required duty missing an implementation: " + ", ".join(missing))
+write_or_check("docs/duty-matrix.md", "\n".join(lines))
 print(f"docs/duty-matrix.md: {len(duties)} duties x {len(backends)} backends")
 EOF

@@ -102,25 +102,21 @@ jobs:
       # The Toolkit-duty conformance table (docs/duty-matrix.md) is generated; a Toolkit-trait
       # or backend change that forgets to regenerate it is drift, and drift is a red build.
       - name: Duty-matrix drift check
-        run: |
-          scripts/ci/duty-matrix.sh
-          git diff --exit-code docs/duty-matrix.md
+        run: bash scripts/ci/duty-matrix.sh --check
       # docs/coverage-matrix.md is the same contract for the piece vocabulary: which kinds each
       # backend realizes, which piece ships which arm, and what every Cap answers. Adding a
       # renderer without regenerating it is drift; the walkthrough's assert_no_placeholders
       # allow-lists are the runtime half of the same fact.
       - name: Coverage-matrix drift check
-        run: |
-          scripts/ci/coverage-matrix.sh
-          git diff --exit-code docs/coverage-matrix.md
+        run: bash scripts/ci/coverage-matrix.sh --check
       # docs/recorder-matrix.md is the same contract for the dayscript recorder: what it writes for
       # every Event an app can receive. `event_to_step` ends in a catch-all, so an unmapped event
       # is silent (a control that replays but never records), and this puts every new variant in a
       # diff as "dropped", where someone has to agree with it (§14.6).
       - name: Recorder-matrix drift check
-        run: |
-          scripts/ci/recorder-matrix.sh
-          git diff --exit-code docs/recorder-matrix.md
+        run: bash scripts/ci/recorder-matrix.sh --check
+      - name: Readiness gate regression tests
+        run: python3 scripts/ci/test-readiness.py
 
   # ===========================================================================
   # Per-combo FRAMEWORK jobs: one job per <platform>-<toolkit>. Each installs the toolkit's deps

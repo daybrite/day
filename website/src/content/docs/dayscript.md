@@ -89,6 +89,10 @@ a warning. The keys never reach the app: the runner strips them and folds them i
 target's `gallery.json` (a run on a device profile writes `<target>/<device>/gallery.json`, so
 two profiles never share one file).
 
+The runner rewrites each capture as a normalized PNG: 8-bit RGB, or RGBA when a pixel is
+translucent, tagged sRGB, with the pixels unchanged. Every target's files then have the same
+shape whichever tool captured them. Set `DAY_SCREENSHOT_RAW=1` to keep the capture tool's file.
+
 ## The step vocabulary
 
 | Group | Steps |
