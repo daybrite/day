@@ -778,7 +778,11 @@ day_bridge::bridge! {
               }
 
               str(s: string): DayFrame {
-                const b = new util.TextEncoder().encodeInto(s);
+                // The kit's `encodeInto('')` answers undefined, not an empty array (its own
+                // doc says so): a head whose header block is empty, a response whose
+                // `headersReceive` had not fired by the time the request settled, then threw
+                // "Cannot read property length of undefined" and failed the whole exchange.
+                const b = s.length === 0 ? new Uint8Array(0) : new util.TextEncoder().encodeInto(s);
                 return this.i32(b.length).push(b);
               }
 
@@ -804,6 +808,9 @@ day_bridge::bridge! {
               cancelled: boolean;
               headSent: boolean;
               ended: boolean;
+              /// The status has settled (`requestInStream` resolved); the head goes out once
+              /// the headers are in too, or at the end if they never come.
+              settled: boolean;
               status: number;
               headers: string;
               pending: Array<Uint8Array>;
@@ -920,7 +927,8 @@ day_bridge::bridge! {
               const request = http.createHttp();
               const ex: DayExchange = {
                 request: request, url: url, finished: false, cancelled: false, headSent: false,
-                ended: false, status: 0, headers: '', pending: new Array<Uint8Array>(),
+                ended: false, settled: false, status: 0, headers: '',
+                pending: new Array<Uint8Array>(),
               };
               dayExchanges.set(emit, ex);
               const settings = dayClients.get(client);
@@ -937,8 +945,14 @@ day_bridge::bridge! {
               if (bodyKind === 1 && body.length > 0) {
                 options.extraData = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength);
               }
+              // The kit's events and the promise race on a slow host: the status can settle
+              // before `headersReceive` has run. The head waits for whichever comes second,
+              // so it never leaves with an empty header block while headers are on their way.
               request.on('headersReceive', (header: Object) => {
                 ex.headers = dayHeaderBlock(header);
+                if (ex.settled) {
+                  dayHead(ex, emit);
+                }
               });
               request.on('dataReceive', (data: ArrayBuffer) => {
                 if (ex.finished) {
@@ -961,11 +975,16 @@ day_bridge::bridge! {
                 ex.ended = true;
                 if (ex.headSent) {
                   dayFinish(ex, emit, new DayFrame(DAY_END, emit));
+                } else if (ex.settled) {
+                  dayHead(ex, emit);
                 }
               });
               request.requestInStream(url, options).then((code: number) => {
                 ex.status = code;
-                dayHead(ex, emit);
+                ex.settled = true;
+                if (ex.headers.length > 0 || ex.ended) {
+                  dayHead(ex, emit);
+                }
               }).catch((err: BusinessError) => {
                 const sentinel = ex.cancelled ? -7 : daySentinel(err.code);
                 dayFinish(ex, emit, new DayFrame(DAY_FAILED, emit).i32(sentinel).str(`${err.code}: ${err.message}`));

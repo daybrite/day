@@ -292,7 +292,9 @@ day_bridge::bridge! {
               }
 
               str(s: string): DayFrame {
-                const b = new util.TextEncoder().encodeInto(s);
+                // The kit's `encodeInto('')` answers undefined, not an empty array (its own
+                // doc says so); an empty path or reason must still encode as a zero-length run.
+                const b = s.length === 0 ? new Uint8Array(0) : new util.TextEncoder().encodeInto(s);
                 return this.i32(b.length).push(b);
               }
 
