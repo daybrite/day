@@ -4246,6 +4246,31 @@ mod imp {
         /// Whether native transitions have settled (dayscript screenshots wait on this):
         /// currently the cover slide, since a capture mid-present/mid-dismiss shows a half-slid
         /// surface (DayBridge.uiIdle / DayCover.slidesInFlight).
+        fn prepare_snapshot(
+            &mut self,
+            host: Option<&Self::Handle>,
+            revision: u32,
+        ) -> Result<day_spec::capture::Readiness, String> {
+            with_env(|env| {
+                let null = JObject::null();
+                let obj = host.map(|h| h.0.as_obj()).unwrap_or(&null);
+                let ready = env
+                    .dcall_static(
+                        BRIDGE,
+                        "prepareSnapshot",
+                        "(Landroid/view/View;J)I",
+                        &[JValue::Object(obj), JValue::Long(i64::from(revision))],
+                    )
+                    .and_then(|v| v.i())
+                    .map_err(|e| format!("frame commit: {e}"))?;
+                Ok(if ready == 1 {
+                    day_spec::capture::Readiness::Ready
+                } else {
+                    day_spec::capture::Readiness::Pending
+                })
+            })
+        }
+
         fn ui_idle(&mut self) -> bool {
             with_env(|env| {
                 env.dcall_static("dev/daybrite/day/bridge/DayBridge", "uiIdle", "()Z", &[])

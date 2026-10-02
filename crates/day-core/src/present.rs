@@ -29,6 +29,7 @@ day_reactive::tls_slots! {
     static NEXT_TASK: Cell<u64> = const { Cell::new(1) };
     static PENDING: RefCell<HashMap<u64, PendingEntry>> = RefCell::new(HashMap::new());
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
+    static PRESENTATION_MODE: Cell<Option<PresentationMode>> = const { Cell::new(None) };
 }
 
 /// An app-writable scratch directory (docs/files.md), re-exported from `day_spec::present` so
@@ -91,6 +92,7 @@ impl Future for Sleep {
 struct PendingEntry {
     shared: Rc<PendingShared>,
     spec: PresentSpec,
+    native: bool,
 }
 
 struct PendingShared {
@@ -198,7 +200,52 @@ fn wake_task(id: u64) {
 // Presentation
 // ---------------------------------------------------------------------------
 
-/// Present a native modal and await its answer (docs/dialogs.md). The pieces layer wraps
+/// Whether Day presents native controls or holds requests for an explicit script response.
+/// Scripted mode does not synthesize answers or affect OS permissions/external applications.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PresentationMode {
+    Native,
+    Scripted,
+}
+
+/// The current UI-thread presentation policy. Ordinary app launches default to native.
+pub fn presentation_mode() -> PresentationMode {
+    PRESENTATION_MODE.with(|slot| {
+        if let Some(mode) = slot.get() {
+            return mode;
+        }
+        let mode = if std::env::var("DAY_TEST_DIALOGS").as_deref() == Ok("scripted") {
+            PresentationMode::Scripted
+        } else {
+            PresentationMode::Native
+        };
+        slot.set(Some(mode));
+        mode
+    })
+}
+
+/// Initialize browser hosts, which have no process environment, before constructing the UI.
+/// Further windows must not reset a policy selected by a running script.
+pub fn init_presentation_mode(mode: PresentationMode) {
+    PRESENTATION_MODE.with(|slot| {
+        if slot.get().is_none() {
+            slot.set(Some(mode));
+        }
+    });
+}
+
+/// Change policy for subsequent presentations. Answer existing requests first: switching
+/// cannot make an already-open system picker disappear.
+pub fn set_presentation_mode(mode: PresentationMode) -> Result<(), &'static str> {
+    if mode != presentation_mode() && PENDING.with(|p| !p.borrow().is_empty()) {
+        return Err("answer pending dialogs with respond before changing dialog_mode");
+    }
+    PRESENTATION_MODE.with(|slot| slot.set(Some(mode)));
+    Ok(())
+}
+
+/// Present a modal request under the current policy and await its answer (docs/dialogs.md).
+/// The pieces layer wraps
 /// this in `Alert`/`confirm`/`prompt`; call it directly for a custom `PresentSpec`.
 pub fn present(spec: PresentSpec) -> PresentFuture {
     let req = NEXT_REQ.with(|c| {
@@ -235,16 +282,20 @@ impl Future for PresentFuture {
             self.presented = true;
             let req = self.req;
             let spec = self.spec.take().expect("present spec");
+            let native = presentation_mode() == PresentationMode::Native;
             PENDING.with(|p| {
                 p.borrow_mut().insert(
                     req,
                     PendingEntry {
                         shared: self.shared.clone(),
                         spec: spec.clone(),
+                        native,
                     },
                 )
             });
-            with_tree(|t| t.present(req, &spec));
+            if native {
+                with_tree(|t| t.present(req, &spec));
+            }
         }
         *self.shared.waker.borrow_mut() = Some(cx.waker().clone());
         Poll::Pending
@@ -263,16 +314,20 @@ pub fn resolve_presentation(req: u64, result: PresentResult) {
     }
 }
 
-/// Answer a still-open modal programmatically (dayscript). Resolves with the given result
-/// First (removing the pending request), then dismisses the native control, so the native
+/// Answer a pending modal programmatically (dayscript). Resolves with the given result
+/// first (removing the pending request), then dismisses the control only if it was presented
+/// natively. Scripted requests never enter the toolkit. The native
 /// dismissal's own completion event finds nothing pending and is a no-op. False = no such
 /// pending request.
 pub fn respond_presentation(req: u64, result: PresentResult) -> bool {
-    if PENDING.with(|p| !p.borrow().contains_key(&req)) {
+    let native = PENDING.with(|p| p.borrow().get(&req).map(|entry| entry.native));
+    let Some(native) = native else {
         return false;
-    }
+    };
     resolve_presentation(req, result);
-    with_tree(|t| t.dismiss(req));
+    if native {
+        with_tree(|t| t.dismiss(req));
+    }
     true
 }
 
@@ -295,6 +350,100 @@ mod task_tests {
     use super::*;
     use std::cell::Cell;
     use std::task::Waker;
+
+    #[test]
+    fn scripted_dialogs_preserve_answers_without_calling_the_toolkit() {
+        use day_spec::present::{ButtonRole, PresentButton};
+        let (toolkit, probe) = day_mock::MockToolkit::new();
+        crate::tree::install_tree(Box::new(crate::Tree::new(
+            toolkit,
+            day_mock::MockHandle(0),
+            day_spec::Size::new(100.0, 100.0),
+        )));
+        let cases = [
+            (
+                PresentSpec::Dialog {
+                    title: "confirm".into(),
+                    message: None,
+                    buttons: vec![PresentButton {
+                        label: "Yes".into(),
+                        role: ButtonRole::Default,
+                    }],
+                    sheet: false,
+                },
+                PresentResult::Button(0),
+            ),
+            (
+                PresentSpec::Prompt {
+                    title: "prompt".into(),
+                    message: None,
+                    placeholder: String::new(),
+                    initial: String::new(),
+                    ok: "OK".into(),
+                    cancel: "Cancel".into(),
+                },
+                PresentResult::Text("Ada".into()),
+            ),
+            (
+                PresentSpec::OpenFile {
+                    title: "open".into(),
+                    filters: vec![],
+                },
+                PresentResult::Files(vec!["fixture.txt".into()]),
+            ),
+            (
+                PresentSpec::SaveFile {
+                    title: "save".into(),
+                    suggested_name: "copy.txt".into(),
+                    src_path: "staged.txt".into(),
+                    filters: vec![],
+                },
+                PresentResult::Files(vec!["copy.txt".into()]),
+            ),
+        ];
+        let mut cx = Context::from_waker(Waker::noop());
+        for mode in [PresentationMode::Native, PresentationMode::Scripted] {
+            set_presentation_mode(mode).unwrap();
+            // Creating another browser window must not reset an in-script choice.
+            init_presentation_mode(PresentationMode::Native);
+            assert_eq!(presentation_mode(), mode);
+            for (spec, answer) in &cases {
+                for result in [answer.clone(), PresentResult::Dismissed] {
+                    probe.clear_log();
+                    let mut future = Box::pin(present(spec.clone()));
+                    assert!(future.as_mut().poll(&mut cx).is_pending());
+                    let (req, pending) = pending_presentation().unwrap();
+                    assert_eq!(&pending, spec);
+                    let other = if mode == PresentationMode::Native {
+                        PresentationMode::Scripted
+                    } else {
+                        PresentationMode::Native
+                    };
+                    assert!(set_presentation_mode(other).is_err());
+                    assert_eq!(presentation_mode(), mode);
+                    assert!(respond_presentation(req, result.clone()));
+                    // A late native callback or a second answer must not overwrite the result.
+                    resolve_presentation(req, PresentResult::Dismissed);
+                    assert!(!respond_presentation(req, PresentResult::Dismissed));
+                    assert_eq!(future.as_mut().poll(&mut cx), Poll::Ready(result));
+                    assert!(pending_presentation().is_none());
+                    let log = probe.log();
+                    if mode == PresentationMode::Native {
+                        assert_eq!(log.len(), 2, "{log:?}");
+                        assert!(log[0].starts_with("present req="));
+                        assert!(log[1].starts_with("dismiss req="));
+                    } else {
+                        assert!(
+                            log.is_empty(),
+                            "scripted requests reached the toolkit: {log:?}"
+                        );
+                    }
+                }
+            }
+        }
+        set_presentation_mode(PresentationMode::Native).unwrap();
+        crate::uninstall_tree();
+    }
 
     /// Every executor test is single-threaded, so an INLINE poster (run the closure now) is
     /// correct. `install_main_poster` is first-install-wins, so repeated `init` calls are fine;

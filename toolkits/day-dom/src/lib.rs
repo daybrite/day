@@ -141,6 +141,7 @@ unsafe extern "C" {
     /// The modifier keys held right now, as the shim last observed them (bit0 shift,
     /// bit1 primary = meta|ctrl, bit2 alt).
     fn day_dom_modifiers() -> u32;
+    fn day_dom_prepare_snapshot(host: u32, revision: u32) -> u32;
     /// Present a save flow: `json` names it, `bytes` are the staged content the shim turns
     /// into a download (docs/files.md).
     fn day_dom_present_save(req: u32, json: *const u8, len: usize, bytes: *const u8, blen: usize);
@@ -1254,6 +1255,16 @@ pub struct Dom {
 impl Dom {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        #[cfg(target_arch = "wasm32")]
+        day_core::testing::init_fast_animations(host_env("DAY_TEST_FAST").as_deref() == Some("1"));
+        #[cfg(target_arch = "wasm32")]
+        day_core::init_presentation_mode(
+            if host_env("DAY_TEST_DIALOGS").as_deref() == Some("scripted") {
+                day_core::PresentationMode::Scripted
+            } else {
+                day_core::PresentationMode::Native
+            },
+        );
         Dom { root: 1 }
     }
 
@@ -2697,6 +2708,20 @@ impl Toolkit for Dom {
             )
         };
         Some(day_spec::TextMetrics::from_slots(&out))
+    }
+
+    fn prepare_snapshot(
+        &mut self,
+        host: Option<&Self::Handle>,
+        revision: u32,
+    ) -> Result<day_spec::capture::Readiness, String> {
+        Ok(
+            if unsafe { day_dom_prepare_snapshot(host.map_or(0, |h| h.0), revision) } != 0 {
+                day_spec::capture::Readiness::Ready
+            } else {
+                day_spec::capture::Readiness::Pending
+            },
+        )
     }
 
     fn ui_idle(&mut self) -> bool {

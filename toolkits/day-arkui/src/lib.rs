@@ -3095,6 +3095,25 @@ mod imp {
         /// Whether nav transitions have settled: dayscript screenshots poll this, so a shot
         /// taken right after a section switch waits for the pushed destination's first area
         /// report (content laid out) and for Day-initiated pops to be acknowledged.
+        fn prepare_snapshot(
+            &mut self,
+            host: Option<&Self::Handle>,
+            revision: u32,
+        ) -> Result<day_spec::capture::Readiness, String> {
+            let window = match host {
+                None => 0,
+                Some(host) => SECONDARY
+                    .with(|s| {
+                        s.borrow()
+                            .iter()
+                            .find(|(_, ptr)| *ptr == host.0 as usize)
+                            .map(|(n, _)| *n)
+                    })
+                    .ok_or("capture window is gone")?,
+            };
+            crate::host_api::prepare_capture(revision, window)
+        }
+
         fn ui_idle(&mut self) -> bool {
             NAV_PENDING_PUSH.with(|s| s.borrow().is_empty())
                 && NAV_PENDING_POP.with(|p| p.borrow().is_empty())

@@ -42,6 +42,7 @@ pub mod menu;
 mod nav;
 mod present;
 pub mod shield;
+pub mod testing;
 pub mod toolbar;
 mod tree;
 pub mod tree_driver;

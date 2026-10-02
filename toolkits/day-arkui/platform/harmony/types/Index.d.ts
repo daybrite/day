@@ -127,3 +127,6 @@ export const registerPiece: (
 // as one of Day's own events: 1 text changed (`text`), 4 selection changed (`num`), 17 submitted,
 // 2 toggle changed (`num` 0/1).
 export const pieceEvent: (id: number, text: string, num?: number, kind?: number) => void;
+
+export const registerCapture: (callback: (revision: number, window: number) => void) => void;
+export const captureReady: (revision: number, window: number, error: string) => void;

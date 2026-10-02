@@ -92,12 +92,70 @@ Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fl
 All backends use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.
 
+## Dayscript presentation modes
+
+`day launch --script flow.yaml` defaults to **scripted** Day presentations. Alerts,
+confirmations, prompts, action sheets and open/save file pickers enter the same pending
+request registry and await the script's explicit answer, but no native dialog is opened.
+This avoids stranded system picker windows and exercises the app's real continuation
+(including file reads/writes). It does not test the native dialog's appearance, focus,
+permissions, filters or document-provider integration.
+
+```yaml
+flow:
+  - tap: { id: btn-open-file }
+  - assert_presented: {}
+  - respond: { dismiss: true }
+  - assert_text: { id: files-status, text: "open-cancel" }
+  - assert_not_presented:
+```
+
+Use `respond: { path: "fixture.txt" }` to choose a file, `respond: { text: "Ada" }`
+for a prompt, or `respond: { button: 1 }` for a dialog button. Relative paths resolve
+under the app's writable temp directory. Requests are never automatically accepted or
+cancelled: omitting `respond` leaves the app's future pending.
+
+For native integration tests, launch with `--dialogs native`. The equivalent workflow
+input is `launch-env: DAY_TEST_DIALOGS=native`. The CLI flag takes precedence over an
+explicit environment value; otherwise script launches supply `DAY_TEST_DIALOGS=scripted`.
+Ordinary interactive launches remain native, even though their dayscript engine is enabled.
+This policy is independent of `--fast` and requires rebuilding the app with mode support;
+older apps ignore the environment setting.
+
+A script or `day drive` can change the policy before opening a dialog:
+
+```yaml
+  - dialog_mode: { mode: scripted }
+  - tap: { id: btn-prompt }
+  - assert_presented: {}
+  - respond: { text: "Ada" }
+  - assert_not_presented:
+  - dialog_mode: { mode: native }
+```
+
+The step overrides the launch policy for subsequent presentations. Switching modes with
+an unanswered request fails: respond to it first. The policy lasts for the app process or
+until another `dialog_mode` step; finish with `native` if leaving the app interactive via
+`--keep-alive`. Browser hosts initialize the same policy through their host environment.
+`assert_presented` and `assert_not_presented` inspect Day's **request registry**, not OS
+windows; they do not establish that a native dialog is visible or has physically closed.
+
+Native dismissal remains toolkit-dependent. Android finishes its document-picker activity;
+GTK deliberately avoids cancelling already-shown file pickers because that cancellation
+reproduced a GTK crash, and Harmony's document-picker bridge currently has no dismissal
+hook. Scripted mode prevents those native windows from opening at all. Native-mode tests
+on these paths still need user or platform automation for dismissal.
+
+OS permission prompts, authentication UI, external applications, and dialogs opened
+directly by third-party code do not use Day's presentation registry and are unaffected.
+Use explicit platform permission setup or platform UI automation for those tests.
+
 ## The four pillars
 
 - **dayscript**: presentations flow through the registry as a `req`-tagged spec, so a
   script can inspect the pending modal (`assert_presented`) and answer it
   (`- respond: { button: 1 }` / `{ text: "Ada" }` / `{ dismiss: true }`), which
-  `dismiss`es the native control and resolves the future. This makes modal flows
+  resolves the future and, in native mode, asks the toolkit to dismiss the control. This makes modal flows
   headless-testable and screenshot-able.
 - **a11y**: native controllers are accessible for free.
 - **Fluent**: spec fields are `IntoText`.

@@ -46,6 +46,14 @@ pub struct Request {
     pub step: Step,
 }
 
+/// Native UI integration or deterministic Day request/response testing.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum DialogMode {
+    Native,
+    Scripted,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Step {
@@ -390,7 +398,14 @@ pub enum Step {
     AssertRoute {
         route: String,
     },
-    /// Assert a modal is presented, optionally checking its title (docs/dialogs.md).
+    /// Select presentation behavior for subsequent Day dialogs and file pickers.
+    /// Existing requests must be answered before switching.
+    DialogMode {
+        mode: DialogMode,
+    },
+    /// Assert that no Day presentation requests remain unanswered.
+    AssertNotPresented,
+    /// Assert a presentation is pending (native or scripted), optionally checking its title.
     AssertPresented {
         #[serde(default)]
         title: Option<String>,
@@ -552,6 +567,17 @@ pub struct Reply {
     pub png_base64: Option<String>,
     #[serde(default)]
     pub screenshot_unsupported: bool,
+    /// Acknowledged render checkpoint. Absent when talking to an older app or when
+    /// freshness can only be established by an in-process snapshot.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_revision: Option<u32>,
+    /// App-side policy acknowledgment. Older apps omit it; runners must retain
+    /// animation pauses until the app confirms that fast motion is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast_animations: Option<bool>,
+    /// Internal retry cadence: frame checkpoints can complete on the next display tick.
+    #[serde(skip)]
+    pub capture_pending: bool,
 }
 
 impl Reply {
@@ -648,8 +674,8 @@ mod web {
                         .unwrap_or(false)
                 });
                 if authed {
-                    let attempts = (req.step.wait_budget_secs() * 1000.0 / RETRY_MS as f64) as u32;
-                    attempt(req.step, attempts);
+                    let budget_ms = (req.step.wait_budget_secs() * 1000.0) as u32;
+                    attempt(req.step, budget_ms, next_capture_revision());
                     return;
                 }
                 Reply::fail("bad token", false)
@@ -659,13 +685,15 @@ mod web {
         send_reply(reply);
     }
 
-    fn attempt(step: Step, attempts_left: u32) {
-        let reply = exec(step.clone());
-        if reply.ok || !reply.retryable || attempts_left == 0 {
+    fn attempt(step: Step, remaining_ms: u32, revision: u32) {
+        let reply = exec(step.clone(), revision);
+        if reply.ok || !reply.retryable || remaining_ms == 0 {
             send_reply(reply);
             return;
         }
-        day_reactive::on_main_delayed(RETRY_MS, move || attempt(step, attempts_left - 1));
+        let interval = if reply.capture_pending { 16 } else { RETRY_MS };
+        let delay = interval.min(remaining_ms);
+        day_reactive::on_main_delayed(delay, move || attempt(step, remaining_ms - delay, revision));
     }
 
     fn send_reply(reply: Reply) {
@@ -722,6 +750,7 @@ fn serve(port: u16, token: String) {
 }
 
 fn handle_conn(stream: TcpStream, token: &str) {
+    let _ = stream.set_nodelay(true);
     let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
     let mut stream = stream;
     let mut line = String::new();
@@ -758,16 +787,23 @@ static SNAPSHOT_NEVER: AtomicBool = AtomicBool::new(false);
 
 /// Implicit bounded wait (§14.3): retryable failures poll on the main thread until timeout
 /// (the shared default, or the step's `timeout_secs` where it declares one).
+static CAPTURE_REVISION: AtomicU32 = AtomicU32::new(1);
+fn next_capture_revision() -> u32 {
+    CAPTURE_REVISION.fetch_add(1, Ordering::Relaxed)
+}
+
 fn run_step_with_wait(step: Step) -> Reply {
+    let revision = next_capture_revision();
     let budget = Duration::from_secs_f64(step.wait_budget_secs());
     let deadline = Instant::now() + budget;
     let main_budget = main_thread_budget(budget);
     loop {
-        let reply = run_on_main(step.clone(), main_budget);
+        let reply = run_on_main(step.clone(), main_budget, revision);
         if reply.ok || !reply.retryable || Instant::now() > deadline {
             return reply;
         }
-        std::thread::sleep(Duration::from_millis(u64::from(RETRY_MS)));
+        let retry_ms = if reply.capture_pending { 16 } else { RETRY_MS };
+        std::thread::sleep(Duration::from_millis(u64::from(retry_ms)));
     }
 }
 
@@ -783,7 +819,7 @@ fn main_thread_budget(step_budget: Duration) -> Duration {
     Duration::from_secs_f64(secs).max(step_budget)
 }
 
-fn run_on_main(step: Step, budget: Duration) -> Reply {
+fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
     let (tx, rx) = mpsc::sync_channel::<Reply>(1);
     // A dispatch that times out leaves its closure queued on the main thread, where it would run
     // later and apply a `navigate`/`tap` the runner has already given up on, moving the app to a
@@ -807,7 +843,7 @@ fn run_on_main(step: Step, budget: Duration) -> Reply {
             let _ = tx.send(Reply::fail("the app is still starting", true));
             return;
         }
-        let _ = tx.send(exec(step));
+        let _ = tx.send(exec(step, revision));
     });
     match rx.recv_timeout(budget) {
         Ok(reply) => reply,
@@ -977,7 +1013,7 @@ fn norm(s: &str) -> String {
     day_fluent::strip_isolates(s)
 }
 
-fn exec(step: Step) -> Reply {
+fn exec(step: Step, revision: u32) -> Reply {
     use day_spec::Event;
     use day_spec::present::PresentResult;
     let result: Result<Reply, Reply> = (|| {
@@ -1685,16 +1721,34 @@ fn exec(step: Step) -> Reply {
             Step::Screenshot {
                 window, in_process, ..
             } => {
+                day_reactive::flush_sync();
                 // Wait (retryable, bounded by the step timeout) for native transitions to
                 // settle so the capture never shows a half-dismissed dialog or mid-push page.
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
                 }
-                // The runner is capturing this one itself (see `in_process`): the settle above
-                // is the whole job, and rendering an image nobody reads is the single most
-                // expensive thing this engine does.
+                let root = match window.as_deref() {
+                    Some(key) => Some(
+                        day_core::windows::window_root_by_key(key)
+                            .ok_or_else(|| Reply::fail(format!("no window {key:?}"), true))?,
+                    ),
+                    None => None,
+                };
+                let readiness = with_tree(|t| t.prepare_snapshot(root, revision))
+                    .map_err(|e| Reply::fail(format!("screenshot readiness: {e}"), false))?;
+                if readiness == day_spec::capture::Readiness::Pending {
+                    return Err(Reply {
+                        capture_pending: true,
+                        ..Reply::fail("waiting for screenshot render checkpoint", true)
+                    });
+                }
+                let capture_revision =
+                    (readiness == day_spec::capture::Readiness::Ready).then_some(revision);
                 if !in_process {
-                    return Ok(Reply::ok());
+                    return Ok(Reply {
+                        capture_revision,
+                        ..Reply::ok()
+                    });
                 }
                 let png = match window.as_deref() {
                     Some(key) => match day_core::windows::window_root_by_key(key) {
@@ -1712,6 +1766,7 @@ fn exec(step: Step) -> Reply {
                         Ok(Reply {
                             ok: true,
                             png_base64: Some(b64encode(&bytes)),
+                            capture_revision: Some(revision),
                             ..Default::default()
                         })
                     }
@@ -1901,6 +1956,24 @@ fn exec(step: Step) -> Reply {
                     ))
                 }
             }
+            Step::DialogMode { mode } => {
+                let mode = match mode {
+                    DialogMode::Native => day_core::PresentationMode::Native,
+                    DialogMode::Scripted => day_core::PresentationMode::Scripted,
+                };
+                day_core::set_presentation_mode(mode).map_err(|why| Reply::fail(why, false))?;
+                Ok(Reply::ok())
+            }
+            Step::AssertNotPresented => {
+                if let Some((_, spec)) = day_core::pending_presentation() {
+                    Err(Reply::fail(
+                        format!("unanswered presentation: {:?}", spec.title()),
+                        true,
+                    ))
+                } else {
+                    Ok(Reply::ok())
+                }
+            }
             Step::AssertPresented { title } => match day_core::pending_presentation() {
                 Some((_, spec)) => {
                     let actual = norm(spec.title());
@@ -2017,7 +2090,9 @@ fn exec(step: Step) -> Reply {
             }
         }
     })();
-    result.unwrap_or_else(|r| r)
+    let mut reply = result.unwrap_or_else(|r| r);
+    reply.fast_animations = Some(day_core::testing::fast_animations());
+    reply
 }
 
 /// Two roles match for audit purposes; `Heading` levels are ignored (the native role carries
@@ -2087,6 +2162,67 @@ mod tests {
     use super::*;
 
     #[test]
+    fn dialog_steps_hold_requests_until_an_explicit_response() {
+        use day_spec::present::{PresentResult, PresentSpec};
+        use std::future::Future;
+        use std::task::{Context, Poll, Waker};
+        assert!(serde_json::from_str::<Step>(r#"{"op":"dialog_mode","mode":"typo"}"#).is_err());
+        let mode: Step = serde_json::from_str(r#"{"op":"dialog_mode","mode":"scripted"}"#).unwrap();
+        assert!(exec(mode, 0).ok);
+        assert!(exec(Step::AssertNotPresented, 0).ok);
+        // No tree is installed: neither presenting nor answering may call a toolkit.
+        let mut future = Box::pin(day_core::present(PresentSpec::OpenFile {
+            title: "Choose file".into(),
+            filters: vec![],
+        }));
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(future.as_mut().poll(&mut cx).is_pending());
+        assert!(
+            exec(
+                Step::AssertPresented {
+                    title: Some("Choose file".into())
+                },
+                0
+            )
+            .ok
+        );
+        assert!(!exec(Step::AssertNotPresented, 0).ok);
+        let refused = exec(
+            Step::DialogMode {
+                mode: DialogMode::Native,
+            },
+            0,
+        );
+        assert!(!refused.ok && !refused.retryable);
+        assert!(
+            exec(
+                Step::Respond {
+                    button: None,
+                    text: None,
+                    path: None,
+                    dismiss: true
+                },
+                0
+            )
+            .ok
+        );
+        assert_eq!(
+            future.as_mut().poll(&mut cx),
+            Poll::Ready(PresentResult::Dismissed)
+        );
+        assert!(exec(Step::AssertNotPresented, 0).ok);
+        assert!(
+            exec(
+                Step::DialogMode {
+                    mode: DialogMode::Native
+                },
+                0
+            )
+            .ok
+        );
+    }
+
+    #[test]
     fn tap_waits_for_navigation_and_enabled_state_before_dispatching_once() {
         use day_pieces::prelude::*;
         let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -2109,6 +2245,7 @@ mod tests {
                     "op": "tap", "id": "fixture-download"
                 }))
                 .unwrap(),
+                1,
             )
         };
         let reply = tap();
@@ -2118,13 +2255,32 @@ mod tests {
         enabled.set(true);
         probe.state.borrow_mut().ui_busy = true;
         assert!(!tap().ok);
-        assert!(!exec(Step::WaitIdle).ok);
+        assert!(!exec(Step::WaitIdle, 1).ok);
         assert_eq!(presses.get(), 0);
         probe.state.borrow_mut().ui_busy = false;
-        assert!(exec(Step::WaitIdle).ok);
+        assert!(exec(Step::WaitIdle, 1).ok);
         assert!(tap().ok);
         assert_eq!(presses.get(), 1);
         day_core::uninstall_tree();
+    }
+
+    #[test]
+    fn capture_acknowledgments_are_optional_and_pending_stays_internal() {
+        let old: Reply = serde_json::from_str(r#"{"ok":true}"#).unwrap();
+        assert_eq!(old.capture_revision, None);
+        assert_eq!(old.fast_animations, None);
+        let reply = Reply {
+            capture_revision: Some(73),
+            fast_animations: Some(true),
+            capture_pending: true,
+            ..Reply::ok()
+        };
+        let json = serde_json::to_value(reply).unwrap();
+        assert_eq!(json["capture_revision"], 73);
+        assert!(json.get("capture_pending").is_none());
+        let decoded: Reply = serde_json::from_value(json).unwrap();
+        assert_eq!(decoded.capture_revision, Some(73));
+        assert_eq!(decoded.fast_animations, Some(true));
     }
 
     /// Serialize the env mutation below (`set_var` is unsafe under concurrency in edition 2024).

@@ -137,3 +137,38 @@ different goal, and it does **not** call this API directly.
 
 `day drive` follows the same precedence, so the same screen frames the same way whichever entry
 point took the picture.
+
+### Screenshot render checkpoints
+
+The dayscript engine flushes reactive work and waits for native transitions before asking
+`Toolkit::prepare_snapshot(host, revision)` for a capture checkpoint. The revision belongs to
+one ordered screenshot request and stays the same across bounded retries. It is not an image
+hash or a global “everything is idle” flag. Each asynchronous window fence ignores callbacks
+from superseded requests. Missing windows, render errors and timed-out checkpoints fail the
+step; they do not authorize a stale capture.
+
+| Toolkit / platform targets | Freshness boundary |
+|---|---|
+| ArkUI / HarmonyOS | ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
+| GTK / Linux, macOS, Windows | Selected window's frame clock `after-paint`, following a requested draw |
+| Android / MDC | `registerFrameCommitCallback`; after-draw fallback for software rendering and Android before API 29 |
+| DOM / web | Two animation-frame turns; the browser screenshot operation performs final capture synchronization |
+| Qt / Linux, macOS, Windows | Synchronous `QWidget::render` / `grab` in the capture itself |
+| AppKit / macOS | Layout, display and Core Animation flush in the window capture |
+| UIKit / iOS | In-process capture uses `afterScreenUpdates: true`; external `simctl` capture keeps its existing transition check and capture semantics |
+| XAML / Windows (XAML and WinUI) | Shared CompositionTarget/DwmFlush checkpoint; WinUI also selects a fresh WGC frame |
+
+`Ready` acknowledges a platform render checkpoint; it does not claim that a vsync callback
+proves physical display presentation. `OnCapture` delegates freshness to a synchronous native
+capture and does not authorize skipping waits for an unrelated external capture. Pending
+native checkpoints are polled between main-loop turns, with a 16 ms retry interval and the
+step's normal deadline. This does not wait for perpetual animations, video, or arbitrary
+network requests: scripts still assert the application state they need and retain deliberate
+`pause` steps.
+
+The reply's optional `capture_revision` lets a current runner omit Harmony's fixed screenshot
+delay. Older apps retain `DAY_OHOS_SHOT_SETTLE_MS` (4 seconds by default), with a compatibility
+message. Equal consecutive screenshots are valid and are never used as a stale-frame test.
+Both app and CLI must be rebuilt to use the new protocol. Capture framing and the existing
+app-only fallback remain unchanged. Runs report script elapsed time and split screenshot time
+between engine/checkpoints (including in-process encoding) and external capture/save work.

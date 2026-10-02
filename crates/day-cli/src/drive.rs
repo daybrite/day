@@ -178,7 +178,16 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
                 // refuses, an in-process capture the backend did supply stands in.
                 let path = shot_dir.join(format!("{name}.png"));
                 let fallback = reply.get("png_base64").and_then(|v| v.as_str());
-                if script::device_screenshot_public(target, &path).is_ok() {
+                if script::device_screenshot_public(
+                    target,
+                    &path,
+                    reply
+                        .get("capture_revision")
+                        .and_then(|v| v.as_u64())
+                        .is_some(),
+                )
+                .is_ok()
+                {
                     let b64 = std::fs::read(&path)
                         .map(|b| script::b64encode_public(&b))
                         .unwrap_or_default();

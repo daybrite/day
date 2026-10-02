@@ -7,6 +7,7 @@
 import { NodeContent } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import nativeEntry from 'libentry.so';
+import { DayCapture } from './DayCapture';
 
 @Entry({ useSharedStorage: true })
 @Component
@@ -19,6 +20,8 @@ struct DayWindow {
     Column() {
       ContentSlot(this.content)
     }
+    .id('day.capture.' + this.node)
+    .onDisAppear(() => DayCapture.unregister(this.node))
     .width('100%')
     .height('100%')
     .onAreaChange((_oldArea: Area, newArea: Area) => {
@@ -26,6 +29,7 @@ struct DayWindow {
       const h = newArea.height as number;
       if (!this.started && w > 0 && h > 0 && this.node > 0) {
         this.started = true;
+        DayCapture.register(this.node, this.getUIContext());
         if (!nativeEntry.windowStart(this.content, this.node, w, h)) {
           // Closed before we connected — drop this instance again.
           (this.getUIContext().getHostContext() as common.UIAbilityContext).terminateSelf();

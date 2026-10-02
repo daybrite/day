@@ -12,6 +12,7 @@ use std::collections::HashMap;
 pub use day_geometry::*;
 
 pub mod applications;
+pub mod capture;
 /// Inline markdown → styled runs (docs/markdown.md). Lives here rather than in day-pieces
 /// because it produces `TextRun`s, and every format codec beside it reads the same model.
 pub mod markdown;
@@ -6295,6 +6296,23 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
+    /// Establish a fresh screenshot checkpoint after reactive work and native transitions.
+    /// `revision` is stable across retries and unique to the request; `host` selects a
+    /// secondary window, or None for the primary. Never block the UI thread waiting for
+    /// a frame. Pending requests are retried within the dayscript deadline.
+    ///
+    /// Ready means the platform render checkpoint completed, not that a vsync callback
+    /// proves pixels were displayed. OnCapture delegates freshness to snapshot_window.
+    fn prepare_snapshot(
+        &mut self,
+        _host: Option<&Self::Handle>,
+        _revision: u32,
+    ) -> Result<capture::Readiness, String> {
+        // Compatible with external toolkits predating this hook: their synchronous
+        // snapshot owns freshness, and no external-capture acknowledgment is fabricated.
+        Ok(capture::Readiness::OnCapture)
+    }
+
     /// The same capture with the window's own chrome: title bar, toolbar, whatever the platform
     /// draws around the content (docs/window-image.md).
     ///

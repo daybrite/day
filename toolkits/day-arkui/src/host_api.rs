@@ -40,6 +40,9 @@ type FilePickerArgs = FnArgs<(f64, i32, String, String, String)>;
 type MenuArgs = FnArgs<(String, String, String, String, String)>;
 
 thread_local! {
+    /// `(revision, window)`: RenderService-backed capture checkpoints.
+    static CAPTURE: Callback<FnArgs<(f64, f64)>> = const { RefCell::new(None) };
+    static CAPTURE_FENCES: RefCell<HashMap<u64, day_spec::capture::Fence>> = RefCell::new(HashMap::new());
     /// The NAPI environment, captured at the first export call, for calls made from native
     /// callbacks (an ArkUI event, a posted job) rather than from an export.
     static ENV: Cell<sys::napi_env> = const { Cell::new(ptr::null_mut()) };
@@ -203,6 +206,40 @@ pub fn deep_link(env: Env, uri: String) {
     unsafe { day_arkui_deeplink(uri.as_ptr()) };
 }
 
+/// Register the ArkTS render checkpoint (revision, window node; zero = primary).
+#[napi(js_name = "registerCapture")]
+pub fn register_capture(env: Env, callback: Registered<FnArgs<(f64, f64)>>) {
+    remember(&env);
+    store(&CAPTURE, callback);
+}
+
+#[napi(js_name = "captureReady")]
+pub fn capture_ready(revision: u32, window: f64, error: String) {
+    CAPTURE_FENCES.with(|f| {
+        if let Some(fence) = f.borrow().get(&(window as u64)) {
+            fence.complete(revision, if error.is_empty() { Ok(()) } else { Err(error) });
+        }
+    });
+}
+
+pub fn prepare_capture(revision: u32, window: u64) -> Result<day_spec::capture::Readiness, String> {
+    let fence = CAPTURE_FENCES.with(|f| f.borrow_mut().entry(window).or_default().clone());
+    if fence.begin(revision)
+        && call(
+            &CAPTURE,
+            FnArgs::from((f64::from(revision), window as f64)),
+            |_, _| (),
+        )
+        .is_none()
+    {
+        fence.complete(
+            revision,
+            Err("ArkTS render checkpoint is not registered".into()),
+        );
+    }
+    fence.poll()
+}
+
 /// `registerFilePicker(cb, cacheDir)` (docs/files.md).
 #[napi(js_name = "registerFilePicker")]
 pub fn register_file_picker(env: Env, callback: Registered<FilePickerArgs>, cache_dir: String) {
@@ -277,6 +314,7 @@ pub fn window_resized(node: f64, width_vp: f64, height_vp: f64) {
 
 #[napi(js_name = "windowClosed")]
 pub fn window_closed(node: f64) {
+    CAPTURE_FENCES.with(|f| f.borrow_mut().remove(&(node as u64)));
     crate::window_closed(node as u64);
 }
 

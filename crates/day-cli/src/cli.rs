@@ -268,6 +268,13 @@ enum Cmd {
         /// Run a dayscript file after launch (repeatable)
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
+        /// Skip decorative animations for functional tests; preserve real timers and pauses
+        #[arg(long, requires = "scripts")]
+        fast: bool,
+        /// Day dialog/file-picker presentation during scripts (default: scripted).
+        /// Scripted requests still require assert_presented/respond; native shows system UI
+        #[arg(long, requires = "scripts", value_parser = ["scripted", "native"])]
+        dialogs: Option<String>,
         /// Screenshot variant directory (default: derived from the locale)
         #[arg(long)]
         variant: Option<String>,
@@ -1890,6 +1897,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             keep_alive,
             record,
             scripts,
+            fast,
+            dialogs,
             variant,
             device,
             skip_build,
@@ -1898,6 +1907,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             capture_size,
             day_src,
         } => {
+            // The existing workflow launch-env input can opt in without a new actions API.
+            // --fast is the shorthand; otherwise the last explicit environment value wins.
+            let fast = fast
+                || envs
+                    .iter()
+                    .rev()
+                    .find_map(|kv| kv.strip_prefix("DAY_TEST_FAST="))
+                    == Some("1");
             // `--git` only decides where the launch starts from. It clones (or updates) the
             // repository and hands back the Day project directory inside it, so `find_project`
             // and the whole launch body below see an ordinary checkout (crate::git).
@@ -2012,7 +2029,20 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     spec.envs
                         .push(("DAY_RECORD".into(), abs.to_string_lossy().into_owned()));
                 }
+                if fast {
+                    spec.envs.retain(|(k, _)| k != "DAY_TEST_FAST");
+                    spec.envs.push(("DAY_TEST_FAST".into(), "1".into()));
+                }
                 if script_mode {
+                    // The engine also runs on interactive launches, so DAYSCRIPT_PORT is not
+                    // a test-mode signal. Only explicit --script runs get this default.
+                    if let Some(mode) = dialogs.as_deref() {
+                        spec.envs.retain(|(k, _)| k != "DAY_TEST_DIALOGS");
+                        spec.envs.push(("DAY_TEST_DIALOGS".into(), mode.into()));
+                    } else if !envs.iter().any(|kv| kv.starts_with("DAY_TEST_DIALOGS=")) {
+                        spec.envs
+                            .push(("DAY_TEST_DIALOGS".into(), "scripted".into()));
+                    }
                     // A scripted run is unattended, so a panic's backtrace has to be in the log the
                     // first time; nobody is there to re-run it with RUST_BACKTRACE set. The app's
                     // stderr is already streamed, so this is what turns "thread panicked at …" into
@@ -2171,6 +2201,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 device.as_deref(),
                                 keep_alive,
                                 spec.attached,
+                                fast,
                             ) {
                                 // A single retryable failure and nothing else: the shape a race
                                 // leaves behind (an element not realized yet, an assert that lost
@@ -2711,6 +2742,30 @@ mod error_tests {
         let other = CliError::from(crate::pack::PackError::Other("o".into()));
         assert_eq!(other.exit_code(), 4);
         assert_eq!(other.to_string(), "o");
+    }
+
+    #[test]
+    fn scripted_dialog_policy_is_explicit_and_validated() {
+        for mode in ["native", "scripted"] {
+            let cli =
+                Cli::try_parse_from(["day", "launch", "--script", "flow.yaml", "--dialogs", mode])
+                    .unwrap();
+            assert!(
+                matches!(cli.command, Cmd::Launch { dialogs: Some(value), .. } if value == mode)
+            );
+        }
+        assert!(Cli::try_parse_from(["day", "launch", "--dialogs", "scripted"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "day",
+                "launch",
+                "--script",
+                "flow.yaml",
+                "--dialogs",
+                "typo"
+            ])
+            .is_err()
+        );
     }
 
     /// The two ValueEnums accept exactly today's spellings, and only those.

@@ -24,8 +24,6 @@ compile_error!("day: enable exactly one backend feature");
 
 /// Display-synchronized, cancellable frame callbacks for any UI client.
 pub use day_core::frame;
-/// Tweening for canvas animations (docs/tween.md): `Lerp`, `Timing`, `animate`, `Tweened`.
-pub use day_core::tween;
 pub use day_core::{
     AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
     set_appearance, size_class, sleep, task,
@@ -49,6 +47,8 @@ pub use day_core::{application_handlers, default_browser, open_url_with_applicat
 /// route the app to `route`, buffered before the root is ready and applied after, exactly like
 /// a cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.
 pub use day_core::{focus_search, request_route};
+/// Tweening for canvas animations (docs/tween.md): `Lerp`, `Timing`, `animate`, `Tweened`.
+pub use day_core::{testing, tween};
 pub use day_spec::AppBadge;
 pub use day_spec::applications::{
     Application, ApplicationError, ApplicationHandlers, HandlerQuery,

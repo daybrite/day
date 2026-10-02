@@ -478,6 +478,7 @@ public final class DayBridge {
                                 final boolean reorderable, final boolean deletable,
                                 final String deleteLabel) {
         final RecyclerView rv = new RecyclerView(ctx);
+        if (fastAnimations) rv.setItemAnimator(null);
         rv.setLayoutManager(new LinearLayoutManager(ctx));
         rv.setAdapter(new RecyclerView.Adapter<DayCellHolder>() {
             public int getItemCount() { return nativeListLen(hostId); }
@@ -667,7 +668,10 @@ public final class DayBridge {
             public void run() {
                 RecyclerView.Adapter<?> a = rv.getAdapter();
                 int n = (a == null) ? 0 : a.getItemCount();
-                if (n > 0) rv.smoothScrollToPosition(n - 1);
+                if (n > 0) {
+                    if (fastAnimations) rv.scrollToPosition(n - 1);
+                    else rv.smoothScrollToPosition(n - 1);
+                }
             }
         });
     }
@@ -1593,6 +1597,51 @@ public final class DayBridge {
     /** Whether native transitions have settled (Toolkit::ui_idle): dayscript screenshots
      *  wait on this so captures never show a cover mid-slide. */
     public static boolean uiIdle() { return DayCover.slidesInFlight == 0; }
+
+    static boolean fastAnimations;
+
+    private static final class CaptureFence {
+        long revision;
+        volatile boolean ready;
+    }
+    private static final java.util.WeakHashMap<View, CaptureFence> captureFences =
+        new java.util.WeakHashMap<>();
+
+    /** Return after a fresh frame is submitted, without blocking the UI thread. The
+     * external screencap still synchronizes with SurfaceFlinger. An OnDraw fallback
+     * covers software rendering and API levels before frame-commit callbacks. */
+    public static int prepareSnapshot(View host, long revision) {
+        View root = host == null ? ((android.app.Activity) ctx).getWindow().getDecorView()
+                                 : host.getRootView();
+        if (!root.isAttachedToWindow()) return 0;
+        CaptureFence fence = captureFences.get(root);
+        if (fence == null || fence.revision != revision) {
+            fence = new CaptureFence();
+            fence.revision = revision;
+            captureFences.put(root, fence);
+            final CaptureFence pending = fence;
+            if (android.os.Build.VERSION.SDK_INT >= 29 && root.isHardwareAccelerated()) {
+                root.getViewTreeObserver().registerFrameCommitCallback(() -> pending.ready = true);
+            } else {
+                android.view.ViewTreeObserver.OnDrawListener listener =
+                    new android.view.ViewTreeObserver.OnDrawListener() {
+                        boolean posted;
+                        @Override public void onDraw() {
+                            if (posted) return;
+                            posted = true;
+                            root.post(() -> {
+                                if (root.getViewTreeObserver().isAlive())
+                                    root.getViewTreeObserver().removeOnDrawListener(this);
+                                pending.ready = true;
+                            });
+                        }
+                    };
+                root.getViewTreeObserver().addOnDrawListener(listener);
+            }
+            root.invalidate();
+        }
+        return fence.ready ? 1 : 0;
+    }
 
     /** Press the system back (Toolkit::native_back): the dispatcher runs the nav host's guard
      *  callback or the fragment manager's pop, the same path a back gesture takes. Only when

@@ -63,12 +63,6 @@ day_core::tls_group! {
     static GESTURES: RefCell<std::collections::HashSet<(usize, day_spec::GestureKind)>> =
         RefCell::new(std::collections::HashSet::new());
 
-    /// Screenshot settle-gating state (`ui_idle`): whether the after-paint hook is installed,
-    /// the number of frames painted, and the paint count a pending settle cycle waits for.
-    static SNAP_PAINT_HOOKED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
-    static SNAP_PAINT_COUNT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-    static SNAP_WAIT_TARGET: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
-
     static TINT_PROVIDERS: RefCell<std::collections::HashSet<String>> =
         RefCell::new(std::collections::HashSet::new());
 
@@ -6473,43 +6467,45 @@ impl Toolkit for Gtk {
         }
     }
 
-    /// Screenshot settling (see `snapshot_window`): GTK lays out and draws on the next
-    /// frame-clock tick, so a capture right after the steps that changed the UI would render
-    /// the previous frame (the CI blank/partial-shot bug). On the first poll of a settle
-    /// cycle, queue a fresh draw and note the frame-clock paint counter; report idle once a
-    /// Later paint completed. No main-loop iteration happens here — the engine polls this
-    /// between free main-loop turns.
-    fn ui_idle(&mut self) -> bool {
-        let Some(fixed) = self.window_fixed.as_ref() else {
-            return true;
-        };
-        let widget: &gtk4::Widget = fixed.upcast_ref();
+    fn prepare_snapshot(
+        &mut self,
+        host: Option<&Self::Handle>,
+        revision: u32,
+    ) -> Result<day_spec::capture::Readiness, String> {
+        use gtk4::prelude::*;
+        let widget = host
+            .cloned()
+            .or_else(|| self.window_fixed.as_ref().map(|w| w.clone().upcast()))
+            .ok_or("no window to capture")?;
         let Some(clock) = widget.frame_clock() else {
-            return true; // not realized — nothing will ever paint; don't wedge the step
+            return Ok(day_spec::capture::Readiness::Pending);
         };
-        // One persistent after-paint counter per process (the clock lives with the window).
-        SNAP_PAINT_HOOKED.with(|hooked| {
-            if !hooked.get() {
-                hooked.set(true);
-                clock.connect_after_paint(|_| {
-                    SNAP_PAINT_COUNT.with(|c| c.set(c.get().wrapping_add(1)));
-                });
-            }
-        });
-        let count = SNAP_PAINT_COUNT.with(|c| c.get());
-        match SNAP_WAIT_TARGET.with(|t| t.get()) {
-            Some(target) if count >= target => {
-                SNAP_WAIT_TARGET.with(|t| t.set(None));
-                true
-            }
-            Some(_) => false,
-            None => {
-                SNAP_WAIT_TARGET.with(|t| t.set(Some(count.wrapping_add(1))));
-                widget.queue_draw();
-                clock.request_phase(gtk4::gdk::FrameClockPhase::PAINT);
-                false
-            }
+        thread_local! {
+            static FENCES: std::cell::RefCell<std::collections::HashMap<usize,
+                (gtk4::glib::WeakRef<gtk4::Widget>, day_spec::capture::Fence)>> = Default::default();
         }
+        let fence = FENCES.with(|f| {
+            let mut f = f.borrow_mut();
+            f.retain(|_, (w, _)| w.upgrade().is_some());
+            f.entry(widget.as_ptr() as usize)
+                .or_insert_with(|| (widget.downgrade(), Default::default()))
+                .1
+                .clone()
+        });
+        if fence.begin(revision) {
+            let done = fence.clone();
+            let handler = std::rc::Rc::new(std::cell::RefCell::new(None));
+            let remove = handler.clone();
+            *handler.borrow_mut() = Some(clock.connect_after_paint(move |clock| {
+                if let Some(id) = remove.borrow_mut().take() {
+                    clock.disconnect(id);
+                }
+                done.complete(revision, Ok(()));
+            }));
+            widget.queue_draw();
+            clock.request_phase(gtk4::gdk::FrameClockPhase::PAINT);
+        }
+        fence.poll()
     }
 
     fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
@@ -6992,6 +6988,12 @@ impl Platform for Gtk {
         // local theme checks); unset ⇒ follow the system. Applied in `startup`, once libadwaita
         // is initialized (StyleManager::default() needs adw_init).
         app.connect_startup(|_| {
+            if day_core::testing::fast_animations() {
+                if let Some(settings) = gtk4::Settings::default() {
+                    settings.set_gtk_enable_animations(false);
+                }
+            }
+
             // Follow the SYSTEM appearance while running: libadwaita's StyleManager flips
             // `dark` on desktop theme switches — refresh day-core's reactive dark-mode
             // signal so palette closures recolor live.

@@ -291,6 +291,9 @@ impl<B: Toolkit> Tree<B> {
     /// propagation). `None` ⇒ the change applies instantly. The ancestor walk is skipped entirely
     /// when no implicit animations exist anywhere (`implicit_anim_count == 0`).
     pub(crate) fn resolve_anim(&self, node: RNode) -> Option<day_spec::AnimSpec> {
+        if crate::testing::fast_animations() {
+            return None;
+        }
         if let Some(a) = crate::anim::current_anim() {
             return Some(a);
         }
@@ -841,6 +844,11 @@ pub trait TreeOps {
     fn native_back(&mut self) -> bool {
         false
     }
+    fn prepare_snapshot(
+        &mut self,
+        root: Option<RNode>,
+        revision: u32,
+    ) -> Result<day_spec::capture::Readiness, String>;
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
     /// The same capture with the window's own chrome (see `Toolkit::snapshot_window_chrome`).
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
@@ -1435,7 +1443,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             ScrollTarget::Offset(p) => Rect::new(p.x, p.y, viewport.width, viewport.height),
             ScrollTarget::Id(_) => unreachable!("routed to scroll_reveal above"),
         };
-        self.toolkit.scroll_to(&h, rect, animated);
+        self.toolkit
+            .scroll_to(&h, rect, animated && !crate::testing::fast_animations());
         true
     }
 
@@ -1458,7 +1467,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 let Some(h) = a.handle.clone() else {
                     return false;
                 };
-                self.toolkit.scroll_to(&h, rect, animated);
+                self.toolkit
+                    .scroll_to(&h, rect, animated && !crate::testing::fast_animations());
                 return true;
             }
             if a.handle.is_some()
@@ -1738,6 +1748,23 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn native_back(&mut self) -> bool {
         self.toolkit.native_back()
+    }
+
+    fn prepare_snapshot(
+        &mut self,
+        root: Option<RNode>,
+        revision: u32,
+    ) -> Result<day_spec::capture::Readiness, String> {
+        let host = match root {
+            Some(root) if self.windows[0].root != root => Some(
+                self.nodes
+                    .get(root)
+                    .and_then(|n| n.handle.clone())
+                    .ok_or("window is gone")?,
+            ),
+            _ => None,
+        };
+        self.toolkit.prepare_snapshot(host.as_ref(), revision)
     }
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {

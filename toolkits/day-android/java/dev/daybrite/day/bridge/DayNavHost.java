@@ -1075,10 +1075,10 @@ public class DayNavHost extends LinearLayout {
         View v = top.content;
         if (v.getParent() == pages) pages.removeView(v); // the fragment owns it from here
         v.setVisibility(View.VISIBLE);
-        top.setEnterTransition(new MaterialSharedAxis(MaterialSharedAxis.X, true));
-        top.setReturnTransition(new MaterialSharedAxis(MaterialSharedAxis.X, false));
-        prev.setExitTransition(new MaterialSharedAxis(MaterialSharedAxis.X, true));
-        prev.setReenterTransition(new MaterialSharedAxis(MaterialSharedAxis.X, false));
+        top.setEnterTransition(DayBridge.fastAnimations ? null : new MaterialSharedAxis(MaterialSharedAxis.X, true));
+        top.setReturnTransition(DayBridge.fastAnimations ? null : new MaterialSharedAxis(MaterialSharedAxis.X, false));
+        prev.setExitTransition(DayBridge.fastAnimations ? null : new MaterialSharedAxis(MaterialSharedAxis.X, true));
+        prev.setReenterTransition(DayBridge.fastAnimations ? null : new MaterialSharedAxis(MaterialSharedAxis.X, false));
         titles.add(title);
         immersives.add(immersive);
         fm.beginTransaction().setReorderingAllowed(true)

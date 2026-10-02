@@ -40,6 +40,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // first frame.
 
         DayBridge.ctx = this;
+        DayBridge.fastAnimations = "1".equals(getIntent().getStringExtra("day.env.DAY_TEST_FAST"));
         lastNightMode = DayBridge.isDarkMode();
         lastLocales = getResources().getConfiguration().getLocales().toLanguageTags();
         // Navigation state saved before this process was reclaimed (DayBridge.navState). Restored

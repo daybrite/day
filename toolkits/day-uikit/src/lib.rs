@@ -2877,7 +2877,8 @@ mod imp {
             if !agreed {
                 return true;
             }
-            unsafe { self.popViewControllerAnimated(true) }.is_some()
+            unsafe { self.popViewControllerAnimated(!day_core::testing::fast_animations()) }
+                .is_some()
         }
     }
 
@@ -3582,7 +3583,7 @@ mod imp {
         // Re-stamp the transition clock at execution (docs: `ui_idle`), and never ANIMATE to
         // an empty stack — that transition never completes and holds `ui_idle` false.
         note_ui_transition();
-        let animated = !target.is_empty();
+        let animated = !target.is_empty() && !day_core::testing::fast_animations();
         unsafe { nav.setViewControllers_animated(&arr, animated) };
         let Some(coordinator) = (unsafe { nav.transitionCoordinator() }) else {
             // No transition: the set applied on the spot.
@@ -10057,6 +10058,9 @@ mod imp {
             });
         }
 
+        // In-process capture uses drawViewHierarchy with afterScreenUpdates=true.
+        // External simctl captures retain their own synchronization; no acknowledgment
+        // of external freshness is fabricated from a main-thread/vsync callback.
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
             snapshot_uikit(false)
         }
@@ -10925,7 +10929,11 @@ mod imp {
                 modal_begin_transition();
                 let completion = block2::RcBlock::new(modal_end_transition);
                 unsafe {
-                    top.presentViewController_animated_completion(&vc, true, Some(&completion))
+                    top.presentViewController_animated_completion(
+                        &vc,
+                        !day_core::testing::fast_animations(),
+                        Some(&completion),
+                    )
                 };
             }
             ModalOp::Dismiss(req, tries) => {
@@ -11026,7 +11034,11 @@ mod imp {
                 modal_begin_transition();
                 let completion = block2::RcBlock::new(modal_end_transition);
                 unsafe {
-                    top.presentViewController_animated_completion(&vc, true, Some(&completion));
+                    top.presentViewController_animated_completion(
+                        &vc,
+                        !day_core::testing::fast_animations(),
+                        Some(&completion),
+                    );
                 }
             }
             ModalOp::Run(f) => {

@@ -14,6 +14,46 @@ How coding agents (Codex, Claude Code, VS Code agent mode, and other MCP clients
 see Day apps. Every capability lives in the day CLI behind stable commands, so all agents and
 editors share one implementation; editor extensions only register it.
 
+## Fast functional walkthroughs
+
+Use `day launch -p <target> --script dayscript/walkthrough.yaml --fast` to apply
+decorative motion at its destination state. This passes `DAY_TEST_FAST=1` to the app;
+it does not change the device's global animation settings. The equivalent
+`--env DAY_TEST_FAST=1` also works. The shared `daybrite/actions` workflow requests
+this by default with `fast-scripts: true`; set `fast-scripts: false` for animation
+coverage. An explicit `DAY_TEST_FAST` in `launch-env` overrides that input. Both app
+and CLI must be rebuilt for full acceleration. Local launches retain normal motion
+unless requested; omit `--fast` and any fast env override for animation tests.
+
+Day's explicit/implicit property animations and finite canvas tweens honor the policy
+across toolkits. GTK also disables its native animations for this process; Android
+disables navigation transitions, cover slides, list diff animations and smooth list
+scrolling. UIKit suppresses Day navigation and presentation animations, with existing
+system-modal dismissal workarounds retained. Harmony already suppresses scripted
+navigation transitions. Native system UI, third-party players and continuous frame
+subscriptions are not a virtual clock and may still animate.
+
+Literal `pause` steps retain their duration. Mark a pause **only for decorative motion**
+as `pause: { secs: 0.7, animation: true }`; `--fast` replaces it with `wait_idle`, which
+flushes reactive work and checks the toolkit's transition gate. The runner keeps
+these pauses until an ordinary engine reply confirms that the app enabled fast motion;
+older apps and a pause before the first engine reply retain their wait. Screenshot render
+checkpoints still run. For asynchronous application work, prefer an `assert_text` or
+`wait_for` with an appropriate timeout: these already retry until their condition holds.
+Do not mark network loads, media playback, physics or crash-observation pauses as
+animation pauses. Fast mode is not evidence that an animation itself works correctly.
+
+## Dialogs during walkthroughs
+
+Scripted launches default to `DAY_TEST_DIALOGS=scripted`, independently of fast motion.
+Day alerts, prompts and file pickers await `assert_presented` / `respond` without opening
+native UI. Use `--dialogs native` (or `--env DAY_TEST_DIALOGS=native`) for native integration
+coverage. Scripts can switch with `dialog_mode: { mode: scripted }` or `{ mode: native }`
+after answering pending requests; `assert_not_presented` checks for unanswered Day requests.
+See [dialog testing](dialogs.md#dayscript-presentation-modes) for examples, native dismissal
+limitations, and OS prompts outside Day's control. With `--keep-alive`, end with native mode
+to restore interactive presentation.
+
 ## The session registry
 
 Every `day launch` records its app's dayscript-engine coordinates in

@@ -906,6 +906,18 @@ const env = {
 
   day_dom_present: (req, json, len) => present(req, JSON.parse(str(json, len))),
   day_dom_modifiers: () => modifierMask,
+  day_dom_prepare_snapshot: (host, revision) => {
+    const root = host ? E(host) : document.documentElement;
+    if (!root || !root.isConnected) return 0;
+    if (!root.__dayCapture || root.__dayCapture.revision !== revision) {
+      const fence = { revision, ready: false };
+      root.__dayCapture = fence;
+      // Give layout/paint a turn; the browser screenshot API owns final compositor
+      // synchronization. rAF alone is not proof of physical display presentation.
+      requestAnimationFrame(() => requestAnimationFrame(() => { fence.ready = true; }));
+    }
+    return root.__dayCapture.ready ? 1 : 0;
+  },
   // The browser clipboard for day-part-clipboard (docs/menus.md). Inside a live copy/cut/
   // paste DOM event (dispatched below while the event is on the stack) the calls use the
   // event's clipboardData, the synchronous path; outside one, byte operations use

@@ -405,6 +405,7 @@ pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> 
     let attempts = window_secs * 4; // 250 ms apart
     for _ in 0..attempts {
         if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+            let _ = s.set_nodelay(true);
             // A floor for the handshake only; `roundtrip` resets this per step from the
             // step's wait budget.
             s.set_read_timeout(Some(read_window(window_secs, 0.0))).ok();
@@ -546,9 +547,9 @@ esac
 }
 
 /// Device-level capture fallback for targets whose in-process snapshot is unsupported.
-/// `prev` is the run's previous capture, when there is one: on HarmonyOS a shot that comes out
-/// byte-identical to it is treated as a stale frame and re-captured (see the arm's comment).
-fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Result<(), String> {
+/// A modern app acknowledges a render checkpoint before this call. Older Harmony apps
+/// retain the configurable conservative delay; identical images are valid and never retried.
+fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), String> {
     match target.kind {
         TargetKind::IosSim => {
             // The simulator this run launched on, else the first booted one, pinned either way
@@ -573,10 +574,22 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
         TargetKind::Android => {
             // Pin the device the runner forwarded to (`android_devices` is already narrowed to
             // this run's selection), else `adb` errors with several attached.
-            let serial = crate::mobile::android_devices()
-                .into_iter()
-                .next()
-                .map(|dev| dev.serial)
+            // Launch already pinned the device. Re-enumerating here ran `adb devices`
+            // and an ABI probe for every PNG; neither contributes to capture readiness.
+            // The window checks and screencap still verify the selected device is alive.
+            let serial = crate::ops::selected_android_serial()
+                .map(str::to_string)
+                .or_else(|| {
+                    std::env::var("ANDROID_SERIAL")
+                        .ok()
+                        .filter(|s| !s.is_empty())
+                })
+                .or_else(|| {
+                    crate::mobile::android_devices()
+                        .into_iter()
+                        .next()
+                        .map(|dev| dev.serial)
+                })
                 .ok_or("no Android device available for screenshot")?;
             android_screenshot(&serial, path)
         }
@@ -611,62 +624,40 @@ fn device_screenshot(target: &Target, path: &Path, prev: Option<&Path>) -> Resul
             let _ = crate::ohos::hdc()
                 .args(["shell", "power-shell", "wakeup"])
                 .status();
-            // The TCG guest's compositor lags the UI thread: `ui_idle` returns once the pushed
-            // page has reported its first area (laid out), but screenCap serves the previous
-            // frame until RenderService composites the new one, measured at 2-3s on the
-            // cross-arch emulator (every shot trails one page without this settle). The first
-            // push after app start can lag longer still (>6s: first render-tree build), so a
-            // capture that comes out byte-identical to the run's previous screenshot is treated
-            // as that stale frame and retried; the last attempt is accepted either way, which
-            // keeps scripts with identical consecutive shots slow-but-correct.
-            let settle = std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(4000);
+            if !ready {
+                let settle = std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(4000);
+                eprintln!("    (legacy app: no render checkpoint; waiting {settle}ms)");
+                std::thread::sleep(Duration::from_millis(settle));
+            }
             let dev = "/data/local/tmp/day-shot.png";
-            for attempt in 0..4u32 {
-                std::thread::sleep(Duration::from_millis(if attempt == 0 {
-                    settle
-                } else {
-                    3000
-                }));
-                // screenCap writes into an existing file without truncating it, so a smaller
-                // capture would keep the previous shot's tail after its IEND (every shot of a
-                // run came out the size of the first). Start each capture from no file.
-                let _ = crate::ohos::hdc().args(["shell", "rm", "-f", dev]).status();
-                let cap = crate::ohos::hdc()
-                    .args(["shell", "uitest", "screenCap", "-p", dev])
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false)
-                    || crate::ohos::hdc()
-                        .args(["shell", "snapshot_display", "-f", dev])
-                        .status()
-                        .map(|s| s.success())
-                        .unwrap_or(false);
-                if !cap {
-                    return Err(
-                        "hdc screenshot failed (uitest screenCap / snapshot_display)".into(),
-                    );
-                }
-                let ok = crate::ohos::hdc()
-                    .args(["file", "recv", dev])
-                    .arg(path)
+            // screenCap writes into an existing file without truncating it, so a smaller
+            // capture would keep the previous shot's tail after its IEND (every shot of a
+            // run came out the size of the first). Start each capture from no file.
+            let _ = crate::ohos::hdc().args(["shell", "rm", "-f", dev]).status();
+            let cap = crate::ohos::hdc()
+                .args(["shell", "uitest", "screenCap", "-p", dev])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+                || crate::ohos::hdc()
+                    .args(["shell", "snapshot_display", "-f", dev])
                     .status()
                     .map(|s| s.success())
                     .unwrap_or(false);
-                if !ok {
-                    return Err("hdc file recv failed".into());
-                }
-                let stale = prev.is_some_and(|p| {
-                    std::fs::read(p)
-                        .ok()
-                        .zip(std::fs::read(path).ok())
-                        .is_some_and(|(a, b)| a == b)
-                });
-                if !stale {
-                    break;
-                }
+            if !cap {
+                return Err("hdc screenshot failed (uitest screenCap / snapshot_display)".into());
+            }
+            let ok = crate::ohos::hdc()
+                .args(["file", "recv", dev])
+                .arg(path)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+            if !ok {
+                return Err("hdc file recv failed".into());
             }
             Ok(())
         }
@@ -682,8 +673,12 @@ pub(crate) fn b64decode_public(s: &str) -> Vec<u8> {
 pub(crate) fn b64encode_public(bytes: &[u8]) -> String {
     day_script_b64::b64encode(bytes)
 }
-pub(crate) fn device_screenshot_public(target: &Target, path: &Path) -> Result<(), String> {
-    device_screenshot(target, path, None)
+pub(crate) fn device_screenshot_public(
+    target: &Target,
+    path: &Path,
+    ready: bool,
+) -> Result<(), String> {
+    device_screenshot(target, path, ready)
 }
 
 pub(crate) fn forward_engine(kind: TargetKind, port: u16) {
@@ -726,6 +721,7 @@ pub fn run_scripts(
     device: Option<&str>,
     keep_alive: bool,
     attached: bool,
+    fast: bool,
 ) -> Result<ScriptRun, ScriptError> {
     forward_engine(target.kind, port);
     let default_locale = crate::store::default_locale(&crate::store::app_locales(project));
@@ -786,6 +782,7 @@ pub fn run_scripts(
                     let _ = e;
                     std::thread::sleep(Duration::from_millis(500));
                     if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
+                        let _ = s.set_nodelay(true);
                         s.set_read_timeout(Some(window)).ok();
                         *reader = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
                         *stream = s;
@@ -801,6 +798,12 @@ pub fn run_scripts(
 
     // Said once per run: the retired `store:` key on a screenshot step (§14.7).
     let mut warned_store = false;
+    // New CLI + old app (or an env delivery failure) must keep animation pauses.
+    // Learn this from ordinary replies; no extra startup round trip is required.
+    let mut app_fast = false;
+    let script_started = Instant::now();
+    let mut screenshot_engine = Duration::ZERO;
+    let mut screenshot_capture = Duration::ZERO;
     let mut run = ScriptRun {
         steps_total: 0,
         steps_skipped: 0,
@@ -863,7 +866,7 @@ pub fn run_scripts(
         // A gate token nothing can match is a typo, reported once per token: `only_on: [iso]`
         // would otherwise drop the step on every target without a word.
         let mut warned_gates: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (index, (op, step)) in steps.into_iter().enumerate() {
+        for (index, (mut op, step)) in steps.into_iter().enumerate() {
             if stop_on_failure && run.steps_failed > failures_before_script {
                 let remaining = planned - index;
                 run.steps_aborted += remaining;
@@ -936,6 +939,17 @@ pub fn run_scripts(
                 }
             }
             let mut step = step;
+            // Only explicitly decorative pauses may be omitted in fast mode. Still
+            // drain UI work and honor the toolkit transition gate. Literal pauses retain
+            // their duration, including playback, physics and crash-watch tests.
+            if fast
+                && app_fast
+                && op == "pause"
+                && step.get("animation").and_then(|v| v.as_bool()) == Some(true)
+            {
+                op = "wait_idle".into();
+                step = serde_json::json!({"op": "wait_idle"});
+            }
             // `pause` sleeps runner-side (the engine must not block the UI thread).
             if op == "pause" {
                 let secs = step.get("secs").and_then(|v| v.as_f64()).unwrap_or(0.5);
@@ -1043,6 +1057,7 @@ pub fn run_scripts(
             // the failure count seen so far, so the caller can tell a clean-run flake (retry)
             // from a failing run that then died (report).
             let failed_before = run.steps_failed;
+            let checkpoint_started = Instant::now();
             let reply_line =
                 roundtrip(&mut stream, &mut reader, &line, budget).map_err(|detail| {
                     ScriptError::EngineLost {
@@ -1052,6 +1067,7 @@ pub fn run_scripts(
                 })?;
             let reply: serde_json::Value = serde_json::from_str(reply_line.trim())
                 .map_err(|e| ScriptError::Other(e.to_string()))?;
+            app_fast = reply.get("fast_animations").and_then(|v| v.as_bool()) == Some(true);
             let ok = reply.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
             let detail = step
                 .get("id")
@@ -1076,6 +1092,8 @@ pub fn run_scripts(
                 eprintln!("  {ERROR}✗{ERROR:#} {op} {detail} — {err}");
             }
             if op == "screenshot" && ok {
+                screenshot_engine += checkpoint_started.elapsed();
+                let capture_started = Instant::now();
                 let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
                 let path = dir.join(format!("{name}.png"));
                 // A failed recapture must not publish a previous run's image at this path.
@@ -1097,10 +1115,13 @@ pub fn run_scripts(
                 // the fallback instead: a refusing device tool used to abandon the shot outright.
                 // Desktop is the other way round: the in-process render is the capture there
                 // and `device_screenshot` has no desktop arm at all.
-                let prev = run.screenshots.last().cloned();
+                let ready = reply
+                    .get("capture_revision")
+                    .and_then(|v| v.as_u64())
+                    .is_some();
                 let mut saved = false;
                 if device_first {
-                    match device_screenshot(target, &path, prev.as_deref()) {
+                    match device_screenshot(target, &path, ready) {
                         Ok(()) => saved = true,
                         Err(e) => {
                             // The payload was skipped above, so fetch it now; this arm
@@ -1141,7 +1162,7 @@ pub fn run_scripts(
                     // Desktop's own fallback, unchanged: the engine declines (no window on screen,
                     // or a backend with no capture) and the Linux CI legs read the xvfb root.
                     if !saved {
-                        match device_screenshot(target, &path, prev.as_deref()) {
+                        match device_screenshot(target, &path, ready) {
                             Ok(()) => saved = true,
                             Err(e) => eprintln!("    (desktop screenshot failed: {e})"),
                         }
@@ -1165,6 +1186,7 @@ pub fn run_scripts(
                         index_entries.push(entry);
                     }
                     run.screenshots.push(path);
+                    screenshot_capture += capture_started.elapsed();
                 } else {
                     run.steps_failed += 1;
                     eprintln!("  {ERROR}✗{ERROR:#} screenshot {name} — no safe capture available");
@@ -1172,6 +1194,13 @@ pub fn run_scripts(
             }
         }
     }
+    eprintln!(
+        "  Script timing: {:.3}s; {} screenshots: engine/checkpoints {:.3}s, capture/save {:.3}s",
+        script_started.elapsed().as_secs_f64(),
+        run.screenshots.len(),
+        screenshot_engine.as_secs_f64(),
+        screenshot_capture.as_secs_f64()
+    );
     if keep_alive {
         // Interactive script development (docs/agent.md): leave the app running so its session
         // stays drivable (`day drive`) and scripts can be built and debugged incrementally.
@@ -1649,6 +1678,7 @@ mod gate_tests {
                 None,
                 true,
                 false,
+                false,
             )
             .unwrap();
             let seen = server.join().unwrap();
@@ -1878,6 +1908,7 @@ mod window_tests {
     /// and a longer window (a slow device, a long step budget) is never shortened.
     #[test]
     fn first_read_window_covers_startup_without_shortening_a_longer_window() {
+<<<<<<< Updated upstream
         // Pass the override explicitly so the runner's environment cannot alter this test.
         let normal = reply_window(20, 5.0, None);
         assert_eq!(normal, Duration::from_secs(45));
@@ -1891,5 +1922,76 @@ mod window_tests {
             assert_eq!(window, Duration::from_secs(expected_secs));
             assert_eq!(first_read_window(window), window);
         }
+=======
+        assert_eq!(read_window(20, 5.0), Duration::from_secs(45));
+        assert_eq!(
+            first_read_window(20, 5.0),
+            Duration::from_secs(STARTUP_SECS)
+        );
+        assert_eq!(first_read_window(120, 5.0), Duration::from_secs(120));
+        assert_eq!(first_read_window(20, 90.0), Duration::from_secs(190));
+    }
+}
+
+#[cfg(all(test, unix))]
+mod harmony_capture_tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn acknowledged_identical_captures_do_not_sleep_or_retry() {
+        const CHILD: &str = "DAY_TEST_HARMONY_CAPTURE";
+        if let Some(root) = std::env::var_os(CHILD) {
+            let root = PathBuf::from(root);
+            let target = crate::targets::find("harmony-arkui").unwrap();
+            for name in ["first.png", "identical.png"] {
+                device_screenshot(target, &root.join(name), true).unwrap();
+            }
+            assert_eq!(
+                std::fs::read(root.join("first.png")).unwrap(),
+                std::fs::read(root.join("identical.png")).unwrap()
+            );
+            assert_eq!(
+                std::fs::read_to_string(root.join("captures")).unwrap(),
+                "capture\ncapture\n"
+            );
+            return;
+        }
+        let root =
+            std::env::temp_dir().join(format!("day-harmony-capture-test-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let hdc = root.join("hdc");
+        std::fs::write(
+            &hdc,
+            r#"#!/bin/sh
+case "$3 $4" in
+  "shell uitest") echo capture >> "$DAY_TEST_HARMONY_CAPTURE/captures" ;;
+  "file recv") printf 'identical screenshot' > "$6" ;;
+esac
+"#,
+        )
+        .unwrap();
+        std::fs::set_permissions(&hdc, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "script::harmony_capture_tests::acknowledged_identical_captures_do_not_sleep_or_retry"])
+            .env(CHILD, &root).env("PATH", &root).env("DAY_OHOS_TARGET", "fake-device")
+            // An acknowledged app must bypass even a very large legacy override.
+            .env("DAY_OHOS_SHOT_SETTLE_MS", "60000")
+            .spawn().unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success());
+                break;
+            }
+            if Instant::now() >= deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                panic!("acknowledged captures waited for the legacy delay");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        std::fs::remove_dir_all(root).unwrap();
+>>>>>>> Stashed changes
     }
 }

@@ -167,6 +167,11 @@ public class DayCover extends FrameLayout {
             slideAnim = null;
             slidesInFlight = Math.max(0, slidesInFlight - 1);
         }
+        if (DayBridge.fastAnimations) {
+            setTranslationY(to);
+            if (done != null) done.run();
+            return;
+        }
         setTranslationY(from);
         final android.animation.ValueAnimator a =
                 android.animation.ValueAnimator.ofFloat(from, to);

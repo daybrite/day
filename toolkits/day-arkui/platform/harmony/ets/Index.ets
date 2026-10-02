@@ -22,6 +22,7 @@ import { registerDayPieces } from '../daypieces/DayPieces';
 import { daySelect, daySegmented } from './DaySelect';
 import DayWindowAbility from './DayWindowAbility';
 import { DayToolbar, DayToolbarItem } from './DayToolbar';
+import { DayCapture } from './DayCapture';
 
 @Entry
 @Component
@@ -76,6 +77,7 @@ struct Index {
       return;
     }
     this.started = true;
+    DayCapture.register(0, this.getUIContext());
 
     // Wire the Navigation bridge before start(): a deep link (docs/deep-links.md) can push during
     // the initial tree build.
@@ -410,6 +412,7 @@ struct Index {
     }
     // The root normally draws NO native title bar — Day paints the root page itself, chrome and
     // all. A toolbar action has nowhere else to go, though, so having one brings the bar out.
+    .id('day.capture.0')
     .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
     .hideTitleBar(this.navRootMenus.length === 0)
     // The compact bar, the one every pushed page wears: the default `Free` mode reserves a

@@ -319,11 +319,28 @@ pub fn animate(
     timing: Timing,
     mut step: impl FnMut(Sample) + 'static,
 ) -> FrameHandle {
+    // Finish finite decorative tweens on their first frame. Keep continuous animations
+    // and simulations running; they have no meaningful final state.
+    let finish = if crate::testing::fast_animations() && timing.total().is_some() {
+        Some(Sample {
+            progress: if timing.spec.duration_ms > 0
+                && timing.spec.autoreverse
+                && timing.spec.repeat % 2 == 1
+            {
+                0.0
+            } else {
+                1.0
+            },
+            done: true,
+        })
+    } else {
+        None
+    };
     let mut start: Option<Duration> = None;
     clock.subscribe(move |frame| {
         let t0 = *start.get_or_insert(frame.timestamp);
         let elapsed = frame.timestamp.saturating_sub(t0).as_secs_f64();
-        let sample = timing.sample(elapsed);
+        let sample = finish.unwrap_or_else(|| timing.sample(elapsed));
         step(sample);
         if sample.done {
             ControlFlow::Break(())
@@ -424,6 +441,10 @@ impl<T: Lerp + 'static> Tweened<T> {
 
     /// Animate from the value on screen to `target` under `spec`.
     pub fn animate_to(&self, target: T, spec: AnimSpec) {
+        if crate::testing::fast_animations() && spec.repeat != u32::MAX {
+            self.set(target);
+            return;
+        }
         let from = self.shown.get_untracked();
         {
             let mut f = self.flight.borrow_mut();

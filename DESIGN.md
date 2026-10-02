@@ -2785,8 +2785,13 @@ release artifacts without the opt-in contain no engine). It:
 
 Every retryable step has an implicit bounded wait (5 s default) — element not found yet and
 pending assertions poll rather than fail instantly. `wait_idle` flushes the reactive drain
-and waits on `Toolkit::ui_idle`; `tap` and `screenshot` also wait on `Toolkit::ui_idle` (native transitions settled), which is
-what keeps captures from showing half-dismissed dialogs. (The designed richer idle definition —
+and waits on `Toolkit::ui_idle`; `tap` and `screenshot` also wait on `Toolkit::ui_idle` (native
+transitions settled), which is what keeps captures from showing half-dismissed dialogs, and
+`screenshot` then has `Toolkit::prepare_snapshot(host, revision)` establish the selected window's
+render checkpoint. Asynchronous checkpoints are bounded and revisioned; toolkits with synchronous
+native captures can delegate freshness to capture itself. The optional `capture_revision` reply
+lets the runner skip Harmony's legacy fixed delay without changing whole-device framing
+([docs/window-image.md](docs/window-image.md#screenshot-render-checkpoints)). (The designed richer idle definition —
 in-flight `Resource`s, `busy_scope()` — remains unbuilt even now that `Resource` shipped
 ([§4.5](#45-async)): the bounded-retry asserts absorb async gaps, as the showcase's Resource
 walkthrough steps show.) No sleeps in
@@ -6285,7 +6290,9 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_text` | `id`, `text?` \| `key?` + `args?`, `timeout_secs?` | FSI/PDI-normalized ([§12.2](#122-api)); `timeout_secs` raises the implicit wait for text that changes after slow work |
 | `assert_value` | `id`, `value` | typed per piece kind: toggle = bool, slider = number, field = string |
 | `assert_focused` | `id`, `focused?` | reads the probe's focus mirror; retryable |
-| `assert_presented` | `title?` | a native modal is up ([docs/dialogs.md](docs/dialogs.md)) |
+| `dialog_mode` | `mode: scripted` or `native` | select presentation policy before opening Day dialogs/file pickers; switching with unanswered requests fails ([docs/dialogs.md](docs/dialogs.md)) |
+| `assert_presented` | `title?` | a Day presentation request is pending (native or scripted); not a native-window visibility assertion |
+| `assert_not_presented` | — | no Day presentation request remains unanswered; not an OS-window dismissal assertion |
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
