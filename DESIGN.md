@@ -6770,3 +6770,23 @@ MockProbe::list_first_visible exercises the same queue. No group model is embedd
 framework. Applications clamp the index after reload and compose a top overlay. Variable
 row heights are not covered by the pitch-based adapters. See docs/list.md and the mock
 viewport regression in crates/day-pieces/tests/mock_e2e.rs.
+
+### Reorderable navigation sidebars
+
+`Nav::reorder_items(eligible, moved)` opts sidebar/root lists into the existing native `List`
+driver rather than the fixed NAV_MENU widget. Section headers become fixed list rows;
+contiguous eligible runs are the only valid drag range. The callback receives the moved key
+and the destination key in the source order before removal; the application persists its
+order. This uses the existing guard → synchronous snapshot move → deferred application commit
+contract on AppKit, UIKit, Android, GTK, Qt, XAML/WinUI, ArkUI, DOM, and mock (see
+[docs/list.md](docs/list.md)). Selection follows route keys across moves and filtered sources;
+images, badges, contextual menus and refresh indicators bind to recycled slots. Row roots
+center their content vertically within the fixed 36-point selection rectangle on every toolkit;
+inner icon/text alignment does not position the entire row. Tab/rail chrome
+continues to use its fixed navigation rows. No separate native reorder implementation or new
+capability is introduced. The opt-in rows and their reactive subscriptions live under the
+navigation page scope and are disposed with it. Regression: `nav_sidebar_reorder` in
+`crates/day-pieces/tests/mock_e2e.rs`.
+
+`Prompt::ok_label` and `cancel_label` let an application supply localized command labels for
+native URL/input sheets while retaining the existing awaitable cancel/dismiss contract.

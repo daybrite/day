@@ -735,6 +735,252 @@ struct RowMeta {
     section: Option<TextSource>,
 }
 
+#[derive(Clone)]
+struct NavReorder<K> {
+    eligible: Rc<dyn Fn(&K) -> bool>,
+    moved: Rc<dyn Fn(K, K)>,
+}
+#[derive(Clone, PartialEq)]
+struct SidebarRow<K> {
+    id: String,
+    key: Option<K>,
+    title: String,
+    icon: Option<String>,
+    tint: Option<day_spec::Color>,
+    badge: Option<String>,
+    badge_icon: Option<String>,
+    badge_tint: Option<day_spec::Color>,
+    menu: Vec<day_spec::MenuItem>,
+}
+fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
+    let mut result = Vec::new();
+    for (i, key) in rows.keys.into_iter().enumerate() {
+        if let Some(title) = &rows.sections[i] {
+            result.push(SidebarRow {
+                id: format!("header:{}", key.key()),
+                key: None,
+                title: title.clone(),
+                icon: None,
+                tint: None,
+                badge: None,
+                badge_icon: None,
+                badge_tint: None,
+                menu: vec![],
+            });
+        }
+        result.push(SidebarRow {
+            id: format!("item:{}", key.key()),
+            key: Some(key),
+            title: rows.titles[i].clone(),
+            icon: rows.icons[i].clone(),
+            tint: rows.tints[i],
+            badge: rows.badges[i].clone(),
+            badge_icon: rows.badge_icons[i].clone(),
+            badge_tint: rows.badge_tints[i],
+            menu: rows.menus[i].clone(),
+        });
+    }
+    result
+}
+fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool) -> AnyPiece {
+    piece_fn(move |cx| {
+        let node = image(move || {
+            day_spec::ImageSource::Named(slot.field(|r| {
+                if trailing {
+                    r.badge_icon.clone()
+                } else {
+                    r.icon.clone()
+                }
+                .unwrap_or_default()
+            }))
+        })
+        .build(cx);
+        bind(
+            move || slot.field(|r| if trailing { r.badge_tint } else { r.tint }),
+            move |tint| {
+                with_tree(|t| {
+                    t.patch(
+                        node,
+                        Box::new(day_spec::props::ImagePatch::Tint(*tint)),
+                        false,
+                    )
+                });
+            },
+        );
+        node
+    })
+    .frame(20.0, 20.0)
+    .any()
+}
+fn sidebar_progress<K: Route>(
+    slot: ItemSlot<SidebarRow<K>, String>,
+    progress: Option<IconProgressSource<K>>,
+) -> AnyPiece {
+    let activity = Rc::new(move || {
+        let key = slot.field(|row| row.key.clone())?;
+        progress.as_ref()?()
+            .into_iter()
+            .find(|(k, _)| k.key() == key.key())
+            .map(|(_, fraction)| fraction)
+    });
+    let (visible, determinate, drawn) = (activity.clone(), activity.clone(), activity);
+    when(
+        move || visible().is_some(),
+        move || {
+            let (determinate, drawn) = (determinate.clone(), drawn.clone());
+            when(
+                move || determinate().flatten().is_some(),
+                move || {
+                    let drawn = drawn.clone();
+                    canvas(move |draw, size| {
+                        let fraction = drawn().flatten().unwrap_or(0.0).clamp(0.0, 1.0);
+                        let color = slot
+                            .field(|r| r.tint)
+                            .unwrap_or(day_spec::Color::hex(0x0A84FF));
+                        let rect = day_spec::Rect::new(
+                            1.0,
+                            1.0,
+                            (size.width - 2.0).max(0.0),
+                            (size.height - 2.0).max(0.0),
+                        );
+                        draw.stroke(
+                            day_spec::Shape::Arc {
+                                rect,
+                                start_deg: -90.0,
+                                sweep_deg: 360.0 * fraction,
+                            },
+                            color,
+                            2.0,
+                        );
+                    })
+                    .frame(20.0, 20.0)
+                },
+            )
+            .otherwise(|| spinner().frame(20.0, 20.0))
+        },
+    )
+    .any()
+}
+fn reorder_sidebar<K: Route, S: Binding<K>>(
+    rows: Rc<SelItems<K>>,
+    selection: S,
+    reorder: NavReorder<K>,
+    progress: Option<IconProgressSource<K>>,
+) -> AnyPiece {
+    // Pure drag callbacks read the committed snapshot, never re-run application row builders.
+    let snapshot = Signal::new(day_reactive::untrack(|| sidebar_rows(rows.derive())));
+    bind(
+        move || sidebar_rows(rows.derive()),
+        move |value| snapshot.set_if_changed(value.clone()),
+    );
+    let source = Rc::new(move || snapshot.get());
+    let selection_revision = Signal::new(0u64);
+    let (read, guard, commit, selected) = (
+        source.clone(),
+        source.clone(),
+        source.clone(),
+        source.clone(),
+    );
+    let selected_binding = selection.clone();
+    list(
+        items(move || read(), |r: &SidebarRow<K>| r.id.clone()),
+        move |slot| {
+            let activity = progress.clone();
+            piece_fn(move |cx| {
+                let node = row((when(
+                    move || slot.field(|r| r.key.is_none()),
+                    move || {
+                        label(move || slot.field(|r| r.title.clone()))
+                            .font(day_spec::Font::Caption)
+                            .padding(day_spec::Insets::symmetric(8.0, 0.0))
+                            .grow_w()
+                    },
+                )
+                .otherwise(move || {
+                    let activity = activity.clone();
+                    row((
+                        when(
+                            move || slot.field(|r| r.icon.is_some()),
+                            move || {
+                                sidebar_image(slot, false)
+                                    .overlay(sidebar_progress(slot, activity.clone()))
+                            },
+                        ),
+                        label(move || slot.field(|r| r.title.clone()))
+                            .single_line()
+                            .grow_w(),
+                        label(move || slot.field(|r| r.badge.clone().unwrap_or_default()))
+                            .font(day_spec::Font::Caption),
+                        when(
+                            move || slot.field(|r| r.badge_icon.is_some()),
+                            move || sidebar_image(slot, true),
+                        ),
+                    ))
+                    .spacing(8.0)
+                    .align(VAlign::Center)
+                    .padding(day_spec::Insets::symmetric(8.0, 0.0))
+                    .grow_w()
+                }),))
+                .align(VAlign::Center)
+                .grow()
+                .build(cx);
+                with_tree(|t| {
+                    t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())))
+                });
+                node
+            })
+        },
+    )
+    .row_height(day_spec::props::RowHeight::Uniform(36.0))
+    .on_select(move |id| {
+        selection_revision.update(|n| *n = n.wrapping_add(1));
+        if let Some(row) = source().into_iter().find(|r| r.id == id)
+            && let Some(key) = row.key
+        {
+            day_core::note_navigation(&key.key(), Some(&row.title));
+            selection.write(key);
+        }
+    })
+    .selected_rows(move || {
+        selection_revision.get();
+        selected()
+            .iter()
+            .position(|r| {
+                r.key
+                    .as_ref()
+                    .is_some_and(|k| k.key() == selected_binding.read().key())
+            })
+            .into_iter()
+            .collect()
+    })
+    .reorderable(true)
+    .reorder_guard(move |from, to| {
+        let rows = guard();
+        if from >= rows.len()
+            || to >= rows.len()
+            || rows[from.min(to)..=from.max(to)]
+                .iter()
+                .any(|r| r.key.as_ref().is_none_or(|k| !(reorder.eligible)(k)))
+        {
+            Reorder::Deny
+        } else {
+            Reorder::Allow
+        }
+    })
+    .on_reorder(move |from, to| {
+        let rows = commit();
+        if let (Some(a), Some(b)) = (
+            rows.get(from).and_then(|r| r.key.clone()),
+            rows.get(to).and_then(|r| r.key.clone()),
+        ) {
+            (reorder.moved)(a, b);
+        }
+    })
+    .id("nav-reorder-list")
+    .grow()
+    .any()
+}
+
 /// One nav's live rows, flattened across its static items and dynamic blocks.
 struct NavRows<K> {
     keys: Vec<K>,
@@ -875,7 +1121,7 @@ impl<K: Route> SelItems<K> {
     }
 }
 
-type IconProgressSource<K> = Box<dyn Fn() -> Vec<(K, Option<f64>)>>;
+type IconProgressSource<K> = Rc<dyn Fn() -> Vec<(K, Option<f64>)>>;
 
 /// A one-of-N nav whose active key is an app-owned signal (two-way, exactly like
 /// `Picker`/`Toggle`). Deep links and dayscript address items by key (docs/navigation.md).
@@ -909,6 +1155,7 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     restore: Option<String>,
     /// Keep a filtered-out selection while its underlying record still exists.
     retain_selection: Option<ListPred<K>>,
+    reorder_items: Option<NavReorder<K>>,
     /// A header from [`Nav::section`] waiting to be attached to the next item added.
     pending_section: Option<TextSource>,
     /// Items declared on this host's own chrome ([`Nav::toolbar`]).
@@ -1154,6 +1401,7 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
         routed: true,
         restore: None,
         retain_selection: None,
+        reorder_items: None,
         toolbar: Vec::new(),
         search: None,
         presentation: None,
@@ -1166,6 +1414,23 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 }
 
 impl<K: Route, S: Binding<K>> Nav<S, K> {
+    /// Enable dragging within contiguous runs of eligible sidebar items. Fixed items and
+    /// section headers cannot be crossed. The callback receives the moved key and the key
+    /// whose position it takes (indices refer to the order before removal).
+    /// Uses the shared native list reorder driver on all list-capable toolkits. Tab/rail
+    /// chrome remains fixed. Persist the order in the callback's backing data.
+    pub fn reorder_items(
+        mut self,
+        eligible: impl Fn(&K) -> bool + 'static,
+        moved: impl Fn(K, K) + 'static,
+    ) -> Self {
+        self.reorder_items = Some(NavReorder {
+            eligible: Rc::new(eligible),
+            moved: Rc::new(moved),
+        });
+        self
+    }
+
     /// Preserve the current destination when its row disappears and `keep` returns true.
     /// Useful for filtered sidebars: reading a feed's last unread article can hide its row
     /// without closing the article. The native sidebar then has no highlighted row.
@@ -1181,7 +1446,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     /// for a known fraction. Omit finished keys. AppKit/UIKit animate in the compositor;
     /// other toolkits currently leave icons unchanged. Bind separately from `.items`.
     pub fn icon_progress(mut self, progress: impl Fn() -> Vec<(K, Option<f64>)> + 'static) -> Self {
-        self.icon_progress = Some(Box::new(progress));
+        self.icon_progress = Some(Rc::new(progress));
         self
     }
 
@@ -2340,43 +2605,53 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             (rows0.badge_icons.clone(), rows0.badge_tints.clone());
         let tints_init = rows0.tints.clone();
         let menus_init = rows0.menus.clone();
-        let menu_piece = piece_fn(move |mcx| {
-            let node = mcx.native(
-                kinds::NAV_MENU,
-                &NavMenuProps {
-                    items: titles_init,
-                    icons: icons_init,
-                    badges: badges_init,
-                    badge_icons: badge_icons_init,
-                    badge_tints: badge_tints_init,
-                    sections: sections_init,
-                    tints: tints_init,
-                    menus: menus_init,
-                    selected: selected_init,
-                },
-                Rc::new(LeafLayout),
-                Flex {
-                    grow_w: true,
-                    grow_h: true,
-                    ..Default::default()
-                },
-                Boundary::No,
-            );
-            mh.set(Some(node));
-            mcx.on(node, move |ev| {
-                if let Event::SelectionChanged(i) = ev
-                    && let Some(k) = ks.borrow().get(*i as usize)
-                {
-                    // Announce the navigation from its source (§14.6) with the row's own title:
-                    // the sidebar changes the route only after a remount, so a route observer would
-                    // otherwise miss the move and have no label for it. Index the live titles.
-                    let label = ts.borrow().get(*i as usize).cloned();
-                    day_core::note_navigation(&k.key(), label.as_deref());
-                    s.write(k.clone());
-                }
-            });
-            node
-        });
+        let menu_piece = if let Some(reorder) = sel.reorder_items {
+            reorder_sidebar(
+                items.clone(),
+                selection.clone(),
+                reorder,
+                icon_progress.clone(),
+            )
+        } else {
+            piece_fn(move |mcx| {
+                let node = mcx.native(
+                    kinds::NAV_MENU,
+                    &NavMenuProps {
+                        items: titles_init,
+                        icons: icons_init,
+                        badges: badges_init,
+                        badge_icons: badge_icons_init,
+                        badge_tints: badge_tints_init,
+                        sections: sections_init,
+                        tints: tints_init,
+                        menus: menus_init,
+                        selected: selected_init,
+                    },
+                    Rc::new(LeafLayout),
+                    Flex {
+                        grow_w: true,
+                        grow_h: true,
+                        ..Default::default()
+                    },
+                    Boundary::No,
+                );
+                mh.set(Some(node));
+                mcx.on(node, move |ev| {
+                    if let Event::SelectionChanged(i) = ev
+                        && let Some(k) = ks.borrow().get(*i as usize)
+                    {
+                        // Announce the navigation from its source (§14.6) with the row's own title:
+                        // the sidebar changes the route only after a remount, so a route observer would
+                        // otherwise miss the move and have no label for it. Index the live titles.
+                        let label = ts.borrow().get(*i as usize).cloned();
+                        day_core::note_navigation(&k.key(), label.as_deref());
+                        s.write(k.clone());
+                    }
+                });
+                node
+            })
+            .any()
+        };
         let content: AnyPiece = match sel.header {
             Some(h) => column((h(), menu_piece))
                 .spacing(4.0)

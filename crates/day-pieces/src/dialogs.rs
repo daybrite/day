@@ -237,6 +237,14 @@ impl Prompt {
         self.initial = v.into_text().initial();
         self
     }
+    pub fn ok_label<M>(mut self, label: impl IntoText<M>) -> Self {
+        self.ok = label.into_text().initial();
+        self
+    }
+    pub fn cancel_label<M>(mut self, label: impl IntoText<M>) -> Self {
+        self.cancel = label.into_text().initial();
+        self
+    }
     pub async fn present(self) -> Option<String> {
         let spec = PresentSpec::Prompt {
             title: self.title,

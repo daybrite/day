@@ -945,3 +945,14 @@ the stored state. Completion removes the layer/view and its animation. Text, bad
 geometry stay unchanged. Other toolkits currently ignore this optional decoration.
 `nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering` guards the
 separate-patch and route-remapping contracts.
+
+## Reordering sidebar destinations
+
+Use `.reorder_items(|key| is_movable(key), |moved, target| persist_move(moved, target))` to
+make contiguous runs of destinations draggable. Static headers and ineligible rows form
+boundaries that no drop can cross. `target` names the row whose position the moved row takes,
+in the pre-removal order. Keep the eligibility callback pure and persist changes in the commit
+callback. Rows use the shared native list pipeline on every list-capable toolkit, including
+long-press dragging on touch platforms. The internal list is addressable as `nav-reorder-list`
+for dayscript `reorder` steps; its indices include fixed section-header rows. Tabs and rails
+remain fixed. Without the option, the existing native sidebar widget is unchanged.

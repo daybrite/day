@@ -8753,3 +8753,64 @@ fn list_viewport_reports_update_the_bound_signal() {
     day_core::pump_events();
     assert_eq!(first.get_untracked(), 2);
 }
+
+#[test]
+fn nav_sidebar_reorder_keeps_fixed_sections_and_selected_route() {
+    let selected = Signal::new(Some("feed:b".to_string()));
+    let feeds = Signal::new(vec![
+        "feed:a".to_string(),
+        "feed:b".to_string(),
+        "feed:c".to_string(),
+    ]);
+    let activity = Signal::new(Vec::<(Option<String>, Option<f64>)>::new());
+    let probe = boot(move || {
+        nav(selected)
+            .icon_progress(move || activity.get())
+            .style(NavStyle::Sidebar)
+            .section("Fixture smart feeds")
+            .item("today".to_string(), "Fixture today", || {
+                label("Fixture today page")
+            })
+            .section("Fixture feeds")
+            .items(move || feeds.get(), |key| item(key.clone(), key.clone()))
+            .destination(|_| label("Fixture feed page"))
+            .item("settings".to_string(), "Fixture settings", || {
+                label("Fixture settings page")
+            })
+            .reorder_items(
+                |key: &Option<String>| key.as_deref().is_some_and(|k| k.starts_with("feed:")),
+                move |from, to| {
+                    feeds.update(|rows| {
+                        let from = rows.iter().position(|k| Some(k) == from.as_ref()).unwrap();
+                        let to = rows.iter().position(|k| Some(k) == to.as_ref()).unwrap();
+                        let moved = rows.remove(from);
+                        rows.insert(to, moved);
+                    });
+                },
+            )
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    let before = reload_count(&probe);
+    activity.set(vec![(Some("feed:b".into()), Some(0.5))]);
+    flush_sync();
+    assert_eq!(
+        reload_count(&probe),
+        before,
+        "progress repaints without a list reload"
+    );
+    assert_eq!(probe.list_can_move(host, 3, 5), 5);
+    assert_eq!(
+        probe.list_can_move(host, 3, 1),
+        -1,
+        "smart feeds stay pinned"
+    );
+    assert_eq!(probe.list_can_move(host, 3, 2), -1, "headers stay pinned");
+    assert_eq!(probe.list_can_move(host, 3, 6), -1, "settings stays pinned");
+    assert!(probe.list_move(host, 3, 5));
+    assert_eq!(feeds.get_untracked(), ["feed:b", "feed:c", "feed:a"]);
+    assert_eq!(selected.get_untracked().as_deref(), Some("feed:b"));
+    assert_eq!(probe.list_can_move(host, 5, 3), 3);
+    assert!(probe.list_move(host, 5, 3));
+    assert_eq!(feeds.get_untracked(), ["feed:a", "feed:b", "feed:c"]);
+    assert_eq!(selected.get_untracked().as_deref(), Some("feed:b"));
+}
