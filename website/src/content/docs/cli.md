@@ -614,11 +614,12 @@ store's sizes and coverage rules (the rules file the CLI embeds; `--rules FILE` 
 and `day store stage --screenshots <gallery.json | URL>` places it where fastlane uploads it. See
 [Store listings](/docs/internal/store) for the full field table and the credential variables.
 
-`day screenshot pack <gallery.json>` stores the captures an index names as one
-`screenshots.frames.zst`, about an eighth of the PNG files' size, and records each capture's
-position and pixel checksum in the index. `day screenshot unpack <gallery.json> --out <dir>`
-verifies those checksums and writes the PNG files back; `--check` verifies only. See
-[Screenshot frame archive](/docs/internal/screenshot-archive) for the format.
+`day screenshot pack --root <tree>… --out screenshots.tar.xz` bundles capture trees as a
+plain tar.xz of uncompressed PNG files, about a ninth of the PNG files' size, opening with a
+`SHA256SUMS`; `--index` carries a merged `gallery.json` inside and `--each <dir>` also writes one
+bundle per tree. `day screenshot unpack screenshots.tar.xz --out <dir>` verifies every file and
+writes the captures back as compact PNG files; `--check` verifies only. See
+[Screenshot bundle](/docs/internal/screenshot-archive) for the format.
 
 In CI, `day lint --strict` turns any finding into a failure (exit 10). A fresh scaffold trips one
 rule, because the listing text it ships is still `TODO`. Pass `--allow store-placeholder` to let

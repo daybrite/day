@@ -523,7 +523,7 @@ The shared `dayapp.yml` workflow does all of this on a tag with `store-screensho
 upload job takes the run's own `screenshots-<target>` artifact, indexes it, checks it, stages
 the listing with it, and uploads, so the set is the tagged version's without a website in
 between. The App Fair's queue rebuilds an app from its tag and takes the set from the release
-instead, the `gallery.json` and `screenshots.zip` the same workflow attaches to it, and its
+instead, the `gallery.json` and `screenshots.tar.xz` the same workflow attaches to it, and its
 pull-request checks hold it to the rules the release's `storefront.json` carries before anything
 is built.
 

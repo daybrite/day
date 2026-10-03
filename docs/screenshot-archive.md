@@ -1,6 +1,6 @@
 ---
-title: "Screenshot frame archive"
-description: "The file day screenshot pack writes: every capture's pixels in one Zstandard stream, the gallery.json fields that describe it, and how a tool extracts and verifies a capture."
+title: "Screenshot bundle"
+description: "The screenshots.tar.xz a release carries: a plain tar.xz of uncompressed PNG files that xz compresses across captures, the SHA256SUMS it opens with, the gallery.json fields that describe it, and how day screenshot pack and unpack handle it."
 ---
 
 <!--
@@ -8,38 +8,126 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Screenshot frame archive
+# Screenshot bundle
 
-`day screenshot pack` stores a run's captures as one file, `screenshots.frames.zst`, and records
-in `gallery.json` where each capture sits and what its pixels hash to. `day screenshot unpack`
-checks the file against the index and writes the PNG tree back. The code is
-`crates/day-cli/src/screenshot.rs`.
+A release carries its captures as `screenshots.tar.xz`, with one `screenshots-<target>[-<device>].tar.xz`
+per capture tree beside it. Each is a plain tar.xz file: `tar -xJf` extracts it anywhere, and
+`sha256sum -c SHA256SUMS` checks what came out. `day screenshot pack` writes them and
+`day screenshot unpack` reads them back; the code is `crates/day-cli/src/screenshot.rs`.
 
 ```sh
-day screenshot index --screenshot-paths shots --out shots/gallery.json
-day screenshot pack shots/gallery.json --out release/screenshots.frames.zst --index-out release/gallery.json
-day screenshot unpack release/gallery.json --check        # verify, write nothing
-day screenshot unpack release/gallery.json --out restored # verify, write the tree and its index
+day screenshot index --screenshot-paths shots-a shots-b --out merged/gallery.json
+day screenshot pack --root shots-a --root shots-b --index merged/gallery.json \
+  --index-out release/gallery.json --out release/screenshots.tar.xz --each release
+day screenshot unpack release/screenshots.tar.xz --check        # verify, write nothing
+day screenshot unpack release/screenshots.tar.xz --out restored # verify, write the tree
 ```
 
-`pack` and `unpack` read an index and files, so they run outside a Day project.
+`pack` and `unpack` read files alone, so they run outside a Day project.
+
+## Why it is small
+
+A run's captures are near-copies of each other: one page in eight theme and locale variants,
+forty pages around one sidebar. A PNG file compresses alone and sees none of that, and an
+archive of compressed PNG files cannot see it either. The bundle stores each capture as a PNG
+with stored (uncompressed) deflate blocks and no row filter, so its pixel rows lie open to the
+compressor, and orders a tree's captures by shot, then variant, so a page's variants are next
+to each other. xz's window, up to 256 MiB, then compresses one capture against the ones before
+it.
+
+Day Showcase v0.4.25's iPad captures, 392 files at 2752×2064:
+
+| archive | size |
+| --- | --- |
+| the PNG files | 191 MB |
+| `.tar.gz` of the same files | 120 MB |
+| `.tar.bz2` | 73 MB |
+| `.tar.zst` (level 19, 1 GiB window) | 24.0 MB |
+| `.tar.xz` (preset 6, 256 MiB dictionary) | 21.6 MB |
+| `.tar.xz` (1 GiB dictionary) | 20.6 MB, for four times the memory |
 
 ## What the round trip keeps
 
-The archive keeps pixels. A capture unpacks to a PNG with the same width, height and 8-bit
-RGB or RGBA samples as the file that was packed, and `unpack` refuses an archive in which any
-capture's pixels hash differently from the index.
+The PNG files in the bundle hold the same width, height and 8-bit RGB or RGBA samples as the
+captures they were made from. `tar -xJf` gives you those files, large (an iPad capture is 17 MB).
+`unpack` writes each capture back as a compact PNG of the same pixels, and the `gallery.json` it
+writes describes those files.
 
-The PNG files are new encodings. Their bytes, and so their `bytes` and `sha256` in the index,
-differ from the originals, and ancillary chunks (`sRGB`, `eXIf`, text) are not carried. The
-`gallery.json` that `unpack` writes describes the files it wrote. 16-bit captures are refused
-by `pack`.
+Ancillary chunks (`eXIf`, `pHYs`, text) are not carried; the dayscript runner's captures have
+none but `sRGB`, which every PNG in the bundle has. An embedded ICC profile other than sRGB is
+not carried either, and changes what the samples mean, so `pack` warns with a count per tree.
+16-bit captures are refused.
 
-An embedded ICC profile (`iCCP`) other than sRGB is one of those chunks, and it changes what the
-samples mean: the capture unpacks with the same samples tagged sRGB, so its colors shift. `pack`
-warns with the count per platform. The dayscript runner's captures are sRGB (see
-[Normalized captures](#normalized-captures)); macOS captures taken before 2026-10 embed the
-capturing display's profile.
+## The file
+
+The tar's entries, in order:
+
+1. `SHA256SUMS`: one line per later entry, `<sha-256 hex>  <path>`, the form `sha256sum -c` reads.
+2. `gallery.json`, in the merged bundle: the index `day screenshot index` wrote, with each
+   capture's `archived` size and sha-256 (below).
+3. Each tree's other files (its own `gallery.json` indexes, a capture page), then its captures
+   by group, shot and variant: `<target>/[<device>/]<variant>/<shot>.png`.
+
+Entries are ustar headers with zero owner and time, so two bundles of the same files are the
+same bytes.
+
+The file is a concatenation of xz streams, which xz and tar read as one: a header stream
+holding entries 1 and 2, one body stream per tree holding its entries and nothing else, and a
+trailer stream holding the tar's end-of-archive marker. A per-tree bundle is that tree's body
+between its own header (a `SHA256SUMS` for its entries) and the same trailer. The merged bundle
+and the per-tree bundles are assembled from the same compressed bodies, so a tree is compressed
+once. Each stream is LZMA2 at preset 6 with a CRC64 check and a dictionary of the smallest
+power of two that holds the stream, between 1 MiB and 256 MiB; a reader allocates the
+dictionary, an encoder about ten times it.
+
+## The index fields
+
+`pack` adds an `archive` block to the index it writes with `--index-out`, and an `archived`
+object to each capture:
+
+```json
+{
+  "archive": {
+    "format": "tar.xz",
+    "file": "screenshots.tar.xz",
+    "bytes": 63012345,
+    "sha256": "…",
+    "dictionary": 268435456,
+    "parts": [
+      { "file": "screenshots-ios-uikit-ipad.tar.xz", "tree": "screenshots-ios-uikit-ipad",
+        "bytes": 21601464, "sha256": "…" }
+    ]
+  },
+  "screenshots": [
+    { "path": "gallery/ios-uikit/ipad/light/home.png",
+      "bytes": 322763, "sha256": "…",
+      "archived": { "bytes": 17043816, "sha256": "…" } }
+  ]
+}
+```
+
+| field | meaning |
+| --- | --- |
+| `archive.format` | `tar.xz` |
+| `archive.file`, `archive.bytes`, `archive.sha256` | the merged bundle's name, size and sha-256 |
+| `archive.dictionary` | the largest xz dictionary any stream uses, in bytes |
+| `archive.parts[]` | each per-tree bundle: its file name, the tree it holds, its size and sha-256 |
+| `archived.bytes`, `archived.sha256` | the capture's size and sha-256 as it sits in the bundle, which is what `SHA256SUMS` lists |
+
+The entry's own `bytes` and `sha256` stay those of the capture file that was packed. The
+`gallery.json` inside the bundle carries `archived` and `archive.format`/`archive.file`, since
+a file cannot hold its own hash.
+
+## Extracting without the CLI
+
+```sh
+tar -xJf screenshots.tar.xz
+sha256sum -c SHA256SUMS            # shasum -a 256 -c on macOS
+```
+
+A single capture from a bundle without extracting the rest: `tar -xJf screenshots.tar.xz
+ios-uikit/ipad/light/home.png`. The files are valid PNG files as they are; to compact one,
+re-encode it with any PNG tool.
 
 ## Normalized captures
 
@@ -50,13 +138,11 @@ whatever tool took them (`normalize_capture` in `screenshot.rs`):
 - an `sRGB` chunk and no other ancillary chunk;
 - one encoder setting.
 
-The pixels are kept exactly, including the translucent corners of a macOS window. `unpack`
-writes the same shape, so a capture that is packed and unpacked comes back byte for byte.
+The pixels are kept exactly, including the translucent corners of a macOS window. A capture is
+left as saved, and the runner says so, when it is 16-bit or embeds an ICC profile other than
+sRGB. `DAY_SCREENSHOT_RAW=1` keeps every file as its capture tool wrote it.
 
-A capture is left as saved, and the runner says so, when it is 16-bit or embeds an ICC profile
-other than sRGB. `DAY_SCREENSHOT_RAW=1` keeps every file as its capture tool wrote it.
-
-Before this, the same kind of image arrived differently per target (Day-Showcase v0.4.25):
+Before this, the same kind of image arrived differently per target (Day Showcase v0.4.25):
 
 | target | color type | ancillary chunks |
 | --- | --- | --- |
@@ -72,120 +158,21 @@ Before this, the same kind of image arrived differently per target (Day-Showcase
 The AppKit backend converts its capture to sRGB before encoding it, so a macOS capture's samples
 are comparable with the other targets' and independent of the capturing display.
 
-## The file
+## Measurements behind the design
 
-The archive is a sequence of Zstandard frames, one per group, with nothing between them. A group
-is the captures of one platform and device profile (`ios-uikit` on `ipad`, or `macos-appkit`).
-Decompressed, a group is its captures' pixels back to back in the order the index lists them:
-by shot, then by variant, so the theme and locale variants of one page are adjacent.
-
-A capture's pixels are its rows from top to bottom, without padding or a header:
-
-| `pixels` | bytes per pixel | layout |
-| --- | --- | --- |
-| `rgb24` | 3 | R, G, B. Used when every pixel of the capture is opaque. |
-| `rgba` | 4 | R, G, B, A with straight alpha. |
-
-Each frame is written at level 19 with long-distance matching, a content checksum, and a window
-sized to its group, up to 2^30 bytes. A reader allocates that window: up to 1 GiB.
-
-Because the file is plain concatenated Zstandard, stock tools read it. `zstd -d --long=30`
-decompresses every group in order, and a reader that wants one group reads `bytes` from `offset`.
-
-## The index fields
-
-`pack` adds an `archive` block to the index and a `frame` to each entry of `screenshots`:
-
-```json
-{
-  "archive": {
-    "format": "day-frames-1",
-    "file": "screenshots.frames.zst",
-    "bytes": 23567694,
-    "sha256": "017ee08b…",
-    "compression": "zstd",
-    "window_log": 30,
-    "groups": [
-      { "platform": "ios-uikit", "device": "ipad", "offset": 0, "bytes": 23567694,
-        "raw_bytes": 6679830528, "frames": 392 }
-    ]
-  },
-  "screenshots": [
-    {
-      "path": "gallery/ios-uikit/ipad/dark-ar/home.png",
-      "width": 2752,
-      "height": 2064,
-      "frame": { "group": 0, "offset": 17040384, "bytes": 17040384, "pixels": "rgb24",
-                 "sha256": "60371a36…" }
-    }
-  ]
-}
-```
-
-| field | meaning |
-| --- | --- |
-| `archive.format` | `day-frames-1`. A reader refuses a format it does not know. |
-| `archive.file` | the archive's file name, beside the index |
-| `archive.bytes`, `archive.sha256` | the archive file's size and sha-256 |
-| `archive.window_log` | the largest window any group uses, as a power of two |
-| `groups[].offset`, `groups[].bytes` | where the group's Zstandard frame sits in the file |
-| `groups[].raw_bytes`, `groups[].frames` | the group's decompressed size and capture count |
-| `frame.group` | index into `archive.groups` |
-| `frame.offset`, `frame.bytes` | where the capture's pixels sit in the group's decompressed bytes |
-| `frame.pixels` | `rgb24` or `rgba`; `frame.bytes` is `width × height × 3` or `× 4` |
-| `frame.sha256` | sha-256 of those pixel bytes |
-
-The entry's own `bytes` and `sha256` stay those of the PNG file that was packed.
-
-## Extracting a capture without the CLI
-
-1. Check the file's size and sha-256 against `archive.bytes` and `archive.sha256`.
-2. Read `groups[g].bytes` bytes at `groups[g].offset` and decompress them with a window limit of
-   at least `archive.window_log`.
-3. Take `frame.bytes` bytes at `frame.offset` of the result and compare their sha-256 with
-   `frame.sha256`.
-4. Interpret them as `width × height` pixels in `frame.pixels` layout.
-
-With stock tools, for a file holding one group:
-
-```sh
-zstd -d --long=30 -c screenshots.frames.zst | tail -c +17040385 | head -c 17040384 > home.rgb
-shasum -a 256 home.rgb
-ffmpeg -f rawvideo -pixel_format rgb24 -video_size 2752x2064 -i home.rgb home.png
-```
-
-## Measurements
-
-Day-Showcase v0.4.25's iPad captures: 392 files, 2752×2064, 8 variants of 49 shots, 191 MB as
-PNG and 159 MB zipped.
+On the same 392 iPad captures, the alternatives tried first:
 
 | encoding | size |
 | --- | --- |
-| PNG files | 191 MB |
-| lossless WebP, one file per capture | about 52 MB (sampled) |
+| lossless WebP, one file per capture | about 52 MB |
 | FFV1 | 119 MB |
 | lossless H.265 (`libx265`, slow) | 118 MB |
 | lossless H.264 RGB (`libx264rgb -qp 0`, veryslow) | 57 MB |
 | previous-frame XOR, then Zstandard 19 | 53 MB |
-| raw frames, Zstandard 19, 2^30 window, shot order | 23.7 MB |
-
-Frame order and batching, all at Zstandard 19:
-
-| layout | window | size |
-| --- | --- | --- |
-| one stream, shot order (variants adjacent) | 2^31 | 23.3 MB |
-| one stream, capture order (variant by variant) | 2^31 | 31.5 MB |
-| iPhone and iPad in one stream | 2^31 | 48.0 MB, the sum of the two apart |
-| one stream, shot order | 2^28 | 25.6 MB |
-| two streams, one per theme | 2^28 | 34.2 MB |
-| eight streams, one per variant | 2^28 | 48.8 MB |
-
-A shot's light and dark variants share its images and map tiles, and its locales share
-everything but the text, so one stream per device profile is smallest. Two device profiles share
-nothing a window finds, which is why each is its own Zstandard frame.
+| raw pixel rows, Zstandard 19, 2^31 window | 23.3 MB |
 
 Subtracting or XOR-ing the previous frame before compressing made the file larger: it replaces
-the repeats the long window would match with residue that no longer matches other frames.
-
-On a 10-core Mac, packing those 392 captures takes 38 s and 2.4 GB of memory with four
-compression threads. Checking takes 4 s and unpacking to PNG 5 s, both within 1.5 GB.
+the repeats the window would match with residue that matches nothing. Order matters: variants
+adjacent (23.3 MB) against capture order (31.5 MB), one stream against one per theme (34 MB) or
+one per variant (49 MB). Two targets share nothing a window finds: iPhone and iPad together came
+to the sum of the two apart, which is why each tree is its own stream.

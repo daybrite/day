@@ -128,7 +128,7 @@ export const groups = [
       ['logging', 'the `log` facade, levels, per-platform sinks, DAY_LOG, custom loggers'],
       ['break', '`day-piece-break` crash capture, reports, and delivery'],
       ['store', 'store listings and `day store`'],
-      ['screenshot-archive', 'the frame archive `day screenshot pack` writes, and normalized captures'],
+      ['screenshot-archive', 'the screenshots.tar.xz bundle `day screenshot pack` writes, and normalized captures'],
       ['flavors', '`Day-<name>.toml` and `--flavor`: one source tree, several shipped apps'],
       ['agent', 'dayscript sessions, `day drive`, and the agent-facing tooling'],
       ['api-style', 'the API design conventions Day itself follows'],

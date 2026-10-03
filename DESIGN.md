@@ -3073,7 +3073,7 @@ store checks the pixels' count; the check judges the size the store receives (20
 same index: a target's page shows one carousel per device kind, each its `website` list in
 order (daysite's landing rows), the gallery page every capture. The App Fair's queue is the first store consumer: its review shows
 the declared captures per store and device, its checks hold their sizes to the same rules, and
-its signing stage stages them from the release's `gallery.json` and `screenshots.zip`
+its signing stage stages them from the release's `gallery.json` and `screenshots.tar.xz`
 (2026-09-24). The shared `dayapp.yml` workflow does the same for an app that uploads on its own
 with `store-screenshots: true`: its upload jobs index the run's own `screenshots-<target>`
 artifact, check it, and stage with it, so no site stands between the walkthrough and the store
@@ -3118,24 +3118,23 @@ linking the images where the app hosts them. A `title:` therefore names a row on
 by an app appears on daybrite.dev without a change in this repository.
 
 A release carries the same index twice (`daybrite/actions` dayapp.yml, 2026-09): inside
-`screenshots.zip`, which holds the merged capture tree, and as a `gallery.json` asset of its own,
-so a tool can read what a release contains without downloading the images. That pair is what lets
-a project site build its RELEASE channel from the release alone ([§19](#19-repository-layout-examples-and-docs-site));
-a release made before the bundle existed still works, because its per-target
-`screenshots-<target>.zip` assets unzip to the same tree and the CLI merges their indexes.
+`screenshots.tar.xz`, which holds the merged capture tree, and as a `gallery.json` asset of its
+own, so a tool can read what a release contains without downloading the images. That pair is
+what lets a project site build its RELEASE channel from the release alone
+([§19](#19-repository-layout-examples-and-docs-site)). One `screenshots-<target>[-<device>].tar.xz`
+per capture tree sits beside the merged bundle, for someone who wants one platform's captures.
 
 > [!NOTE]
-> **Frame archive (2026-10).** `day screenshot pack` stores an index's captures as one file,
-> `screenshots.frames.zst`: the decoded pixels of every capture in a long-window Zstandard
-> stream, one independent Zstandard frame per platform and device profile, with the captures in
-> shot order so a page's variants are adjacent. The index gains an `archive` block (file name,
-> size, sha-256, the groups' offsets) and a `frame` per capture (group, offset, length, pixel
-> format, sha-256 of the pixels). `day screenshot unpack` holds the file and every capture to
-> those checksums and writes the PNG tree and its index back; the pixels are the captured ones
-> and the PNG bytes are new encodings. Day-Showcase's 392 iPad captures are 191 MB as PNG and
-> 24 MB packed. `dayapp.yml` ships a release's captures this way with `screenshot-bundle:
-> frames`, and its website job reads either form. The format and the measurements behind it are
-> in [docs/screenshot-archive.md](docs/screenshot-archive.md).
+> **Screenshot bundle (2026-10).** `day screenshot pack` writes a release's captures as plain
+> `tar.xz` files of uncompressed PNG files, ordered so a page's variants are adjacent, which
+> xz's window (up to 256 MiB) compresses across captures: Day Showcase's 392 iPad captures are
+> 191 MB as PNG files and 21.6 MB bundled. Every bundle opens with a `SHA256SUMS`; the merged one
+> carries the index with each capture's archived size and sha-256; the per-tree bundles share the
+> merged bundle's compressed bodies, so a tree is compressed once. `tar -xJf` reads them anywhere;
+> `day screenshot unpack` verifies as it streams and writes compact PNG files back. The format
+> replaced a raw-pixel Zstandard stream (`screenshots.frames.zst`, 2026-10-02 to 2026-10-03) and
+> the earlier `screenshots.zip` of PNG files; neither is read any more. The format and the
+> measurements behind it are in [docs/screenshot-archive.md](docs/screenshot-archive.md).
 >
 > **Normalized captures (2026-10).** The runner rewrites each capture it saves as 8-bit RGB
 > (RGBA when a pixel is translucent) with an `sRGB` chunk and no other ancillary chunk, keeping
@@ -3763,7 +3762,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
 | `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
-| `day screenshot pack <index>` / `day screenshot unpack <index>` | the frame archive ([docs/screenshot-archive.md](docs/screenshot-archive.md)): `pack` writes the captures an index names as one `screenshots.frames.zst` (`--root` the capture tree, `--out` the archive, `--index-out` the index describing it); `unpack` checks the archive's and every capture's sha-256 and writes the PNG tree and its `gallery.json` to `--out`, or with `--check` verifies and writes nothing. Both run outside a project |
+| `day screenshot pack --root <tree>… --out <file>` / `day screenshot unpack <file>` | the screenshot bundle ([docs/screenshot-archive.md](docs/screenshot-archive.md)): `pack` writes capture trees as one `screenshots.tar.xz` of uncompressed PNG files (`--index` carries a merged index inside with each capture's archived checksum, `--index-out` writes it with the bundle's facts, `--each <dir>` also writes one bundle per tree); `unpack` checks every file against the bundle's `SHA256SUMS` and writes the tree, each capture as a compact PNG, to `--out`, or with `--check` verifies and writes nothing. Both run outside a project |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time ([docs/agent.md](docs/agent.md) — the agent inner loop) |
@@ -4875,7 +4874,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)
 > and `launch.ps1` (the Windows per-user installer), which are release ASSETS rather than hosted
 > files so the URL chooses the version and every Day app gets a one-line try-it path without
-> hosting anything, and a `screenshots.zip` + `gallery.json` bundle ([§14.7](#147-screenshot-metadata-and-the-gallery-index)) — and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
+> hosting anything, and a `screenshots.tar.xz` + `gallery.json` bundle ([§14.7](#147-screenshot-metadata-and-the-gallery-index)) — and — with `deploy-web: true` and web-dom among its targets — also deploys that build to the
 > app repo's own GitHub Pages (reusing the dist it already built; relative-path so a project-Pages
 > subpath works; a `web-deploy-tag-pattern` input gates publish-on-tag vs publish-on-main;
 > [docs/web.md](docs/web.md)), plus a scaffold-validation workflow. The Gradle/AGP legs use the runner's DEFAULT

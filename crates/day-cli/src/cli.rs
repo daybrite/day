@@ -635,30 +635,31 @@ pub enum ScreenshotCmd {
         #[arg(long)]
         out: Option<PathBuf>,
     },
-    /// Pack an index's captures into one frame archive
+    /// Bundle capture trees into screenshots.tar.xz
     #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
     Pack {
-        /// The gallery.json that `day screenshot index` wrote
-        index: PathBuf,
-        /// Capture tree the index's paths resolve in (default: the index's directory)
-        #[arg(long, value_name = "DIR")]
-        root: Option<PathBuf>,
-        /// Archive to write (default: screenshots.frames.zst beside the index)
+        /// Capture trees to bundle (repeatable; each is one stream of the bundle)
+        #[arg(long, value_name = "DIR", required = true)]
+        root: Vec<PathBuf>,
+        /// The bundle to write
         #[arg(long, value_name = "FILE")]
-        out: Option<PathBuf>,
-        /// Where to write the index describing the archive (default: over the input)
-        #[arg(long = "index-out", value_name = "FILE")]
+        out: PathBuf,
+        /// A merged gallery.json to carry inside, with each capture's archived checksum
+        #[arg(long, value_name = "FILE")]
+        index: Option<PathBuf>,
+        /// Where to write the index with the finished bundle's facts (default: over --index)
+        #[arg(long = "index-out", value_name = "FILE", requires = "index")]
         index_out: Option<PathBuf>,
+        /// Also write one bundle per tree into this directory, named after the tree
+        #[arg(long, value_name = "DIR")]
+        each: Option<PathBuf>,
     },
-    /// Check a frame archive against its index and write the captures back as PNG files
+    /// Check a bundle against its SHA256SUMS and write its captures back as PNG files
     #[command(after_help = "Docs: https://daybrite.dev/docs/dayscript/")]
     Unpack {
-        /// A gallery.json with an archive block
-        index: PathBuf,
-        /// The archive (default: the file the index names, beside the index)
-        #[arg(long, value_name = "FILE")]
-        archive: Option<PathBuf>,
-        /// Directory for the capture tree and its gallery.json
+        /// The screenshots.tar.xz
+        archive: PathBuf,
+        /// Directory for the capture tree
         #[arg(long, value_name = "DIR", required_unless_present = "check")]
         out: Option<PathBuf>,
         /// Check every checksum and write nothing
@@ -1449,30 +1450,27 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             // The archive commands read an index and files, so they run outside a project too:
             // a site build or a store queue unpacks a release it downloaded.
             ScreenshotCmd::Pack {
-                index,
                 root,
                 out,
+                index,
                 index_out,
+                each,
             } => crate::screenshot::pack(&crate::screenshot::PackOptions {
-                index,
-                root,
+                roots: root,
                 out,
+                index,
                 index_out,
+                each,
             })
             .map(|_| 0)
             .map_err(CliError::failure),
             ScreenshotCmd::Unpack {
-                index,
                 archive,
                 out,
                 check: _,
-            } => crate::screenshot::unpack(&crate::screenshot::UnpackOptions {
-                index,
-                archive,
-                out,
-            })
-            .map(|()| 0)
-            .map_err(CliError::failure),
+            } => crate::screenshot::unpack(&crate::screenshot::UnpackOptions { archive, out })
+                .map(|()| 0)
+                .map_err(CliError::failure),
         },
         Cmd::Localize { cmd } => with_project(cli.project.as_deref(), |project| {
             crate::localize::run(project, &cmd).map(|()| 0)
