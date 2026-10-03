@@ -212,8 +212,10 @@ background, ctrl/cmd toggles, shift extends) honor `multi_select` and `ListPatch
 **Android** and **ArkUI** report single selection (a tap replaces, the touch idiom) but do
 honor `ListPatch::Selected`: the sync paints the visible cells (the theme accent at 20%
 alpha as the cell background) and newly bound cells inherit their row's state, which is what
-lets the composed tree's selection follow the canvas ([docs/tree.md](tree.md)). The remaining
-toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
+lets the composed tree's selection follow the canvas ([docs/tree.md](tree.md)). **GTK** uses native `GtkSingleSelection` for programmatic sync,
+reapplying the requested row after model reloads without an event echo. Empty sync clears
+selection, and out-of-range rows remain unselected. The sync does not take keyboard focus.
+The remaining toolkits report single selection (`SelectionChanged`) and ignore the multi flag and the
 programmatic sync; the one-element `on_selection` contract still holds there.
 
 AppKit separates selection from keyboard focus. `.selected_rows` uses native selection but

@@ -827,10 +827,8 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     {
                         f(r);
                     }
-                    if let Some(f) = &on_selection
-                        && let Some(r) = conn.select_ref(*i as usize)
-                    {
-                        f(vec![r]);
+                    if let Some(f) = &on_selection {
+                        f(conn.select_ref(*i as usize).into_iter().collect());
                     }
                 }
                 Event::SelectionSet(rows) => {

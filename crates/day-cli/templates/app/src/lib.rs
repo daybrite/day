@@ -19,6 +19,8 @@ pub fn window() -> day::WindowOptions {
         title_fn: Some(|| res::str::app_title().format()),
         // Desktop only; phones fill the screen.
         size: day::prelude::Size::new(960.0, 640.0),
+        // Named in Day's exit line (https://daybrite.dev/docs/lifecycle).
+        version: Some(env!("CARGO_PKG_VERSION").into()),
         ..Default::default()
     }
 }

@@ -2511,6 +2511,7 @@ impl Toolkit for Dom {
                 | Lifecycle::DidLaunch
                 | Lifecycle::DidBecomeActive
                 | Lifecycle::WillResignActive
+                | Lifecycle::DidExit
         )
     }
 
@@ -4247,6 +4248,9 @@ pub extern "C" fn day_dom_lifecycle(phase: u32) {
     let phase = match phase {
         0 => Lifecycle::DidBecomeActive,
         1 => Lifecycle::WillResignActive,
+        // `pagehide`: the page is going away (a navigation, a reload, a closed tab), which is
+        // the last moment the app runs (docs/lifecycle.md).
+        2 => Lifecycle::DidExit,
         _ => return,
     };
     day_spec::ffi_guard::contain((), || {

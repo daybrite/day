@@ -712,6 +712,7 @@ pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
     register_preferences_with(
         WindowOptions {
             title: "Settings".into(),
+            version: None,
             // The width a settings panel wants, and a ceiling for the height rather than the
             // height itself: `size_to_fit` shrinks the window to whatever the rows actually
             // measure. A fixed 640 either clips the last row or leaves a band of empty panel
@@ -803,6 +804,7 @@ pub fn open_new_window() -> Option<WindowHandle> {
             min_size: launch.as_ref().and_then(|o| o.min_size),
             size_to_fit: false,
             app_name: launch.as_ref().and_then(|o| o.app_name.clone()),
+            version: launch.as_ref().and_then(|o| o.version.clone()),
             // Secondary windows: the app-launch ceremony belongs to `launch` alone.
             locales: None,
             // Already resolved into `title` above; calling it again would re-run app code

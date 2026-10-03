@@ -135,13 +135,17 @@ void *day_qt_app_new(const char *app_name) {
         strncpy(s_arg0, app_name, sizeof(s_arg0) - 1);
         s_arg0[sizeof(s_arg0) - 1] = '\0';
     }
+    // Named before the application exists: the macOS platform plugin builds the application
+    // menu while QApplication constructs, and titles it from the name set by then (else the
+    // executable's, `day-rise` for a bare development binary).
+    QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
+    QGuiApplication::setApplicationDisplayName(QString::fromUtf8(s_arg0));
     auto *app = new DayApplication(s_argc, s_argv);
     // Quit is DELIBERATE (the primary window's closeEvent / role Quit / ⌘Q): the default
     // quit-on-last-window-closed would misfire once secondary windows exist
     // (docs/windows.md — closing the last secondary must not exit, closing the primary
     // must exit even while secondaries are open).
     QApplication::setQuitOnLastWindowClosed(false);
-    QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
     // DAY_THEME=light|dark forces the color scheme (themed CI screenshot runs and local theme
     // checks); unset => follow the system. QStyleHints::setColorScheme needs Qt 6.8+; on older
     // Qt (e.g. Ubuntu 24.04's 6.4) fall back to a hand-built dark palette — Qt Widgets are
@@ -279,8 +283,22 @@ protected:
     }
 };
 
+// The window's own quit shortcut, cleared when a menu takes the Quit role.
+static QAction *s_default_quit = nullptr;
+
 void *day_qt_window_new(const char *title, int w, int h) {
     auto *win = new DayWindow();
+    // The platform quit shortcut (Ctrl+Q; ⌘Q on macOS) quits with no menu declared, as GTK's
+    // `app.quit` accelerator does. A declared `MenuRole::Quit` item takes the key over
+    // (`day_qt_menu_add_role`), since two actions on one shortcut fire neither.
+    {
+        auto *quit = new QAction(win);
+        quit->setShortcut(QKeySequence::Quit);
+        quit->setShortcutContext(Qt::ApplicationShortcut);
+        QObject::connect(quit, &QAction::triggered, []() { QCoreApplication::quit(); });
+        win->addAction(quit);
+        s_default_quit = quit;
+    }
     win->setWindowTitle(QString::fromUtf8(title));
     win->resize(w, h);
     win->content = new QWidget(win);
@@ -3599,6 +3617,7 @@ void day_qt_menu_add_role(void *menu, const char *label, int role, const char *s
         case 8:
             a->setMenuRole(QAction::QuitRole);
             QObject::connect(a, &QAction::triggered, []() { qApp->quit(); });
+            if (s_default_quit) s_default_quit->setShortcut(QKeySequence());
             break;
         case 9: a->setMenuRole(QAction::PreferencesRole); break;
         case 10:

@@ -936,6 +936,7 @@ impl Event {
 /// | `DidEnterBackground` | — | `didEnterBackground` | — | — | `onStop` | — |
 /// | `DidReceiveMemoryWarning` | — | `didReceiveMemoryWarning` | — | — | `onTrimMemory` | — |
 /// | `WillTerminate` | `willTerminate` | `willTerminate` | `shutdown` | `aboutToQuit` | `onDestroy` | window close |
+/// | `DidExit` | after `willTerminate` | after `willTerminate` | `run` returned | `exec` returned | after `onDestroy` | loop returned |
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Lifecycle {
     /// Before the window and UI are built: the first thing to run. Set up global state here.
@@ -955,11 +956,15 @@ pub enum Lifecycle {
     /// The app is about to terminate: the last chance to save. Triggered by the Quit command,
     /// the platform's quit shortcut, or the OS reclaiming the app.
     WillTerminate,
+    /// The run loop is over and nothing of the app will run after this: the last phase, after
+    /// every `WillTerminate` handler. Day logs its exit line ("Clean exit for …") once the
+    /// handlers have run, so a handler here is the app's last word before it.
+    DidExit,
 }
 
 impl Lifecycle {
     /// Every phase, in delivery order (launch → run → quit). Handy for logging/registration sweeps.
-    pub const ALL: [Lifecycle; 8] = [
+    pub const ALL: [Lifecycle; 9] = [
         Lifecycle::WillLaunch,
         Lifecycle::DidLaunch,
         Lifecycle::DidBecomeActive,
@@ -968,6 +973,7 @@ impl Lifecycle {
         Lifecycle::DidEnterBackground,
         Lifecycle::DidReceiveMemoryWarning,
         Lifecycle::WillTerminate,
+        Lifecycle::DidExit,
     ];
 
     /// True for phases every backend delivers (launch, activation, termination). The remaining
@@ -982,6 +988,7 @@ impl Lifecycle {
                 | Lifecycle::DidBecomeActive
                 | Lifecycle::WillResignActive
                 | Lifecycle::WillTerminate
+                | Lifecycle::DidExit
         )
     }
 
@@ -996,6 +1003,7 @@ impl Lifecycle {
             Lifecycle::DidEnterBackground => "DidEnterBackground",
             Lifecycle::DidReceiveMemoryWarning => "DidReceiveMemoryWarning",
             Lifecycle::WillTerminate => "WillTerminate",
+            Lifecycle::DidExit => "DidExit",
         }
     }
 }
@@ -6588,6 +6596,10 @@ pub struct WindowOptions {
     /// A plain `fn` rather than a closure: this struct is `Clone`, and the callers are a
     /// non-capturing `|| res::str::app_title().format()`, which coerces.
     pub title_fn: Option<fn() -> String>,
+    /// The app's version, for Day's exit line ("Clean exit for <app> v<version> …",
+    /// docs/lifecycle.md): `env!("CARGO_PKG_VERSION")` in the app crate, which the scaffold's
+    /// `window()` sets. `None` falls back to the `DAY_APP_VERSION` the `day` CLI sets on a launch.
+    pub version: Option<String>,
 }
 
 impl Default for WindowOptions {
@@ -6600,6 +6612,7 @@ impl Default for WindowOptions {
             app_name: None,
             locales: None,
             title_fn: None,
+            version: None,
         }
     }
 }

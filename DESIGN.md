@@ -969,7 +969,10 @@ in `crates/day-pieces/tests/button_gesture_warning.rs` covers direct and wrapped
 ordinary label gestures, and the native action path.
 
 Buttons remain native controls when displaying icons. `ButtonProps` carries an optional
-`Icon` and an `icon_only` flag. Icon buttons send `ButtonPatch::Content` when their title or
+`Icon` and an `icon_only` flag. UIKit clears the legacy UIButton state title before
+installing configured content, so an empty icon-only title cannot fall back to the previous
+visible label. The localized title remains the accessibility label; style changes reapply
+stored button content. Icon buttons send `ButtonPatch::Content` when their title or
 symbol changes; the binding is seeded from the realized content, so mounting does not trigger
 an extra update. Plain buttons retain `ButtonPatch::Title`. Toolkits use the title as the
 accessible name and add automatic tooltips only when it is hidden. The existing toolbar
@@ -1810,7 +1813,8 @@ pub enum Event {
     ImageEncoded { req, result },             // only — neither crosses a BridgeKind, because
                                               // bytes never ride the event wire
     MenuAction(u64),                          // docs/menus.md
-    Lifecycle(Lifecycle),                     // docs/lifecycle.md
+    Lifecycle(Lifecycle),                     // docs/lifecycle.md; DidExit is the last phase,
+                                              // after which day-core writes its exit line
     ListReorder { from: usize, to: usize },   // committed native row drag (docs/list.md)
     ListDelete(usize),                        // committed swipe-delete (docs/list.md)
     ListSwipe { index, edge, action },        // activated swipe action (docs/list.md)
@@ -6156,7 +6160,9 @@ pub fn battery() -> BatteryHandle;             // BatteryHandle { pub level: Sig
 > `JsHandle::eval` returns JSON through request-keyed custom events. Linux GTK now uses
 > WebKitGTK's evaluation callback; web-dom evaluates only same-origin frames and reports
 > cross-origin access errors. macOS GTK hosts a WKWebView aligned to a GTK allocation
-> anchor and detaches it on unmap. Windows GTK and Qt without Qt WebEngine use Wry's
+> anchor and detaches it on unmap. Its GTK capture controller forwards scroll events
+> to native WKWebView hit targets, bridging GTK’s Cocoa event interception while
+> preserving pixel/line units, modifiers, and gesture phases. Windows GTK and Qt without Qt WebEngine use Wry's
 > WebView2 child-window host; Windows runtime validation remains outstanding, and those
 > native children have clipping/overlap limits. The piece owns these hosts and their
 > disposal, so Day's core gains no browser dependency. See [webview evaluation](docs/webview-eval.md)
@@ -6790,3 +6796,18 @@ navigation page scope and are disposed with it. Regression: `nav_sidebar_reorder
 
 `Prompt::ok_label` and `cancel_label` let an application supply localized command labels for
 native URL/input sheets while retaining the existing awaitable cancel/dismiss contract.
+
+### GTK list selection synchronization
+
+GTK recycling lists retain a native `GtkSingleSelection`, the last requested row index, and
+a suppression flag in their host-lifetime list state. `ListPatch::Selected` defers application
+until the main-loop idle after the tree borrow. Model splices also suppress selection callbacks
+and reapply that row; user changes update it and report once. Empty selections clear GTK's
+selection. GTK remains a single-selection backend, and syncing never takes keyboard focus.
+`toolkits/day-gtk/tests/native_list_selection.rs` exercises initial sync, row changes, reloads,
+removals, clearing, and echo suppression on a real GTK selection model.
+
+Reorderable sidebar rows forward a tap on the current row to the selection binding even
+when its value is unchanged, so apps can respond to reselecting a feed. List on_selection
+reports an empty vector for a native single-selection deselection (index -1), matching
+the existing SelectionSet contract. Programmatic selection patches remain silent.

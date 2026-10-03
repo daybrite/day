@@ -685,6 +685,17 @@ pub fn launch_with<P: Platform>(
     // frame consumer (game loop / self-driven animation) is live.
     frame::install_frame_requester(|root, cb| tree::with_tree(|t| t.request_frame(root, cb)));
 
+    // What the exit line names (docs/lifecycle.md), and when the clock started; and the exit
+    // itself, for a loop that ends the process without returning.
+    #[cfg(not(target_arch = "wasm32"))]
+    if toolkit_key() != Some("mock") {
+        deliver_exit_at_process_exit();
+    }
+    lifecycle::note_launch(
+        options.app_name.clone().unwrap_or_default(),
+        options.version.clone(),
+    );
+
     // WillLaunch: before the window/UI exists (docs/lifecycle.md). Fired uniformly by day-core so
     // it is reliable on every backend; handlers must not touch the tree (there isn't one yet).
     lifecycle::dispatch_lifecycle(day_spec::Lifecycle::WillLaunch);
@@ -820,6 +831,34 @@ pub fn launch_with<P: Platform>(
             }
         }),
     );
+    // DidExit: the native loop returned, which is the last thing the app runs on the desktop
+    // backends whose loop returns (GTK, Qt, XAML). The backends whose process ends inside the
+    // loop (AppKit's terminate exits; a mobile OS tears the activity down) emit it themselves,
+    // after WillTerminate, and `dispatch_lifecycle` delivers it once whichever comes first.
+    // The mock backend's `run` returns at once to hand control to a test, which is not an exit.
+    if toolkit_key() != Some("mock") {
+        lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidExit);
+    }
+}
+
+/// Deliver `DidExit` from the C runtime's exit, for the loop that never returns: Qt's macOS
+/// Quit menu item ends the process through `exit()` from inside `exec()`, and any backend or
+/// app that calls `std::process::exit` does the same. `atexit` runs on the exiting thread,
+/// the main one for every such path, with the thread-locals still alive; delivery is once, so
+/// a loop that did return costs nothing here. Registered by `launch_with` on every backend but
+/// the mock and wasm, which have no process exit of their own.
+#[cfg(not(target_arch = "wasm32"))]
+fn deliver_exit_at_process_exit() {
+    unsafe extern "C" {
+        fn atexit(f: extern "C" fn()) -> i32;
+    }
+    extern "C" fn at_exit() {
+        lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidExit);
+    }
+    // SAFETY: `atexit` takes a plain C function pointer and keeps it for the process's life.
+    unsafe {
+        atexit(at_exit);
+    }
 }
 
 /// `DAY_AUTODRIVE="<id>:press;<id>:text:Ada;<id>:value:80;<id>:toggle:true;<id>:tap;

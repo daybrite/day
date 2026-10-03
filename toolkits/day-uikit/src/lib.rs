@@ -6268,6 +6268,9 @@ mod imp {
             title
         };
         unsafe {
+            // A configuration with an empty title can fall back to the legacy state title.
+            // Clear that title before installing content, particularly for icon-only controls.
+            btn.setTitle_forState(None, UIControlState::Normal);
             {
                 let config = btn.configuration().unwrap_or_else(|| {
                     objc2_ui_kit::UIButtonConfiguration::plainButtonConfiguration(btn.mtm())
@@ -11334,6 +11337,9 @@ mod imp {
                         WINDOW_NODE,
                         Event::Lifecycle(day_spec::Lifecycle::WillTerminate),
                     );
+                    // The process ends when this returns, so DidExit follows here
+                    // (docs/lifecycle.md).
+                    emit(WINDOW_NODE, Event::Lifecycle(day_spec::Lifecycle::DidExit));
                 });
             }
         }

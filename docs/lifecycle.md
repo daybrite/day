@@ -42,9 +42,33 @@ Handlers run in registration order, inside a reactive batch, so a lifecycle hand
 | `DidEnterBackground` | *(mobile)* Left the foreground and is no longer visible. Persist state. |
 | `DidReceiveMemoryWarning` | *(mobile)* The system is low on memory. Drop caches. |
 | `WillTerminate` | About to terminate; the last chance to save. |
+| `DidExit` | The run loop is over; nothing of the app runs after this. Day's exit line follows the handlers. |
 
 `WillLaunch` and `DidLaunch` are emitted uniformly by day-core (reliable everywhere); the rest come
 from each backend's native app/activity delegate.
+
+## The exit line
+
+Once the `DidExit` handlers have run, Day logs one last line at `info`:
+
+```
+Clean exit for Day Rise v0.4.5 (debug) after 00:03:12. Memory usage: 48.21 MB
+```
+
+The name is the app's (`WindowOptions::app_name`, else its title), the version is
+`WindowOptions::version` (the scaffold's `window()` sets it to the crate's `CARGO_PKG_VERSION`, and
+`day::day_start!` fills it in when it is unset), falling back to the `DAY_APP_VERSION` the `day` CLI
+sets on a launch; the profile is the build's; the time is since `day::launch`; the memory is the
+process's resident set as the platform counts it (the physical footprint on Apple platforms,
+`/proc/self/statm` on Linux and Android, the working set on Windows, the linear memory on the
+web). A handler registered for `DidExit` runs before the line, so it is the app's last word:
+
+```rust
+day::on_lifecycle(Lifecycle::DidExit, || log::info!("bye"));
+```
+
+The line is written only on a clean exit: the quit command, the OS tearing the app down, the
+page going away. A killed or crashed process writes nothing.
 
 ### When to register
 
@@ -68,12 +92,21 @@ ArkUI).
 | WillEnterForeground / DidEnterBackground | — | — | — | ✓ | ✓ | ✓ | — |
 | DidReceiveMemoryWarning | — | — | — | ✓ | ✓ | ✓ | — |
 | WillTerminate | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| DidExit | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 Native mapping: AppKit `NSApplication` notifications; UIKit `UIApplicationDelegate`; GTK window
 `is-active` + GApplication `shutdown`; Qt `applicationStateChanged` + `aboutToQuit`; Android Activity
 lifecycle (`onResume`/`onPause`/`onStart`/`onStop`/`onTrimMemory`/`onDestroy`); ArkUI's entry
 `UIAbility` (`onForeground`/`onBackground`/`onMemoryLevel`/`onDestroy`, with the window stage's
 `ACTIVE`/`INACTIVE` events for the active pair); XAML window `WM_ACTIVATE`/`WM_CLOSE`.
+
+The web backend delivers `WillLaunch`, `DidLaunch`, the active pair, and `DidExit` (on `pagehide`,
+the page's last moment).
+
+`DidExit` is the last moment each backend has: where the native loop returns to `day::launch`
+(GTK, Qt, XAML) it is emitted there; where the process ends inside the loop it follows
+`WillTerminate` at the same native moment (AppKit's and UIKit's `applicationWillTerminate`,
+Android's `onDestroy`, ArkUI's `onDestroy`); on the web it is `pagehide`.
 
 ### Guarding platform-specific phases
 

@@ -2564,6 +2564,9 @@ async function boot(wasmUrl) {
   new ResizeObserver(() => wasm.day_dom_resized(r.clientWidth, r.clientHeight)).observe(r);
   document.addEventListener('visibilitychange', () =>
     wasm.day_dom_lifecycle(document.visibilityState === 'visible' ? 0 : 1));
+  // The page's last moment (a navigation, a reload, a closed tab): DidExit, after which
+  // nothing of the app runs.
+  addEventListener('pagehide', () => wasm.day_dom_lifecycle(2));
   // Hash changes we did not write ourselves (back/forward, a hand-edited URL) are route
   // requests for the app.
   window.addEventListener('hashchange', () => {

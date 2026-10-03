@@ -1104,7 +1104,7 @@ mod imp {
     /// An app lifecycle phase from the entry ability (docs/lifecycle.md), coded in
     /// `day_spec::Lifecycle` order like the Android bridge: 2 DidBecomeActive, 3
     /// WillResignActive, 4 WillEnterForeground, 5 DidEnterBackground, 6 DidReceiveMemoryWarning,
-    /// 7 WillTerminate. The launch phases are day-core's own. Delivered on the primary window
+    /// 7 WillTerminate, 8 DidExit. The launch phases are day-core's own. Delivered on the primary window
     /// node, where the tree turns it into the app's `on_lifecycle` handlers and pauses the
     /// frame clock across the background.
     pub fn lifecycle(code: i32) {
@@ -1116,6 +1116,7 @@ mod imp {
             5 => DidEnterBackground,
             6 => DidReceiveMemoryWarning,
             7 => WillTerminate,
+            8 => DidExit,
             _ => return,
         };
         day_spec::ffi_guard::contain((), || {

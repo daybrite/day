@@ -1152,6 +1152,34 @@ pub fn desktop_launch_plan(
             .ok()
             .and_then(|rd| rd.flatten().map(|e| e.path()).next())
             .ok_or_else(|| format!("no executable under {}", macos_dir.display()))?
+    } else if target.os == "macos" {
+        // A bare binary on macOS (the GTK and Qt development stand-ins) is named in the menu
+        // bar and the Dock after its executable, `day-rise`: AppKit takes the process name, and
+        // Qt's application menu takes argv[0]. A hard link named after the app's title beside
+        // the binary gives both the title, and leaves the artifact and its path pattern (the
+        // runner's `pkill -f` scope) untouched.
+        let title = project
+            .manifest
+            .app
+            .title
+            .clone()
+            .unwrap_or_else(|| project.manifest.app.name.clone());
+        match outcome.artifact.parent() {
+            Some(dir) if !title.is_empty() && !title.contains('/') => {
+                let link = dir.join(&title);
+                if link != outcome.artifact {
+                    let _ = std::fs::remove_file(&link);
+                    if std::fs::hard_link(&outcome.artifact, &link).is_ok() {
+                        link
+                    } else {
+                        outcome.artifact.clone()
+                    }
+                } else {
+                    outcome.artifact.clone()
+                }
+            }
+            _ => outcome.artifact.clone(),
+        }
     } else {
         outcome.artifact.clone()
     };

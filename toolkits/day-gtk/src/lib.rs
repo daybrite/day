@@ -2216,6 +2216,24 @@ struct ListEntry {
     model: gtk4::StringList,
     /// The row-pull source, injected by `attach_list` and read by the factory's `bind` handler.
     source: Rc<RefCell<Option<ListSource>>>,
+    selection: Option<ListSelection>,
+}
+
+#[derive(Clone)]
+struct ListSelection {
+    model: gtk4::SingleSelection,
+    requested: Rc<std::cell::Cell<u32>>,
+    suppress: Rc<std::cell::Cell<bool>>,
+}
+impl ListSelection {
+    fn apply(&self) {
+        let row = self.requested.get();
+        self.model.set_selected(if row < self.model.n_items() {
+            row
+        } else {
+            gtk4::INVALID_LIST_POSITION
+        });
+    }
 }
 
 /// `DayCell` — the widget a recycling list's cell is made of: a container that takes part in GTK's
@@ -2699,12 +2717,23 @@ fn list_resize(model: &gtk4::StringList, n: usize) {
 /// cells SYNCHRONOUSLY (unlike NSTableView's deferred reloadData), and a reload is driven from
 /// inside a `with_tree` borrow — so resizing inline would re-enter `with_tree` (bind_row) and
 /// panic. Deferring to an idle runs the bind after the borrow is released.
-fn schedule_list_resize(model: gtk4::StringList, source: Rc<RefCell<Option<ListSource>>>) {
+fn schedule_list_resize(
+    model: gtk4::StringList,
+    source: Rc<RefCell<Option<ListSource>>>,
+    selection: Option<ListSelection>,
+) {
     gtk4::glib::idle_add_local_once(move || {
         // Contained: `len` is app code and the splice re-binds through day-core (bind_row).
         ffi_guard::contain((), || {
             let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
+            if let Some(selection) = &selection {
+                selection.suppress.set(true);
+            }
             list_resize(&model, n);
+            if let Some(selection) = &selection {
+                selection.apply();
+                selection.suppress.set(false);
+            }
         });
     });
 }
@@ -4397,19 +4426,35 @@ impl Toolkit for Gtk {
                         });
                     }
                 });
-                let listview = if p.selectable {
-                    let sel = gtk4::SingleSelection::new(Some(model.clone()));
+                let selection = p.selectable.then(|| ListSelection {
+                    model: gtk4::SingleSelection::new(Some(model.clone())),
+                    requested: Rc::new(std::cell::Cell::new(gtk4::INVALID_LIST_POSITION)),
+                    suppress: Rc::new(std::cell::Cell::new(false)),
+                });
+                let listview = if let Some(selection) = &selection {
+                    let sel = &selection.model;
                     sel.set_autoselect(false);
                     sel.set_can_unselect(true);
+                    let suppress = selection.suppress.clone();
+                    let requested = selection.requested.clone();
                     sel.connect_selected_notify(move |s| {
+                        if suppress.get() {
+                            return;
+                        }
                         ffi_guard::contain((), || {
                             let i = s.selected();
-                            if i != gtk4::INVALID_LIST_POSITION {
-                                emit(id, Event::SelectionChanged(i as i64));
-                            }
+                            requested.set(i);
+                            emit(
+                                id,
+                                Event::SelectionChanged(if i == gtk4::INVALID_LIST_POSITION {
+                                    -1
+                                } else {
+                                    i as i64
+                                }),
+                            );
                         });
                     });
-                    gtk4::ListView::new(Some(sel), Some(factory))
+                    gtk4::ListView::new(Some(sel.clone()), Some(factory))
                 } else {
                     gtk4::ListView::new(
                         Some(gtk4::NoSelection::new(Some(model.clone()))),
@@ -4526,6 +4571,7 @@ impl Toolkit for Gtk {
                     dt.connect_drop({
                         let source = source.clone();
                         let model = model.clone();
+                        let selection = selection.clone();
                         // Contained as a refused drop: move_row is app code.
                         move |_, _value, _x, y| {
                             ffi_guard::contain(false, || {
@@ -4541,7 +4587,11 @@ impl Toolkit for Gtk {
                                 {
                                     (r.move_row)(from, accepted);
                                     // Re-bind the visible cells in the new order (same count).
-                                    schedule_list_resize(model.clone(), source.clone());
+                                    schedule_list_resize(
+                                        model.clone(),
+                                        source.clone(),
+                                        selection.clone(),
+                                    );
                                 }
                                 true
                             })
@@ -4550,8 +4600,14 @@ impl Toolkit for Gtk {
                     listview.add_controller(dt);
                 }
                 LIST_STATE.with(|m| {
-                    m.borrow_mut()
-                        .insert(widget_key(&host), ListEntry { model, source })
+                    m.borrow_mut().insert(
+                        widget_key(&host),
+                        ListEntry {
+                            model,
+                            source,
+                            selection,
+                        },
+                    )
                 });
                 host
             }
@@ -4966,7 +5022,11 @@ impl Toolkit for Gtk {
                     LIST_STATE.with(|m| {
                         if let Some(e) = m.borrow().get(&widget_key(h)) {
                             // Deferred: this runs inside a with_tree borrow (see schedule_list_resize).
-                            schedule_list_resize(e.model.clone(), e.source.clone());
+                            schedule_list_resize(
+                                e.model.clone(),
+                                e.source.clone(),
+                                e.selection.clone(),
+                            );
                         }
                     });
                 }
@@ -5003,9 +5063,29 @@ impl Toolkit for Gtk {
                         });
                     }
                 }
-                // Not implemented: RowSizeInvalidated (GtkListView re-measures its own rows on
-                // the next factory bind) and Selected (no programmatic selection sync yet).
-                Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Selected(_)) | None => {}
+                Some(ListPatch::Selected(rows)) => {
+                    let selection = LIST_STATE.with(|m| {
+                        m.borrow()
+                            .get(&widget_key(h))
+                            .and_then(|e| e.selection.clone())
+                    });
+                    if let Some(selection) = selection {
+                        selection.requested.set(
+                            rows.first()
+                                .and_then(|r| u32::try_from(*r).ok())
+                                .unwrap_or(gtk4::INVALID_LIST_POSITION),
+                        );
+                        // Native selection notifies synchronously; defer past the tree borrow
+                        // and suppress the echo. Reloads reapply this same requested row.
+                        gtk4::glib::idle_add_local_once(move || {
+                            selection.suppress.set(true);
+                            selection.apply();
+                            selection.suppress.set(false);
+                        });
+                    }
+                }
+                // GtkListView re-measures automatic rows on the next factory bind.
+                Some(ListPatch::RowSizeInvalidated(_)) | None => {}
             },
             kinds::TREE => match patch.downcast_ref::<TreePatch>() {
                 // ALL of these defer to an idle: they arrive inside a `with_tree` borrow, and
@@ -6162,7 +6242,7 @@ impl Toolkit for Gtk {
                 *e.source.borrow_mut() = Some(source);
                 // Deferred off this with_tree borrow: splice binds cells synchronously (see
                 // schedule_list_resize), which would otherwise re-enter with_tree via bind_row.
-                schedule_list_resize(e.model.clone(), e.source.clone());
+                schedule_list_resize(e.model.clone(), e.source.clone(), e.selection.clone());
             }
         });
     }

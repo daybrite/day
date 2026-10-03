@@ -231,5 +231,6 @@ export default class EntryAbility extends UIAbility {
   onMemoryLevel(_level: AbilityConstant.MemoryLevel): void { nativeEntry.lifecycle(6); }
   // The ability instance is being torn down (the user closed it from recents, or the OS
   // reclaimed it): WillTerminate, the app's last chance to save.
-  onDestroy(): void { nativeEntry.lifecycle(7); }
+  // DidExit follows WillTerminate: nothing of the app runs after onDestroy.
+  onDestroy(): void { nativeEntry.lifecycle(7); nativeEntry.lifecycle(8); }
 }

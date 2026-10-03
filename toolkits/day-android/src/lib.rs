@@ -1677,6 +1677,7 @@ mod imp {
             5 => DidEnterBackground,
             6 => DidReceiveMemoryWarning,
             7 => WillTerminate,
+            8 => DidExit,
             _ => return None,
         })
     }

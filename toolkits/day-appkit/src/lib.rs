@@ -9061,6 +9061,13 @@ fn install_lifecycle_observers() {
             NSApplicationWillTerminateNotification,
             day_spec::Lifecycle::WillTerminate,
         );
+        // `terminate:` exits the process from inside the run loop, so the loop never returns to
+        // `launch_with`: the last Day code to run is this notification's second observer, which
+        // NSNotificationCenter calls after the first (docs/lifecycle.md).
+        observe(
+            NSApplicationWillTerminateNotification,
+            day_spec::Lifecycle::DidExit,
+        );
     }
 }
 

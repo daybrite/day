@@ -184,6 +184,12 @@ app_menu(vec![
 | SelectAll | `selectAll:` nav host — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² |
 | Undo/Redo | `undo:`/`redo:` (responder chain — the acting `NSUndoManager`, a focused text field's before the document's) | stock actions (`text.undo`) | focused editor | installed undo bridge³ | installed undo bridge³ | — |
 | Quit / Close / Minimize / Fullscreen | standard App-menu items | window actions | window / `qApp` | — | — | Quit closes the window |
+
+The platform quit shortcut works with no menu declared: GTK registers `app.quit` on
+`<Primary>q`, and Qt gives the window a `QKeySequence::Quit` action (Ctrl+Q; ⌘Q on macOS,
+where Qt's own application menu carries Quit as well). A declared `MenuRole::Quit` item takes
+the key over. Neither desktop adds a Quit item on its own: the GNOME guidelines keep Quit out of
+menus (the window closes, Ctrl+Q quits), and an app that wants one on Qt declares the role.
 | About / Preferences | moved into the App menu | — | `menuRole` → app menu (mac) | — | — | — |
 
 You can override a role's label (`menu_role(r)` starts empty and the backend fills the standard label;

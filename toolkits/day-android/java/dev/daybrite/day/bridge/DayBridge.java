@@ -2619,7 +2619,7 @@ public final class DayBridge {
     // True once nativeStart has run; lifecycle events before that are dropped (native isn't ready).
     // DayActivity forwards Activity lifecycle transitions here with the phase code (day_spec::Lifecycle
     // order: 2=DidBecomeActive 3=WillResignActive 4=WillEnterForeground 5=DidEnterBackground
-    // 6=DidReceiveMemoryWarning 7=WillTerminate), delivered to native as event kind 14.
+    // 6=DidReceiveMemoryWarning 7=WillTerminate 8=DidExit), delivered to native as event kind 14.
     public static volatile boolean started = false;
 
     /** Forward an Activity lifecycle phase to native, once the app has started. */

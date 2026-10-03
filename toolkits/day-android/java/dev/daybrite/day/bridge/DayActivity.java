@@ -245,7 +245,10 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
     @Override protected void onDestroy() {
         // Only a real finish is a termination; a config-change recreation is not.
-        if (isFinishing()) DayBridge.lifecycle(7); // WillTerminate
+        if (isFinishing()) {
+            DayBridge.lifecycle(7); // WillTerminate
+            DayBridge.lifecycle(8); // DidExit: nothing of the app runs after onDestroy
+        }
         super.onDestroy();
     }
 

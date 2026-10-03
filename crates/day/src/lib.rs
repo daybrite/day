@@ -717,6 +717,24 @@ pub fn launch<P: Piece>(options: WindowOptions, root: impl FnOnce() -> P + 'stat
 // Both emit nothing off their target OS, so apps invoke them unconditionally.
 // ---------------------------------------------------------------------------
 
+/// `options` with [`WindowOptions::version`] set to the calling crate's `CARGO_PKG_VERSION` when
+/// the app left it unset: the version Day's exit line names (docs/lifecycle.md). A macro, because
+/// only code expanded in the app crate can read the app's own package version; the `day_start!`
+/// entries route their options through it, so a mobile host names its version without the app
+/// doing anything.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! with_app_version {
+    ($options:expr) => {{
+        let mut options: $crate::WindowOptions = $options;
+        if options.version.is_none() {
+            options.version =
+                ::core::option::Option::Some(::core::env!("CARGO_PKG_VERSION").into());
+        }
+        options
+    }};
+}
+
 /// One entry point for every platform that needs one: the single line an app's `lib.rs` carries
 /// instead of one macro per platform.
 ///
@@ -801,7 +819,7 @@ macro_rules! day_start_ios {
         #[cfg(target_os = "ios")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_main() {
-            $crate::launch($options, $root);
+            $crate::launch($crate::with_app_version!($options), $root);
         }
     };
     ($title:expr, $root:expr) => {
@@ -833,7 +851,7 @@ macro_rules! day_start_macos {
         #[cfg(target_os = "macos")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_main() {
-            $crate::launch($options, $root);
+            $crate::launch($crate::with_app_version!($options), $root);
         }
     };
     ($title:expr, $root:expr) => {
@@ -886,7 +904,7 @@ macro_rules! day_start_android {
                     let a = $crate::android::read_jstring(env, &autodrive);
                     let l = $crate::android::read_jstring(env, &locale);
                     let e = $crate::android::read_jstring(env, &env_blob);
-                    $crate::android::start(env, root, density, w, h, a, l, e, $options, $root);
+                    $crate::android::start(env, root, density, w, h, a, l, e, $crate::with_app_version!($options), $root);
                     ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
                 })
                 .into_outcome();
@@ -1183,7 +1201,7 @@ macro_rules! day_start_arkui {
             h: f64,
             density: f64,
         ) {
-            $crate::arkui::start(content, w, h, density, $options, $root);
+            $crate::arkui::start(content, w, h, density, $crate::with_app_version!($options), $root);
         }
 
         /// Deep-link intake (docs/deep-links.md): day-arkui's NAPI `deepLink(uri)` calls this
@@ -1217,7 +1235,7 @@ macro_rules! day_start_web {
         #[cfg(target_arch = "wasm32")]
         #[unsafe(no_mangle)]
         pub extern "C" fn day_dom_main() {
-            $crate::web::start($options, $root);
+            $crate::web::start($crate::with_app_version!($options), $root);
         }
     };
     ($title:expr, $root:expr) => {

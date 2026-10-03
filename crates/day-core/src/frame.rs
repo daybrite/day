@@ -54,6 +54,19 @@ day_reactive::tls_slots! {
     frame;
     static DRIVER: RefCell<Driver> = RefCell::new(Driver::default());
     static NATIVE_CALLBACKS: RefCell<(u64, HashMap<u64, FrameCallback>)> = RefCell::new((0, HashMap::new()));
+    /// The first and the latest frame timestamp seen (ms), for `uptime_secs` where the
+    /// process has no clock of its own (wasm).
+    static STAMPS: std::cell::Cell<Option<(f64, f64)>> = std::cell::Cell::new(None);
+}
+
+/// How long the app has run, from the frame clock: the span between the first and the latest
+/// frame timestamp a backend delivered. The exit line uses it on wasm, where `Instant` does not
+/// exist; `None` before any frame.
+pub fn uptime_secs() -> Option<u64> {
+    STAMPS.with(|s| {
+        s.get()
+            .map(|(first, last)| ((last - first).max(0.0) / 1000.0) as u64)
+    })
 }
 
 /// Install the native scheduler at launch. The requester MUST deliver asynchronously; tests may
@@ -229,6 +242,10 @@ fn arm(root: RNode) {
     }
 }
 fn tick(root: RNode, ticket: u64, stamp: FrameStamp) {
+    STAMPS.with(|s| {
+        let first = s.get().map_or(stamp.timestamp, |(first, _)| first);
+        s.set(Some((first, stamp.timestamp)));
+    });
     let callbacks = DRIVER.with(|d| {
         let mut d = d.borrow_mut();
         let Some(source) = d.sources.get_mut(&root) else {

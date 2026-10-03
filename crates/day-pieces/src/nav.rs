@@ -882,10 +882,12 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
         source.clone(),
     );
     let selected_binding = selection.clone();
+    let tapped_selection = selection.clone();
     list(
         items(move || read(), |r: &SidebarRow<K>| r.id.clone()),
         move |slot| {
             let activity = progress.clone();
+            let tapped_selection = tapped_selection.clone();
             piece_fn(move |cx| {
                 let node = row((when(
                     move || slot.field(|r| r.key.is_none()),
@@ -923,6 +925,14 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                 }),))
                 .align(VAlign::Center)
                 .grow()
+                .id(format!("sidebar:{}", slot.field(|r| r.id.clone())))
+                .on_tap(move || {
+                    if let Some(key) = slot.field(|r| r.key.clone())
+                        && tapped_selection.peek() == key
+                    {
+                        tapped_selection.write(key);
+                    }
+                })
                 .build(cx);
                 with_tree(|t| {
                     t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())))
