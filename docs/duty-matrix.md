@@ -67,6 +67,8 @@ implement them, and this table proves it.
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `share_support` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |
+| `share_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |
 | `application_handlers` | · | ✓ | · | · | · | · | · | · | · | · |
 | `open_url_with_application` | · | ✓ | · | · | · | · | · | · | · | · |
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |

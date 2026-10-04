@@ -12,6 +12,10 @@
 //! with its request cleared, or the last placement becomes a floor on the next measure.
 //! Native signals connect once at realize, capturing the NodeId and emitting into the Day sink.
 
+#[cfg(windows)]
+#[path = "../../share-windows.rs"]
+mod share_windows;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -2921,6 +2925,9 @@ struct GtkWin {
 }
 
 pub struct Gtk {
+    #[cfg(target_os = "macos")]
+    sharing: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
+
     registry: Registry<Gtk>,
     window_fixed: Option<gtk4::Fixed>,
     /// The application, retained so `open_window` can create windows after activate.
@@ -2946,6 +2953,8 @@ impl Gtk {
         Gtk {
             registry,
             window_fixed: None,
+            #[cfg(target_os = "macos")]
+            sharing: None,
             app: None,
             secondary: Vec::new(),
             menu_bar: None,
@@ -6763,6 +6772,52 @@ impl Toolkit for Gtk {
         end_file_dialog(req);
     }
 
+    #[cfg(target_os = "macos")]
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+    #[cfg(target_os = "macos")]
+    fn share_url(&mut self, url: &str, _title: &str) -> bool {
+        use objc2::{msg_send, runtime::AnyObject};
+        use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
+        let Some(mtm) = objc2::MainThreadMarker::new() else {
+            return false;
+        };
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(url)) else {
+            return false;
+        };
+        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+        let Some(view) = app.keyWindow().and_then(|w| w.contentView()) else {
+            return false;
+        };
+        unsafe {
+            let items = NSArray::from_retained_slice(&[url]);
+            let picker: objc2::rc::Allocated<AnyObject> =
+                msg_send![objc2::class!(NSSharingServicePicker), alloc];
+            let picker: objc2::rc::Retained<AnyObject> = msg_send![picker, initWithItems: &*items];
+            let bounds = view.bounds();
+            let y = if view.isFlipped() {
+                30.0
+            } else {
+                bounds.size.height - 30.0
+            };
+            let rect = NSRect::new(
+                NSPoint::new(bounds.size.width - 30.0, y),
+                NSSize::new(1.0, 1.0),
+            );
+            let _: () = msg_send![&*picker, showRelativeToRect: rect, ofView: &*view, preferredEdge: 3usize];
+            self.sharing = Some(picker);
+        }
+        true
+    }
+    #[cfg(windows)]
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+    #[cfg(windows)]
+    fn share_url(&mut self, url: &str, title: &str) -> bool {
+        share_windows::share(url, title)
+    }
     fn open_url(&mut self, url: &str) {
         // Hand the URI to the desktop's default handler (xdg-open equivalent). Fire and forget;
         // a bad URI just returns an error we ignore.

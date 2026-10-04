@@ -1414,6 +1414,16 @@ const env = {
       else { navigator.setAppBadge?.(count); }
     } catch (_) { /* unsupported or blocked; the cap already says Emulated */ }
   },
+  day_dom_share_support() { return typeof navigator.share === 'function'; },
+  day_dom_share_url(ptr, len, title, titleLen) {
+    if (!navigator.share || !navigator.userActivation?.isActive) return false;
+    try {
+      const data = { url: str(ptr, len), title: str(title, titleLen) };
+      if (navigator.canShare && !navigator.canShare(data)) return false;
+      navigator.share(data).catch(() => {}); // Cancellation is the user's choice.
+      return true;
+    } catch (_) { return false; }
+  },
   day_dom_open_url(ptr, len) { window.open(str(ptr, len), '_blank', 'noopener'); },
 
   day_dom_env(k, kl, out, cap) {

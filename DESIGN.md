@@ -968,6 +968,25 @@ toolkit without changing existing event routing. The button gesture diagnostic r
 in `crates/day-pieces/tests/button_gesture_warning.rs` covers direct and wrapped buttons,
 ordinary label gestures, and the native action path.
 
+AppKit installs a process-local Escape event monitor with the app menu. An enabled, explicitly
+registered menu key equivalent is offered Escape before the text field editor's cancellation
+handling; native modal windows and sheets keep their own cancellation behavior. The monitor
+reads the current native menu after reactive replacements, consumes only matched accelerators,
+and is removed when the backend drops. This lets a browser's Escape-to-Stop command work
+while its address field retains focus.
+
+Native URL sharing is an imperative toolkit operation (`share_support` / `share_url`),
+exposed on Day alongside URL opening. Invoke it directly from user activation; `true` means
+that a chooser started, not that a target received data. AppKit and macOS GTK use
+`NSSharingServicePicker`, retained by the backend until replacement/teardown; macOS Qt uses
+an Objective-C++ picker. UIKit presents `UIActivityViewController` from the current controller
+and anchors its iPad popover. Android launches an `ACTION_SEND` chooser. Windows GTK, Qt,
+XAML and WinUI share a DataTransferManager adapter; its previous DataRequested registration
+is removed before a new payload is installed. Web Share checks user activation and suppresses
+cancellation rejection. Desktop Linux and the OpenHarmony SDK report Unsupported because
+there is no universal share chooser in those SDKs. Applications own any visibly labelled
+fallback. See [docs/sharing.md](docs/sharing.md).
+
 Buttons remain native controls when displaying icons. `ButtonProps` carries an optional
 `Icon` and an `icon_only` flag. UIKit clears the legacy UIButton state title before
 installing configured content, so an empty icon-only title cannot fall back to the previous

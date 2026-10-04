@@ -4756,7 +4756,19 @@ struct SecondaryWin {
     content: Handle,
 }
 
+/// Deliver an explicitly registered Escape accelerator before a field editor swallows it.
+/// The monitor is local to this process and removed with the backend.
+struct MenuEscapeMonitor(Retained<objc2::runtime::AnyObject>);
+impl Drop for MenuEscapeMonitor {
+    fn drop(&mut self) {
+        unsafe { NSEvent::removeMonitor(&self.0) };
+    }
+}
+
 pub struct AppKit {
+    menu_escape_monitor: Option<MenuEscapeMonitor>,
+    sharing: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
+
     mtm: MainThreadMarker,
     registry: Registry<AppKit>,
     window: Option<Retained<NSWindow>>,
@@ -4781,9 +4793,11 @@ impl AppKit {
             registry.register(f());
         }
         AppKit {
+            menu_escape_monitor: None,
             mtm,
             registry,
             window: None,
+            sharing: None,
             content: None,
             secondary: Vec::new(),
             app_name: "Day".into(),
@@ -7745,6 +7759,35 @@ impl Toolkit for AppKit {
 
     fn set_app_menu(&mut self, items: &[day_spec::MenuItem]) {
         let mtm = self.mtm;
+        if self.menu_escape_monitor.is_none() {
+            let block = block2::RcBlock::new(move |event: std::ptr::NonNull<NSEvent>| {
+                ffi_guard::contain(event.as_ptr(), || {
+                    let event_ref = unsafe { event.as_ref() };
+                    let app = NSApplication::sharedApplication(mtm);
+                    // Native dialogs retain their cancellation behavior. Only an enabled
+                    // menu key equivalent can consume Escape, never the general key stream.
+                    if app.modalWindow().is_none()
+                        && app.keyWindow().is_some_and(|w| w.attachedSheet().is_none())
+                        && unsafe { event_ref.charactersIgnoringModifiers() }
+                            .is_some_and(|s| s.to_string() == "\u{1b}")
+                        && app
+                            .mainMenu()
+                            .is_some_and(|menu| menu.performKeyEquivalent(event_ref))
+                    {
+                        std::ptr::null_mut()
+                    } else {
+                        event.as_ptr()
+                    }
+                })
+            });
+            self.menu_escape_monitor = unsafe {
+                NSEvent::addLocalMonitorForEventsMatchingMask_handler(
+                    objc2_app_kit::NSEventMask::KeyDown,
+                    &block,
+                )
+            }
+            .map(MenuEscapeMonitor);
+        }
         let app = NSApplication::sharedApplication(mtm);
         let menubar = NSMenu::new(mtm);
         // The Preferences item's standard macOS home is the App menu, under About, so hoist
@@ -8554,6 +8597,42 @@ impl Toolkit for AppKit {
         applications::open(url, application, completion);
     }
 
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+    fn share_url(&mut self, url: &str, _title: &str) -> bool {
+        use objc2::{msg_send, runtime::AnyObject};
+        use objc2_foundation::{NSArray, NSPoint, NSRect, NSSize, NSString, NSURL};
+        let Some(mtm) = objc2::MainThreadMarker::new() else {
+            return false;
+        };
+        let Some(url) = NSURL::URLWithString(&NSString::from_str(url)) else {
+            return false;
+        };
+        let app = objc2_app_kit::NSApplication::sharedApplication(mtm);
+        let Some(view) = app.keyWindow().and_then(|w| w.contentView()) else {
+            return false;
+        };
+        unsafe {
+            let items = NSArray::from_retained_slice(&[url]);
+            let picker: objc2::rc::Allocated<AnyObject> =
+                msg_send![objc2::class!(NSSharingServicePicker), alloc];
+            let picker: objc2::rc::Retained<AnyObject> = msg_send![picker, initWithItems: &*items];
+            let bounds = view.bounds();
+            let y = if view.isFlipped() {
+                30.0
+            } else {
+                bounds.size.height - 30.0
+            };
+            let rect = NSRect::new(
+                NSPoint::new(bounds.size.width - 30.0, y),
+                NSSize::new(1.0, 1.0),
+            );
+            let _: () = msg_send![&*picker, showRelativeToRect: rect, ofView: &*view, preferredEdge: 3usize];
+            self.sharing = Some(picker);
+        }
+        true
+    }
     fn open_url(&mut self, url: &str) {
         // NSWorkspace opens the URL in the user's default handler (Safari for http(s), Mail for
         // mailto:, …). An unparseable string yields no NSURL and is silently ignored.

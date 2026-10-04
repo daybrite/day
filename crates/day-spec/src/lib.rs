@@ -6379,6 +6379,16 @@ pub trait Toolkit: Sized + 'static {
     /// backend that hasn't wired it up still compiles.
     fn open_url(&mut self, _url: &str) {}
 
+    /// Whether a native share chooser is available. Does not probe installed share targets.
+    fn share_support(&self) -> Support {
+        Support::Unsupported
+    }
+    /// Present the system share chooser. True means presentation started, not that sharing
+    /// completed. Never sends data without the user's choice of a target.
+    fn share_url(&mut self, _url: &str, _title: &str) -> bool {
+        false
+    }
+
     /// Read current OS associations. Unsupported platforms must not fabricate a default.
     fn application_handlers(
         &mut self,

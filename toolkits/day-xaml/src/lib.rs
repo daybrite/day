@@ -11,7 +11,11 @@
 
 #![cfg(windows)]
 
+#[cfg(windows)]
+#[path = "../../share-windows.rs"]
+mod share_windows;
 mod transfer;
+
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{CStr, CString};
@@ -3063,6 +3067,14 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_dismiss_present(req) };
     }
 
+    #[cfg(windows)]
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+    #[cfg(windows)]
+    fn share_url(&mut self, url: &str, title: &str) -> bool {
+        share_windows::share(url, title)
+    }
     fn open_url(&mut self, url: &str) {
         let c = cstr(url);
         unsafe { ffi::day_xaml_open_url(c.as_ptr()) };

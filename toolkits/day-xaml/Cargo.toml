@@ -28,6 +28,7 @@ linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 day-xaml-sys = { workspace = true }
+windows = { version = "0.62", features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
 
 [features]
 # WinUI 3 instead of system XAML (the `windows-winui` target, docs/winui.md):

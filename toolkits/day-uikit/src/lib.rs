@@ -10495,6 +10495,47 @@ mod imp {
             modal_enqueue(ModalOp::Dismiss(req, 0));
         }
 
+        fn share_support(&self) -> day_spec::Support {
+            day_spec::Support::Native
+        }
+        fn share_url(&mut self, url: &str, _title: &str) -> bool {
+            use objc2_ui_kit::UIActivityViewController;
+            let Some(url) =
+                (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })
+            else {
+                return false;
+            };
+            let Some(mut parent) =
+                WINDOW.with(|w| w.borrow().as_ref().and_then(|w| w.rootViewController()))
+            else {
+                return false;
+            };
+            unsafe {
+                while let Some(next) = parent.presentedViewController() {
+                    parent = next;
+                }
+                let items = objc2_foundation::NSArray::<AnyObject>::from_slice(&[url.as_ref()]);
+                let sheet = UIActivityViewController::initWithActivityItems_applicationActivities(
+                    UIActivityViewController::alloc(mtm()),
+                    &items,
+                    None,
+                );
+                if let Some(popover) = sheet.popoverPresentationController() {
+                    let Some(view) = parent.view() else {
+                        return false;
+                    };
+                    popover.setSourceView(Some(&view));
+                    let bounds = view.bounds();
+                    popover.setSourceRect(CGRect::new(
+                        CGPoint::new(bounds.size.width - 30.0, 30.0),
+                        CGSize::new(1.0, 1.0),
+                    ));
+                }
+                parent.presentViewController_animated_completion(&sheet, true, None);
+            }
+            true
+        }
+
         fn open_url(&mut self, url: &str) {
             let Some(nsurl) =
                 (unsafe { objc2_foundation::NSURL::URLWithString(&NSString::from_str(url)) })

@@ -5,6 +5,10 @@
 //! the day-qt-sys C++ shim. `Handle = QtHandle(*mut QWidget)`; absolute geometry; toggle is a
 //! QCheckBox (Qt Widgets has no native switch — an explicitly documented divergence).
 
+#[cfg(windows)]
+#[path = "../../share-windows.rs"]
+mod share_windows;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
@@ -2971,6 +2975,22 @@ impl Toolkit for Qt {
         unsafe { ffi::day_qt_dismiss_present(req) };
     }
 
+    #[cfg(windows)]
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+    #[cfg(windows)]
+    fn share_url(&mut self, url: &str, title: &str) -> bool {
+        share_windows::share(url, title)
+    }
+    #[cfg(target_os = "macos")]
+    fn share_support(&self) -> day_spec::Support {
+        day_spec::Support::Native
+    }
+    #[cfg(target_os = "macos")]
+    fn share_url(&mut self, url: &str, title: &str) -> bool {
+        unsafe { ffi::day_qt_share_url(cstr(url).as_ptr(), cstr(title).as_ptr()) }
+    }
     fn open_url(&mut self, url: &str) {
         if let Ok(c) = std::ffi::CString::new(url) {
             unsafe { ffi::day_qt_open_url(c.as_ptr()) };

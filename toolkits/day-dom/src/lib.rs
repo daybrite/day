@@ -170,6 +170,8 @@ unsafe extern "C" {
     fn day_dom_cancel_frame(id: u32);
     fn day_dom_set_title(ptr: *const u8, len: usize);
     fn day_dom_open_url(ptr: *const u8, len: usize);
+    fn day_dom_share_support() -> bool;
+    fn day_dom_share_url(ptr: *const u8, len: usize, title: *const u8, title_len: usize) -> bool;
     /// Mirror the app route into the URL hash. `replace` = rewrite the current history entry
     /// (the launch reflection) instead of pushing a new one (in-app navigation).
     fn day_dom_set_hash(ptr: *const u8, len: usize, replace: u32);
@@ -2781,6 +2783,16 @@ impl Toolkit for Dom {
         unsafe { day_dom_dismiss(req as u32) };
     }
 
+    fn share_support(&self) -> day_spec::Support {
+        if unsafe { day_dom_share_support() } {
+            day_spec::Support::Native
+        } else {
+            day_spec::Support::Unsupported
+        }
+    }
+    fn share_url(&mut self, url: &str, title: &str) -> bool {
+        unsafe { day_dom_share_url(url.as_ptr(), url.len(), title.as_ptr(), title.len()) }
+    }
     fn open_url(&mut self, url: &str) {
         unsafe { day_dom_open_url(url.as_ptr(), url.len()) };
     }

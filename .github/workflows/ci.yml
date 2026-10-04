@@ -1333,7 +1333,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Web shim regressions
-        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs
+        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy

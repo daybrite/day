@@ -37,6 +37,11 @@ fn main() {
         .file("src/shim-picker.cpp")
         .file("src/shim-transfer.cpp")
         .file("src/shim-textarea.cpp");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
+        build.file("src/shim-share.mm");
+        println!("cargo:rerun-if-changed=src/shim-share.mm");
+        println!("cargo:rustc-link-lib=framework=AppKit");
+    }
     for tok in cflags.split_whitespace() {
         build.flag(tok);
     }

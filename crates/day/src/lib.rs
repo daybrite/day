@@ -42,7 +42,9 @@ pub use day_core::{
     Bitmap, decode_image, decode_image_async, image_decode_support, image_encode_formats,
     image_encode_support,
 };
-pub use day_core::{application_handlers, default_browser, open_url_with_application};
+pub use day_core::{
+    application_handlers, default_browser, open_url_with_application, share_support, share_url,
+};
 /// Programmatic navigation on the deep-link rail (docs/deep-links.md, docs/navigation.md):
 /// route the app to `route`, buffered before the root is ready and applied after, exactly like
 /// a cold launcher shortcut. The route grammar is what `day::routes!` keys and dayscript speak.

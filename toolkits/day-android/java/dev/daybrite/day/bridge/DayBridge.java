@@ -2171,6 +2171,20 @@ public final class DayBridge {
 
     /** Open a URL in the system's default handler (browser for http(s), mail app for mailto:, ...).
      *  Backs the `link` piece. NEW_TASK is required because ctx may be the application context. */
+    public static boolean shareUrl(String url, String title) {
+        if (ctx == null || url == null) return false;
+        try {
+            android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_SEND);
+            intent.setType("text/plain");
+            intent.putExtra(android.content.Intent.EXTRA_TEXT, url);
+            intent.putExtra(android.content.Intent.EXTRA_SUBJECT, title);
+            android.content.Intent chooser = android.content.Intent.createChooser(intent, null);
+            chooser.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(chooser);
+            return true;
+        } catch (Exception ignored) { return false; }
+    }
+
     public static void openUrl(String url) {
         if (ctx == null || url == null) return;
         try {

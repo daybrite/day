@@ -937,6 +937,8 @@ pub trait TreeOps {
     fn dismiss(&mut self, req: u64);
     /// Open `url` in the platform's default handler (what the `link` piece calls).
     fn open_url(&mut self, url: &str);
+    fn share_support(&self) -> Support;
+    fn share_url(&mut self, url: &str, title: &str) -> bool;
     fn application_handlers(
         &mut self,
         query: &day_spec::applications::HandlerQuery,
@@ -1065,6 +1067,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn open_url(&mut self, url: &str) {
         self.toolkit.open_url(url);
+    }
+    fn share_support(&self) -> Support {
+        self.toolkit.share_support()
+    }
+    fn share_url(&mut self, url: &str, title: &str) -> bool {
+        self.toolkit.share_url(url, title)
     }
 
     fn application_handlers(
@@ -2448,6 +2456,17 @@ pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
 /// URLs are ignored by the backend.
 pub fn open_url(url: &str) {
     with_tree(|t| t.open_url(url));
+}
+
+/// Whether the current toolkit can present a native sharing chooser.
+pub fn share_support() -> Support {
+    with_tree(|t| t.share_support())
+}
+/// Present a native chooser for a URL. Call directly from user activation (required on web).
+/// Returns false if unavailable or presentation failed; cancellation is not an error and no
+/// completion is implied. The caller owns any explicitly labelled fallback.
+pub fn share_url(url: &str, title: &str) -> bool {
+    with_tree(|t| t.share_url(url, title))
 }
 
 /// Query current system associations on the UI thread. macOS AppKit implements all query

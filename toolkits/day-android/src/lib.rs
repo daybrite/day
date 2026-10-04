@@ -2294,6 +2294,25 @@ mod imp {
             call_void("dismissPresent", "(J)V", &[JValue::Long(req as i64)]);
         }
 
+        fn share_support(&self) -> day_spec::Support {
+            day_spec::Support::Native
+        }
+        fn share_url(&mut self, url: &str, title: &str) -> bool {
+            with_env(|env| {
+                let url = jstr(env, url);
+                let title = jstr(env, title);
+                env.dcall_static(
+                    BRIDGE,
+                    "shareUrl",
+                    "(Ljava/lang/String;Ljava/lang/String;)Z",
+                    &[JValue::Object(&url), JValue::Object(&title)],
+                )
+                .ok()
+                .and_then(|v| v.z().ok())
+                .unwrap_or(false)
+            })
+        }
+
         fn open_url(&mut self, url: &str) {
             with_env(|env| {
                 let u = jstr(env, url);

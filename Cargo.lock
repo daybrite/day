@@ -598,6 +598,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "pangocairo",
+ "windows",
 ]
 
 [[package]]
@@ -1178,6 +1179,7 @@ dependencies = [
  "day-spec",
  "linkme",
  "log",
+ "windows",
 ]
 
 [[package]]
@@ -1326,6 +1328,7 @@ dependencies = [
  "day-xaml-sys",
  "linkme",
  "log",
+ "windows",
 ]
 
 [[package]]
