@@ -2464,7 +2464,7 @@ pub fn share_support() -> Support {
 }
 /// Present a native chooser for a URL. Call directly from user activation (required on web).
 /// Returns false if unavailable or presentation failed; cancellation is not an error and no
-/// completion is implied. The caller owns any explicitly labelled fallback.
+/// completion is implied. The caller owns any explicitly labeled fallback.
 pub fn share_url(url: &str, title: &str) -> bool {
     with_tree(|t| t.share_url(url, title))
 }

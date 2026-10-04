@@ -5,7 +5,10 @@ use std::cell::RefCell;
 use windows::{
     ApplicationModel::DataTransfer::{DataRequestedEventArgs, DataTransferManager},
     Foundation::{TypedEventHandler, Uri},
-    Win32::UI::{Input::KeyboardAndMouse::GetActiveWindow, Shell::IDataTransferManagerInterop},
+    Win32::{
+        Foundation::{E_HANDLE, E_POINTER},
+        UI::{Input::KeyboardAndMouse::GetActiveWindow, Shell::IDataTransferManagerInterop},
+    },
     core::{HSTRING, Result, factory},
 };
 thread_local! {
@@ -19,7 +22,7 @@ pub fn share(url: &str, title: &str) -> bool {
             factory::<DataTransferManager, IDataTransferManagerInterop>()?;
         let hwnd = unsafe { GetActiveWindow() };
         if hwnd.is_invalid() {
-            return Err(windows::core::Error::from_win32());
+            return Err(windows::core::Error::from_hresult(E_HANDLE));
         }
         let manager: DataTransferManager = unsafe { interop.GetForWindow(hwnd)? };
         let uri = Uri::CreateUri(&HSTRING::from(url))?;
@@ -33,7 +36,9 @@ pub fn share(url: &str, title: &str) -> bool {
             DataTransferManager,
             DataRequestedEventArgs,
         >::new(move |_, args| {
-            let args = args.as_ref().ok_or_else(windows::core::Error::from_win32)?;
+            let args = args
+                .as_ref()
+                .ok_or_else(|| windows::core::Error::from_hresult(E_POINTER))?;
             let data = args.Request()?.Data()?;
             data.Properties()?.SetTitle(&title)?;
             data.SetWebLink(&uri)?;

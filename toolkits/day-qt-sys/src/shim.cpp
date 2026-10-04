@@ -284,14 +284,15 @@ protected:
 };
 
 // The window's own quit shortcut, cleared when a menu takes the Quit role.
-static QAction *s_default_quit = nullptr;
+// A secondary window must neither replace this nor leave a dangling action after disposal.
+static QPointer<QAction> s_default_quit;
 
-void *day_qt_window_new(const char *title, int w, int h) {
+static DayWindow *day_qt_create_window(const char *title, int w, int h, bool primary) {
     auto *win = new DayWindow();
     // The platform quit shortcut (Ctrl+Q; ⌘Q on macOS) quits with no menu declared, as GTK's
     // `app.quit` accelerator does. A declared `MenuRole::Quit` item takes the key over
     // (`day_qt_menu_add_role`), since two actions on one shortcut fire neither.
-    {
+    if (primary) {
         auto *quit = new QAction(win);
         quit->setShortcut(QKeySequence::Quit);
         quit->setShortcutContext(Qt::ApplicationShortcut);
@@ -306,6 +307,9 @@ void *day_qt_window_new(const char *title, int w, int h) {
     win->content->show();
     return win;
 }
+void *day_qt_window_new(const char *title, int w, int h) {
+    return day_qt_create_window(title, w, h, true);
+}
 void day_qt_window_on_resize(void *win, void (*cb)(int, int)) {
     static_cast<DayWindow *>(win)->resize_cb = cb;
 }
@@ -314,7 +318,7 @@ void day_qt_window_show(void *win) { static_cast<QWidget *>(win)->show(); }
 // A SECONDARY window (docs/windows.md): carries its day node id; `fixed` pins the size
 // (the Preferences-window convention).
 void *day_qt_window_new2(const char *title, int w, int h, unsigned long long node, int fixed) {
-    auto *win = static_cast<DayWindow *>(day_qt_window_new(title, w, h));
+    auto *win = day_qt_create_window(title, w, h, false);
     win->node = node;
     if (fixed) win->setFixedSize(w, h);
     return win;

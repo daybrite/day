@@ -975,6 +975,12 @@ reads the current native menu after reactive replacements, consumes only matched
 and is removed when the backend drops. This lets a browser's Escape-to-Stop command work
 while its address field retains focus.
 
+Qt's fallback application Quit shortcut belongs only to the primary window. Secondary
+windows do not register competing application shortcuts or replace the primary action. A
+`QPointer` guards that action through deferred window destruction, so reactive menu installs
+can safely transfer the Quit shortcut to a declared menu role after a secondary window closes.
+The native `qt-menu-lifetime` regression exercises disposal before rebuilding the menu.
+
 Native URL sharing is an imperative toolkit operation (`share_support` / `share_url`),
 exposed on Day alongside URL opening. Invoke it directly from user activation; `true` means
 that a chooser started, not that a target received data. AppKit and macOS GTK use
@@ -982,9 +988,10 @@ that a chooser started, not that a target received data. AppKit and macOS GTK us
 an Objective-C++ picker. UIKit presents `UIActivityViewController` from the current controller
 and anchors its iPad popover. Android launches an `ACTION_SEND` chooser. Windows GTK, Qt,
 XAML and WinUI share a DataTransferManager adapter; its previous DataRequested registration
-is removed before a new payload is installed. Web Share checks user activation and suppresses
+is removed before a new payload is installed. Missing active windows and missing event arguments
+return explicit `E_HANDLE` / `E_POINTER` errors; neither condition reads stale thread error state. Web Share checks user activation and suppresses
 cancellation rejection. Desktop Linux and the OpenHarmony SDK report Unsupported because
-there is no universal share chooser in those SDKs. Applications own any visibly labelled
+there is no universal share chooser in those SDKs. Applications own any visibly labeled
 fallback. See [docs/sharing.md](docs/sharing.md).
 
 Buttons remain native controls when displaying icons. `ButtonProps` carries an optional

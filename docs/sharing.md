@@ -14,7 +14,7 @@ cancellation as an error. Sharing targets and permissions belong to the operatin
 | web-dom | Web Share, when supported and called during user activation |
 | Linux GTK / Qt; OpenHarmony ArkUI; mock | Unsupported |
 
-The WebView demo uses a button labelled Copy Link on unsupported platforms, backed by
+The WebView demo uses a button labeled Copy Link on unsupported platforms, backed by
 Day's asynchronous clipboard API. It never silently labels copying as native sharing.
 Native chooser presentation is window-based; the current API does not accept a per-control
 anchor or offer a completion future. Windows and macOS keep the latest chooser/registration
