@@ -6,9 +6,9 @@
 //!
 //! Every `#[napi]` function here is one export of the `entry` module; the ArkTS pages call
 //! them (docs/harmonyos.md). The duties HarmonyOS keeps in ArkTS (the navigation stack, file
-//! and permission pickers, URL opening, secondary windows, ArkTS-built piece components) come
-//! back as JS callbacks the host registers, held here as function references and called on the
-//! JS thread, which is the thread every entry point below runs on.
+//! and permission pickers, URL opening, secondary windows, the status bar, ArkTS-built piece
+//! components) come back as JS callbacks the host registers, held here as function references
+//! and called on the JS thread, which is the thread every entry point below runs on.
 
 // Node handles are opaque runtime tokens (see node.rs), never dereferenced here.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -53,6 +53,10 @@ thread_local! {
     static PERMISSION_WAITERS: RefCell<HashMap<u64, extern "C" fn(u64, u64)>> = RefCell::new(HashMap::new());
     /// `(url)`: the `link` piece's opener.
     static OPEN_URL: Callback<FnArgs<(String,)>> = const { RefCell::new(None) };
+    /// `(hidden)`: the window's status bar (docs/cover.md).
+    static STATUS_BAR: Callback<FnArgs<(bool,)>> = const { RefCell::new(None) };
+    /// The last status-bar answer Day asked for, replayed when the host registers late.
+    static STATUS_BAR_HIDDEN: Cell<bool> = const { Cell::new(false) };
     /// `(node, title)` / `(node)`: the multiton window launchers (docs/windows.md).
     static WINDOW_OPEN: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static WINDOW_CLOSE: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
@@ -280,6 +284,17 @@ pub fn on_permission_result(req: f64, mask: f64) {
 pub fn register_open_url(env: Env, callback: FunctionRef<FnArgs<(String,)>, Unknown<'static>>) {
     remember(&env);
     store(&OPEN_URL, callback);
+}
+
+/// `registerStatusBar(cb)`: the window's status bar (docs/cover.md). A request made before the
+/// host registered is replayed at once, so the order of `start()` and this call never loses one.
+#[napi(js_name = "registerStatusBar")]
+pub fn register_status_bar(env: Env, callback: FunctionRef<FnArgs<(bool,)>, Unknown<'static>>) {
+    remember(&env);
+    store(&STATUS_BAR, callback);
+    if STATUS_BAR_HIDDEN.with(|h| h.get()) {
+        set_status_bar_hidden(true);
+    }
 }
 
 /// `registerWindows(open, close)` (docs/windows.md).
@@ -511,6 +526,12 @@ pub fn request_permissions(req: u64, names: &str, cb: extern "C" fn(u64, u64)) -
 /// Open `url` in the system's default handler. A no-op when the host registered no opener.
 pub fn open_url(url: &str) {
     call(&OPEN_URL, FnArgs::from((url.to_owned(),)), |_, _| ());
+}
+
+/// Hide or show the window's status bar. Remembered when no host is registered yet.
+pub fn set_status_bar_hidden(hidden: bool) {
+    STATUS_BAR_HIDDEN.with(|h| h.set(hidden));
+    call(&STATUS_BAR, FnArgs::from((hidden,)), |_, _| ());
 }
 
 /// Whether the host registered the window launchers (drives `Cap::MultiWindow`).

@@ -822,6 +822,7 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
         }
         "defers_system_gestures" => p.defers_system_gestures(Edges::ALL).any(),
         "interactive_dismiss_disabled" => p.interactive_dismiss_disabled().any(),
+        "status_bar_hidden" => p.status_bar_hidden(true).any(),
         other => {
             let ext = ext_modifiers()
                 .lock()
@@ -906,6 +907,7 @@ pub fn catalog() -> Vec<SpecEntry> {
             "interactive_dismiss_disabled",
             "interactive_dismiss_disabled()",
         ),
+        g("status_bar_hidden", "status_bar_hidden()"),
     ]);
     if let Ok(m) = ctors().lock() {
         for name in m.keys() {

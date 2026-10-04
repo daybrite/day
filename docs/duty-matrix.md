@@ -72,6 +72,7 @@ implement them, and this table proves it.
 | `application_handlers` | · | ✓ | · | · | · | · | · | · | · | · |
 | `open_url_with_application` | · | ✓ | · | · | · | · | · | · | · | · |
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
+| `set_status_bar_hidden` | · | · | ✓ | · | · | · | ✓ | ✓ | · | ✓ |
 | `dark_mode` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `set_appearance` | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | · |
 | `set_app_badge` | · | ✓ | ✓ | · | · | · | · | ✓ | ✓ | · |

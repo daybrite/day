@@ -2302,6 +2302,11 @@ pub enum Cap {
     /// The toolkit presents a `kinds::COVER` node as a native fullscreen modal surface
     /// (docs/cover.md). `Unsupported` ⇒ the `cover` piece's content never shows.
     Cover,
+    /// The toolkit can hide the system status bar while a `status_bar_hidden` subtree is
+    /// mounted (`Toolkit::set_status_bar_hidden`, docs/cover.md). `Native` on the phone and
+    /// tablet backends; desktop and web have no status bar, so a setting that offers to hide
+    /// it should be offered only where this is not `Unsupported`.
+    StatusBarHidden,
     /// The toolkit's `text_area` can be made read-only (`TextAreaProps::editable = false`).
     TextEditable,
     /// The toolkit's `text_area` selectability can be toggled (`TextAreaProps::selectable`).
@@ -6413,6 +6418,14 @@ pub trait Toolkit: Sized + 'static {
     /// indicator / notification edges; Android enters swipe-to-reveal immersive mode while
     /// non-empty. The default no-ops (desktop has no system edge gestures).
     fn defer_system_gestures(&mut self, _edges: Edges) {}
+
+    /// Hide (`true`) or show the system status bar (docs/cover.md): whether any mounted
+    /// `status_bar_hidden` modifier currently asks for it hidden, re-sent whenever that answer
+    /// may have changed (`false` when the last request unmounts). iOS answers the root and
+    /// cover view controllers' `prefersStatusBarHidden`; Android and HarmonyOS hide the status
+    /// bar through their window inset controls. The default no-ops (desktop and web have no
+    /// status bar); report `Cap::StatusBarHidden` alongside an implementation.
+    fn set_status_bar_hidden(&mut self, _hidden: bool) {}
 
     /// Whether the platform is rendering in dark appearance right now. Apps painting
     /// custom surfaces (opaque overlay panels, scrims) branch on this so their fills track

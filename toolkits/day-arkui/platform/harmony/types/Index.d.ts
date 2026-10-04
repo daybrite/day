@@ -62,6 +62,12 @@ export const registerResourceManager: (resourceManager: Object) => void;
 // equivalent). The callback is invoked on the JS thread with every URL Day wants opened.
 export const registerOpenUrl: (callback: (url: string) => void) => void;
 
+// Register the ArkTS status-bar control (docs/cover.md): called on the JS thread with `true` while
+// a mounted `status_bar_hidden` asks for the bar hidden and `false` when none does. The window's
+// `setSpecificSystemBarEnabled('status', …)` lives in ArkTS. A request made before registration
+// is replayed at once.
+export const registerStatusBar: (callback: (hidden: boolean) => void) => void;
+
 // --- Navigation bridge (docs/navigation.md) ---------------------------------
 // Day drives HarmonyOS's own Navigation/NavPathStack. `registerNav` wires the ArkTS side before
 // `start()`: `push` must create a fresh NodeContent, push a NavDestination for it, and return

@@ -1,6 +1,6 @@
 ---
 title: "Fullscreen cover"
-description: "The cover presentation: a fullscreen surface over everything, the system-gesture shield, and how each backend presents it."
+description: "The cover presentation: a fullscreen surface over everything, the system-gesture shield, hiding the status bar, and how each backend presents it."
 ---
 
 <!--
@@ -104,6 +104,34 @@ game_page()
   (`open.set(None)`, dayscript `nav_back`) still close it; ship an explicit close control.
   The state is queryable via `day_core::shield::dismiss_disabled()` (reactive: reads track
   a change counter).
+
+## Hiding the status bar
+
+`status_bar_hidden(hidden)` hides the system status bar while its subtree is mounted, the
+analogue of SwiftUI's `statusBarHidden(_:)`. `hidden` is a `bool`, a `Signal<bool>`, or a
+closure, so a setting can switch it while the page stays up:
+
+```rust
+reader_page()
+    .status_bar_hidden(move || prefs.get().hide_status_bar)
+```
+
+The bar is hidden while any mounted request answers `true`, and it returns when the last one
+unmounts or answers `false`. A request on a page lower in a navigation stack stays live while
+pages are pushed over it, so put the modifier on the page that wants the whole screen: a cover,
+a reader, or a game.
+
+| Backend | Mechanism |
+|---|---|
+| iOS | `prefersStatusBarHidden` on the window's root view controller and on each cover's view controller, updated with a fade |
+| Android | `WindowInsetsControllerCompat.hide(statusBars())`; a swipe from the top edge shows the bar briefly |
+| HarmonyOS | the window's `setSpecificSystemBarEnabled('status', …)`, called from the ArkTS host |
+| desktop, web | nothing to hide; the modifier has no effect |
+
+Check `day_core::capability(Cap::StatusBarHidden)` before offering a setting for it: the three
+backends above answer `Native`, and the rest answer `Unsupported`. day-core sends the current
+answer through the `Toolkit::set_status_bar_hidden` duty each time a request mounts, unmounts,
+or changes, and `day_core::shield::status_bar_hidden()` reads it.
 
 ## Routes, dayscript, deep links
 

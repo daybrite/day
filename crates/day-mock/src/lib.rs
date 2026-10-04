@@ -804,6 +804,8 @@ impl Toolkit for MockToolkit {
             // Covers "present" by recording the patch (probe-visible); tests emit the
             // FrameChanged size report themselves, as the native surface would.
             Cap::Cover => Support::Native,
+            // The status bar "hides" by recording the duty call (probe-visible).
+            Cap::StatusBarHidden => Support::Native,
             // The probe drives the whole reorder sequence, guard then commit (`list_can_move`/
             // `list_move`).
             Cap::ListReorder => Support::Native,
@@ -1719,6 +1721,13 @@ impl Toolkit for MockToolkit {
         self.state
             .borrow_mut()
             .log(format!("defer_system_gestures edges={:#06b}", edges.0));
+    }
+
+    fn set_status_bar_hidden(&mut self, hidden: bool) {
+        // No status bar; record the union (docs/cover.md) for op-log asserts.
+        self.state
+            .borrow_mut()
+            .log(format!("set_status_bar_hidden {hidden}"));
     }
 
     // The remaining duties, implemented observably so mock stays a complete conformance probe

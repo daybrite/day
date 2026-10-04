@@ -2142,6 +2142,8 @@ mod imp {
                 | Cap::FileDialogs
                 | Cap::Animation
                 | Cap::Cover
+                // WindowInsetsControllerCompat hides the status bar (docs/cover.md).
+                | Cap::StatusBarHidden
                 // The MaterialToolbar names the destination on every page (DayNavHost
                 // syncChrome), so content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
@@ -2195,6 +2197,12 @@ mod imp {
                 "(Z)V",
                 &[JValue::Bool(!edges.is_empty())],
             );
+        }
+
+        fn set_status_bar_hidden(&mut self, hidden: bool) {
+            // The insets controller hides the status bar; the edge-to-edge root then sees the
+            // smaller top inset through its usual inset listener (docs/cover.md).
+            call_void("setStatusBarHidden", "(Z)V", &[JValue::Bool(hidden)]);
         }
 
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {

@@ -13,6 +13,7 @@
 
 import { NodeContent } from '@kit.ArkUI';
 import { display } from '@kit.ArkUI';
+import { window } from '@kit.ArkUI';
 import { picker } from '@kit.CoreFileKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { abilityAccessCtrl, common, Permissions, PermissionRequestResult, Want } from '@kit.AbilityKit';
@@ -184,6 +185,16 @@ struct Index {
     nativeEntry.registerResourceManager(
       (this.getUIContext().getHostContext() as common.UIAbilityContext).resourceManager
     );
+
+    // The status bar (docs/cover.md): hidden while a mounted `status_bar_hidden` asks for it.
+    // Before start(): the first tree build can already carry the request.
+    nativeEntry.registerStatusBar((hidden: boolean): void => {
+      window.getLastWindow(this.getUIContext().getHostContext() as common.UIAbilityContext)
+        .then((win: window.Window) => win.setSpecificSystemBarEnabled('status', !hidden, true))
+        .catch((err: BusinessError) => {
+          console.error(`day: status bar update failed: ${err.code} ${err.message}`);
+        });
+    });
 
     const d = display.getDefaultDisplaySync();
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.

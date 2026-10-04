@@ -952,6 +952,9 @@ pub trait TreeOps {
 
     /// Re-send the union of every mounted `defers_system_gestures` request (docs/cover.md).
     fn defer_system_gestures(&mut self, edges: day_spec::Edges);
+    /// Re-send whether any mounted `status_bar_hidden` request asks to hide the status bar
+    /// (docs/cover.md).
+    fn set_status_bar_hidden(&mut self, hidden: bool);
 
     // Recycling list methods (docs/list.md, §10). Called by day-core's `ListSource` closures
     // (via `with_tree`) when the native list pulls rows; never nested inside another borrow.
@@ -1103,6 +1106,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn defer_system_gestures(&mut self, edges: day_spec::Edges) {
         self.toolkit.defer_system_gestures(edges);
+    }
+
+    fn set_status_bar_hidden(&mut self, hidden: bool) {
+        self.toolkit.set_status_bar_hidden(hidden);
     }
 
     fn create_node(

@@ -4651,6 +4651,86 @@ fn cover_presents_lays_out_and_dismisses() {
     );
 }
 
+thread_local! {
+    static STATUS_SETTING: std::cell::Cell<Option<Signal<bool>>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// `status_bar_hidden` (docs/cover.md): the request is live only while its subtree is mounted,
+/// follows a reactive source in place, and every change reaches the backend duty.
+#[test]
+fn status_bar_hidden_follows_mount_and_setting() {
+    let probe = boot(|| {
+        let open = Signal::new(None::<String>);
+        let setting = Signal::new(true);
+        STATUS_SETTING.with(|s| s.set(Some(setting)));
+        zstack((
+            label("home"),
+            cover(open, move |_: &String| {
+                label("reader")
+                    .status_bar_hidden(move || setting.get())
+                    .any()
+            }),
+        ))
+        .any()
+    });
+    flush_sync();
+    let setting = STATUS_SETTING.with(|s| s.get()).expect("setting published");
+    let calls = |probe: &MockProbe| {
+        probe
+            .mutations()
+            .iter()
+            .filter(|l| l.starts_with("set_status_bar_hidden"))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        !day_core::shield::status_bar_hidden(),
+        "nothing mounted asks yet"
+    );
+
+    assert!(day_core::navigate("book"));
+    flush_sync();
+    assert!(
+        day_core::shield::status_bar_hidden(),
+        "the mounted reader hides the bar"
+    );
+    assert_eq!(
+        calls(&probe).last().map(String::as_str),
+        Some("set_status_bar_hidden true")
+    );
+
+    setting.set(false);
+    flush_sync();
+    assert!(
+        !day_core::shield::status_bar_hidden(),
+        "the setting turned it off in place"
+    );
+    assert_eq!(
+        calls(&probe).last().map(String::as_str),
+        Some("set_status_bar_hidden false")
+    );
+
+    setting.set(true);
+    flush_sync();
+    assert!(day_core::shield::status_bar_hidden());
+
+    // Dismissed: the content unmounts after the hide transition, and the bar comes back.
+    assert!(day_core::nav_back());
+    flush_sync();
+    let cover_id = node_id(&probe, "day.cover", 0);
+    probe.emit(cover_id, Event::CoverHidden);
+    flush_sync();
+    assert!(
+        !day_core::shield::status_bar_hidden(),
+        "unmounting withdrew the request"
+    );
+    assert_eq!(
+        calls(&probe).last().map(String::as_str),
+        Some("set_status_bar_hidden false")
+    );
+}
+
 // ── the superapp lifecycle: siblings must survive a cover cycle, and a second present must
 //    work, including with adversarial `CoverHidden` orderings (double emit, late emit).
 

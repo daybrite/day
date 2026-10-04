@@ -222,6 +222,9 @@ mod imp {
         /// The current `defers_system_gestures` union (day `Edges` bits) — read by the root
         /// and cover VCs' `preferredScreenEdgesDeferringSystemGestures` overrides.
         static DEFER_EDGES: Cell<u8> = const { Cell::new(0) };
+        /// Whether a mounted `status_bar_hidden` asks for the bar hidden — read by the root
+        /// and cover VCs' `prefersStatusBarHidden` overrides.
+        static STATUS_BAR_HIDDEN: Cell<bool> = const { Cell::new(false) };
 
         pub(super) static UNDO_FRONT: RefCell<Option<Retained<DayUndoManager>>> =
             const { RefCell::new(None) };
@@ -2655,6 +2658,31 @@ mod imp {
         false
     }
 
+    /// Schedule a re-pin of the page (or window holder) whose content chain `changed` sits in.
+    ///
+    /// Whether a page pins its content inside the safe area or runs it edge to edge depends on
+    /// what the content IS (`scroll_leaf`), and that changes when a child joins or leaves the
+    /// chain: a reader cover swapping its web view for a settings form kept the web view's
+    /// edge-to-edge frame, and the form's header went under the status bar. `scroll_leaf`
+    /// looks six single-child levels below a page's content view, so walking that far up
+    /// finds every page whose answer the change can move. Only scheduled: the pass runs
+    /// after the tree edit lands.
+    fn reask_content_frame(changed: &UIView) {
+        let mut view = Some(changed.retain());
+        for _ in 0..8 {
+            let Some(v) = view else {
+                return;
+            };
+            if v.downcast_ref::<DayNavPageView>().is_some()
+                || v.downcast_ref::<DayHolderView>().is_some()
+            {
+                v.setNeedsLayout();
+                return;
+            }
+            view = unsafe { v.superview() };
+        }
+    }
+
     struct NavControllerIvars {
         host: std::cell::Cell<usize>,
         guarded: std::cell::Cell<bool>,
@@ -4082,6 +4110,18 @@ mod imp {
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
             }
+
+            /// A fullscreen presentation takes over the status bar's appearance, so the cover
+            /// answers for it while it is up.
+            #[unsafe(method(prefersStatusBarHidden))]
+            fn prefers_status_bar_hidden(&self) -> bool {
+                STATUS_BAR_HIDDEN.with(|h| h.get())
+            }
+
+            #[unsafe(method(preferredStatusBarUpdateAnimation))]
+            fn status_bar_animation(&self) -> objc2_ui_kit::UIStatusBarAnimation {
+                objc2_ui_kit::UIStatusBarAnimation::Fade
+            }
         }
     );
 
@@ -4171,6 +4211,19 @@ mod imp {
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
+            }
+
+            /// The window root answers for the status bar outside a cover. Its children (the
+            /// tab and navigation hosts) are not asked: `childViewControllerForStatusBarHidden`
+            /// stays nil, so one answer covers every page.
+            #[unsafe(method(prefersStatusBarHidden))]
+            fn prefers_status_bar_hidden(&self) -> bool {
+                STATUS_BAR_HIDDEN.with(|h| h.get())
+            }
+
+            #[unsafe(method(preferredStatusBarUpdateAnimation))]
+            fn status_bar_animation(&self) -> objc2_ui_kit::UIStatusBarAnimation {
+                objc2_ui_kit::UIStatusBarAnimation::Fade
             }
 
             /// The window is crossing a size class — the whole reason a split view collapses or
@@ -7666,6 +7719,8 @@ mod imp {
                 | Cap::EditBridge
                 | Cap::Animation
                 | Cap::Cover
+                // `prefersStatusBarHidden` on the root and cover VCs (docs/cover.md).
+                | Cap::StatusBarHidden
                 // Every page rides a UINavigationController, whose UINavigationBar names the
                 // destination — content needn't repeat the title (docs/navigation.md).
                 | Cap::NavHeader
@@ -9235,14 +9290,9 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
-            // What the root holds decides whether the window pads by the safe area
-            // (`DayHolderView::layoutSubviews`), so a child joining the root re-asks it. Only
-            // scheduled here: the child is attached below, and the pass runs after.
-            if let Some(holder) = unsafe { parent.superview() }
-                && holder.downcast_ref::<DayHolderView>().is_some()
-            {
-                holder.setNeedsLayout();
-            }
+            // What a page or the root holds decides whether it pads by the safe area
+            // (`DayNavPageView`/`DayHolderView::layoutSubviews`), so a child joining it re-asks.
+            reask_content_frame(parent);
             // A NAV_MENU joining the tree: if it lands anywhere inside a `.tabSidebar` host, its
             // rows are that host's tabs. This is the first moment the menu has a superview chain
             // to find its host through.
@@ -9437,6 +9487,7 @@ mod imp {
             }
             if !nav_child {
                 unsafe { child.removeFromSuperview() };
+                reask_content_frame(parent);
             }
         }
 
@@ -10571,6 +10622,37 @@ mod imp {
             for vc in covers {
                 unsafe { vc.setNeedsUpdateOfScreenEdgesDeferringSystemGestures() };
             }
+        }
+
+        fn set_status_bar_hidden(&mut self, hidden: bool) {
+            if STATUS_BAR_HIDDEN.with(|h| h.replace(hidden)) == hidden {
+                return;
+            }
+            // As for gesture deferral: re-query the root and every cover VC, since UIKit asks
+            // the topmost fullscreen presentation, which is the cover while one is up. Inside
+            // an animation block, so `preferredStatusBarUpdateAnimation`'s fade applies.
+            let mut vcs: Vec<Retained<UIViewController>> = WINDOW
+                .with(|w| w.borrow().clone())
+                .and_then(|w| w.rootViewController())
+                .into_iter()
+                .collect();
+            vcs.extend(
+                COVER_STATE
+                    .with(|m| {
+                        m.borrow()
+                            .values()
+                            .map(|s| s.vc.clone())
+                            .collect::<Vec<_>>()
+                    })
+                    .into_iter()
+                    .map(|vc| vc.into_super()),
+            );
+            let update = block2::RcBlock::new(move || {
+                for vc in &vcs {
+                    vc.setNeedsStatusBarAppearanceUpdate();
+                }
+            });
+            unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
         }
 
         fn set_appearance(&mut self, dark: Option<bool>) {

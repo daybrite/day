@@ -3162,6 +3162,12 @@ mod imp {
             crate::host_api::open_url(url);
         }
 
+        fn set_status_bar_hidden(&mut self, hidden: bool) {
+            // The ArkTS host hides it with `setSpecificSystemBarEnabled('status', …)`; the page's
+            // onAreaChange then reports the taller content area (docs/cover.md).
+            crate::host_api::set_status_bar_hidden(hidden);
+        }
+
         fn set_drag_source(&mut self, h: &AHandle, source: day_spec::transfer::Source) {
             crate::transfer::source(h, source);
         }
@@ -3241,6 +3247,8 @@ mod imp {
                 Cap::ListDelete => Support::Native,
                 // Emulated: a topmost full-window child of the root, not a system modal.
                 Cap::Cover => Support::Emulated,
+                // The window's `setSpecificSystemBarEnabled('status', …)` (docs/cover.md).
+                Cap::StatusBarHidden => Support::Native,
                 // The COMPOSED tree (docs/tree.md M2/M4): the piece flattens onto this
                 // backend's NodeAdapter list; disclosure, indentation and row content are
                 // day pieces. No native drag wiring, so `Cap::TreeMove` stays Unsupported

@@ -1785,18 +1785,44 @@ public final class DayBridge {
      *  the bars, second swipe acts" behavior, the closest analogue of iOS's screen-edge
      *  deferral. Restores normal bars when the last request unmounts. */
     public static void setDeferSystemGestures(boolean on) {
+        deferSystemGestures = on;
+        applySystemBars();
+    }
+
+    /** The status bar (docs/cover.md): hidden while any mounted `status_bar_hidden` subtree
+     *  asks for it. A swipe from the top edge shows it transiently, as everywhere else on the
+     *  platform; the navigation bar stays. */
+    public static void setStatusBarHidden(boolean hidden) {
+        statusBarHidden = hidden;
+        applySystemBars();
+    }
+
+    private static boolean deferSystemGestures;
+    private static boolean statusBarHidden;
+
+    /** One insets-controller state for both requests, so neither undoes the other: deferral
+     *  hides every system bar, the status-bar request only the status bar. */
+    private static void applySystemBars() {
         android.app.Activity act = (android.app.Activity) ctx;
         androidx.core.view.WindowInsetsControllerCompat c =
                 androidx.core.view.WindowCompat.getInsetsController(
                         act.getWindow(), act.getWindow().getDecorView());
-        if (on) {
+        int bars = androidx.core.view.WindowInsetsCompat.Type.systemBars();
+        int status = androidx.core.view.WindowInsetsCompat.Type.statusBars();
+        if (deferSystemGestures || statusBarHidden) {
             c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
                     .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-            c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars());
         } else {
-            c.show(androidx.core.view.WindowInsetsCompat.Type.systemBars());
             c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
                     .BEHAVIOR_DEFAULT);
+        }
+        if (deferSystemGestures) {
+            c.hide(bars);
+        } else if (statusBarHidden) {
+            c.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars());
+            c.hide(status);
+        } else {
+            c.show(bars);
         }
     }
 

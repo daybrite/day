@@ -85,7 +85,7 @@ the architecture-level view and the rationale.
 | raster images from bytes — `day::decode_image`, the `Bitmap` handle, `ImageSource`, `Draw::image`, per-backend decode/encode/metadata | [docs/images.md](docs/images.md) | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
-| fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled` | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
+| fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled`, `status_bar_hidden` (`Cap::StatusBarHidden`) | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | tree — `tree(source, row)` hierarchical rows: native tree views where `Cap::Tree` is Native, the composed list-backed tree elsewhere; token identity, app-owned expansion, drag-to-reparent | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
@@ -913,7 +913,8 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `Toolkit::set_cursor` with `Cap::Cursor` saying how faithfully; [docs/cursor.md](docs/cursor.md)),
 `.context_menu()`, `.toolbar()` (declare toolbar items on the chrome this piece sits under —
 one item, a list, or a closure that derives one, [docs/toolbars.md](docs/toolbars.md)),
-`.defers_system_gestures()` / `.interactive_dismiss_disabled()`
+`.defers_system_gestures()` / `.interactive_dismiss_disabled()` / `.status_bar_hidden()` (a
+constant or a reactive source; routed to `Toolkit::set_status_bar_hidden`)
 ([docs/cover.md](docs/cover.md)), `.tweak()` / `.native_ref()` ([docs/tweaks.md](docs/tweaks.md)), `.modifier(impl Modifier)`,
 and `.any()`.
 
@@ -1359,6 +1360,9 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > bars on to its own pages) fills the page's bounds and takes the bars as
 > UIKit content insets (`DayNavPageView::layoutSubviews`, `scroll_leaf`), so the list runs under
 > the translucent bar the way Settings does; any other page stays pinned inside the safe area.
+> A child joining or leaving a page's content chain re-asks the question (`reask_content_frame`,
+> 2026-10-03), so content that swaps between a scroll view and a form re-pins rather than
+> keeping the frame its first content chose.
 > Only the top and bottom insets are absorbed this way: the sides still pad the frame in both
 > modes (`content_frame`), because a side inset is never a bar — iPadOS 26 floats the split
 > view's sidebar over the secondary column and reports it as that column's left safe area, so
@@ -1613,6 +1617,7 @@ pub trait Toolkit: Sized + 'static {
     fn application_handlers(&mut self, query: &HandlerQuery) -> Result<ApplicationHandlers, ApplicationError>;
     fn open_url_with_application(&mut self, url: &str, application: &str, completion: OpenApplicationCompletion);
     fn defer_system_gestures(&mut self, edges: Edges) {}   // the shield union (docs/cover.md)
+    fn set_status_bar_hidden(&mut self, hidden: bool) {}   // any mounted status_bar_hidden (Cap::StatusBarHidden)
     fn dark_mode(&mut self) -> bool {}     // current appearance, for app-painted opaque surfaces
     fn set_appearance(&mut self, dark: Option<bool>) {}  // runtime light/dark/system override (Cap::Appearance)
 

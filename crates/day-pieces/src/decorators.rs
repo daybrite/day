@@ -899,6 +899,24 @@ fn op_defers_system_gestures(edges: day_spec::Edges) -> impl FnOnce(Build) -> Bu
     }
 }
 
+fn op_status_bar_hidden(hidden: Reactive<bool>) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let token = day_core::shield::push_status_bar_request(hidden.get_untracked());
+            Scope::current().on_cleanup(move || day_core::shield::pop_status_bar_request(token));
+            // A constant answer is registered once; a reactive one follows its source while
+            // the subtree stays mounted (a reader's "hide status bar" setting).
+            if let Reactive::Dyn(_) = &hidden {
+                bind(
+                    move || hidden.get(),
+                    move |h: &bool| day_core::shield::set_status_bar_request(token, *h),
+                );
+            }
+            inner(cx)
+        })
+    }
+}
+
 fn op_interactive_dismiss_disabled() -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -1124,6 +1142,9 @@ impl<P: Piece> Decorated<P> {
     }
     pub fn interactive_dismiss_disabled(self) -> Self {
         self.push(op_interactive_dismiss_disabled())
+    }
+    pub fn status_bar_hidden<M>(self, hidden: impl IntoReactive<bool, M>) -> Self {
+        self.push(op_status_bar_hidden(hidden.into_reactive()))
     }
     /// Erase to a single [`AnyPiece`].
     pub fn any(self) -> AnyPiece {
@@ -1511,6 +1532,16 @@ pub trait Decorate: Piece + Sized {
     /// requests deferral; desktop backends no-op.
     fn defers_system_gestures(self, edges: day_spec::Edges) -> Decorated<Self> {
         Decorated::new(self).defers_system_gestures(edges)
+    }
+
+    /// While this subtree is mounted and `hidden` is true, hide the system status bar, the
+    /// SwiftUI `statusBarHidden(_:)` analogue (docs/cover.md). `hidden` is a constant, a
+    /// `Signal`, or a closure, so a setting can turn it on and off in place. Put it on a page
+    /// that wants the whole screen (a reader, a game, a photo viewer); the bar returns when
+    /// the page unmounts. Any mounted request that answers true hides the bar. iOS, Android and
+    /// HarmonyOS hide it (`Cap::StatusBarHidden`); desktop and web have none and ignore it.
+    fn status_bar_hidden<M>(self, hidden: impl IntoReactive<bool, M>) -> Decorated<Self> {
+        Decorated::new(self).status_bar_hidden(hidden)
     }
 
     /// While this subtree is mounted, the enclosing [`cover`] (or other modal surface) must
