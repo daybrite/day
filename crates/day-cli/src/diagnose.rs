@@ -454,6 +454,61 @@ fn os_crash_findings(
                 );
             }
         }
+        TargetKind::HarmonyOs => {
+            // Guest wall time can differ from the host's (including its timezone). Compare
+            // report age on the guest with this launch's elapsed time, not host epoch time.
+            let key = crate::ops::selected_ohos_key()
+                .map(str::to_owned)
+                .unwrap_or_else(crate::ohos::ohos_target);
+            let dir = "/data/log/faultlog/faultlogger";
+            looked.push(format!("Harmony faultlogger on {key} ({dir})"));
+            let Some(listing) = crate::ops::output_within(
+                crate::ohos::hdc_for(&key).args(["shell", &format!("date +%s; ls -t {dir}")]),
+                DEVICE_CMD,
+            ) else {
+                return;
+            };
+            let listing = String::from_utf8_lossy(&listing.stdout);
+            let mut lines = listing.lines();
+            let Some(now) = lines.next().and_then(|s| s.trim().parse::<u64>().ok()) else {
+                return;
+            };
+            let app_id = project.manifest.resolve(target.name).id;
+            let elapsed = since.elapsed().unwrap_or_default().as_secs();
+            for name in lines
+                .map(str::trim)
+                .filter(|name| harmony_report_name(name, &app_id))
+                .take(3)
+            {
+                // Name validation excludes shell metacharacters and traversal. Never read
+                // another app's report, and never diagnose a previous launch as this crash.
+                let path = format!("{dir}/{name}");
+                let Some(report) = crate::ops::output_within(
+                    crate::ohos::hdc_for(&key).args([
+                        "shell",
+                        &format!("stat -c %Y {path}; head -n {MAX_LINES} {path}"),
+                    ]),
+                    DEVICE_CMD,
+                ) else {
+                    break;
+                };
+                let report = String::from_utf8_lossy(&report.stdout);
+                let Some((mtime, body)) = report.split_once('\n') else {
+                    continue;
+                };
+                let Ok(mtime) = mtime.trim().parse::<u64>() else {
+                    continue;
+                };
+                if harmony_report_is_fresh(now, mtime, elapsed)
+                    && body.lines().any(|line| line.starts_with("Reason:"))
+                {
+                    out.push(Finding {
+                        source: format!("Harmony crash report ({key}:{path})"),
+                        body: body.trim().to_string(),
+                    });
+                }
+            }
+        }
         TargetKind::Android => {
             // The emulator's own log first, because it is the one source here that does not
             // go through adb. The failure this arm most often describes is not a crash but a
@@ -519,6 +574,35 @@ fn os_crash_findings(
         }
         _ => {}
     }
+}
+
+/// Faultlogger filenames include the exact bundle ID, UID, and timestamp.
+fn harmony_report_name(name: &str, app_id: &str) -> bool {
+    if !name
+        .bytes()
+        .all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+    {
+        return false;
+    }
+    ["cppcrash", "jscrash"].iter().any(|kind| {
+        let Some(suffix) = name
+            .strip_prefix(&format!("{kind}-{app_id}-"))
+            .and_then(|s| s.strip_suffix(".log"))
+        else {
+            return false;
+        };
+        let Some((uid, timestamp)) = suffix.split_once('-') else {
+            return false;
+        };
+        !uid.is_empty()
+            && uid.bytes().all(|c| c.is_ascii_digit())
+            && timestamp.len() == 17
+            && timestamp.bytes().all(|c| c.is_ascii_digit())
+    })
+}
+
+fn harmony_report_is_fresh(now: u64, modified: u64, elapsed: u64) -> bool {
+    modified <= now.saturating_add(1) && modified >= now.saturating_sub(elapsed.saturating_add(1))
 }
 
 /// The pid an `.ips` reports, for telling two instances of one app apart.
@@ -790,7 +874,7 @@ fn headline_of(body: &str) -> Option<String> {
         // The quote is stripped for matching a JSON key and kept in what is returned, so the
         // annotation reads like the report it came from.
         let probe = line.trim_start_matches('"').to_lowercase();
-        ["message", "kind", "exception", "termination"]
+        ["message", "kind", "exception", "termination", "reason:"]
             .iter()
             .any(|k| probe.starts_with(k))
             .then(|| line.to_string())
@@ -831,6 +915,42 @@ fn indent(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn harmony_reports_are_scoped_to_the_app_and_current_launch() {
+        assert!(harmony_report_name(
+            "cppcrash-dev.reader-20010041-20261005150000000.log",
+            "dev.reader"
+        ));
+        assert!(harmony_report_name(
+            "jscrash-dev.reader-20010041-20261005150000000.log",
+            "dev.reader"
+        ));
+        assert!(!harmony_report_name(
+            "cppcrash-dev.reader.other-20010041-20261005150000000.log",
+            "dev.reader"
+        ));
+        assert!(!harmony_report_name(
+            "cppcrash-dev.reader-other-20010041-20261005150000000.log",
+            "dev.reader"
+        ));
+        assert!(!harmony_report_name(
+            "cppcrash-dev.reader-$(id).log",
+            "dev.reader"
+        ));
+        assert!(!harmony_report_name(
+            "../cppcrash-dev.reader-123.log",
+            "dev.reader"
+        ));
+        assert!(harmony_report_is_fresh(1000, 990, 20));
+        assert!(!harmony_report_is_fresh(1000, 900, 20));
+        assert!(!harmony_report_is_fresh(1000, 1100, 20));
+        assert_eq!(
+            headline_of("Generated by HiviewDFX\nReason:Signal:SIGABRT\nFault thread info:")
+                .unwrap(),
+            "Reason:Signal:SIGABRT"
+        );
+    }
 
     /// The store path day-piece-break itself computes, for the two host layouts.
     #[test]

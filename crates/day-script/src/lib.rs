@@ -81,6 +81,10 @@ pub enum Step {
     },
     Tap {
         id: String,
+        /// Skip an absent element after UI transitions settle. Intended for idempotent
+        /// fixture cleanup; existing elements still pass the visibility/enabled gates.
+        #[serde(default)]
+        if_present: bool,
         #[serde(default)]
         repeat: Option<u32>,
         /// Tap at this point in the element's coordinate space instead of its center, which is
@@ -1031,6 +1035,7 @@ fn exec(step: Step, revision: u32) -> Reply {
             }
             Step::Tap {
                 id,
+                if_present,
                 repeat,
                 at,
                 modifiers,
@@ -1041,6 +1046,9 @@ fn exec(step: Step, revision: u32) -> Reply {
                 day_reactive::flush_sync();
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
+                }
+                if if_present && with_tree(|t| t.find_by_id(&id)).is_none() {
+                    return Ok(Reply::ok());
                 }
                 visible(&id)?;
                 if !probe(&id)?.enabled {
@@ -2220,6 +2228,46 @@ mod tests {
             )
             .ok
         );
+    }
+
+    #[test]
+    fn optional_tap_only_skips_absent_elements_after_transitions_settle() {
+        use day_pieces::prelude::*;
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        day_core::uninstall_tree();
+        let enabled = Signal::new(false);
+        let presses = Signal::new(0);
+        let (mock, probe) = day_mock::MockToolkit::new();
+        day_core::launch_with(mock, day_spec::WindowOptions::default(), move || {
+            button("Remove fixture")
+                .enabled(move || enabled.get())
+                .action(move || presses.update(|n| *n += 1))
+                .id("remove-fixture")
+                .height(50.)
+                .grow_w()
+                .any()
+        });
+        let tap = |id, optional| {
+            exec(
+                serde_json::from_value(serde_json::json!({
+                    "op": "tap", "id": id, "if_present": optional
+                }))
+                .unwrap(),
+                1,
+            )
+        };
+        assert!(!tap("missing", false).ok);
+        assert!(tap("missing", true).ok);
+        probe.state.borrow_mut().ui_busy = true;
+        assert!(!tap("missing", true).ok);
+        probe.state.borrow_mut().ui_busy = false;
+        let disabled = tap("remove-fixture", true);
+        assert!(!disabled.ok && disabled.retryable);
+        assert_eq!(presses.get(), 0);
+        enabled.set(true);
+        assert!(tap("remove-fixture", true).ok);
+        assert_eq!(presses.get(), 1);
+        day_core::uninstall_tree();
     }
 
     #[test]

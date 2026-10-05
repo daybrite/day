@@ -195,6 +195,7 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
         // Both tap shapes map to the same step: a native button's `Pressed`, and the `Tap` a
         // composed `.on_tap` piece gets. `on_event` collapses a node that delivers both.
         Event::Pressed | Event::Tap(_) => id.map(|id| Step::Tap {
+            if_present: false,
             at: None,
             id: id.to_string(),
             repeat: Some(1),
@@ -992,6 +993,7 @@ mod tests {
                 route: "controls".into(),
             },
             Step::Tap {
+                if_present: false,
                 id: "inc".into(),
                 repeat: Some(1),
                 at: None,
@@ -1141,6 +1143,7 @@ mod tests {
                 route: "focus".into(),
             },
             Step::Tap {
+                if_present: false,
                 id: "focus-next-button".into(),
                 repeat: Some(1),
                 at: None,
@@ -1194,6 +1197,7 @@ mod tests {
     fn a_press_and_its_positional_twin_record_once() {
         use day_spec::Point;
         let tap = |id: &str| Step::Tap {
+            if_present: false,
             id: id.into(),
             repeat: Some(1),
             at: None,

@@ -57,6 +57,8 @@ thread_local! {
     static STATUS_BAR: Callback<FnArgs<(bool,)>> = const { RefCell::new(None) };
     /// The last status-bar answer Day asked for, replayed when the host registers late.
     static STATUS_BAR_HIDDEN: Cell<bool> = const { Cell::new(false) };
+    /// Show/hide the host's layer ABOVE Navigation, not its root-page content slot.
+    static COVER_LAYER: Callback<FnArgs<(bool,)>> = const { RefCell::new(None) };
     /// `(node, title)` / `(node)`: the multiton window launchers (docs/windows.md).
     static WINDOW_OPEN: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static WINDOW_CLOSE: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
@@ -162,6 +164,32 @@ pub(crate) fn bridges<'env>(env: &'env Env) -> Option<Object<'env>> {
 }
 
 // ---- exports ------------------------------------------------------------------------------
+
+#[napi(js_name = "registerCoverLayer")]
+pub fn register_cover_layer(env: Env, content: Unknown, callback: Registered<FnArgs<(bool,)>>) {
+    remember(&env);
+    let mut handle: ArkUI_NodeContentHandle = ptr::null_mut();
+    unsafe {
+        OH_ArkUI_GetNodeContentFromNapiValue(env.raw().cast(), content.raw().cast(), &mut handle)
+    };
+    store(&COVER_LAYER, callback);
+    crate::cover_layer_init(handle);
+}
+
+#[napi(js_name = "coverLayerResized")]
+pub fn cover_layer_resized(env: Env, width_vp: f64, height_vp: f64) {
+    remember(&env);
+    crate::cover_layer_resized(width_vp, height_vp);
+}
+
+pub fn show_cover_layer(shown: bool) {
+    call(&COVER_LAYER, FnArgs::from((shown,)), |_, _| ());
+}
+
+#[napi(js_name = "coverBackRequested")]
+pub fn cover_back_requested() -> bool {
+    crate::cover_back_requested()
+}
 
 /// `start(nodeContent, widthVp, heightVp, density)`: mount the Day tree into the host's slot.
 #[napi(js_name = "start")]

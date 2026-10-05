@@ -188,6 +188,6 @@ reopen it, and a "link me to this screen" URL point at a modal.
 |---|---|---|---|
 | uikit | `DayCoverVC` (fullscreen modal) over a `DayNavPageView`, through the dialog FIFO | none (fullscreen has no sheet gesture) | dismiss completion block |
 | android | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out completion, shell becomes GONE |
-| arkui | Stack re-homed onto the window root at full bounds (no transition) | none | posted immediately on dismiss |
+| arkui | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
 | appkit / gtk / qt / xaml / dom | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |

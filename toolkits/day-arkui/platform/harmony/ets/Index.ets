@@ -29,6 +29,10 @@ import { DayCapture } from './DayCapture';
 @Component
 struct Index {
   private content: NodeContent = new NodeContent();
+  private coverContent: NodeContent = new NodeContent();
+  private coverWidthVp: number = 0;
+  private coverHeightVp: number = 0;
+  @State coverShown: boolean = false;
   private started: boolean = false;
   // Navigation state (docs/navigation.md): one NavPathStack; per-page NodeContents keyed by the
   // Day page id; titles in @State so a NavPatch::Title re-renders the destination's title bar.
@@ -63,6 +67,10 @@ struct Index {
     return AppStorage.get<boolean>('dayDriven') !== true;
   }
 
+  onBackPress(): boolean {
+    return this.coverShown && nativeEntry.coverBackRequested();
+  }
+
   @Builder
   private pageToolbar() {
     DayToolbar({ items: this.navPageMenus })
@@ -79,6 +87,10 @@ struct Index {
     }
     this.started = true;
     DayCapture.register(0, this.getUIContext());
+    nativeEntry.registerCoverLayer(this.coverContent, (shown: boolean): void => {
+      this.coverShown = shown;
+    });
+    nativeEntry.coverLayerResized(this.coverWidthVp || widthVp, this.coverHeightVp || heightVp);
 
     // Wire the Navigation bridge before start(): a deep link (docs/deep-links.md) can push during
     // the initial tree build.
@@ -363,6 +375,9 @@ struct Index {
     // pushed pages: a root-only action acts on the list this page covers.
     .menus(this.pageToolbar)
     .onBackPressed(() => {
+      if (this.coverShown) {
+        return nativeEntry.coverBackRequested();
+      }
       // A guarded top page consumes the native back and routes it to Rust's guard, which
       // pops the path (→ Day-initiated pop) only on Proceed (docs/navigation.md). An unguarded
       // page returns false: the native pop proceeds and onDisAppear reports it.
@@ -385,59 +400,76 @@ struct Index {
   }
 
   build() {
-    Navigation(this.pathStack) {
-      Column() {
-        if (this.navSearchShown) {
-          Search({ value: this.navSearchText, placeholder: this.navSearchPrompt })
-            .id('day.navigation.search')
-            .margin({ left: 16, right: 16, top: 8, bottom: 8 })
-            .onChange((value: string) => {
-              // Only the user's edits report: Day writing the query lands here too, and it is
-              // already the text Day has.
-              if (value !== this.navSearchText) {
-                this.navSearchText = value;
-                nativeEntry.navSearchChanged(value);
-              }
-            })
-        }
-        Stack() {
-          // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here (the root page).
-          ContentSlot(this.content)
+    Stack() {
+      Navigation(this.pathStack) {
+        Column() {
+          if (this.navSearchShown) {
+            Search({ value: this.navSearchText, placeholder: this.navSearchPrompt })
+              .id('day.navigation.search')
+              .margin({ left: 16, right: 16, top: 8, bottom: 8 })
+              .onChange((value: string) => {
+                // Only the user's edits report: Day writing the query lands here too, and it is
+                // already the text Day has.
+                if (value !== this.navSearchText) {
+                  this.navSearchText = value;
+                  nativeEntry.navSearchChanged(value);
+                }
+              })
+          }
+          Stack() {
+            // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here (the root page).
+            ContentSlot(this.content)
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .clip(true)
+          // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
+          // resize, the search field coming or going) flow to Day as window resizes. Area
+          // dimensions are in vp.
+          .onAreaChange((_oldArea: Area, newArea: Area) => {
+            if (this.started) {
+              nativeEntry.resized(newArea.width as number, newArea.height as number);
+            } else {
+              this.startDay(newArea.width as number, newArea.height as number);
+            }
+          })
         }
         .width('100%')
-        .layoutWeight(1)
-        .clip(true)
-        // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
-        // resize, the search field coming or going) flow to Day as window resizes. Area
-        // dimensions are in vp.
-        .onAreaChange((_oldArea: Area, newArea: Area) => {
-          if (this.started) {
-            nativeEntry.resized(newArea.width as number, newArea.height as number);
-          } else {
-            this.startDay(newArea.width as number, newArea.height as number);
-          }
-        })
+        .height('100%')
+      }
+      // The root normally draws NO native title bar — Day paints the root page itself, chrome and
+      // all. A toolbar action has nowhere else to go, though, so having one brings the bar out.
+      .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
+      .hideTitleBar(this.navRootMenus.length === 0)
+      // The compact bar, the one every pushed page wears: the default `Free` mode reserves a
+      // large-title area, which on the root is an empty band above the navigation list.
+      .titleMode(NavigationTitleMode.Mini)
+      // The root has nothing to go back to; Mini mode would otherwise draw a back arrow on it.
+      .hideBackButton(true)
+      .menus(this.rootToolbar)
+      .mode(NavigationMode.Stack)
+      .navDestination(this.dayPage)
+      // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so
+      // without this the window shows the (light) start-window color even under dark colorMode.
+      .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
+      .width('100%')
+      .height('100%')
+      // A root-page child is occluded by every pushed NavDestination. Keep covers
+      // outside Navigation so both the reader and its chrome are actually on top.
+      Stack() {
+        ContentSlot(this.coverContent)
       }
       .width('100%')
       .height('100%')
+      .visibility(this.coverShown ? Visibility.Visible : Visibility.Hidden)
     }
-    // The root normally draws NO native title bar — Day paints the root page itself, chrome and
-    // all. A toolbar action has nowhere else to go, though, so having one brings the bar out.
     .id('day.capture.0')
-    .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
-    .hideTitleBar(this.navRootMenus.length === 0)
-    // The compact bar, the one every pushed page wears: the default `Free` mode reserves a
-    // large-title area, which on the root is an empty band above the navigation list.
-    .titleMode(NavigationTitleMode.Mini)
-    // The root has nothing to go back to; Mini mode would otherwise draw a back arrow on it.
-    .hideBackButton(true)
-    .menus(this.rootToolbar)
-    .mode(NavigationMode.Stack)
-    .navDestination(this.dayPage)
-    // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so
-    // without this the window shows the (light) start-window color even under dark colorMode.
-    .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
     .width('100%')
     .height('100%')
+    .onAreaChange((_oldArea: Area, newArea: Area) => {
+      this.coverWidthVp = newArea.width as number;
+      this.coverHeightVp = newArea.height as number;
+      nativeEntry.coverLayerResized(this.coverWidthVp, this.coverHeightVp);
+    })
   }
 }

@@ -195,18 +195,20 @@ mod imp {
         /// Fullscreen covers (docs/cover.md): handle ptr → day NodeId. A cover's frame is
         /// native-owned (full window while presented), so `set_frame` skips these.
         static COVER_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
-        /// A cover's current native parent (the tree slot it was parked in, or the window
-        /// root while presented). Presenting re-homes it, so removals must target this.
+        /// A cover's current native parent (its parked tree slot, or the dedicated cover
+        /// layer while presented). Presenting re-homes it, so removals must target this.
         static COVER_PARENTS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
-        /// Covers currently presented (topped on the window root). Separate from
+        /// Covers currently presented (topped on the cover layer). Separate from
         /// COVER_PARENTS, which records the parked tree slot; on the cover-fallback
         /// tier (docs/windows.md) that slot is the root itself, so parent-comparison cannot
         /// stand in for presented-ness.
         static COVER_PRESENTED: RefCell<std::collections::HashSet<usize>> =
             RefCell::new(std::collections::HashSet::new());
-        /// The window root Stack + its size, kept for the app's lifetime (unlike [`ROOT`],
-        /// which `run` consumes); covers re-home onto it while presented.
+        /// The root-page Stack + its size, kept for the app's lifetime (unlike [`ROOT`],
+        /// which `run` consumes).
         static ROOT_KEEP: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
+        /// Separate host slot above ArkTS Navigation; the root page is below NavDestinations.
+        static COVER_ROOT: Cell<Option<(usize, f64, f64)>> = const { Cell::new(None) };
         /// Nav transitions in flight, for [`Toolkit::ui_idle`] (dayscript screenshots wait on
         /// it): pushed page keys awaiting their destination's first area report, and popped
         /// page keys awaiting their `navPopped` acknowledgment. Both hold only keys whose
@@ -1043,6 +1045,56 @@ mod imp {
             ROOT.with(|r| *r.borrow_mut() = Some((root, Size::new(w_vp, h_vp))));
             ROOT_KEEP.with(|r| r.set(Some((root.0 as usize, w_vp, h_vp))));
         });
+    }
+
+    pub(crate) fn cover_layer_init(content: ohos_sys::arkui::native_type::ArkUI_NodeContentHandle) {
+        if content.is_null() || COVER_ROOT.with(|r| r.get().is_some()) {
+            return;
+        }
+        let root = new_node(node::STACK);
+        node::content_add(content, root.0);
+        COVER_ROOT.with(|r| r.set(Some((root.0 as usize, 0.0, 0.0))));
+    }
+
+    pub(crate) fn cover_layer_resized(w: f64, h: f64) {
+        if w <= 0.0 || h <= 0.0 {
+            return;
+        }
+        COVER_ROOT.with(|r| {
+            if let Some((root, _, _)) = r.get() {
+                r.set(Some((root, w, h)));
+                node::set_frame(root as Handle, 0.0, 0.0, w, h);
+            }
+        });
+        let covers: Vec<usize> = COVER_PRESENTED.with(|s| s.borrow().iter().copied().collect());
+        for cover in covers {
+            node::set_frame(cover as Handle, 0.0, 0.0, w, h);
+            if let Some(id) = COVER_NODES.with(|m| m.borrow().get(&cover).copied()) {
+                post_emit(NodeId(id), Event::FrameChanged(Size::new(w, h)));
+            }
+        }
+    }
+
+    /// Native back targets the top cover, leaving the underlying navigation path intact.
+    pub(crate) fn cover_back_requested() -> bool {
+        let Some((root, _, _)) = COVER_ROOT.with(|r| r.get()) else {
+            return false;
+        };
+        let count = node::child_count(root as Handle);
+        if count == 0 {
+            return false;
+        }
+        let top = node::child_at(root as Handle, count as i32 - 1) as usize;
+        let Some(id) = COVER_NODES.with(|m| m.borrow().get(&top).copied()) else {
+            return false;
+        };
+        emit(
+            NodeId(id),
+            Event::NavBack {
+                already_popped: false,
+            },
+        );
+        true
     }
 
     /// A secondary DayWindowAbility's page connected (the host's `windowStart` export): mount a
@@ -2098,8 +2150,7 @@ mod imp {
                     n
                 }
                 // Fullscreen cover (docs/cover.md): a Stack that CoverPatch::Present re-homes
-                // onto the window root at full bounds (day owns layout, so the "modal" is a
-                // topmost full-window child; no transition on this backend).
+                // onto the host's cover layer above Navigation, at full-window bounds.
                 Some(Builtin::Cover) => {
                     let n = new_node(node::STACK);
                     COVER_NODES.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
@@ -2322,7 +2373,7 @@ mod imp {
                                 let bg = background
                                     .map(argb)
                                     .unwrap_or_else(|| theme_color(0xFFFF_FFFF, 0xFF1A_1A1C));
-                                let Some((root, w, hgt)) = ROOT_KEEP.with(|r| r.get()) else {
+                                let Some((root, w, hgt)) = COVER_ROOT.with(|r| r.get()) else {
                                     return;
                                 };
                                 let key = h.0 as usize;
@@ -2332,10 +2383,8 @@ mod imp {
                                 let prev = COVER_PARENTS.with(|m| m.borrow().get(&key).copied());
                                 node::set_bg_color(h.0, bg);
                                 // Detach from the tree slot it was parked in, then top the
-                                // window root at full bounds. The cover-fallback tier
-                                // (docs/windows.md) parks covers directly under the root;
-                                // a same-parent re-add is rejected by ArkUI, so detach from
-                                // the root too (a no-op when parked elsewhere).
+                                // cover layer at full bounds. Navigation's root page is NOT
+                                // the window root: its pushed destinations occlude that slot.
                                 match prev {
                                     Some(p) => node::remove_child(p as Handle, h.0),
                                     None => node::remove_child(root as Handle, h.0),
@@ -2344,6 +2393,7 @@ mod imp {
                                 node::set_frame(h.0, 0.0, 0.0, w, hgt);
                                 COVER_PARENTS.with(|m| m.borrow_mut().insert(key, root));
                                 COVER_PRESENTED.with(|s| s.borrow_mut().insert(key));
+                                crate::host_api::show_cover_layer(true);
                                 // Report the content size outside this tree borrow.
                                 post_emit(node_id, Event::FrameChanged(Size::new(w, hgt)));
                             }
@@ -2361,6 +2411,9 @@ mod imp {
                                 if let Some(p) = cur {
                                     node::remove_child(p as Handle, h.0);
                                 }
+                                crate::host_api::show_cover_layer(
+                                    COVER_PRESENTED.with(|s| !s.borrow().is_empty()),
+                                );
                                 // No hide transition: the content can go immediately.
                                 post_emit(node_id, Event::CoverHidden);
                             }
@@ -2584,6 +2637,9 @@ mod imp {
             COVER_PRESENTED.with(|s| {
                 s.borrow_mut().remove(&key);
             });
+            if COVER_NODES.with(|m| m.borrow().contains_key(&key)) {
+                crate::host_api::show_cover_layer(COVER_PRESENTED.with(|s| !s.borrow().is_empty()));
+            }
             SECONDARY.with(|s| s.borrow_mut().retain(|(_, ptr)| *ptr != key));
             NAV_PAGE_IDS.with(|m| {
                 m.borrow_mut().remove(&key);

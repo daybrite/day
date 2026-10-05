@@ -40,6 +40,10 @@ these pauses until an ordinary engine reply confirms that the app enabled fast m
 older apps and a pause before the first engine reply retain their wait. Screenshot render
 checkpoints still run. For asynchronous application work, prefer an `assert_text` or
 `wait_for` with an appropriate timeout: these already retry until their condition holds.
+For idempotent fixture cleanup, `tap: { id: remove-fixture, if_present: true }`
+skips an absent element after UI transitions settle. Wait for the containing screen
+first: this does not wait for an asynchronously loaded element to appear. Existing
+elements must still be visible and enabled; ordinary taps continue to fail on missing IDs.
 Do not mark network loads, media playback, physics or crash-observation pauses as
 animation pauses. Fast mode is not evidence that an animation itself works correctly.
 
@@ -95,6 +99,9 @@ A scripted run whose app crashes ends in `engine connection lost`, which says on
 gone. The runner then prints a post-mortem (`crates/day-cli/src/diagnose.rs`) from whatever this
 host can produce:
 
+- **Harmony faultlogger reports**: the current app's fresh native or ArkTS crash report
+  from `/data/log/faultlog/faultlogger` on the selected device, including the reason and
+  faulting thread. Report age is measured using the guest clock to tolerate clock skew.
 - **day-piece-break's own artifacts** ([docs/break.md](break.md)), when the app arms it: the kind of death, the
   panic message and location, the signal, how long the app lived, and the backtrace it captured.
   Reports are finalized on the app's next launch, so a fresh crash shows its raw session artifacts
