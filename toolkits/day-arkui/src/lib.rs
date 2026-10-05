@@ -3439,7 +3439,7 @@ mod imp {
                 Cap::NavTabsAdaptive => Support::Emulated,
                 // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift
                 // with the system preview; a denied drop springs back natively (docs/list.md).
-                Cap::ListReorder => Support::Native,
+                Cap::NavReorder | Cap::ListReorder => Support::Native,
                 // `NODE_LIST_ITEM_SWIPE_ACTION`: the row slides to reveal the app's delete
                 // button, ArkUI's own idiom for the gesture (docs/list.md).
                 Cap::ListDelete => Support::Native,

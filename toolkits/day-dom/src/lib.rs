@@ -1444,7 +1444,7 @@ impl Toolkit for Dom {
             // so `Cap::TreeMove` stays Unsupported.
             Cap::Tree => Support::Emulated,
             // Pointer-tracked drag with a CSS gap — the browser has no native list reorder.
-            Cap::ListReorder => Support::Emulated,
+            Cap::NavReorder | Cap::ListReorder => Support::Emulated,
             // A topmost fixed-position child — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             _ => Support::Unsupported,

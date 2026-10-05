@@ -4987,7 +4987,14 @@ mod imp {
                     // the split with nothing marking the page on screen. The model answers this
                     // event with `NavMenuPatch::Selected`, which is what actually settles the
                     // highlight — including back to `None` where a presentation has no selection.
-                    emit(self.ivars().node, Event::SelectionChanged(row as i64));
+                    // Keyboard focus also selects rows inside UIKit's focus-update transaction.
+                    // Deliver after that transaction returns: synchronously rebuilding navigation
+                    // or reloading the selected collection here invalidates UIKit's focus context
+                    // and can throw an Objective-C exception through Rust's event pump.
+                    let node = self.ivars().node;
+                    dispatch2::DispatchQueue::main().exec_async(move || {
+                        emit(node, Event::SelectionChanged(row as i64));
+                    });
                 });
             }
 
@@ -8824,12 +8831,22 @@ mod imp {
                                 }
                                 // `Presentation` never reaches a toolkit whose container
                                 // re-presents (the pieces layer gates it on `Cap::NavRepresent`);
-                                // `Select` is a tabs host's; `ListInStack` is the model's own
-                                // bookkeeping of a merge UIKit performs by itself here
-                                // (docs/navigation.md).
-                                NavPatch::Presentation(_)
-                                | NavPatch::Select(_)
-                                | NavPatch::ListInStack(_) => Act::None,
+                                // `Select` belongs to tab hosts; representable split hosts
+                                // already track presentation through UIKit (docs/navigation.md).
+                                NavPatch::Presentation(_) | NavPatch::Select(_) => Act::None,
+                                // Re-entering a list-backed destination after native back does
+                                // not change ListVisible. Explicitly restore its column to the
+                                // collapsed stack on the first tap instead of waiting for a
+                                // detail push to bring it along.
+                                NavPatch::ListInStack(show) if collapsed_triple => {
+                                    let parts = state.split.as_ref().expect("triple");
+                                    Act::TripleList {
+                                        svc: parts.split_vc.clone(),
+                                        primary: parts.primary_nav.clone(),
+                                        show: *show,
+                                    }
+                                }
+                                NavPatch::ListInStack(_) => Act::None,
                                 // Per-destination content list: a column while expanded, an
                                 // entry on the merged stack while collapsed.
                                 NavPatch::ListVisible(v) => {

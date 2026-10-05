@@ -66,7 +66,7 @@ gaps.
 
 ## Getting Started
 
-Top get a feel for how a Day application feels on your desktop, download the Day Showcase application for your platform from https://showcase.daybrite.dev or build and launch it from source with the commands (requires [`rustup`](https://rustup.rs)):
+To get a feel for how a Day application feels on your desktop, download the Day Showcase application for your platform from https://showcase.daybrite.dev or build and launch it from source with the commands (requires [`rustup`](https://rustup.rs)):
 
 ```bash
 cargo install day-cli

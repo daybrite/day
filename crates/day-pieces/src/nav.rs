@@ -1427,8 +1427,9 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     /// Enable dragging within contiguous runs of eligible sidebar items. Fixed items and
     /// section headers cannot be crossed. The callback receives the moved key and the key
     /// whose position it takes (indices refer to the order before removal).
-    /// Uses the shared native list reorder driver on all list-capable toolkits. Tab/rail
-    /// chrome remains fixed. Persist the order in the callback's backing data.
+    /// Uses the shared list reorder driver where `Cap::NavReorder` supports it; otherwise
+    /// retains the native navigation widget. UIKit navigation remains fixed even though
+    /// content lists support dragging. Tab/rail chrome remains fixed. Persist the order in the callback's backing data.
     pub fn reorder_items(
         mut self,
         eligible: impl Fn(&K) -> bool + 'static,
@@ -2615,7 +2616,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             (rows0.badge_icons.clone(), rows0.badge_tints.clone());
         let tints_init = rows0.tints.clone();
         let menus_init = rows0.menus.clone();
-        let menu_piece = if let Some(reorder) = sel.reorder_items {
+        let menu_piece = if let Some(reorder) = sel.reorder_items.filter(|_| {
+            day_core::capability(day_spec::Cap::NavReorder) != day_spec::Support::Unsupported
+        }) {
             reorder_sidebar(
                 items.clone(),
                 selection.clone(),
@@ -2660,6 +2663,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 });
                 node
             })
+            .id("nav-menu")
             .any()
         };
         let content: AnyPiece = match sel.header {

@@ -8894,3 +8894,23 @@ fn nav_sidebar_reorder_keeps_fixed_sections_and_selected_route() {
     assert_eq!(feeds.get_untracked(), ["feed:a", "feed:b", "feed:c"]);
     assert_eq!(selected.get_untracked().as_deref(), Some("feed:b"));
 }
+
+#[test]
+fn nav_reorder_unsupported_preserves_navigation_menu() {
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_no_nav_reorder(true);
+    let selected = Signal::new(Some("first".to_string()));
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        nav(selected)
+            .style(NavStyle::Sidebar)
+            .item("first".to_string(), "Fixture first", || label("First page"))
+            .item("second".to_string(), "Fixture second", || {
+                label("Second page")
+            })
+            .reorder_items(|_| true, |_, _| panic!("Navigation cannot be reordered"))
+            .any()
+    });
+    assert_eq!(probe.find_by_kind("day.nav_menu").len(), 1);
+    assert!(probe.find_by_kind("day.list").is_empty());
+}

@@ -6815,13 +6815,15 @@ driver rather than the fixed NAV_MENU widget. Section headers become fixed list 
 contiguous eligible runs are the only valid drag range. The callback receives the moved key
 and the destination key in the source order before removal; the application persists its
 order. This uses the existing guard → synchronous snapshot move → deferred application commit
-contract on AppKit, UIKit, Android, GTK, Qt, XAML/WinUI, ArkUI, DOM, and mock (see
+contract on AppKit, Android, GTK, Qt, XAML/WinUI, ArkUI, DOM, and mock (see
 [docs/list.md](docs/list.md)). Selection follows route keys across moves and filtered sources;
 images, badges, contextual menus and refresh indicators bind to recycled slots. Row roots
 center their content vertically within the fixed 36-point selection rectangle on every toolkit;
 inner icon/text alignment does not position the entire row. Tab/rail chrome
-continues to use its fixed navigation rows. No separate native reorder implementation or new
-capability is introduced. The opt-in rows and their reactive subscriptions live under the
+continues to use its fixed navigation rows. `Cap::NavReorder` distinguishes reorderable
+navigation from `Cap::ListReorder` content lists. UIKit reports navigation reordering unsupported
+and retains its native UICollectionView sidebar with system labels, disclosure indicators and
+selection appearance; declaring reordering never replaces that navigation surface. The opt-in rows and their reactive subscriptions live under the
 navigation page scope and are disposed with it. Regression: `nav_sidebar_reorder` in
 `crates/day-pieces/tests/mock_e2e.rs`.
 
@@ -6842,3 +6844,16 @@ Reorderable sidebar rows forward a tap on the current row to the selection bindi
 when its value is unchanged, so apps can respond to reselecting a feed. List on_selection
 reports an empty vector for a native single-selection deselection (index -1), matching
 the existing SelectionSet contract. Programmatic selection patches remain silent.
+
+UIKit collapsed three-column navigation honors `ListInStack` by explicitly showing the
+supplementary column. Returning to the root and selecting another list-backed destination
+must reopen the list even when `ListVisible` remains true; it does not require a detail push.
+
+The native fixed navigation row list is addressable as `nav-menu` for dayscript selection
+regressions, parallel to `nav-reorder-list` on reorder-capable navigation backends.
+
+UIKit native sidebar selection is delivered on the next main-queue turn. UIKit can invoke
+`didSelectItemAtIndexPath` during a hardware-keyboard focus update; application navigation
+and collection reloads must occur after that native transaction finishes, rather than
+re-entering it through the synchronous Day event pump. Tap and keyboard selection use the
+same ordered delivery; queued events for disposed nodes are ignored by the event pump.

@@ -1655,7 +1655,7 @@ impl Toolkit for Qt {
             | Cap::TextEditable
             | Cap::TextSelectable
             // Qt's own QDrag pipeline: grabbed-cell pixmap, insertion line, no-drop cursor.
-            | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::ListReorder
+            | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
             // Real DayWindows on the shared QApplication (docs/windows.md).
             | Cap::MultiWindow
             // A QTabWidget, which is Qt's own one-of-N container and already the shape Day

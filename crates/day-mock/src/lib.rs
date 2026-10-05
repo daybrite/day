@@ -152,6 +152,8 @@ pub struct MockState {
     /// like `no_multi_window` because the capability is on by default: a phone has a tab bar,
     /// so a mock that models a phone must have one too, or the default resolution is a fiction.
     pub no_nav_tabs: bool,
+    /// Preserve native navigation while content lists remain draggable, as on UIKit.
+    pub no_nav_reorder: bool,
     /// `Cap::NavTabsAdaptive` answers `Unsupported`: the harness for a desktop idiom, where a
     /// narrow window collapses to a stack instead of growing a tab bar. Also inverted: the mock
     /// models a phone by default, and a phone adapts.
@@ -605,9 +607,12 @@ impl MockProbe {
         self.state.borrow_mut().nav_split = v;
     }
 
-    /// Make `Cap::NavTabs` answer `Unsupported`, the harness for an `Automatic` nav host on a
-    /// toolkit that cannot draw a tab bar, which must degrade to the sidebar resolver rather
-    /// than to a hole (docs/navigation.md). Read during the build, so set it before launching.
+    /// Retain native navigation despite a reordering declaration, independently of lists.
+    pub fn set_no_nav_reorder(&self, v: bool) {
+        self.state.borrow_mut().no_nav_reorder = v;
+    }
+
+    /// Make `Cap::NavTabs` answer `Unsupported`, modeling a toolkit without tab chrome.
     pub fn set_no_nav_tabs(&self, v: bool) {
         self.state.borrow_mut().no_nav_tabs = v;
     }
@@ -809,6 +814,13 @@ impl Toolkit for MockToolkit {
             // The probe drives the whole reorder sequence, guard then commit (`list_can_move`/
             // `list_move`).
             Cap::ListReorder => Support::Native,
+            Cap::NavReorder => {
+                if self.state.borrow().no_nav_reorder {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
             // The probe drives every tree duty (`tree_children`/`tree_bind`/`tree_move`).
             Cap::Tree | Cap::TreeMove => Support::Native,
             // Off by default: the mock models a phone, so a nav host stacks unless a test opts in.

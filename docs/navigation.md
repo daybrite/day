@@ -979,7 +979,8 @@ Use `.reorder_items(|key| is_movable(key), |moved, target| persist_move(moved, t
 make contiguous runs of destinations draggable. Static headers and ineligible rows form
 boundaries that no drop can cross. `target` names the row whose position the moved row takes,
 in the pre-removal order. Keep the eligibility callback pure and persist changes in the commit
-callback. Rows use the shared native list pipeline on every list-capable toolkit, including
-long-press dragging on touch platforms. The internal list is addressable as `nav-reorder-list`
+callback. Rows use the shared list pipeline where `Cap::NavReorder` is supported, including
+long-press dragging on supported touch platforms. UIKit retains its native navigation sidebar
+and ignores this option, independently of its draggable content-list support. The internal list is addressable as `nav-reorder-list`
 for dayscript `reorder` steps; its indices include fixed section-header rows. Tabs and rails
 remain fixed. Without the option, the existing native sidebar widget is unchanged.

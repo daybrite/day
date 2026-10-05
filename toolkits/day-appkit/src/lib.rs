@@ -5454,7 +5454,7 @@ impl Toolkit for AppKit {
             | Cap::TextSelectable
             | Cap::TextSpellCheck
             // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
-            | Cap::ListReorder
+            | Cap::NavReorder | Cap::ListReorder
             // NSTableView row actions: reveal-as-you-swipe buttons with the native full-slide
             // activation (docs/list.md).
             | Cap::ListSwipeActions

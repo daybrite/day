@@ -2147,6 +2147,10 @@ pub enum Cap {
     /// ItemTouchHelper, …), `Emulated` for a pointer-tracked fake (web-dom). `Unsupported` ⇒ the
     /// list renders normally but rows cannot be dragged (docs/list.md).
     ListReorder,
+    /// Sidebar destinations can be reordered without sacrificing the toolkit's navigation
+    /// presentation. Independent of `ListReorder`: UIKit supports draggable content lists
+    /// but retains its native navigation collection for sidebars.
+    NavReorder,
     /// The toolkit realizes `ListProps::deletable` as the platform's delete gesture:
     /// `Native` where the platform ships one (UIKit's trailing swipe actions, Android's
     /// `ItemTouchHelper`, ArkUI's `ListItem.swipeAction`), `Unsupported` on the desktop toolkits,

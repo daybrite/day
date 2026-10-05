@@ -1614,7 +1614,7 @@ impl Toolkit for Xaml {
             Cap::ListRecycling => Support::Emulated,
             // The real WinRT drag pipeline (CanDrag/DragOver/Drop) over the emulated list —
             // system drag visuals + live no-drop cursor from the app's guard (docs/list.md).
-            Cap::ListReorder => Support::Native,
+            Cap::NavReorder | Cap::ListReorder => Support::Native,
             // A second Win32 host + its own XAML island per window (docs/windows.md).
             Cap::MultiWindow => Support::Native,
             // A Fluent CommandBar under the menu bar (docs/toolbars.md).

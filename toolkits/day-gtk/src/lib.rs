@@ -3430,7 +3430,7 @@ impl Toolkit for Gtk {
             | Cap::TextEditable
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
-            | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::ListReorder
+            | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
             // GtkListView + GtkTreeListModel + GtkTreeExpander host day-built rows natively
             // (docs/tree.md). `Cap::TreeMove` is deliberately NOT here yet: the native drag
             // half lands after the seam parity — dayscript's `tree_move:` drives the seam
