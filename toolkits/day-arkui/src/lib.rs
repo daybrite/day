@@ -86,17 +86,17 @@ mod imp {
     type Sink = Rc<dyn Fn(NodeId, Event)>;
 
     day_core::tls_group! {
-        /// Navigation state (docs/navigation.md): the single app nav host (its day NodeId +
-        /// ArkUI node pointer), the host's attached page children in order (page ptr → day
-        /// NodeId, so a Pushed patch can re-home the just-attached last page), and pages
-        /// re-homed into ArkTS NodeContents (page ptr → key).
         static BUTTON_INK: day_spec::sidetable::SideTable<u32> = day_spec::sidetable::SideTable::new();
         static BUTTON_CHILDREN: RefCell<HashMap<usize, Vec<AHandle>>> = RefCell::new(HashMap::new());
-        static NAV_HOST: std::cell::Cell<Option<(u64, usize)>> = const { std::cell::Cell::new(None) };
+        /// Navigation state is keyed by host pointer; page keys are globally unique Day NodeIds.
+        /// Each host owns its pending children and path. Creating another host must never
+        /// clear a sibling tab's state or redirect its Back/search/title callbacks.
+        static NAV_HOSTS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// The primary window's toolbar (docs/toolbars.md) as Day's edits and patches left it:
         /// what the Navigation's title-bar actions are painted from.
         static WINDOW_BAR: RefCell<day_spec::ToolbarMirror> = RefCell::new(day_spec::ToolbarMirror::default());
-        static NAV_ATTACHED: RefCell<Vec<(usize, u64)>> = const { RefCell::new(Vec::new()) };
+        static NAV_ATTACHED: RefCell<HashMap<usize, Vec<(usize, u64)>>> = RefCell::new(HashMap::new());
+        static NAV_OWNERS: RefCell<HashMap<u64, usize>> = RefCell::new(HashMap::new());
         static NAV_PUSHED: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// Keys whose NavDestination already disappeared (`nav_popped`) while the page is
         /// still mounted; its Remove must not touch the torn-down ArkTS content.
@@ -110,7 +110,7 @@ mod imp {
             RefCell::new(std::collections::HashSet::new());
         /// Rust's order of pushed page keys: what a `NavPatch::Popped` pops, so the pop
         /// handler knows which key it retired (ArkTS only reports keys on disappear).
-        static NAV_STACK: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+        static NAV_STACK: RefCell<HashMap<usize, Vec<u64>>> = RefCell::new(HashMap::new());
         /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
         static NAV_PAGE_IDS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
@@ -264,6 +264,7 @@ mod imp {
         items: Vec<(AHandle, NodeId)>,
         /// The bar's item nodes, so a rebuild can take the old ones out first.
         bar_items: Vec<AHandle>,
+        bar_inks: Vec<(Handle, Paint, usize)>,
         selected: usize,
         /// The pages area, so a page joining later can be sized without waiting for a resize.
         page_size: Size,
@@ -322,6 +323,7 @@ mod imp {
             for old in std::mem::take(&mut suite.bar_items) {
                 node::remove_child(suite.bar.0, old.0);
             }
+            suite.bar_inks.clear();
             forget_themed(host);
             // The bar's ground, kept across refills.
             themed(
@@ -350,6 +352,7 @@ mod imp {
                     node::set_image_src(icon.0, &src);
                     if is_vector {
                         themed(host, icon.0, Paint::ImageFill, tint_light, tint_dark);
+                        suite.bar_inks.push((icon.0, Paint::ImageFill, i));
                     }
                     node::set_image_fit(icon.0, 0);
                     node::set_size(icon.0, 24.0, 24.0);
@@ -360,6 +363,7 @@ mod imp {
                 node::set_text(label.0, title);
                 node::set_font_size(label.0, 10.0);
                 themed(host, label.0, Paint::Font, tint_light, tint_dark);
+                suite.bar_inks.push((label.0, Paint::Font, i));
                 node::insert_child(cell.0, label.0, child);
                 node::set_flex_grow(cell.0, 1.0);
                 node::register_event(cell.0, node::EV_CLICK, synth);
@@ -406,6 +410,22 @@ mod imp {
                 return;
             };
             suite.selected = i;
+            forget_themed(host);
+            themed(
+                host,
+                suite.bar.0,
+                Paint::Background,
+                0xFFF1_F3F5,
+                0xFF1C_1C1E,
+            );
+            for &(node, paint, index) in &suite.bar_inks {
+                let (light, dark) = if index == i {
+                    (0xFF00_7DFF, 0xFF3E_9BFF)
+                } else {
+                    (0x9900_0000, 0x99FF_FFFF)
+                };
+                themed(host, node, paint, light, dark);
+            }
             for (n, (h, _)) in suite.items.iter().enumerate() {
                 node::set_visibility(h.0, n == i);
             }
@@ -1500,11 +1520,17 @@ mod imp {
     /// initiated (NavPatch::Popped) this is just the acknowledgment; for a NATIVE back
     /// (system gesture / title-bar back button) sync the route state: the toolkit already
     /// popped, so the host receives `NavBack { already_popped: true }`.
-    pub fn nav_popped(key: u64) {
-        day_spec::ffi_guard::contain((), || nav_popped_inner(key));
+    pub fn nav_popped(owner: u64, key: u64) {
+        day_spec::ffi_guard::contain((), || nav_popped_inner(owner, key));
     }
 
-    fn nav_popped_inner(key: u64) {
+    fn nav_popped_inner(owner: u64, key: u64) {
+        let host = NAV_OWNERS.with(|m| m.borrow().get(&key).copied());
+        let Some(host) =
+            host.filter(|h| NAV_HOSTS.with(|m| m.borrow().get(h).copied()) == Some(owner))
+        else {
+            return;
+        };
         // The destination's content tree is gone: if the page is still mounted (its Remove
         // patch hasn't landed yet), mark the key so that Remove skips the dead slot.
         if NAV_PUSHED.with(|m| m.borrow().values().any(|k| *k == key)) {
@@ -1517,7 +1543,11 @@ mod imp {
         // Day-initiated pops retired their key from NAV_STACK already; a NATIVE back is the
         // toolkit popping on its own, so drop the key here (keeping Rust's order in sync
         // before the NavBack sync writes the pop into the route state).
-        NAV_STACK.with(|s| s.borrow_mut().retain(|k| *k != key));
+        NAV_STACK.with(|s| {
+            if let Some(stack) = s.borrow_mut().get_mut(&host) {
+                stack.retain(|k| *k != key);
+            }
+        });
         let expected = NAV_EXPECT_POP.with(|e| e.borrow_mut().remove(&key));
         if expected {
             // The acknowledgment of a Day-initiated pop (`ui_idle`'s pending-pop signal).
@@ -1525,9 +1555,12 @@ mod imp {
                 p.borrow_mut().remove(&key);
             });
         }
-        if !expected && let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
+        if !NAV_PAGE_IDS.with(|m| m.borrow().values().any(|id| *id == key)) {
+            NAV_OWNERS.with(|m| m.borrow_mut().remove(&key));
+        }
+        if !expected {
             emit(
-                NodeId(host_id),
+                NodeId(owner),
                 Event::NavBack {
                     already_popped: true,
                 },
@@ -1538,11 +1571,11 @@ mod imp {
     /// A guarded NavDestination consumed its back (ArkTS onBackPressed) and asks Day's guard to
     /// decide: emit `NavBack { already_popped: false }` (the native stack did NOT pop, unlike an
     /// unguarded back's [`nav_popped`]).
-    pub fn nav_back_requested() {
+    pub fn nav_back_requested(owner: u64) {
         day_spec::ffi_guard::contain((), || {
-            if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
+            if NAV_HOSTS.with(|m| m.borrow().values().any(|id| *id == owner)) {
                 emit(
-                    NodeId(host_id),
+                    NodeId(owner),
                     Event::NavBack {
                         already_popped: false,
                     },
@@ -1559,6 +1592,14 @@ mod imp {
                 NAV_PENDING_PUSH.with(|s| {
                     s.borrow_mut().remove(&key);
                 });
+                if let Some(ptr) = NAV_PAGE_IDS.with(|m| {
+                    m.borrow()
+                        .iter()
+                        .find(|(_, id)| **id == key)
+                        .map(|(p, _)| *p)
+                }) {
+                    node::set_frame(ptr as Handle, 0.0, 0.0, w, h);
+                }
                 emit(NodeId(key), Event::FrameChanged(Size::new(w, h)));
             }
         });
@@ -1611,10 +1652,10 @@ mod imp {
 
     /// The user edited the navigation surface's search field (docs/search.md): reported against
     /// the nav host, where the `.searchable()` surface listens, whatever its placement asked for.
-    pub fn nav_search_changed(text: &str) {
+    pub fn nav_search_changed(owner: u64, text: &str) {
         day_spec::ffi_guard::contain((), || {
-            if let Some((host_id, _)) = NAV_HOST.with(|c| c.get()) {
-                emit(NodeId(host_id), Event::SearchChanged(text.to_owned()));
+            if NAV_HOSTS.with(|m| m.borrow().values().any(|id| *id == owner)) {
+                emit(NodeId(owner), Event::SearchChanged(text.to_owned()));
             }
         });
     }
@@ -2064,11 +2105,9 @@ mod imp {
                         None => new_node(node::LOADING),
                     }
                 }
-                // Navigation host + pages (docs/navigation.md): the host Stack shows the ROOT
-                // page; every later page is re-homed into an ArkTS `NavDestination` (HarmonyOS's
-                // own Navigation/NavPathStack) when its NavPatch::Pushed arrives: native push
-                // transition, title bar, and system back gesture included. Pages carry an opaque
-                // background so transitions don't bleed.
+                // Each stack is its own ArkTS Navigation, mounted through the piece bridge.
+                // Root and pushed pages use that host's content slots, with native title bars,
+                // transitions and Back. Tabs remain resident-page ownership boundaries.
                 Some(Builtin::Nav) => {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "arkui", props) else {
                         return new_node(node::STACK);
@@ -2097,6 +2136,7 @@ mod imp {
                                     bar,
                                     items: Vec::new(),
                                     bar_items: Vec::new(),
+                                    bar_inks: Vec::new(),
                                     selected: 0,
                                     page_size: Size::ZERO,
                                 },
@@ -2109,32 +2149,16 @@ mod imp {
                         );
                         return host;
                     }
-                    let n = new_node(node::STACK);
-                    NAV_HOST.with(|c| c.set(Some((id.0, n.0 as usize))));
-                    // The root's title, which the title bar shows once toolbar actions bring it
-                    // out (no page is pushed yet, so this names the root).
-                    crate::host_api::nav_set_title(&p.title);
-                    // Inline search (docs/search.md) goes above the navigation root. The title bar
-                    // holds actions, never a field (`Cap::ToolbarSearch` is unsupported), so every
-                    // placement resolves here.
+                    let n = piece::make("day.navigation.stack", id, &p.title);
+                    NAV_HOSTS.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     match p
                         .search
                         .as_ref()
-                        .filter(|sp| sp.placement == day_spec::props::SearchPlacement::Inline)
+                        .filter(|sp| sp.placement == SearchPlacement::Inline)
                     {
-                        Some(sp) => crate::host_api::nav_set_search(1, &sp.prompt, &sp.text),
-                        None => crate::host_api::nav_set_search(0, "", ""),
+                        Some(sp) => crate::host_api::nav_set_search(id.0, 1, &sp.prompt, &sp.text),
+                        None => crate::host_api::nav_set_search(id.0, 0, "", ""),
                     }
-                    // A REBUILT host invalidates every pointer the old one tracked: a Pushed
-                    // patch that then consumed a stale NAV_ATTACHED entry would re-home a
-                    // DISPOSED node (SIGSEGV inside ArkUI RemoveChild).
-                    NAV_ATTACHED.with(|v| v.borrow_mut().clear());
-                    NAV_PUSHED.with(|m| m.borrow_mut().clear());
-                    NAV_POPPED_KEYS.with(|s| s.borrow_mut().clear());
-                    NAV_EXPECT_POP.with(|e| e.borrow_mut().clear());
-                    NAV_STACK.with(|s| s.borrow_mut().clear());
-                    NAV_PENDING_PUSH.with(|s| s.borrow_mut().clear());
-                    NAV_PENDING_POP.with(|p| p.borrow_mut().clear());
                     n
                 }
                 Some(Builtin::NavPage) => {
@@ -2232,34 +2256,48 @@ mod imp {
             match kind {
                 // Navigation (docs/navigation.md): drive the ArkTS Navigation/NavPathStack.
                 kinds::NAV => {
+                    let owner = NAV_HOSTS.with(|m| m.borrow().get(&(h.0 as usize)).copied());
                     // Inline search (docs/search.md): the app writing its query fills the field.
                     if matches!(
                         patch.downcast_ref::<day_spec::props::SearchPatch>(),
                         Some(day_spec::props::SearchPatch::Focus)
                     ) {
-                        crate::host_api::nav_set_search(-2, "", "");
+                        if let Some(owner) = owner {
+                            crate::host_api::nav_set_search(owner, -2, "", "");
+                        }
                     }
                     if let Some(day_spec::props::SearchPatch::Text(t)) =
                         patch.downcast_ref::<day_spec::props::SearchPatch>()
                     {
-                        crate::host_api::nav_set_search(-1, "", t);
+                        if let Some(owner) = owner {
+                            crate::host_api::nav_set_search(owner, -1, "", t);
+                        }
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {
                         match p {
                             NavPatch::Pushed { title, .. } => {
-                                // The just-attached last page child becomes a NavDestination:
-                                // detach it from the host Stack and mount it into the fresh
-                                // NodeContent the ArkTS push callback returns.
-                                // CONSUME the entry: a second Pushed must never re-detach
-                                // the same (already re-homed, possibly disposed) page.
-                                let last = NAV_ATTACHED.with(|v| v.borrow_mut().pop());
+                                // Consume this host's pending child and mount it in a native
+                                // destination. It is deliberately not attached to the wrapper:
+                                // doing so would paint it on top of the native Navigation.
+                                let last = NAV_ATTACHED.with(|v| {
+                                    v.borrow_mut()
+                                        .get_mut(&(h.0 as usize))
+                                        .and_then(|v| v.pop())
+                                });
                                 if let Some((page, key)) = last {
                                     let page = page as Handle;
-                                    node::remove_child(h.0, page);
-                                    if crate::host_api::nav_push(page, key, title) == 0 {
+                                    if owner.is_some_and(|owner| {
+                                        crate::host_api::nav_push(owner, page, key, title, true)
+                                            == 0
+                                    }) {
                                         NAV_PUSHED
                                             .with(|m| m.borrow_mut().insert(page as usize, key));
-                                        NAV_STACK.with(|s| s.borrow_mut().push(key));
+                                        NAV_STACK.with(|s| {
+                                            s.borrow_mut()
+                                                .entry(h.0 as usize)
+                                                .or_default()
+                                                .push(key)
+                                        });
                                         NAV_PENDING_PUSH.with(|s| s.borrow_mut().insert(key));
                                     } else {
                                         // No ArkTS bridge (old host page): fall back to the
@@ -2272,7 +2310,11 @@ mod imp {
                                 // Pop natively only if a destination is actually up and not
                                 // already popped by a native back (the NavBack sync path:
                                 // `nav_popped` removed its key from NAV_STACK).
-                                let popped = NAV_STACK.with(|s| s.borrow_mut().pop());
+                                let popped = NAV_STACK.with(|s| {
+                                    s.borrow_mut()
+                                        .get_mut(&(h.0 as usize))
+                                        .and_then(|s| s.pop())
+                                });
                                 if let Some(key) = popped {
                                     NAV_EXPECT_POP.with(|e| e.borrow_mut().insert(key));
                                     // A page popped before it ever landed (pushed and popped
@@ -2285,11 +2327,21 @@ mod imp {
                                     if landed {
                                         NAV_PENDING_POP.with(|p| p.borrow_mut().insert(key));
                                     }
-                                    crate::host_api::nav_pop();
+                                    if let Some(owner) = owner {
+                                        crate::host_api::nav_pop(owner);
+                                    }
                                 }
                             }
-                            NavPatch::Title(t) => crate::host_api::nav_set_title(t),
-                            NavPatch::GuardTop(on) => crate::host_api::nav_set_guard(*on),
+                            NavPatch::Title(t) => {
+                                if let Some(owner) = owner {
+                                    crate::host_api::nav_set_title(owner, t);
+                                }
+                            }
+                            NavPatch::GuardTop(on) => {
+                                if let Some(owner) = owner {
+                                    crate::host_api::nav_set_guard(owner, *on);
+                                }
+                            }
                             // Unreachable: this backend answers `Cap::NavRepresent =
                             // Unsupported`, so the pieces layer never sends it. The plan for
                             // HarmonyOS is `Navigation.mode(Auto)`, which switches at its own
@@ -2340,7 +2392,9 @@ mod imp {
                         // Data-driven rows: a suite's bar is those rows, so it is rebuilt from
                         // the same set rather than left showing the old destinations.
                         if let Some(host) = MENU_SUITE.with(|m| m.borrow().get(&menu.0).copied()) {
-                            suite_fill_bar(host, menu, items, icons, 0);
+                            let selected = NAV_SUITES
+                                .with(|m| m.borrow().get(&host).map_or(0, |s| s.selected));
+                            suite_fill_bar(host, menu, items, icons, selected);
                         }
                         if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                             forget_themed(old);
@@ -2631,7 +2685,31 @@ mod imp {
             if let Some(nav_key) = NAV_PUSHED.with(|m| m.borrow_mut().remove(&key)) {
                 crate::host_api::nav_forget(nav_key);
             }
-            NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != key));
+            NAV_ATTACHED.with(|v| {
+                for pages in v.borrow_mut().values_mut() {
+                    pages.retain(|(p, _)| *p != key);
+                }
+            });
+            if NAV_HOSTS.with(|m| m.borrow_mut().remove(&key)).is_some() {
+                NAV_ATTACHED.with(|m| m.borrow_mut().remove(&key));
+                NAV_STACK.with(|m| m.borrow_mut().remove(&key));
+                let pages: Vec<u64> = NAV_OWNERS.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let pages = m
+                        .iter()
+                        .filter(|(_, host)| **host == key)
+                        .map(|(page, _)| *page)
+                        .collect();
+                    m.retain(|_, host| *host != key);
+                    pages
+                });
+                for page in pages {
+                    NAV_PENDING_PUSH.with(|m| m.borrow_mut().remove(&page));
+                    NAV_PENDING_POP.with(|m| m.borrow_mut().remove(&page));
+                    NAV_EXPECT_POP.with(|m| m.borrow_mut().remove(&page));
+                    NAV_POPPED_KEYS.with(|m| m.borrow_mut().remove(&page));
+                }
+            }
             // A cover released while presented, and a secondary window root released after
             // its ability went away, drop their records too (same aliasing hazard).
             COVER_PRESENTED.with(|s| {
@@ -2641,9 +2719,16 @@ mod imp {
                 crate::host_api::show_cover_layer(COVER_PRESENTED.with(|s| !s.borrow().is_empty()));
             }
             SECONDARY.with(|s| s.borrow_mut().retain(|(_, ptr)| *ptr != key));
-            NAV_PAGE_IDS.with(|m| {
-                m.borrow_mut().remove(&key);
-            });
+            if let Some(page) = NAV_PAGE_IDS.with(|m| m.borrow_mut().remove(&key)) {
+                // A landed pop retains its owner until ArkTS acknowledges the transition.
+                // Unmounted/same-frame pages will never produce that acknowledgment.
+                if !NAV_PENDING_POP.with(|m| m.borrow().contains(&page)) {
+                    NAV_OWNERS.with(|m| m.borrow_mut().remove(&page));
+                    NAV_EXPECT_POP.with(|m| m.borrow_mut().remove(&page));
+                    NAV_POPPED_KEYS.with(|m| m.borrow_mut().remove(&page));
+                    NAV_PENDING_PUSH.with(|m| m.borrow_mut().remove(&page));
+                }
+            }
             COVER_NODES.with(|m| {
                 m.borrow_mut().remove(&key);
             });
@@ -2702,6 +2787,7 @@ mod imp {
             // A suite's own pages. The one at index 0 is the SIDEBAR page, whose rows became the
             // bar: it is kept so nothing downstream has to special-case a missing page, but never
             // shown; drawing the rows again as a list would be the same navigation twice.
+            let mut report_page = None;
             let into_suite = NAV_SUITES.with(|c| {
                 let mut c = c.borrow_mut();
                 let Some(suite) = c.get_mut(&(parent.0 as usize)) else {
@@ -2718,25 +2804,54 @@ mod imp {
                             .with(|m| m.borrow().get(&(child.0 as usize)).copied())
                             .unwrap_or(0),
                     );
-                    let first = suite.items.is_empty();
-                    suite.items.push((*child, id));
-                    // The first destination claims the screen: page 0 is the hidden sidebar.
-                    node::set_visibility(child.0, first);
+                    let position = (index - 1).min(suite.items.len());
+                    suite.items.insert(position, (*child, id));
+                    node::set_visibility(child.0, position == suite.selected);
+                    report_page = Some(id);
                 }
                 true
             });
             if into_suite {
+                if let Some(id) = report_page {
+                    let host = parent.0 as usize;
+                    // The host can be laid out before any pages join it. Report a new
+                    // page's usable bounds after its FrameChanged listener is installed;
+                    // otherwise NavLayout keeps the full host-height fallback forever.
+                    // Read the current size when delivered: a resize/removal may intervene.
+                    crate::main_thread::post_local(Box::new(move || {
+                        let size = NAV_SUITES.with(|m| {
+                            let m = m.borrow();
+                            m.get(&host)
+                                .filter(|s| s.items.iter().any(|(_, page)| *page == id))
+                                .map(|s| s.page_size)
+                        });
+                        if let Some(size) = size.filter(|s| s.width > 0.0 && s.height > 0.0) {
+                            emit(id, Event::FrameChanged(size));
+                        }
+                    }));
+                }
                 return;
             }
-            // Track page attachment order under the nav host: the next NavPatch::Pushed
-            // re-homes the most recently attached page into a NavDestination.
-            if NAV_HOST
-                .with(|c| c.get())
-                .is_some_and(|(_, hp)| hp == parent.0 as usize)
+            // Root and pushed pages belong to this host's slots, never to a window singleton.
+            let owner = NAV_HOSTS.with(|m| m.borrow().get(&(parent.0 as usize)).copied());
+            if let Some(owner) = owner
                 && let Some(id) =
                     NAV_PAGE_IDS.with(|m| m.borrow().get(&(child.0 as usize)).copied())
             {
-                NAV_ATTACHED.with(|v| v.borrow_mut().push((child.0 as usize, id)));
+                NAV_OWNERS.with(|m| m.borrow_mut().insert(id, parent.0 as usize));
+                if index == 0 {
+                    if crate::host_api::nav_push(owner, child.0, id, "", false) == 0 {
+                        NAV_PUSHED.with(|m| m.borrow_mut().insert(child.0 as usize, id));
+                    }
+                } else {
+                    NAV_ATTACHED.with(|v| {
+                        v.borrow_mut()
+                            .entry(parent.0 as usize)
+                            .or_default()
+                            .push((child.0 as usize, id))
+                    });
+                }
+                return;
             }
             // A scroll's day children live in its content container (see [`SCROLL_CONTENT`]).
             let native_parent = SCROLL_CONTENT
@@ -2751,7 +2866,22 @@ mod imp {
 
         fn remove(&mut self, parent: &AHandle, child: &AHandle) {
             let cp = child.0 as usize;
-            NAV_ATTACHED.with(|v| v.borrow_mut().retain(|(p, _)| *p != cp));
+            if NAV_SUITES.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(suite) = m.get_mut(&(parent.0 as usize)) else {
+                    return false;
+                };
+                node::remove_child(suite.pages.0, child.0);
+                suite.items.retain(|(page, _)| page.0 != child.0);
+                true
+            }) {
+                return;
+            }
+            NAV_ATTACHED.with(|v| {
+                for pages in v.borrow_mut().values_mut() {
+                    pages.retain(|(p, _)| *p != cp);
+                }
+            });
             // A presented cover lives under the window root, not its tree parent.
             if let Some(cur) = COVER_PARENTS.with(|m| m.borrow_mut().remove(&cp)) {
                 node::remove_child(cur as Handle, child.0);
@@ -2867,8 +2997,20 @@ mod imp {
             // The suite divides its own frame between the pages area and the bar, then tells each
             // page how much room it has: day-core sees one host node and gives it one frame.
             if NAV_SUITES.with(|c| c.borrow().contains_key(&(h.0 as usize))) {
-                node::set_size(h.0, frame.size.width, frame.size.height);
+                node::set_frame(
+                    h.0,
+                    frame.origin.x,
+                    frame.origin.y,
+                    frame.size.width,
+                    frame.size.height,
+                );
                 suite_layout(h.0 as usize, frame.size);
+                return;
+            }
+            // All navigation pages have native-owned frames, including resident tab
+            // pages. Day's initial fallback must not overwrite the suite's allocation
+            // and extend a scroll viewport underneath the tab bar.
+            if NAV_PAGE_IDS.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
                 return;
             }
             // A cover's frame is native-owned: full window while presented, parked otherwise.
@@ -3282,7 +3424,7 @@ mod imp {
                 // (docs/window-image.md).
                 Cap::Snapshot => Support::Native,
                 // Every pushed page is an ArkTS NavDestination with a native title bar
-                // (Index.ets); content needn't repeat the title (docs/navigation.md).
+                // (DayNavigation.ets); content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
                 // A `Navigation`'s title bar carries `.menus()` items, which is where a page's
                 // toolbar commands go here (docs/toolbars.md). Emulated rather than Native: the

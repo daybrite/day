@@ -724,6 +724,33 @@ vice versa.
 
 ## Composition
 
+On HarmonyOS, each realized stack owns an ArkTS `Navigation`/`NavPathStack` in
+`DayNavigation.ets`, embedded at that stack's position in the Day tree through a
+`BuilderNode`. Its root and pushed pages occupy separate `NodeContent` slots and
+receive their actual content bounds, excluding native title bars. The window
+itself mounts the Day tree and the full-window cover layer; it does not wrap all
+tabs in a shared Navigation. This follows Harmony's component-level
+[Navigation model](https://gitee.com/openharmony/docs/blob/f013f0d3312a247aac9c4eb1e6f29d636eafbeed/en/application-dev/ui/arkts-navigation-navigation.md).
+
+Titles, search, guarded Back and pop acknowledgments are addressed to their owning
+host. Switching tabs hides a resident stack without popping it. Late callbacks
+from a disposed host cannot mutate a sibling stack. The bottom tab bar remains
+composed from ArkUI nodes, with its highlight updated together with selection.
+The [emulator regression fixture](../toolkits/day-arkui/tests/navigation/README.md)
+checks independent histories, hidden pushes, guarded Back and host reconstruction.
+
+Resident tab pages also own their native frames. A page joining a tab host after
+its initial layout receives a deferred report of the current page area, excluding
+the tab bar. Day's initial full-host fallback must never overwrite that frame:
+otherwise a nested scroll view thinks the area behind the tab bar is visible and
+stops scrolling before its last control can be seen. The fixture also checks
+native scroll bounds with wrapping and dynamically changing content.
+
+Before this ownership fix, Harmony had one window-global navigation stack: the
+last realized stack could name and control unrelated tabs. This affected
+multi-host compositions such as Stanza's Library/Catalogs/Settings layout, rather
+than implying that every single-stack Harmony app was broken.
+
 To reproduce the Mail.app or Files.app navigation pattern, nest the containers:
 
 ```rust

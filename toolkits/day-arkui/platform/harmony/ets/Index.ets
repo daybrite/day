@@ -1,10 +1,9 @@
 // The ArkTS host page for a Day app — the framework's, not the app's. `day build` stages this
 // directory into the app's hvigor project at `entry/src/main/ets/day/` (gitignored) from the
 // day-arkui crate the app depends on, the way Gradle reads the Java shim from day-android
-// (docs/harmonyos.md). It hosts HarmonyOS's own Navigation/NavPathStack: the base
-// content is a NodeContent slot the native Rust cdylib (libentry.so) mounts the Day tree into,
-// and every page Day pushes becomes a real NavDestination (native transition, title bar, system
-// back gesture) whose content is a per-page NodeContent (docs/navigation.md). Day owns layout,
+// (docs/harmonyos.md). The window mounts the Day tree and a separate cover layer.
+// DayNavigation.ets hosts a Navigation/NavPathStack inside EACH navigation surface,
+// so sibling tabs and independently mounted stacks cannot share titles or back history. Day owns layout,
 // so we pass each slot's size (vp) and the display density (px per vp).
 //
 // It also registers a file picker (docs/files.md): HarmonyOS's open/save UI lives in the ArkTS
@@ -23,6 +22,7 @@ import { registerDayPieces } from '../daypieces/DayPieces';
 import { daySelect, daySegmented } from './DaySelect';
 import DayWindowAbility from './DayWindowAbility';
 import { DayToolbar, DayToolbarItem } from './DayToolbar';
+import { dayNavigation, registerDayNavigation } from './DayNavigation';
 import { DayCapture } from './DayCapture';
 
 @Entry
@@ -34,51 +34,9 @@ struct Index {
   private coverHeightVp: number = 0;
   @State coverShown: boolean = false;
   private started: boolean = false;
-  // Navigation state (docs/navigation.md): one NavPathStack; per-page NodeContents keyed by the
-  // Day page id; titles in @State so a NavPatch::Title re-renders the destination's title bar.
-  private pathStack: NavPathStack = new NavPathStack();
-  private navContents: Map<number, NodeContent> = new Map();
-  @State navTitles: Map<number, string> = new Map();
-  // Back guard (docs/navigation.md): true while the top pushed page has a Stack::on_back
-  // guard armed — its NavDestination consumes the native back and defers to Rust's guard.
-  @State navGuardedTop: boolean = false;
-  // Trailing title-bar actions (docs/navigation.md, NavProps::bar_actions): the mobile stand-in
-  // for desktop toolbar buttons. Set once by registerNav's 5th callback and split by scope —
-  // `navPageMenus` ride every pushed NavDestination, `navRootMenus` belong to the LIST and are the
-  // only reason the root Navigation shows a title bar at all.
-  @State navPageMenus: DayToolbarItem[] = [];
-  @State navRootMenus: DayToolbarItem[] = [];
-  // The ROOT page's title. Only shown when a list-scoped action brings the root title bar out;
-  // until this existed a Title patch at depth 0 had nowhere to land and was dropped.
-  @State navRootTitle: string = '';
-  // A `.searchable()` navigation surface's field (docs/search.md): HarmonyOS's own `Search`,
-  // above the root page, the way Android puts its field above the navigation list. Set by
-  // registerNav's 6th callback; the text is also what an echo of Day's own write is compared to.
-  @State navSearchShown: boolean = false;
-  @State navSearchPrompt: string = '';
-  @State navSearchText: string = '';
-  private navKeys: number[] = [];
-
-  // Scripted sessions (dayscript, docs/agent.md) push/pop without transition animation: a
-  // pop issued while a push transition is in flight is DROPPED by ArkUI Navigation and the
-  // stack wedges on a stale destination — the same transactional hazard the UIKit backend
-  // queues around for modals (docs/dialogs.md). Human sessions keep the native transition.
-  private animated(): boolean {
-    return AppStorage.get<boolean>('dayDriven') !== true;
-  }
-
+  @State windowMenus: DayToolbarItem[] = [];
   onBackPress(): boolean {
     return this.coverShown && nativeEntry.coverBackRequested();
-  }
-
-  @Builder
-  private pageToolbar() {
-    DayToolbar({ items: this.navPageMenus })
-  }
-
-  @Builder
-  private rootToolbar() {
-    DayToolbar({ items: this.navRootMenus })
   }
 
   private startDay(widthVp: number, heightVp: number): void {
@@ -92,103 +50,16 @@ struct Index {
     });
     nativeEntry.coverLayerResized(this.coverWidthVp || widthVp, this.coverHeightVp || heightVp);
 
-    // Wire the Navigation bridge before start(): a deep link (docs/deep-links.md) can push during
-    // the initial tree build.
-    nativeEntry.registerNav(
-      (key: number, title: string): NodeContent => {
-        const pageContent = new NodeContent();
-        this.navContents.set(key, pageContent);
-        this.navTitles.set(key, title);
-        this.navKeys.push(key);
-        // The name is UNIQUE per page: ArkUI Navigation diffs the old and new stacks by
-        // destination name, so a same-turn pop+push of two 'day-page' entries would collapse
-        // into "page is not change — don't transition", leaving the old (already-detached,
-        // empty) destination on screen forever. The generic `.navDestination` builder
-        // dispatches every name, so the suffix costs nothing.
-        this.pathStack.pushPathByName('day-page-' + key, key, this.animated());
-        return pageContent;
-      },
-      (): void => {
-        this.pathStack.pop(this.animated());
-      },
-      (title: string): void => {
-        const top: number | undefined = this.navKeys[this.navKeys.length - 1];
-        if (top !== undefined) {
-          this.navTitles.set(top, title);
-        } else {
-          this.navRootTitle = title;
-        }
-      },
-      (on: boolean): void => {
-        this.navGuardedTop = on;
-      },
-      // The window toolbar's actions (docs/toolbars.md), five `\n`-joined parallel fields, one
-      // entry per action. Built into ArkUI menu items once, here, rather than in the builder —
-      // a @Builder re-runs on every state change and would rebuild the closures with it.
-      // `scopes` is "1" for the root page alone, "0" for pushed pages alone, "2" for both;
-      // `icons` are image URIs (a staged symbol's file://, a bundled image's resource://).
-      // Segment actions are id:selected; labels carry U+001F-separated choices. Enabled
-      // bit 0 is enabled and bit 1 checked. DayToolbar applies native theme colors to icons.
-      (icons: string, labels: string, actions: string, scopes: string, enabled: string): void => {
-        const ic: string[] = icons.length === 0 ? [] : icons.split('\n');
-        const lb: string[] = labels.length === 0 ? [] : labels.split('\n');
-        const ac: string[] = actions.length === 0 ? [] : actions.split('\n');
-        const sc: string[] = scopes.length === 0 ? [] : scopes.split('\n');
-        const en: string[] = enabled.length === 0 ? [] : enabled.split('\n');
-        const page: DayToolbarItem[] = [];
-        const root: DayToolbarItem[] = [];
-        for (let i = 0; i < ac.length; i++) {
-          const address: string[] = ac[i].split(':');
-          const id: number = Number(address[0]);
-          const titles: string[] = i < lb.length ? lb[i].split('\u001f') : [''];
-          if (id === 0) {
-            continue;
-          }
-          const icon: string = i < ic.length ? ic[i] : '';
-          const item: DayToolbarItem = {
-            value: titles[0],
-            choices: titles.slice(1),
-            selection: address.length > 1 ? Number(address[1]) : -1,
-            choose: (index: number) => { nativeEntry.navMenuAction(id, index); },
-            icon: icon.length === 0 ? undefined : icon,
-            isEnabled: !(i < en.length && (en[i] === '0' || en[i] === '2')),
-            checked: i < en.length && (en[i] === '2' || en[i] === '3'),
-            action: () => { nativeEntry.navMenuAction(id); }
-          };
-          const scope: string = i < sc.length ? sc[i] : '0';
-          if (scope !== '0') {
-            root.push(item);
-          }
-          if (scope !== '1') {
-            page.push(item);
-          }
-        }
-        this.navPageMenus = page;
-        this.navRootMenus = root;
-      },
-      // The navigation surface's search field: `shown` 1 shows it, 0 hides it, -1 leaves it as
-      // it is; an empty `prompt` with -1 keeps the prompt too, so the app writing its query is
-      // one call carrying just the text.
-      (shown: number, prompt: string, text: string): void => {
-        // -2 requests focus without changing the query or visibility.
-        if (shown === -2) {
-          if (this.navSearchShown) this.getUIContext().getFocusController().requestFocus('day.navigation.search');
-          return;
-        }
-        if (shown >= 0) {
-          this.navSearchShown = shown === 1;
-          this.navSearchPrompt = prompt;
-        }
-        this.navSearchText = text;
-      }
-    );
+    registerDayNavigation(this.getUIContext(), (items: DayToolbarItem[]): void => {
+      this.windowMenus = items;
+    });
     // Standalone pieces whose component exists only in ArkTS (docs/extending.md) — the native
     // Web view is one, since the ArkUI C node API has no Web kind. `day build` regenerates
     // DayPieces.ets from the app's piece closure (an empty set when it has none), and the
     // framework's own ArkTS-only components ride along: the menu-style picker's `Select`
     // (DaySelect.ets). Before start(): a piece node can be realized during the very first tree
     // build.
-    registerDayPieces(this.getUIContext(), [daySelect, daySegmented]);
+    registerDayPieces(this.getUIContext(), [daySelect, daySegmented, dayNavigation]);
 
     // Hand the ArkTS resourceManager to native so `resource("name")` can read bundled data via the
     // NDK rawfile API (§18.3) — the manager can only be obtained on the ArkTS side. Before
@@ -350,125 +221,31 @@ struct Index {
     return out;
   }
 
-  // One pushed Day page: a NavDestination whose content is the page's NodeContent. The system
-  // title bar (with its native back affordance) shows the pushed title; disappearance — system
-  // back gesture, title-bar back, or a Day-initiated pop — reports back via `navPopped` so the
-  // native route state stays in sync (docs/navigation.md).
-  @Builder
-  dayPage(name: string, param: object) {
-    NavDestination() {
-      Stack() {
-        ContentSlot(this.navContents.get(Number(param)))
-      }
-      .width('100%')
-      .height('100%')
-      // The page's own bounds: Day lays content out inside them, and anything taller (a page
-      // that does not scroll) must not draw over the system navigation bar below.
-      .clip(true)
-      .onAreaChange((_oldArea: Area, newArea: Area) => {
-        nativeEntry.navPageArea(Number(param), newArea.width as number, newArea.height as number);
-      })
-    }
-    .title(this.navTitles.get(Number(param)) ?? '')
-    // The window toolbar's actions (docs/toolbars.md): `.menus()` items drawn upper-right, the
-    // mobile counterpart to desktop toolbar buttons; a tap re-enters native. Only the ones for
-    // pushed pages: a root-only action acts on the list this page covers.
-    .menus(this.pageToolbar)
-    .onBackPressed(() => {
-      if (this.coverShown) {
-        return nativeEntry.coverBackRequested();
-      }
-      // A guarded top page consumes the native back and routes it to Rust's guard, which
-      // pops the path (→ Day-initiated pop) only on Proceed (docs/navigation.md). An unguarded
-      // page returns false: the native pop proceeds and onDisAppear reports it.
-      if (this.navGuardedTop) {
-        nativeEntry.navBackRequested();
-        return true;
-      }
-      return false;
-    })
-    .onDisAppear(() => {
-      const key: number = Number(param);
-      this.navContents.delete(key);
-      this.navTitles.delete(key);
-      const i: number = this.navKeys.indexOf(key);
-      if (i >= 0) {
-        this.navKeys.splice(i, 1);
-      }
-      nativeEntry.navPopped(key);
-    })
-  }
-
   build() {
     Stack() {
-      Navigation(this.pathStack) {
-        Column() {
-          if (this.navSearchShown) {
-            Search({ value: this.navSearchText, placeholder: this.navSearchPrompt })
-              .id('day.navigation.search')
-              .margin({ left: 16, right: 16, top: 8, bottom: 8 })
-              .onChange((value: string) => {
-                // Only the user's edits report: Day writing the query lands here too, and it is
-                // already the text Day has.
-                if (value !== this.navSearchText) {
-                  this.navSearchText = value;
-                  nativeEntry.navSearchChanged(value);
-                }
-              })
-          }
-          Stack() {
-            // Native ArkUI nodes added via OH_ArkUI_NodeContent_AddNode render here (the root page).
-            ContentSlot(this.content)
-          }
-          .width('100%')
-          .layoutWeight(1)
-          .clip(true)
-          // First area = start; later areas (keyboard RESIZE avoidance, rotation, window
-          // resize, the search field coming or going) flow to Day as window resizes. Area
-          // dimensions are in vp.
-          .onAreaChange((_oldArea: Area, newArea: Area) => {
-            if (this.started) {
-              nativeEntry.resized(newArea.width as number, newArea.height as number);
-            } else {
-              this.startDay(newArea.width as number, newArea.height as number);
-            }
-          })
+      Column() {
+        if (this.windowMenus.length > 0) {
+          Row() { DayToolbar({ items: this.windowMenus }) }
+            .width('100%').height(56).justifyContent(FlexAlign.End)
+            .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
         }
-        .width('100%')
-        .height('100%')
-      }
-      // The root normally draws NO native title bar — Day paints the root page itself, chrome and
-      // all. A toolbar action has nowhere else to go, though, so having one brings the bar out.
-      .title(this.navRootMenus.length === 0 ? '' : this.navRootTitle)
-      .hideTitleBar(this.navRootMenus.length === 0)
-      // The compact bar, the one every pushed page wears: the default `Free` mode reserves a
-      // large-title area, which on the root is an empty band above the navigation list.
-      .titleMode(NavigationTitleMode.Mini)
-      // The root has nothing to go back to; Mini mode would otherwise draw a back arrow on it.
-      .hideBackButton(true)
-      .menus(this.rootToolbar)
-      .mode(NavigationMode.Stack)
-      .navDestination(this.dayPage)
-      // Theme-adaptive page ground: the C-API Day tree is transparent where it doesn't paint, so
-      // without this the window shows the (light) start-window color even under dark colorMode.
-      .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
-      .width('100%')
-      .height('100%')
-      // A root-page child is occluded by every pushed NavDestination. Keep covers
-      // outside Navigation so both the reader and its chrome are actually on top.
-      Stack() {
-        ContentSlot(this.coverContent)
-      }
-      .width('100%')
-      .height('100%')
-      .visibility(this.coverShown ? Visibility.Visible : Visibility.Hidden)
+        Stack() { ContentSlot(this.content) }
+          .width('100%').layoutWeight(1).clip(true)
+          .onAreaChange((_old: Area, area: Area) => {
+            if (this.started) nativeEntry.resized(Number(area.width), Number(area.height));
+            else this.startDay(Number(area.width), Number(area.height));
+          })
+      }.width('100%').height('100%')
+      // Covers remain above all tab-local Navigation hosts and their destinations.
+      Stack() { ContentSlot(this.coverContent) }
+        .width('100%').height('100%')
+        .visibility(this.coverShown ? Visibility.Visible : Visibility.Hidden)
     }
-    .id('day.capture.0')
-    .width('100%')
-    .height('100%')
-    .onAreaChange((_oldArea: Area, newArea: Area) => {
-      this.coverWidthVp = newArea.width as number;
-      this.coverHeightVp = newArea.height as number;
+    .id('day.capture.0').width('100%').height('100%')
+    .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
+    .onAreaChange((_old: Area, area: Area) => {
+      this.coverWidthVp = Number(area.width);
+      this.coverHeightVp = Number(area.height);
       nativeEntry.coverLayerResized(this.coverWidthVp, this.coverHeightVp);
     })
   }

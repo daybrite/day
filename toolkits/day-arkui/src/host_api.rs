@@ -63,13 +63,13 @@ thread_local! {
     static WINDOW_OPEN: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static WINDOW_CLOSE: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
     // The Navigation bridge (docs/navigation.md).
-    static NAV_PUSH: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
-    /// `()`: the pop takes no argument; `null` rides along, since an empty tuple has no NAPI form.
-    static NAV_POP: Callback<FnArgs<(Null,)>> = const { RefCell::new(None) };
-    static NAV_TITLE: Callback<FnArgs<(String,)>> = const { RefCell::new(None) };
-    static NAV_GUARD: Callback<FnArgs<(bool,)>> = const { RefCell::new(None) };
+    static NAV_PUSH: Callback<FnArgs<(f64, f64, String, bool)>> = const { RefCell::new(None) };
+    /// Host-addressed pop: independent stacks never share a window-global path.
+    static NAV_POP: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
+    static NAV_TITLE: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
+    static NAV_GUARD: Callback<FnArgs<(f64, bool)>> = const { RefCell::new(None) };
     static NAV_MENU: Callback<MenuArgs> = const { RefCell::new(None) };
-    static NAV_SEARCH: Callback<FnArgs<(i32, String, String)>> = const { RefCell::new(None) };
+    static NAV_SEARCH: Callback<FnArgs<(f64, i32, String, String)>> = const { RefCell::new(None) };
     /// A pushed page's slot: the NodeContent handle plus a strong reference on the JS object.
     /// The ArkTS side drops its own reference when the NavDestination disappears, so without
     /// the ref the content is GC'd while Rust may still detach the page from it; the
@@ -387,12 +387,12 @@ pub fn register_resource_manager(env: Env, resource_manager: Unknown) {
 #[allow(clippy::too_many_arguments)]
 pub fn register_nav(
     env: Env,
-    push: FunctionRef<FnArgs<(f64, String)>, Unknown<'static>>,
-    pop: FunctionRef<FnArgs<(Null,)>, Unknown<'static>>,
-    set_title: FunctionRef<FnArgs<(String,)>, Unknown<'static>>,
-    set_guard: Option<Registered<FnArgs<(bool,)>>>,
+    push: FunctionRef<FnArgs<(f64, f64, String, bool)>, Unknown<'static>>,
+    pop: FunctionRef<FnArgs<(f64,)>, Unknown<'static>>,
+    set_title: FunctionRef<FnArgs<(f64, String)>, Unknown<'static>>,
+    set_guard: Option<Registered<FnArgs<(f64, bool)>>>,
     set_menu: Option<Registered<MenuArgs>>,
-    set_search: Option<Registered<FnArgs<(i32, String, String)>>>,
+    set_search: Option<Registered<FnArgs<(f64, i32, String, String)>>>,
 ) {
     remember(&env);
     store(&NAV_PUSH, push);
@@ -409,16 +409,16 @@ pub fn register_nav(
     }
 }
 
-/// `navPopped(key)`: a NavDestination disappeared.
+/// `navPopped(owner, key)`: a destination was removed from its owning path.
 #[napi(js_name = "navPopped")]
-pub fn nav_popped(key: f64) {
-    crate::nav_popped(key as u64);
+pub fn nav_popped(owner: f64, key: f64) {
+    crate::nav_popped(owner as u64, key as u64);
 }
 
-/// `navBackRequested()`: a guarded destination's back was pressed.
+/// `navBackRequested(owner)`: a guarded destination's back was pressed.
 #[napi(js_name = "navBackRequested")]
-pub fn nav_back_requested() {
-    crate::nav_back_requested();
+pub fn nav_back_requested(owner: f64) {
+    crate::nav_back_requested(owner as u64);
 }
 
 /// `navMenuAction(action, selection?)`: a title-bar action was tapped (docs/toolbars.md).
@@ -427,10 +427,10 @@ pub fn nav_menu_action(action: f64, selection: Option<i32>) {
     crate::nav_menu_action(action as u64, selection.unwrap_or(-1));
 }
 
-/// `navSearchChanged(text)` (docs/search.md).
+/// `navSearchChanged(owner, text)` (docs/search.md).
 #[napi(js_name = "navSearchChanged")]
-pub fn nav_search_changed(text: String) {
-    crate::nav_search_changed(&text);
+pub fn nav_search_changed(owner: f64, text: String) {
+    crate::nav_search_changed(owner as u64, &text);
 }
 
 /// `navPageArea(key, w, h)`: a destination's content area, in vp.
@@ -585,10 +585,10 @@ pub fn close_window(node: u64) {
 /// Push one Day page into the ArkTS Navigation: ask the registered push callback for a fresh
 /// NodeContent (it also pushes the NavDestination) and mount the page's node into it. 0 on
 /// success.
-pub fn nav_push(page: Handle, key: u64, title: &str) -> i32 {
+pub fn nav_push(owner: u64, page: Handle, key: u64, title: &str, pushed: bool) -> i32 {
     let mounted = call(
         &NAV_PUSH,
-        FnArgs::from((key as f64, title.to_owned())),
+        FnArgs::from((owner as f64, key as f64, title.to_owned(), pushed)),
         |env, ret| {
             let mut content: ArkUI_NodeContentHandle = ptr::null_mut();
             // SAFETY: the callback returned the destination's NodeContent.
@@ -622,17 +622,21 @@ pub fn nav_push(page: Handle, key: u64, title: &str) -> i32 {
 }
 
 /// Pop the top NavDestination (a Day-initiated route change).
-pub fn nav_pop() {
-    call(&NAV_POP, FnArgs::from((Null,)), |_, _| ());
+pub fn nav_pop(owner: u64) {
+    call(&NAV_POP, FnArgs::from((owner as f64,)), |_, _| ());
 }
 
-pub fn nav_set_title(title: &str) {
-    call(&NAV_TITLE, FnArgs::from((title.to_owned(),)), |_, _| ());
+pub fn nav_set_title(owner: u64, title: &str) {
+    call(
+        &NAV_TITLE,
+        FnArgs::from((owner as f64, title.to_owned())),
+        |_, _| (),
+    );
 }
 
 /// Arm/disarm the top destination's back guard. A host that predates the seam gets no guard.
-pub fn nav_set_guard(on: bool) {
-    call(&NAV_GUARD, FnArgs::from((on,)), |_, _| ());
+pub fn nav_set_guard(owner: u64, on: bool) {
+    call(&NAV_GUARD, FnArgs::from((owner as f64, on)), |_, _| ());
 }
 
 /// The window toolbar's title-bar actions (docs/toolbars.md), five `\n`-joined parallel
@@ -652,10 +656,10 @@ pub fn nav_set_menu(icons: &str, labels: &str, actions: &str, scopes: &str, enab
 }
 
 /// Show (1), hide (0) or only re-text (-1) the navigation surface's search field.
-pub fn nav_set_search(shown: i32, prompt: &str, text: &str) {
+pub fn nav_set_search(owner: u64, shown: i32, prompt: &str, text: &str) {
     call(
         &NAV_SEARCH,
-        FnArgs::from((shown, prompt.to_owned(), text.to_owned())),
+        FnArgs::from((owner as f64, shown, prompt.to_owned(), text.to_owned())),
         |_, _| (),
     );
 }

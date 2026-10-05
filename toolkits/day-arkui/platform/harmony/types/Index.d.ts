@@ -1,5 +1,5 @@
-// ArkTS type declaration for the Rust native module (libentry.so), registered by the C++ shim's
-// NAPI init (day-arkui-sys shim.cpp). Staged into the app's hvigor project by `day build`, next to
+// ArkTS type declaration for the Rust native module (libentry.so), registered by napi-ohos
+// (src/host_api.rs). Staged into the app's hvigor project by `day build`, next to
 // a generated oh-package.json5, so the declarations always match the shim the app links
 // (docs/harmonyos.md). `start` mounts the Day tree; the file-picker pair bridges Day's native open/save
 // requests to the ArkTS @kit.CoreFileKit DocumentViewPicker (docs/files.md).
@@ -74,15 +74,15 @@ export const registerStatusBar: (callback: (hidden: boolean) => void) => void;
 
 // --- Navigation bridge (docs/navigation.md) ---------------------------------
 // Day drives HarmonyOS's own Navigation/NavPathStack. `registerNav` wires the ArkTS side before
-// `start()`: `push` must create a fresh NodeContent, push a NavDestination for it, and return
-// the content (Day mounts the page's native node into it); `pop` pops the top destination;
-// `setTitle` retitles it. The ArkTS side reports every destination disappearance (`navPopped`)
+// `start()`: each callback addresses an owning Day host. `push` returns its root NodeContent
+// when pushed=false, otherwise creates a slot and pushes a native destination. `pop` pops
+// only that host; `setTitle` retitles its current page. ArkTS reports removed paths (`navPopped`)
 // and the destination content area (`navPageArea`) so Day lays the page out in its real bounds.
 export const registerNav: (
-  push: (key: number, title: string) => Object,
-  pop: () => void,
-  setTitle: (title: string) => void,
-  setGuard: (on: boolean) => void,
+  push: (owner: number, key: number, title: string, pushed: boolean) => Object,
+  pop: (owner: number) => void,
+  setTitle: (owner: number, title: string) => void,
+  setGuard: (owner: number, on: boolean) => void,
   // One call carries ALL of the window toolbar's actions (docs/toolbars.md): five `\n`-joined
   // parallel fields, one entry per action. The dispatch ids travel as text with the rest rather
   // than as numbers, since a u64 id is not exactly representable as a double. `scopes` is "1"
@@ -90,17 +90,17 @@ export const registerNav: (
   setMenu: (icons: string, labels: string, actions: string, scopes: string, enabled: string) => void,
   // The navigation surface's search field (docs/search.md): `shown` 1/0 shows or hides it, -1
   // keeps it (and its prompt) and sets only the text.
-  setSearch: (shown: number, prompt: string, text: string) => void
+  setSearch: (owner: number, shown: number, prompt: string, text: string) => void
 ) => void;
-export const navPopped: (key: number) => void;
+export const navPopped: (owner: number, key: number) => void;
 // A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
-export const navBackRequested: () => void;
+export const navBackRequested: (owner: number) => void;
 export const navPageArea: (key: number, w: number, h: number) => void;
 // A title-bar action was tapped (one of the window toolbar's, docs/toolbars.md): dispatch it by
 // its own id.
 export const navMenuAction: (action: number, selection?: number) => void;
 // The user edited the navigation surface's search field (docs/search.md).
-export const navSearchChanged: (text: string) => void;
+export const navSearchChanged: (owner: number, text: string) => void;
 
 // Secondary day windows (docs/windows.md). The registered `open` launches a multiton
 // DayWindowAbility (the day node id + title as want parameters); `close` terminates one.
