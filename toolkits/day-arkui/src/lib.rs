@@ -2258,19 +2258,15 @@ mod imp {
                 kinds::NAV => {
                     let owner = NAV_HOSTS.with(|m| m.borrow().get(&(h.0 as usize)).copied());
                     // Inline search (docs/search.md): the app writing its query fills the field.
-                    if matches!(
-                        patch.downcast_ref::<day_spec::props::SearchPatch>(),
-                        Some(day_spec::props::SearchPatch::Focus)
-                    ) {
-                        if let Some(owner) = owner {
-                            crate::host_api::nav_set_search(owner, -2, "", "");
-                        }
-                    }
-                    if let Some(day_spec::props::SearchPatch::Text(t)) =
-                        patch.downcast_ref::<day_spec::props::SearchPatch>()
-                    {
-                        if let Some(owner) = owner {
-                            crate::host_api::nav_set_search(owner, -1, "", t);
+                    if let Some(owner) = owner {
+                        match patch.downcast_ref::<day_spec::props::SearchPatch>() {
+                            Some(day_spec::props::SearchPatch::Focus) => {
+                                crate::host_api::nav_set_search(owner, -2, "", "");
+                            }
+                            Some(day_spec::props::SearchPatch::Text(t)) => {
+                                crate::host_api::nav_set_search(owner, -1, "", t);
+                            }
+                            _ => {}
                         }
                     }
                     if let Some(p) = patch.downcast_ref::<NavPatch>() {

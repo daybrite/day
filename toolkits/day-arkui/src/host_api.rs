@@ -20,7 +20,7 @@ use std::ptr;
 
 use day_spec::bridge::BridgeKind as K;
 use napi_derive_ohos::napi;
-use napi_ohos::bindgen_prelude::{FnArgs, FunctionRef, Null, Object, ObjectRef, Unknown};
+use napi_ohos::bindgen_prelude::{FnArgs, FunctionRef, Object, ObjectRef, Unknown};
 use napi_ohos::{Env, JsValue, sys};
 use ohos_sys::arkui::native_node::{ArkUI_NodeDirtyFlag, OH_ArkUI_NodeContent_RemoveNode};
 use ohos_sys::arkui::native_node_napi::{
@@ -38,6 +38,8 @@ type Registered<Args> = FunctionRef<Args, Unknown<'static>>;
 type FilePickerArgs = FnArgs<(f64, i32, String, String, String)>;
 /// The toolbar's five `\n`-joined parallel fields (docs/toolbars.md).
 type MenuArgs = FnArgs<(String, String, String, String, String)>;
+/// `setSearch(host, mode, placeholder, text)` (docs/search.md).
+type SearchArgs = FnArgs<(f64, i32, String, String)>;
 
 thread_local! {
     /// `(revision, window)`: RenderService-backed capture checkpoints.
@@ -69,7 +71,7 @@ thread_local! {
     static NAV_TITLE: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static NAV_GUARD: Callback<FnArgs<(f64, bool)>> = const { RefCell::new(None) };
     static NAV_MENU: Callback<MenuArgs> = const { RefCell::new(None) };
-    static NAV_SEARCH: Callback<FnArgs<(f64, i32, String, String)>> = const { RefCell::new(None) };
+    static NAV_SEARCH: Callback<SearchArgs> = const { RefCell::new(None) };
     /// A pushed page's slot: the NodeContent handle plus a strong reference on the JS object.
     /// The ArkTS side drops its own reference when the NavDestination disappears, so without
     /// the ref the content is GC'd while Rust may still detach the page from it; the
@@ -392,7 +394,7 @@ pub fn register_nav(
     set_title: FunctionRef<FnArgs<(f64, String)>, Unknown<'static>>,
     set_guard: Option<Registered<FnArgs<(f64, bool)>>>,
     set_menu: Option<Registered<MenuArgs>>,
-    set_search: Option<Registered<FnArgs<(f64, i32, String, String)>>>,
+    set_search: Option<Registered<SearchArgs>>,
 ) {
     remember(&env);
     store(&NAV_PUSH, push);
