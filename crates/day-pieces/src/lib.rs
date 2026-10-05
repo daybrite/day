@@ -87,10 +87,11 @@ pub mod prelude {
         inspector, item, items, label, labeled, line, link, list, menu_item, menu_role,
         menu_separator, nav, nav_back, nav_link, nav_link_to, nav_stack, navigate, navigate_to,
         open_file, open_link, picker, polygon, progress, prompt, rectangle, rounded_rectangle,
-        route, route_param, route_params, row, save_file, scroll, section, segment, shape,
-        shape_group, shape_group_fn, slider, spacer, spinner, sub_menu, swipe_action, text_area,
-        text_field, toggle, toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented,
-        toolbar_separator, toolbar_toggle, vector, when, with_environment, zstack,
+        route, route_param, route_params, row, save_file, scroll, section, secure_field, segment,
+        shape, shape_group, shape_group_fn, slider, spacer, spinner, sub_menu, swipe_action,
+        text_area, text_field, toggle, toolbar_button, toolbar_label, toolbar_menu,
+        toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when, with_environment,
+        zstack,
     };
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{
@@ -128,9 +129,11 @@ pub mod prelude {
     pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, Edges, GestureKind};
+    // Text entry (docs/textfield.md): what a field collects and what its action key says.
     pub use day_spec::{
         DrawOp, LinearGradient, Paint, RadialGradient, Shape, TextAnchor, TextVAlign, UnitPoint,
     };
+    pub use day_spec::{InputPurpose, SubmitLabel};
     // Canvas fonts and the platform font list (docs/fonts.md).
     pub use day_spec::{CanvasFont, FontFace, FontFamilyInfo, TextMetrics};
     pub use day_spec::{Font, FontSpec, FontWeight, Role};

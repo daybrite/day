@@ -106,7 +106,7 @@ The `day` prelude ships a small set of Pieces, grouped roughly as follows:
 | Group | Pieces |
 |---|---|
 | Text | `label`, `text_area` |
-| Controls | `button`, `toggle`, `slider`, `text_field`, `picker` (menu/segmented/inline), `progress`, `spinner` |
+| Controls | `button`, `toggle`, `slider`, `text_field`, `secure_field`, `picker` (menu/segmented/inline), `progress`, `spinner` |
 | Layout | `column`, `row`, `zstack`, `grid`, `scroll`, `spacer`, `divider`, `form`/`section` |
 | Structure | `when`, `each`, `with_environment` |
 | Collections | `list` (native recycling) |

@@ -134,6 +134,16 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_qt_lineedit_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_qt_lineedit_set_placeholder(w: *mut c_void, text: *const c_char);
+    /// How a line edit takes its text (`Toolkit::set_input_traits`): password echo, read-only,
+    /// and the input-method hints for `purpose` (0 text, 1 name, 2 email, 3 url, 4 phone,
+    /// 5 number, 6 decimal, 7 username, 8 password, 9 new password, 10 one-time code). Every
+    /// member is applied on every call. No-op on a widget that is not a QLineEdit.
+    pub fn day_qt_lineedit_set_traits(
+        w: *mut c_void,
+        secure: c_int,
+        read_only: c_int,
+        purpose: c_int,
+    );
 
     pub fn day_qt_separator_new() -> *mut c_void;
 

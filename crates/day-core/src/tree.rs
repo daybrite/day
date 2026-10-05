@@ -792,6 +792,10 @@ pub trait TreeOps {
     /// Make `node`'s text user-selectable (the `.selectable()` modifier). One-shot and unmanaged;
     /// No-op if the node has no handle.
     fn set_node_selectable(&mut self, node: RNode, selectable: bool);
+    /// Apply a text field's [`InputTraits`](day_spec::InputTraits) (docs/textfield.md).
+    /// Idempotent; called again with the whole set when a reactive member changes. No-op if
+    /// the node has no handle.
+    fn set_node_input_traits(&mut self, node: RNode, traits: &day_spec::InputTraits);
     /// Shape the pointer over `node` (the `.cursor()` modifier, docs/cursor.md). Idempotent;
     /// called again when a reactive cursor changes. No-op if the node has no handle.
     fn set_node_cursor(&mut self, node: RNode, cursor: day_spec::Cursor);
@@ -1626,6 +1630,25 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     "`.selectable()` rebuilt this widget as a different native class, \
                      discarding an earlier tweak's changes — apply `.selectable()` BEFORE the \
                      tweak so it runs against the widget that ships (docs/tweaks.md)."
+                );
+            }
+            n.handle = Some(new);
+        }
+    }
+
+    fn set_node_input_traits(&mut self, node: RNode, traits: &day_spec::InputTraits) {
+        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+            return;
+        };
+        // A toolkit whose secure field is its own class rebuilds the widget (AppKit, WinUI);
+        // adopt the replacement so patches, layout and focus follow it.
+        if let Some(new) = self.toolkit.set_input_traits(&h, traits)
+            && let Some(n) = self.nodes.get_mut(node)
+        {
+            if n.tweaked {
+                log::warn!(
+                    "a text field's `.secure()` rebuilt this widget as a different native \
+                     class, discarding an earlier tweak's changes (docs/tweaks.md)."
                 );
             }
             n.handle = Some(new);

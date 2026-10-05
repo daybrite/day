@@ -20,9 +20,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, NodeId,
-    PieceKind, Platform, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit, Transform,
-    WindowOptions, ffi_guard, kinds, props_of, sidetable::SideTable,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, InputPurpose,
+    InputTraits, NodeId, PieceKind, Platform, Proposal, Rect, Registry, Renderer, Size, Support,
+    Toolkit, Transform, WindowOptions, ffi_guard, kinds, props_of, sidetable::SideTable,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,6 +44,25 @@ fn qt_anim_args(anim: Option<&AnimSpec>) -> (c_int, c_int) {
                 Curve::Spring { .. } => 4,
             },
         ),
+    }
+}
+
+/// An `InputPurpose` as the code `day_qt_lineedit_set_traits` takes (the shim's switch is the
+/// other half of this table): 0 text, 1 name, 2 email, 3 url, 4 phone, 5 number, 6 decimal,
+/// 7 username, 8 password, 9 new password, 10 one-time code.
+fn qt_input_purpose(purpose: InputPurpose) -> c_int {
+    match purpose {
+        InputPurpose::Text => 0,
+        InputPurpose::Name => 1,
+        InputPurpose::Email => 2,
+        InputPurpose::Url => 3,
+        InputPurpose::Phone => 4,
+        InputPurpose::Number => 5,
+        InputPurpose::Decimal => 6,
+        InputPurpose::Username => 7,
+        InputPurpose::Password => 8,
+        InputPurpose::NewPassword => 9,
+        InputPurpose::OneTimeCode => 10,
     }
 }
 
@@ -2827,6 +2846,26 @@ impl Toolkit for Qt {
         // Qt has no zoom, cell, copy-drop, context-menu, or vertical-text shape; each takes its
         // nearest, which is why `Cap::Cursor` answers Emulated.
         unsafe { ffi::day_qt_widget_set_cursor(h.0, qt_cursor_shape(&cursor)) };
+    }
+
+    fn set_input_traits(&mut self, h: &QtHandle, traits: &InputTraits) -> Option<QtHandle> {
+        // One QLineEdit serves every trait as a property (docs/textfield.md), so the widget,
+        // its signal wiring, its focus and its caret all stay. The shim qobject_casts to
+        // QLineEdit, so a non-field handle is a safe no-op.
+        //
+        // Two members stay on the Rust side. `submit_label`: QLineEdit has no setter for the
+        // enter-key type (only Qt Quick exposes one). `max_length`: `QLineEdit::setMaxLength`
+        // counts UTF-16 code units where day-pieces counts characters, so a native limit would
+        // refuse text the bound allows (five emoji are ten units); day-pieces holds it alone.
+        unsafe {
+            ffi::day_qt_lineedit_set_traits(
+                h.0,
+                traits.secure as c_int,
+                traits.read_only as c_int,
+                qt_input_purpose(traits.purpose),
+            )
+        };
+        None
     }
 
     fn set_selectable(&mut self, h: &QtHandle, selectable: bool) -> Option<QtHandle> {

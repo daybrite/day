@@ -27,9 +27,9 @@ use linkme::distributed_slice;
 
 use day_spec::props::*;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, NodeId,
-    PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size, Support, Toolkit,
-    Transform, WindowOptions, ffi_guard, kinds, props_of,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, InputPurpose,
+    InputTraits, NodeId, PieceKind, Platform, Point, Proposal, Rect, Registry, Renderer, Size,
+    Support, Toolkit, Transform, WindowOptions, ffi_guard, kinds, props_of,
 };
 
 /// An `AnimSpec` as the shim's `(duration_ms, curve)` pair — `(0, 0)` meaning "no animation, set
@@ -76,6 +76,10 @@ day_core::tls_group! {
     /// Label ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell a link
     /// run's Hyperlink which node to report against. Entries drop in `release`.
     static LABEL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+    /// Text field ptr → node id. `set_input_traits` carries no id, and a field that turns secure
+    /// is rebuilt as a `PasswordBox` whose callbacks must report against the same node. It is
+    /// also what tells a text field's handle from any other. Entries drop in `release`.
+    static TEXT_FIELD_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
     /// NAV_MENU widget ptr → (rows, section titles) (for measure).
     static NAV_MENU_ROWS: RefCell<HashMap<usize, (usize, usize)>> = RefCell::new(HashMap::new());
     /// NAV host ptr → its native presentation (NavigationView split / two-pane, docs/navigation.md).
@@ -1971,6 +1975,7 @@ impl Toolkit for Xaml {
                     );
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
+                    TEXT_FIELD_NODE.with(|m| m.borrow_mut().insert(h as usize, id.0));
                     WinHandle(h)
                 }
                 Some(Builtin::Divider) => WinHandle(ffi::day_xaml_divider_new()),
@@ -2498,6 +2503,7 @@ impl Toolkit for Xaml {
         }
         let key = h.0 as usize;
         LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
+        TEXT_FIELD_NODE.with(|m| m.borrow_mut().remove(&key));
         NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
         NAV_PAGE_IDS.with(|m| m.borrow_mut().remove(&key));
         // A disposed inspector host drops its state AND its by-node-id pane map, so a recycled
@@ -2806,6 +2812,72 @@ impl Toolkit for Xaml {
         // The shim try_as's to a TextBlock, so a non-label handle is a safe no-op (docs/text.md).
         unsafe { ffi::day_xaml_label_set_selectable(h.0, selectable as c_int) };
         None
+    }
+
+    /// XAML hides characters with a class of its own, so `secure` rebuilds the field: a `TextBox`
+    /// becomes a `PasswordBox` and back, in the shim, which builds the replacement through the
+    /// calls `realize` makes and hands it the old control's text, state, place and focus
+    /// (docs/textfield.md). Everything else is a property of whichever class is live.
+    fn set_input_traits(&mut self, h: &WinHandle, traits: &InputTraits) -> Option<WinHandle> {
+        let key = h.0 as usize;
+        let node = TEXT_FIELD_NODE.with(|m| m.borrow().get(&key).copied())?;
+        let swapped = unsafe {
+            ffi::day_xaml_field_set_secure(h.0, traits.secure as c_int, node, on_text, on_focus)
+        };
+        let live = if swapped.is_null() { h.0 } else { swapped };
+        // The shim declines the rebuild when the field hangs somewhere it cannot take the
+        // replacement's place. A password left in a `TextBox` is worth saying out loud.
+        if traits.secure && unsafe { ffi::day_xaml_field_is_secure(live) } == 0 {
+            log::error!(
+                "day-xaml: a secure text field could not be rebuilt as a PasswordBox; its \
+                 characters are showing"
+            );
+        }
+        // The InputScope the touch keyboard lays itself out from, and whether the text is an
+        // identifier, which is never spell-checked or predicted. A password or a one-time code
+        // has no scope of its own on a `TextBox`; a secure field takes the PIN pad for the
+        // numeric ones and is otherwise XAML's own password scope.
+        let (scope, plain) = match traits.purpose {
+            InputPurpose::Text => (0, false),
+            InputPurpose::Name => (1, true),
+            InputPurpose::Email => (2, true),
+            InputPurpose::Url => (3, true),
+            InputPurpose::Phone => (4, true),
+            InputPurpose::Number | InputPurpose::Decimal => (5, false),
+            InputPurpose::OneTimeCode => (5, true),
+            InputPurpose::Username | InputPurpose::Password | InputPurpose::NewPassword => {
+                (0, true)
+            }
+        };
+        // No native length limit: `MaxLength` counts UTF-16 units where the bound counts
+        // characters, so it would refuse text the bound allows. day-pieces holds the bound. The
+        // action key's label has no counterpart on this keyboard.
+        unsafe {
+            ffi::day_xaml_field_set_traits(live, traits.read_only as c_int, scope, plain as c_int)
+        };
+        if swapped.is_null() {
+            return None;
+        }
+        let new = WinHandle(swapped);
+        // day-core adopts the replacement and drops the old handle without a `release`, so
+        // everything keyed by the old pointer moves or goes here.
+        TEXT_FIELD_NODE.with(|m| m.borrow_mut().insert(swapped as usize, node));
+        let gestures: Vec<c_int> = GESTURES.with(|g| {
+            g.borrow()
+                .iter()
+                .filter(|(ptr, _)| *ptr == key)
+                .map(|(_, k)| *k)
+                .collect()
+        });
+        for k in gestures {
+            GESTURES.with(|g| g.borrow_mut().insert((swapped as usize, k)));
+            unsafe { ffi::day_xaml_enable_gesture(swapped, node, k, on_gesture) };
+        }
+        transfer::migrate(key, &new);
+        // The replacement's template is not built yet, and its height is the template's.
+        unsafe { ffi::day_xaml_on_control_loaded(swapped, node, control_loaded) };
+        self.release(*h);
+        Some(new)
     }
 
     // Animatable visual channels (DESIGN.md §8.4): cheap per-node opacity + transform that don't

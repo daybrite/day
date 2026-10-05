@@ -1071,10 +1071,19 @@ impl<S: Binding<f64>> Piece for Slider<S> {
     }
 }
 
+/// A single-line text input bound to a `String` (docs/textfield.md).
+///
+/// How it takes its text is set with `.secure(_)`, `.read_only(_)`, `.input_purpose(_)`,
+/// `.submit_label(_)` and `.max_length(_)`; [`secure_field`] is the password-field shorthand.
 pub struct TextField<S: Binding<String>> {
     value: S,
     placeholder: Option<TextSource>,
     on_submit: Option<Rc<dyn Fn()>>,
+    secure: Reactive<bool>,
+    read_only: Reactive<bool>,
+    purpose: day_spec::InputPurpose,
+    submit_label: day_spec::SubmitLabel,
+    max_length: Option<u32>,
 }
 
 pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
@@ -1082,7 +1091,24 @@ pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
         value,
         placeholder: None,
         on_submit: None,
+        secure: Reactive::Const(false),
+        read_only: Reactive::Const(false),
+        purpose: day_spec::InputPurpose::Text,
+        submit_label: day_spec::SubmitLabel::Return,
+        max_length: None,
     }
+}
+
+/// A password field: a [`text_field`] that hides its characters and tells the platform it
+/// holds a password, so the password manager offers to fill it (docs/textfield.md).
+///
+/// It is the same piece, so every `text_field` builder applies. `.secure(shown)` with a signal
+/// makes a show-password switch; `.input_purpose(InputPurpose::NewPassword)` marks a sign-up
+/// form's field.
+pub fn secure_field<S: Binding<String>>(value: S) -> TextField<S> {
+    text_field(value)
+        .secure(true)
+        .input_purpose(day_spec::InputPurpose::Password)
 }
 
 impl<S: Binding<String>> TextField<S> {
@@ -1095,6 +1121,38 @@ impl<S: Binding<String>> TextField<S> {
     /// (docs/focus.md).
     pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
         self.on_submit = Some(Rc::new(f));
+        self
+    }
+    /// Hide the characters as they are typed (default `false`). Reactive: bind it to a signal
+    /// for a show-password switch. The text, the placeholder and the focus carry across the
+    /// change on every backend, including the two whose secure field is a different native
+    /// class.
+    pub fn secure<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.secure = v.into_reactive();
+        self
+    }
+    /// Show the text and let it be selected and copied, and take no edits (default `false`).
+    /// Reactive. Unlike `.disabled(true)` the field keeps its ordinary look and still takes
+    /// focus.
+    pub fn read_only<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.read_only = v.into_reactive();
+        self
+    }
+    /// What the field collects: the on-screen keyboard, capitalization and correction, and
+    /// what the system offers to fill in all follow from it.
+    pub fn input_purpose(mut self, purpose: day_spec::InputPurpose) -> Self {
+        self.purpose = purpose;
+        self
+    }
+    /// What the on-screen keyboard's action key says. The key fires `on_submit` either way.
+    pub fn submit_label(mut self, label: day_spec::SubmitLabel) -> Self {
+        self.submit_label = label;
+        self
+    }
+    /// The most characters the field takes. Typing or pasting past it is cut to fit before
+    /// the bound value sees it.
+    pub fn max_length(mut self, characters: u32) -> Self {
+        self.max_length = Some(characters);
         self
     }
 }
@@ -1119,6 +1177,35 @@ impl<S: Binding<String>> Piece for TextField<S> {
                 ..Default::default()
             },
         );
+        // Text entry traits (docs/textfield.md). The duty is skipped for a field that asks for
+        // nothing, so a plain field costs what it did; a reactive member re-sends the whole
+        // set, which is what lets a backend rebuild the widget as its secure class and dress
+        // the replacement in one call.
+        let (secure, read_only) = (self.secure, self.read_only);
+        let (purpose, submit_label, max_length) =
+            (self.purpose, self.submit_label, self.max_length);
+        let traits = move |secure: bool, read_only: bool| day_spec::InputTraits {
+            secure,
+            read_only,
+            purpose,
+            submit_label,
+            max_length,
+        };
+        let initial_traits = traits(secure.get_untracked(), read_only.get_untracked());
+        let reactive_traits =
+            matches!(secure, Reactive::Dyn(_)) || matches!(read_only, Reactive::Dyn(_));
+        if initial_traits != day_spec::InputTraits::default() {
+            with_tree(|t| t.set_node_input_traits(node, &initial_traits));
+        }
+        if reactive_traits {
+            bind_seeded(
+                initial_traits,
+                move || traits(secure.get(), read_only.get()),
+                move |tr: &day_spec::InputTraits| {
+                    with_tree(|t| t.set_node_input_traits(node, tr));
+                },
+            );
+        }
         // Controlled input with origin-tagged writes (§4.4): the echo guard remembers the
         // last value that came from the native widget so its own change is not written back.
         let guard: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
@@ -1159,9 +1246,32 @@ impl<S: Binding<String>> Piece for TextField<S> {
         }
         cx.on(node, move |ev| match ev {
             Event::TextChanged(t) => {
+                // The length bound, held here so it counts the same characters on every
+                // backend, whatever unit a native limit would count. The cut text is painted back as
+                // an app write: the native field is showing the longer one, and the bound
+                // value may not change at all (typing at the limit), so no binding would.
+                let cut = max_length
+                    .and_then(|max| t.char_indices().nth(max as usize))
+                    .map(|(at, _)| t[..at].to_string());
+                let t = match cut {
+                    Some(cut) => {
+                        with_tree(|tr| {
+                            tr.patch(
+                                node,
+                                Box::new(TextFieldPatch::Text {
+                                    text: cut.clone(),
+                                    from_native: false,
+                                }),
+                                false,
+                            )
+                        });
+                        cut
+                    }
+                    None => t.clone(),
+                };
                 *guard.borrow_mut() = Some(t.clone());
                 *last.borrow_mut() = Some(t.clone());
-                v.write_preview(t.clone());
+                v.write_preview(t);
             }
             Event::Submitted => {
                 if let Some(t) = last.borrow_mut().take() {
@@ -1348,6 +1458,11 @@ impl<Inner: SliderBuilder + Piece> SliderBuilder for Decorated<Inner> {
 pub trait TextFieldBuilder: Sized {
     fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
     fn on_submit(self, f: impl Fn() + 'static) -> Self;
+    fn secure<M>(self, v: impl IntoReactive<bool, M>) -> Self;
+    fn read_only<M>(self, v: impl IntoReactive<bool, M>) -> Self;
+    fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self;
+    fn submit_label(self, label: day_spec::SubmitLabel) -> Self;
+    fn max_length(self, characters: u32) -> Self;
 }
 
 impl<S: Binding<String>> TextFieldBuilder for TextField<S> {
@@ -1357,6 +1472,21 @@ impl<S: Binding<String>> TextFieldBuilder for TextField<S> {
     fn on_submit(self, f: impl Fn() + 'static) -> Self {
         TextField::on_submit(self, f)
     }
+    fn secure<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        TextField::secure(self, v)
+    }
+    fn read_only<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        TextField::read_only(self, v)
+    }
+    fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self {
+        TextField::input_purpose(self, purpose)
+    }
+    fn submit_label(self, label: day_spec::SubmitLabel) -> Self {
+        TextField::submit_label(self, label)
+    }
+    fn max_length(self, characters: u32) -> Self {
+        TextField::max_length(self, characters)
+    }
 }
 
 impl<Inner: TextFieldBuilder + Piece> TextFieldBuilder for Decorated<Inner> {
@@ -1365,5 +1495,20 @@ impl<Inner: TextFieldBuilder + Piece> TextFieldBuilder for Decorated<Inner> {
     }
     fn on_submit(self, f: impl Fn() + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.on_submit(f))
+    }
+    fn secure<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.secure(v))
+    }
+    fn read_only<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.read_only(v))
+    }
+    fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self {
+        self.map_inner(|inner_piece| inner_piece.input_purpose(purpose))
+    }
+    fn submit_label(self, label: day_spec::SubmitLabel) -> Self {
+        self.map_inner(|inner_piece| inner_piece.submit_label(label))
+    }
+    fn max_length(self, characters: u32) -> Self {
+        self.map_inner(|inner_piece| inner_piece.max_length(characters))
     }
 }

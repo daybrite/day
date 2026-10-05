@@ -1136,6 +1136,19 @@ public final class DayBridge {
         return (EditText) v;
     }
 
+    /** What `setInputTraits` last applied to one text field, plus the input type the field
+     *  was born with, which the plain-text purpose restores. `quiet` holds the field's
+     *  listeners while the traits are applied: swapping the transformation method re-sets the
+     *  text and toggling selectability drops focus, and neither is a change the user made.
+     *  Keyed by the outer TextInputLayout, so a view `makeTextField` did not build has no
+     *  entry and takes no traits. */
+    private static final class InputState {
+        int baseType;
+        boolean applied, secure, readOnly, quiet;
+        int purpose, submitLabel;
+    }
+    static final java.util.WeakHashMap<View, InputState> inputStates = new java.util.WeakHashMap<>();
+
     public static View makeTextField(final long id, String value, String placeholder) {
         // M3 text box: TextInputLayout (theme's default box style; placeholder = floating label)
         // wrapping a TextInputEditText. Rust talks to the outer view; setters reach the editable.
@@ -1144,8 +1157,13 @@ public final class DayBridge {
         TextInputEditText e = new TextInputEditText(box.getContext());
         e.setText(value);
         e.setSingleLine(true);
+        final InputState st = new InputState();
+        st.baseType = e.getInputType();
+        inputStates.put(box, st);
         e.addTextChangedListener(new TextWatcher() {
-            public void afterTextChanged(Editable s) { nativeOnEvent(id, K_TEXT_CHANGED, 0, s.toString()); }
+            public void afterTextChanged(Editable s) {
+                if (!st.quiet) nativeOnEvent(id, K_TEXT_CHANGED, 0, s.toString());
+            }
             public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             public void onTextChanged(CharSequence s, int a, int b, int c) {}
         });
@@ -1153,13 +1171,14 @@ public final class DayBridge {
         // IME action ("done"/enter). Returning false keeps the platform default (dismiss).
         e.setOnFocusChangeListener(new View.OnFocusChangeListener() {
             public void onFocusChange(View x, boolean hasFocus) {
-                nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null);
+                if (!st.quiet) nativeOnEvent(id, K_FOCUS_CHANGED, hasFocus ? 1 : 0, null);
             }
         });
         e.setOnEditorActionListener(new TextView.OnEditorActionListener() {
             public boolean onEditorAction(TextView x, int actionId, KeyEvent ev) {
-                // A real IME action (done/next/go/...), or a hardware-enter key-down: the
-                // unspecified-action key-up call must not fire a second submit.
+                // A real IME action (done/next/go/search/send, whatever `setInputTraits`
+                // labeled the key), or a hardware-enter key-down: the unspecified-action
+                // key-up call must not fire a second submit.
                 boolean action = actionId != EditorInfo.IME_ACTION_NONE
                         && actionId != EditorInfo.IME_ACTION_UNSPECIFIED;
                 boolean enter = ev != null && ev.getKeyCode() == KeyEvent.KEYCODE_ENTER
@@ -1182,6 +1201,157 @@ public final class DayBridge {
     public static void setPlaceholder(View v, String value) {
         if (v instanceof TextInputLayout) ((TextInputLayout) v).setHint(value);
         else ((EditText) v).setHint(value);
+    }
+
+    /** How a text field takes its text (docs/textfield.md), the whole set on every call.
+     *  `purpose` is day-spec's `InputPurpose` in declaration order: 0 text, 1 name, 2 email,
+     *  3 url, 4 phone, 5 number, 6 decimal, 7 username, 8 password, 9 new password, 10 one-time
+     *  code. `submitLabel` is `SubmitLabel`: 0 return, 1 done, 2 go, 3 next, 4 search, 5 send.
+     *  The length bound stays with day-pieces, which counts characters; a `LengthFilter`
+     *  counts UTF-16 units and would refuse text the bound allows. A view `makeTextField` did
+     *  not build is left alone. */
+    public static void setInputTraits(View v, boolean secure, boolean readOnly, int purpose,
+            int submitLabel) {
+        final InputState st = inputStates.get(v);
+        if (st == null) return;
+        if (st.applied && st.secure == secure && st.readOnly == readOnly
+                && st.purpose == purpose && st.submitLabel == submitLabel) return;
+        final EditText e = editTextOf(v);
+        st.quiet = true;
+        try {
+            // The calls below disturb three things that are not theirs: `setInputType` swaps
+            // the typeface (monospace for a password variation, the default one on the way
+            // out), a transformation swap re-sets the text and parks the caret at 0, and a
+            // selectability flip drops focus. Each is put back at the end.
+            Typeface face = e.getTypeface();
+            int selStart = e.getSelectionStart(), selEnd = e.getSelectionEnd();
+            boolean focused = e.hasFocus();
+            InputMethodManager imm =
+                    (InputMethodManager) ctx.getSystemService(Context.INPUT_METHOD_SERVICE);
+
+            // Mask first, so nothing below can leave a secure field readable if it throws.
+            if (secure) {
+                e.setTransformationMethod(
+                        android.text.method.PasswordTransformationMethod.getInstance());
+            }
+
+            // Purpose and secure merge into the one input type. No type here carries the
+            // multi-line flag, so the field stays single-line through every change.
+            final int T = android.text.InputType.TYPE_CLASS_TEXT;
+            final int N = android.text.InputType.TYPE_CLASS_NUMBER;
+            final int quietText = T | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
+            int type;
+            switch (purpose) {
+                case 1: type = quietText | android.text.InputType.TYPE_TEXT_VARIATION_PERSON_NAME
+                        | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS; break;
+                case 2: type = T | android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS; break;
+                case 3: type = T | android.text.InputType.TYPE_TEXT_VARIATION_URI; break;
+                case 4: type = android.text.InputType.TYPE_CLASS_PHONE; break;
+                case 5: type = N; break;
+                case 6: type = N | android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL; break;
+                case 7: case 10: type = quietText; break;
+                // A password shown in the clear still wants the password keyboard: no
+                // suggestions, nothing learned.
+                case 8: case 9:
+                    type = T | android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD; break;
+                default: type = st.baseType; break;
+            }
+            if (secure) {
+                int cls = type & android.text.InputType.TYPE_MASK_CLASS;
+                if (cls == T) type = T | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD;
+                else if (cls == N) type |= android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+                // The phone class has no password variation; the transformation below masks it.
+            }
+            boolean restart = false;
+            if (readOnly) {
+                // No key listener means no edits and (its input type being TYPE_NULL) no IME.
+                // The input type waits until the field takes edits again: `setInputType`
+                // would put a key listener straight back.
+                if (e.getKeyListener() != null) e.setKeyListener(null);
+            } else if (e.getInputType() != type || e.getKeyListener() == null) {
+                e.setInputType(type); // also re-installs the key listener read-only removed
+            }
+            // The input type only manages the transformation for its own password variations,
+            // and un-masks on its way out of one even when the next type (phone) is still
+            // secure. Naming it outright covers every pairing, both directions.
+            e.setTransformationMethod(secure
+                    ? android.text.method.PasswordTransformationMethod.getInstance()
+                    : android.text.method.SingleLineTransformationMethod.getInstance());
+
+            // Read-only: selectable and copyable, focusable, no edits, no keyboard.
+            // `setTextIsSelectable` is what keeps the selection handles alive without a key
+            // listener; switching it off again strips the movement method and the focusable
+            // and clickable flags an EditText needs, so those go back by hand.
+            if (e.isTextSelectable() != readOnly) {
+                e.setTextIsSelectable(readOnly);
+                if (!readOnly) {
+                    e.setMovementMethod(android.text.method.ArrowKeyMovementMethod.getInstance());
+                    e.setClickable(true);
+                    e.setLongClickable(true);
+                }
+                e.setFocusable(true);
+                e.setFocusableInTouchMode(true);
+                if (readOnly && focused && imm != null) {
+                    imm.hideSoftInputFromWindow(e.getWindowToken(), 0);
+                }
+                restart = true;
+            }
+            e.setShowSoftInputOnFocus(!readOnly);
+
+            // The action key: only the action bits change, any flags stay.
+            int action;
+            switch (submitLabel) {
+                case 1: action = EditorInfo.IME_ACTION_DONE; break;
+                case 2: action = EditorInfo.IME_ACTION_GO; break;
+                case 3: action = EditorInfo.IME_ACTION_NEXT; break;
+                case 4: action = EditorInfo.IME_ACTION_SEARCH; break;
+                case 5: action = EditorInfo.IME_ACTION_SEND; break;
+                default: action = EditorInfo.IME_ACTION_UNSPECIFIED; break; // the IME's own key
+            }
+            int ime = (e.getImeOptions() & ~EditorInfo.IME_MASK_ACTION) | action;
+            if (ime != e.getImeOptions()) {
+                e.setImeOptions(ime);
+                restart = true;
+            }
+
+            // Autofill (API 26): the hint names are the framework's and androidx.autofill's.
+            if (android.os.Build.VERSION.SDK_INT >= 26) {
+                String hint;
+                switch (purpose) {
+                    case 1: hint = "name"; break;
+                    case 2: hint = "emailAddress"; break;
+                    case 4: hint = "phone"; break;
+                    case 7: hint = "username"; break;
+                    case 8: hint = "password"; break;
+                    case 9: hint = "newPassword"; break;
+                    case 10: hint = "smsOTPCode"; break;
+                    default: hint = null; break;
+                }
+                if (hint != null) e.setAutofillHints(hint);
+                else e.setAutofillHints((String[]) null);
+                e.setImportantForAutofill(hint != null
+                        ? View.IMPORTANT_FOR_AUTOFILL_YES : View.IMPORTANT_FOR_AUTOFILL_AUTO);
+            }
+
+            if (e.getTypeface() != face) e.setTypeface(face);
+            if (focused && !e.hasFocus()) e.requestFocus();
+            int len = e.length();
+            if (selStart >= 0 && selEnd >= 0) {
+                e.setSelection(Math.min(selStart, len), Math.min(selEnd, len));
+            }
+            // The IME caches the editor's type and action key; tell it they moved.
+            if (restart && imm != null) imm.restartInput(e);
+
+            st.applied = true;
+            st.secure = secure;
+            st.readOnly = readOnly;
+            st.purpose = purpose;
+            st.submitLabel = submitLabel;
+        } catch (Throwable t) {
+            android.util.Log.w("Day", "setInputTraits: " + t);
+        } finally {
+            st.quiet = false;
+        }
     }
 
     /** Drive focus (docs/focus.md): request it (raising the IME for editables), or resign it

@@ -48,6 +48,7 @@ export const groups = [
       ['shapes', 'canvas drawing, shape pieces, gestures'],
       ['progress', 'determinate bars and spinners'],
       ['picker', 'the built-in one-of-N picker: menu, segmented, and inline styles'],
+      ['textfield', 'single-line text: password entry, keyboard purpose, length limit'],
       ['textarea', 'multi-line text: editing, selection, spell-check'],
       ['texteditor', '`day-piece-texteditor` — editing a StyledText in each platform\'s rich-text view'],
       ['localization', 'Fluent mechanics, arguments, fallback'],

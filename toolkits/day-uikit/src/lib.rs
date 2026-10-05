@@ -49,11 +49,11 @@ mod imp {
 
     use linkme::distributed_slice;
     use objc2::rc::Retained;
-    use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject};
+    use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
     use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_core_foundation::{CGAffineTransform, CGFloat, CGPoint, CGRect, CGSize};
     use objc2_core_graphics::CGContext;
-    use objc2_foundation::{NSObject, NSString};
+    use objc2_foundation::{NSObject, NSRange, NSString};
     use objc2_quartz_core::CADisplayLink;
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
@@ -93,6 +93,13 @@ mod imp {
         UIGestureRecognizer, UIGestureRecognizerState, UIPanGestureRecognizer,
         UIPinchGestureRecognizer, UITapGestureRecognizer,
     };
+    use objc2_ui_kit::{
+        UIKeyInput as _, UIKeyboardType, UIReturnKeyType, UITextAutocapitalizationType,
+        UITextContentTypeEmailAddress, UITextContentTypeName, UITextContentTypeNewPassword,
+        UITextContentTypeOneTimeCode, UITextContentTypePassword, UITextContentTypeTelephoneNumber,
+        UITextContentTypeURL, UITextContentTypeUsername, UITextFieldDelegate, UITextInput as _,
+        UITextInputTraits as _,
+    };
     use objc2_ui_kit::{UITabBarController, UITabBarControllerDelegate};
     // `.import`/`.exportToService` modes (deprecated in favor of `initFor…ContentTypes:`, which
     // would pull in the UniformTypeIdentifiers crate) remain the simplest UTType-free path.
@@ -103,8 +110,9 @@ mod imp {
     use day_spec::props::*;
     use day_spec::{
         A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Edges, Event, EventSink, Font,
-        ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer,
-        Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE, WindowOptions, kinds,
+        InputPurpose, InputTraits, ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle,
+        Rect, Registry, Renderer, Size, SubmitLabel, Support, Toolkit, Transform, TreeSource,
+        WINDOW_NODE, WindowOptions, kinds,
     };
 
     pub type Handle = Retained<UIView>;
@@ -743,6 +751,12 @@ mod imp {
 
     struct TargetIvars {
         node: NodeId,
+        /// A text field's input traits as last applied (`set_input_traits`): what the next
+        /// call diffs against, and where the delegate reads `read_only`.
+        traits: RefCell<InputTraits>,
+        /// A text field's text is being re-entered by `set_input_traits`, not typed: the
+        /// editing-changed action it provokes is not a `TextChanged`.
+        muted: Cell<bool>,
     }
 
     define_class!(
@@ -754,6 +768,22 @@ mod imp {
 
         unsafe impl NSObjectProtocol for DayTarget {}
 
+        /// A `text_field`'s delegate, for the one thing only a delegate can do: refuse edits.
+        /// `UITextField` has no editable flag, so a read-only field stays an ordinary field
+        /// (focusable, selectable, copyable) whose every change — typing, paste, cut, delete —
+        /// is turned down here.
+        unsafe impl UITextFieldDelegate for DayTarget {
+            #[unsafe(method(textField:shouldChangeCharactersInRange:replacementString:))]
+            fn text_field_should_change(
+                &self,
+                _field: &UITextField,
+                _range: NSRange,
+                _replacement: &NSString,
+            ) -> bool {
+                !self.ivars().traits.borrow().read_only
+            }
+        }
+
         impl DayTarget {
             #[unsafe(method(fire:))]
             fn fire(&self, sender: &UIControl) {
@@ -761,6 +791,9 @@ mod imp {
                 // ffi_guard::contain (§8.5): a panic unwinding out of this ObjC frame
                 // would abort the process.
                 day_spec::ffi_guard::contain((), || {
+                    if self.ivars().muted.get() {
+                        return;
+                    }
                     let node = self.ivars().node;
                     let obj: &AnyObject = sender.as_ref();
                     if let Some(sw) = obj.downcast_ref::<UISwitch>() {
@@ -829,8 +862,91 @@ mod imp {
 
     impl DayTarget {
         fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(TargetIvars { node });
+            let this = Self::alloc(mtm).set_ivars(TargetIvars {
+                node,
+                traits: RefCell::default(),
+                muted: Cell::new(false),
+            });
             unsafe { msg_send![super(this), init] }
+        }
+    }
+
+    /// Send a one-argument `UITextInputTraits` setter to a `UITextField`. The field forwards
+    /// most of the protocol (keyboard, capitalization, correction, content type, return key)
+    /// to a private traits object rather than implementing it, so objc2's debug-only send
+    /// verification (`class_getInstanceMethod`) reports the setter missing and a checked
+    /// `msg_send!` panics, even though the send succeeds. The raw runtime entry point skips
+    /// that check and resolves the setter exactly as UIKit itself does.
+    ///
+    /// # Safety
+    /// `A` must be the setter's exact C argument type (`NSInteger` for the enum traits, an
+    /// object pointer for `setTextContentType:`).
+    unsafe fn send_input_trait<A>(tf: &UITextField, sel: Sel, arg: A) {
+        let recv = (tf as *const UITextField).cast::<AnyObject>().cast_mut();
+        // SAFETY: `recv` is a live main-thread `UITextField`; the caller vouches that `sel`
+        // takes one `A` and returns `void`, matching this `(id, SEL, A) -> ()` retyping of
+        // `objc_msgSend` (which is `extern "C-unwind"`).
+        let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel, A) = unsafe {
+            core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn())
+        };
+        unsafe { send(recv, sel, arg) };
+    }
+
+    /// What a field's [`InputPurpose`] asks of UIKit: the keyboard, the AutoFill content
+    /// type, capitalization, and whether the keyboard corrects and spell-checks. Everything
+    /// but free text is typed exactly, so correction is off for all of them.
+    fn purpose_traits(
+        purpose: InputPurpose,
+    ) -> (
+        UIKeyboardType,
+        Option<&'static NSString>,
+        UITextAutocapitalizationType,
+        bool,
+    ) {
+        use UIKeyboardType as K;
+        use UITextAutocapitalizationType as C;
+        // SAFETY (the statics below): UIKit string constants, present since iOS 12 at the
+        // latest.
+        unsafe {
+            match purpose {
+                InputPurpose::Text => (K::Default, None, C::Sentences, true),
+                InputPurpose::Name => (K::Default, Some(UITextContentTypeName), C::Words, false),
+                InputPurpose::Email => (
+                    K::EmailAddress,
+                    Some(UITextContentTypeEmailAddress),
+                    C::None,
+                    false,
+                ),
+                InputPurpose::Url => (K::URL, Some(UITextContentTypeURL), C::None, false),
+                InputPurpose::Phone => (
+                    K::PhonePad,
+                    Some(UITextContentTypeTelephoneNumber),
+                    C::None,
+                    false,
+                ),
+                InputPurpose::Number => (K::NumberPad, None, C::None, false),
+                InputPurpose::Decimal => (K::DecimalPad, None, C::None, false),
+                InputPurpose::Username => {
+                    (K::Default, Some(UITextContentTypeUsername), C::None, false)
+                }
+                InputPurpose::Password => {
+                    (K::Default, Some(UITextContentTypePassword), C::None, false)
+                }
+                InputPurpose::NewPassword => (
+                    K::Default,
+                    Some(UITextContentTypeNewPassword),
+                    C::None,
+                    false,
+                ),
+                // The text keyboard: a code can carry letters, and the QuickType bar offers
+                // the arriving one whatever the layout.
+                InputPurpose::OneTimeCode => (
+                    K::Default,
+                    Some(UITextContentTypeOneTimeCode),
+                    C::None,
+                    false,
+                ),
+            }
         }
     }
 
@@ -8470,6 +8586,8 @@ mod imp {
                         tf.setText(Some(&NSString::from_str(&p.text)));
                         tf.setPlaceholder(Some(&NSString::from_str(&p.placeholder)));
                         tf.setBorderStyle(UITextBorderStyle::RoundedRect);
+                        // The delegate answers for `read_only` (`set_input_traits`).
+                        tf.setDelegate(Some(ProtocolObject::from_ref(&*target)));
                         let tobj: &AnyObject = target.as_ref();
                         tf.addTarget_action_forControlEvents(
                             Some(tobj),
@@ -9547,6 +9665,95 @@ mod imp {
                     self.pointers.insert(key, (delegate, interaction));
                 }
             }
+        }
+
+        fn set_input_traits(&mut self, h: &Handle, traits: &InputTraits) -> Option<Handle> {
+            // Every member is a property on UIKit, so the field is dressed in place. Only a
+            // `text_field` has a target here; an alert's or a search bar's field is not ours.
+            let tf = (**h).downcast_ref::<UITextField>()?;
+            let target = TARGETS.with(|m| m.borrow().get(&ptr_of(h)).cloned())?;
+            let prev = target.ivars().traits.replace(traits.clone());
+            if prev == *traits {
+                return None;
+            }
+            let editing = tf.isFirstResponder();
+            if prev.secure != traits.secure {
+                let text = tf.text().filter(|t| t.length() > 0);
+                let font = tf.font();
+                let selection = if editing {
+                    tf.selectedTextRange()
+                } else {
+                    None
+                };
+                tf.setSecureTextEntry(traits.secure);
+                // Flipping a field that is being edited leaves UIKit in two odd states. Going
+                // secure, the field treats its text as it would on a fresh focus: the next
+                // keystroke replaces all of it. Going plain, the text keeps the secure
+                // glyph metrics until it is set again, so the caret sits off the last
+                // character. Re-entering the text settles both: through the keyboard's own
+                // insertion path when going secure (which uses up the replace-on-first-key
+                // state), by assignment otherwise. The caret then goes back where it was.
+                if editing && let Some(text) = text {
+                    tf.setText(None);
+                    if traits.secure {
+                        target.ivars().muted.set(true);
+                        tf.insertText(&text);
+                        target.ivars().muted.set(false);
+                    } else {
+                        tf.setFont(font.as_deref());
+                        tf.setText(Some(&text));
+                    }
+                    if selection.is_some() {
+                        tf.setSelectedTextRange(selection.as_deref());
+                    }
+                }
+            }
+            if prev.read_only != traits.read_only {
+                // The delegate (reading the traits stored above) refuses the edits; an empty
+                // input view keeps the keyboard down, while the field still takes focus, a
+                // selection and Copy.
+                let blank = traits.read_only.then(|| UIView::new(mtm()));
+                tf.setInputView(blank.as_deref());
+            }
+            if prev.purpose != traits.purpose {
+                let (keyboard, content_type, caps, corrects) = purpose_traits(traits.purpose);
+                // UITextAutocorrectionType / UITextSpellCheckingType: 0 = Default, 1 = No.
+                let correction: isize = if corrects { 0 } else { 1 };
+                let content_type: *const NSString =
+                    content_type.map_or(std::ptr::null(), |s| s as *const NSString);
+                // SAFETY: the enum traits are `NSInteger` properties and the content type an
+                // `NSString *` (nil clears it), as `send_input_trait` requires.
+                unsafe {
+                    send_input_trait(tf, sel!(setKeyboardType:), keyboard.0);
+                    send_input_trait(tf, sel!(setTextContentType:), content_type);
+                    send_input_trait(tf, sel!(setAutocapitalizationType:), caps.0);
+                    send_input_trait(tf, sel!(setAutocorrectionType:), correction);
+                    send_input_trait(tf, sel!(setSpellCheckingType:), correction);
+                }
+            }
+            if prev.submit_label != traits.submit_label {
+                let key = match traits.submit_label {
+                    SubmitLabel::Return => UIReturnKeyType::Default,
+                    SubmitLabel::Done => UIReturnKeyType::Done,
+                    SubmitLabel::Go => UIReturnKeyType::Go,
+                    SubmitLabel::Next => UIReturnKeyType::Next,
+                    SubmitLabel::Search => UIReturnKeyType::Search,
+                    SubmitLabel::Send => UIReturnKeyType::Send,
+                };
+                // SAFETY: `returnKeyType` is an `NSInteger` property.
+                unsafe { send_input_trait(tf, sel!(setReturnKeyType:), key.0) };
+            }
+            // A keyboard that is already up keeps its layout, action key and input view
+            // until asked to reload them. No native length limit: day-pieces holds
+            // `max_length`.
+            if editing
+                && (prev.read_only != traits.read_only
+                    || prev.purpose != traits.purpose
+                    || prev.submit_label != traits.submit_label)
+            {
+                tf.reloadInputViews();
+            }
+            None
         }
 
         fn set_selectable(&mut self, h: &Handle, selectable: bool) -> Option<Handle> {

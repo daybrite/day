@@ -14,7 +14,7 @@ use ohos_sys::arkui::native_node::{
     ArkUI_NodeEvent, ArkUI_NodeEventType as Ev, OH_ArkUI_NodeEvent_GetEventType,
     OH_ArkUI_NodeEvent_GetInputEvent, OH_ArkUI_NodeEvent_GetNodeComponentEvent,
     OH_ArkUI_NodeEvent_GetNodeHandle, OH_ArkUI_NodeEvent_GetStringAsyncEvent,
-    OH_ArkUI_NodeEvent_GetUserData,
+    OH_ArkUI_NodeEvent_GetUserData, OH_ArkUI_NodeEvent_SetReturnNumberValue,
 };
 use ohos_sys::arkui::ui_input_event::{
     ArkUI_ModifierKeyName, OH_ArkUI_UIInputEvent_GetModifierKeyStates,
@@ -130,7 +130,17 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 Ev::NODE_ON_DRAG_START => crate::list::on_drag_start(ev),
                 Ev::NODE_ON_DROP => crate::list::on_drop(ev),
                 Ev::NODE_TEXT_INPUT_ON_CHANGE | Ev::NODE_TEXT_AREA_ON_CHANGE => {
-                    crate::on_event(id, K::TextChanged as i32, 0.0, &string());
+                    let text = string();
+                    // A read-only field's change is put back, never reported.
+                    if !crate::hold_read_only(OH_ArkUI_NodeEvent_GetNodeHandle(ev), id, &text) {
+                        crate::on_event(id, K::TextChanged as i32, 0.0, &text);
+                    }
+                }
+                // A field that has been read-only asks before each edit (docs/textfield.md).
+                // The answer is always written: ArkUI reads the slot whether or not it was set.
+                Ev::NODE_TEXT_INPUT_ON_WILL_INSERT | Ev::NODE_TEXT_INPUT_ON_WILL_DELETE => {
+                    let mut allow = [crate::node::i32v(i32::from(!crate::is_read_only(id)))];
+                    OH_ArkUI_NodeEvent_SetReturnNumberValue(ev, allow.as_mut_ptr(), 1);
                 }
                 // A touch on a switch arms its gate (`TOGGLE_GATE`); only switches register it.
                 Ev::NODE_TOUCH_EVENT => crate::arm_toggle(id),

@@ -28,6 +28,7 @@ use objc2::{
 use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::NSDraggingInfo as _;
+use objc2_app_kit::NSTextContent as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
     NSAffineTransformNSAppKitAdditions, NSClickGestureRecognizer, NSGestureRecognizer,
@@ -39,9 +40,10 @@ use objc2_app_kit::{
     NSControlStateValueOn, NSControlTextEditingDelegate, NSCursor, NSCursorFrameResizeDirections,
     NSCursorFrameResizePosition, NSEvent, NSEventModifierFlags, NSEventType, NSFont,
     NSGraphicsContext, NSLineBreakMode, NSMenu, NSMenuItem, NSProgressIndicator,
-    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSlider, NSSwitch, NSTabViewDelegate,
-    NSText, NSTextField, NSTextFieldDelegate, NSTextMovement, NSTextMovementUserInfoKey,
-    NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSProgressIndicatorStyle, NSResponder, NSScrollView, NSSecureTextField, NSSlider, NSSwitch,
+    NSTabViewDelegate, NSText, NSTextField, NSTextFieldDelegate, NSTextMovement,
+    NSTextMovementUserInfoKey, NSTrackingArea, NSTrackingAreaOptions, NSView, NSWindow,
+    NSWindowDelegate, NSWindowStyleMask,
 };
 use objc2_app_kit::{
     NSApplicationDidBecomeActiveNotification, NSApplicationWillResignActiveNotification,
@@ -67,9 +69,10 @@ use day_spec::present;
 use day_spec::props::*;
 use day_spec::sidetable::SideTable;
 use day_spec::{
-    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, ListSource,
-    MoveVerdict, NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry, Renderer,
-    Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE, WindowOptions, kinds, props_of,
+    A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, InputPurpose,
+    InputTraits, ListSource, MoveVerdict, NodeId, PieceKind, Platform, Point, Proposal, RawHandle,
+    Rect, Registry, Renderer, Size, Support, Toolkit, Transform, TreeSource, WINDOW_NODE,
+    WindowOptions, kinds, props_of,
 };
 
 pub type Handle = Retained<NSView>;
@@ -689,9 +692,7 @@ define_class!(
         fn become_first_responder(&self) -> bool {
             let ok: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
             if ok {
-                // Guard only the sink dispatch: the responder change already happened, so a
-                // contained panic must not flip the answer AppKit acts on.
-                ffi_guard::contain((), || emit(self.ivars().node, Event::FocusChanged(true)));
+                field_gained_focus(self.ivars().node);
             }
             ok
         }
@@ -702,6 +703,134 @@ impl DayTextField {
     fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
         unsafe { msg_send![super(this), init] }
+    }
+}
+
+// The secure twin (docs/textfield.md). AppKit hides characters with a class, not a property:
+// `NSSecureTextField` brings its own cell and field editor, which keep the text out of the
+// pasteboard, the spelling checker and the accessibility value. A `text_field` that turns
+// `secure` is rebuilt as this class (`set_input_traits`), with the same focus hook.
+define_class!(
+    #[unsafe(super(NSSecureTextField))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DaySecureTextField"]
+    #[ivars = FieldIvars]
+    struct DaySecureTextField;
+
+    impl DaySecureTextField {
+        /// Focus gain, as on `DayTextField`.
+        #[unsafe(method(becomeFirstResponder))]
+        fn become_first_responder(&self) -> bool {
+            let ok: bool = unsafe { msg_send![super(self), becomeFirstResponder] };
+            if ok {
+                field_gained_focus(self.ivars().node);
+            }
+            ok
+        }
+    }
+);
+
+impl DaySecureTextField {
+    fn new(mtm: MainThreadMarker, node: NodeId) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(FieldIvars { node });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+thread_local! {
+    /// A plain/secure class swap in flight (`set_input_traits`): focus moves from the old
+    /// field to its replacement, which the app must not see as a focus change.
+    static FIELD_SWAP: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Report a text field's focus gain, unless it is a class swap handing focus to the
+/// replacement of a field that already had it.
+fn field_gained_focus(node: NodeId) {
+    if FIELD_SWAP.with(|s| s.get()) {
+        return;
+    }
+    // Guard only the sink dispatch: the responder change already happened, so a contained
+    // panic must not flip the answer AppKit acts on.
+    ffi_guard::contain((), || emit(node, Event::FocusChanged(true)));
+}
+
+/// The node a `text_field`'s view reports against, or `None` when the view is not one
+/// (a label is an `NSTextField` too).
+fn text_field_node(v: &NSView) -> Option<NodeId> {
+    v.downcast_ref::<DayTextField>()
+        .map(|f| f.ivars().node)
+        .or_else(|| {
+            v.downcast_ref::<DaySecureTextField>()
+                .map(|f| f.ivars().node)
+        })
+}
+
+/// Build a `text_field`'s view, plain or secure, with its delegate wired and registered.
+/// `realize` and the class swap in `set_input_traits` both come through here, so both classes
+/// report text, submit and focus the same way against the same node.
+fn new_text_field(mtm: MainThreadMarker, node: NodeId, secure: bool) -> Retained<NSTextField> {
+    let target = DayTarget::new(mtm, node);
+    // Up to `NSTextField` (the declared superclass of both), so the AsRef<NSView> bound on
+    // `view_of` resolves and every `NSTextField` downcast sees either class.
+    let tf: Retained<NSTextField> = if secure {
+        Retained::into_super(Retained::into_super(DaySecureTextField::new(mtm, node)))
+    } else {
+        Retained::into_super(DayTextField::new(mtm, node))
+    };
+    unsafe {
+        tf.setEditable(true);
+        tf.setBezeled(true);
+        tf.setDelegate(Some(ProtocolObject::from_ref(&*target)));
+    }
+    TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&tf), target));
+    tf
+}
+
+/// Whether `h` (a text field, or the field editor's client) holds its window's focus. A
+/// focused `NSTextField`'s first responder is the shared field editor, so unwrap it back to
+/// the field via its delegate.
+fn owns_first_responder(window: &NSWindow, h: &NSView) -> bool {
+    window.firstResponder().is_some_and(|fr| {
+        if Retained::as_ptr(&fr) as *const () as usize == ptr_of(h) {
+            return true;
+        }
+        fr.downcast::<NSText>().is_ok_and(|text| {
+            unsafe { text.delegate() }
+                .is_some_and(|d| Retained::as_ptr(&d) as *const () as usize == ptr_of(h))
+        })
+    })
+}
+
+/// An `NSTextContentType` constant by symbol name, or `None` on a system that predates it.
+/// Looked up at run time because most of the vocabulary arrived in macOS 14: a direct
+/// reference binds at launch, and one missing symbol would keep the whole app from starting
+/// on an older system.
+fn text_content_type(symbol: &std::ffi::CStr) -> Option<&'static NSString> {
+    unsafe extern "C" {
+        fn dlsym(
+            handle: *mut std::ffi::c_void,
+            symbol: *const std::ffi::c_char,
+        ) -> *mut std::ffi::c_void;
+    }
+    // <dlfcn.h>: search every image loaded in the process.
+    const RTLD_DEFAULT: *mut std::ffi::c_void = -2isize as *mut std::ffi::c_void;
+    // SAFETY: `symbol` is NUL-terminated. Each name passed here is an AppKit
+    // `NSString * const`, so a non-null result is the address of a pointer to an immortal
+    // constant string.
+    unsafe {
+        let slot = dlsym(RTLD_DEFAULT, symbol.as_ptr()).cast::<*const NSString>();
+        if slot.is_null() {
+            None
+        } else {
+            (*slot).as_ref()
+        }
+    }
+}
+
+/// Move a view-keyed entry to the view that replaces it.
+fn rekey<V>(table: &SideTable<V>, old: usize, new: usize) {
+    if let Some(v) = table.take(old) {
+        table.insert(new, v);
     }
 }
 
@@ -4807,6 +4936,122 @@ pub struct AppKit {
 }
 
 impl AppKit {
+    /// Rebuild a `text_field` as the other class (plain ⇄ secure) and put the replacement
+    /// where the old view was: same text, look and place among its siblings, same focus and
+    /// selection, and every view-keyed entry moved to it. day-core drops the old handle
+    /// without a `release`, so nothing keyed by it may stay behind.
+    fn swap_text_field(
+        &mut self,
+        h: &Handle,
+        old: &NSTextField,
+        node: NodeId,
+        secure: bool,
+    ) -> Retained<NSTextField> {
+        let new = new_text_field(self.mtm, node, secure);
+        let (old_key, new_key) = (ptr_of(h), ptr_of(&new));
+        // Focus and selection first: reading them is only meaningful while the old field
+        // still edits. `stringValue` below answers the field editor's live text.
+        let window = h.window();
+        let focused = window
+            .as_deref()
+            .is_some_and(|w| owns_first_responder(w, h));
+        let selection = old.currentEditor().map(|e| e.selectedRange());
+        unsafe {
+            new.setStringValue(&old.stringValue());
+            new.setPlaceholderString(old.placeholderString().as_deref());
+            new.setEnabled(old.isEnabled());
+            new.setFont(old.font().as_deref());
+            new.setFrame(h.frame());
+            new.setHidden(h.isHidden());
+            new.setMenu(h.menu().as_deref());
+            new.setToolTip(h.toolTip().as_deref());
+            // Opacity and transform ride the layer (`set_opacity` / `set_transform`).
+            if h.wantsLayer() {
+                new.setWantsLayer(true);
+                new.setAlphaValue(h.alphaValue());
+                let from: *mut objc2::runtime::AnyObject = msg_send![h, layer];
+                let to: *mut objc2::runtime::AnyObject = msg_send![&*new, layer];
+                if !from.is_null() && !to.is_null() {
+                    let t: CGAffineTransform = msg_send![from, affineTransform];
+                    let _: () = msg_send![to, setAffineTransform: t];
+                }
+            }
+            // Accessibility (`set_a11y`): only what was set explicitly, so the new class
+            // keeps its own defaults (a secure field's role and hidden value) for the rest.
+            if let Some(id) = h.accessibilityIdentifier().filter(|s| !s.is_empty()) {
+                new.setAccessibilityIdentifier(Some(&id));
+            }
+            if let Some(label) = h.accessibilityLabel().filter(|s| !s.is_empty()) {
+                new.setAccessibilityLabel(Some(&label));
+            }
+            if let Some(help) = h.accessibilityHelp().filter(|s| !s.is_empty()) {
+                new.setAccessibilityHelp(Some(&help));
+            }
+            if !h.isAccessibilityElement() {
+                new.setAccessibilityElement(false);
+            }
+        }
+        // Recognizers and the cursor's tracking area move as objects, keeping their targets.
+        for r in unsafe { h.gestureRecognizers() }.iter() {
+            unsafe {
+                h.removeGestureRecognizer(&r);
+                new.addGestureRecognizer(&r);
+            }
+        }
+        GESTURES.with(|m| {
+            let mut m = m.borrow_mut();
+            if let Some(targets) = m.remove(&old_key) {
+                m.insert(new_key, targets);
+            }
+        });
+        if let Some((owner, area)) = self.cursors.remove(&old_key) {
+            unsafe {
+                h.removeTrackingArea(&area);
+                new.addTrackingArea(&area);
+            }
+            self.cursors.insert(new_key, (owner, area));
+        }
+        PAN_NODES.with(|t| rekey(t, old_key, new_key));
+        HOVER_NODES.with(|t| rekey(t, old_key, new_key));
+        KEY_NODES.with(|t| rekey(t, old_key, new_key));
+        FOCUSABLE_NODES.with(|t| rekey(t, old_key, new_key));
+        CTX_MENU_FNS.with(|t| rekey(t, old_key, new_key));
+        transfer::moved(h, &new);
+        // The old field goes silent before it leaves: ending its editing session would
+        // otherwise report a focus loss for a node that keeps its focus.
+        unsafe { old.setDelegate(None) };
+        TARGETS.with(|m| {
+            m.borrow_mut().remove(&old_key);
+        });
+        if let Some(parent) = unsafe { h.superview() } {
+            unsafe {
+                parent.addSubview_positioned_relativeTo(
+                    &new,
+                    objc2_app_kit::NSWindowOrderingMode::Above,
+                    Some(h),
+                );
+                h.removeFromSuperview();
+            }
+        }
+        if focused && let Some(window) = window {
+            FIELD_SWAP.with(|s| s.set(true));
+            let taken = window.makeFirstResponder(Some(&new));
+            FIELD_SWAP.with(|s| s.set(false));
+            // Taking focus selects the whole text; put back what was selected (the caret,
+            // usually). Both classes count in UTF-16 units, so the range carries over.
+            if taken && let Some(editor) = new.currentEditor() {
+                let len = unsafe { new.stringValue() }.length();
+                let range = selection
+                    .filter(|r| r.location.saturating_add(r.length) <= len)
+                    .unwrap_or(objc2_foundation::NSRange::new(len, 0));
+                editor.setSelectedRange(range);
+            }
+        }
+        // Whatever else was keyed by the old view goes with it.
+        day_spec::sidetable::sweep(old_key);
+        new
+    }
+
     pub fn new() -> Self {
         let mtm = MainThreadMarker::new().expect("day-appkit must start on the main thread");
         let mut registry = Registry::default();
@@ -5661,20 +5906,12 @@ impl Toolkit for AppKit {
                 let Some(p) = props_of::<TextFieldProps>(kind, "appkit", props) else {
                     return placeholder_view(mtm, kind);
                 };
-                let target = DayTarget::new(mtm, id);
-                // Retained<DayTextField> → Retained<NSTextField> (its declared superclass) so
-                // the AsRef<NSView> bound on `view_of` resolves.
-                let tf: Retained<NSTextField> = Retained::into_super(DayTextField::new(mtm, id));
+                let tf = new_text_field(mtm, id, false);
                 unsafe {
                     tf.setStringValue(&NSString::from_str(&p.text));
                     tf.setPlaceholderString(Some(&NSString::from_str(&p.placeholder)));
-                    tf.setEditable(true);
-                    tf.setBezeled(true);
-                    tf.setDelegate(Some(ProtocolObject::from_ref(&*target)));
                 }
-                let view = view_of(tf);
-                TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
-                view
+                view_of(tf)
             }
             Some(Builtin::Divider) => {
                 let b = unsafe { NSBox::new(mtm) };
@@ -7506,6 +7743,45 @@ impl Toolkit for AppKit {
         None
     }
 
+    fn set_input_traits(&mut self, h: &Handle, traits: &InputTraits) -> Option<Handle> {
+        let node = text_field_node(h)?;
+        let old = h.downcast_ref::<NSTextField>()?;
+        // Hidden characters are a class on AppKit. A field already of the right class is
+        // dressed in place; otherwise its replacement is, and the node moves to it.
+        let swapped = (h.downcast_ref::<DaySecureTextField>().is_some() != traits.secure)
+            .then(|| self.swap_text_field(h, old, node, traits.secure));
+        let tf = swapped.as_deref().unwrap_or(old);
+        unsafe {
+            // Read-only keeps the bezel and the ordinary text color; the text stays
+            // selectable, so it can still be copied.
+            tf.setEditable(!traits.read_only);
+            tf.setSelectable(true);
+        }
+        // The purpose is AutoFill's hint on the desktop: which saved credential or contact
+        // detail the system offers. `Number` and `Decimal` have no content type. A constant
+        // newer than the running system leaves the field untyped.
+        let content_type = match traits.purpose {
+            InputPurpose::Text | InputPurpose::Number | InputPurpose::Decimal => None,
+            InputPurpose::Name => text_content_type(c"NSTextContentTypeName"),
+            InputPurpose::Email => text_content_type(c"NSTextContentTypeEmailAddress"),
+            InputPurpose::Url => text_content_type(c"NSTextContentTypeURL"),
+            InputPurpose::Phone => text_content_type(c"NSTextContentTypeTelephoneNumber"),
+            InputPurpose::Username => text_content_type(c"NSTextContentTypeUsername"),
+            InputPurpose::Password => text_content_type(c"NSTextContentTypePassword"),
+            InputPurpose::NewPassword => text_content_type(c"NSTextContentTypeNewPassword"),
+            InputPurpose::OneTimeCode => text_content_type(c"NSTextContentTypeOneTimeCode"),
+        };
+        unsafe {
+            tf.setContentType(content_type);
+            // Only free text wants the system finishing words; a name, an address or a code
+            // is typed exactly.
+            tf.setAutomaticTextCompletionEnabled(traits.purpose == InputPurpose::Text);
+        }
+        // No on-screen keyboard, so no action key to label; and no native length limit:
+        // day-pieces holds `max_length`.
+        swapped.map(view_of)
+    }
+
     fn set_cursor(&mut self, h: &Handle, cursor: Cursor) {
         let key = Retained::as_ptr(h) as usize;
         if cursor == Cursor::Default {
@@ -7739,17 +8015,11 @@ impl Toolkit for AppKit {
             return;
         }
         // Resign only while this view still owns focus, so a stale release can't blur a
-        // sibling. A focused NSTextField's first responder is the shared field editor, so
-        // unwrap it back to the field via its delegate.
-        let owns = window.firstResponder().is_some_and(|fr| {
-            if Retained::as_ptr(&fr) as usize == responder_ptr {
-                return true;
-            }
-            fr.downcast::<NSText>().is_ok_and(|text| {
-                unsafe { text.delegate() }
-                    .is_some_and(|d| Retained::as_ptr(&d) as *const () as usize == ptr_of(h))
-            })
-        });
+        // sibling.
+        let owns = window
+            .firstResponder()
+            .is_some_and(|fr| Retained::as_ptr(&fr) as usize == responder_ptr)
+            || owns_first_responder(&window, h);
         if owns {
             window.makeFirstResponder(None);
         }

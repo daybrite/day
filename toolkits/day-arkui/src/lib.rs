@@ -175,6 +175,9 @@ mod imp {
         /// value; a matching event is the echo and is swallowed, a differing one is the
         /// user and clears the cell.
         static TEXT_ECHO: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
+        /// Text fields, by day node (docs/textfield.md). ArkUI has no read-only attribute for
+        /// a TextInput, so the backend refuses the edits itself; see [`InputField`].
+        static INPUT_FIELDS: RefCell<HashMap<u64, InputField>> = RefCell::new(HashMap::new());
         static SLIDER_ECHO: RefCell<HashMap<u64, f64>> = RefCell::new(HashMap::new());
         /// Toggle gates (§4.4), by day node. A value-match cell is not enough for a switch:
         /// ArkUI can report a programmatic set late, after day has already written the
@@ -1218,6 +1221,39 @@ mod imp {
         armed: bool,
     }
 
+    /// A text field's read-only state (see `INPUT_FIELDS`). ArkUI asks before each insertion
+    /// and deletion once a field is `watched`, and the answer is no while `held` is set. A
+    /// paste, a cut or an input method's composition can change the text without asking, so
+    /// `held` also carries the text to put back when a change slips through.
+    #[derive(Default)]
+    struct InputField {
+        /// The will-insert and will-delete events are registered. They stay for the node's
+        /// life: a field that leaves read-only answers yes.
+        watched: bool,
+        /// The text a read-only field shows; `None` while the field takes edits.
+        held: Option<String>,
+    }
+
+    /// Whether node `id` is a text field that refuses edits now.
+    pub(crate) fn is_read_only(id: u64) -> bool {
+        INPUT_FIELDS.with(|m| m.borrow().get(&id).is_some_and(|f| f.held.is_some()))
+    }
+
+    /// A change event from text input `n`: when node `id` is read-only, put its text back if
+    /// the change got past the will-edit events, and say the event is not the app's to see.
+    pub(crate) fn hold_read_only(n: Handle, id: u64, text: &str) -> bool {
+        let held = INPUT_FIELDS.with(|m| m.borrow().get(&id).and_then(|f| f.held.clone()));
+        match held {
+            Some(held) => {
+                if held != text {
+                    node::set_input_text(n, &held);
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
     /// User input reached node `id`: if it is a switch, its next change is the user's.
     pub(crate) fn arm_toggle(id: u64) {
         TOGGLE_GATE.with(|m| {
@@ -1979,6 +2015,7 @@ mod imp {
                     let n = new_node(node::TEXT_INPUT);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     TEXT_ECHO.with(|m| m.borrow_mut().insert(id.0, p.text.clone()));
+                    INPUT_FIELDS.with(|m| m.borrow_mut().insert(id.0, InputField::default()));
                     node::set_input_text(n.0, &p.text);
                     node::set_placeholder(n.0, &p.placeholder);
                     node::register_event(n.0, node::EV_TEXT_INPUT_CHANGE, id.0);
@@ -2552,6 +2589,14 @@ mod imp {
                                 CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
                             {
                                 TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
+                                // The app's own write is the text a read-only field holds.
+                                INPUT_FIELDS.with(|m| {
+                                    if let Some(f) = m.borrow_mut().get_mut(&nid)
+                                        && f.held.is_some()
+                                    {
+                                        f.held = Some(text.clone());
+                                    }
+                                });
                             }
                             node::set_input_text(h.0, text);
                         }
@@ -2670,6 +2715,7 @@ mod imp {
             // The control's echo cells go with it (a recycled address must not alias them).
             if let Some(nid) = CTRL_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 TEXT_ECHO.with(|m| m.borrow_mut().remove(&nid));
+                INPUT_FIELDS.with(|m| m.borrow_mut().remove(&nid));
                 SLIDER_ECHO.with(|m| m.borrow_mut().remove(&nid));
                 SLIDER_RANGE.with(|m| m.borrow_mut().remove(&nid));
                 TOGGLE_GATE.with(|m| m.borrow_mut().remove(&nid));
@@ -2977,6 +3023,30 @@ mod imp {
         fn set_selectable(&mut self, h: &AHandle, selectable: bool) -> Option<AHandle> {
             // NODE_TEXT_COPY_OPTION on the Text node; a non-text node ignores it (docs/text.md).
             node::label_set_selectable(h.0, selectable);
+            None
+        }
+
+        fn set_input_traits(
+            &mut self,
+            h: &AHandle,
+            traits: &day_spec::InputTraits,
+        ) -> Option<AHandle> {
+            // Attribute flips on the one TextInput node, so there is never a replacement.
+            let nid = CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())?;
+            let watched = INPUT_FIELDS.with(|m| m.borrow().get(&nid).map(|f| f.watched))?;
+            node::set_input_traits(h.0, traits);
+            // Read-only (see `InputField`): the first time a field asks for it, start
+            // answering its edits; from then on the flag alone decides the answer.
+            if traits.read_only && !watched {
+                node::watch_input_edits(h.0, nid);
+            }
+            let held = traits.read_only.then(|| node::input_text(h.0));
+            INPUT_FIELDS.with(|m| {
+                if let Some(f) = m.borrow_mut().get_mut(&nid) {
+                    f.watched |= traits.read_only;
+                    f.held = held;
+                }
+            });
             None
         }
 

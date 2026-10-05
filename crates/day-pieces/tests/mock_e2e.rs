@@ -509,6 +509,127 @@ fn text_field_controlled_echo_is_origin_tagged() {
 }
 
 #[test]
+fn plain_text_field_sends_no_input_traits() {
+    let name = Signal::new(String::new());
+    let probe = boot(move || column((text_field(name),)).any());
+    assert!(
+        !probe.log().iter().any(|l| l.contains("set_input_traits")),
+        "a field that asks for nothing must not pay for the duty: {:?}",
+        probe.log()
+    );
+    assert_eq!(probe.find_by_kind("day.text_field")[0].1.input_traits, None);
+}
+
+#[test]
+fn secure_field_carries_its_traits_and_follows_a_reactive_flip() {
+    let (pass, hidden) = (Signal::new(String::new()), Signal::new(true));
+    let probe = boot(move || {
+        column((secure_field(pass)
+            .secure(hidden)
+            .submit_label(SubmitLabel::Go)
+            .max_length(4),))
+        .any()
+    });
+    let traits = || {
+        probe.find_by_kind("day.text_field")[0]
+            .1
+            .input_traits
+            .clone()
+            .expect("a secure field sends its traits")
+    };
+    assert_eq!(
+        traits(),
+        day_spec::InputTraits {
+            secure: true,
+            read_only: false,
+            purpose: InputPurpose::Password,
+            submit_label: SubmitLabel::Go,
+            max_length: Some(4),
+        }
+    );
+
+    // The show-password switch: one duty call carrying the whole set, nothing else.
+    probe.clear_log();
+    batch(|| hidden.set(false));
+    let calls: Vec<String> = probe
+        .log()
+        .into_iter()
+        .filter(|l| l.contains("set_input_traits"))
+        .collect();
+    assert_eq!(calls.len(), 1, "{calls:?}");
+    assert!(!traits().secure);
+    assert_eq!(traits().purpose, InputPurpose::Password);
+}
+
+#[test]
+fn secure_flip_on_a_class_swap_toolkit_repoints_the_node() {
+    let (pass, hidden) = (Signal::new("hunter2".to_string()), Signal::new(false));
+    let probe =
+        boot(move || column((text_field(pass).placeholder("Password").secure(hidden),)).any());
+    probe.set_secure_class_swap(true);
+    let (before, _) = probe.find_by_kind("day.text_field")[0];
+    let tf = node_id(&probe, "day.text_field", 0);
+
+    batch(|| hidden.set(true));
+    let fields = probe.find_by_kind("day.text_field");
+    assert_eq!(
+        fields.len(),
+        1,
+        "the old widget is gone, one replacement stands"
+    );
+    let (after, w) = &fields[0];
+    assert_ne!(*after, before, "the field was rebuilt under a new handle");
+    assert_eq!(
+        (w.text.as_str(), w.placeholder.as_str()),
+        ("hunter2", "Password")
+    );
+    let state = probe.state.borrow();
+    let parents: Vec<_> = state
+        .widgets
+        .values()
+        .filter(|p| p.children.contains(&after.0))
+        .collect();
+    assert_eq!(parents.len(), 1, "it took the old one's place");
+    assert!(!parents[0].children.contains(&before.0));
+    drop(state);
+
+    // Later writes and events reach the replacement: the node was re-pointed.
+    batch(|| pass.set("correct horse".into()));
+    assert_eq!(probe.widget(*after).text, "correct horse");
+    probe.emit(tf, Event::TextChanged("battery".into()));
+    assert_eq!(pass.get_untracked(), "battery");
+}
+
+#[test]
+fn max_length_cuts_over_long_input_and_paints_the_cut_back() {
+    let code = Signal::new(String::new());
+    let probe = boot(move || column((text_field(code).max_length(4),)).any());
+    let tf = node_id(&probe, "day.text_field", 0);
+
+    probe.emit(tf, Event::TextChanged("12345".into()));
+    assert_eq!(code.get_untracked(), "1234");
+    assert_eq!(probe.find_by_kind("day.text_field")[0].1.text, "1234");
+
+    // Typing at the limit leaves the bound value unchanged, so only the direct paint-back
+    // can take the extra character out of the native field.
+    probe.clear_log();
+    probe.emit(tf, Event::TextChanged("1234x".into()));
+    assert_eq!(code.get_untracked(), "1234");
+    assert!(
+        probe
+            .mutations()
+            .iter()
+            .any(|m| m.contains("from_native=false")),
+        "{:?}",
+        probe.mutations()
+    );
+
+    // Characters, not bytes: four of anything fit.
+    probe.emit(tf, Event::TextChanged("çé日本語".into()));
+    assert_eq!(code.get_untracked(), "çé日本");
+}
+
+#[test]
 fn slider_value_flows_both_ways() {
     let volume = Signal::new(40.0f64);
     let probe = boot(move || column((slider(volume).range(0.0..=100.0),)).any());

@@ -596,6 +596,22 @@ const env = {
     else el.value = v;
   },
   day_dom_set_checked(id, on) { V(id).checked = !!on; },
+  // Text entry traits (docs/textfield.md): one object of attribute name to value from the Rust
+  // side, "" removing the attribute. Only a text field's <input> takes them. `type` is assigned
+  // as the property: the value and focus survive the change, and the caret is put back.
+  day_dom_input_traits(id, p, l) {
+    const el = V(id);
+    if (el.tagName !== 'INPUT' || !el.classList.contains('day-field')) return;
+    for (const [name, val] of Object.entries(JSON.parse(str(p, l)))) {
+      if (name === 'type') {
+        if (el.type === val) continue;
+        const a = el.selectionStart, b = el.selectionEnd;
+        el.type = val;
+        if (document.activeElement === el) el.setSelectionRange(a, b);
+      } else if (val === '') el.removeAttribute(name);
+      else if (el.getAttribute(name) !== val) el.setAttribute(name, val);
+    }
+  },
 
   day_dom_listen: (id, mask) => listen(id, mask),
 

@@ -70,6 +70,10 @@ unsafe extern "C" {
     fn day_dom_link(el: u32, owner: u32, p: *const u8, l: usize);
     fn day_dom_set_value(el: u32, v: f64);
     fn day_dom_set_checked(el: u32, on: u32);
+    /// Text entry traits on a text field's `<input>` (docs/textfield.md): `json` is one object
+    /// of attribute name to value, where an empty value removes the attribute and `type` is
+    /// assigned as the property, keeping the caret. Any other element is left alone.
+    fn day_dom_input_traits(el: u32, json: *const u8, len: usize);
     /// Attach shim listeners; `mask` bits: 1 click, 2 input, 4 change, 8 focus, 16 submit,
     /// 32 resize-observer, 64 scroll, 128 pointer-tap, 256 pointer-drag, 512 contenteditable.
     fn day_dom_listen(el: u32, mask: u32);
@@ -2350,6 +2354,56 @@ impl Toolkit for Dom {
         // Nothing is selectable by default (#day-root sets `user-select: none`); the class opts
         // this element and its text back in (`.day-selectable` in day.css). See docs/text.md.
         class(h.0, "day-selectable", selectable);
+        None
+    }
+
+    fn set_input_traits(
+        &mut self,
+        h: &DomHandle,
+        traits: &day_spec::InputTraits,
+    ) -> Option<DomHandle> {
+        use day_spec::{InputPurpose as P, SubmitLabel as L};
+        // One `<input>` covers every member: each is an attribute, and all of them are written
+        // on every call (an empty value removes one), so a flip back to the defaults leaves no
+        // attribute behind. The type is `text` for every purpose: the typed ones (`email`,
+        // `url`, `number`) trim or coerce what the user types and validate it, and a controlled
+        // input has to hold exactly the text it reports. `inputmode` alone picks the keyboard.
+        let (inputmode, autocomplete, capitalize) = match traits.purpose {
+            P::Text => ("", "", ""),
+            P::Name => ("", "name", "words"),
+            P::Email => ("email", "email", "none"),
+            P::Url => ("url", "url", "none"),
+            P::Phone => ("tel", "tel", ""),
+            P::Number => ("numeric", "", "none"),
+            P::Decimal => ("decimal", "", "none"),
+            P::Username => ("", "username", "none"),
+            P::Password => ("", "current-password", "none"),
+            P::NewPassword => ("", "new-password", "none"),
+            P::OneTimeCode => ("", "one-time-code", "none"),
+        };
+        // Hidden characters are never capitalized, corrected or handed to a spell checker,
+        // whatever the purpose; free text and a phone number keep the browser's own handling.
+        let plain = !traits.secure && matches!(traits.purpose, P::Text | P::Phone);
+        let kind = if traits.secure { "password" } else { "text" };
+        let capitalize = if traits.secure { "none" } else { capitalize };
+        let (autocorrect, spellcheck) = if plain { ("", "") } else { ("off", "false") };
+        let enterkeyhint = match traits.submit_label {
+            L::Return => "",
+            L::Done => "done",
+            L::Go => "go",
+            L::Next => "next",
+            L::Search => "search",
+            L::Send => "send",
+        };
+        // `max_length` takes no attribute: `maxlength` counts UTF-16 units and the bound is in
+        // characters, so the native limit would refuse text the bound allows. day-pieces holds
+        // it.
+        let readonly = if traits.read_only { "readonly" } else { "" };
+        // Every value is one of the fixed words above, so the object needs no escaping.
+        let json = format!(
+            r#"{{"type":"{kind}","inputmode":"{inputmode}","autocomplete":"{autocomplete}","autocapitalize":"{capitalize}","autocorrect":"{autocorrect}","spellcheck":"{spellcheck}","enterkeyhint":"{enterkeyhint}","readonly":"{readonly}"}}"#
+        );
+        unsafe { day_dom_input_traits(h.0, json.as_ptr(), json.len()) };
         None
     }
 

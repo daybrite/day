@@ -248,45 +248,13 @@ pub fn apply_string_keys(
 /// file while this editor kept the permission keys in place, so the two writers swapped their
 /// relative order on every run and the checked-in plist churned forever.
 pub fn apply_array_key(text: &str, key: &str, values: Option<&[String]>) -> Result<String, String> {
-    if !text.trim_start().starts_with("<?xml") {
-        return Err("Info.plist is not XML".to_string());
-    }
-    let entry = scan(text).into_iter().find(|(k, ..)| k == key);
-    let rendered = values.map(|v| (v, ()));
-
-    match (entry, rendered) {
-        // Replace in place, preserving position.
-        (Some((_, _, start, end)), Some((v, _))) => {
-            let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
-            let indent = indent_of(text, start);
-            let mut out = String::with_capacity(text.len() + 128);
-            out.push_str(&text[..line_start]);
-            out.push_str(&array_xml(key, v, &indent));
-            out.push_str(&text[skip_to_next_line(text, end)..]);
-            Ok(out)
-        }
-        // Remove.
-        (Some((_, _, start, end)), None) => {
-            let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
-            let mut out = String::with_capacity(text.len());
-            out.push_str(&text[..line_start]);
-            out.push_str(&text[skip_to_next_line(text, end)..]);
-            Ok(out)
-        }
-        // Insert before the root dict's close.
-        (None, Some((v, _))) => {
-            let anchor = text
-                .rfind("</dict>")
-                .ok_or_else(|| "Info.plist has no closing </dict>".to_string())?;
-            let indent = indent_of(text, anchor) + "\t";
-            let line_start = text[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
-            let mut out = String::with_capacity(text.len() + 128);
-            out.push_str(&text[..line_start]);
-            out.push_str(&array_xml(key, v, &indent));
-            out.push_str(&text[line_start..]);
-            Ok(out)
-        }
-        (None, None) => Ok(text.to_string()),
+    match values {
+        Some(v) => splice(
+            text,
+            key,
+            Some(&|indent: &str| Ok(array_xml(key, v, indent))),
+        ),
+        None => splice(text, key, None),
     }
 }
 
@@ -299,19 +267,59 @@ pub fn apply_dict_array_key(
     key: &str,
     dicts: Option<&[Vec<(String, String)>]>,
 ) -> Result<String, String> {
+    match dicts {
+        Some(d) => splice(
+            text,
+            key,
+            Some(&|indent: &str| Ok(dict_array_xml(key, d, indent))),
+        ),
+        None => splice(text, key, None),
+    }
+}
+
+/// Set (or remove, with `None`) a top-level key holding any value: the URL and document-type
+/// declarations `documents::sync_apple` manages. Same placement rules as [`apply_array_key`].
+/// When those keys were rewritten by reserializing the whole document, every build reordered the
+/// checked-in plist and dropped its final newline, so a CI job that asserts a pristine checkout
+/// failed on every Day app.
+pub fn apply_value_key(
+    text: &str,
+    key: &str,
+    value: Option<&::plist::Value>,
+) -> Result<String, String> {
+    match value {
+        Some(v) => splice(
+            text,
+            key,
+            Some(&|indent: &str| {
+                let mut s = format!("{indent}<key>{}</key>\n", escape(key));
+                value_xml(v, indent, &mut s)?;
+                Ok(s)
+            }),
+        ),
+        None => splice(text, key, None),
+    }
+}
+
+/// Renders one top-level entry (key and value) at the given indentation.
+type Render<'a> = &'a dyn Fn(&str) -> Result<String, String>;
+
+/// Replace a top-level entry in place, remove it (`None`), or insert it before the root dict's
+/// close when it is missing. Every other byte of `text` is kept.
+fn splice(text: &str, key: &str, render: Option<Render>) -> Result<String, String> {
     if !text.trim_start().starts_with("<?xml") {
         return Err("Info.plist is not XML".to_string());
     }
     let entry = scan(text).into_iter().find(|(k, ..)| k == key);
 
-    match (entry, dicts) {
+    match (entry, render) {
         // Replace in place, preserving position.
-        (Some((_, _, start, end)), Some(d)) => {
+        (Some((_, _, start, end)), Some(render)) => {
             let line_start = text[..start].rfind('\n').map(|p| p + 1).unwrap_or(0);
             let indent = indent_of(text, start);
             let mut out = String::with_capacity(text.len() + 256);
             out.push_str(&text[..line_start]);
-            out.push_str(&dict_array_xml(key, d, &indent));
+            out.push_str(&render(&indent)?);
             out.push_str(&text[skip_to_next_line(text, end)..]);
             Ok(out)
         }
@@ -324,7 +332,7 @@ pub fn apply_dict_array_key(
             Ok(out)
         }
         // Insert before the root dict's close.
-        (None, Some(d)) => {
+        (None, Some(render)) => {
             let anchor = text
                 .rfind("</dict>")
                 .ok_or_else(|| "Info.plist has no closing </dict>".to_string())?;
@@ -332,12 +340,44 @@ pub fn apply_dict_array_key(
             let line_start = text[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
             let mut out = String::with_capacity(text.len() + 256);
             out.push_str(&text[..line_start]);
-            out.push_str(&dict_array_xml(key, d, &indent));
+            out.push_str(&render(&indent)?);
             out.push_str(&text[line_start..]);
             Ok(out)
         }
         (None, None) => Ok(text.to_string()),
     }
+}
+
+/// One value element, its children indented a tab deeper, in the layout Xcode writes (`<array/>`
+/// and `<dict/>` when empty).
+fn value_xml(value: &::plist::Value, indent: &str, out: &mut String) -> Result<(), String> {
+    use ::plist::Value;
+    let inner = format!("{indent}\t");
+    match value {
+        Value::String(s) => out.push_str(&format!("{indent}<string>{}</string>\n", escape(s))),
+        Value::Boolean(b) => out.push_str(&format!("{indent}<{b}/>\n")),
+        Value::Integer(i) => out.push_str(&format!("{indent}<integer>{i}</integer>\n")),
+        Value::Real(r) => out.push_str(&format!("{indent}<real>{r}</real>\n")),
+        Value::Array(a) if a.is_empty() => out.push_str(&format!("{indent}<array/>\n")),
+        Value::Array(a) => {
+            out.push_str(&format!("{indent}<array>\n"));
+            for v in a {
+                value_xml(v, &inner, out)?;
+            }
+            out.push_str(&format!("{indent}</array>\n"));
+        }
+        Value::Dictionary(d) if d.is_empty() => out.push_str(&format!("{indent}<dict/>\n")),
+        Value::Dictionary(d) => {
+            out.push_str(&format!("{indent}<dict>\n"));
+            for (k, v) in d {
+                out.push_str(&format!("{inner}<key>{}</key>\n", escape(k)));
+                value_xml(v, &inner, out)?;
+            }
+            out.push_str(&format!("{indent}</dict>\n"));
+        }
+        other => return Err(format!("Day writes no {other:?} value into an Info.plist")),
+    }
+    Ok(())
 }
 
 fn dict_array_xml(key: &str, dicts: &[Vec<(String, String)>], indent: &str) -> String {
@@ -598,5 +638,42 @@ mod tests {
             apply_dict_array_key(&twice, "UIApplicationShortcutItems", None).expect("remove");
         assert!(!gone.contains("UIApplicationShortcutItems"));
         assert!(gone.contains("<key>CFBundleURLName</key>"));
+    }
+
+    #[test]
+    fn value_key_round_trips_nested_values() {
+        use ::plist::{Dictionary, Value};
+        let mut tags = Dictionary::new();
+        tags.insert(
+            "public.filename-extension".into(),
+            Value::Array(vec!["epub".into()]),
+        );
+        tags.insert("empty".into(), Value::Array(vec![]));
+        let mut item = Dictionary::new();
+        item.insert("UTTypeIdentifier".into(), "org.test & co".into());
+        item.insert("UTTypeTagSpecification".into(), Value::Dictionary(tags));
+        item.insert("Rank".into(), 3.into());
+        item.insert("Owned".into(), false.into());
+        let value = Value::Array(vec![Value::Dictionary(item)]);
+
+        let once =
+            apply_value_key(SHOWCASE, "UTImportedTypeDeclarations", Some(&value)).expect("insert");
+        let parsed = Value::from_reader_xml(once.as_bytes()).expect("parses");
+        assert_eq!(
+            parsed
+                .as_dictionary()
+                .unwrap()
+                .get("UTImportedTypeDeclarations"),
+            Some(&value)
+        );
+        assert!(once.contains("\t\t\t\t<array/>\n"));
+        // Everything else survived untouched.
+        assert!(once.contains("<key>CFBundleURLName</key>"));
+
+        let twice =
+            apply_value_key(&once, "UTImportedTypeDeclarations", Some(&value)).expect("replace");
+        assert_eq!(once, twice, "re-applying the same value must be a no-op");
+        let gone = apply_value_key(&twice, "UTImportedTypeDeclarations", None).expect("remove");
+        assert_eq!(gone, SHOWCASE);
     }
 }

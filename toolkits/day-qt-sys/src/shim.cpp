@@ -767,6 +767,46 @@ void day_qt_lineedit_set_text(void *w, const char *text) {
 void day_qt_lineedit_set_placeholder(void *w, const char *text) {
     static_cast<QLineEdit *>(w)->setPlaceholderText(QString::fromUtf8(text));
 }
+// How the field takes its text (`Toolkit::set_input_traits`, docs/textfield.md): all of it is
+// properties of the one QLineEdit, so text, focus, caret and signal wiring stay. `purpose` is
+// day-qt's `qt_input_purpose` code: 0 text, 1 name, 2 email, 3 url, 4 phone, 5 number,
+// 6 decimal, 7 username, 8 password, 9 new password, 10 one-time code. qobject_cast guards a
+// widget that is not a line edit: a no-op rather than a bad cast.
+void day_qt_lineedit_set_traits(void *w, int secure, int read_only, int purpose) {
+    QLineEdit *e = qobject_cast<QLineEdit *>(static_cast<QWidget *>(w));
+    if (!e)
+        return;
+    // Echo first: the characters are hidden before anything else about the field moves.
+    const QLineEdit::EchoMode echo = secure ? QLineEdit::Password : QLineEdit::Normal;
+    if (e->echoMode() != echo)
+        e->setEchoMode(echo);
+    // Read-only keeps the ordinary look and the selection; disabled is a different state.
+    if (e->isReadOnly() != (read_only != 0))
+        e->setReadOnly(read_only != 0);
+    // What a field of exact characters asks of an input method: leave them as typed.
+    const Qt::InputMethodHints exact = Qt::ImhNoAutoUppercase | Qt::ImhNoPredictiveText;
+    Qt::InputMethodHints hints = Qt::ImhNone;
+    switch (purpose) {
+    case 1: hints = Qt::ImhNoPredictiveText; break;
+    case 2: hints = exact | Qt::ImhEmailCharactersOnly; break;
+    case 3: hints = exact | Qt::ImhUrlCharactersOnly; break;
+    case 4: hints = Qt::ImhDialableCharactersOnly; break;
+    case 5: hints = Qt::ImhDigitsOnly; break;
+    case 6: hints = Qt::ImhFormattedNumbersOnly; break;
+    case 7: hints = exact; break;
+    case 8:
+    case 9: hints = exact | Qt::ImhSensitiveData; break;
+    case 10: hints = exact; break;
+    default: break;
+    }
+    // setEchoMode writes these four itself and clears them again on the way back to Normal,
+    // taking a purpose's own copies with them. Setting the whole word after it, on every call,
+    // keeps both directions right.
+    if (secure)
+        hints |= exact | Qt::ImhHiddenText | Qt::ImhSensitiveData;
+    if (e->inputMethodHints() != hints)
+        e->setInputMethodHints(hints);
+}
 
 // --- divider ---
 void *day_qt_separator_new() {

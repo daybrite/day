@@ -232,6 +232,11 @@ pub fn set_object(n: Handle, attr: Attr, object: *mut c_void) -> i32 {
     api_call!(setAttribute(n, attr, &item)).unwrap_or(-1)
 }
 
+/// Put an attribute back to ArkUI's own default.
+pub fn reset(n: Handle, attr: Attr) {
+    api_call!(resetAttribute(n, attr));
+}
+
 pub fn set_f32(n: Handle, attr: Attr, v: f32) -> i32 {
     set_values(n, attr, &[f32v(v)])
 }
@@ -616,6 +621,95 @@ pub fn set_input_text(n: Handle, s: &str) {
 
 pub fn set_placeholder(n: Handle, s: &str) {
     set_str(n, Attr::NODE_TEXT_INPUT_PLACEHOLDER, s);
+}
+
+/// The text a TextInput holds now.
+pub fn input_text(n: Handle) -> String {
+    get_item(n, Attr::NODE_TEXT_INPUT_TEXT).map_or_else(String::new, |it| text_of(it.string))
+}
+
+/// Text entry traits on a TextInput (docs/textfield.md): the members ArkUI has an attribute
+/// for. Every one is written on every call, so a member back at its default leaves nothing
+/// behind. Read-only has no attribute; `lib.rs` holds it through [`watch_input_edits`].
+pub fn set_input_traits(n: Handle, traits: &day_spec::InputTraits) {
+    use ArkUI_EnterKeyType as Key;
+    use ArkUI_TextInputContentType as Content;
+    use ArkUI_TextInputType as Type;
+    use day_spec::{InputPurpose as P, SubmitLabel as L};
+    // ArkUI folds hidden characters into the input type, so the type comes from both members.
+    // Its numeric password takes digits only, which fits a PIN and nothing else: a hidden
+    // decimal or phone number takes the general password type, which accepts every character.
+    let ty = match (traits.secure, traits.purpose) {
+        (true, P::Number) => Type::ARKUI_TEXTINPUT_TYPE_NUMBER_PASSWORD,
+        (true, P::NewPassword) => Type::ARKUI_TEXTINPUT_TYPE_NEW_PASSWORD,
+        (true, _) => Type::ARKUI_TEXTINPUT_TYPE_PASSWORD,
+        (false, P::Email) => Type::ARKUI_TEXTINPUT_TYPE_EMAIL,
+        (false, P::Phone) => Type::ARKUI_TEXTINPUT_TYPE_PHONE_NUMBER,
+        (false, P::Number) => Type::ARKUI_TEXTINPUT_TYPE_NUMBER,
+        (false, P::Decimal) => Type::ARKUI_TEXTINPUT_TYPE_NUMBER_DECIMAL,
+        (false, P::Username) => Type::ARKUI_TEXTINPUT_TYPE_USER_NAME,
+        // A URL and a one-time code have types from API 20 on only; a name and a password
+        // shown in the clear are ordinary text.
+        (false, _) => Type::ARKUI_TEXTINPUT_TYPE_NORMAL,
+    };
+    if get_i32(n, Attr::NODE_TEXT_INPUT_TYPE, 0) != Some(ty.0 as i32) {
+        // The text survives a type change; the caret is put back where the user had it.
+        let caret = get_i32(n, Attr::NODE_TEXT_INPUT_CARET_OFFSET, 0).filter(|c| *c > 0);
+        set_i32(n, Attr::NODE_TEXT_INPUT_TYPE, ty.0 as i32);
+        if let Some(caret) = caret {
+            set_i32(n, Attr::NODE_TEXT_INPUT_CARET_OFFSET, caret);
+        }
+    }
+    // The password types draw their own reveal icon, which would show the characters behind
+    // the app's back: `secure` is the one switch, and the app draws its own control for it.
+    set_i32(n, Attr::NODE_TEXT_INPUT_SHOW_PASSWORD_ICON, 0);
+    // What the system offers to fill in, where the purpose names something it keeps.
+    let content = match traits.purpose {
+        P::Name => Some(Content::ARKUI_TEXTINPUT_CONTENT_TYPE_PERSON_FULL_NAME),
+        P::Email => Some(Content::ARKUI_TEXTINPUT_CONTENT_EMAIL_ADDRESS),
+        P::Phone => Some(Content::ARKUI_TEXTINPUT_CONTENT_TYPE_FULL_PHONE_NUMBER),
+        P::Username => Some(Content::ARKUI_TEXTINPUT_CONTENT_TYPE_USER_NAME),
+        P::Password => Some(Content::ARKUI_TEXTINPUT_CONTENT_TYPE_PASSWORD),
+        P::NewPassword => Some(Content::ARKUI_TEXTINPUT_CONTENT_TYPE_NEW_PASSWORD),
+        P::Text | P::Url | P::Number | P::Decimal | P::OneTimeCode => None,
+    };
+    match content {
+        Some(c) => {
+            set_i32(n, Attr::NODE_TEXT_INPUT_CONTENT_TYPE, c.0 as i32);
+        }
+        None => reset(n, Attr::NODE_TEXT_INPUT_CONTENT_TYPE),
+    }
+    // ArkUI's own key is Done, so that is what Return leaves in place.
+    let key = match traits.submit_label {
+        L::Return => None,
+        L::Done => Some(Key::ARKUI_ENTER_KEY_TYPE_DONE),
+        L::Go => Some(Key::ARKUI_ENTER_KEY_TYPE_GO),
+        L::Next => Some(Key::ARKUI_ENTER_KEY_TYPE_NEXT),
+        L::Search => Some(Key::ARKUI_ENTER_KEY_TYPE_SEARCH),
+        L::Send => Some(Key::ARKUI_ENTER_KEY_TYPE_SEND),
+    };
+    match key {
+        Some(k) => {
+            set_i32(n, Attr::NODE_TEXT_INPUT_ENTER_KEY_TYPE, k.0 as i32);
+        }
+        None => reset(n, Attr::NODE_TEXT_INPUT_ENTER_KEY_TYPE),
+    }
+    // A field that takes no edits raises no keyboard when it is focused.
+    set_i32(
+        n,
+        Attr::NODE_TEXT_INPUT_ENABLE_KEYBOARD_ON_FOCUS,
+        i32::from(!traits.read_only),
+    );
+    // `max_length` takes no attribute: NODE_TEXT_INPUT_MAX_LENGTH does not say what it counts,
+    // and the bound is in characters. day-pieces holds it.
+}
+
+/// Ask a TextInput before every insertion and deletion (docs/textfield.md): the receiver
+/// answers each one, which is how a read-only field refuses edits while it stays focusable,
+/// selectable and copyable.
+pub fn watch_input_edits(n: Handle, id: u64) {
+    register_event(n, ArkUI_NodeEventType::NODE_TEXT_INPUT_ON_WILL_INSERT, id);
+    register_event(n, ArkUI_NodeEventType::NODE_TEXT_INPUT_ON_WILL_DELETE, id);
 }
 
 pub fn set_textarea_text(n: Handle, s: &str) {

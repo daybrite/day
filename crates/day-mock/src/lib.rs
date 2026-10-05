@@ -33,6 +33,9 @@ pub struct MockWidget {
     pub editable: bool,
     pub selectable: bool,
     pub spellcheck: bool,
+    /// The last text entry traits applied to this widget (docs/textfield.md), probe-visible
+    /// for tests; `None` until a field asks for anything but the defaults.
+    pub input_traits: Option<day_spec::InputTraits>,
     /// The last `.cursor()` applied to this widget (probe-visible for tests), `None` until set.
     pub cursor: Option<day_spec::Cursor>,
     pub children: Vec<u64>,
@@ -144,6 +147,10 @@ pub struct MockState {
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
+    /// Model a toolkit whose secure field is a different native class (AppKit, WinUI):
+    /// `set_input_traits` answers a secure flip with a replacement widget under a new handle
+    /// (docs/textfield.md). Off by default: most toolkits flip a property.
+    pub secure_class_swap: bool,
     /// `Cap::NavSplit` answers `Native`: the harness for split and re-presenting nav hosts
     /// (docs/size-classes.md). Off by default, so the mock keeps modeling a phone.
     pub nav_split: bool,
@@ -593,6 +600,12 @@ impl MockProbe {
     /// The secondary windows opened so far (closed ones stay listed with `open: false`).
     pub fn windows(&self) -> Vec<MockWindow> {
         self.state.borrow().windows.clone()
+    }
+
+    /// Make a secure flip rebuild the text field under a new handle, the harness for the
+    /// toolkits whose secure field is its own native class (docs/textfield.md).
+    pub fn set_secure_class_swap(&self, v: bool) {
+        self.state.borrow_mut().secure_class_swap = v;
     }
 
     /// Make `open_window` answer `Unsupported`, the cover-fallback test harness.
@@ -1342,6 +1355,48 @@ impl Toolkit for MockToolkit {
             w.selectable = selectable;
         }
         s.log(format!("set_selectable #{} {}", h.0, selectable));
+        None
+    }
+
+    fn set_input_traits(
+        &mut self,
+        h: &MockHandle,
+        traits: &day_spec::InputTraits,
+    ) -> Option<MockHandle> {
+        let mut s = self.state.borrow_mut();
+        s.log(format!(
+            "set_input_traits #{} secure={} read_only={} purpose={:?} submit={:?} max={:?}",
+            h.0,
+            traits.secure,
+            traits.read_only,
+            traits.purpose,
+            traits.submit_label,
+            traits.max_length
+        ));
+        let was_secure = s
+            .widgets
+            .get(&h.0)
+            .and_then(|w| w.input_traits.as_ref())
+            .is_some_and(|t| t.secure);
+        if s.secure_class_swap && was_secure != traits.secure {
+            // The class-swap toolkits: a new widget carries the old one's state and takes its
+            // place among the parent's children; the old handle is gone.
+            let mut w = s.widgets.remove(&h.0)?;
+            w.input_traits = Some(traits.clone());
+            s.next += 1;
+            let new = s.next;
+            for parent in s.widgets.values_mut() {
+                for child in parent.children.iter_mut().filter(|c| **c == h.0) {
+                    *child = new;
+                }
+            }
+            s.widgets.insert(new, w);
+            s.log(format!("swap #{} for #{}", h.0, new));
+            return Some(MockHandle(new));
+        }
+        if let Some(w) = s.widgets.get_mut(&h.0) {
+            w.input_traits = Some(traits.clone());
+        }
         None
     }
 

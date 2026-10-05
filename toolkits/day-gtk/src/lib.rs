@@ -31,11 +31,50 @@ use day_spec::props::*;
 use day_spec::sidetable::SideTable;
 use day_spec::{
     A11yProps, AnimSpec, Animatable, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font,
-    ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect, Registry, Renderer, Size,
-    Support, Toolkit, Transform, TreeSource, ffi_guard, kinds, props_of,
+    InputPurpose, InputTraits, ListSource, NodeId, PieceKind, Platform, Proposal, RawHandle, Rect,
+    Registry, Renderer, Size, Support, Toolkit, Transform, TreeSource, ffi_guard, kinds, props_of,
 };
 
 pub type Handle = gtk4::Widget;
+
+/// The GTK input purpose and hints for a field's purpose and secrecy together
+/// (docs/textfield.md). GTK has one purpose slot, and input methods read `Password`/`Pin` as
+/// "stay out of this field", so a secure field takes one of those whatever it collects, and
+/// showing the characters again gives the app's own purpose back.
+fn gtk_input_purpose(
+    purpose: InputPurpose,
+    secure: bool,
+) -> (gtk4::InputPurpose, gtk4::InputHints) {
+    use gtk4::InputHints as H;
+    use gtk4::InputPurpose as P;
+    // What every field of exact characters shares: nothing to correct, nothing to decorate.
+    let exact = H::NO_SPELLCHECK | H::NO_EMOJI;
+    let (native, hints) = match purpose {
+        InputPurpose::Text => (P::FreeForm, H::NONE),
+        InputPurpose::Name => (P::Name, H::NO_SPELLCHECK | H::UPPERCASE_WORDS),
+        InputPurpose::Email => (P::Email, exact | H::LOWERCASE),
+        InputPurpose::Url => (P::Url, exact | H::LOWERCASE),
+        InputPurpose::Phone => (P::Phone, exact),
+        InputPurpose::Number => (P::Digits, exact),
+        InputPurpose::Decimal => (P::Number, exact),
+        // No LOWERCASE here: the hint asks the input method to convert, and an account name
+        // can be case-sensitive. Without an UPPERCASE hint nothing capitalizes it either.
+        InputPurpose::Username => (P::FreeForm, exact),
+        InputPurpose::Password | InputPurpose::NewPassword => (P::Password, exact | H::PRIVATE),
+        // A code can carry letters, so it is not `Pin`.
+        InputPurpose::OneTimeCode => (P::FreeForm, exact),
+    };
+    if !secure {
+        return (native, hints);
+    }
+    let native = if purpose == InputPurpose::Number {
+        P::Pin
+    } else {
+        P::Password
+    };
+    // The app's capitalization hints go too: nothing may rewrite hidden characters.
+    (native, exact | H::PRIVATE)
+}
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
@@ -5650,6 +5689,28 @@ impl Toolkit for Gtk {
         if let Some(l) = h.downcast_ref::<gtk4::Label>() {
             l.set_selectable(selectable);
         }
+        None
+    }
+
+    fn set_input_traits(&mut self, h: &Handle, traits: &InputTraits) -> Option<Handle> {
+        // One GtkEntry serves every trait as a property (docs/textfield.md), so the widget, its
+        // signal wiring, its focus and its caret all stay; the downcast guards a non-entry
+        // backing. Each setter compares before it notifies, so a repeat call costs nothing.
+        let entry = h.downcast_ref::<gtk4::Entry>()?;
+        // Visibility first: the characters are hidden before anything else about the field
+        // moves.
+        entry.set_visibility(!traits.secure);
+        let (purpose, hints) = gtk_input_purpose(traits.purpose, traits.secure);
+        entry.set_input_purpose(purpose);
+        entry.set_input_hints(hints);
+        // Not editable is GTK's read-only: the text still selects and copies, and the entry
+        // keeps its ordinary look (insensitive is what `.disabled()` uses).
+        entry.set_editable(!traits.read_only);
+        // GTK counts the limit in characters, as day-pieces does, and reads 0 as unbounded.
+        // 65535 is the most a GtkEntryBuffer holds. A bound of zero has no native spelling, so
+        // day-pieces alone holds that one.
+        entry.set_max_length(traits.max_length.map_or(0, |n| n.min(65535) as i32));
+        // `submit_label` has no GTK counterpart: the on-screen keyboard draws its own Enter.
         None
     }
 

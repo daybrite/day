@@ -41,7 +41,11 @@ objc2-ui-kit = { version = "0.3", features = [
     # Window capture (docs/window-image.md): UIGraphicsImageRenderer + UIImagePNGRepresentation.
     "UIGraphicsRenderer", "UIGraphicsImageRenderer", "UIImage",
     "UIButtonConfiguration", "UIBackgroundConfiguration",
-    "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch", "UISlider", "UIColor",
+    "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch",
+    # A text field's input traits (docs/textfield.md): keyboard, capitalization and return-key
+    # enums, the AutoFill content types, and the text-input calls a secure flip re-enters
+    # the text through.
+    "UITextInputTraits", "UITextInput", "UISlider", "UIColor",
     "UIAlertController", "UIActivityViewController", "UIActivity", "UIPopoverPresentationController",
     "UIProgressView", "UIActivityIndicatorView",
     "UIScrollView", "UIAccessibility", "UIBezierPath", "UIImage", "UIImageView", "UITraitCollection", "NSAttributedString", "NSStringDrawing", "UIStringDrawing", "UIFont",

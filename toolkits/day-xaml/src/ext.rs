@@ -59,7 +59,15 @@ pub fn with_native_raw(node: RNode) -> Option<(*mut c_void, &'static str)> {
     let (handle, kind) = day_core::with_tree(|t| (t.node_handle_any(node), t.node_kind(node)));
     let h = handle?.downcast::<crate::Handle>().ok()?;
     let abi = unsafe { day_xaml_sys::day_xaml_unbox(h.0) };
-    (!abi.is_null()).then_some((abi, class_for_kind(kind)))
+    // A secure text field is the one kind with two classes (docs/textfield.md).
+    let class = if kind == Some(kinds::TEXT_FIELD)
+        && unsafe { day_xaml_sys::day_xaml_field_is_secure(h.0) } != 0
+    {
+        "PasswordBox"
+    } else {
+        class_for_kind(kind)
+    };
+    (!abi.is_null()).then_some((abi, class))
 }
 
 /// The XAML tweak modifier: runs once at mount with the borrowed ABI pointer and its class name

@@ -110,7 +110,7 @@ the architecture-level view and the rationale.
 | color — the `Color`/`Paint` currency, what a native picker can hand back, and a proposal to widen it | [docs/color.md](docs/color.md) | [§6.3](#63-semantic-theme-tokens), [§11](#11-canvas) |
 | SwiftUI embedding — local SwiftPM packages, generated `crate::swiftui::*` bindings + hosting glue, the macOS Swift build leg | [docs/swiftui.md](docs/swiftui.md) | [§15.2](#152-package-layout-and-aggregation) |
 | reusable application commands — shared metadata, scope ownership, guarded invocation | [docs/commands.md](docs/commands.md) | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
-| built-in controls — button styles and icons, picker, text area | [docs/buttons.md](docs/buttons.md), [docs/picker.md](docs/picker.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
+| built-in controls — button styles and icons, picker, text field, text area | [docs/buttons.md](docs/buttons.md), [docs/picker.md](docs/picker.md), [docs/textfield.md](docs/textfield.md), [docs/textarea.md](docs/textarea.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | styled text editing — `StyledText`, its Markdown/HTML/RTF codecs, and the editor piece over them | [docs/texteditor.md](docs/texteditor.md) | [B.5](#b5-richtext-tier-2--deep-native-control) |
 | HarmonyOS / OpenHarmony | [docs/harmonyos.md](docs/harmonyos.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | web — the `web-dom` backend (wasm32 + DOM) | [docs/web.md](docs/web.md) | [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
@@ -806,6 +806,10 @@ button(text).image(res::vectors::mark) // bundled image/vector instead of a symb
 toggle(on)                         // two-way bool
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
 text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .focused(…) (docs/focus.md)
+    .secure(s).read_only(r)                    // reactive: hidden characters, no edits (docs/textfield.md)
+    .input_purpose(InputPurpose::Email)        // keyboard, capitalization, autofill
+    .submit_label(SubmitLabel::Go).max_length(64)
+secure_field(text)                             // a password field: text_field + secure + Password purpose
 text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (docs/textarea.md)
     .editable(e).selectable(s).spellcheck(sc)  // reactive attrs; Cap::Text{Editable,Selectable,SpellCheck}
 picker(opts, idx).segmented()      // one-of-N: .menu()/.segmented()/.inline() (docs/picker.md)
@@ -1518,6 +1522,14 @@ pub trait Toolkit: Sized + 'static {
     // gestures + focus (docs/shapes.md, docs/focus.md)
     fn enable_gesture(&mut self, h, node: NodeId, kind: GestureKind) {}
     fn focus(&mut self, h, node: NodeId, focused: bool) {}
+    fn set_input_traits(&mut self, h, traits: &InputTraits) -> Option<Handle>; // text_field's
+                                                                      // secure / read-only /
+                                                                      // purpose / action key /
+                                                                      // length; required. Some =
+                                                                      // the widget was rebuilt
+                                                                      // as its secure class and
+                                                                      // day-core re-points the
+                                                                      // node (docs/textfield.md)
     fn set_cursor(&mut self, h, cursor: Cursor) {}                    // Decorate::cursor — the
                                                                       // pointer's shape over the
                                                                       // node; idempotent, called

@@ -289,6 +289,25 @@ unsafe extern "C" {
     ) -> *mut c_void;
     pub fn day_xaml_textbox_set_text(w: *mut c_void, text: *const c_char);
     pub fn day_xaml_textbox_set_placeholder(w: *mut c_void, text: *const c_char);
+    // Entry traits (docs/textfield.md). A secure field is a `PasswordBox`, a class of its own, so
+    // the two text setters above and every generic entry point accept either class.
+    /// 1 while the field is the secure class (`PasswordBox`).
+    pub fn day_xaml_field_is_secure(w: *mut c_void) -> c_int;
+    /// Rebuild the field as the secure class or the plain one, wired to the same callbacks
+    /// `day_xaml_textbox_new` and `day_xaml_enable_focus` take. Returns the replacement, already
+    /// in the old control's place and holding its text, state and focus, or null when the field
+    /// is that class already (or is not a text field). After a non-null return the caller owns
+    /// both handles and deletes `w`.
+    pub fn day_xaml_field_set_secure(
+        w: *mut c_void,
+        secure: c_int,
+        id: u64,
+        text_cb: extern "C" fn(u64, *const c_char),
+        focus_cb: extern "C" fn(u64, c_int),
+    ) -> *mut c_void;
+    /// The traits that are properties. `scope`: 0 default, 1 name, 2 email, 3 URL, 4 phone,
+    /// 5 number. `plain` turns spell checking and prediction off.
+    pub fn day_xaml_field_set_traits(w: *mut c_void, read_only: c_int, scope: c_int, plain: c_int);
 
     pub fn day_xaml_divider_new() -> *mut c_void;
     pub fn day_xaml_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;

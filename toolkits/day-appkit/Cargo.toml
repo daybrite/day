@@ -40,7 +40,7 @@ objc2-foundation = { version = "0.3", features = ["NSLocale",
 objc2-app-kit = { version = "0.3", features = [
     "objc2-core-graphics", "objc2-uniform-type-identifiers", "NSRunningApplication",
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton", "NSScreen",
-    "NSTextField", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
+    "NSTextField", "NSSecureTextField", "NSTextContent", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",
     "NSScrollView", "NSClipView", "NSMenu", "NSMenuItem", "NSFont", "NSColor",
     "NSBitmapImageRep", "NSImageRep", "NSEvent", "NSCursor", "NSTrackingArea", "NSAccessibilityProtocols", "NSAccessibilityConstants",
     "NSGraphicsContext", "NSAppearance", "NSSplitView", "NSLayoutConstraint",

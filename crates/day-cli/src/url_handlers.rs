@@ -2,10 +2,13 @@
 // SPDX-License-Identifier: MPL-2.0
 //! Additional protocol associations; registration never forces the user's default choice.
 use crate::meta::Project;
-pub fn apple(project: &Project, d: &mut plist::Dictionary) {
-    let mut types = d
-        .remove("CFBundleURLTypes")
-        .and_then(|v| v.into_array())
+/// The `CFBundleURLTypes` value for `Day.toml`'s `url_schemes`: `current` with Day's own
+/// `day.external-urls` entry replaced, or `None` once no entry remains. The app's own entries keep
+/// their order.
+pub fn apple(project: &Project, current: Option<&plist::Value>) -> Option<plist::Value> {
+    let mut types = current
+        .and_then(|v| v.as_array())
+        .cloned()
         .unwrap_or_default();
     types.retain(|v| {
         v.as_dictionary()
@@ -31,9 +34,7 @@ pub fn apple(project: &Project, d: &mut plist::Dictionary) {
         );
         types.push(entry.into());
     }
-    if !types.is_empty() {
-        d.insert("CFBundleURLTypes".into(), types.into());
-    }
+    (!types.is_empty()).then(|| types.into())
 }
 pub fn android(project: &Project) -> String {
     project.manifest.url_schemes.iter().map(|s| format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"{s}\"/></intent-filter>\n")).collect()

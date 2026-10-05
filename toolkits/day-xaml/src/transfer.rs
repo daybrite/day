@@ -85,6 +85,16 @@ pub fn source(h: &WinHandle, source: Source) {
         day_xaml_drag_source(h.0, prepare, free);
     }
 }
+/// Carry a rebuilt widget's drag source and drop target to its replacement, which needs the
+/// native handlers installed afresh.
+pub fn migrate(old: usize, new: &WinHandle) {
+    if let Some(s) = SOURCES.with(|t| t.remove(old)) {
+        source(new, s);
+    }
+    if let Some(t) = TARGETS.with(|t| t.remove(old)) {
+        target(new, t);
+    }
+}
 pub fn target(h: &WinHandle, target: Target) {
     TARGETS.with(|t| t.insert(h.0 as usize, target));
     unsafe {

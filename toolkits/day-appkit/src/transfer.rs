@@ -61,6 +61,16 @@ pub fn target(view: &NSView, target: Target) {
     view.registerForDraggedTypes(&NSArray::from_retained_slice(&types));
     TARGETS.with(|t| t.insert(key(view), target));
 }
+/// `new` replaces `old` in the tree (a text field's class swap): its drag source and drop
+/// target follow it.
+pub fn moved(old: &NSView, new: &NSView) {
+    if let Some(source) = SOURCES.with(|t| t.take(key(old))) {
+        SOURCES.with(|t| t.insert(key(new), source));
+    }
+    if let Some(target) = TARGETS.with(|t| t.take(key(old))) {
+        self::target(new, target);
+    }
+}
 pub fn pressed(view: &NSView, event: &NSEvent) -> bool {
     if SOURCES.with(|t| t.get(key(view))).is_none() {
         return false;

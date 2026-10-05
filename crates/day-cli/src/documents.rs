@@ -71,19 +71,44 @@ pub fn android(project: &Project) -> Option<String> {
     s.push_str("</activity>");
     Some(s)
 }
+/// Bring an XML Info.plist's URL-scheme and document-type keys in line with `Day.toml`.
+///
+/// Only the keys whose value changed are rewritten, through the `crate::plist` text editor, so a
+/// build that changes nothing leaves the checked-in file byte for byte as it was.
 pub fn sync_apple(project: &Project, path: &Path, ios: bool) -> Result<(), String> {
     if !path.exists() {
         return Ok(());
     }
-    let mut p = plist::Value::from_file(path).map_err(|e| e.to_string())?;
-    let d = p
-        .as_dictionary_mut()
-        .ok_or("Info.plist is not a dictionary")?;
-    crate::url_handlers::apple(project, d);
-    if project.manifest.file_types.is_empty() && !d.contains_key("DayManagedDocumentTypes") {
-        p.to_file_xml(path).map_err(|e| e.to_string())?;
-        return Ok(());
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let p = plist::Value::from_reader_xml(text.as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let d = p.as_dictionary().ok_or("Info.plist is not a dictionary")?;
+    let mut managed = vec![(
+        "CFBundleURLTypes",
+        crate::url_handlers::apple(project, d.get("CFBundleURLTypes")),
+    )];
+    if !project.manifest.file_types.is_empty() || d.contains_key("DayManagedDocumentTypes") {
+        managed.extend(document_keys(project, d, ios));
     }
+    let mut out = text.clone();
+    for (key, value) in managed {
+        if d.get(key) != value.as_ref() {
+            out = crate::plist::apply_value_key(&out, key, value.as_ref())?;
+        }
+    }
+    if out != text {
+        std::fs::write(path, out).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// The document-type keys `Day.toml`'s `[[file_types]]` call for, each with its wanted value
+/// (`None` removes the key). App-authored entries in `d` are kept.
+fn document_keys(
+    project: &Project,
+    d: &plist::Dictionary,
+    ios: bool,
+) -> Vec<(&'static str, Option<plist::Value>)> {
     let previous: Vec<String> = d
         .get("DayManagedDocumentTypes")
         .and_then(|v| v.as_array())
@@ -185,35 +210,25 @@ pub fn sync_apple(project: &Project, path: &Path, ios: bool) -> Result<(), Strin
             imports.push(plist::Value::Dictionary(imported));
         }
     }
-    for key in [
-        "CFBundleDocumentTypes",
-        "UTImportedTypeDeclarations",
-        "DayManagedDocumentTypes",
-    ] {
-        d.remove(key);
+    let declared = !project.manifest.file_types.is_empty();
+    let mut keys = vec![
+        (
+            "CFBundleDocumentTypes",
+            (!docs.is_empty()).then(|| plist::Value::Array(docs)),
+        ),
+        (
+            "UTImportedTypeDeclarations",
+            Some(plist::Value::Array(imports)),
+        ),
+        (
+            "DayManagedDocumentTypes",
+            declared.then(|| plist::Value::Array(managed_imports)),
+        ),
+    ];
+    if ios && declared {
+        keys.push(("LSSupportsOpeningDocumentsInPlace", Some(false.into())));
     }
-    if !docs.is_empty() {
-        d.insert("CFBundleDocumentTypes".into(), plist::Value::Array(docs));
-    }
-    d.insert(
-        "UTImportedTypeDeclarations".into(),
-        plist::Value::Array(imports),
-    );
-    if !project.manifest.file_types.is_empty() {
-        d.insert(
-            "DayManagedDocumentTypes".into(),
-            plist::Value::Array(managed_imports),
-        );
-        if ios {
-            d.insert("LSSupportsOpeningDocumentsInPlace".into(), false.into());
-        }
-    }
-    let mut bytes = Vec::new();
-    p.to_writer_xml(&mut bytes).map_err(|e| e.to_string())?;
-    if std::fs::read(path).ok().as_deref() != Some(bytes.as_slice()) {
-        std::fs::write(path, bytes).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    keys
 }
 pub fn web_manifest(mut manifest: Value, types: &[FileType]) -> Value {
     if !types.is_empty() {
@@ -569,6 +584,52 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    /// A build must leave the scaffold's checked-in plist alone: CI asserts a pristine checkout
+    /// after building, and reserializing the document reordered its keys and dropped its final
+    /// newline in every Day app.
+    #[test]
+    fn apple_sync_keeps_the_checked_in_plist_byte_for_byte() {
+        const SCAFFOLD: &str = include_str!("../templates/app/platform/macos/Runner/Info.plist");
+        let dir = std::env::temp_dir().join(format!("day-url-plist-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname='url-fixture'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("Day.toml"),
+            "schema=1\n[app]\nid='org.test.feeds'\n",
+        )
+        .unwrap();
+        let mut project = crate::meta::find_project(Some(&dir)).unwrap();
+        let path = dir.join("Info.plist");
+        std::fs::write(&path, SCAFFOLD).unwrap();
+
+        sync_apple(&project, &path, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), SCAFFOLD);
+
+        // A scheme rewrites CFBundleURLTypes alone, in place, and a second sync is a no-op.
+        project.manifest.url_schemes = vec!["feed".into()];
+        sync_apple(&project, &path, false).unwrap();
+        let added = std::fs::read_to_string(&path).unwrap();
+        assert!(added.contains("<string>day.external-urls</string>"));
+        assert!(added.ends_with('\n'));
+        let order = |text: &str| {
+            let value = plist::Value::from_reader_xml(text.as_bytes()).unwrap();
+            let keys: Vec<String> = value.as_dictionary().unwrap().keys().cloned().collect();
+            keys
+        };
+        assert_eq!(order(&added), order(SCAFFOLD));
+        sync_apple(&project, &path, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), added);
+
+        // Dropping the scheme restores the scaffold exactly.
+        project.manifest.url_schemes.clear();
+        sync_apple(&project, &path, false).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), SCAFFOLD);
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]

@@ -3660,6 +3660,60 @@ mod imp {
             None
         }
 
+        fn set_input_traits(
+            &mut self,
+            h: &AHandle,
+            traits: &day_spec::InputTraits,
+        ) -> Option<AHandle> {
+            use day_spec::{InputPurpose, SubmitLabel};
+            // One EditText takes every member as a property (docs/textfield.md), so the handle
+            // never changes. Secure and purpose merge into a single Android input type, which
+            // is why the whole set crosses in one call; `DayBridge.setInputTraits` documents
+            // the same integer codes and ignores a view that is not a text field.
+            let purpose = match traits.purpose {
+                InputPurpose::Text => 0,
+                InputPurpose::Name => 1,
+                InputPurpose::Email => 2,
+                InputPurpose::Url => 3,
+                InputPurpose::Phone => 4,
+                InputPurpose::Number => 5,
+                InputPurpose::Decimal => 6,
+                InputPurpose::Username => 7,
+                InputPurpose::Password => 8,
+                InputPurpose::NewPassword => 9,
+                InputPurpose::OneTimeCode => 10,
+            };
+            let submit = match traits.submit_label {
+                SubmitLabel::Return => 0,
+                SubmitLabel::Done => 1,
+                SubmitLabel::Go => 2,
+                SubmitLabel::Next => 3,
+                SubmitLabel::Search => 4,
+                SubmitLabel::Send => 5,
+            };
+            // `max_length` stays with day-pieces: it counts characters, and Android's
+            // `LengthFilter` counts UTF-16 units, so a native bound would refuse text the
+            // bound allows.
+            with_env(|env| {
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "setInputTraits",
+                    "(Landroid/view/View;ZZII)V",
+                    &[
+                        JValue::Object(h.0.as_obj()),
+                        JValue::Bool(traits.secure),
+                        JValue::Bool(traits.read_only),
+                        JValue::Int(purpose),
+                        JValue::Int(submit),
+                    ],
+                );
+                if env.exception_check() {
+                    env.exception_clear();
+                }
+            });
+            None
+        }
+
         fn set_cursor(&mut self, h: &AHandle, cursor: Cursor) {
             // `View.setPointerIcon` (API 24): a system icon by `PointerIcon.TYPE_*`, or null to
             // release the view to the platform's own choice (docs/cursor.md). Only a mouse or

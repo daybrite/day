@@ -2783,6 +2783,76 @@ pub enum Support {
     Unsupported,
 }
 
+/// What a text field collects (`text_field(..).input_purpose(_)`, docs/textfield.md).
+///
+/// One word for everything a platform keys off the kind of text: the on-screen keyboard's
+/// layout, capitalization and correction, and the credential or contact the system offers to
+/// fill in. A backend applies the parts its toolkit has: a desktop toolkit with no on-screen
+/// keyboard still takes the autofill and correction half.
+///
+/// Purpose is independent of [`InputTraits::secure`]: a numeric PIN is `Number` and secure.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum InputPurpose {
+    /// Free text: the default keyboard, with the platform's own capitalization and correction.
+    #[default]
+    Text,
+    /// A person's name: words capitalized, never corrected.
+    Name,
+    /// An email address: the `@` keyboard, never capitalized or corrected.
+    Email,
+    /// A web address: the URL keyboard, never capitalized or corrected.
+    Url,
+    /// A telephone number: the phone pad.
+    Phone,
+    /// A whole number: the digit pad.
+    Number,
+    /// A number with a fractional part: the digit pad with a decimal separator.
+    Decimal,
+    /// An account name: never capitalized or corrected, and offered to the password manager.
+    Username,
+    /// An existing password, offered to the password manager for filling.
+    Password,
+    /// A password being chosen, so the password manager offers to make and save one.
+    NewPassword,
+    /// A code sent by message or mail, which the keyboard offers as it arrives. The keyboard
+    /// stays the text one, since a code can carry letters.
+    OneTimeCode,
+}
+
+/// The on-screen keyboard's action key (`text_field(..).submit_label(_)`, docs/textfield.md).
+///
+/// The key always fires the field's `on_submit`; this names what it promises. A toolkit with
+/// no on-screen keyboard ignores it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SubmitLabel {
+    /// The platform's own key (Return).
+    #[default]
+    Return,
+    Done,
+    Go,
+    Next,
+    Search,
+    Send,
+}
+
+/// How a text field takes its text (docs/textfield.md): the whole set travels together through
+/// [`Toolkit::set_input_traits`], so a backend that has to rebuild the widget for one member
+/// has every other member in hand to dress the replacement.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct InputTraits {
+    /// Hide the characters (a password field).
+    pub secure: bool,
+    /// Show and select the text, take no edits.
+    pub read_only: bool,
+    pub purpose: InputPurpose,
+    pub submit_label: SubmitLabel,
+    /// The most characters (Unicode scalar values) the field takes; `None` is unbounded.
+    /// day-pieces holds the bound on every backend. A toolkit applies its native limit as well
+    /// only where that limit counts the same unit (GTK): one that counts UTF-16 units would
+    /// refuse characters the bound allows.
+    pub max_length: Option<u32>,
+}
+
 /// The pointer's shape over a piece (the `.cursor()` decorator, docs/cursor.md).
 ///
 /// The named variants are the CSS cursor vocabulary: the largest set any toolkit accepts as it
@@ -6100,6 +6170,19 @@ pub trait Toolkit: Sized + 'static {
     fn set_selectable(&mut self, _h: &Self::Handle, _selectable: bool) -> Option<Self::Handle> {
         None
     }
+
+    // text entry (docs/textfield.md): how a `text_field` takes its text: hidden characters,
+    // read-only, the keyboard and autofill purpose, the action key, the length bound. Called
+    // once after `realize` when a field asks for anything but the defaults, and again with the
+    // whole set whenever a reactive member changes, so the setter is idempotent.
+    //
+    // Returns `Some(replacement)` when hiding the characters takes a different native class
+    // (AppKit: `NSSecureTextField`; WinUI: `PasswordBox`), the same contract as
+    // `set_selectable`: the backend carries the text, the placeholder and its own event wiring
+    // over, takes the old widget's place in the native tree, and day-core re-points the node's
+    // handle. Required, with no default: a backend that left this out would show a password in
+    // the clear. A member the toolkit has no notion of (an action key on a desktop) is ignored.
+    fn set_input_traits(&mut self, h: &Self::Handle, traits: &InputTraits) -> Option<Self::Handle>;
 
     // pointer shape (docs/cursor.md): the cursor to show while the pointer is over this node
     // and its descendants, from the `.cursor()` modifier. Called again whenever a reactive
