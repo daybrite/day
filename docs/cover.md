@@ -191,3 +191,10 @@ reopen it, and a "link me to this screen" URL point at a modal.
 | arkui | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
 | appkit / gtk / qt / xaml / dom | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
+
+## Modal sheet hint
+
+`cover(open, build).sheet().unrouted()` uses the cover's signal, scoped child tree and dismissal
+contract for a data-entry sheet. AppKit attaches a native sheet to the primary window; UIKit
+uses PageSheet. The other toolkits currently use their existing modal cover treatment. The
+presentation hint is fixed when the piece is built; omit `.sheet()` to retain fullscreen behavior.

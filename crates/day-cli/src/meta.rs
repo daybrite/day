@@ -26,6 +26,9 @@ pub struct Manifest {
     pub app: App,
     #[serde(default)]
     pub file_types: Vec<crate::documents::FileType>,
+    /// Additional OS URL associations, delivered intact through on_open_url.
+    #[serde(default)]
+    pub url_schemes: Vec<String>,
     #[serde(default)]
     pub window: Window,
     /// `[screenshots]`: the size scripted runs capture desktop-class targets at
@@ -1049,6 +1052,16 @@ pub fn parse_manifest(
     validate_permissions(day_toml)?;
     let mut manifest: Manifest = toml::from_str(day_toml).map_err(|e| format!("Day.toml: {e}"))?;
     crate::documents::validate(&manifest.file_types)?;
+    for scheme in &manifest.url_schemes {
+        if scheme.is_empty()
+            || !scheme.as_bytes()[0].is_ascii_lowercase()
+            || !scheme
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"+.-".contains(&b))
+        {
+            return Err("url_schemes must contain lowercase URI scheme names".into());
+        }
+    }
     if manifest.schema != 1 {
         return Err(format!(
             "Day.toml: unsupported schema version {}",

@@ -22,6 +22,7 @@ day_reactive::tls_root! {
     shield: crate::shield::TlsGroupSlots,
     toolbar: crate::toolbar::TlsGroupSlots,
     documents: crate::documents::TlsGroupSlots,
+    urls: crate::urls::TlsGroupSlots,
     tree: crate::tree::TlsGroupSlots,
     windows: crate::windows::TlsGroupSlots,
 }
@@ -80,6 +81,7 @@ pub use nav::*;
 pub mod documents;
 #[doc(hidden)]
 pub use documents::take_launch_files;
+mod urls;
 pub use documents::{on_open_files, request_open_files};
 pub use present::*;
 pub use toolbar::{
@@ -93,6 +95,7 @@ pub use tree_driver::{
     TreeBuiltRow, TreeDriver, TreeMovesDriver, install_tree, tree_driver, tree_reload, tree_reveal,
     tree_set_expanded, tree_set_selected, tree_try_move, tree_visible_rows,
 };
+pub use urls::{on_open_url, request_open_url};
 // The resource types live in day-spec (backends depend only on day-spec); re-exported for the
 // facade.
 pub use day_spec::resource::{
@@ -785,6 +788,10 @@ pub fn launch_with<P: Platform>(
             )))]
             documents::request_open_files(documents::take_launch_files());
             day_reactive::on_main(documents::drain_open_files);
+            if let Ok(url) = std::env::var("DAY_OPEN_URL") {
+                urls::request_open_url(&url);
+            }
+            day_reactive::on_main(urls::drain);
 
             // DidLaunch: the UI is mounted and laid out, the app is about to run (docs/lifecycle.md).
             lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidLaunch);

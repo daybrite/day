@@ -7130,13 +7130,7 @@ impl Platform for Gtk {
 
         app.connect_open(|app, files, _| {
             ffi_guard::contain((), || {
-                day_core::request_open_files(
-                    files
-                        .iter()
-                        .filter_map(|f| f.path())
-                        .map(|p| p.to_string_lossy().into_owned())
-                        .collect(),
-                );
+                day_core::request_open_files(files.iter().map(|f| f.uri().to_string()).collect());
                 app.activate();
             });
         });

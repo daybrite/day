@@ -56,15 +56,16 @@ fn xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 pub fn android(project: &Project) -> Option<String> {
-    if project.manifest.file_types.is_empty() {
+    if project.manifest.file_types.is_empty() && project.manifest.url_schemes.is_empty() {
         return None;
     }
     let mut s = String::from(
         "<activity android:name=\"dev.daybrite.day.bridge.DayActivity\" android:exported=\"true\">\n",
     );
+    s.push_str(&crate::url_handlers::android(project));
     for t in &project.manifest.file_types {
         for mime in &t.mime_types {
-            s.push_str(&format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><data android:mimeType=\"{}\"/></intent-filter>\n",xml(mime)));
+            s.push_str(&format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"content\"/><data android:scheme=\"file\"/><data android:scheme=\"http\"/><data android:scheme=\"https\"/><data android:mimeType=\"{}\"/></intent-filter>\n",xml(mime)));
         }
     }
     s.push_str("</activity>");
@@ -78,7 +79,9 @@ pub fn sync_apple(project: &Project, path: &Path, ios: bool) -> Result<(), Strin
     let d = p
         .as_dictionary_mut()
         .ok_or("Info.plist is not a dictionary")?;
+    crate::url_handlers::apple(project, d);
     if project.manifest.file_types.is_empty() && !d.contains_key("DayManagedDocumentTypes") {
+        p.to_file_xml(path).map_err(|e| e.to_string())?;
         return Ok(());
     }
     let previous: Vec<String> = d
@@ -358,7 +361,7 @@ pub fn desktop_artifact(
     profile: crate::cli::Profile,
     binary: std::path::PathBuf,
 ) -> Result<std::path::PathBuf, String> {
-    if project.manifest.file_types.is_empty() {
+    if project.manifest.file_types.is_empty() && project.manifest.url_schemes.is_empty() {
         return Ok(binary);
     }
     if target.os == "windows" {
@@ -366,8 +369,13 @@ pub fn desktop_artifact(
             .join("file-types")
             .join(target.name);
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let text = windows_registry(
-            &project.manifest.file_types,
+        let text = crate::url_handlers::windows_registry(
+            windows_registry(
+                &project.manifest.file_types,
+                &project.manifest.resolve(target.name).id,
+                &binary,
+            ),
+            &project.manifest.url_schemes,
             &project.manifest.resolve(target.name).id,
             &binary,
         );
@@ -518,8 +526,19 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("Day.toml"),"schema=1\n[app]\nid='org.test.reader'\n[[file_types]]\nextensions=['epub']\nmime_types=['application/epub+zip']\napple_uti='org.idpf.epub-container'\n").unwrap();
         let mut project = crate::meta::find_project(Some(&dir)).unwrap();
+        project.manifest.url_schemes = vec!["feed".into()];
         let path = dir.join("Info.plist");
         let mut doc = plist::Dictionary::new();
+        let mut route = plist::Dictionary::new();
+        route.insert("CFBundleURLName".into(), "app.route".into());
+        route.insert(
+            "CFBundleURLSchemes".into(),
+            plist::Value::Array(vec!["reader".into()]),
+        );
+        doc.insert(
+            "CFBundleURLTypes".into(),
+            plist::Value::Array(vec![route.into()]),
+        );
         let mut custom = plist::Dictionary::new();
         custom.insert("CFBundleTypeName".into(), "app-authored".into());
         doc.insert(
@@ -536,11 +555,14 @@ mod tests {
             d["LSSupportsOpeningDocumentsInPlace"].as_boolean(),
             Some(false)
         );
+        assert_eq!(d["CFBundleURLTypes"].as_array().unwrap().len(), 2);
+        project.manifest.url_schemes.clear();
         project.manifest.file_types.clear();
         sync_apple(&project, &path, true).unwrap();
         let value = plist::Value::from_file(&path).unwrap();
         let d = value.as_dictionary().unwrap();
         assert_eq!(d["CFBundleDocumentTypes"].as_array().unwrap().len(), 1);
+        assert_eq!(d["CFBundleURLTypes"].as_array().unwrap().len(), 1);
         assert!(
             d["UTImportedTypeDeclarations"]
                 .as_array()

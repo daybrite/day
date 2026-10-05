@@ -242,3 +242,22 @@ commands above) and the script asserts via `assert_route`. That proves registrat
 costs a per-platform runner arm, and belongs in the per-target CI jobs rather than every
 walkthrough. The split matters because tier-1 failures are app bugs and tier-2 failures are
 packaging bugs; a single step doing both would leave every failure ambiguous.
+
+## External URL handlers
+
+Declare additional OS associations at the root of Day.toml:
+
+```toml
+url_schemes = ["feed", "web+feed"]
+```
+
+Register `day::on_open_url(|url| { /* show validation UI */ true })` in the app root.
+The callback receives the complete original URL on the UI thread, including its scheme and query.
+Return false to retain existing route handling. The latest live registration receives activations;
+its scope owns cleanup. Cold-start delivery occurs after mounting. Use `DAY_OPEN_URL` or the
+`open_url: { url: ... }` dayscript step to exercise this rail without OS registration.
+
+Apple bundles, Android/Harmony manifests, Linux desktop entries, Windows MSIX and NSIS packages
+advertise protocol candidates. Windows development builds emit an opt-in registration file.
+PWA manifests include only valid `web+` names. Registration doesn't force the user's default or
+make every HTTPS link leave a browser; MIME handling depends on browser/platform policy.

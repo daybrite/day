@@ -6,6 +6,12 @@
   "type": "object",
   "required": ["app"],
   "properties": {
+    "url_schemes": {
+      "type": "array",
+      "description": "Additional external URL schemes delivered to on_open_url before route fallback.",
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*$" },
+      "uniqueItems": true
+    },
     "sandbox": {
       "type": "object",
       "additionalProperties": false,

@@ -384,6 +384,10 @@ pub enum Step {
     DeepLink {
         url: String,
     },
+    /// Deliver an original external URL to on_open_url (with normal routing fallback).
+    OpenUrl {
+        url: String,
+    },
     /// Navigate to a registered route (reset-to semantics; "" = root). docs/navigation.md.
     Navigate {
         route: String,
@@ -1890,6 +1894,10 @@ fn exec(step: Step, revision: u32) -> Reply {
                         true,
                     ))
                 }
+            }
+            Step::OpenUrl { url } => {
+                day_core::request_open_url(&url);
+                Ok(Reply::ok())
             }
             Step::DeepLink { url } => {
                 day_reactive::flush_sync();

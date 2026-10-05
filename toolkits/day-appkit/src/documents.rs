@@ -15,7 +15,7 @@ define_class!(
             ffi_guard::contain((), || {
                 for url in urls.iter().filter(|u| !u.isFileURL()) {
                     if let Some(s) = url.absoluteString() {
-                        day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+                        day_core::request_open_url(&s.to_string());
                     }
                 }
                 let files = urls

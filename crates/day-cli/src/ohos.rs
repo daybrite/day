@@ -1253,6 +1253,7 @@ pub fn stage_host(project: &Project) -> Result<(), String> {
     let module = harmony.join("entry/src/main/module.json5");
     let text = std::fs::read_to_string(&module).map_err(|e| e.to_string())?;
     let text = crate::documents::harmony_module(&text, &project.manifest.file_types)?;
+    let text = crate::url_handlers::harmony(&text, &project.manifest.url_schemes)?;
     std::fs::write(module, text).map_err(|e| e.to_string())
 }
 

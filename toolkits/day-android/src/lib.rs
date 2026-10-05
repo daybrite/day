@@ -1430,7 +1430,8 @@ mod imp {
             }
             K_DEEPLINK => {
                 let route: String = env.dstr(jstr).ok().unwrap_or_default();
-                Event::RouteRequested(route)
+                day_core::request_open_url(&route);
+                return;
             }
             // Presentation answers (docs/dialogs.md): id == request id.
             K_PRESENT_BUTTON => Event::PresentResult {

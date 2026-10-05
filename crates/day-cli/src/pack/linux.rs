@@ -163,7 +163,13 @@ pub(crate) fn stage_exports(
     std::fs::create_dir_all(&desktop_dir).map_err(|e| e.to_string())?;
     std::fs::write(
         desktop_dir.join(format!("{id}.desktop")),
-        crate::documents::linux_entry(desktop_entry(title, exec, id), &project.manifest.file_types),
+        crate::url_handlers::linux(
+            crate::documents::linux_entry(
+                desktop_entry(title, exec, id),
+                &project.manifest.file_types,
+            ),
+            &project.manifest.url_schemes,
+        ),
     )
     .map_err(|e| e.to_string())?;
 

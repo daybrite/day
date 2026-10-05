@@ -6857,3 +6857,39 @@ UIKit native sidebar selection is delivered on the next main-queue turn. UIKit c
 and collection reloads must occur after that native transaction finishes, rather than
 re-entering it through the synchronous Day event pump. Tap and keyboard selection use the
 same ordered delivery; queued events for disposed nodes are ignored by the event pump.
+
+### External protocol data and subscription sheets
+
+Root `url_schemes = ["feed", "web+feed"]` declarations complement `[[file_types]]`.
+The CLI merges additional protocol candidates into Apple URL types, Android browsable VIEW
+filters, Linux desktop MIME handlers, Windows MSIX protocol extensions / per-user installer
+capabilities, and Harmony EntryAbility skills. Windows installer registration offers a candidate
+without overwriting the user's chosen default. Development `.reg` files remain opt-in. An
+installed PWA advertises only browser-permitted `web+` schemes; native names cannot be registered
+by a web app. Ordinary HTTPS MIME handoff remains browser-dependent.
+
+`day::on_open_url(|original| -> bool)` is scoped to the application/window root, like
+`on_open_files`: cold-start URLs queue until mounting; warm URLs post to the UI thread. It preserves
+scheme, query and escaping. Returning true consumes the data activation; false uses the existing
+`route_of_url` / `request_route` rail. File URLs retain the document handler. Android launch and
+warm Intents, UIKit scene URLs, AppKit openURLs, GTK GApplication open and Qt QFileOpenEvent
+use this rail. Windows protocol commands explicitly pass `--day-open-url`; web PWA handlers use
+`?day_url=`; `DAY_OPEN_URL` is the portable test launch override. The newest live handler owns
+intake; disposing it removes its registration, so apps should register in their root, not in a
+transient screen. Registration never subscribes or performs application operations implicitly.
+
+`cover(...).sheet()` requests a modal sheet with the same signal-driven ownership and dismissal
+contract as a cover. AppKit presents an attached NSWindow sheet and reclaims its parent/content
+references on dismissal or handle release. UIKit uses PageSheet. Other backends retain their
+existing modal cover presentation as a functional fallback; this hint does not change Cap::Cover.
+AppKit scripted snapshots capture the active attached sheet, including the offscreen fallback.
+Dialogs opened from a sheet attach to that modal surface, and dismissal uses the actual sheet parent.
+Day-News uses an unrouted subscription sheet for toolbar/menu/URL activation, explicit Verify,
+article preview, and Subscribe using the verified response and validators without a second fetch.
+Downloaded feed documents use bounded, security-scoped async reads and recover a self link or discover from their
+advertised publication site, because browsers usually discard the original feed URL.
+
+Regression coverage: `day-core::urls` cold/reentrant/scope tests, `day-cli::url_handlers`
+association candidate tests, and Day-News `subscription-discovery` / `feed-url-handler` dayscripts.
+The `open_url` dayscript step delivers through the real data rail; `deep_link` retains its direct
+route assertion semantics.

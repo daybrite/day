@@ -107,6 +107,7 @@ day_core::tls_group! {
     /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
     /// (replay inserted but nothing ever removed).
     static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
+    static COVER_SHEETS: SideTable<CoverSheet> = SideTable::new();
     /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
     /// scroll events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
     static PAN_NODES: SideTable<NodeId> = SideTable::new();
@@ -2015,12 +2016,31 @@ fn nav_present(mtm: MainThreadMarker, host: &Handle, next: NavPresentation) {
 // split's delegate, so Day must not install one of its own.
 // ---------------------------------------------------------------------------
 
+struct CoverSheet(Retained<NSWindow>);
+impl Drop for CoverSheet {
+    fn drop(&mut self) {
+        // Sheet transitions may run a nested AppKit update cycle. Defer them until the
+        // core's tree borrow has ended; this retained pointer travels only to the main queue.
+        let raw = Retained::into_raw(self.0.clone()) as usize;
+        dispatch2::DispatchQueue::main().exec_async(move || {
+            ffi_guard::contain((), || unsafe {
+                let window = Retained::from_raw(raw as *mut NSWindow).unwrap();
+                if let Some(parent) = window.sheetParent() {
+                    parent.endSheet(&window);
+                }
+                window.orderOut(None);
+                window.setContentView(None);
+            });
+        });
+    }
+}
 struct NavPageIvars {
     node: NodeId,
     /// A presented cover's strip under the window's title bar: the page paints it (its frame
     /// starts above the layout area) but lays its content out below it, and reports the
     /// remaining height (see `pin_below_title_bar`).
     top_inset: Cell<f64>,
+    sheet: Cell<bool>,
 }
 
 define_class!(
@@ -2057,6 +2077,7 @@ impl DayNavPage {
         let this = Self::alloc(mtm).set_ivars(NavPageIvars {
             node,
             top_inset: Cell::new(0.0),
+            sheet: Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -6004,6 +6025,9 @@ impl Toolkit for AppKit {
             // content for free — parked hidden until CoverPatch::Present re-homes it on top.
             Some(Builtin::Cover) => {
                 let page = DayNavPage::new(mtm, id);
+                page.ivars()
+                    .sheet
+                    .set(props.downcast_ref::<CoverProps>().is_some_and(|p| p.sheet));
                 unsafe { page.setHidden(true) };
                 view_of(page)
             }
@@ -6758,6 +6782,57 @@ impl Toolkit for AppKit {
                     let node = page.ivars().node;
                     match p {
                         CoverPatch::Present { background, .. } => {
+                            if page.ivars().sheet.get() {
+                                if let Some(parent) =
+                                    primary_content().and_then(|v| unsafe { v.window() })
+                                {
+                                    let bounds = parent.frame().size;
+                                    let size = NSSize::new(
+                                        (bounds.width - 40.0).clamp(320.0, 640.0),
+                                        (bounds.height - 80.0).clamp(300.0, 620.0),
+                                    );
+                                    let window = unsafe {
+                                        NSWindow::initWithContentRect_styleMask_backing_defer(
+                                            NSWindow::alloc(MainThreadMarker::new().unwrap()),
+                                            NSRect::new(NSPoint::new(0.0, 0.0), size),
+                                            NSWindowStyleMask::Titled,
+                                            NSBackingStoreType::Buffered,
+                                            false,
+                                        )
+                                    };
+                                    unsafe {
+                                        window.setReleasedWhenClosed(false);
+                                        page.removeFromSuperview();
+                                        page.setHidden(false);
+                                        page.setFrame(NSRect::new(NSPoint::new(0.0, 0.0), size));
+                                        window.setContentView(Some(&page));
+                                    }
+                                    let key = ptr_of(h);
+                                    COVER_SHEETS.with(|t| t.insert(key, CoverSheet(window)));
+                                    dispatch2::DispatchQueue::main().exec_async(move || {
+                                        ffi_guard::contain((), || {
+                                            let window =
+                                                COVER_SHEETS.with(|t| t.with(key, |s| s.0.clone()));
+                                            if let (Some(window), Some(parent)) = (
+                                                window,
+                                                primary_content()
+                                                    .and_then(|v| unsafe { v.window() }),
+                                            ) {
+                                                unsafe {
+                                                    parent.beginSheet_completionHandler(
+                                                        &window, None,
+                                                    );
+                                                }
+                                            }
+                                        });
+                                    });
+                                    emit(
+                                        node,
+                                        Event::FrameChanged(Size::new(size.width, size.height)),
+                                    );
+                                }
+                                return;
+                            }
                             // A cover must occlude the window (the native tiers' modal surfaces
                             // are opaque): default to the window background when the app sets
                             // no explicit color.
@@ -6809,6 +6884,7 @@ impl Toolkit for AppKit {
                         }
                         CoverPatch::DismissDisabled(_) => {}
                         CoverPatch::Dismiss => {
+                            COVER_SHEETS.with(|t| drop(t.remove(ptr_of(h))));
                             toolbar::cover_dismissed(ptr_of(h));
                             unsafe {
                                 page.setHidden(true);
@@ -8429,15 +8505,19 @@ impl Toolkit for AppKit {
         // fallback when no DAY window is key (a system panel may hold key status).
         let app = NSApplication::sharedApplication(mtm);
         let key = app.keyWindow().filter(|k| {
+            let mut owner = k.clone();
+            while let Some(parent) = owner.sheetParent() {
+                owner = parent;
+            }
             self.window
                 .as_deref()
-                .is_some_and(|w| std::ptr::eq(w, &**k))
+                .is_some_and(|w| std::ptr::eq(w, &*owner))
                 || self
                     .secondary
                     .iter()
-                    .any(|s| std::ptr::eq(&*s.window, &**k))
+                    .any(|s| std::ptr::eq(&*s.window, &*owner))
         });
-        let Some(window) = key.or_else(|| self.window.clone()) else {
+        let Some(mut window) = key.or_else(|| self.window.clone()) else {
             emit(
                 WINDOW_NODE,
                 Event::PresentResult {
@@ -8447,6 +8527,10 @@ impl Toolkit for AppKit {
             );
             return;
         };
+        // A dialog opened from a modal cover belongs on the active sheet, not behind it.
+        while let Some(sheet) = window.attachedSheet() {
+            window = sheet;
+        }
         // File pickers use a different native object (NSOpen/NSSavePanel), not an NSAlert.
         match spec {
             PresentSpec::OpenFile { filters, .. } => {
@@ -8570,13 +8654,18 @@ impl Toolkit for AppKit {
         // Close the sheet; its completion handler fires but its (native) result is dropped
         // because day-core already removed the pending request when it resolved.
         let alert = PRESENT_ALERTS.with(|m| m.borrow_mut().remove(&req));
-        if let (Some(alert), Some(window)) = (alert, self.window.clone()) {
-            unsafe { window.endSheet(&alert.window()) };
+        if let Some(alert) = alert {
+            let sheet = alert.window();
+            if let Some(parent) = sheet.sheetParent() {
+                unsafe { parent.endSheet(&sheet) };
+            }
         }
         // File-picker sheets are their own NSWindow.
         let panel = PRESENT_PANELS.with(|m| m.borrow_mut().remove(&req));
-        if let (Some(panel), Some(window)) = (panel, self.window.clone()) {
-            unsafe { window.endSheet(&panel) };
+        if let Some(panel) = panel
+            && let Some(parent) = panel.sheetParent()
+        {
+            unsafe { parent.endSheet(&panel) };
         }
     }
 
@@ -8928,6 +9017,11 @@ fn png_of_rep(rep: &objc2_app_kit::NSBitmapImageRep) -> Result<Vec<u8>, String> 
 /// falls back rather than failing the capture.
 fn snapshot_via_window_server(content: &NSView, chrome: bool) -> Result<Vec<u8>, String> {
     let window = content.window().ok_or("view is not in a window")?;
+    // An attached sheet is the active modal surface and has its own composited window.
+    // Capturing only the parent's window would show dimmed content without the modal UI.
+    if let Some(sheet) = window.attachedSheet().and_then(|s| s.contentView()) {
+        return snapshot_via_window_server(&sheet, chrome);
+    }
     let number = window.windowNumber();
     if number <= 0 {
         return Err(format!("window {number} is not on screen"));
@@ -9014,6 +9108,11 @@ fn snapshot_via_window_server(content: &NSView, chrome: bool) -> Result<Vec<u8>,
 /// composited materials; the offscreen render when it declines, because it is the only one of the
 /// two that works with no window on screen. See each for why.
 fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
+    let modal = content
+        .window()
+        .and_then(|w| w.attachedSheet())
+        .and_then(|s| s.contentView());
+    let content = modal.as_deref().unwrap_or(content);
     match snapshot_via_window_server(content, false) {
         Ok(bytes) => Ok(bytes),
         Err(_) => snapshot_view_cache(content),
@@ -9028,6 +9127,11 @@ fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
 /// the content capture stands in — a smaller image beats no image, and it is what the caller
 /// would have got from the plain duty.
 fn snapshot_view_chrome(content: &NSView) -> Result<Vec<u8>, String> {
+    let modal = content
+        .window()
+        .and_then(|w| w.attachedSheet())
+        .and_then(|s| s.contentView());
+    let content = modal.as_deref().unwrap_or(content);
     match snapshot_via_window_server(content, true) {
         Ok(bytes) => Ok(bytes),
         Err(_) => snapshot_view_cache(content),

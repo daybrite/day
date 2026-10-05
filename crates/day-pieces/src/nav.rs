@@ -4309,6 +4309,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
 type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Color>;
 
 pub struct Cover<S, R: Route> {
+    sheet: bool,
     open: S,
     build: Rc<dyn Fn(&R) -> AnyPiece>,
     background: Option<CoverBackground<R>>,
@@ -4324,6 +4325,7 @@ pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
     build: impl Fn(&R) -> P + 'static,
 ) -> Cover<S, R> {
     Cover {
+        sheet: false,
         open,
         // The stored builder is erased because a `Cover` holds one closure for every route it
         // presents; the parameter stays generic so callers never write `.any()` for us.
@@ -4335,6 +4337,12 @@ pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
 }
 
 impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
+    /// Prefer a native modal sheet. Backends without sheets retain their modal cover.
+    pub fn sheet(mut self) -> Self {
+        self.sheet = true;
+        self
+    }
+
     /// The surface color painted edge-to-edge behind the content (under the status bar and
     /// home indicator) while `r` is presented. Without it the platform's default surface
     /// color shows in the unsafe areas.
@@ -4381,7 +4389,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let size: Rc<RefCell<Option<Size>>> = Rc::default();
         let node = cx.native(
             kinds::COVER,
-            &CoverProps::default(),
+            &CoverProps { sheet: self.sheet },
             Rc::new(day_core::CoverLayout { size: size.clone() }),
             Flex::default(),
             Boundary::Yes,

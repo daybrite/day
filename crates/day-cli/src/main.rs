@@ -51,6 +51,7 @@ mod targets;
 mod template;
 mod term;
 mod update;
+mod url_handlers;
 mod web;
 mod xcconfig;
 

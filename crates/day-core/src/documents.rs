@@ -34,7 +34,24 @@ pub fn on_open_files(handler: impl Fn(Vec<String>) + 'static) {
 /// Platform intake, callable before launch and from worker threads. Locators must be local
 /// paths or file URLs (mobile providers stage granted content before calling this).
 pub fn request_open_files(files: Vec<String>) {
-    let files: Vec<_> = files.into_iter().filter(|p| !p.is_empty()).collect();
+    let files: Vec<_> = files
+        .into_iter()
+        .filter(|p| {
+            if p.split_once(':').is_some_and(|(scheme, _)| {
+                scheme.len() > 1
+                    && scheme
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"+.-".contains(&b))
+            }) && !p.starts_with("file:")
+                && !std::path::Path::new(p).is_absolute()
+            {
+                crate::request_open_url(p);
+                false
+            } else {
+                !p.is_empty()
+            }
+        })
+        .collect();
     if files.is_empty() {
         return;
     }
@@ -71,7 +88,13 @@ pub(crate) fn launch_files(args: impl Iterator<Item = String>) -> Vec<String> {
             files.extend(args);
             break;
         }
-        if arg == "--day-open-file" {
+        if arg == "--day-open-url" {
+            if let Some(url) = args.next() {
+                files.push(url);
+            }
+        } else if !arg.starts_with('-') && arg.contains("://") {
+            files.push(arg);
+        } else if arg == "--day-open-file" {
             if let Some(path) = args.next() {
                 files.push(path)
             }
@@ -146,13 +169,21 @@ mod tests {
             ),
             ["/tmp/book name.epub", "a.epub", "b.epub"]
         );
-        assert!(
+        assert_eq!(
             launch_files(
                 ["https://example.org", "--debug"]
                     .into_iter()
                     .map(str::to_owned)
-            )
-            .is_empty()
+            ),
+            ["https://example.org"]
+        );
+        assert_eq!(
+            launch_files(
+                ["--day-open-url", "feed:https://example.org/rss?q=a%26b"]
+                    .into_iter()
+                    .map(str::to_owned)
+            ),
+            ["feed:https://example.org/rss?q=a%26b"]
         );
     }
 }

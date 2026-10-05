@@ -199,9 +199,12 @@ pub fn build_web(
     let icons = stage_home_icons(project, &dist)?;
     std::fs::write(
         dist.join("manifest.webmanifest"),
-        serde_json::to_string_pretty(&crate::documents::web_manifest(
-            serde_json::from_str(&manifest_json(&home, &icons)).map_err(|e| e.to_string())?,
-            &project.manifest.file_types,
+        serde_json::to_string_pretty(&crate::url_handlers::web(
+            crate::documents::web_manifest(
+                serde_json::from_str(&manifest_json(&home, &icons)).map_err(|e| e.to_string())?,
+                &project.manifest.file_types,
+            ),
+            &project.manifest.url_schemes,
         ))
         .map_err(|e| e.to_string())?,
     )

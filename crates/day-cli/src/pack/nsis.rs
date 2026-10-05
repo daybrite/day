@@ -53,16 +53,21 @@ pub fn pack(
     let nsi = work.join("installer.nsi");
     std::fs::write(
         &nsi,
-        crate::documents::nsis(
-            render_nsi(
-                &title,
-                name,
-                version,
+        crate::url_handlers::nsis(
+            crate::documents::nsis(
+                render_nsi(
+                    &title,
+                    name,
+                    version,
+                    &project.manifest.app.id,
+                    payload,
+                    &setup,
+                ),
+                &project.manifest.file_types,
                 &project.manifest.app.id,
-                payload,
-                &setup,
+                name,
             ),
-            &project.manifest.file_types,
+            &project.manifest.url_schemes,
             &project.manifest.app.id,
             name,
         ),

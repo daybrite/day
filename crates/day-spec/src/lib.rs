@@ -5478,7 +5478,10 @@ pub mod props {
     /// A fullscreen cover's content container (docs/cover.md). Realized detached and hidden;
     /// `CoverPatch::Present` shows it over the whole window.
     #[derive(Clone, Debug, Default, PartialEq)]
-    pub struct CoverProps {}
+    pub struct CoverProps {
+        /// Prefer a native sheet; toolkits without sheet presentation keep their modal cover.
+        pub sheet: bool,
+    }
 
     /// Applied to a `kinds::COVER` node as its bound signal opens and closes it.
     #[derive(Clone, Debug, PartialEq)]

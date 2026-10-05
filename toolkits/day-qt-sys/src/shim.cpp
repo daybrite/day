@@ -102,7 +102,7 @@ public:
     bool event(QEvent *event) override {
         if (event->type() == QEvent::FileOpen) {
             const auto url = static_cast<QFileOpenEvent *>(event)->url();
-            if (url.isLocalFile()) day_qt_open_file(url.toLocalFile().toUtf8().constData());
+            day_qt_open_file((url.isLocalFile() ? url.toLocalFile() : url.toString(QUrl::FullyEncoded)).toUtf8().constData());
             return true;
         }
         return QApplication::event(event);

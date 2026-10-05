@@ -8061,7 +8061,13 @@ mod imp {
                     let vc = DayCoverVC::new(mtm);
                     unsafe {
                         vc.setView(Some(&outer));
-                        vc.setModalPresentationStyle(UIModalPresentationStyle::FullScreen);
+                        vc.setModalPresentationStyle(
+                            if props.downcast_ref::<CoverProps>().is_some_and(|p| p.sheet) {
+                                UIModalPresentationStyle::PageSheet
+                            } else {
+                                UIModalPresentationStyle::FullScreen
+                            },
+                        );
                     }
                     let handle = view_of(content);
                     COVER_STATE.with(|m| {
@@ -11736,7 +11742,7 @@ mod imp {
             if url.isFileURL() {
                 day_core::request_open_files(vec![s.to_string()]);
             } else {
-                day_core::request_route(&day_spec::route_of_url(&s.to_string()));
+                day_core::request_open_url(&s.to_string());
             }
         }
     }

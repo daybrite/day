@@ -121,7 +121,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // Cold-start deep link (docs/navigation.md): the launch URI's host+path is the route.
         android.net.Uri data = getIntent().getData();
         if (data != null && !isDocumentIntent(getIntent())) {
-            blob.append("DAY_DEEPLINK=").append(uriRoute(data)).append('\n');
+            blob.append("DAY_OPEN_URL=").append(data.toString()).append('\n');
         }
         final String envBlobBase = blob.toString();
         final DayActivity self = this;
@@ -398,9 +398,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         if (openDocumentIntent(intent)) return;
         android.net.Uri data = intent.getData();
         DayNavHost nav = DayNavHost.active;
-        if (data != null && nav != null) {
+        if (data != null) {
             // kind 7 = deep link; the nav host piece handles RouteRequested.
-            DayBridge.nativeOnEvent(nav.hostNode, DayBridge.K_DEEPLINK, 0.0, uriRoute(data));
+            DayBridge.nativeOnEvent(nav == null ? 0 : nav.hostNode, DayBridge.K_DEEPLINK, 0.0, data.toString());
         }
     }
 }

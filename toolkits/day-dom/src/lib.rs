@@ -4283,6 +4283,11 @@ pub fn launch_locale() -> Option<String> {
 
 /// The page's launch route (the URL hash, else `?route=`), for the `day::web` glue to hand to
 /// `set_launch_deeplink` — the web spelling of `DAY_DEEPLINK` (docs/navigation.md).
+/// Original external protocol URL delivered by an installed PWA protocol handler.
+pub fn launch_open_url() -> Option<String> {
+    let url = env("day_url");
+    (!url.is_empty()).then_some(url)
+}
 pub fn launch_route() -> Option<String> {
     let route = env("route");
     (!route.is_empty()).then_some(route)

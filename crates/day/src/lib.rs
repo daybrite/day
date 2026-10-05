@@ -1288,6 +1288,9 @@ pub mod web {
         if let Some(locale) = day_dom::launch_locale() {
             day_fluent::set_launch_locale(&locale);
         }
+        if let Some(url) = day_dom::launch_open_url() {
+            day_core::request_open_url(&url);
+        }
         if let Some(route) = day_dom::launch_route() {
             day_core::set_launch_deeplink(&route);
         }
@@ -1343,7 +1346,7 @@ pub mod arkui {
             if uri.starts_with("file://") {
                 day_core::request_open_files(vec![uri.into()]);
             } else {
-                day_core::request_route(&day_spec::route_of_url(uri));
+                day_core::request_open_url(uri);
             }
         }
     }
@@ -1353,4 +1356,4 @@ pub mod arkui {
 pub use day_spec::transfer;
 
 /// Receive local document activations from the operating system. See docs/documents.md.
-pub use day_core::on_open_files;
+pub use day_core::{on_open_files, on_open_url};
