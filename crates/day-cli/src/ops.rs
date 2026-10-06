@@ -6,9 +6,9 @@
 //! attach here at M5 (xcodebuild + simctl; gradle + adb).
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, BufReader};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -1070,10 +1070,26 @@ pub fn desktop_launch_plan(
     } else {
         screen_h
     };
+    // A shell without DISPLAY/WAYLAND_DISPLAY is not always a host without a display: an SSH
+    // session into a machine whose owner is logged in graphically has the session's Wayland
+    // socket in XDG_RUNTIME_DIR. GTK finds it on its own (libwayland falls back to `wayland-0`),
+    // which is why the gtk target "just worked" over SSH while qt, whose default platform is
+    // xcb, was sent offscreen. Name the socket for both and pin qt to its wayland platform.
+    let session = session_display(
+        std::env::var_os("DISPLAY").as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").as_deref(),
+        std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).as_deref(),
+    );
+    if let SessionDisplay::WaylandSocket(name) = &session {
+        env.insert("WAYLAND_DISPLAY".to_string(), OsString::from(name));
+        if target.toolkit == "qt" {
+            env.insert("QT_QPA_PLATFORM".to_string(), OsString::from("wayland"));
+        }
+    }
     let wrap = headless_wrap(
         target.toolkit,
         crate::targets::host_os(),
-        std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        session != SessionDisplay::None,
         screen_w,
         screen_h,
     );
@@ -1315,6 +1331,18 @@ pub fn launch(
                             "Headless",
                             "QT_QPA_PLATFORM=offscreen (no DISPLAY and no xvfb-run on this host)",
                         );
+                    } else if let Some(socket) = plan
+                        .env
+                        .get("WAYLAND_DISPLAY")
+                        .filter(|_| std::env::var_os("WAYLAND_DISPLAY").is_none())
+                    {
+                        status(
+                            "Display",
+                            &format!(
+                                "WAYLAND_DISPLAY={} (found the session's socket in XDG_RUNTIME_DIR; no DISPLAY in this shell)",
+                                socket.to_string_lossy()
+                            ),
+                        );
                     }
                     let mut c = Command::new(&plan.program);
                     c.args(&plan.args);
@@ -1454,6 +1482,62 @@ pub fn stream_logs(
             emit_log(name, stream, &line);
         }
     })
+}
+
+/// Where a desktop target's display comes from, as far as the launching shell can tell.
+#[derive(Debug, PartialEq)]
+pub(crate) enum SessionDisplay {
+    /// The environment already names one (`DISPLAY` or `WAYLAND_DISPLAY`); nothing to add.
+    Inherited,
+    /// Neither variable is set, but the user's graphical session left its Wayland socket in
+    /// `XDG_RUNTIME_DIR` (the common SSH-into-my-desktop case). The name is the socket's, ready
+    /// to export as `WAYLAND_DISPLAY`.
+    WaylandSocket(String),
+    /// No display anywhere; the headless story (`headless_wrap`) applies.
+    None,
+}
+
+/// The decision alone, environment and runtime dir passed in, testable on any machine. Only a
+/// Wayland socket is probed: it is owned by the user and needs no cookie, whereas an X socket
+/// found the same way would still want the session's `XAUTHORITY`, which the shell cannot guess.
+pub(crate) fn session_display(
+    display: Option<&OsStr>,
+    wayland_display: Option<&OsStr>,
+    runtime_dir: Option<&Path>,
+) -> SessionDisplay {
+    if display.is_some_and(|d| !d.is_empty()) || wayland_display.is_some_and(|d| !d.is_empty())
+    {
+        return SessionDisplay::Inherited;
+    }
+    let Some(dir) = runtime_dir else {
+        return SessionDisplay::None;
+    };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return SessionDisplay::None;
+    };
+    // `wayland-0`, `wayland-1`, …: the compositor's socket, not its `.lock` sidecar. Lowest
+    // number first, so a lone session is `wayland-0` whatever else the directory holds.
+    let mut sockets: Vec<(u32, String)> = entries
+        .flatten()
+        .filter_map(|e| {
+            let name = e.file_name().into_string().ok()?;
+            let n = name.strip_prefix("wayland-")?.parse::<u32>().ok()?;
+            #[cfg(unix)]
+            let is_socket = {
+                use std::os::unix::fs::FileTypeExt;
+                e.file_type().ok().is_some_and(|t| t.is_socket())
+            };
+            // Wayland is a unix thing; elsewhere nothing in the directory is a display.
+            #[cfg(not(unix))]
+            let is_socket = false;
+            is_socket.then_some((n, name))
+        })
+        .collect();
+    sockets.sort();
+    match sockets.into_iter().next() {
+        Some((_, name)) => SessionDisplay::WaylandSocket(name),
+        None => SessionDisplay::None,
+    }
 }
 
 /// How to run a desktop target on a host with no display server.
@@ -1650,6 +1734,54 @@ mod log_format_tests {
 #[cfg(test)]
 mod headless_tests {
     use super::*;
+
+    #[test]
+    fn an_environment_display_is_inherited_as_is() {
+        let tmp = std::env::temp_dir().join(format!("day-session-display-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let display = OsString::from(":0");
+        assert_eq!(
+            session_display(Some(&display), None, Some(&tmp)),
+            SessionDisplay::Inherited
+        );
+        let wayland = OsString::from("wayland-1");
+        assert_eq!(
+            session_display(None, Some(&wayland), Some(&tmp)),
+            SessionDisplay::Inherited
+        );
+        // An empty variable is as good as unset.
+        let empty = OsString::new();
+        assert_eq!(
+            session_display(Some(&empty), Some(&empty), Some(&tmp)),
+            SessionDisplay::None
+        );
+        // No runtime dir, or one with no socket in it: nothing to find.
+        assert_eq!(session_display(None, None, None), SessionDisplay::None);
+        std::fs::write(tmp.join("wayland-0.lock"), "").unwrap();
+        std::fs::write(tmp.join("wayland-0"), "a plain file, not a socket").unwrap();
+        assert_eq!(session_display(None, None, Some(&tmp)), SessionDisplay::None);
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_wayland_socket_in_the_runtime_dir_is_the_session_display() {
+        let tmp = std::env::temp_dir().join(format!("day-wayland-socket-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        // The lock sidecar and a higher-numbered socket must not win over `wayland-0`.
+        std::fs::write(tmp.join("wayland-0.lock"), "").unwrap();
+        let _s1 = std::os::unix::net::UnixListener::bind(tmp.join("wayland-1")).unwrap();
+        assert_eq!(
+            session_display(None, None, Some(&tmp)),
+            SessionDisplay::WaylandSocket("wayland-1".into())
+        );
+        let _s0 = std::os::unix::net::UnixListener::bind(tmp.join("wayland-0")).unwrap();
+        assert_eq!(
+            session_display(None, None, Some(&tmp)),
+            SessionDisplay::WaylandSocket("wayland-0".into())
+        );
+        std::fs::remove_dir_all(&tmp).unwrap();
+    }
 
     #[test]
     fn linux_without_a_display_wraps_both_toolkits_in_xvfb() {
