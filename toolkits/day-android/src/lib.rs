@@ -4427,6 +4427,8 @@ mod imp {
     impl Platform for Android {
         const TARGET: &'static str = "android-mdc";
         const TOOLKIT: &'static str = "mdc";
+        // The host owns the loop: `run` hands back at once, and DidExit is its last callback.
+        const RUN_ENDS_APP: bool = false;
 
         fn run(self, _options: WindowOptions, ready: Box<dyn FnOnce(Self, AHandle, Size)>) {
             // The ActivityThread owns the loop; init() already registered the root.

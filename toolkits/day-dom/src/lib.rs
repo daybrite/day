@@ -2877,6 +2877,8 @@ thread_local! {
 impl Platform for Dom {
     const TARGET: &'static str = "web-dom";
     const TOOLKIT: &'static str = "dom";
+    // The host owns the loop: `run` hands back at once, and DidExit is its last callback.
+    const RUN_ENDS_APP: bool = false;
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, DomHandle, Size)>) {
         unsafe { day_dom_set_title(options.title.as_ptr(), options.title.len()) };

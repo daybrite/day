@@ -3572,6 +3572,8 @@ mod imp {
     impl Platform for ArkUi {
         const TARGET: &'static str = "harmony-arkui";
         const TOOLKIT: &'static str = "arkui";
+        // The host owns the loop: `run` hands back at once, and DidExit is its last callback.
+        const RUN_ENDS_APP: bool = false;
 
         fn run(self, _options: WindowOptions, ready: Box<dyn FnOnce(Self, AHandle, Size)>) {
             // The ArkTS ability owns the loop; init() already created + mounted the root.

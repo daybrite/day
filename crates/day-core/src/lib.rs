@@ -840,10 +840,13 @@ pub fn launch_with<P: Platform>(
     );
     // DidExit: the native loop returned, which is the last thing the app runs on the desktop
     // backends whose loop returns (GTK, Qt, XAML). The backends whose process ends inside the
-    // loop (AppKit's terminate exits; a mobile OS tears the activity down) emit it themselves,
-    // after WillTerminate, and `dispatch_lifecycle` delivers it once whichever comes first.
-    // The mock backend's `run` returns at once to hand control to a test, which is not an exit.
-    if toolkit_key() != Some("mock") {
+    // loop (AppKit's terminate exits) emit it themselves, after WillTerminate, and
+    // `dispatch_lifecycle` delivers it once whichever comes first. Where the host owns the
+    // loop and `run` hands back at once with the app still to come (ArkUI, Android, the web,
+    // the mock's test), the return is no exit at all: DidExit there is the host's own last
+    // callback, and delivering it here would run the exit handlers at launch and leave the
+    // real exit undelivered (`RUN_ENDS_APP`, docs/lifecycle.md).
+    if P::RUN_ENDS_APP {
         lifecycle::dispatch_lifecycle(day_spec::Lifecycle::DidExit);
     }
 }

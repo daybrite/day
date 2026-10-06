@@ -6740,6 +6740,12 @@ pub trait Platform: Toolkit {
     const TARGET: &'static str;
     /// The toolkit half of the target, e.g. `"appkit"`.
     const TOOLKIT: &'static str;
+    /// Whether [`Platform::run`] returning means the app is over. True for a backend that
+    /// drives the native loop itself until the app quits (GTK, Qt, XAML; AppKit's never
+    /// returns). False where the host owns the loop and `run` hands back at once, with the
+    /// app still to come (ArkUI's ability, Android's activity, the web page, the mock's test):
+    /// their `DidExit` is the host's last callback, not the return (docs/lifecycle.md).
+    const RUN_ENDS_APP: bool = true;
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Self::Handle, Size)>);
 

@@ -106,7 +106,10 @@ the page's last moment).
 `DidExit` is the last moment each backend has: where the native loop returns to `day::launch`
 (GTK, Qt, XAML) it is emitted there; where the process ends inside the loop it follows
 `WillTerminate` at the same native moment (AppKit's and UIKit's `applicationWillTerminate`,
-Android's `onDestroy`, ArkUI's `onDestroy`); on the web it is `pagehide`.
+Android's `onDestroy`, ArkUI's `onDestroy`); on the web it is `pagehide`. A backend whose host
+owns the loop, so that `Platform::run` hands back at once with the app still to come (ArkUI,
+Android, the web), says so with `Platform::RUN_ENDS_APP = false`: day-core then leaves the
+phase to the host's callback instead of treating the return as the exit.
 
 ### Guarding platform-specific phases
 

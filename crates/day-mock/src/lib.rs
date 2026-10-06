@@ -1896,6 +1896,8 @@ fn menu_title(item: &day_spec::MenuItem) -> String {
 impl Platform for MockToolkit {
     const TARGET: &'static str = "mock-mock";
     const TOOLKIT: &'static str = "mock";
+    // The host owns the loop: `run` hands back at once, and DidExit is its last callback.
+    const RUN_ENDS_APP: bool = false;
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, MockHandle, Size)>) {
         // No native loop: create the root container, hand off, return. Tests drive via
