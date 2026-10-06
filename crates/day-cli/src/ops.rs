@@ -1078,7 +1078,9 @@ pub fn desktop_launch_plan(
     let session = session_display(
         std::env::var_os("DISPLAY").as_deref(),
         std::env::var_os("WAYLAND_DISPLAY").as_deref(),
-        std::env::var_os("XDG_RUNTIME_DIR").map(PathBuf::from).as_deref(),
+        std::env::var_os("XDG_RUNTIME_DIR")
+            .map(PathBuf::from)
+            .as_deref(),
     );
     if let SessionDisplay::WaylandSocket(name) = &session {
         env.insert("WAYLAND_DISPLAY".to_string(), OsString::from(name));
@@ -1505,8 +1507,7 @@ pub(crate) fn session_display(
     wayland_display: Option<&OsStr>,
     runtime_dir: Option<&Path>,
 ) -> SessionDisplay {
-    if display.is_some_and(|d| !d.is_empty()) || wayland_display.is_some_and(|d| !d.is_empty())
-    {
+    if display.is_some_and(|d| !d.is_empty()) || wayland_display.is_some_and(|d| !d.is_empty()) {
         return SessionDisplay::Inherited;
     }
     let Some(dir) = runtime_dir else {
@@ -1759,7 +1760,10 @@ mod headless_tests {
         assert_eq!(session_display(None, None, None), SessionDisplay::None);
         std::fs::write(tmp.join("wayland-0.lock"), "").unwrap();
         std::fs::write(tmp.join("wayland-0"), "a plain file, not a socket").unwrap();
-        assert_eq!(session_display(None, None, Some(&tmp)), SessionDisplay::None);
+        assert_eq!(
+            session_display(None, None, Some(&tmp)),
+            SessionDisplay::None
+        );
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 
