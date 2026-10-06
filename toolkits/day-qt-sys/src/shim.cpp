@@ -388,8 +388,15 @@ public:
     double tx = 0, ty = 0, sx = 1, sy = 1, rot = 0;
     double radius = 0.0;
     explicit DayEffect(QObject *parent) : QGraphicsEffect(parent) {}
+    // Only a transform can spill outside the widget's frame; a plain rounded clip or an opacity
+    // fade never does. The padding sets the size of the pixmap the effect renders the subtree
+    // into on EVERY paint, and effects nest (a card inside a page inside a cover), so a padded
+    // 161x22 chip was a 961x822 render — 220x the pixels — repeated for each enclosing effect.
+    bool spills() const { return tx != 0 || ty != 0 || sx != 1 || sy != 1 || rot != 0; }
+    // `updateBoundingRect` is protected; the transform tween calls this when `spills()` flips.
+    void boundsChanged() { updateBoundingRect(); }
     QRectF boundingRectFor(const QRectF &r) const override {
-        return r.adjusted(-400, -400, 400, 400);
+        return spills() ? r.adjusted(-400, -400, 400, 400) : r;
     }
     void draw(QPainter *painter) override {
         // Capture the widget (and children) in logical coords; `offset` is where to blit it. Qt sets
@@ -508,8 +515,39 @@ void day_qt_widget_set_bg(void *w, double r, double g, double b, double a) {
 }
 
 // --- label ---
+// A label that honors `.single_line()` the way every other backend does: one line, truncated
+// with an ellipsis when Day grants it less width than the text needs. QLabel has no elide mode
+// (a non-wrapping QLabel just clips at its edge), so a plain, non-wrapping label that does not
+// fit draws the elided string itself. Wrapping and rich-text labels paint exactly as QLabel does,
+// and so does any label whose text fits; sizeHint() still reports the full text's width.
+class DayLabel : public QLabel {
+public:
+    using QLabel::QLabel;
+
+protected:
+    void paintEvent(QPaintEvent *e) override {
+        const bool rich = textFormat() == Qt::RichText
+                       || (textFormat() == Qt::AutoText && Qt::mightBeRichText(text()));
+        if (wordWrap() || rich || text().isEmpty()) {
+            QLabel::paintEvent(e);
+            return;
+        }
+        const QRect cr = contentsRect().adjusted(margin(), margin(), -margin(), -margin());
+        const QFontMetrics fm(font());
+        if (fm.horizontalAdvance(text()) <= cr.width()) {
+            QLabel::paintEvent(e);
+            return;
+        }
+        QPainter painter(this);
+        drawFrame(&painter);
+        const QString elided = fm.elidedText(text(), Qt::ElideRight, cr.width());
+        style()->drawItemText(&painter, cr, QStyle::visualAlignment(layoutDirection(), alignment()),
+                              palette(), isEnabled(), elided, foregroundRole());
+    }
+};
+
 void *day_qt_label_new(const char *text, int wraps) {
-    QLabel *l = new QLabel(QString::fromUtf8(text));
+    QLabel *l = new DayLabel(QString::fromUtf8(text));
     l->setWordWrap(wraps != 0);
     if (g_rtl) {
         l->setAlignment(Qt::AlignRight | Qt::AlignTop);
@@ -645,15 +683,41 @@ int day_qt_register_font(const char *path) {
 // Toggle wordWrap off around the query so QLabel's own text engine answers (shaping, margins,
 // indent — plain QFontMetrics::horizontalAdvance comes up a few px short of it and the last
 // word wraps). No event loop runs between the toggles, so nothing paints in the off state.
+// Both answers are remembered on the label against what they depend on — its text (the HTML,
+// for rich text), font, format and direction — because QLabel does not: a rich-text label lays
+// its whole QTextDocument out again for every sizeHint()/heightForWidth() call, and Day's layout
+// asks each label several times per pass (natural width, then height at one or two widths) on
+// every pass. The cache is what makes a pane drag re-measure in microseconds, not milliseconds.
+static QString day_qt_label_measure_key(QLabel *l) {
+    return l->text() + QLatin1Char('\x1f') + l->font().key() + QLatin1Char('\x1f')
+         + QString::number(int(l->textFormat())) + QString::number(int(l->layoutDirection()))
+         + QString::number(int(l->textInteractionFlags()));
+}
 int day_qt_label_natural_width(void *w) {
     QLabel *l = static_cast<QLabel *>(w);
-    l->setWordWrap(false);
+    const QString key = day_qt_label_measure_key(l);
+    if (l->property("dayNatKey").toString() == key) return l->property("dayNatW").toInt();
+    // Restore the label's OWN wrap setting afterwards. Forcing it back on turned every
+    // `.single_line()` label into a wrapping one after its first measure, so a long sidebar title
+    // wrapped onto a second line its fixed-height row then clipped.
+    const bool wraps = l->wordWrap();
+    if (wraps) l->setWordWrap(false);
     const int width = l->sizeHint().width();
-    l->setWordWrap(true);
+    if (wraps) l->setWordWrap(true);
+    l->setProperty("dayNatKey", key);
+    l->setProperty("dayNatW", width);
     return width;
 }
 int day_qt_label_height_for_width(void *w, int width) {
-    return static_cast<QLabel *>(w)->heightForWidth(width);
+    QLabel *l = static_cast<QLabel *>(w);
+    const QString key = day_qt_label_measure_key(l);
+    if (l->property("dayHfwW").toInt() == width && l->property("dayHfwKey").toString() == key)
+        return l->property("dayHfwH").toInt();
+    const int h = l->heightForWidth(width);
+    l->setProperty("dayHfwKey", key);
+    l->setProperty("dayHfwW", width);
+    l->setProperty("dayHfwH", h);
+    return h;
 }
 
 // --- button ---
@@ -1363,11 +1427,14 @@ void day_qt_set_transform(void *w, double tx, double ty, double sx, double sy, d
     DayEffect *eff = day_qt_effect(static_cast<QWidget *>(w));
     double fx = eff->tx, fy = eff->ty, fsx = eff->sx, fsy = eff->sy, fr = eff->rot;
     day_qt_animate(eff, "tf", durMs, curve, [=](double t) {
+        const bool spilled = eff->spills();
         eff->tx = fx + (tx - fx) * t;
         eff->ty = fy + (ty - fy) * t;
         eff->sx = fsx + (sx - fsx) * t;
         eff->sy = fsy + (sy - fsy) * t;
         eff->rot = fr + (rot - fr) * t;
+        // The padding follows the transform (boundingRectFor), so tell Qt when it changes.
+        if (spilled != eff->spills()) eff->boundsChanged();
     });
 }
 
@@ -2938,9 +3005,13 @@ void day_qt_list_set_selected(void *w, const int *rows, int n) {
     l->paintSelection();
 }
 
+// Scroll `row` into view (docs/list.md), the least distance that shows it: a row already on
+// screen stays exactly where it is. PositionAtTop moved even a fully visible row to the top, so
+// an app that follows its own selection (Day News reveals the selected article) yanked the list
+// out from under every click. AppKit's scrollRowToVisible behaves the same way as this.
 void day_qt_list_scroll_to_row(void *w, int row) {
     auto *l = static_cast<DayListWidget *>(w);
-    if (row >= 0 && row < l->count()) l->scrollToItem(l->item(row), QAbstractItemView::PositionAtTop);
+    if (row >= 0 && row < l->count()) l->scrollToItem(l->item(row), QAbstractItemView::EnsureVisible);
 }
 
 void day_qt_list_scroll_to_end(void *w) { static_cast<DayListWidget *>(w)->scrollToBottom(); }

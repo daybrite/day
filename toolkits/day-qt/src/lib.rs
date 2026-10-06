@@ -446,7 +446,7 @@ fn schedule_list_scroll_end(host_key: usize) {
     unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
-/// Scroll the list so `row` is at the top of the viewport (docs/list.md), on the next
+/// Scroll the list just far enough that `row` is in view (docs/list.md), on the next
 /// event-loop turn — the same deferral as `schedule_list_scroll_end`.
 fn schedule_list_scroll_row(host_key: usize, row: usize) {
     let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
@@ -520,7 +520,7 @@ fn list_populate(host_key: usize) {
 /// nothing moved, which is what lets every scroll notification call it.
 fn list_fill_window(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: realize the window's cells + snapshot what we need.
-    let Some((host, rowh, source, work, width, first_visible)) = LIST_STATE.with(|m| {
+    let Some((host, rowh, source, work, width, host_width, first_visible)) = LIST_STATE.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host_key)?;
         let source = st.source.borrow().clone()?;
@@ -577,7 +577,15 @@ fn list_fill_window(host_key: usize) {
         }
         st.last_width = w.max(1.0) as c_int;
         st.cell_width = width;
-        Some((st.host, rowh, source, work, width, first_visible))
+        Some((
+            st.host,
+            rowh,
+            source,
+            work,
+            width,
+            st.last_width,
+            first_visible,
+        ))
     }) else {
         return;
     };
@@ -613,6 +621,14 @@ fn list_fill_window(host_key: usize) {
             ffi::day_qt_set_visible(cell, 1);
         }
         (source.bind_row)(i, cell);
+        // Day lays a bound row out at the list's own width — the host's, scroll bar included.
+        // The cell is the viewport's width, so a legacy scroll bar covered the row's trailing
+        // column (the sidebar's unread counts). Tell Day the cell's real width, the seam every
+        // other backend uses (`ListSource::layout_cell`); it is remembered per cell, so later
+        // binds start from it and this is a no-op once the widths agree.
+        if cw != host_width {
+            (source.layout_cell)(cell, f64::from(cw));
+        }
     }
 }
 
@@ -2821,7 +2837,11 @@ impl Toolkit for Qt {
     fn measure(&mut self, h: &QtHandle, kind: PieceKind, p: Proposal) -> Size {
         let mut w = 0.0;
         let mut hh = 0.0;
-        unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
+        // A label's sizeHint() is a full rich-text layout at Qt's own wrap heuristic, and the
+        // label arm below never uses it except as a last resort: ask only then.
+        if kind != kinds::LABEL {
+            unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
+        }
         match kind {
             kinds::NAV_MENU => {
                 let (rows, headings) = NAV_MENU_ROWS
@@ -2851,6 +2871,7 @@ impl Toolkit for Qt {
                 if hfw > 0 {
                     Size::new(width.ceil(), hfw as f64)
                 } else {
+                    unsafe { ffi::day_qt_size_hint(h.0, &mut w, &mut hh) };
                     Size::new(width.ceil(), hh.ceil())
                 }
             }
