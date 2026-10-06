@@ -53,30 +53,60 @@ day_core::tls_group! {
     static TARGETS: SideTable<Target> = SideTable::new();
     /// The node whose drag is in flight, so a drop knows it is local.
     static ACTIVE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The in-flight drag's data. `OH_ArkUI_DragEvent_SetData` keeps the pointer, not a
+    /// copy: ArkUI reads the records after the start callback has returned, when it stores
+    /// the drag with the UDMF service (`ProcessDragDropData` → `UdmfClient::SetData`), so the
+    /// data lives until the drag ends. Destroying it on the way out of the callback, as the
+    /// first port did, left the service reading freed memory: every real drag of the
+    /// Showcase's logo crashed inside `SetData` (2026-10).
+    static DRAG_DATA: std::cell::Cell<*mut OH_UdmfData> = const { std::cell::Cell::new(ptr::null_mut()) };
+}
+
+/// Release the data of the last drag, if any; the next drag's replaces it.
+fn release_drag_data() {
+    let data = DRAG_DATA.with(|d| d.replace(ptr::null_mut()));
+    if !data.is_null() {
+        // SAFETY: data this module created, and no drag is in flight to read it.
+        unsafe { OH_UdmfData_Destroy(data) };
+    }
 }
 
 const LIMIT: usize = 64 * 1024 * 1024;
 /// The UDMF type carrying the whole encoded offer.
 const BUNDLE: &CStr = c"application/vnd.day.transfer";
 
-/// The UDMF type id for a MIME type: the standard uniform types where they exist, else the
-/// MIME text itself.
-fn native(mime: &str) -> String {
+/// The UDMF type id a day record is stored under: the MIME text itself, except for the
+/// standard uniform types whose bytes mean the same thing (a PNG file is a PNG file), so a
+/// record other apps can read is typed the way they expect. Custom ids are what UDMF's
+/// general entry exists for; the registry is never asked, because resolving an id it does
+/// not know through the NDK (`OH_Utd_Create` on the `flex.…` id it mints for an unknown MIME)
+/// read freed memory inside `libudmf` on the 7.0 emulator and took the app down with the
+/// drop (2026-10). Within one app the day bundle carries every representation anyway.
+fn native(mime: &str) -> &str {
     match mime {
-        "image/png" => "general.png".into(),
-        "image/jpeg" => "general.jpeg".into(),
-        "text/uri-list" => "general.file-uri".into(),
-        other => other.to_owned(),
+        "image/png" => "general.png",
+        "image/jpeg" => "general.jpeg",
+        "image/gif" => "general.gif",
+        "image/webp" => "general.webp",
+        "text/html" => "general.html",
+        "text/uri-list" => "general.file-uri",
+        other => other,
     }
 }
 
+/// The MIME type for a record's type id (the inverse of [`native`]): a standard id Day
+/// knows, else the id itself, which for a day record is already the MIME text.
 fn mime(type_id: &str) -> String {
     match type_id {
-        "general.png" => "image/png".into(),
-        "general.jpeg" => "image/jpeg".into(),
-        "general.file-uri" => "text/uri-list".into(),
-        other => other.to_owned(),
+        "general.png" => "image/png",
+        "general.jpeg" => "image/jpeg",
+        "general.gif" => "image/gif",
+        "general.webp" => "image/webp",
+        "general.html" => "text/html",
+        "general.file-uri" => "text/uri-list",
+        other => other,
     }
+    .to_owned()
 }
 
 unsafe fn add_entry(data: *mut OH_UdmfData, mime_type: &str, bytes: &[u8]) {
@@ -86,14 +116,18 @@ unsafe fn add_entry(data: *mut OH_UdmfData, mime_type: &str, bytes: &[u8]) {
         if record.is_null() {
             return;
         }
-        let ty = node::cstr(&native(mime_type));
-        OH_UdmfRecord_AddGeneralEntry(
+        let ty = node::cstr(native(mime_type));
+        // A record the registry would not describe is left out rather than stored: see
+        // `native`.
+        if OH_UdmfRecord_AddGeneralEntry(
             record,
             ty.as_ptr(),
             bytes.as_ptr().cast_mut(),
             bytes.len() as u32,
-        );
-        OH_UdmfData_AddRecord(data, record);
+        ) == 0
+        {
+            OH_UdmfData_AddRecord(data, record);
+        }
         OH_UdmfRecord_Destroy(record);
     }
 }
@@ -180,6 +214,7 @@ pub fn event(ev: *mut ArkUI_NodeEvent) -> bool {
     let at = unsafe { position(n, drag) };
     if kind == Ev::NODE_ON_DRAG_END {
         ACTIVE.with(|a| a.set(0));
+        release_drag_data();
         return true;
     }
     if kind == Ev::NODE_ON_DRAG_START {
@@ -251,10 +286,15 @@ fn start(n: Handle, drag: *mut ArkUI_DragEvent, at: Point) {
                 add_entry(data, &rep.mime, &rep.bytes);
             }
         }
+        // The drag owns the data from here (see `DRAG_DATA`); a drag that never started
+        // releases it at the next one.
+        release_drag_data();
         if OH_ArkUI_DragEvent_SetData(drag, data) == 0 {
             ACTIVE.with(|a| a.set(n as usize));
+            DRAG_DATA.with(|d| d.set(data));
+        } else {
+            OH_UdmfData_Destroy(data);
         }
-        OH_UdmfData_Destroy(data);
     }
 }
 
