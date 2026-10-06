@@ -2804,15 +2804,176 @@ public final class DayBridge {
         return null;
     }
 
-    /** Accessibility (§13): contentDescription = label (TalkBack reads it); importantForAccessibility
-     *  hides decorative elements + their subtree; stateDescription = value on API 30+. */
-    public static void setA11y(View v, String label, String value, boolean hidden) {
-        if (label != null && !label.isEmpty()) v.setContentDescription(label);
-        v.setImportantForAccessibility(hidden
-            ? View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            : View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
-        if (value != null && !value.isEmpty() && android.os.Build.VERSION.SDK_INT >= 30) {
-            v.setStateDescription(value);
+    // --- Accessibility (docs/accessibility.md) --------------------------------
+    // What the View itself carries goes straight on it: contentDescription = label,
+    // importantForAccessibility hides a decorative element with its subtree, stateDescription =
+    // value (API 30+). Hint and role live only on the AccessibilityNodeInfo TalkBack builds, so
+    // they come from an AccessibilityDelegate reading the traits stored per view below.
+
+    /** Day's `Role`, by declaration order (day_spec::Role): 0 None 1 Button 2 Toggle 3 Slider
+     *  4 TextInput 5 Heading 6 Image 7 Meter 8 Group 9 Tree 10 TreeItem. `set_a11y` sends it as
+     *  the int, with the heading level beside it. */
+    static final int ROLE_NONE = 0, ROLE_BUTTON = 1, ROLE_TOGGLE = 2, ROLE_SLIDER = 3,
+            ROLE_TEXT_INPUT = 4, ROLE_HEADING = 5, ROLE_IMAGE = 6, ROLE_METER = 7, ROLE_GROUP = 8;
+
+    /** The delegate-borne traits of one view: the hint and the explicit role. */
+    private static final class A11yTraits {
+        String hint = "";
+        int role = ROLE_NONE;
+    }
+    /** Per-view traits, read by `A11yDelegate` each time TalkBack builds the node. */
+    private static final java.util.WeakHashMap<View, A11yTraits> a11yTraits =
+            new java.util.WeakHashMap<>();
+
+    /** The one delegate `setA11y` installs. It wraps whatever delegate the widget already had
+     *  (Material's Slider and TextInputLayout, the RecyclerView list) and forwards every call to
+     *  it, so the widget's own node tree, actions and events stay intact and Day only adds its
+     *  traits on top. A view takes exactly one of these: repeated calls find it in place. */
+    private static final class A11yDelegate extends androidx.core.view.AccessibilityDelegateCompat {
+        /** The widget's own delegate, or null for a plain view. */
+        private final androidx.core.view.AccessibilityDelegateCompat inner;
+
+        A11yDelegate(androidx.core.view.AccessibilityDelegateCompat inner) {
+            this.inner = inner;
+        }
+
+        @Override public void onInitializeAccessibilityNodeInfo(View host,
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+            if (inner != null) inner.onInitializeAccessibilityNodeInfo(host, info);
+            else super.onInitializeAccessibilityNodeInfo(host, info);
+            A11yTraits t = a11yTraits.get(host);
+            if (t == null) return;
+            // hintText is TalkBack's "usage hint", read after the label; the visible tooltip
+            // twin is left alone because its long-press trigger would collide with Day's
+            // long-press context menu (docs/menus.md).
+            if (!t.hint.isEmpty()) info.setHintText(t.hint);
+            // TalkBack names the control type from the node's class name, so a canvas gauge
+            // reads as a progress bar and a drawn button as a button. Only an explicit role
+            // is applied: a native control's own class already says what it is.
+            switch (t.role) {
+                case ROLE_BUTTON: info.setClassName(android.widget.Button.class.getName()); break;
+                case ROLE_TOGGLE:
+                    info.setClassName(android.widget.Switch.class.getName());
+                    info.setCheckable(true);
+                    break;
+                case ROLE_SLIDER: info.setClassName(android.widget.SeekBar.class.getName()); break;
+                case ROLE_TEXT_INPUT: info.setClassName(EditText.class.getName()); break;
+                case ROLE_HEADING: info.setHeading(true); break;
+                case ROLE_IMAGE: info.setClassName(android.widget.ImageView.class.getName()); break;
+                case ROLE_METER: info.setClassName(ProgressBar.class.getName()); break;
+                case ROLE_GROUP: info.setClassName(ViewGroup.class.getName()); break;
+                default: break; // None, Tree, TreeItem: the platform has no node type for them
+            }
+        }
+
+        // Everything else is the wrapped widget's business.
+        @Override public void sendAccessibilityEvent(View host, int eventType) {
+            if (inner != null) inner.sendAccessibilityEvent(host, eventType);
+            else super.sendAccessibilityEvent(host, eventType);
+        }
+        @Override public void sendAccessibilityEventUnchecked(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            if (inner != null) inner.sendAccessibilityEventUnchecked(host, event);
+            else super.sendAccessibilityEventUnchecked(host, event);
+        }
+        @Override public boolean dispatchPopulateAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            return inner != null
+                    ? inner.dispatchPopulateAccessibilityEvent(host, event)
+                    : super.dispatchPopulateAccessibilityEvent(host, event);
+        }
+        @Override public void onPopulateAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            if (inner != null) inner.onPopulateAccessibilityEvent(host, event);
+            else super.onPopulateAccessibilityEvent(host, event);
+        }
+        @Override public void onInitializeAccessibilityEvent(View host,
+                android.view.accessibility.AccessibilityEvent event) {
+            if (inner != null) inner.onInitializeAccessibilityEvent(host, event);
+            else super.onInitializeAccessibilityEvent(host, event);
+        }
+        @Override public boolean onRequestSendAccessibilityEvent(ViewGroup host, View child,
+                android.view.accessibility.AccessibilityEvent event) {
+            return inner != null
+                    ? inner.onRequestSendAccessibilityEvent(host, child, event)
+                    : super.onRequestSendAccessibilityEvent(host, child, event);
+        }
+        @Override public androidx.core.view.accessibility.AccessibilityNodeProviderCompat
+                getAccessibilityNodeProvider(View host) {
+            return inner != null
+                    ? inner.getAccessibilityNodeProvider(host)
+                    : super.getAccessibilityNodeProvider(host);
+        }
+        @Override public boolean performAccessibilityAction(View host, int action,
+                android.os.Bundle args) {
+            return inner != null
+                    ? inner.performAccessibilityAction(host, action, args)
+                    : super.performAccessibilityAction(host, action, args);
+        }
+    }
+
+    /** Apply a node's whole accessibility set (docs/accessibility.md). Empty strings and
+     *  `ROLE_NONE` mean "not set": those members leave the native default alone, and a member
+     *  set once stays set, so re-sending the same values changes nothing. `level` is the heading
+     *  level, informational here: Android's node has heading yes/no and no level. */
+    public static void setA11y(View v, String label, String hint, String value, int role,
+            int level, boolean hidden) {
+        try {
+            boolean hasLabel = label != null && !label.isEmpty();
+            boolean hasValue = value != null && !value.isEmpty();
+            if (hasValue && android.os.Build.VERSION.SDK_INT >= 30) {
+                v.setStateDescription(value);
+                if (hasLabel) v.setContentDescription(label);
+            } else if (hasValue) {
+                // No stateDescription before API 30: the value rides on the description, after
+                // the label, so a custom control's reading still carries it.
+                v.setContentDescription(hasLabel ? label + ", " + value : value);
+            } else if (hasLabel) {
+                v.setContentDescription(label);
+            }
+            if (hidden) {
+                v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            }
+            boolean hasHint = hint != null && !hint.isEmpty();
+            if (!hasHint && role == ROLE_NONE) return;
+            A11yTraits t = a11yTraits.get(v);
+            if (t == null) {
+                // First traits for this view: the delegate goes on once, wrapping the one the
+                // widget already has. The traits entry is what says it is in place, since the
+                // delegate cannot be read back below API 29 without reflection.
+                t = new A11yTraits();
+                a11yTraits.put(v, t);
+                androidx.core.view.ViewCompat.setAccessibilityDelegate(v,
+                        new A11yDelegate(androidx.core.view.ViewCompat.getAccessibilityDelegate(v)));
+            }
+            if (hasHint) t.hint = hint;
+            if (role != ROLE_NONE) t.role = role;
+        } catch (Throwable t) {
+            android.util.Log.w("day", "setA11y (best-effort)", t);
+        }
+    }
+
+    /** Speak `text` through the running screen reader without moving its focus
+     *  (docs/accessibility.md). Nothing is sent while no accessibility service is enabled.
+     *  `urgent` cuts off what is being read first: the announcement event itself has no
+     *  queue/interrupt flag, so `AccessibilityManager.interrupt` supplies the distinction. The
+     *  deprecated `announceForAccessibility` stays the one request that is an announcement
+     *  (its suggested replacements, pane titles and live regions, describe views). */
+    @SuppressWarnings("deprecation")
+    public static void announce(String text, boolean urgent) {
+        try {
+            if (text == null || text.isEmpty()) return;
+            if (!(ctx instanceof android.app.Activity)) return;
+            android.view.accessibility.AccessibilityManager am =
+                    (android.view.accessibility.AccessibilityManager)
+                            ctx.getSystemService(Context.ACCESSIBILITY_SERVICE);
+            if (am == null || !am.isEnabled()) return;
+            View root = ((android.app.Activity) ctx).getWindow().findViewById(android.R.id.content);
+            if (root == null) return;
+            if (urgent) am.interrupt();
+            root.announceForAccessibility(text);
+        } catch (Throwable t) {
+            android.util.Log.w("day", "announce (best-effort)", t);
         }
     }
 

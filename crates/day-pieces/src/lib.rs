@@ -113,7 +113,8 @@ pub mod prelude {
     pub use crate::{Picker, TextArea};
     pub use day_core::{
         Alignment, AnyPiece, BuildCx, Either, Piece, PieceFn, PieceSeq, PieceVec, RNode,
-        ScrollTarget, invalidate_size, open_url, piece_fn, with_animation,
+        ScrollTarget, announce, announce_urgent, invalidate_size, open_url, piece_fn,
+        with_animation,
     };
     pub use day_geometry::{Affine, Animatable, Color, Insets, Point, Rect, Size, Transform};
     pub use day_reactive::{

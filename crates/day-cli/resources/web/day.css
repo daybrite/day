@@ -274,6 +274,21 @@ body.day-has-toolbar #day-root {
 
 .day-divider { background: var(--day-divider); }
 
+/* The announcement live regions (shim.js day_dom_announce, docs/accessibility.md): on the page
+   for the screen reader, off it for everyone else. A clipped 1px box, not `display: none`,
+   which would take them out of the accessibility tree along with the screen. */
+.day-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .day-card {
   background: var(--day-card-bg);
   border: 1px solid var(--day-card-border);

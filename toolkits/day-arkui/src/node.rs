@@ -16,7 +16,8 @@
 // hand it back to ArkUI's own functions, which check it, so they are not `unsafe` to call.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::ffi::{CStr, CString, c_void};
 use std::ptr::{self, NonNull};
 
@@ -72,6 +73,9 @@ thread_local! {
     static API: Cell<Option<NonNull<ArkUI_NativeNodeAPI_1>>> = const { Cell::new(None) };
     /// Display density (px per vp): ArkUI attributes are vp, measure and layout are px.
     static DENSITY: Cell<f64> = const { Cell::new(1.0) };
+    /// The `NODE_ACCESSIBILITY_VALUE` object each node was last given (see `set_a11y`).
+    static A11Y_VALUES: RefCell<HashMap<usize, *mut ArkUI_AccessibilityValue>> =
+        RefCell::new(HashMap::new());
 }
 
 /// The node API table, resolved on first use. `None` only before ArkUI's native module is
@@ -150,6 +154,7 @@ pub fn dispose(n: Handle) {
     crate::transfer::forget(n);
     crate::canvas::forget(n);
     crate::list::forget(n);
+    forget_a11y(n);
     api_call!(disposeNode(n));
 }
 
@@ -911,18 +916,87 @@ pub fn swiper_setup(n: Handle) {
     set_i32(n, Attr::NODE_SWIPER_LOOP, 0);
 }
 
-/// Accessibility (§13): the label a screen reader announces; `hidden` drops the node and its
-/// subtree from the accessibility tree.
-pub fn set_a11y(n: Handle, label: &str, hidden: bool) {
+/// The label a screen reader announces for a node (a button's title, by default).
+pub fn set_a11y_text(n: Handle, label: &str) {
     if !label.is_empty() {
         set_str(n, Attr::NODE_ACCESSIBILITY_TEXT, label);
     }
-    let mode = if hidden {
-        ArkUI_AccessibilityMode::ARKUI_ACCESSIBILITY_MODE_DISABLED_FOR_DESCENDANTS
-    } else {
-        ArkUI_AccessibilityMode::ARKUI_ACCESSIBILITY_MODE_AUTO
+}
+
+/// Accessibility (§13, docs/accessibility.md): every annotation the node carries, each written
+/// only when set so an unset member leaves the component's own default alone.
+///
+/// - label → `NODE_ACCESSIBILITY_TEXT`; hint → `NODE_ACCESSIBILITY_DESCRIPTION`.
+/// - value → `NODE_ACCESSIBILITY_VALUE`'s text member. The object is a native struct the
+///   attribute call reads; it is kept per node until the next value or the node's disposal
+///   rather than released on the spot, so the node never points at freed text.
+/// - role → `NODE_ACCESSIBILITY_ROLE`, which takes an `ArkUI_NodeType`: a heading can only be
+///   retyped as TEXT (its level has no attribute), a meter as PROGRESS, a group as STACK, and
+///   a tree as LIST / LIST_ITEM. `NODE_ACCESSIBILITY_GROUP` is deliberately NOT set for a group:
+///   it collapses the subtree into one focusable unit, which is the opposite of a container
+///   whose children stay reachable.
+/// - hidden → `NODE_ACCESSIBILITY_MODE` DISABLED_FOR_DESCENDANTS. Hidden is sticky, so the mode
+///   is written only when set: nothing here ever puts a node back to AUTO.
+/// - identifier → `NODE_ID`, the component id the ArkTS inspector addresses nodes by.
+pub fn set_a11y(n: Handle, a11y: &day_spec::A11yProps) {
+    use day_spec::Role;
+    if let Some(label) = &a11y.label {
+        set_a11y_text(n, label);
+    }
+    if let Some(hint) = &a11y.hint {
+        set_str(n, Attr::NODE_ACCESSIBILITY_DESCRIPTION, hint);
+    }
+    if let Some(value) = &a11y.value {
+        let text = cstr(value);
+        // SAFETY: a value object created here and given a NUL-terminated string that outlives
+        // the call; `forget_a11y` releases the object once the node no longer needs it.
+        let obj = unsafe { OH_ArkUI_AccessibilityValue_Create() };
+        if !obj.is_null() {
+            // SAFETY: as above.
+            unsafe { OH_ArkUI_AccessibilityValue_SetText(obj, text.as_ptr()) };
+            set_object(n, Attr::NODE_ACCESSIBILITY_VALUE, obj.cast());
+            let previous = A11Y_VALUES.with(|m| m.borrow_mut().insert(n as usize, obj));
+            if let Some(previous) = previous {
+                // SAFETY: the node now holds the new object; the old one is ours to release.
+                unsafe { OH_ArkUI_AccessibilityValue_Dispose(previous) };
+            }
+        }
+    }
+    let role = match a11y.role {
+        Role::None => None,
+        Role::Button => Some(BUTTON),
+        Role::Toggle => Some(TOGGLE),
+        Role::Slider => Some(SLIDER),
+        Role::TextInput => Some(TEXT_INPUT),
+        Role::Heading(_) => Some(TEXT),
+        Role::Image => Some(IMAGE),
+        Role::Meter => Some(PROGRESS),
+        Role::Group => Some(STACK),
+        Role::Tree => Some(LIST),
+        Role::TreeItem => Some(LIST_ITEM),
     };
-    set_i32(n, Attr::NODE_ACCESSIBILITY_MODE, mode.0 as i32);
+    if let Some(role) = role {
+        set_u32(n, Attr::NODE_ACCESSIBILITY_ROLE, role.0);
+    }
+    if a11y.hidden || a11y.decorative {
+        set_i32(
+            n,
+            Attr::NODE_ACCESSIBILITY_MODE,
+            ArkUI_AccessibilityMode::ARKUI_ACCESSIBILITY_MODE_DISABLED_FOR_DESCENDANTS.0 as i32,
+        );
+    }
+    if let Some(id) = &a11y.identifier {
+        set_str(n, Attr::NODE_ID, id);
+    }
+}
+
+/// Release the accessibility value object a node was given, before the node goes away
+/// (`dispose`): the address may be recycled, and a stale entry would then alias the new node.
+pub(crate) fn forget_a11y(n: Handle) {
+    if let Some(obj) = A11Y_VALUES.with(|m| m.borrow_mut().remove(&(n as usize))) {
+        // SAFETY: an object created in `set_a11y` that nothing else owns.
+        unsafe { OH_ArkUI_AccessibilityValue_Dispose(obj) };
+    }
 }
 
 /// Flex-grow within a Row/Column (the menu label grows so the chevron hugs the trailing edge).

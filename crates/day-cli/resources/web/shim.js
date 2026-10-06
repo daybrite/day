@@ -475,6 +475,8 @@ function tzOffsetMinutes(ms) {
   }
 }
 
+const liveRegions = {}; // the announcement live regions, by politeness (day_dom_announce)
+
 const env = {
   // Seconds since the Unix epoch, for day-piece-datetime: wasm32-unknown-unknown has no clock of
   // its own, and `SystemTime::now()` traps there rather than failing.
@@ -575,7 +577,20 @@ const env = {
     // Boolean attrs use a marker convention from the Rust side: "" removes, "-" sets.
     if (name === 'disabled' || name === 'readonly') {
       val === '' ? el.removeAttribute(name) : el.setAttribute(name, '');
-    } else el.setAttribute(name, val);
+      return;
+    }
+    el.setAttribute(name, val);
+    // Accessibility (docs/accessibility.md). A canvas or a div retyped as a button needs the
+    // tab stop a real one has; the document's keydown route (below `listen`) makes Enter and
+    // Space act on it. Hidden takes the subtree out of the accessibility tree, and here out
+    // of the tab order too: `aria-hidden` alone leaves a focusable element reachable, and a
+    // screen reader landing on it would find nothing to read. Descendants realized later are
+    // not covered, which is why this runs on every call rather than once.
+    if (name === 'role' && val === 'button' && !el.matches(NATIVE_CONTROLS)) {
+      if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    } else if (name === 'aria-hidden' && val === 'true') {
+      for (const f of [el, ...el.querySelectorAll(FOCUSABLE)]) f.tabIndex = -1;
+    }
   },
   // The piece-renderer escape hatch (docs/extending.md): day-dom's own EL_* kind codes cover only
   // the built-in vocabulary, so an external piece creates its element by tag name and drives it
@@ -1430,6 +1445,25 @@ const env = {
       else { navigator.setAppBadge?.(count); }
     } catch (_) { /* unsupported or blocked; the cap already says Emulated */ }
   },
+  // Screen-reader announcements (docs/accessibility.md): two ARIA live regions, one per
+  // politeness, made on first use and kept for the document's life. Visually hidden by a
+  // clipped 1px box (`.day-live`), never `display:none`, which would drop them from the
+  // accessibility tree. The text is cleared first and set on the next frame, so the same
+  // sentence twice in a row is still a change the screen reader speaks. Nothing is spoken
+  // when no screen reader runs: a live region is inert without one.
+  day_dom_announce(p, l, urgent) {
+    const kind = urgent ? 'assertive' : 'polite';
+    liveRegions[kind] ||= (() => {
+      const r = div('day-live');
+      r.setAttribute('aria-live', kind);
+      r.setAttribute('aria-atomic', 'true');
+      document.body.append(r);
+      return r;
+    })();
+    const r = liveRegions[kind]; const text = str(p, l);
+    r.textContent = '';
+    requestAnimationFrame(() => { r.textContent = text; });
+  },
   day_dom_share_support() { return typeof navigator.share === 'function'; },
   day_dom_share_url(ptr, len, title, titleLen) {
     if (!navigator.share || !navigator.userActivation?.isActive) return false;
@@ -1835,6 +1869,28 @@ function dayEditorListen(id, el) {
   });
 }
 
+// The elements the browser already makes focusable and activates from the keyboard; everything
+// else needs the tab stop and the Enter/Space route below when an app retypes it as a button.
+const NATIVE_CONTROLS = 'button,input,select,textarea,a[href],summary,[contenteditable]';
+const FOCUSABLE = NATIVE_CONTROLS + ',[tabindex]';
+
+// Keyboard activation for a retyped button (docs/accessibility.md): Enter or Space on an
+// element carrying `role="button"` that is not a real control. A tap host gets the same
+// `ev::TAP` the pointer path reports, at its center, because a tap is decided from pointer
+// events and a synthetic `click()` would raise none; anything else gets the click, which
+// reaches `ev::CLICK` when the element listens for one. Installed once, on the document.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const el = e.target;
+  if (!(el instanceof Element) || el.getAttribute('role') !== 'button' || el.matches(NATIVE_CONTROLS)) return;
+  e.preventDefault();
+  if (el.__dayTap) {
+    const r = el.getBoundingClientRect();
+    wasm.day_dom_event(el.__id, 8, r.width / 2, r.height / 2, 0, 0);
+  } else el.click();
+});
+
 function listen(id, mask) {
   const host = E(id); const el = V(id);
   if (mask & 1) {
@@ -1880,6 +1936,7 @@ function listen(id, mask) {
     // re-target selection out from under it (Day-Sketch's resize handles were unreachable
     // outside a shape's geometry, on web only).
     let tap = null;
+    host.__dayTap = true; // the keyboard route above sends this host a center tap
     host.addEventListener('pointerdown', (e) => {
       // Primary button only: a right-click is a summon (the contextmenu listener above), and
       // the pointerup it also produces must not come out as a tap; on Day-Sketch the phantom

@@ -740,6 +740,8 @@ pub trait TreeOps {
     /// `.grid_align` modifiers call (docs/grid.md). Called at build time, before the first layout.
     fn set_grid_facts(&mut self, node: RNode, facts: GridFacts);
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps);
+    /// Speak `text` through the screen reader (`Toolkit::announce`, docs/accessibility.md).
+    fn announce(&mut self, text: &str, urgent: bool);
     /// Attach a native gesture recognizer to `node` (docs/shapes.md): the backend then emits
     /// `Event::Tap/LongPress/Drag` for it. The node must have a native handle.
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind);
@@ -1284,6 +1286,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 g.align = facts.align;
             }
         }
+    }
+
+    fn announce(&mut self, text: &str, urgent: bool) {
+        self.toolkit.announce(text, urgent);
     }
 
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps) {
@@ -2486,6 +2492,21 @@ pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
 /// URLs are ignored by the backend.
 pub fn open_url(url: &str) {
     with_tree(|t| t.open_url(url));
+}
+
+/// Speak `text` through the screen reader without moving its focus (docs/accessibility.md):
+/// the outcome of an action the user cannot otherwise learn about ("Saved", "3 results"). The
+/// sentence waits for whatever is being read to finish; [`announce_urgent`] interrupts it.
+/// Nothing happens when no screen reader is running, and nothing happens on a toolkit that
+/// answers [`Cap::Announce`](day_spec::Cap::Announce) with `Unsupported`.
+pub fn announce(text: &str) {
+    with_tree(|t| t.announce(text, false));
+}
+
+/// [`announce`], interrupting what the screen reader is saying: an error, or a change that
+/// cannot wait.
+pub fn announce_urgent(text: &str) {
+    with_tree(|t| t.announce(text, true));
 }
 
 /// Whether the current toolkit can present a native sharing chooser.

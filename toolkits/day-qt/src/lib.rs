@@ -21,8 +21,8 @@ use linkme::distributed_slice;
 use day_spec::props::*;
 use day_spec::{
     A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font, InputPurpose,
-    InputTraits, NodeId, PieceKind, Platform, Proposal, Rect, Registry, Renderer, Size, Support,
-    Toolkit, Transform, WindowOptions, ffi_guard, kinds, props_of, sidetable::SideTable,
+    InputTraits, NodeId, PieceKind, Platform, Proposal, Rect, Registry, Renderer, Role, Size,
+    Support, Toolkit, Transform, WindowOptions, ffi_guard, kinds, props_of, sidetable::SideTable,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1700,6 +1700,16 @@ impl Toolkit for Qt {
             // Derived from QFontMetrics — Qt publishes no baseline of its own
             // (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
+            // `QAccessibleAnnouncementEvent` (docs/accessibility.md) is Qt 6.8; the shim
+            // answers for the Qt it is built against.
+            Cap::Announce => {
+                // SAFETY: a constant read; no arguments and no pointers cross the boundary.
+                if unsafe { ffi::day_qt_can_announce() } != 0 {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
             _ => Support::Unsupported,
         }
     }
@@ -3166,9 +3176,42 @@ impl Toolkit for Qt {
             if let Some(hint) = &a11y.hint {
                 ffi::day_qt_set_accessible_description(h.0, cstr(hint).as_ptr());
             }
-            // Qt derives role/value from the widget type (QAccessibleInterface); Day sets the
-            // text fields it can. `hidden`/canvas roles need a QAccessible subclass (follow-up).
+            // Role, value and hidden go to the shim's own QAccessibleInterface, which Qt's
+            // stock ones cannot carry for a widget they type themselves. The codes follow
+            // `Role`'s declaration order (the table sits with the declaration in day-qt-sys).
+            let (role, level) = match a11y.role {
+                Role::None => (0, 0),
+                Role::Button => (1, 0),
+                Role::Toggle => (2, 0),
+                Role::Slider => (3, 0),
+                Role::TextInput => (4, 0),
+                Role::Heading(level) => (5, c_int::from(level.max(1))),
+                Role::Image => (6, 0),
+                Role::Meter => (7, 0),
+                Role::Group => (8, 0),
+                Role::Tree => (9, 0),
+                Role::TreeItem => (10, 0),
+            };
+            let value = a11y.value.as_deref().map(cstr);
+            if role != 0 || value.is_some() || a11y.hidden {
+                ffi::day_qt_set_a11y_traits(
+                    h.0,
+                    role,
+                    level,
+                    value.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
+                    c_int::from(a11y.hidden),
+                );
+            }
         }
+    }
+
+    fn announce(&mut self, text: &str, urgent: bool) {
+        if self.window.is_null() {
+            return;
+        }
+        // SAFETY: the primary DayWindow lives until the process exits; the text outlives the
+        // call, and the shim copies it.
+        unsafe { ffi::day_qt_announce(self.window, cstr(text).as_ptr(), c_int::from(urgent)) };
     }
 
     fn request_frame(

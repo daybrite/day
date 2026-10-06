@@ -92,6 +92,9 @@
 #include <winrt/Microsoft.UI.Xaml.Shapes.h>
 #include <winrt/Microsoft.UI.Xaml.Hosting.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
+// AutomationPeer / FrameworkElementAutomationPeer: screen-reader announcements and the heading,
+// view and notification enums (docs/accessibility.md).
+#include <winrt/Microsoft.UI.Xaml.Automation.Peers.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.XamlTypeInfo.h>
 // Window capture (snapshot_wgc_png): Windows.Graphics.Capture reads the window back from DWM.
@@ -125,6 +128,7 @@ using DayCommandBarElement = winrt::Microsoft::UI::Xaml::Controls::ICommandBarEl
 #include <winrt/Windows.UI.Xaml.Hosting.h>
 #include <winrt/Windows.UI.Composition.h> // rounded corner clip (see day_xaml_container_set_corner)
 #include <winrt/Windows.UI.Xaml.Automation.h>
+#include <winrt/Windows.UI.Xaml.Automation.Peers.h> // see the WinUI branch above
 #include <winrt/Windows.UI.Xaml.Markup.h>
 #include <windows.ui.xaml.hosting.desktopwindowxamlsource.h>
 #define DAY_XAML_NS winrt::Windows::UI::Xaml
@@ -147,6 +151,8 @@ namespace WUXMA = DAY_XAML_NS::Media::Animation;
 namespace WUXSh = DAY_XAML_NS::Shapes;
 namespace WUXH = DAY_XAML_NS::Hosting;
 namespace WUXIn = DAY_XAML_NS::Input;
+namespace WUXA = DAY_XAML_NS::Automation;         // AutomationProperties (docs/accessibility.md)
+namespace WUXAP = DAY_XAML_NS::Automation::Peers; // automation peers and their enums
 namespace WS = winrt::Windows::System;
 namespace WSt = winrt::Windows::Storage;
 namespace WStP = winrt::Windows::Storage::Pickers;
@@ -5120,6 +5126,110 @@ double day_xaml_baseline(void* h, double box_h) {
 
 void day_xaml_set_name(void* h, const char* name) {
     guard([&] { WUX::Automation::AutomationProperties::SetAutomationId(elem(h), hs(name)); });
+}
+
+// A node's accessibility annotations (docs/accessibility.md), each written only when set: a null
+// or empty string, role 0 and hidden 0 leave the element's own answer alone, so a repeat call
+// with the same values changes nothing. `role` is day_spec::Role's declaration order (0 None,
+// 1 Button, 2 Toggle, 3 Slider, 4 TextInput, 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree,
+// 10 TreeItem; the same table is in day-xaml's `set_a11y`); `level` is the 1-based heading level
+// and is read only with role 5. XAML cannot retype an element, so a role lands as what UIA does
+// carry: a heading level (what a screen reader's heading navigation walks) or a localized
+// control-type string, the type name spoken in place of the element's own. Those strings are
+// English: the shim has no catalog, and a UIA control type is a display string, not a key. The
+// value rides ItemStatus, UIA's "current status of this item" property, so a native control's
+// own Value pattern is never touched. Hidden switches the element to the Raw view, which takes
+// it and its subtree out of the control and content views a screen reader walks while leaving it
+// on screen. Only the label and automation id reach a bare Canvas: panels create no automation
+// peer of their own, so the annotations an app puts on a plain container are held but never
+// read; Day's controls, text and images all carry a peer.
+void day_xaml_set_a11y(void* h, const char* label, const char* hint, const char* value, int role,
+                       int level, int hidden) {
+    guard([&] {
+        if (!h) return;
+        auto el = elem(h);
+        if (!el) return;
+        if (label && *label) WUXA::AutomationProperties::SetName(el, hs(label));
+        if (hint && *hint) WUXA::AutomationProperties::SetHelpText(el, hs(hint));
+        if (value && *value) WUXA::AutomationProperties::SetItemStatus(el, hs(value));
+        if (role == 5) {
+            // Level1..Level9 in order; a level outside 1..9 takes the nearest end.
+            WUXAP::AutomationHeadingLevel hl = WUXAP::AutomationHeadingLevel::Level1;
+            switch (level) {
+                case 2: hl = WUXAP::AutomationHeadingLevel::Level2; break;
+                case 3: hl = WUXAP::AutomationHeadingLevel::Level3; break;
+                case 4: hl = WUXAP::AutomationHeadingLevel::Level4; break;
+                case 5: hl = WUXAP::AutomationHeadingLevel::Level5; break;
+                case 6: hl = WUXAP::AutomationHeadingLevel::Level6; break;
+                case 7: hl = WUXAP::AutomationHeadingLevel::Level7; break;
+                case 8: hl = WUXAP::AutomationHeadingLevel::Level8; break;
+                default:
+                    if (level >= 9) hl = WUXAP::AutomationHeadingLevel::Level9;
+                    break;
+            }
+            WUXA::AutomationProperties::SetHeadingLevel(el, hl);
+        } else if (role != 0) {
+            const wchar_t* type = nullptr;
+            switch (role) {
+                case 1: type = L"button"; break;
+                case 2: type = L"toggle switch"; break;
+                case 3: type = L"slider"; break;
+                case 4: type = L"text box"; break;
+                case 6: type = L"image"; break;
+                case 7: type = L"progress bar"; break;
+                case 8: type = L"group"; break;
+                case 9: type = L"tree"; break;
+                case 10: type = L"tree item"; break;
+                default: break;
+            }
+            if (type) {
+                WUXA::AutomationProperties::SetLocalizedControlType(el, winrt::hstring{ type });
+            }
+        }
+        if (hidden) {
+            WUXA::AutomationProperties::SetAccessibilityView(el, WUXAP::AccessibilityView::Raw);
+        }
+    });
+}
+
+// The first element at or under `e` that has an automation peer, at most `depth` levels down.
+// A notification is raised through SOME peer in the window's tree — which one does not matter
+// to the screen reader — but the window's root is a Canvas, and panels create no peer of their
+// own, so the search walks down to the first text, image or control. Day's tree is Canvases
+// most of the way, so the walk is short and runs only when the app announces something.
+static WUXAP::AutomationPeer peer_under(UIElement const& e, int depth) {
+    if (!e) return nullptr;
+    if (auto p = WUXAP::FrameworkElementAutomationPeer::CreatePeerForElement(e)) return p;
+    if (depth <= 0) return nullptr;
+    if (auto panel = e.try_as<WUXC::Panel>()) {
+        auto kids = panel.Children();
+        for (uint32_t i = 0; i < kids.Size(); ++i) {
+            if (auto p = peer_under(kids.GetAt(i), depth - 1)) return p;
+        }
+    } else if (auto host = e.try_as<WUXC::ContentControl>()) {
+        if (auto content = host.Content()) {
+            if (auto inner = content.try_as<UIElement>()) return peer_under(inner, depth - 1);
+        }
+    }
+    return nullptr;
+}
+
+// Speak `text` through the running screen reader without moving its focus (docs/accessibility.md):
+// a UIA notification raised from the primary window's tree. `urgent` interrupts what is being
+// read (ImportantMostRecent); otherwise the sentence queues behind it (All). With no screen
+// reader listening the notification goes nowhere, and a stack too old to raise one throws into
+// `guard`. Before the window exists there is nothing to raise it from, so the text is dropped.
+void day_xaml_announce(const char* text, int urgent) {
+    guard([&] {
+        if (!text || !*text || !g_app || !g_app->root) return;
+        auto peer = peer_under(g_app->root, 16);
+        if (!peer) return;
+        peer.RaiseNotificationEvent(
+            WUXAP::AutomationNotificationKind::ActionCompleted,
+            urgent ? WUXAP::AutomationNotificationProcessing::ImportantMostRecent
+                   : WUXAP::AutomationNotificationProcessing::All,
+            hs(text), winrt::hstring{ L"day-announce" });
+    });
 }
 
 // Attach a native pointer recognizer to `h`, reporting to cb(id, phase, x, y, tx, ty) with `x,y` in

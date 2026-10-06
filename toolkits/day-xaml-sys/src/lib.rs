@@ -377,6 +377,24 @@ unsafe extern "C" {
     /// (docs/baseline.md).
     pub fn day_xaml_baseline(w: *mut c_void, box_h: f64) -> f64;
     pub fn day_xaml_set_name(w: *mut c_void, name: *const c_char);
+    /// A node's accessibility annotations (docs/accessibility.md), each applied only when set:
+    /// a null or empty string, role 0 and hidden 0 leave the element alone. `role` is
+    /// `day_spec::Role`'s declaration order (0 None, 1 Button, 2 Toggle, 3 Slider, 4 TextInput,
+    /// 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree, 10 TreeItem); `level` is the 1-based
+    /// heading level, read only with role 5. The automation id stays with [`day_xaml_set_name`].
+    pub fn day_xaml_set_a11y(
+        w: *mut c_void,
+        label: *const c_char,
+        hint: *const c_char,
+        value: *const c_char,
+        role: c_int,
+        level: c_int,
+        hidden: c_int,
+    );
+    /// Speak `text` through the screen reader without moving its focus — a UIA notification
+    /// raised from the primary window's tree; `urgent` != 0 interrupts the current speech.
+    /// Nothing happens before the window exists or with no screen reader listening.
+    pub fn day_xaml_announce(text: *const c_char, urgent: c_int);
 
     // gestures (docs/shapes.md): attach a native recognizer. kind 0 Tap / 1 LongPress / 2 Drag;
     // cb(id, phase, x, y, tx, ty) with phase 0 Tap, 1/2/3 Drag Began/Changed/Ended, 4 LongPress.

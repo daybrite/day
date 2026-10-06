@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The toolkit duties HarmonyOS exposes only in ArkTS, reached through daybridge arms
-//! (docs/bridge.md) rather than the C node shim: the app's color mode (docs/appearance.md) and the
-//! app-icon badge (docs/badge.md). `day build` stages the ArkTS half beside every other bridged
+//! (docs/bridge.md) rather than the C node shim: the app's color mode (docs/appearance.md), the
+//! app-icon badge (docs/badge.md) and screen-reader announcements (docs/accessibility.md; the C
+//! API's announce event needs an XComponent's accessibility provider, which a node tree has
+//! none of). `day build` stages the ArkTS half beside every other bridged
 //! crate's, so a duty added here needs no shim or host-page change.
 
 use day_bridge::Support;
@@ -33,6 +35,16 @@ pub(crate) fn badge_support() -> Support {
     set_badge_native_support()
 }
 
+/// Speak `text` through the screen reader without moving its focus (docs/accessibility.md);
+/// `urgent` interrupts what is being read.
+pub(crate) fn announce(text: &str, urgent: bool) {
+    announce_native(text, urgent);
+}
+
+pub(crate) fn announce_support() -> Support {
+    announce_native_support()
+}
+
 /// Report every color-mode change the system applies, the app's own override included, as
 /// `dark`. Runs `on_change` on Day's UI thread (the ArkTS environment callback is the JS thread,
 /// which is that thread, but the stream's callback has to be `Send` either way).
@@ -51,6 +63,8 @@ day_bridge::bridge! {
         fn set_color_mode_native(mode: i32);
         /// The app icon's badge number; 0 clears it.
         fn set_badge_native(count: i32);
+        /// The accessibility kit's announcement event: `urgent` interrupts the current speech.
+        fn announce_native(text: &str, urgent: bool);
         /// The color mode after every configuration change: 1 dark, 0 light.
         fn watch_color_mode_native(emit: day_bridge::Emit<i32>) -> Result<(), day_bridge::Error>;
     }
@@ -60,6 +74,7 @@ day_bridge::bridge! {
         prelude = r#"
             import { common, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
             import { notificationManager } from '@kit.NotificationKit';
+            import { accessibility } from '@kit.AccessibilityKit';
             import { BusinessError } from '@kit.BasicServicesKit';
         "#,
         body = r#"
@@ -77,6 +92,21 @@ day_bridge::bridge! {
             export function set_badge_native(count: number): void {
               notificationManager.setBadgeNumber(count).catch((e: BusinessError) => {
                 console.warn(`day-arkui: badge ${count}: ${e.code} ${e.message}`);
+              });
+            }
+
+            export function announce_native(text: string, urgent: boolean): void {
+              // Nothing to say to nobody: the event is only sent while a screen reader runs.
+              if (!accessibility.isScreenReaderOpenSync()) {
+                return;
+              }
+              const bundle = (getContext() as common.UIAbilityContext).abilityInfo.bundleName;
+              const info = new accessibility.EventInfo(
+                urgent ? 'announceForAccessibility' : 'announceForAccessibilityNotInterrupt',
+                bundle, 'common');
+              info.textAnnouncedForAccessibility = text;
+              accessibility.sendAccessibilityEvent(info).catch((e: BusinessError) => {
+                console.warn(`day-arkui: announce: ${e.code} ${e.message}`);
               });
             }
 
@@ -99,6 +129,9 @@ day_bridge::bridge! {
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn set_badge_native(_count: i32) {}
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn announce_native(_text: &str, _urgent: bool) {}
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn watch_color_mode_native(_emit: day_bridge::Emit<i32>) -> Result<(), day_bridge::Error> {

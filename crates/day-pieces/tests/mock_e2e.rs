@@ -509,6 +509,20 @@ fn text_field_controlled_echo_is_origin_tagged() {
 }
 
 #[test]
+fn announce_reaches_the_toolkit_with_its_urgency() {
+    let probe = boot(|| column((label("quiet"),)).any());
+    announce("Saved");
+    announce_urgent("Upload failed");
+    assert_eq!(
+        probe.state.borrow().announcements,
+        vec![
+            ("Saved".to_string(), false),
+            ("Upload failed".to_string(), true)
+        ]
+    );
+}
+
+#[test]
 fn plain_text_field_sends_no_input_traits() {
     let name = Signal::new(String::new());
     let probe = boot(move || column((text_field(name),)).any());

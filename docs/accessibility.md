@@ -42,7 +42,8 @@ handle-less layout node, so annotations placed after them wouldn't reach a nativ
 
 ## Roles
 
-`Role`: `None`, `Button`, `Toggle`, `Slider`, `TextInput`, `Heading(u8)`, `Image`, `Meter`, `Group`.
+`Role`: `None`, `Button`, `Toggle`, `Slider`, `TextInput`, `Heading(u8)`, `Image`, `Meter`, `Group`,
+`Tree`, `TreeItem`.
 
 Day only applies an explicit role (the canvas/custom cases, e.g. a `Meter` gauge). Native controls
 already report the right role, so Day records their kind-default (`Role::for_kind`) as the audit
@@ -51,18 +52,48 @@ default.
 
 ## Per-backend mapping (`set_a11y`)
 
-| field | AppKit | UIKit | GTK | Qt | Android |
-|---|---|---|---|---|---|
-| label | `setAccessibilityLabel` | `accessibilityLabel` | `Property::Label` | `setAccessibleName` (+tooltip) | `contentDescription` |
-| hint | `setAccessibilityHelp` | `accessibilityHint` | `Property::Description` | `setAccessibleDescription` | — (follow-up) |
-| value | `setAccessibilityValue` | `accessibilityValue` | `Property::ValueText` | — (QAccessible subclass) | `stateDescription` (API 30+) |
-| role (explicit) | `setAccessibilityRole` (AXButton/Slider/CheckBox/TextField/StaticText/Image/LevelIndicator/Group) | `accessibilityTraits` (Button/Adjustable/Header/Image) | construction-time (follow-up) | widget-derived | delegate (follow-up) |
-| hidden/decorative | `setAccessibilityElement(false)` | `accessibilityElementsHidden` | `State::Hidden` | — | `importantForAccessibility=NO` |
-| identifier | `setAccessibilityIdentifier` | `accessibilityIdentifier` | `set_widget_name` (Inspector) | `setObjectName` | — |
+| field | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+|---|---|---|---|---|---|---|---|---|
+| label | `accessibilityLabel` | `accessibilityLabel` | `Property::Label` | `accessibleName` (+ tooltip) | `contentDescription` | `AutomationProperties.Name` | `NODE_ACCESSIBILITY_TEXT` | `aria-label` |
+| hint | `accessibilityHelp` | `accessibilityHint` | `Property::Description` | `accessibleDescription` | `hintText` through a delegate | `HelpText` | `NODE_ACCESSIBILITY_DESCRIPTION` | `aria-description` |
+| value | `accessibilityValue` | `accessibilityValue` | `Property::ValueText` | `QAccessibleInterface::text(Value)` | `stateDescription` (API 30+; appended to the label below) | `ItemStatus` | `NODE_ACCESSIBILITY_VALUE` | `aria-valuetext` (+ `aria-valuenow`) on meters and sliders, else in `aria-description` |
+| role (explicit) | `accessibilityRole` | `accessibilityTraits` (button, adjustable, header, image) | `accessible-role`, set before the widget meets an AT | `QAccessibleInterface::role()` | `className` and `heading` through a delegate | `HeadingLevel`; `LocalizedControlType` for the rest | `NODE_ACCESSIBILITY_ROLE` | `role` (+ `aria-level`) |
+| hidden / decorative | `accessibilityElement = false`, no children | `isAccessibilityElement = false`, descendants hidden | `State::Hidden` | `invisible` + `offscreen` state, no children | `importantForAccessibility = NO_HIDE_DESCENDANTS` | `AccessibilityView.Raw` | `NODE_ACCESSIBILITY_MODE` disabled for descendants | `aria-hidden`, out of the tab order |
+| identifier | `accessibilityIdentifier` | `accessibilityIdentifier` | `widget name` (Inspector only) | `objectName` | — | `AutomationId` | `NODE_ID` | `id` |
 
-Current state (from §13's truth table): apple + Qt have full native a11y on all their OSes. GTK
-has no AT bridge on macOS (it works via AT-SPI on Linux). Android role/hint need an
-`AccessibilityDelegate` (deferred). This is why those are secondary combos.
+What each platform does not carry:
+
+- **Heading levels** reach WinUI, the web and GTK (`Property::Level`). AppKit, UIKit, Android
+  and ArkUI know a heading from other text and nothing more; AppKit's heading is `AXHeading`.
+- **Roles are advisory where the platform cannot retype an element.** WinUI speaks a control
+  type string (English) and keeps the native patterns; ArkUI's `Tree`/`TreeItem` become a list
+  and its rows; Android's `Tree`/`TreeItem` and UIKit's `TextInput`/`Meter`/`Group`/`Tree` have
+  no counterpart. A canvas with `Role::Button` on the web becomes keyboard-reachable
+  (`tabindex`, Enter and Space tap it).
+- **Qt** realizes value, role and hidden through its own `QAccessibleInterface` for a widget
+  that asked for any of them; the heading level needs Qt 6.8.
+- **Android** reaches hint and role through one `AccessibilityDelegate` per annotated view,
+  wrapping whatever delegate the widget already had. Identifiers do not reach assistive
+  technology below API 33 (§13's table).
+- **GTK**'s role is set only while the widget has no root, which is when day-core first applies
+  annotations; a role changed later is ignored. A plain Day container on **WinUI** is a `Canvas`,
+  which has no automation peer, so annotations on a bare container are stored but not exposed.
+
+## Announcements
+
+`day::announce(text)` speaks a sentence through the screen reader without moving its focus;
+`day::announce_urgent(text)` interrupts what is being read. Use them for the change a user
+cannot otherwise learn about ("Saved", "3 results", "Upload failed"); a visible status label
+that the user can reach needs none. Nothing happens when no screen reader is running.
+
+| | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+|---|---|---|---|---|---|---|---|---|
+| `Cap::Announce` | Native | Native | Native on GTK 4.14+ | Native on Qt 6.8+ | Native | Native | Native | Emulated |
+| mechanism | `NSAccessibilityAnnouncementRequested` notification on the window | `UIAccessibilityAnnouncementNotification`; polite announcements queue | `gtk_accessible_announce`, looked up at run time | `QAccessibleAnnouncementEvent` | `announceForAccessibility`; urgent interrupts first | `AutomationPeer.RaiseNotificationEvent` | `accessibility.sendAccessibilityEvent` from the ArkTS host | two ARIA live regions |
+
+GTK makes the call only through an AT-SPI context, which exists only once the accessibility
+bus answered: GTK 4.14 reaches the announcement through its no-AT context otherwise and the
+process ends. On Windows the GTK build cannot look the symbol up and answers `Unsupported`.
 
 ## Verification: `a11y_audit` (§14.2)
 
@@ -77,6 +108,5 @@ applied, since native controls own their roles, which vary per platform.
 ## Follow-ups
 
 - Reactive a11y strings (`.value_with(|| …)` / `IntoText` on a11y; currently build-time snapshots).
-- GTK/Android/canvas construction-time roles; Qt `QAccessibleInterface` value/role.
 - `day lint` a11y rule: interactive piece without a derivable label → warning (`--strict` error).
 - `read_a11y` for Qt/GTK so `a11y_audit` runs on the desktop-toolkit combos too.

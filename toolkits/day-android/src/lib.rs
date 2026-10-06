@@ -444,7 +444,7 @@ mod imp {
     use day_spec::{
         A11yProps, AnimSpec, Builtin, Cap, Cursor, Curve, DrawOp, Event, EventSink, Font,
         ListSource, NodeId, PieceKind, Platform, Point, Proposal, RawHandle, Rect, Registry,
-        Renderer, Size, Support, Toolkit, Transform, WindowOptions, kinds,
+        Renderer, Role, Size, Support, Toolkit, Transform, WindowOptions, kinds,
     };
 
     day_core::tls_group! {
@@ -2138,6 +2138,10 @@ mod imp {
                 // A link run is a ClickableSpan; the TextView takes LinkMovementMethod when one
                 // is present, which is what makes the tap land.
                 Cap::TextRuns | Cap::TextLinks => Support::Native,
+                // `announceForAccessibility` on the window's content view: the platform's
+                // announcement event, sent only while an accessibility service is enabled
+                // (docs/accessibility.md).
+                Cap::Announce => Support::Native,
                 // EditText honors editable / selectable / spell-check (DayTextArea shim).
                 Cap::Dialogs
                 | Cap::FileDialogs
@@ -4062,19 +4066,51 @@ mod imp {
         }
 
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
+            // The role crosses as its `day_spec::Role` declaration index (DayBridge's
+            // `ROLE_*` constants) with the heading level beside it; an empty string is an
+            // unset member, and the bridge leaves those alone.
+            let (role, level) = match a11y.role {
+                Role::None => (0, 0),
+                Role::Button => (1, 0),
+                Role::Toggle => (2, 0),
+                Role::Slider => (3, 0),
+                Role::TextInput => (4, 0),
+                Role::Heading(level) => (5, i32::from(level)),
+                Role::Image => (6, 0),
+                Role::Meter => (7, 0),
+                Role::Group => (8, 0),
+                Role::Tree => (9, 0),
+                Role::TreeItem => (10, 0),
+            };
             with_env(|env| {
                 let label = jstr(env, a11y.label.as_deref().unwrap_or(""));
+                let hint = jstr(env, a11y.hint.as_deref().unwrap_or(""));
                 let value = jstr(env, a11y.value.as_deref().unwrap_or(""));
                 let _ = env.dcall_static(
                     BRIDGE,
                     "setA11y",
-                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
+                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIZ)V",
                     &[
                         JValue::Object(h.0.as_obj()),
                         JValue::Object(&label),
+                        JValue::Object(&hint),
                         JValue::Object(&value),
+                        JValue::Int(role),
+                        JValue::Int(level),
                         JValue::Bool(a11y.hidden),
                     ],
+                );
+            });
+        }
+
+        fn announce(&mut self, text: &str, urgent: bool) {
+            with_env(|env| {
+                let text = jstr(env, text);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "announce",
+                    "(Ljava/lang/String;Z)V",
+                    &[JValue::Object(&text), JValue::Bool(urgent)],
                 );
             });
         }

@@ -49,6 +49,7 @@ implement them, and this table proves it.
 | `update_toolbar` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
 | `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `announce` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | · | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `font_families` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

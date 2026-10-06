@@ -220,6 +220,23 @@ unsafe extern "C" {
     pub fn day_qt_set_tooltip(w: *mut c_void, text: *const c_char);
     pub fn day_qt_set_accessible_name(w: *mut c_void, name: *const c_char);
     pub fn day_qt_set_accessible_description(w: *mut c_void, text: *const c_char);
+    /// Explicit role, spoken value and hidden flag, served by the shim's own accessible
+    /// interface (docs/accessibility.md). `role` follows `day_spec::Role` declaration order
+    /// (shim.cpp carries the same table): 0 none (the widget's own role stays), 1 Button,
+    /// 2 Toggle, 3 Slider, 4 TextInput, 5 Heading with `level`, 6 Image, 7 Meter, 8 Group,
+    /// 9 Tree, 10 TreeItem. `value` NULL = none. Once hidden, a widget stays hidden.
+    pub fn day_qt_set_a11y_traits(
+        w: *mut c_void,
+        role: c_int,
+        level: c_int,
+        value: *const c_char,
+        hidden: c_int,
+    );
+    /// 1 when the Qt linked carries `QAccessibleAnnouncementEvent` (6.8+), else 0.
+    pub fn day_qt_can_announce() -> c_int;
+    /// Speak `text` through the running screen reader, posted on window `w`; nothing without
+    /// one. `urgent` interrupts the current speech.
+    pub fn day_qt_announce(w: *mut c_void, text: *const c_char, urgent: c_int);
 
     pub fn day_qt_canvas_new() -> *mut c_void;
     pub fn day_qt_canvas_set_ops(

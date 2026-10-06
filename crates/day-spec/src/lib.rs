@@ -2376,6 +2376,16 @@ pub enum Cap {
     /// [`TextMetrics::approximate`]. Probe this before offering a font menu, not before
     /// drawing; a [`CanvasFont`] draws everywhere.
     FontList,
+    /// The toolkit can speak a sentence through the screen reader without moving its focus
+    /// ([`Toolkit::announce`], docs/accessibility.md): "Saved", "3 results", "Upload failed".
+    /// `Native` where the platform has an announcement request (`NSAccessibility`'s
+    /// announcement notification, `UIAccessibility`'s, Android's accessibility event, GTK
+    /// 4.14's `gtk_accessible_announce`, a WinUI notification event); `Emulated` on the web,
+    /// where an ARIA live region carries it; `Unsupported` where Day reaches no announcement
+    /// API yet. An app with a visible status label needs no announcement: screen readers read
+    /// what changes on screen only when told to, so this is for the change the user cannot
+    /// otherwise learn about.
+    Announce,
     /// The toolkit can turn encoded image bytes into a native image
     /// ([`Toolkit::decode_image`], docs/images.md): what `image(bytes)`, a pasted screenshot and
     /// a canvas image all rest on. `Native` wherever the platform decoder takes a buffer;
@@ -6321,7 +6331,17 @@ pub trait Toolkit: Sized + 'static {
     }
 
     // pillars
+    /// Apply a node's accessibility annotations (docs/accessibility.md): the label, hint and
+    /// value the screen reader speaks, an explicit role, whether the node is hidden from
+    /// assistive technology, and the automation identifier. Called with the node's whole
+    /// accumulated set each time any of it changes, so every member is written on every call.
+    /// Only an explicit role is applied: a native control reports its own.
     fn set_a11y(&mut self, _h: &Self::Handle, _a11y: &A11yProps) {}
+    /// Speak `text` through the screen reader without moving its focus (docs/accessibility.md;
+    /// probe [`Cap::Announce`]). `urgent` interrupts what is being read; otherwise the sentence
+    /// waits its turn. Nothing happens when no screen reader is running. The default is a
+    /// backend that reaches no announcement API.
+    fn announce(&mut self, _text: &str, _urgent: bool) {}
     /// Read a widget's native accessibility properties for `a11y_audit` (§14.2) to diff
     /// against Day's expectation. Default: unsupported (`found = false`); the audit skips the node.
     fn read_a11y(&self, _h: &Self::Handle) -> A11ySnapshot {

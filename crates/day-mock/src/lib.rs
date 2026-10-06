@@ -147,6 +147,8 @@ pub struct MockState {
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
+    /// Every `announce` in order, as `(text, urgent)` (docs/accessibility.md), probe-visible.
+    pub announcements: Vec<(String, bool)>,
     /// Model a toolkit whose secure field is a different native class (AppKit, WinUI):
     /// `set_input_traits` answers a secure flip with a replacement widget under a new handle
     /// (docs/textfield.md). Off by default: most toolkits flip a property.
@@ -808,6 +810,7 @@ impl Toolkit for MockToolkit {
             Cap::Cursor => Support::Native,
             // A fixed two-family list (`font_families` below), composed, not read.
             Cap::FontList => Support::Emulated,
+            Cap::Announce => Support::Native,
             // The mock answers `first_baseline` from its synthetic metrics (see below).
             Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
@@ -1503,6 +1506,12 @@ impl Toolkit for MockToolkit {
             ..Default::default()
         });
         MockHandle(h)
+    }
+
+    fn announce(&mut self, text: &str, urgent: bool) {
+        let mut s = self.state.borrow_mut();
+        s.announcements.push((text.to_string(), urgent));
+        s.log(format!("announce {text:?} urgent={urgent}"));
     }
 
     fn set_a11y(&mut self, h: &MockHandle, a11y: &A11yProps) {

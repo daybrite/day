@@ -57,6 +57,9 @@ unsafe extern "C" {
     /// Put the selection at a BYTE range in a contenteditable element's flattened text.
     fn day_dom_editor_select(el: u32, start: u32, end: u32);
     fn day_dom_set_app_badge(count: i32);
+    /// Speak `text` through the shim's ARIA live regions (docs/accessibility.md); `urgent`
+    /// picks the assertive one, which interrupts, over the polite one, which queues.
+    fn day_dom_announce(ptr: *const u8, len: usize, urgent: u32);
     fn day_dom_insert(parent: u32, child: u32, index: u32);
     fn day_dom_remove(child: u32);
     fn day_dom_release(el: u32);
@@ -238,6 +241,16 @@ fn attr(el: u32, a: &str, v: &str) {
 }
 fn text(el: u32, t: &str) {
     unsafe { day_dom_set_text(el, t.as_ptr(), t.len()) };
+}
+/// The number an accessibility value leads with ("72%" → 72, "3 of 5" → 3), for
+/// `aria-valuenow`; `None` when the text starts with something else.
+fn leading_number(value: &str) -> Option<f64> {
+    let value = value.trim_start();
+    let end = value
+        .char_indices()
+        .find(|(i, c)| !(c.is_ascii_digit() || *c == '.' || (*i == 0 && (*c == '-' || *c == '+'))))
+        .map_or(value.len(), |(i, _)| i);
+    value[..end].parse().ok()
 }
 fn apply_button_content(el: u32, title: &str, icon: Option<&day_spec::Icon>, icon_only: bool) {
     fn escape(s: &str) -> String {
@@ -1441,6 +1454,9 @@ impl Toolkit for Dom {
             // Native because whether anything is DRAWN depends on the browser and on the page
             // being an installed app — the call itself always succeeds (docs/badge.md).
             Cap::AppBadgeCount | Cap::AppBadgeDot => Support::Emulated,
+            // An ARIA live region the shim owns, not an announcement request: the browser
+            // has none (docs/accessibility.md).
+            Cap::Announce => Support::Emulated,
             Cap::TextEditable | Cap::TextSelectable | Cap::TextSpellCheck => Support::Native,
             Cap::ListRecycling => Support::Emulated,
             // The COMPOSED tree (docs/tree.md M2): the piece flattens onto the emulated
@@ -2572,8 +2588,60 @@ impl Toolkit for Dom {
     }
 
     fn set_a11y(&mut self, h: &DomHandle, a11y: &A11yProps) {
+        use day_spec::Role;
         if let Some(label) = &a11y.label {
             attr(h.0, "aria-label", label);
+        }
+        // `aria-description`, not `title`: a title is also a tooltip, and the hint is for the
+        // screen reader alone.
+        if let Some(hint) = &a11y.hint {
+            attr(h.0, "aria-description", hint);
+        }
+        // An explicit role retypes the element; a heading also carries its level. The shim's
+        // `role` branch gives a retyped button its tab stop and keyboard activation.
+        let role = match a11y.role {
+            Role::None => None,
+            Role::Button => Some("button"),
+            Role::Toggle => Some("switch"),
+            Role::Slider => Some("slider"),
+            Role::TextInput => Some("textbox"),
+            Role::Heading(_) => Some("heading"),
+            Role::Image => Some("img"),
+            Role::Meter => Some("meter"),
+            Role::Group => Some("group"),
+            Role::Tree => Some("tree"),
+            Role::TreeItem => Some("treeitem"),
+        };
+        if let Some(role) = role {
+            attr(h.0, "role", role);
+        }
+        if let Role::Heading(level) = a11y.role {
+            attr(h.0, "aria-level", &level.to_string());
+        }
+        // A range role reads its value through `aria-valuetext`, with `aria-valuenow` beside it
+        // when the text leads with a number ("72%" is 72). Any other role has no value
+        // attribute, so the value rides the description, after the hint when there is one.
+        if let Some(value) = &a11y.value {
+            match a11y.role {
+                Role::Meter | Role::Slider => {
+                    attr(h.0, "aria-valuetext", value);
+                    if let Some(n) = leading_number(value) {
+                        attr(h.0, "aria-valuenow", &n.to_string());
+                    }
+                }
+                _ => {
+                    let described = match &a11y.hint {
+                        Some(hint) => format!("{hint}. {value}"),
+                        None => value.clone(),
+                    };
+                    attr(h.0, "aria-description", &described);
+                }
+            }
+        }
+        // Hidden takes the subtree out of the accessibility tree; the shim's `aria-hidden`
+        // branch also takes it out of the tab order, which the attribute alone would not.
+        if a11y.hidden || a11y.decorative {
+            attr(h.0, "aria-hidden", "true");
         }
         // The Day element id (`.id("counter-label")`) becomes the DOM id — the same duty that
         // sets accessibilityIdentifier on Apple backends. Day ids are app-unique by contract
@@ -2582,6 +2650,12 @@ impl Toolkit for Dom {
         if let Some(id) = &a11y.identifier {
             attr(h.0, "id", id);
         }
+    }
+
+    fn announce(&mut self, text: &str, urgent: bool) {
+        // The shim's live regions (docs/accessibility.md): one per politeness, so an urgent
+        // sentence interrupts and a polite one waits its turn.
+        unsafe { day_dom_announce(text.as_ptr(), text.len(), urgent as u32) };
     }
 
     /// Hand the bytes to the browser's own decoder (docs/images.md).

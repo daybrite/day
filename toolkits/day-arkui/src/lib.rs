@@ -826,7 +826,7 @@ mod imp {
     ) {
         clear_button_content(n);
         let source = icon.and_then(icon_source);
-        node::set_a11y(n.0, title, false);
+        node::set_a11y_text(n.0, title);
         node::set_button_label(n.0, if source.is_some() { "" } else { title });
         if let Some(source) = source {
             let ink = BUTTON_INK
@@ -3159,9 +3159,14 @@ mod imp {
         }
 
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
-            // The screen-reader label; `hidden`/`decorative` drop the node + subtree from the tree.
-            let label = a11y.label.as_deref().unwrap_or("");
-            node::set_a11y(h.0, label, a11y.hidden || a11y.decorative);
+            // Every member is an ArkUI accessibility attribute (node.rs says which).
+            node::set_a11y(h.0, a11y);
+        }
+
+        fn announce(&mut self, text: &str, urgent: bool) {
+            // The accessibility kit's announcement event (src/host.rs); nothing when the ArkTS
+            // arm is not staged, which is also what `Cap::Announce` reports.
+            crate::host::announce(text, urgent);
         }
 
         fn enable_gesture(&mut self, h: &AHandle, node_id: NodeId, kind: GestureKind) {
@@ -3524,6 +3529,14 @@ mod imp {
                 // ArkTS arms (src/host.rs): present wherever `day build` staged them.
                 Cap::Appearance => crate::host::color_mode_support(),
                 Cap::AppBadgeCount => crate::host::badge_support(),
+                // The ArkTS host decides: Native once its announce arm is staged.
+                Cap::Announce => {
+                    if crate::host::announce_support() == Support::Native {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
                 // Multiton DayWindowAbility instances (docs/windows.md): Native only when
                 // the ArkTS host registered the launchers; an older host degrades to the
                 // cover fallback.

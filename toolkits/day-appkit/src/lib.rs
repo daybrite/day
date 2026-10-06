@@ -363,8 +363,8 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
     use day_spec::Role;
     use objc2_app_kit::{
         NSAccessibilityButtonRole, NSAccessibilityCheckBoxRole, NSAccessibilityGroupRole,
-        NSAccessibilityImageRole, NSAccessibilityLevelIndicatorRole, NSAccessibilityOutlineRole,
-        NSAccessibilityRowRole, NSAccessibilitySliderRole, NSAccessibilityStaticTextRole,
+        NSAccessibilityHeadingRole, NSAccessibilityImageRole, NSAccessibilityLevelIndicatorRole,
+        NSAccessibilityOutlineRole, NSAccessibilityRowRole, NSAccessibilitySliderRole,
         NSAccessibilityTextFieldRole,
     };
     unsafe {
@@ -373,7 +373,11 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
             Role::Toggle => NSAccessibilityCheckBoxRole,
             Role::Slider => NSAccessibilitySliderRole,
             Role::TextInput => NSAccessibilityTextFieldRole,
-            Role::Heading(_) => NSAccessibilityStaticTextRole, // macOS has no arbitrary-view heading role
+            // `AXHeading` lands the label in VoiceOver's headings rotor. The level has no
+            // AppKit attribute of its own: the only convention (the level as `AXValue`) would
+            // displace the text an NSTextField reports as its value, so the level stays
+            // unspoken.
+            Role::Heading(_) => NSAccessibilityHeadingRole,
             Role::Image => NSAccessibilityImageRole,
             Role::Meter => NSAccessibilityLevelIndicatorRole,
             Role::Group => NSAccessibilityGroupRole,
@@ -394,7 +398,9 @@ fn day_role_from_ns(ax: &str) -> day_spec::Role {
         "AXCheckBox" => Role::Toggle,
         "AXSlider" => Role::Slider,
         "AXTextField" => Role::TextInput,
-        "AXStaticText" => Role::Heading(0), // ambiguous with plain text; audit ignores heading level
+        // Plain text is ambiguous with a heading, and neither carries a level; the audit
+        // ignores the level either way.
+        "AXStaticText" | "AXHeading" => Role::Heading(0),
         "AXOutline" => Role::Tree,
         "AXImage" => Role::Image,
         "AXLevelIndicator" | "AXProgressIndicator" => Role::Meter,
@@ -5693,6 +5699,9 @@ impl Toolkit for AppKit {
             // back PNG/JPEG/TIFF/BMP/GIF, and carries the container's own metadata dictionary
             // (docs/images.md).
             Cap::ImageDecode | Cap::ImageEncode | Cap::ImageProperties => Support::Native,
+            // The announcement-requested notification, posted from the primary window
+            // (docs/accessibility.md).
+            Cap::Announce => Support::Native,
             Cap::Snapshot
             | Cap::NativeSymbols
             // The rows as chrome: `Rail` is the same source list pinned narrow, `Tabs` an
@@ -8344,10 +8353,54 @@ impl Toolkit for AppKit {
             if let Some(role) = ns_role(a11y.role) {
                 h.setAccessibilityRole(Some(role));
             }
-            // Decorative / hidden: drop from the AX tree entirely.
+            // Decorative / hidden: drop from the AX tree entirely. An ignored view alone is
+            // not enough — AppKit promotes an ignored element's children into its parent's
+            // list — so the subtree is cut off too, which also covers subviews added later
+            // (list rows, re-created children). Hidden never flips back, so the override is
+            // never lifted.
             if a11y.hidden {
                 h.setAccessibilityElement(false);
+                h.setAccessibilityChildren(Some(&NSArray::new()));
             }
+        }
+    }
+
+    /// The announcement request goes out from the primary window (any live element will
+    /// do; the app object stands in before the window exists). Without VoiceOver nothing
+    /// observes the notification, so posting is free.
+    fn announce(&mut self, text: &str, urgent: bool) {
+        use objc2_app_kit::{
+            NSAccessibilityAnnouncementKey, NSAccessibilityAnnouncementRequestedNotification,
+            NSAccessibilityPostNotificationWithUserInfo, NSAccessibilityPriorityKey,
+            NSAccessibilityPriorityLevel,
+        };
+        let app = NSApplication::sharedApplication(self.mtm());
+        let window = primary_content().and_then(|content| content.window());
+        let element: &objc2::runtime::AnyObject = match &window {
+            Some(window) => window,
+            None => &app,
+        };
+        // High priority interrupts the current sentence; medium waits its turn.
+        let priority = if urgent {
+            NSAccessibilityPriorityLevel::High
+        } else {
+            NSAccessibilityPriorityLevel::Medium
+        };
+        let announcement = NSString::from_str(text);
+        let priority = NSNumber::new_isize(priority.0);
+        let values: [&objc2::runtime::AnyObject; 2] = [&announcement, &priority];
+        // SAFETY: the keys are AppKit's constants and both values are the types the
+        // announcement notification documents (an NSString and an NSNumber).
+        unsafe {
+            let user_info = NSDictionary::from_slices::<NSString>(
+                &[NSAccessibilityAnnouncementKey, NSAccessibilityPriorityKey],
+                &values,
+            );
+            NSAccessibilityPostNotificationWithUserInfo(
+                element,
+                NSAccessibilityAnnouncementRequestedNotification,
+                Some(&user_info),
+            );
         }
     }
 

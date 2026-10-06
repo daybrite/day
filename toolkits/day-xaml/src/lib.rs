@@ -1653,6 +1653,9 @@ impl Toolkit for Xaml {
             // The NavigationView shows the current destination in its Header, so pages needn't
             // repeat their title in-content (docs/navigation.md).
             Cap::NavHeader => Support::Native,
+            // A UIA notification (AutomationPeer.RaiseNotificationEvent) raised from the
+            // primary window's tree (docs/accessibility.md).
+            Cap::Announce => Support::Native,
             _ => Support::Unsupported,
         }
     }
@@ -3029,6 +3032,42 @@ impl Toolkit for Xaml {
         if let Some(id) = &a11y.identifier {
             unsafe { ffi::day_xaml_set_name(h.0, cstr(id).as_ptr()) };
         }
+        // The rest crosses in one call; an unset member goes over as an empty string / 0 and
+        // the shim leaves that property alone (docs/accessibility.md). Role codes are `Role`'s
+        // declaration order, the table the shim's `day_xaml_set_a11y` documents too.
+        use day_spec::Role;
+        let (role, level) = match a11y.role {
+            Role::None => (0, 0),
+            Role::Button => (1, 0),
+            Role::Toggle => (2, 0),
+            Role::Slider => (3, 0),
+            Role::TextInput => (4, 0),
+            Role::Heading(n) => (5, c_int::from(n)),
+            Role::Image => (6, 0),
+            Role::Meter => (7, 0),
+            Role::Group => (8, 0),
+            Role::Tree => (9, 0),
+            Role::TreeItem => (10, 0),
+        };
+        let label = cstr(a11y.label.as_deref().unwrap_or(""));
+        let hint = cstr(a11y.hint.as_deref().unwrap_or(""));
+        let value = cstr(a11y.value.as_deref().unwrap_or(""));
+        let hidden = (a11y.hidden || a11y.decorative) as c_int;
+        unsafe {
+            ffi::day_xaml_set_a11y(
+                h.0,
+                label.as_ptr(),
+                hint.as_ptr(),
+                value.as_ptr(),
+                role,
+                level,
+                hidden,
+            )
+        };
+    }
+
+    fn announce(&mut self, text: &str, urgent: bool) {
+        unsafe { ffi::day_xaml_announce(cstr(text).as_ptr(), urgent as c_int) };
     }
 
     fn attach_list(&mut self, host: &WinHandle, source: day_spec::ListSource) {

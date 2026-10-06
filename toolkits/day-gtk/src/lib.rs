@@ -2963,6 +2963,61 @@ struct GtkWin {
     fixed: gtk4::Fixed,
 }
 
+/// GTK 4.14's `gtk_accessible_announce(GtkAccessible *, const char *, GtkAccessibleAnnouncementPriority)`.
+type AnnounceFn =
+    unsafe extern "C" fn(*mut gtk4::ffi::GtkAccessible, *const std::ffi::c_char, std::ffi::c_int);
+
+/// `gtk_accessible_announce`, if the GTK this process loaded has it (4.14; the binding is
+/// pinned at v4_10, so the symbol is looked up rather than linked). Windows builds link GTK
+/// through MSYS2 and have no `dlsym`; they answer `None` until the binding catches up.
+fn announce_symbol() -> Option<AnnounceFn> {
+    #[cfg(unix)]
+    {
+        // SAFETY: `RTLD_DEFAULT` searches the images already loaded, the name is a NUL-terminated
+        // literal, and the pointer is only used after a null check, as the type the GTK header
+        // declares.
+        let sym = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"gtk_accessible_announce".as_ptr()) };
+        if sym.is_null() {
+            return None;
+        }
+        // SAFETY: a non-null `dlsym` result for this name is the function GTK exports under it.
+        Some(unsafe { std::mem::transmute::<*mut std::ffi::c_void, AnnounceFn>(sym) })
+    }
+    #[cfg(not(unix))]
+    {
+        None
+    }
+}
+
+/// Speak `text` through the screen reader via `widget`'s accessible (docs/accessibility.md).
+///
+/// Only when the widget's AT context is GTK's AT-SPI one, which GTK makes only after the
+/// accessibility bus answered: without a bus GTK stands a context that has no announcement,
+/// and 4.14 reaches the call through it anyway, which ends the process. With no screen reader
+/// nobody would hear it, so staying silent there loses nothing.
+fn announce_through(widget: &gtk4::Widget, text: &str, urgent: bool) {
+    let Some(announce) = announce_symbol() else {
+        return;
+    };
+    if widget.at_context().type_().name() != "GtkAtSpiContext" {
+        return;
+    }
+    let Ok(text) = std::ffi::CString::new(text) else {
+        return;
+    };
+    // GTK_ACCESSIBLE_ANNOUNCEMENT_PRIORITY_MEDIUM waits its turn; HIGH interrupts.
+    let priority = if urgent { 2 } else { 1 };
+    // SAFETY: `widget` is a live GtkWidget, which implements GtkAccessible, and `text` outlives
+    // the call; the function is the one GTK exports (see `announce_symbol`).
+    unsafe {
+        announce(
+            widget.as_ptr().cast::<gtk4::ffi::GtkAccessible>(),
+            text.as_ptr(),
+            priority,
+        )
+    };
+}
+
 pub struct Gtk {
     #[cfg(target_os = "macos")]
     sharing: Option<objc2::rc::Retained<objc2::runtime::AnyObject>>,
@@ -3492,6 +3547,15 @@ impl Toolkit for Gtk {
             | Cap::Inspector => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
+            // The library on the machine decides: `gtk_accessible_announce` arrived in 4.14,
+            // and the binding is pinned below it (docs/accessibility.md).
+            Cap::Announce => {
+                if announce_symbol().is_some() {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
             _ => Support::Unsupported,
         }
     }
@@ -6323,13 +6387,14 @@ impl Toolkit for Gtk {
     }
 
     fn set_a11y(&mut self, h: &Handle, a11y: &A11yProps) {
+        use day_spec::Role;
+        use gtk4::AccessibleRole;
         use gtk4::accessible::{Property, State};
         if let Some(id) = &a11y.identifier {
             h.set_widget_name(id); // GtkInspector-visible automation id (§13's honest table)
         }
         // Real GtkAccessible properties → AT-SPI (screen readers on Linux; no AT bridge on macOS,
-        // §13). GtkWidget's accessible-role is fixed at construction, so Day sets label/description/
-        // value here and leaves role to the widget (canvas role-setting is a follow-up).
+        // §13).
         let mut props: Vec<Property> = Vec::new();
         if let Some(label) = &a11y.label {
             props.push(Property::Label(label.as_str()));
@@ -6340,12 +6405,49 @@ impl Toolkit for Gtk {
         if let Some(value) = &a11y.value {
             props.push(Property::ValueText(value.as_str()));
         }
+        // An explicit role retypes the widget's accessible. GTK lets the `accessible-role`
+        // property change only while the widget's AT context is unrealized, which it is until
+        // the widget is rooted in a window (afterwards the setter g_criticals), and day-core
+        // applies the annotations straight after `realize`, before the parent takes the
+        // widget — so the first call lands the role and a rooted widget keeps the one it has.
+        // A heading also carries its level, which AT-SPI reports as an attribute.
+        let role = match a11y.role {
+            Role::None => None,
+            Role::Button => Some(AccessibleRole::Button),
+            Role::Toggle => Some(AccessibleRole::Switch),
+            Role::Slider => Some(AccessibleRole::Slider),
+            Role::TextInput => Some(AccessibleRole::TextBox),
+            Role::Heading(level) => {
+                props.push(Property::Level(i32::from(level.max(1))));
+                Some(AccessibleRole::Heading)
+            }
+            Role::Image => Some(AccessibleRole::Img),
+            Role::Meter => Some(AccessibleRole::Meter),
+            Role::Group => Some(AccessibleRole::Group),
+            Role::Tree => Some(AccessibleRole::Tree),
+            Role::TreeItem => Some(AccessibleRole::TreeItem),
+        };
+        if let Some(role) = role
+            && h.root().is_none()
+            && h.accessible_role() != role
+        {
+            h.set_accessible_role(role);
+        }
         if !props.is_empty() {
             h.update_property(&props);
         }
+        // Hidden drops the whole subtree from AT-SPI: children hang under a node the bridge
+        // no longer presents.
         if a11y.hidden {
             h.update_state(&[State::Hidden(true)]);
         }
+    }
+
+    fn announce(&mut self, text: &str, urgent: bool) {
+        let Some(fixed) = self.window_fixed.as_ref() else {
+            return;
+        };
+        announce_through(fixed.upcast_ref(), text, urgent);
     }
 
     fn request_frame(

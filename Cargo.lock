@@ -592,6 +592,7 @@ dependencies = [
  "day-spec",
  "gtk4",
  "libadwaita",
+ "libc",
  "linkme",
  "log",
  "objc2",

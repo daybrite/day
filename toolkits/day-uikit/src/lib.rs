@@ -7821,6 +7821,9 @@ mod imp {
                 // an empty struct would read as "this file records nothing" rather than "nobody
                 // looked".
                 Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+                // `UIAccessibilityAnnouncementNotification`, queued or interrupting per the
+                // speech attribute (docs/accessibility.md).
+                Cap::Announce => Support::Native,
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
                 // (docs/window-image.md).
                 // A label carrying a link run is built as a read-only UITextView, whose delegate
@@ -10218,8 +10221,53 @@ mod imp {
                 if let Some(traits) = ui_traits(a11y.role) {
                     let _: () = msg_send![&**h, setAccessibilityTraits: traits];
                 }
+                // Decorative / hidden: `accessibilityElementsHidden` drops only the
+                // DESCENDANTS, so the view itself (a decorative image, a native control) is
+                // unmarked as an element too. Hidden never flips back, so neither is restored.
                 if a11y.hidden {
                     let _: () = msg_send![&**h, setAccessibilityElementsHidden: true];
+                    let _: () = msg_send![&**h, setIsAccessibilityElement: false];
+                }
+            }
+        }
+
+        /// VoiceOver's announcement notification: an urgent sentence interrupts the current
+        /// one (the plain-string default); a polite one is wrapped in an attributed string
+        /// that asks to queue behind it. Without VoiceOver the post goes unobserved.
+        fn announce(&mut self, text: &str, urgent: bool) {
+            use objc2::AllocAnyThread as _;
+            use objc2_ui_kit::{
+                UIAccessibilityAnnouncementNotification, UIAccessibilityPostNotification,
+            };
+            let ns = NSString::from_str(text);
+            // SAFETY: the notification constant is UIKit's own, and the argument is the
+            // NSString or NSAttributedString the announcement notification documents.
+            unsafe {
+                if urgent {
+                    UIAccessibilityPostNotification(
+                        UIAccessibilityAnnouncementNotification,
+                        Some(&ns),
+                    );
+                } else {
+                    // The queue attribute is deprecated in favor of the iOS 17 priority
+                    // attribute, but the deployment floor is iOS 15, where only this one exists.
+                    #[allow(deprecated)]
+                    let key: &NSString =
+                        objc2_ui_kit::UIAccessibilitySpeechAttributeQueueAnnouncement;
+                    let queue = objc2_foundation::NSNumber::new_bool(true);
+                    let keys: [&NSString; 1] = [key];
+                    let objs: [&AnyObject; 1] = [queue.as_ref() as &AnyObject];
+                    let attrs =
+                        objc2_foundation::NSDictionary::from_slices::<NSString>(&keys, &objs);
+                    let queued = objc2_foundation::NSAttributedString::initWithString_attributes(
+                        objc2_foundation::NSAttributedString::alloc(),
+                        &ns,
+                        Some(&attrs),
+                    );
+                    UIAccessibilityPostNotification(
+                        UIAccessibilityAnnouncementNotification,
+                        Some(&queued),
+                    );
                 }
             }
         }

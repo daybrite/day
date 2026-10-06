@@ -873,6 +873,7 @@ app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator
 canvas(draw_fn)
     d.text(s, at, TextStyle { size, color, anchor, font })   // one line, in a CanvasFont (docs/fonts.md)
 font_families()   measure_text(s, size, &font)    // the platform font list (Cap::FontList), text metrics
+announce(text)    announce_urgent(text)           // speak through the screen reader (Cap::Announce, docs/accessibility.md)
 rectangle()  rounded_rectangle(r)  circle()  capsule()  ellipse()  arc(start, sweep)
 line(a, b)  polygon(points)        // unit-point kinds over the existing Line/Polygon ops
     .fill(color) / .fill_linear(g) / .fill_radial(g) / .stroke(color, w)
@@ -1495,7 +1496,7 @@ pub trait Toolkit: Sized + 'static {
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
     // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
-    // …, Cursor, FontList)
+    // …, Cursor, FontList, Announce)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1637,6 +1638,10 @@ pub trait Toolkit: Sized + 'static {
 
     // pillars
     fn set_a11y(&mut self, h, a11y: &A11yProps) {}                    // §13
+    fn announce(&mut self, text: &str, urgent: bool) {}               // day::announce — speak through
+                                                                      // the screen reader without
+                                                                      // moving its focus
+                                                                      // (Cap::Announce, docs/accessibility.md)
     fn read_a11y(&self, h) -> A11ySnapshot { … }                      // the a11y_audit's native read
     fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11 — `DrawOp::Stamp`
                                                                       // is ONE op for many copies
@@ -2752,6 +2757,10 @@ canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
   `IntoText` (a11y strings are localized like any other, and they update reactively).
 - Roles map to native: `Role::Button/Toggle/Slider/TextInput/Heading(level)/Image/Meter/Group/…` —
   most built-ins set their role automatically; `role` matters for canvas and custom pieces.
+- **Announcements**: `day::announce(text)` / `announce_urgent(text)` speak a sentence through the
+  screen reader without moving its focus (`Toolkit::announce`, `Cap::Announce`), for the change a
+  user cannot otherwise learn about. The per-toolkit mechanism table is in
+  [docs/accessibility.md](docs/accessibility.md).
 - **Identifiers** ([§5.5](#55-node-identity-ids-and-the-element-index)): the verified per-toolkit truth table — no pretending:
 
   | toolkit | native automation-id channel |

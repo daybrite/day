@@ -92,10 +92,14 @@
 #include <QKeySequence>
 #include <QDesktopServices>
 #include <QUrl>
+#include <QAccessible>
+#include <QAccessibleWidget>
 
 #include <cstdint>
 
 extern "C" void day_qt_open_file(const char *url);
+// Defined with the accessibility functions below; installed once the QApplication exists.
+static void day_qt_install_a11y_factory();
 class DayApplication : public QApplication {
 public:
     DayApplication(int &argc, char **argv) : QApplication(argc, argv) {}
@@ -141,6 +145,9 @@ void *day_qt_app_new(const char *app_name) {
     QCoreApplication::setApplicationName(QString::fromUtf8(s_arg0));
     QGuiApplication::setApplicationDisplayName(QString::fromUtf8(s_arg0));
     auto *app = new DayApplication(s_argc, s_argv);
+    // After the constructor: QApplication installs Qt's own widget factory there, and the
+    // newest factory is asked first.
+    day_qt_install_a11y_factory();
     // Quit is DELIBERATE (the primary window's closeEvent / role Quit / ⌘Q): the default
     // quit-on-last-window-closed would misfire once secondary windows exist
     // (docs/windows.md — closing the last secondary must not exit, closing the primary
@@ -949,12 +956,183 @@ void day_qt_set_tooltip(void *w, const char *text) {
     static_cast<QWidget *>(w)->setToolTip(QString::fromUtf8(text));
 }
 // Accessibility (§13): QWidget accessibleName/Description surface via QAccessible (UIA on Windows,
-// AT-SPI on Linux, NSAccessibility on macOS). Role/value derive from the widget type.
+// AT-SPI on Linux, NSAccessibility on macOS). Role/value/hidden derive from the widget type in
+// Qt's stock interfaces, so a widget Day annotates with them gets DayAccessibleWidget instead.
 void day_qt_set_accessible_name(void *w, const char *name) {
     static_cast<QWidget *>(w)->setAccessibleName(QString::fromUtf8(name));
 }
 void day_qt_set_accessible_description(void *w, const char *text) {
     static_cast<QWidget *>(w)->setAccessibleDescription(QString::fromUtf8(text));
+}
+
+// Day's role codes follow day_spec::Role declaration order (day-qt-sys/src/lib.rs carries the
+// same table): 0 none (the widget's own role stays), 1 Button, 2 Toggle, 3 Slider, 4 TextInput,
+// 5 Heading (level in `day_a11y_level`), 6 Image, 7 Meter, 8 Group, 9 Tree, 10 TreeItem.
+static QAccessible::Role day_qt_a11y_role(int role) {
+    switch (role) {
+    case 1: return QAccessible::Button;
+    case 2: return QAccessible::CheckBox;
+    case 3: return QAccessible::Slider;
+    case 4: return QAccessible::EditableText;
+    case 5: return QAccessible::Heading;
+    case 6: return QAccessible::Graphic;
+    case 7: return QAccessible::ProgressBar;
+    case 8: return QAccessible::Grouping;
+    case 9: return QAccessible::Tree;
+    case 10: return QAccessible::TreeItem;
+    default: return QAccessible::NoRole;
+    }
+}
+
+// The role Qt's stock interface reports for the widget class, kept for a widget that carries
+// only a value or hidden flag and no explicit role. The controls Day realizes; anything else is
+// Client, the plain-QWidget answer.
+static QAccessible::Role day_qt_stock_role(QWidget *w) {
+    if (qobject_cast<QCheckBox *>(w)) return QAccessible::CheckBox;
+    if (qobject_cast<QAbstractButton *>(w)) return QAccessible::Button;
+    if (qobject_cast<QLabel *>(w)) return QAccessible::StaticText;
+    if (qobject_cast<QLineEdit *>(w) || qobject_cast<QTextEdit *>(w)) return QAccessible::EditableText;
+    if (qobject_cast<QSlider *>(w)) return QAccessible::Slider;
+    if (qobject_cast<QProgressBar *>(w)) return QAccessible::ProgressBar;
+    if (qobject_cast<QComboBox *>(w)) return QAccessible::ComboBox;
+    return QAccessible::Client;
+}
+
+// The accessible of a widget carrying `day_a11y_*` dynamic properties (docs/accessibility.md):
+// an explicit role, a spoken value for a custom control, and hidden, which drops the node and
+// its subtree from every bridge (`invisible` is what AT-SPI and NSAccessibility skip,
+// `offscreen` what UIA reads; the children go with it so no bridge walks under it). The
+// properties are read on every call, so a later trait change needs no new interface, only the
+// event `day_qt_set_a11y_traits` posts. From Qt 6.8 the attributes interface carries a heading's
+// level the way AT-SPI and UIA expect it.
+class DayAccessibleWidget : public QAccessibleWidget
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    , public QAccessibleAttributesInterface
+#endif
+{
+public:
+    explicit DayAccessibleWidget(QWidget *w) : QAccessibleWidget(w, day_qt_stock_role(w)) {}
+
+    QAccessible::Role role() const override {
+        const QAccessible::Role r = day_qt_a11y_role(prop("day_a11y_role").toInt());
+        return r == QAccessible::NoRole ? QAccessibleWidget::role() : r;
+    }
+    QString text(QAccessible::Text t) const override {
+        if (t == QAccessible::Value) {
+            const QVariant v = prop("day_a11y_value");
+            if (v.isValid()) return v.toString();
+        }
+        return QAccessibleWidget::text(t);
+    }
+    QAccessible::State state() const override {
+        QAccessible::State s = QAccessibleWidget::state();
+        if (hidden()) {
+            s.invisible = true;
+            s.offscreen = true;
+        }
+        return s;
+    }
+    int childCount() const override { return hidden() ? 0 : QAccessibleWidget::childCount(); }
+    QAccessibleInterface *child(int index) const override {
+        return hidden() ? nullptr : QAccessibleWidget::child(index);
+    }
+    int indexOfChild(const QAccessibleInterface *c) const override {
+        return hidden() ? -1 : QAccessibleWidget::indexOfChild(c);
+    }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    void *interface_cast(QAccessible::InterfaceType t) override {
+        if (t == QAccessible::AttributesInterface)
+            return static_cast<QAccessibleAttributesInterface *>(this);
+        return QAccessibleWidget::interface_cast(t);
+    }
+    QList<QAccessible::Attribute> attributeKeys() const override {
+        QList<QAccessible::Attribute> keys;
+        if (level() > 0) keys.append(QAccessible::Attribute::Level);
+        return keys;
+    }
+    QVariant attributeValue(QAccessible::Attribute key) const override {
+        if (key == QAccessible::Attribute::Level && level() > 0) return QVariant(level());
+        return QVariant();
+    }
+#endif
+
+private:
+    // The widget is gone only in the window between its destruction and the cache dropping
+    // this interface; an invalid QVariant then reads as "unset".
+    QVariant prop(const char *name) const {
+        QWidget *w = widget();
+        return w ? w->property(name) : QVariant();
+    }
+    bool hidden() const { return prop("day_a11y_hidden").toBool(); }
+    int level() const { return prop("day_a11y_level").toInt(); }
+};
+
+// Asked for every accessible query before Qt's own widget factory (the newest factory goes
+// first); only a widget Day has given traits gets the interface above.
+static QAccessibleInterface *day_qt_a11y_factory(const QString &, QObject *object) {
+    auto *w = qobject_cast<QWidget *>(object);
+    if (!w || !w->property("day_a11y").toBool()) return nullptr;
+    return new DayAccessibleWidget(w);
+}
+static void day_qt_install_a11y_factory() { QAccessible::installFactory(day_qt_a11y_factory); }
+
+// `role`/`level` per the table above (0 = none); `value` NULL = none; `hidden` is sticky.
+void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int hidden) {
+    auto *widget = static_cast<QWidget *>(w);
+    if (role > 0) {
+        widget->setProperty("day_a11y_role", role);
+        widget->setProperty("day_a11y_level", level);
+    }
+    if (value) widget->setProperty("day_a11y_value", QString::fromUtf8(value));
+    if (hidden) widget->setProperty("day_a11y_hidden", true);
+    if (role <= 0 && !value && !hidden) return;
+    widget->setProperty("day_a11y", true);
+    // Nothing is listening without a screen reader: no bridge, no cached interface, and
+    // `updateAccessibility` would return at once. With one, the bridge builds the interface on
+    // its first visit, after the properties above — unless it visited while the widget was
+    // still plain and cached Qt's stock one, which is dropped here so the next query builds
+    // Day's; the events then tell the bridge what changed.
+    if (!QAccessible::isActive()) return;
+    if (QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(widget);
+        iface && !dynamic_cast<DayAccessibleWidget *>(iface))
+        QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(iface));
+    if (value) {
+        QAccessibleValueChangeEvent ev(widget, QString::fromUtf8(value));
+        QAccessible::updateAccessibility(&ev);
+    }
+    if (hidden) {
+        QAccessible::State changed;
+        changed.invisible = true;
+        changed.offscreen = true;
+        QAccessibleStateChangeEvent ev(widget, changed);
+        QAccessible::updateAccessibility(&ev);
+    }
+}
+
+// Announce (docs/accessibility.md): QAccessibleAnnouncementEvent reaches every bridge from
+// Qt 6.8; an older Qt has no announcement event at all, and `day_qt_can_announce` says so,
+// so `Cap::Announce` answers for the Qt actually linked.
+int day_qt_can_announce(void) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    return 1;
+#else
+    return 0;
+#endif
+}
+void day_qt_announce(void *w, const char *text, int urgent) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    // Only while a screen reader is on: a bridge exists only then, and the event needs a live
+    // object to hang off.
+    if (!w || !QAccessible::isActive()) return;
+    QAccessibleAnnouncementEvent ev(static_cast<QWidget *>(w), QString::fromUtf8(text));
+    ev.setPoliteness(urgent ? QAccessible::AnnouncementPoliteness::Assertive
+                            : QAccessible::AnnouncementPoliteness::Polite);
+    QAccessible::updateAccessibility(&ev);
+#else
+    (void)w;
+    (void)text;
+    (void)urgent;
+#endif
 }
 
 // --- misc ---
