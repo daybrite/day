@@ -10,8 +10,14 @@ let wasm = null;            // wasm exports once instantiated
 const els = [null, null];   // element registry; id 1 = the day root (set in start())
 let lastSetRoute = null;    // the route we last wrote to the hash (echo suppression)
 // The user's reduce-motion setting (docs/accessibility.md): read by `day_dom_env('reduce_motion')`
-// and watched from start(), one query for both so the read and the change agree.
-const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+// and watched from start(), one query for both so the read and the change agree. Made on first
+// use rather than at load, like the color-scheme queries, so the module still evaluates where
+// there is no window (the node shim tests, scripts/ci/webdom-*-test.mjs).
+let reduceMotionQuery = null;
+function reduceMotion() {
+  if (!reduceMotionQuery) reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
+  return reduceMotionQuery;
+}
 const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let appStarted = false;     // day_dom_main has run; script lines before that queue in the inbox
@@ -1489,7 +1495,7 @@ const env = {
       case 'dpr': v = String(devicePixelRatio || 1); break;
       case 'dark': v = (q.get('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? '1' : '0'; break;
       // The user's reduce-motion setting, as the browser relays it (docs/accessibility.md).
-      case 'reduce_motion': v = reduceMotionQuery.matches ? '1' : ''; break;
+      case 'reduce_motion': v = reduceMotion().matches ? '1' : ''; break;
       case 'locales': v = (q.get('locale') ? [q.get('locale')] : navigator.languages).join(','); break;
       case 'day_url': v = q.get('day_url') || ''; break;
       case 'route': v = location.hash.slice(1) || q.get('route') || ''; break;
@@ -2675,7 +2681,7 @@ async function boot(wasmUrl) {
   addEventListener('pagehide', () => wasm.day_dom_lifecycle(2));
   // The reduce-motion setting flipped under the app: day-core re-reads it through
   // `day_dom_env('reduce_motion')` and re-gates its transitions.
-  reduceMotionQuery.addEventListener('change', () => wasm.day_dom_motion_changed());
+  reduceMotion().addEventListener('change', () => wasm.day_dom_motion_changed());
   // Hash changes we did not write ourselves (back/forward, a hand-edited URL) are route
   // requests for the app.
   window.addEventListener('hashchange', () => {
