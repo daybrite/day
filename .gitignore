@@ -36,3 +36,7 @@ DerivedData/
 # app it documents. An untracked directory in the workspace would otherwise make `day pack` record
 # a dirty tree, which `day rebuild` then refuses.
 /showcase-src/
+
+# Per-machine editor settings (extensions write absolute paths here). Shared VS Code config,
+# if any, goes in launch.json or extensions.json, which stay trackable.
+/.vscode/settings.json
