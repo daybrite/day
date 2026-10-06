@@ -2664,6 +2664,19 @@ impl Toolkit for Qt {
     }
 
     fn insert(&mut self, parent: &QtHandle, child: &QtHandle, index: usize) {
+        // An emulated cover (docs/cover.md) is parked hidden at realize and surfaces only
+        // through `CoverPatch::Present`, which re-homes it onto the window. `day_qt_add_child`
+        // shows whatever it parents, so a cover inserted like any other child came back at
+        // Qt's 640x480 default geometry over the page's top-left corner: nothing to see (no
+        // fill), but in front of the sidebar, taking every click meant for it. Parent it for
+        // ownership only, and leave it parked.
+        if COVER_IDS.with(|m| m.borrow().contains_key(&(child.0 as usize))) {
+            unsafe {
+                ffi::day_qt_add_child(content_of(parent), child.0);
+                ffi::day_qt_set_visible(child.0, 0);
+            }
+            return;
+        }
         // Navigation suite: every destination becomes a tab. The page at index 0 is the SIDEBAR
         // page, whose rows became the bar — it stays a tab so its nav menu keeps a parent chain
         // up to the suite, but a hidden one, because drawing the rows again as a list would be
