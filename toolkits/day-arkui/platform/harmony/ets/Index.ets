@@ -70,10 +70,13 @@ struct Index {
     );
 
     // The status bar (docs/cover.md): hidden while a mounted `status_bar_hidden` asks for it.
-    // Before start(): the first tree build can already carry the request.
+    // Before start(): the first tree build can already carry the request. A dayscript run
+    // skips the bar's slide, like every other transition: a screenshot right after a page
+    // that hides the bar would otherwise catch the window mid-resize.
     nativeEntry.registerStatusBar((hidden: boolean): void => {
+      const animated: boolean = AppStorage.get<boolean>('dayDriven') !== true;
       window.getLastWindow(this.getUIContext().getHostContext() as common.UIAbilityContext)
-        .then((win: window.Window) => win.setSpecificSystemBarEnabled('status', !hidden, true))
+        .then((win: window.Window) => win.setSpecificSystemBarEnabled('status', !hidden, animated))
         .catch((err: BusinessError) => {
           console.error(`day: status bar update failed: ${err.code} ${err.message}`);
         });

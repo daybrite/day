@@ -2393,6 +2393,55 @@ fn shown_page_retitles_native_bar_live() {
 }
 
 #[test]
+fn stack_root_retitles_native_bar_live() {
+    // A stack's root title that reads a signal (the locale case) retitles the host while the
+    // root shows, holds while a pushed page's own title is up, and lands again on the pop.
+    // Before this, a `nav_stack` bar kept its build-time title through a language switch while
+    // the rows beside it changed language.
+    let path = Signal::new(Vec::<String>::new());
+    let name = Signal::new(String::from("Library"));
+    let probe = boot(move || {
+        nav_stack(path, label("root"))
+            .title(move || name.get())
+            .destination(|key| label(key.to_string()))
+            .any()
+    });
+    let nav = probe.find_by_kind("day.nav")[0].0;
+    assert_eq!(probe.widget(nav).text, "Library", "build-time title");
+
+    batch(|| name.set("Bibliothèque".into()));
+    flush_sync();
+    assert_eq!(
+        probe.widget(nav).text,
+        "Bibliothèque",
+        "the root title must follow its live source"
+    );
+
+    batch(|| path.set(vec!["item".into()]));
+    flush_sync();
+    assert_eq!(
+        probe.widget(nav).text,
+        "item",
+        "a pushed page's bar is its own"
+    );
+    batch(|| name.set("Library".into()));
+    flush_sync();
+    assert_eq!(
+        probe.widget(nav).text,
+        "item",
+        "a root retitle must not rename the pushed page"
+    );
+
+    batch(|| path.set(vec![]));
+    flush_sync();
+    assert_eq!(
+        probe.widget(nav).text,
+        "Library",
+        "the pop must land the title the root has now"
+    );
+}
+
+#[test]
 fn nested_stack_in_selector_falls_through() {
     let section = Signal::new(String::new());
     let path = Signal::new(Vec::<String>::new());

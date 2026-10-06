@@ -584,7 +584,9 @@ fn harmony_report_name(name: &str, app_id: &str) -> bool {
     {
         return false;
     }
-    ["cppcrash", "jscrash"].iter().any(|kind| {
+    // An app freeze (the watchdog killing a main thread blocked past 6 s) ends a run the same
+    // way a crash does: the engine socket resets and no cppcrash report ever lands.
+    ["cppcrash", "jscrash", "appfreeze"].iter().any(|kind| {
         let Some(suffix) = name
             .strip_prefix(&format!("{kind}-{app_id}-"))
             .and_then(|s| s.strip_suffix(".log"))
@@ -924,6 +926,10 @@ mod tests {
         ));
         assert!(harmony_report_name(
             "jscrash-dev.reader-20010041-20261005150000000.log",
+            "dev.reader"
+        ));
+        assert!(harmony_report_name(
+            "appfreeze-dev.reader-20010041-20261005150000000.log",
             "dev.reader"
         ));
         assert!(!harmony_report_name(

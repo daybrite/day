@@ -363,8 +363,9 @@ while toolkits configure widget text and internal behavior for the selected dire
 Leading and trailing layout values follow that direction. Canvas drawings and other leaf
 content are not automatically mirrored.
 
-Runtime locale changes update strings but do not recompute the launch-time layout direction.
-A direction change requires relaunching. Real right-to-left locales, such as Arabic, are used
+Runtime locale changes update strings, a navigation surface's bars included (a `nav_stack`'s
+root title and a `nav` item's title re-resolve, so a native bar retitles with its rows), but do
+not recompute the launch-time layout direction. A direction change requires relaunching. Real right-to-left locales, such as Arabic, are used
 for layout verification; Day does not provide an `ar-XB` pseudolocale.
 
 ## Pseudolocale

@@ -398,9 +398,18 @@ export const dayPiece: DayPieceModule = {
   kind: 'day.piece.webview',                            // matches the Rust KIND
   make: (ui, id, props) => frameNode | undefined,       // build it; undefined declines the kind
   update: (id, cmd, arg) => {},                         // the piece's own command vocabulary
-  dispose: (id) => {}                                   // Day disposed the node — release it
+  dispose: (id) => {},                                  // Day disposed the node — release it
+  settle: () => Promise.resolve()                       // optional: before a dayscript screenshot
 };
 ```
+
+`settle` is for a component that renders outside ArkUI's own frame, which the screenshot
+checkpoint (docs/window-image.md) cannot see: a web view's renderer paints on its own thread and
+can trail the DOM a script just changed. The capture waits for every module's `settle` before its
+ArkUI render checkpoint, so the hook resolves once the pending rendering has committed, and caps
+its own wait (a hidden page paints nothing): a capture may be late, never stuck. The web view
+piece arms four animation frames in the page (enough to put the commit through the
+compositor's pipeline), lets any CSS transition run out, and polls for the result.
 
 The same table carries the raw HarmonyOS permissions a crate needs, the counterpart of Android's
 `[package.metadata.day.android] permissions`. It is for the `system_grant` ones, which no prompt

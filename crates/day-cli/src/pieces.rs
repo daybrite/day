@@ -1703,6 +1703,11 @@ export interface DayPieceModule {
   update: (id: number, cmd: string, arg: string) => void;
   // Release everything held for `id`; Day disposed the node.
   dispose: (id: number) => void;
+  // Optional, before a dayscript screenshot: resolve once every live node of this kind has
+  // committed whatever it renders outside ArkUI's own frame (a web view's renderer frame).
+  // ArkUI's render checkpoint cannot see that work, and a capture must not wait forever on a
+  // node that paints nothing, so a settle caps its own wait.
+  settle?: () => Promise<void>;
 }
 "#;
 
@@ -1728,12 +1733,26 @@ const dayPieces: DayPieceModule[] = [
 
 // Which module owns a live node, so commands and disposal reach the right piece.
 const dayPieceOwners: Map<number, DayPieceModule> = new Map();
+let dayPieceModules: DayPieceModule[] = [];
+
+// Before a dayscript screenshot (DayCapture.ets): every module with a `settle` reports when its
+// nodes' out-of-frame rendering has committed. Settled all at once, not one after another.
+export function settleDayPieces(): Promise<void> {{
+  const waits: Promise<void>[] = [];
+  for (const m of dayPieceModules) {{
+    if (m.settle !== undefined) {{
+      waits.push(m.settle());
+    }}
+  }}
+  return Promise.all(waits).then((): void => {{}});
+}}
 
 // Call once, before `start()`: a piece node can be realized during the first tree build.
 // `builtins` are the framework's own ArkTS-only components, which the host page passes in (the
 // menu-style picker's Select); an app's piece of the same kind wins over one of them.
 export function registerDayPieces(ui: UIContext, builtins: DayPieceModule[] = []): void {{
   const modules: DayPieceModule[] = dayPieces.concat(builtins);
+  dayPieceModules = modules;
   nativeEntry.registerPiece(
     (kind: string, id: number, props: string): FrameNode | undefined => {{
       for (const m of modules) {{

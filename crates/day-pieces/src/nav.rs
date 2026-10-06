@@ -4165,6 +4165,23 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             );
         }
 
+        // A live root title (a localized string re-resolving on locale change, docs/
+        // localization.md): the host's bar follows while the stack shows its root, and again
+        // when a pop returns there, since a pushed page's bar is its own (the binding above).
+        // A merged stack's root sits inside the enclosing host's page, whose bar is that page's.
+        if !merged && let TextSource::Dyn(_) = &title {
+            let (p, src) = (path.clone(), title.clone());
+            bind_seeded(
+                (src.initial(), true),
+                move || (src.resolve(), p.read().is_empty()),
+                move |(t, at_root): &(String, bool)| {
+                    if *at_root {
+                        with_tree(|tr| tr.patch(host, Box::new(NavPatch::Title(t.clone())), false));
+                    }
+                },
+            );
+        }
+
         // Persist the path across launches when `.restore` is set: save the keys in the same
         // percent-encoded wire format `parse_route` reads back (`encode_route`), so a key
         // containing `/` survives the round-trip (docs/navigation.md). Scope-owned, so it stops
