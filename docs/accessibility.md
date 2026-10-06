@@ -33,6 +33,14 @@ gauge(level).a11y(|a| a.role(Role::Meter).label("Volume").value("72"))   // canv
 
 `A11yBuilder`: `.label`, `.hint`, `.value`, `.role(Role)`, `.hidden()`, `.decorative()`
 (decorative ⇒ hidden + exempt from the "needs a label" lint). `.id(_)` sets the identifier.
+The three strings take what a `label` takes: a literal, a `String`, a `Signal<String>` or a
+closure. A closure is re-read whenever what it reads changes and the new string is re-sent on
+its own, so a gauge's spoken value follows the gauge and a localized label follows the locale:
+
+```rust
+canvas(move |d, size| …)
+    .a11y(move |a| a.role(Role::Meter).label("Level").value(move || format!("{:.0}%", level.get())))
+```
 Annotations merge onto a node: a piece default, `.a11y()`, and `.id()` accumulate (day-core stores
 the merged `A11yProps` on the node, re-applies the full picture on each change, and hands it to
 `a11y_audit` as the expectation).
@@ -59,7 +67,7 @@ default.
 | value | `accessibilityValue` | `accessibilityValue` | `Property::ValueText` | `QAccessibleInterface::text(Value)` | `stateDescription` (API 30+; appended to the label below) | `ItemStatus` | `NODE_ACCESSIBILITY_VALUE` | `aria-valuetext` (+ `aria-valuenow`) on meters and sliders, else in `aria-description` |
 | role (explicit) | `accessibilityRole` | `accessibilityTraits` (button, adjustable, header, image) | `accessible-role`, set before the widget meets an AT | `QAccessibleInterface::role()` | `className` and `heading` through a delegate | `HeadingLevel`; `LocalizedControlType` for the rest | `NODE_ACCESSIBILITY_ROLE` | `role` (+ `aria-level`) |
 | hidden / decorative | `accessibilityElement = false`, no children | `isAccessibilityElement = false`, descendants hidden | `State::Hidden` | `invisible` + `offscreen` state, no children | `importantForAccessibility = NO_HIDE_DESCENDANTS` | `AccessibilityView.Raw` | `NODE_ACCESSIBILITY_MODE` disabled for descendants | `aria-hidden`, out of the tab order |
-| identifier | `accessibilityIdentifier` | `accessibilityIdentifier` | `widget name` (Inspector only) | `objectName` | — | `AutomationId` | `NODE_ID` | `id` |
+| identifier | `accessibilityIdentifier` | `accessibilityIdentifier` | `widget name` (Inspector only) | `objectName` | `uniqueId` through the delegate (API 33+; node extras below) | `AutomationId` | `NODE_ID` | `id` |
 
 What each platform does not carry:
 
@@ -72,9 +80,10 @@ What each platform does not carry:
   (`tabindex`, Enter and Space tap it).
 - **Qt** realizes value, role and hidden through its own `QAccessibleInterface` for a widget
   that asked for any of them; the heading level needs Qt 6.8.
-- **Android** reaches hint and role through one `AccessibilityDelegate` per annotated view,
-  wrapping whatever delegate the widget already had. Identifiers do not reach assistive
-  technology below API 33 (§13's table).
+- **Android** reaches hint, role and the identifier through one `AccessibilityDelegate` per
+  annotated view, wrapping whatever delegate the widget already had. The identifier is the
+  node's `uniqueId`, which UiAutomator and Appium address from API 33; below that the compat
+  call keeps it in the node's extras, where only an in-process reader finds it (§13's table).
 - **GTK**'s role is set only while the widget has no root, which is when day-core first applies
   annotations; a role changed later is ignored. A plain Day container on **WinUI** is a `Canvas`,
   which has no automation peer, so annotations on a bare container are stored but not exposed.
@@ -99,14 +108,16 @@ process ends. On Windows the GTK build cannot look the symbol up and answers `Un
 
 The dayscript step `a11y_audit: { id? }` walks Day's id'd nodes, reads each widget's actual
 native a11y (`Toolkit::read_a11y`), and diffs identifier + label + value + explicit-role against
-Day's stored expectation. Backends that can't read their native tree (`found=false`) skip. Apple
-targets implement `read_a11y` (NSAccessibility / UIAccessibility → Day `Role`); it is required in
-the CI walkthrough on apple targets and passes there (the showcase gauge audits as
-role=Meter/AXLevelIndicator + label + value + id). Role is diffed only for explicit roles Day
-applied, since native controls own their roles, which vary per platform.
+Day's stored expectation. Backends that can't read their native tree (`found=false`) skip. The
+Apple targets implement `read_a11y` (NSAccessibility / UIAccessibility → Day `Role`), and so
+does the web, where the ARIA attributes on the element are the tree (`role`, `aria-label`,
+`aria-valuetext` or else `aria-description`, `id`). It is required in the CI walkthrough on those
+targets and passes there (the showcase gauge audits as role=Meter + label + value + id, twice:
+once more after its slider moves, which is what shows the reactive value landing natively). Role
+is diffed only for explicit roles Day applied, since native controls own their roles, which vary
+per platform.
 
 ## Follow-ups
 
-- Reactive a11y strings (`.value_with(|| …)` / `IntoText` on a11y; currently build-time snapshots).
 - `day lint` a11y rule: interactive piece without a derivable label → warning (`--strict` error).
-- `read_a11y` for Qt/GTK so `a11y_audit` runs on the desktop-toolkit combos too.
+- `read_a11y` for GTK, Qt, Android, WinUI and ArkUI so `a11y_audit` runs there too.

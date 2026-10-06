@@ -2750,11 +2750,12 @@ button(icon("trash"))
 image(res::images::chart)
     .a11y(|a| a.label(tr("q3-chart-summary")))     // or .decorative()
 
-canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
+canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.get())))
 ```
 
-- `A11yProps { label, hint, value, role, live, hidden, identifier }` — all text fields are
-  `IntoText` (a11y strings are localized like any other, and they update reactively).
+- `A11yProps { label, hint, value, role, hidden, identifier }` — the three strings are
+  `IntoText` on the builder (a11y strings are localized like any other, and a closure updates
+  reactively: the string is re-sent alone and merged onto the node's set).
 - Roles map to native: `Role::Button/Toggle/Slider/TextInput/Heading(level)/Image/Meter/Group/…` —
   most built-ins set their role automatically; `role` matters for canvas and custom pieces.
 - **Announcements**: `day::announce(text)` / `announce_urgent(text)` speak a sentence through the
@@ -2768,7 +2769,7 @@ canvas(…).a11y(|a| a.role(Role::Meter).value_with(move || …))
   | UIKit / AppKit | `accessibilityIdentifier` ✓ |
   | XAML | `AutomationId` ✓ |
   | Qt | `QObject::setObjectName` (surfaces as UIA AutomationId on Windows) ✓ |
-  | Android | `uniqueId` via `AccessibilityDelegate` on **API 33+**, plus `setTag` for in-process use — **no external automation id below 33** (`setTag` is invisible to UiAutomator/Appium; abusing `contentDescription` for ids is forbidden by lint because TalkBack reads it aloud) |
+  | Android | `uniqueId` via `AccessibilityDelegate` on **API 33+** (shipped; the compat call keeps it in the node's extras below 33) — **no external automation id below 33** (`setTag` is invisible to UiAutomator/Appium; abusing `contentDescription` for ids is forbidden by lint because TalkBack reads it aloud) |
   | GTK | widget *name* is GtkInspector-only — **no public settable AT-SPI accessible-id today** (tracked upstream) |
   | web | DOM `id` ✓ |
 

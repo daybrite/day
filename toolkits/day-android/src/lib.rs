@@ -4086,15 +4086,18 @@ mod imp {
                 let label = jstr(env, a11y.label.as_deref().unwrap_or(""));
                 let hint = jstr(env, a11y.hint.as_deref().unwrap_or(""));
                 let value = jstr(env, a11y.value.as_deref().unwrap_or(""));
+                let id = jstr(env, a11y.identifier.as_deref().unwrap_or(""));
                 let _ = env.dcall_static(
                     BRIDGE,
                     "setA11y",
-                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIZ)V",
+                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;\
+                     Ljava/lang/String;IIZ)V",
                     &[
                         JValue::Object(h.0.as_obj()),
                         JValue::Object(&label),
                         JValue::Object(&hint),
                         JValue::Object(&value),
+                        JValue::Object(&id),
                         JValue::Int(role),
                         JValue::Int(level),
                         JValue::Bool(a11y.hidden),

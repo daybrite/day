@@ -384,8 +384,20 @@ fn op_a11y(f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> impl FnOnce(
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            let props = f(A11yBuilder::default()).0;
+            let (props, live) = f(A11yBuilder::default()).split();
             with_tree(|t| t.set_a11y(n, props));
+            // A string that reads a signal or the locale re-sends itself alone; day-core
+            // merges it onto the node's set and re-applies the whole picture (§13).
+            for (src, patch) in live {
+                if let TextSource::Dyn(read) = src {
+                    let seed = day_reactive::untrack(|| read());
+                    day_reactive::bind_seeded(
+                        seed,
+                        move || read(),
+                        move |s: &String| with_tree(|t| t.set_a11y(n, patch(s.clone()))),
+                    );
+                }
+            }
             n
         })
     }
@@ -1562,39 +1574,83 @@ pub trait Decorate: Piece + Sized {
 
 impl<P: Piece> Decorate for P {}
 
+/// One a11y string that reads a signal or the locale, with the patch that re-sends it alone.
+type LiveA11yString = (TextSource, fn(String) -> A11yProps);
+
+/// The annotations `.a11y(|a| …)` collects (docs/accessibility.md). The three strings are
+/// [`TextSource`]s, so each takes a literal, a `String`, a `Signal<String>` or a closure: a
+/// gauge's value follows the gauge, and a localized label follows the locale.
 #[derive(Default)]
-pub struct A11yBuilder(A11yProps);
+pub struct A11yBuilder {
+    label: Option<TextSource>,
+    hint: Option<TextSource>,
+    value: Option<TextSource>,
+    props: A11yProps,
+}
 
 impl A11yBuilder {
-    pub fn label(mut self, s: impl Into<String>) -> Self {
-        self.0.label = Some(s.into());
+    /// What the screen reader calls the element.
+    pub fn label<M>(mut self, s: impl IntoText<M>) -> Self {
+        self.label = Some(s.into_text());
         self
     }
-    pub fn hint(mut self, s: impl Into<String>) -> Self {
-        self.0.hint = Some(s.into());
+    /// A longer description of what the element does.
+    pub fn hint<M>(mut self, s: impl IntoText<M>) -> Self {
+        self.hint = Some(s.into_text());
         self
     }
     /// The control's current value read aloud by the screen reader (e.g. a `Meter`'s "72%").
-    pub fn value(mut self, s: impl Into<String>) -> Self {
-        self.0.value = Some(s.into());
+    /// Reactive like the others: `.value(move || format!("{:.0}%", level.get()))` re-sends the
+    /// value whenever `level` changes.
+    pub fn value<M>(mut self, s: impl IntoText<M>) -> Self {
+        self.value = Some(s.into_text());
         self
     }
     pub fn role(mut self, r: Role) -> Self {
-        self.0.role = r;
+        self.props.role = r;
         self
     }
     /// Hide this element from assistive tech (still visible on screen), e.g. a redundant chrome
     /// element already announced by its labeled sibling.
     pub fn hidden(mut self) -> Self {
-        self.0.hidden = true;
+        self.props.hidden = true;
         self
     }
     /// Purely decorative (a background flourish): hidden from assistive tech and, for images,
     /// exempt from the "needs a label" lint (§13).
     pub fn decorative(mut self) -> Self {
-        self.0.decorative = true;
-        self.0.hidden = true;
+        self.props.decorative = true;
+        self.props.hidden = true;
         self
+    }
+
+    /// The annotations as first applied, with every string resolved once, and the sources
+    /// that can change, each paired with the patch that re-sends it.
+    fn split(self) -> (A11yProps, Vec<LiveA11yString>) {
+        let mut props = self.props;
+        let mut live = Vec::new();
+        let mut take =
+            |src: Option<TextSource>, slot: &mut Option<String>, patch: fn(String) -> A11yProps| {
+                if let Some(src) = src {
+                    *slot = Some(src.initial());
+                    if matches!(src, TextSource::Dyn(_)) {
+                        live.push((src, patch));
+                    }
+                }
+            };
+        take(self.label, &mut props.label, |label| A11yProps {
+            label: Some(label),
+            ..Default::default()
+        });
+        take(self.hint, &mut props.hint, |hint| A11yProps {
+            hint: Some(hint),
+            ..Default::default()
+        });
+        take(self.value, &mut props.value, |value| A11yProps {
+            value: Some(value),
+            ..Default::default()
+        });
+        (props, live)
     }
 }
 

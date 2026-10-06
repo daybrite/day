@@ -509,6 +509,36 @@ fn text_field_controlled_echo_is_origin_tagged() {
 }
 
 #[test]
+fn reactive_a11y_strings_follow_their_signals() {
+    let level = Signal::new(40.0f64);
+    let probe = boot(move || {
+        column((progress(move || level.get() / 100.0).a11y(move |a| {
+            a.role(Role::Meter)
+                .label("Level")
+                .value(move || format!("{:.0}%", level.get()))
+        }),))
+        .any()
+    });
+    let a11y = || probe.find_by_kind("day.progress")[0].1.a11y.clone();
+    assert_eq!(a11y().value.as_deref(), Some("40%"));
+    assert_eq!(a11y().role, Role::Meter);
+
+    probe.clear_log();
+    batch(|| level.set(72.0));
+    let w = a11y();
+    // The value re-sent alone merges onto the node: the role and label stay.
+    assert_eq!(w.value.as_deref(), Some("72%"));
+    assert_eq!(w.label.as_deref(), Some("Level"));
+    assert_eq!(w.role, Role::Meter);
+    let sends = probe
+        .log()
+        .iter()
+        .filter(|l| l.starts_with("a11y #"))
+        .count();
+    assert_eq!(sends, 1, "{:?}", probe.log());
+}
+
+#[test]
 fn announce_reaches_the_toolkit_with_its_urgency() {
     let probe = boot(|| column((label("quiet"),)).any());
     announce("Saved");

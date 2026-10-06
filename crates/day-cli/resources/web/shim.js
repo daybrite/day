@@ -1514,6 +1514,23 @@ const env = {
     mem().set(bytes, out);
     return bytes.length;
   },
+  // An element's accessibility attributes read back for `a11y_audit` (docs/accessibility.md),
+  // by the day_dom_env buffer protocol: role, label, value and id, joined by U+001F, where the
+  // value is `aria-valuetext` or else the description (a non-range role has no value slot of
+  // its own, so Day folds its value into the description). An empty answer is an element the
+  // page no longer has.
+  day_dom_read_a11y(id, out, cap) {
+    const el = V(id);
+    let v = '';
+    if (el) {
+      const a = (n) => el.getAttribute(n) ?? '';
+      v = [a('role'), a('aria-label'), a('aria-valuetext') || a('aria-description'), el.id || '']
+        .join('\u001f');
+    }
+    const bytes = utf8enc.encode(v).slice(0, cap);
+    mem().set(bytes, out);
+    return bytes.length;
+  },
   // The font list (docs/fonts.md), by the day_dom_env buffer protocol: a truncated answer
   // returns the buffer's size, and the wasm side retries with a larger one.
   day_dom_fonts(out, cap) {

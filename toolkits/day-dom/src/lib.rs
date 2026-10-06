@@ -186,6 +186,10 @@ unsafe extern "C" {
     /// until the socket is open and drops the line when scripting is not armed).
     fn day_dom_script_send(ptr: *const u8, len: usize);
     fn day_dom_env(key: *const u8, kl: usize, out: *mut u8, cap: usize) -> usize;
+    /// An element's `role`, `aria-label`, value (`aria-valuetext`, else the description) and
+    /// `id`, joined by U+001F, by the `day_dom_env` buffer protocol (docs/accessibility.md).
+    /// Empty when the element is gone.
+    fn day_dom_read_a11y(el: u32, out: *mut u8, cap: usize) -> usize;
     /// The page's font list in Day's list text (docs/fonts.md) — the CSS generic families plus
     /// the bundled `document.fonts` faces — by the `day_dom_env` buffer protocol.
     fn day_dom_fonts(out: *mut u8, cap: usize) -> usize;
@@ -421,10 +425,16 @@ pub fn now_epoch_ms() -> u64 {
 /// one that clamps its return to the buffer (writing exactly `cap` bytes) grows until there
 /// is headroom.
 fn env(key: &str) -> String {
+    read_buffer(|out, cap| unsafe { day_dom_env(key.as_ptr(), key.len(), out, cap) })
+}
+
+/// The `day_dom_env` buffer protocol for any string the shim answers: `fill` writes into the
+/// buffer and returns the length, and a full buffer means retry with a larger one.
+fn read_buffer(fill: impl Fn(*mut u8, usize) -> usize) -> String {
     let mut cap = 512usize;
     loop {
         let mut buf = vec![0u8; cap];
-        let n = unsafe { day_dom_env(key.as_ptr(), key.len(), buf.as_mut_ptr(), buf.len()) };
+        let n = fill(buf.as_mut_ptr(), buf.len());
         if n > cap {
             cap = n;
             continue;
@@ -2656,6 +2666,41 @@ impl Toolkit for Dom {
         // The shim's live regions (docs/accessibility.md): one per politeness, so an urgent
         // sentence interrupts and a polite one waits its turn.
         unsafe { day_dom_announce(text.as_ptr(), text.len(), urgent as u32) };
+    }
+
+    /// The ARIA attributes read back off the element, so `a11y_audit` runs on the web too.
+    /// The DOM is the accessibility tree here: what `set_a11y` wrote is what a screen reader
+    /// reads, and an element the page lost answers `found = false`.
+    fn read_a11y(&self, h: &DomHandle) -> day_spec::A11ySnapshot {
+        use day_spec::Role;
+        let el = h.0;
+        let raw = read_buffer(|out, cap| unsafe { day_dom_read_a11y(el, out, cap) });
+        if raw.is_empty() {
+            return day_spec::A11ySnapshot::default();
+        }
+        let mut parts = raw.split('\u{1f}').map(str::to_owned);
+        let mut next = || parts.next().filter(|s| !s.is_empty());
+        let role = match next().as_deref() {
+            Some("button") => Role::Button,
+            Some("switch") => Role::Toggle,
+            Some("slider") => Role::Slider,
+            Some("textbox") => Role::TextInput,
+            // The level is a second attribute and the audit ignores it.
+            Some("heading") => Role::Heading(0),
+            Some("img") => Role::Image,
+            Some("meter") => Role::Meter,
+            Some("group") => Role::Group,
+            Some("tree") => Role::Tree,
+            Some("treeitem") => Role::TreeItem,
+            _ => Role::None,
+        };
+        day_spec::A11ySnapshot {
+            found: true,
+            role,
+            label: next(),
+            value: next(),
+            identifier: next(),
+        }
     }
 
     /// Hand the bytes to the browser's own decoder (docs/images.md).

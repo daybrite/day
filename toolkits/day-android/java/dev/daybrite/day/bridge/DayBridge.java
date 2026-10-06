@@ -2816,10 +2816,11 @@ public final class DayBridge {
     static final int ROLE_NONE = 0, ROLE_BUTTON = 1, ROLE_TOGGLE = 2, ROLE_SLIDER = 3,
             ROLE_TEXT_INPUT = 4, ROLE_HEADING = 5, ROLE_IMAGE = 6, ROLE_METER = 7, ROLE_GROUP = 8;
 
-    /** The delegate-borne traits of one view: the hint and the explicit role. */
+    /** The delegate-borne traits of one view: the hint, the explicit role, and the Day id. */
     private static final class A11yTraits {
         String hint = "";
         int role = ROLE_NONE;
+        String id = "";
     }
     /** Per-view traits, read by `A11yDelegate` each time TalkBack builds the node. */
     private static final java.util.WeakHashMap<View, A11yTraits> a11yTraits =
@@ -2847,6 +2848,10 @@ public final class DayBridge {
             // twin is left alone because its long-press trigger would collide with Day's
             // long-press context menu (docs/menus.md).
             if (!t.hint.isEmpty()) info.setHintText(t.hint);
+            // The automation id (§13): `uniqueId` is what UiAutomator and Appium address a
+            // node by. The platform carries it from API 33; the compat call stores it in the
+            // node's extras below that, where only an in-process reader finds it.
+            if (!t.id.isEmpty()) info.setUniqueId(t.id);
             // TalkBack names the control type from the node's class name, so a canvas gauge
             // reads as a progress bar and a drawn button as a button. Only an explicit role
             // is applied: a native control's own class already says what it is.
@@ -2916,8 +2921,8 @@ public final class DayBridge {
      *  `ROLE_NONE` mean "not set": those members leave the native default alone, and a member
      *  set once stays set, so re-sending the same values changes nothing. `level` is the heading
      *  level, informational here: Android's node has heading yes/no and no level. */
-    public static void setA11y(View v, String label, String hint, String value, int role,
-            int level, boolean hidden) {
+    public static void setA11y(View v, String label, String hint, String value, String id,
+            int role, int level, boolean hidden) {
         try {
             boolean hasLabel = label != null && !label.isEmpty();
             boolean hasValue = value != null && !value.isEmpty();
@@ -2935,7 +2940,8 @@ public final class DayBridge {
                 v.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
             }
             boolean hasHint = hint != null && !hint.isEmpty();
-            if (!hasHint && role == ROLE_NONE) return;
+            boolean hasId = id != null && !id.isEmpty();
+            if (!hasHint && !hasId && role == ROLE_NONE) return;
             A11yTraits t = a11yTraits.get(v);
             if (t == null) {
                 // First traits for this view: the delegate goes on once, wrapping the one the
@@ -2947,6 +2953,7 @@ public final class DayBridge {
                         new A11yDelegate(androidx.core.view.ViewCompat.getAccessibilityDelegate(v)));
             }
             if (hasHint) t.hint = hint;
+            if (hasId) t.id = id;
             if (role != ROLE_NONE) t.role = role;
         } catch (Throwable t) {
             android.util.Log.w("day", "setA11y (best-effort)", t);
