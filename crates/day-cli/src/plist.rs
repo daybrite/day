@@ -214,7 +214,10 @@ pub fn apply_string_keys(
         }
         if let Some(new) = set.get(key.as_str()) {
             out.push_str(&text[cursor..line_start]);
-            out.push_str(&entry_xml(key, new, indent_of(text, *start)));
+            out.push_str(&line_endings_of(
+                text,
+                entry_xml(key, new, indent_of(text, *start)),
+            ));
             written.insert(key.as_str());
             cursor = skip_to_next_line(text, *end);
         }
@@ -236,6 +239,7 @@ pub fn apply_string_keys(
             block.push_str(&entry_xml(k, v, indent.clone()));
         }
         let line_start = out[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
+        let block = line_endings_of(&out, block);
         out.insert_str(line_start, &block);
     }
     Ok(out)
@@ -319,7 +323,7 @@ fn splice(text: &str, key: &str, render: Option<Render>) -> Result<String, Strin
             let indent = indent_of(text, start);
             let mut out = String::with_capacity(text.len() + 256);
             out.push_str(&text[..line_start]);
-            out.push_str(&render(&indent)?);
+            out.push_str(&line_endings_of(text, render(&indent)?));
             out.push_str(&text[skip_to_next_line(text, end)..]);
             Ok(out)
         }
@@ -340,7 +344,7 @@ fn splice(text: &str, key: &str, render: Option<Render>) -> Result<String, Strin
             let line_start = text[..anchor].rfind('\n').map(|p| p + 1).unwrap_or(0);
             let mut out = String::with_capacity(text.len() + 256);
             out.push_str(&text[..line_start]);
-            out.push_str(&render(&indent)?);
+            out.push_str(&line_endings_of(text, render(&indent)?));
             out.push_str(&text[line_start..]);
             Ok(out)
         }
@@ -422,6 +426,17 @@ fn indent_of(text: &str, pos: usize) -> String {
         .chars()
         .take_while(|c| *c == ' ' || *c == '\t')
         .collect()
+}
+
+/// `rendered` (written with `\n`) in the line ending `text` uses. A Windows checkout with
+/// `core.autocrlf` holds the plist with CRLF, and a rewritten entry in LF would leave the file
+/// with mixed endings, so removing what Day added no longer restored it byte for byte.
+fn line_endings_of(text: &str, rendered: String) -> String {
+    if text.contains("\r\n") {
+        rendered.replace('\n', "\r\n")
+    } else {
+        rendered
+    }
 }
 
 fn skip_to_next_line(text: &str, from: usize) -> usize {
@@ -666,7 +681,7 @@ mod tests {
                 .get("UTImportedTypeDeclarations"),
             Some(&value)
         );
-        assert!(once.contains("\t\t\t\t<array/>\n"));
+        assert!(once.contains("\t\t\t\t<array/>"));
         // Everything else survived untouched.
         assert!(once.contains("<key>CFBundleURLName</key>"));
 
@@ -675,5 +690,33 @@ mod tests {
         assert_eq!(once, twice, "re-applying the same value must be a no-op");
         let gone = apply_value_key(&twice, "UTImportedTypeDeclarations", None).expect("remove");
         assert_eq!(gone, SHOWCASE);
+    }
+
+    /// Every platform tests the CRLF file a Windows checkout holds, not only the Windows runners.
+    #[test]
+    fn rewrites_keep_crlf_line_endings() {
+        let crlf = SHOWCASE.replace("\r\n", "\n").replace('\n', "\r\n");
+        let lone_lf = |text: &str| text.replace("\r\n", "").contains('\n');
+        let value = ::plist::Value::Array(vec!["a".into(), "b".into()]);
+
+        let with_value = apply_value_key(&crlf, "DayFixture", Some(&value)).expect("insert");
+        assert!(!lone_lf(&with_value));
+        let fonts = ["f.ttf".to_string()];
+        let with_fonts = apply_array_key(&with_value, "UIAppFonts", Some(&fonts)).expect("array");
+        assert!(!lone_lf(&with_fonts));
+        let with_string = apply_string_keys(
+            &with_fonts,
+            &set(&[("NSCameraUsageDescription", "Scan.")]),
+            &BTreeSet::new(),
+        )
+        .expect("string");
+        assert!(!lone_lf(&with_string));
+
+        let mut remove = BTreeSet::new();
+        remove.insert("NSCameraUsageDescription".to_string());
+        let undone = apply_string_keys(&with_string, &BTreeMap::new(), &remove).expect("remove");
+        let undone = apply_value_key(&undone, "DayFixture", None).expect("remove");
+        let undone = apply_array_key(&undone, "UIAppFonts", None).expect("remove");
+        assert_eq!(undone, crlf);
     }
 }

@@ -39,9 +39,10 @@ Once a discussion lands on "yes, send a patch":
    checks accept correct uncommitted tables and never rewrite them. Run `scripts/ci/lint.sh`
    for the full available platform Clippy matrix and `cargo test` for the crates you touched;
    report skipped platform checks when handing off work. Install the tracked hook once per
-   clone with `bash scripts/install-hooks.sh`: it runs the readiness gate and separately
-   checks staged matrix inputs, so an unstaged correction cannot hide stale generated
-   content in the commit. Builds and tests do not replace lint validation.
+   clone with `bash scripts/install-hooks.sh`: it formats, checks the generated matrices, and
+   separately checks staged matrix inputs, so an unstaged correction cannot hide stale
+   generated content in the commit. The hook skips host Clippy to keep commits fast, so it
+   does not replace `check-ready.sh`. Builds and tests do not replace lint validation.
 5. Update the documentation the change affects in the same PR: the relevant `docs/*.md` page,
    and the `DESIGN.md` section that describes what you changed.
 

@@ -1475,7 +1475,9 @@ Clippy. The generators' `--check` mode compares content without rewriting files 
 on Git staging. CI uses the same check mode. The installed pre-commit hook also checks a
 complete temporary snapshot of the Git index, including piece manifests used to discover
 renderers, so missing snapshot inputs cannot invent drift and a correct unstaged table cannot
-mask a stale commit. Backend Clippy remains a separate platform check; unavailable SDKs must be reported.
+mask a stale commit. The hook checks matrices and formatting only; host Clippy runs in
+`check-ready.sh` and CI, not at commit time. Backend Clippy remains a separate platform check;
+unavailable SDKs must be reported.
 `scripts/ci/test-readiness.py` exercises drift, staged/unstaged mismatches, and lint failures.
 
 > [!NOTE]

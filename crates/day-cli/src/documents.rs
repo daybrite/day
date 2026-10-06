@@ -606,30 +606,35 @@ mod tests {
         .unwrap();
         let mut project = crate::meta::find_project(Some(&dir)).unwrap();
         let path = dir.join("Info.plist");
-        std::fs::write(&path, SCAFFOLD).unwrap();
-
-        sync_apple(&project, &path, false).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), SCAFFOLD);
-
-        // A scheme rewrites CFBundleURLTypes alone, in place, and a second sync is a no-op.
-        project.manifest.url_schemes = vec!["feed".into()];
-        sync_apple(&project, &path, false).unwrap();
-        let added = std::fs::read_to_string(&path).unwrap();
-        assert!(added.contains("<string>day.external-urls</string>"));
-        assert!(added.ends_with('\n'));
         let order = |text: &str| {
             let value = plist::Value::from_reader_xml(text.as_bytes()).unwrap();
             let keys: Vec<String> = value.as_dictionary().unwrap().keys().cloned().collect();
             keys
         };
-        assert_eq!(order(&added), order(SCAFFOLD));
-        sync_apple(&project, &path, false).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), added);
+        // Both line endings on every platform: a Windows checkout with core.autocrlf holds the
+        // scaffold with CRLF, and a rewrite must keep whichever the file has.
+        let lf = SCAFFOLD.replace("\r\n", "\n");
+        for scaffold in [lf.clone(), lf.replace('\n', "\r\n")] {
+            project.manifest.url_schemes.clear();
+            std::fs::write(&path, &scaffold).unwrap();
+            sync_apple(&project, &path, false).unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), scaffold);
 
-        // Dropping the scheme restores the scaffold exactly.
-        project.manifest.url_schemes.clear();
-        sync_apple(&project, &path, false).unwrap();
-        assert_eq!(std::fs::read_to_string(&path).unwrap(), SCAFFOLD);
+            // A scheme rewrites CFBundleURLTypes alone, in place, and a second sync is a no-op.
+            project.manifest.url_schemes = vec!["feed".into()];
+            sync_apple(&project, &path, false).unwrap();
+            let added = std::fs::read_to_string(&path).unwrap();
+            assert!(added.contains("<string>day.external-urls</string>"));
+            assert!(added.ends_with('\n'));
+            assert_eq!(order(&added), order(&scaffold));
+            sync_apple(&project, &path, false).unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), added);
+
+            // Dropping the scheme restores the scaffold exactly.
+            project.manifest.url_schemes.clear();
+            sync_apple(&project, &path, false).unwrap();
+            assert_eq!(std::fs::read_to_string(&path).unwrap(), scaffold);
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]

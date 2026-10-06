@@ -124,13 +124,13 @@ class ReadinessTests(unittest.TestCase):
             calls = log.read_text().splitlines()
             self.assertEqual(calls[0], "fmt --all -- --check")
             self.assertEqual(len(calls), {"fmt": 1, "clippy": 2, "": 4}[fail])
+        # The hook formats but leaves host Clippy to check-ready.sh and CI: it was most of the
+        # commit time.
         for fail in ("fmt", "clippy", ""):
             self.env["DAY_TEST_FAIL"] = fail
             log.write_text("")
-            self.run_cmd("bash", ".githooks/pre-commit", ok=not fail)
-            calls = log.read_text().splitlines()
-            self.assertEqual(calls[0], "fmt --all")
-            self.assertEqual(len(calls), {"fmt": 1, "clippy": 3, "": 5}[fail])
+            self.run_cmd("bash", ".githooks/pre-commit", ok=fail != "fmt")
+            self.assertEqual(log.read_text().splitlines(), ["fmt --all"])
         (self.root / "docs/duty-matrix.md").write_text("synthetic drift fixture\n")
         log.write_text("")
         self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=False)

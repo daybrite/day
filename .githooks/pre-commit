@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
-# Format Rust and enforce matrix, formatting, and host Clippy readiness before a commit.
+# Format Rust and enforce matrix and formatting readiness before a commit.
+#
+# Host Clippy is NOT run here: its three passes took ~35 s of a ~40 s commit after a day-core
+# edit. Run `bash scripts/ci/check-ready.sh` (matrices, fmt and host Clippy) before reporting
+# work ready; CI runs the same Clippy commands.
 #
 # Tracked here rather than in .git/hooks (which git does not version) and wired up with
 # `git config core.hooksPath .githooks`, so a fresh clone gets it from one command:
@@ -31,10 +35,11 @@ read_paths() { # usage: read_paths <array-name> < <(git … -z)
 # an unstaged regeneration must not hide the stale file about to be committed.
 bash scripts/ci/check-matrices.sh --staged
 
-# The readiness gate also checks outstanding Rust changes outside the staged selection.
+# The working-tree checks also cover outstanding Rust changes outside the staged selection.
 read_paths staged < <(git diff --cached --name-only --diff-filter=ACMR -z -- '*.rs')
 if [ "${#staged[@]}" -eq 0 ]; then
-    bash scripts/ci/check-ready.sh
+    bash scripts/ci/check-matrices.sh
+    cargo fmt --all -- --check
     exit 0
 fi
 
@@ -77,6 +82,6 @@ if [ "${#others[@]}" -gt 0 ]; then
     printf '  %s\n' "${others[@]}"
 fi
 
-bash scripts/ci/check-ready.sh
+bash scripts/ci/check-matrices.sh
 # Formatting must not have made the staged generated tables stale.
 bash scripts/ci/check-matrices.sh --staged
