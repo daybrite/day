@@ -3368,58 +3368,81 @@ fn list_populate(host: u32) {
 /// Build the rows the viewport shows and that are not built already. Idempotent and cheap when
 /// nothing moved, which is what lets every scroll event call it.
 fn list_fill_window(host: u32) {
-    let Some((content, rowh, source, work, n, width, separators)) = LISTS.with(|m| {
-        let mut m = m.borrow_mut();
-        let st = m.get_mut(&host)?;
-        let source = st.source.clone()?;
-        let (content, rowh, selectable) = (st.content, st.row_height.max(1.0), st.selectable);
-        let separators = st.separators;
-        let n = (source.len)();
-        let width = unsafe { day_dom_width(host) }.max(1.0);
-        // The rows on screen, plus the overscan. A list the browser has not laid out yet reports
-        // no height — build a screen's worth then, and let the scroll that follows extend it.
-        let mut view = [0.0_f64; 2];
-        unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
-        let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
-        if let Some(report) = &source.first_visible {
-            report(((offset / rowh).floor() as usize).min(n.saturating_sub(1)));
-        }
-        let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
-        let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
-        // Slots exist for every row (a Vec of zeros, not of elements): the cell for row i lives
-        // at i for good, which is what keeps the click handler's recorded row honest.
-        if st.cells.len() < n {
-            st.cells.resize(n, 0);
-            st.bound.resize(n, false);
-        }
-        let mut work: Vec<(usize, u32)> = Vec::new();
-        for i in first..last {
-            if st.cells[i] == 0 {
-                let cell = unsafe { day_dom_create(EL_CELL) };
-                // Appended, not inserted at the row index: cells are absolutely framed, so
-                // document order says nothing about where a row appears — and a window filled
-                // out of order (scroll down, then back up) has no meaningful index to insert at.
-                unsafe { day_dom_insert(content, cell, u32::MAX) };
-                if selectable {
-                    unsafe { day_dom_listen(cell, 1) };
-                    // The role pairs with the host's `listbox` (day_dom_list_keynav): it is what
-                    // makes the arrow keys below mean something to a screen reader, and what
-                    // gives `aria-selected` somewhere to live.
-                    attr(cell, "role", "option");
-                    CELL_ROWS.with(|m| m.borrow_mut().insert(cell, (host, i)));
+    let Some((content, rowh, source, work, n, width, separators, first_visible)) =
+        LISTS.with(|m| {
+            let mut m = m.borrow_mut();
+            let st = m.get_mut(&host)?;
+            let source = st.source.clone()?;
+            let (content, rowh, selectable) = (st.content, st.row_height.max(1.0), st.selectable);
+            let separators = st.separators;
+            let n = (source.len)();
+            let width = unsafe { day_dom_width(host) }.max(1.0);
+            // The rows on screen, plus the overscan. A list the browser has not laid out yet reports
+            // no height — build a screen's worth then, and let the scroll that follows extend it.
+            let mut view = [0.0_f64; 2];
+            unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
+            let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
+            let first_visible = ((offset / rowh).floor() as usize).min(n.saturating_sub(1));
+            let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
+            let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
+            // Slots exist for every row (a Vec of zeros, not of elements): the cell for row i lives
+            // at i for good, which is what keeps the click handler's recorded row honest.
+            if st.cells.len() < n {
+                st.cells.resize(n, 0);
+                st.bound.resize(n, false);
+            }
+            let mut work: Vec<(usize, u32)> = Vec::new();
+            for i in first..last {
+                if st.cells[i] == 0 {
+                    let cell = unsafe { day_dom_create(EL_CELL) };
+                    // Appended, not inserted at the row index: cells are absolutely framed, so
+                    // document order says nothing about where a row appears — and a window filled
+                    // out of order (scroll down, then back up) has no meaningful index to insert at.
+                    unsafe { day_dom_insert(content, cell, u32::MAX) };
+                    if selectable {
+                        unsafe { day_dom_listen(cell, 1) };
+                        // The role pairs with the host's `listbox` (day_dom_list_keynav): it is what
+                        // makes the arrow keys below mean something to a screen reader, and what
+                        // gives `aria-selected` somewhere to live.
+                        attr(cell, "role", "option");
+                        CELL_ROWS.with(|m| m.borrow_mut().insert(cell, (host, i)));
+                    }
+                    st.cells[i] = cell;
                 }
-                st.cells[i] = cell;
+                if !st.bound[i] {
+                    st.bound[i] = true;
+                    work.push((i, st.cells[i]));
+                }
             }
-            if !st.bound[i] {
-                st.bound[i] = true;
-                work.push((i, st.cells[i]));
-            }
-        }
-        st.last_width = width;
-        Some((content, rowh, source, work, n, width, separators))
-    }) else {
+            st.last_width = width;
+            Some((
+                content,
+                rowh,
+                source,
+                work,
+                n,
+                width,
+                separators,
+                first_visible,
+            ))
+        })
+    else {
         return;
     };
+    // Application observers can synchronously rebuild overlays and relayout this list.
+    // Report only after releasing LISTS, just like bind_row below.
+    if source.first_visible.is_some() {
+        // Layout can hold the core tree borrow. Deliver viewport events on the
+        // next loop turn, after both the tree and the list registry are free.
+        post_local(move || {
+            let source = LISTS.with(|m| m.borrow().get(&host).and_then(|st| st.source.clone()));
+            if let Some(source) = source
+                && let Some(report) = &source.first_visible
+            {
+                report(first_visible.min((source.len)().saturating_sub(1)));
+            }
+        });
+    }
     for (i, cell) in work {
         unsafe {
             day_dom_set_frame(cell, 0.0, i as f64 * rowh, width, rowh);

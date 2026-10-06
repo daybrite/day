@@ -1240,7 +1240,7 @@ impl<S: Binding<String>> Piece for TextField<S> {
             let (v, last) = (v.clone(), last.clone());
             day_reactive::Scope::current().on_cleanup(move || {
                 if let Some(t) = last.borrow_mut().take() {
-                    v.write_commit(t);
+                    v.write_teardown(t);
                 }
             });
         }

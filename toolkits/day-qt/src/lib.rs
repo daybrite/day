@@ -520,7 +520,7 @@ fn list_populate(host_key: usize) {
 /// nothing moved, which is what lets every scroll notification call it.
 fn list_fill_window(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: realize the window's cells + snapshot what we need.
-    let Some((host, rowh, source, work, width)) = LIST_STATE.with(|m| {
+    let Some((host, rowh, source, work, width, first_visible)) = LIST_STATE.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host_key)?;
         let source = st.source.borrow().clone()?;
@@ -552,9 +552,7 @@ fn list_fill_window(host_key: usize) {
             };
             (0, (vh / rowh).ceil() as usize)
         };
-        if let Some(report) = &source.first_visible {
-            report(first.min(n.saturating_sub(1)));
-        }
+        let first_visible = first.min(n.saturating_sub(1));
         let first = first.saturating_sub(LIST_OVERSCAN);
         let last = (last + LIST_OVERSCAN).min(n);
         // Slots exist for every row (a Vec of nulls, not of widgets): the cell for row i lives
@@ -579,10 +577,26 @@ fn list_fill_window(host_key: usize) {
         }
         st.last_width = w.max(1.0) as c_int;
         st.cell_width = width;
-        Some((st.host, rowh, source, work, width))
+        Some((st.host, rowh, source, work, width, first_visible))
     }) else {
         return;
     };
+    if source.first_visible.is_some() {
+        // A viewport change can recompose and lay out a floating header. A
+        // native layout may still hold the core tree borrow, so defer delivery.
+        Qt::post(Box::new(move || {
+            let source = LIST_STATE.with(|m| {
+                m.borrow()
+                    .get(&host_key)
+                    .and_then(|st| st.source.borrow().clone())
+            });
+            if let Some(source) = source
+                && let Some(report) = &source.first_visible
+            {
+                report(first_visible.min((source.len)().saturating_sub(1)));
+            }
+        }));
+    }
     // Phase 2 — no borrow held (bind_row re-enters with_tree, which may lay out + set_frame the
     // list host, taking LIST_STATE again).
     for (i, cell) in work {

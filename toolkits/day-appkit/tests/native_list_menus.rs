@@ -8,16 +8,19 @@ fn main() {}
 fn main() {
     use day_appkit::AppKit;
     use day_spec::{
-        ListSource, MenuItem, NodeId, Toolkit, kinds,
-        props::{ContainerProps, LabelProps, ListProps, RowHeight},
+        Event, ListSource, MenuItem, NodeId, Toolkit, kinds,
+        props::{ContainerProps, LabelProps, ListPatch, ListProps, RowHeight},
     };
     use objc2::{MainThreadMarker, MainThreadOnly, rc::Retained};
     use objc2_app_kit::{
         NSApplication, NSBackingStoreType, NSEvent, NSEventModifierFlags, NSEventType, NSMenu,
         NSScrollView, NSTableView, NSView, NSWindow, NSWindowStyleMask,
     };
-    use objc2_foundation::{NSIndexSet, NSPoint, NSRect, NSSize};
-    use std::{cell::Cell, rc::Rc};
+    use objc2_foundation::{NSIndexSet, NSPoint, NSRect, NSSize, NSString};
+    use std::{
+        cell::{Cell, RefCell},
+        rc::Rc,
+    };
 
     let mtm = MainThreadMarker::new().unwrap();
     let _app = NSApplication::sharedApplication(mtm);
@@ -182,6 +185,44 @@ fn main() {
         calls.get(),
         before,
         "blank list space must not invoke a row provider"
+    );
+    let selections = Rc::new(RefCell::new(Vec::new()));
+    toolkit.set_event_sink(Box::new({
+        let selections = selections.clone();
+        move |_, event| {
+            if let Event::SelectionChanged(row) = event {
+                selections.borrow_mut().push(row);
+            }
+        }
+    }));
+    toolkit.update(&host, kinds::LIST, &ListPatch::Selected(vec![1]), None);
+    assert_eq!(table.selectedRow(), 1);
+    assert!(
+        selections.borrow().is_empty(),
+        "app-driven selection does not echo"
+    );
+    let up = NSString::from_str("\u{f700}");
+    let key = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+        NSEventType::KeyDown, NSPoint::new(0., 0.), NSEventModifierFlags::empty(),
+        0., window.windowNumber(), None, &up, &up, false, 126,
+    ).unwrap();
+    table.keyDown(&key);
+    assert_eq!(
+        table.selectedRow(),
+        0,
+        "native arrow key changes actual table selection"
+    );
+    assert_eq!(
+        &*selections.borrow(),
+        &[0],
+        "keyboard selection reports once"
+    );
+    selections.borrow_mut().clear();
+    toolkit.update(&host, kinds::LIST, &ListPatch::Selected(vec![]), None);
+    assert_eq!(table.selectedRow(), -1);
+    assert!(
+        selections.borrow().is_empty(),
+        "app-driven deselection does not echo"
     );
     toolkit.release(host);
     window.close();

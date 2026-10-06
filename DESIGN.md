@@ -2147,7 +2147,12 @@ ResizeObserver. The WebSocket dayscript transport shipped as sketched ([§14.5](
 the page speaks WebSocket to the dev server, which bridges to the runner's TCP protocol — CI
 drives the full walkthrough this way, including the HTTP demo against the dev server's
 `/day-http-ok` echo (day-part-http reaches `fetch` through its JavaScript bridge arm, [docs/http.md](docs/http.md)). [docs/web.md](docs/web.md)
-is the reference. Two hardenings for dependency graphs (2026-08): `day build` compiles every
+is the reference. DOM's virtual list reports its first visible row after releasing the list
+registry's mutable borrow and defers delivery to the next event-loop turn. Qt uses the same
+boundary. The callback may recompose a floating section header and update layout; delivery
+must wait until both the toolkit registry and the core layout tree are free. Day-News's
+long-reader and grouped-feed scripts exercise the resulting list/header interaction.
+Two hardenings for dependency graphs (2026-08): `day build` compiles every
 web app with `--cfg getrandom_backend="custom"` and day-dom answers getrandom v0.3's
 custom-backend hook from the shim's `crypto.getRandomValues` import (entropy for uuid/rand
 without wasm-bindgen), and the shim + day-sql worker satisfy import modules besides `env`
@@ -4069,6 +4074,12 @@ through `day::env` — a browser sandbox has no process environment, [docs/web.m
 `--script` runs via the embedded engine
 ([§14](#14-scripting-dayscript)) — with scripts the command exits when the last one finishes (the CI entry point), and
 `--keep-alive` keeps the session drivable via `day drive` afterwards.
+
+Development macOS bundles replace their executable atomically through a sibling temporary
+file and rename, preserving the inode of a still-running executable. Truncating that inode
+can invalidate signed Mach-O pages and terminate either process. Regression:
+`documents::tests::rebuilding_bundle_preserves_running_executable_inode`.
+
 
 `--git <url>[@<ref>]` (2026-09) removes the checkout step from trying an app: it clones the
 repository, locates the Day project inside it, and hands that directory to the ordinary launch
@@ -6933,3 +6944,28 @@ Regression coverage: `day-core::urls` cold/reentrant/scope tests, `day-cli::url_
 association candidate tests, and Day-News `subscription-discovery` / `feed-url-handler` dayscripts.
 The `open_url` dayscript step delivers through the real data rail; `deep_link` retains its direct
 route assertion semantics.
+
+Native list regression coverage also verifies controlled selection without callback echo:
+`toolkits/day-gtk/tests/native_list_selection.rs` exercises batched reload/selection and an
+actual GTK selection-model change; `toolkits/day-appkit/tests/native_list_menus.rs` sends an
+AppKit arrow-key event to NSTableView and verifies native selection and its callback. Dayscript
+selection alone does not validate a toolkit's hit testing or keyboard recognizer.
+
+Cover dismissal removes native child nodes and their event handlers before disposing the
+presented content's reactive scope. Detaching a focused text field can enqueue a final edit
+or blur; it must not write through a surviving handler into a disposed signal. Content and
+signals both survive until `CoverHidden` completes the native dismissal animation.
+Regression: `cover_removes_input_handlers_before_disposing_their_signals`.
+
+Native event dispatch is non-reentrant: events enqueued by a handler's native mutations wait
+until that handler completes. The pump also drains events produced by the final reactive
+flush and route notifications before returning. This prevents a nested dismissal from
+disposing signals midway through an input binding's write. The active-pump guard is reset on
+unwind, preserving panic containment. Regression:
+`queued_native_events_finish_the_current_handler_before_dispatch`.
+
+Text fields seal unfinished typing with `Binding::write_teardown`. The default commits a
+persistent binding's preview transaction. Plain `Signal` bindings do nothing: previews have
+already stored the final value, and scope disposal removes signal nodes before cleanup runs.
+This avoids writes into disposed signals when dismissing a sheet with an edited text field.
+Reactive regressions cover both signal disposal and persistent preview sealing.

@@ -4740,6 +4740,64 @@ fn back_skips_hidden_tabs_and_dismisses_cover_before_underlying_stack() {
 }
 
 #[test]
+fn queued_native_events_finish_the_current_handler_before_dispatch() {
+    let order = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let first = order.clone();
+    let second = order.clone();
+    let probe = boot(move || {
+        column((
+            button("First fixture").id("first-fixture").action(move || {
+                first.borrow_mut().push("start");
+                let node = day_core::with_tree(|t| t.find_by_id("second-fixture").unwrap());
+                day_core::enqueue_event(day_core::rnode_to_id(node), Event::Pressed);
+                first.borrow_mut().push("end");
+            }),
+            button("Second fixture")
+                .id("second-fixture")
+                .action(move || {
+                    second.borrow_mut().push("queued");
+                }),
+        ))
+    });
+    let node = day_core::with_tree(|t| t.find_by_id("first-fixture").unwrap());
+    probe.emit(day_core::rnode_to_id(node), Event::Pressed);
+    assert_eq!(*order.borrow(), ["start", "end", "queued"]);
+}
+
+#[test]
+fn cover_removes_input_handlers_before_disposing_their_signals() {
+    let open = Signal::new(None::<String>);
+    let disposed = std::rc::Rc::new(std::cell::Cell::new(false));
+    let observed = disposed.clone();
+    let probe = boot(move || {
+        let observed = observed.clone();
+        cover(open, move |_: &String| {
+            let observed = observed.clone();
+            Scope::current().on_cleanup(move || {
+                assert!(day_core::with_tree(|t| t
+                    .find_by_id("closing-input")
+                    .is_none()));
+                observed.set(true);
+            });
+            text_field(Signal::new(String::new())).id("closing-input")
+        })
+    });
+    open.set(Some("fixture".into()));
+    flush_sync();
+    let cover = probe.find_by_kind("day.cover")[0].0;
+    let id = NodeId(probe.widget(cover).node);
+    open.set(None);
+    flush_sync();
+    assert!(
+        !disposed.get(),
+        "content survives the native dismissal animation"
+    );
+    probe.emit(id, Event::CoverHidden);
+    flush_sync();
+    assert!(disposed.get());
+}
+
+#[test]
 fn cover_presents_lays_out_and_dismisses() {
     let probe = boot(|| {
         let open = Signal::new(None::<String>);

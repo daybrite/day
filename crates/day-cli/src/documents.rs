@@ -426,7 +426,7 @@ pub fn desktop_artifact(
     let contents = app.join("Contents");
     let macos = contents.join("MacOS");
     std::fs::create_dir_all(&macos).map_err(|e| e.to_string())?;
-    std::fs::copy(&binary, macos.join(&project.manifest.app.name)).map_err(|e| e.to_string())?;
+    replace_executable(&binary, &macos.join(&project.manifest.app.name))?;
     let mut d = plist::Dictionary::new();
     for (key, value) in [
         (
@@ -476,9 +476,48 @@ pub fn windows_registry(types: &[FileType], id: &str, binary: &Path) -> String {
     out
 }
 
+/// Preserve running processes' executable inode when rebuilding a development bundle.
+fn replace_executable(
+    source: &std::path::Path,
+    destination: &std::path::Path,
+) -> Result<(), String> {
+    let name = destination
+        .file_name()
+        .ok_or("executable has no filename")?
+        .to_string_lossy();
+    let staged = destination.with_file_name(format!(".{name}-{}.tmp", std::process::id()));
+    std::fs::copy(source, &staged).map_err(|e| e.to_string())?;
+    if let Err(error) = std::fs::rename(&staged, destination) {
+        let _ = std::fs::remove_file(&staged);
+        return Err(error.to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn rebuilding_bundle_preserves_running_executable_inode() {
+        use std::io::Read;
+        let dir = std::env::temp_dir().join(format!("day-executable-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("new");
+        let destination = dir.join("running");
+        std::fs::write(&source, b"replacement executable").unwrap();
+        std::fs::write(&destination, b"original executable").unwrap();
+        let mut running = std::fs::File::open(&destination).unwrap();
+        replace_executable(&source, &destination).unwrap();
+        let mut original = String::new();
+        running.read_to_string(&mut original).unwrap();
+        assert_eq!(original, "original executable");
+        assert_eq!(
+            std::fs::read_to_string(&destination).unwrap(),
+            "replacement executable"
+        );
+        drop(running);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
     fn epub() -> Vec<FileType> {
         vec![FileType {
             extensions: vec!["epub".into()],

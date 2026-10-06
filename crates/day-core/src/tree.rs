@@ -2394,6 +2394,7 @@ day_reactive::tls_slots! {
     static TREE: RefCell<Option<Box<dyn TreeOps>>> = const { RefCell::new(None) };
     static EVENTS: RefCell<VecDeque<(NodeId, Event)>> = const { RefCell::new(VecDeque::new()) };
     static PUMP_PENDING: Cell<bool> = const { Cell::new(false) };
+    static PUMP_ACTIVE: Cell<bool> = const { Cell::new(false) };
     /// The event observer installed by [`set_event_observer`] and consulted by [`enqueue_events`].
     /// `Rc`, not `Box`, so the handle can be cloned out and invoked with no borrow held (the
     /// observer may safely re-enter Day to read the tree or stop recording).
@@ -2712,7 +2713,29 @@ pub fn label_of(node: NodeId) -> Option<String> {
 /// single backend-agnostic boundary, log it (the message carries the offending effect's source
 /// location), and reset the runtime so the app keeps running (degraded) rather than crashing.
 pub fn pump_events() {
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(pump_events_inner));
+    // Native mutations in a handler can enqueue focus, value, or dismissal
+    // events. Finish that handler before dispatching them: nested dispatch can
+    // dispose the signals still used by its remaining binding writes.
+    if PUMP_ACTIVE.with(|active| active.replace(true)) {
+        return;
+    }
+    struct PumpGuard;
+    impl Drop for PumpGuard {
+        fn drop(&mut self) {
+            PUMP_ACTIVE.with(|active| active.set(false));
+        }
+    }
+    let _guard = PumpGuard;
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        loop {
+            pump_events_inner();
+            // flush_sync and route notifications may themselves enqueue events.
+            // Drain these after their current reactions finish, before returning.
+            if EVENTS.with(|events| events.borrow().is_empty()) {
+                break;
+            }
+        }
+    }));
     if let Err(payload) = result {
         let msg = payload
             .downcast_ref::<&str>()

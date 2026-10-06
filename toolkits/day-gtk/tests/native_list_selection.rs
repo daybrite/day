@@ -115,6 +115,27 @@ fn main() {
         "empty sync clears native selection"
     );
     assert!(events.borrow().is_empty());
+    // The last request wins even when reload and multiple patches share one idle turn.
+    count.set(5);
+    toolkit.update(&host, kinds::LIST, &ListPatch::Reload, None);
+    toolkit.update(&host, kinds::LIST, &ListPatch::Selected(vec![1]), None);
+    toolkit.update(&host, kinds::LIST, &ListPatch::Selected(vec![4]), None);
+    drain();
+    assert_eq!(selection.selected(), 4);
+    assert!(
+        events.borrow().is_empty(),
+        "batched selection sync never echoes"
+    );
+    selection.set_selected(2);
+    assert_eq!(&*events.borrow(), &[2]);
+    events.borrow_mut().clear();
+    toolkit.update(&host, kinds::LIST, &ListPatch::Selected(vec![]), None);
+    drain();
+    assert_eq!(selection.selected(), gtk4::INVALID_LIST_POSITION);
+    assert!(
+        events.borrow().is_empty(),
+        "clearing a user selection never echoes"
+    );
     toolkit.release(host);
     println!("native list selection: sync, reload, clear, and echo suppression passed");
 }

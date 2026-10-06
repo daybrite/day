@@ -1576,6 +1576,11 @@ pub trait Binding<T: 'static>: Clone + 'static {
     fn write_commit(&self, v: T) {
         self.write(v);
     }
+    /// Seal the last preview when its control is disposed. Persistent bindings default to
+    /// committing; scope-owned signals have already received the preview and may be gone.
+    fn write_teardown(&self, v: T) {
+        self.write_commit(v);
+    }
 }
 
 impl<T: Clone + 'static> Binding<T> for Signal<T> {
@@ -1588,6 +1593,7 @@ impl<T: Clone + 'static> Binding<T> for Signal<T> {
     fn write(&self, v: T) {
         self.set(v);
     }
+    fn write_teardown(&self, _v: T) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -1822,6 +1828,50 @@ mod tests {
         assert_eq!(s.get(), 5);
         s.update(|v| *v += 1);
         assert_eq!(s.get(), 6);
+    }
+
+    #[test]
+    fn signal_teardown_does_not_write_after_scope_disposal() {
+        let scope = Scope::child();
+        let warned = with_rt(|rt| rt.warned_writes.len());
+        scope.enter(|| {
+            let signal = Signal::new(String::new());
+            signal.write_preview("Fixture final edit".into());
+            assert_eq!(signal.peek(), "Fixture final edit");
+            Scope::current().on_cleanup(move || {
+                signal.write_teardown("Fixture final edit".into());
+            });
+        });
+        scope.dispose();
+        assert_eq!(with_rt(|rt| rt.warned_writes.len()), warned);
+    }
+
+    #[test]
+    fn persistent_binding_teardown_seals_preview() {
+        #[derive(Clone)]
+        struct FixtureBinding(Rc<RefCell<Vec<String>>>);
+        impl Binding<String> for FixtureBinding {
+            fn read(&self) -> String {
+                String::new()
+            }
+            fn peek(&self) -> String {
+                self.read()
+            }
+            fn write(&self, value: String) {
+                self.0.borrow_mut().push(value);
+            }
+            fn write_preview(&self, _value: String) {}
+        }
+        let committed = Rc::new(RefCell::new(Vec::new()));
+        let binding = FixtureBinding(committed.clone());
+        let scope = Scope::child();
+        scope.enter(|| {
+            binding.write_preview("Fixture edit".into());
+            Scope::current().on_cleanup(move || binding.write_teardown("Fixture edit".into()));
+        });
+        assert!(committed.borrow().is_empty());
+        scope.dispose();
+        assert_eq!(*committed.borrow(), ["Fixture edit"]);
     }
 
     #[test]

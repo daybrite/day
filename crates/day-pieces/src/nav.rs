@@ -4413,14 +4413,18 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let dispose_content = {
             let current = current.clone();
             move || {
-                if let Some(p) = current.borrow_mut().take() {
-                    p.scope.dispose();
-                }
+                let presented = current.borrow_mut().take();
+                // Detaching focused native inputs can enqueue their final value
+                // or blur events. Remove their handlers before disposing signals
+                // captured by those handlers, then release the content scope.
                 while with_tree(|t| t.child_count(node)) > 0 {
                     match with_tree(|t| t.first_child(node)) {
                         Some(c) => with_tree(|t| t.remove_subtree(c)),
                         None => break,
                     }
+                }
+                if let Some(p) = presented {
+                    p.scope.dispose();
                 }
             }
         };
