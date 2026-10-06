@@ -252,6 +252,33 @@ mod imp {
 
     /// Height of the composed bottom bar, in vp (HarmonyOS's tab-bar metric).
     const NAV_BAR_H: f64 = 56.0;
+    /// The rail's width (Medium): an icon over a short label per destination.
+    const NAV_RAIL_W: f64 = 80.0;
+    /// The sidebar's width (Expanded): an icon beside a label per destination.
+    const NAV_SIDEBAR_W: f64 = 240.0;
+
+    /// Where a suite draws its rows, by the host's width (docs/size-classes.md): the bottom bar
+    /// of a phone, a rail on a portrait tablet, a sidebar on a landscape one. The same
+    /// resident-page model at every width (the pieces layer lowers `Tabs` and the chrome is
+    /// this backend's own), which is what Material's navigation suite and iOS 18's tab sidebar
+    /// do natively.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum SuitePlacement {
+        Bottom,
+        Rail,
+        Sidebar,
+    }
+
+    fn suite_placement(width: f64) -> SuitePlacement {
+        // The width classes' own boundaries (docs/size-classes.md): Compact < 600, Medium < 840.
+        if width < 600.0 {
+            SuitePlacement::Bottom
+        } else if width < 840.0 {
+            SuitePlacement::Rail
+        } else {
+            SuitePlacement::Sidebar
+        }
+    }
 
     /// The navigation suite (`NavPresentation::Tabs`): resident pages over a bottom bar.
     ///
@@ -271,6 +298,12 @@ mod imp {
         selected: usize,
         /// The pages area, so a page joining later can be sized without waiting for a resize.
         page_size: Size,
+        /// Where the rows are drawn now; a width crossing a class boundary rebuilds the bar.
+        placement: SuitePlacement,
+        /// The rows the bar was last filled from, so a placement change can refill it.
+        menu: Option<NodeId>,
+        labels: Vec<String>,
+        icons: Vec<Option<String>>,
     }
 
     fn next_synth() -> u64 {
@@ -323,6 +356,10 @@ mod imp {
             let Some(suite) = c.get_mut(&host) else {
                 return;
             };
+            suite.menu = Some(menu);
+            suite.labels = items.to_vec();
+            suite.icons = icons.to_vec();
+            let placement = suite.placement;
             for old in std::mem::take(&mut suite.bar_items) {
                 node::remove_child(suite.bar.0, old.0);
             }
@@ -337,7 +374,13 @@ mod imp {
                 0xFF1C_1C1E,
             );
             for (i, title) in items.iter().enumerate() {
-                let cell = new_node(node::COLUMN);
+                // A bottom bar's and a rail's cell stacks the icon over the label; a sidebar's
+                // row puts them side by side, the way the rows list draws them.
+                let cell = new_node(if placement == SuitePlacement::Sidebar {
+                    node::ROW
+                } else {
+                    node::COLUMN
+                });
                 let synth = next_synth();
                 MENU_ROWS.with(|m| m.borrow_mut().insert(synth, (menu, i as i64)));
                 // The selected destination takes the accent; the rest the secondary label color,
@@ -359,16 +402,31 @@ mod imp {
                     }
                     node::set_image_fit(icon.0, 0);
                     node::set_size(icon.0, 24.0, 24.0);
+                    if placement == SuitePlacement::Sidebar {
+                        node::set_margin(icon.0, 8.0);
+                    }
                     node::insert_child(cell.0, icon.0, child);
                     child += 1;
                 }
                 let label = new_node(node::TEXT);
                 node::set_text(label.0, title);
-                node::set_font_size(label.0, 10.0);
+                node::set_font_size(
+                    label.0,
+                    if placement == SuitePlacement::Sidebar {
+                        15.0
+                    } else {
+                        10.0
+                    },
+                );
                 themed(host, label.0, Paint::Font, tint_light, tint_dark);
                 suite.bar_inks.push((label.0, Paint::Font, i));
                 node::insert_child(cell.0, label.0, child);
-                node::set_flex_grow(cell.0, 1.0);
+                match placement {
+                    // The bar's cells share its width.
+                    SuitePlacement::Bottom => node::set_flex_grow(cell.0, 1.0),
+                    SuitePlacement::Rail => node::set_size(cell.0, NAV_RAIL_W, 64.0),
+                    SuitePlacement::Sidebar => node::set_size(cell.0, NAV_SIDEBAR_W, 48.0),
+                }
                 node::register_event(cell.0, node::EV_CLICK, synth);
                 node::insert_child(suite.bar.0, cell.0, i as i32);
                 suite.bar_items.push(cell);
@@ -382,15 +440,71 @@ mod imp {
     /// node and gives it one frame: the same division of labor every other backend's native
     /// nav container performs for itself.
     fn suite_layout(host: usize, size: Size) {
+        // The rows' placement follows the width. A change swaps the bar for one of the other
+        // orientation (a Row for the bottom bar, a Column for a rail or sidebar) and refills
+        // it from the rows it was last given; the pages never notice beyond their new frame.
+        let placement = suite_placement(size.width);
+        let refill = NAV_SUITES.with(|c| {
+            let mut c = c.borrow_mut();
+            let suite = c.get_mut(&host)?;
+            if suite.placement == placement {
+                return None;
+            }
+            suite.placement = placement;
+            for old in std::mem::take(&mut suite.bar_items) {
+                node::remove_child(suite.bar.0, old.0);
+                node::dispose(old.0);
+            }
+            suite.bar_inks.clear();
+            node::remove_child(host as Handle, suite.bar.0);
+            node::dispose(suite.bar.0);
+            let bar = new_node(if placement == SuitePlacement::Bottom {
+                node::ROW
+            } else {
+                node::COLUMN
+            });
+            if placement == SuitePlacement::Sidebar {
+                // Rows start at the leading edge, like the list they stand in for.
+                node::set_i32(
+                    bar.0,
+                    ohos_sys::arkui::native_node::ArkUI_NodeAttributeType::NODE_COLUMN_ALIGN_ITEMS,
+                    ohos_sys::arkui::native_type::ArkUI_HorizontalAlignment::ARKUI_HORIZONTAL_ALIGNMENT_START.0 as i32,
+                );
+            }
+            node::insert_child(host as Handle, bar.0, 1);
+            suite.bar = bar;
+            suite
+                .menu
+                .map(|menu| (menu, suite.labels.clone(), suite.icons.clone(), suite.selected))
+        });
+        if let Some((menu, labels, icons, selected)) = refill {
+            suite_fill_bar(host, menu, &labels, &icons, selected);
+            suite_select(host, selected);
+        }
         let reports: Vec<(NodeId, Size)> = NAV_SUITES.with(|c| {
             let mut c = c.borrow_mut();
             let Some(suite) = c.get_mut(&host) else {
                 return Vec::new();
             };
-            let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
+            let (page_x, page, bar) = match placement {
+                SuitePlacement::Bottom => {
+                    let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
+                    (0.0, page, (0.0, page.height, size.width, NAV_BAR_H))
+                }
+                SuitePlacement::Rail => (
+                    NAV_RAIL_W,
+                    Size::new((size.width - NAV_RAIL_W).max(0.0), size.height),
+                    (0.0, 0.0, NAV_RAIL_W, size.height),
+                ),
+                SuitePlacement::Sidebar => (
+                    NAV_SIDEBAR_W,
+                    Size::new((size.width - NAV_SIDEBAR_W).max(0.0), size.height),
+                    (0.0, 0.0, NAV_SIDEBAR_W, size.height),
+                ),
+            };
             suite.page_size = page;
-            node::set_size(suite.pages.0, page.width, page.height);
-            node::set_size(suite.bar.0, size.width, NAV_BAR_H);
+            node::set_frame(suite.pages.0, page_x, 0.0, page.width, page.height);
+            node::set_frame(suite.bar.0, bar.0, bar.1, bar.2, bar.3);
             suite
                 .items
                 .iter()
@@ -1560,6 +1674,21 @@ mod imp {
         day_spec::ffi_guard::contain((), || nav_popped_inner(owner, key));
     }
 
+    /// An adaptive host's Navigation decided its presentation (docs/size-classes.md): the
+    /// toolkit tells Day (`Cap::NavRepresent = Emulated`), and the pieces layer reconciles its
+    /// model to what ArkUI already drew, the way it does for `SlidingPaneLayout` on Android.
+    pub fn nav_presented(owner: u64, split: bool) {
+        use day_spec::props::NavPresentation;
+        day_spec::ffi_guard::contain((), || {
+            let next = if split {
+                NavPresentation::Split
+            } else {
+                NavPresentation::Stack
+            };
+            emit(day_spec::NodeId(owner), Event::NavPresentationChanged(next));
+        });
+    }
+
     fn nav_popped_inner(owner: u64, key: u64) {
         let host = NAV_OWNERS.with(|m| m.borrow().get(&key).copied());
         let Some(host) =
@@ -1709,8 +1838,9 @@ mod imp {
         use day_spec::ToolbarItemKind as K;
         let (mut icons, mut labels, mut actions, mut enabled) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let mut scopes = Vec::new();
         WINDOW_BAR.with(|b| {
-            // No sidebar here to show or hide: a phone's navigation is a stack.
+            // No sidebar toggle here: Navigation's own nav bar shows and hides itself.
             let bar = b.borrow();
             let (page, window): (Vec<_>, Vec<_>) = bar
                 .items()
@@ -1723,6 +1853,16 @@ mod imp {
                     )
                 });
             for item in page.into_iter().chain(window) {
+                // Which title bars carry the item (docs/toolbars.md): a detail or list
+                // column's over its page (1), the sidebar column's over the root page (0),
+                // the window's over both (2). Stacked, only one bar shows at a time, so this
+                // changes nothing there; tiled, both show, and each column's commands sit
+                // over that column, the way a desktop toolbar spans its panes.
+                let scope = match item.column {
+                    day_spec::ToolbarColumn::Detail | day_spec::ToolbarColumn::List => "1",
+                    day_spec::ToolbarColumn::Sidebar => "0",
+                    day_spec::ToolbarColumn::Window => "2",
+                };
                 let mut add =
                     |icon: Option<&day_spec::Icon>, label: &str, action: u64, on: bool| {
                         if action == 0 {
@@ -1742,6 +1882,7 @@ mod imp {
                         // Bit 0: enabled; bit 1: checked. Preserve disabled checked state too.
                         let checked = matches!(item.kind, K::Toggle { on: true });
                         enabled.push((u8::from(on) | (u8::from(checked) << 1)).to_string());
+                        scopes.push(scope);
                     };
                 match &item.kind {
                     K::Button | K::Toggle { .. } => {
@@ -1775,12 +1916,11 @@ mod imp {
                 }
             }
         });
-        let scopes = vec!["2"; actions.len()].join("\n");
         crate::host_api::nav_set_menu(
             &icons.join("\n"),
             &labels.join("\n"),
             &actions.join("\n"),
-            &scopes,
+            &scopes.join("\n"),
             &enabled.join("\n"),
         );
     }
@@ -2150,7 +2290,7 @@ mod imp {
                         return new_node(node::STACK);
                     };
                     // Rows as CHROME: a composed bottom bar over resident pages (see NavSuite).
-                    // A phone gets here through `Automatic`, because this backend has no split.
+                    // A compact window gets here through `Automatic`.
                     if p.presentation.rows_are_chrome() {
                         let host = new_node(node::COLUMN);
                         let pages = new_node(node::STACK);
@@ -2176,6 +2316,10 @@ mod imp {
                                     bar_inks: Vec::new(),
                                     selected: 0,
                                     page_size: Size::ZERO,
+                                    placement: SuitePlacement::Bottom,
+                                    menu: None,
+                                    labels: Vec::new(),
+                                    icons: Vec::new(),
                                 },
                             )
                         });
@@ -2188,6 +2332,14 @@ mod imp {
                     }
                     let n = piece::make("day.navigation.stack", id, &p.title);
                     NAV_HOSTS.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    // An adaptive host follows the window: ArkUI's Navigation runs in Auto
+                    // mode, tiling the rows beside the detail where both fit (a tablet, a wide
+                    // window) and stacking them where they do not, and reports which through
+                    // `navModeChanged` (docs/size-classes.md). `Stack` in props is literal, a
+                    // host that stacks at every width (a nested `nav_stack`), so it is not.
+                    if p.adaptive && p.presentation != day_spec::props::NavPresentation::Stack {
+                        piece::update(&n, "day.adaptive", "1");
+                    }
                     match p
                         .search
                         .as_ref()
@@ -2375,11 +2527,10 @@ mod imp {
                                     crate::host_api::nav_set_guard(owner, *on);
                                 }
                             }
-                            // Unreachable: this backend answers `Cap::NavRepresent =
-                            // Unsupported`, so the pieces layer never sends it. The plan for
-                            // HarmonyOS is `Navigation.mode(Auto)`, which switches at its own
-                            // 520vp threshold and is OBSERVED through `onNavigationModeChange`
-                            // rather than told (docs/size-classes.md).
+                            // Never arrives: this backend answers `Cap::NavRepresent =
+                            // Emulated`. `Navigation.mode(Auto)` decides at its own threshold
+                            // and is OBSERVED through `onNavigationModeChange`
+                            // (`nav_presented`), never told (docs/size-classes.md).
                             NavPatch::Presentation(_) => {}
                             // The resident-page switch (docs/navigation.md): show that
                             // destination and move the bar's accent to it.
@@ -3497,6 +3648,13 @@ mod imp {
                 // Every pushed page is an ArkTS NavDestination with a native title bar
                 // (DayNavigation.ets); content needn't repeat the title (docs/navigation.md).
                 Cap::NavHeader => Support::Native,
+                // `Navigation` in `NavigationMode.Auto` tiles the nav bar (the sidebar rows)
+                // beside the content where both fit: a native split (docs/size-classes.md).
+                Cap::NavSplit => Support::Native,
+                // `Emulated`: Auto mode decides at layout, so the platform owns the presentation
+                // and Day observes it through `Event::NavPresentationChanged` rather than
+                // pushing one in, the Android/UIKit policy.
+                Cap::NavRepresent => Support::Emulated,
                 // A `Navigation`'s title bar carries `.menus()` items, which is where a page's
                 // toolbar commands go here (docs/toolbars.md). Emulated rather than Native: the
                 // bar belongs to the navigation destination, not to the window, so an app that

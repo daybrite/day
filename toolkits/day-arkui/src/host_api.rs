@@ -417,6 +417,13 @@ pub fn nav_popped(owner: f64, key: f64) {
     crate::nav_popped(owner as u64, key as u64);
 }
 
+/// `navModeChanged(owner, split)`: an adaptive host's Navigation tiled (1) or stacked (0)
+/// its nav bar and content (docs/size-classes.md).
+#[napi(js_name = "navModeChanged")]
+pub fn nav_mode_changed(owner: f64, split: f64) {
+    crate::nav_presented(owner as u64, split != 0.0);
+}
+
 /// `navBackRequested(owner)`: a guarded destination's back was pressed.
 #[napi(js_name = "navBackRequested")]
 pub fn nav_back_requested(owner: f64) {

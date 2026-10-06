@@ -96,6 +96,9 @@ export const navPopped: (owner: number, key: number) => void;
 // A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
 export const navBackRequested: (owner: number) => void;
 export const navPageArea: (key: number, w: number, h: number) => void;
+// An adaptive host's Navigation changed mode (docs/size-classes.md): `split` 1 while the nav
+// bar is tiled beside the content, 0 while they stack. Day reconciles; it never pushes a mode.
+export const navModeChanged: (owner: number, split: number) => void;
 // A title-bar action was tapped (one of the window toolbar's, docs/toolbars.md): dispatch it by
 // its own id.
 export const navMenuAction: (action: number, selection?: number) => void;

@@ -23,6 +23,13 @@ class NavigationModel {
   searchShown: boolean = false;
   searchPrompt: string = '';
   searchText: string = '';
+  // An adaptive host (`NavStyle::Sidebar` left to follow the window) runs NavigationMode.Auto:
+  // ArkUI tiles the nav bar beside the content where both fit and stacks them where they do
+  // not, and reports which through onNavigationModeChange (docs/size-classes.md). A literal
+  // stack host (a nested nav_stack) stays NavigationMode.Stack at every width.
+  adaptive: boolean = false;
+  // The mode ArkUI last reported: true while the nav bar and the content are side by side.
+  split: boolean = false;
 }
 const models: Map<number, NavigationModel> = new Map();
 const nodes: Map<number, BuilderNode<[NavigationModel]>> = new Map();
@@ -53,6 +60,9 @@ struct DayNavigation {
         })
     }
     .title(this.model.titles.get(Number(param)) ?? '')
+    // Tiled, the first destination sits beside the rows that opened it: a back button there
+    // would only deselect the row (the up-arrow Android's tiled host hides for the same reason).
+    .hideBackButton(this.model.split && this.model.stack.getAllPathName()[0] === name)
     .menus(this.pageToolbar)
     .onBackPressed(() => {
       if (nativeEntry.coverBackRequested()) return true;
@@ -60,6 +70,9 @@ struct DayNavigation {
         nativeEntry.navBackRequested(this.model.id);
         return true;
       }
+      // Tiled, the first destination has no back: popping it would leave the detail pane
+      // empty beside the rows, the one state a split has no way to draw (docs/navigation.md).
+      if (this.model.split && this.model.stack.getAllPathName()[0] === name) return true;
       return false;
     })
     .onDisAppear(() => {
@@ -97,7 +110,17 @@ struct DayNavigation {
     .title(this.model.rootTitle)
     .hideTitleBar(this.model.rootTitle.length === 0 && this.model.rootMenus.length === 0)
     .titleMode(NavigationTitleMode.Mini).hideBackButton(true)
-    .menus(this.rootToolbar).mode(NavigationMode.Stack).navDestination(this.destination)
+    .menus(this.rootToolbar).navDestination(this.destination)
+    .mode(this.model.adaptive ? NavigationMode.Auto : NavigationMode.Stack)
+    // A sidebar's width beside the detail; Auto tiles once navBarWidth + minContentWidth fit.
+    .navBarWidth(320).minContentWidth(360)
+    .onNavigationModeChange((mode: NavigationMode) => {
+      const split = mode === NavigationMode.Split;
+      if (this.model.adaptive && split !== this.model.split) {
+        this.model.split = split;
+        nativeEntry.navModeChanged(this.model.id, split ? 1 : 0);
+      }
+    })
     .backgroundColor($r('sys.color.ohos_id_color_sub_background'))
     .width(this.model.width).height(this.model.height)
   }
@@ -194,6 +217,7 @@ export const dayNavigation: DayPieceModule = {
     if (model !== undefined && command === 'day.frame') {
       const size = arg.split(','); model.width = Number(size[0]); model.height = Number(size[1]);
     }
+    if (model !== undefined && command === 'day.adaptive') model.adaptive = arg === '1';
   },
   dispose: (id: number): void => {
     const model = models.get(id);

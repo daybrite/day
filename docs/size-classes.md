@@ -128,7 +128,7 @@ back.
 | windows-winui | ✅ | — | a `NavigationView` owns its own `PaneDisplayMode`; re-presenting means driving that rather than re-homing pages |
 | ios-uikit | ✅ | **observed** | `UISplitViewController`, both columns navigation controllers |
 | android-mdc | ✅ | **observed** | `SlidingPaneLayout`, list pane beside a detail pane |
-| harmony-arkui | — | — | `NavigationMode.Auto` pending; see below |
+| harmony-arkui | ✅ | **observed** | ArkUI `Navigation` in `NavigationMode.Auto`: the nav bar (the rows) tiles beside the content where `navBarWidth` + `minContentWidth` fit, stacks otherwise; `onNavigationModeChange` reports which, through `navModeChanged`. A literal `Stack` host (a nested `nav_stack`) runs `NavigationMode.Stack` |
 
 GTK is the odd one out among the desktops. Everywhere else both presentations are the same
 container with different chrome, so a morph re-homes pages inside a host Day already holds. On
