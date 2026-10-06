@@ -85,3 +85,16 @@ backend then applies the same "minimal scroll to make the rect visible" rule:
 
 Nested scrolls reveal in the nearest enclosing scroll only; driving an outer scroll takes a
 second target aimed at it.
+
+## Scroll bars and the content width
+
+Most backends draw overlay scroll bars that float over the content, so `ScrollLayout` lays
+vertical content out at the scroll view's full width. Qt's Fusion style instead draws a classic bar
+that takes its width out of the viewport while the content overflows. Content laid out at the full
+width would then sit partly under the bar and scroll sideways by the bar's width.
+
+The `Toolkit::scroll_bar_inset` duty reports how much room that bar takes: its width for a
+vertical scroll, its height for a horizontal one. When the content overflows, `ScrollLayout`
+lays it out again that much narrower, so it fits beside the bar. Content that fits keeps the
+full width, because no bar appears. The default is 0, which is right for every overlay-bar backend.
+Qt answers with its style's `PM_ScrollBarExtent`, or 0 under a style with transient bars.

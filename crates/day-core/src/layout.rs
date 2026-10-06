@@ -55,6 +55,11 @@ pub trait LayoutOps {
     fn baseline_of(&mut self, child: RNode, size: Size) -> Option<f64>;
     /// Report scroll content size for the current node (§7.6).
     fn set_scroll_content(&mut self, content: Size);
+    /// The room the current scroll node's scroll bar takes from its content area while the
+    /// content overflows (`Toolkit::scroll_bar_inset`); 0 where bars overlay the content.
+    fn scroll_bar_inset(&mut self, _vertical: bool) -> f64 {
+        0.0
+    }
     /// Report that the current node's children outgrew the bounds its `place()` was given
     /// (`needed` vs `available` main-axis points). A diagnostic hook, not a layout input:
     /// the engine logs it once per node in debug builds and ignores it in release, and
@@ -127,6 +132,12 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         n.scroll_content = Some(content);
         let Some(h) = n.handle.clone() else { return };
         self.tree.toolkit.set_scroll_content(&h, content);
+    }
+    fn scroll_bar_inset(&mut self, vertical: bool) -> f64 {
+        let Some(h) = self.tree.node(self.current).and_then(|n| n.handle.clone()) else {
+            return 0.0;
+        };
+        self.tree.toolkit.scroll_bar_inset(&h, vertical).max(0.0)
     }
 
     #[cfg(debug_assertions)]
@@ -1652,14 +1663,31 @@ impl Layout for ScrollLayout {
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         if let Some(&c) = children.first() {
-            let content_p = match self.axis {
-                Axis::Vertical => Proposal::new(Some(bounds.size.width), None),
-                Axis::Horizontal => Proposal::new(None, Some(bounds.size.height)),
+            let vertical = self.axis == Axis::Vertical;
+            let proposal = |cross: f64| match self.axis {
+                Axis::Vertical => Proposal::new(Some(cross), None),
+                Axis::Horizontal => Proposal::new(None, Some(cross)),
             };
-            let cs = cx.measure_child(c, content_p);
+            let (cross, main) = match self.axis {
+                Axis::Vertical => (bounds.size.width, bounds.size.height),
+                Axis::Horizontal => (bounds.size.height, bounds.size.width),
+            };
+            let mut cs = cx.measure_child(c, proposal(cross));
+            let overflows = |s: Size| if vertical { s.height } else { s.width } > main;
+            // Content that overflows brings a scroll bar up. Where that bar is a classic one
+            // taking room from the viewport (Qt's Fusion style), lay the content out beside it,
+            // or the content is wider than what is left and scrolls sideways by the bar's width.
+            let mut cross = cross;
+            if overflows(cs) {
+                let inset = cx.scroll_bar_inset(vertical);
+                if inset > 0.0 {
+                    cross = (cross - inset).max(0.0);
+                    cs = cx.measure_child(c, proposal(cross));
+                }
+            }
             let content = match self.axis {
-                Axis::Vertical => Size::new(bounds.size.width, cs.height.max(bounds.size.height)),
-                Axis::Horizontal => Size::new(cs.width.max(bounds.size.width), bounds.size.height),
+                Axis::Vertical => Size::new(cross, cs.height.max(bounds.size.height)),
+                Axis::Horizontal => Size::new(cs.width.max(bounds.size.width), cross),
             };
             cx.place_child(c, Rect::from_size(content));
             cx.set_scroll_content(content);

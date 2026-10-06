@@ -938,6 +938,20 @@ void *day_qt_scroll_content(void *w) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
     return sa ? sa->widget() : nullptr;
 }
+// The room a shown scroll bar takes from the viewport (docs/scroll.md): the style's bar extent,
+// or 0 under a style whose bars are transient overlays (macOS), which take none. Asked before
+// the bar shows, so it answers for the bar the overflowing content is about to bring up.
+int day_qt_scroll_bar_inset(void *w, int vertical) {
+    QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
+    if (!sa) return 0;
+    const Qt::ScrollBarPolicy policy =
+        vertical ? sa->verticalScrollBarPolicy() : sa->horizontalScrollBarPolicy();
+    if (policy == Qt::ScrollBarAlwaysOff) return 0;
+    QScrollBar *bar = vertical ? sa->verticalScrollBar() : sa->horizontalScrollBar();
+    QStyle *style = bar ? bar->style() : sa->style();
+    if (style->styleHint(QStyle::SH_ScrollBar_Transient, nullptr, bar)) return 0;
+    return style->pixelMetric(QStyle::PM_ScrollBarExtent, nullptr, bar);
+}
 void day_qt_scroll_set_content_size(void *w, int cw, int ch) {
     QScrollArea *sa = qobject_cast<QScrollArea *>(static_cast<QWidget *>(w));
     if (sa && sa->widget()) sa->widget()->resize(cw, ch);

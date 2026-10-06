@@ -119,6 +119,9 @@ pub struct MockState {
     pub bitmaps: HashMap<u64, day_spec::BitmapInfo>,
     /// (kind, proposal) measure-call counter for the M1 bounded-measure tests.
     pub measure_calls: usize,
+    /// What `scroll_bar_inset` answers (docs/scroll.md): 0, overlay bars, unless a test plays a
+    /// backend whose classic bar takes room from the viewport.
+    pub scroll_bar_inset: f64,
     /// Recycling-list row-pull sources, keyed by list host handle (docs/list.md). A test drives
     /// the "viewport" through [`MockProbe::list_bind`], simulating what a native list would do.
     pub list_sources: HashMap<u64, ListSource>,
@@ -1420,6 +1423,10 @@ impl Toolkit for MockToolkit {
             w.cursor = Some(cursor.clone());
         }
         s.log(format!("set_cursor #{} {}", h.0, cursor.css_name()));
+    }
+
+    fn scroll_bar_inset(&mut self, _h: &MockHandle, _vertical: bool) -> f64 {
+        self.state.borrow().scroll_bar_inset
     }
 
     fn set_scroll_content(&mut self, h: &MockHandle, content: Size) {

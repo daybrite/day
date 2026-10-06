@@ -170,6 +170,7 @@ unsafe extern "C" {
 
     pub fn day_qt_scroll_new(horizontal: c_int) -> *mut c_void;
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
+    pub fn day_qt_scroll_bar_inset(w: *mut c_void, vertical: c_int) -> c_int;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
     // The list (docs/list.md): a real QListWidget. Day's cell widgets are attached to rows as
     // they scroll into view and stay pinned to them; selection, keys and drag are the view's.

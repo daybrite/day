@@ -3002,6 +3002,10 @@ impl Toolkit for Qt {
         }
     }
 
+    fn scroll_bar_inset(&mut self, h: &QtHandle, vertical: bool) -> f64 {
+        f64::from(unsafe { ffi::day_qt_scroll_bar_inset(h.0, c_int::from(vertical)) })
+    }
+
     fn set_scroll_content(&mut self, h: &QtHandle, content: Size) {
         unsafe {
             ffi::day_qt_scroll_set_content_size(

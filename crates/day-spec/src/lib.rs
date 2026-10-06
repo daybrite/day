@@ -6213,6 +6213,14 @@ pub trait Toolkit: Sized + 'static {
 
     // scroll (§7.6)
     fn set_scroll_content(&mut self, _h: &Self::Handle, _content: Size) {}
+    // The room a classic (non-overlay) scroll bar takes out of a scroll view's content area
+    // while the content overflows along `vertical`'s axis: its width for a vertical scroll, its
+    // height for a horizontal one (docs/scroll.md). Day lays overflowing content out that much
+    // narrower, so it fits beside the bar instead of reaching under it. 0 — the default — is
+    // every backend whose bars overlay the content (AppKit, GTK, UIKit, Android, XAML, DOM).
+    fn scroll_bar_inset(&mut self, _h: &Self::Handle, _vertical: bool) -> f64 {
+        0.0
+    }
     fn scroll_to(&mut self, _h: &Self::Handle, _target: Rect, _animated: bool) {}
     fn scroll_offset(&mut self, _h: &Self::Handle) -> Point {
         Point::ZERO
