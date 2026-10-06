@@ -48,6 +48,7 @@ day stop --all               # stop running launches (sessions in build/day/sess
 day clean                    # remove all build artifacts (build/, target/, gradle/hvigor outputs); --dry-run lists them
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
 day drive -p <t> --steps-json '…'   # drive a running app with dayscript steps
+day test -p <t> [FILTER…]    # run the app's #[day::test] cases on a target; --list names them
 day patch --local <checkout> # build against a local day (or piece) checkout; repeatable (--check: verify)
 day patch --git <url>[@<ref>] # build against a fork of day, for the whole graph; commit the table
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
@@ -704,6 +705,16 @@ the per-target build pipelines, and how [resources](/docs/glossary#resource) are
 same script on every platform. Pieces are addressed by the same stable `.id` you give them in Rust,
 and routes are the same keys your `nav`/`nav_stack` use. It has its own guide: [Testing with
 dayscript](/docs/dayscript).
+
+## Tests in the app
+
+`day test -p <target>` builds the app, launches it, and runs its `#[day::test]` cases inside
+it: pages driven on the real toolkit, and headless logic in the app's own environment. One line
+per test, the evidence and captures beside the run's screenshots. A test is named after its
+function (`button_status` runs as `button-status`), a GUI case's page shows alone in the app's
+`day::test_host`, and a case that panics or passes its time limit (`--case-timeout`, 30 s by
+default) fails without stopping the run. The guide is
+[Tests in the app](/docs/internal/testing).
 
 ## Continuous integration
 

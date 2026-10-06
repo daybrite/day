@@ -2178,7 +2178,7 @@ mod imp {
                 | Cap::TextSpellCheck
                 // ItemTouchHelper on the RecyclerView list: long-press lift, elevation,
                 // incremental swaps: the platform's own reorder (docs/list.md).
-                | Cap::NavReorder | Cap::ListReorder
+                | Cap::ListReorder
                 // ItemTouchHelper's swipe half, with the Material red field revealing behind
                 // the row (docs/list.md).
                 | Cap::ListDelete
@@ -2194,6 +2194,10 @@ mod imp {
                 // And Android should grow one as it narrows: a bottom bar is the idiomatic
                 // compact answer here, the way it is on iOS and unlike any desktop.
                 | Cap::NavTabsAdaptive => Support::Native,
+                // Keep navigation on Material NavigationView. A reorderable RecyclerView
+                // substitutes generic rows and its long-press drag steals feed menus.
+                // Generic lists still support reordering; navigation needs an edit-mode API.
+                Cap::NavReorder => Support::Unsupported,
                 // `Emulated`: SlidingPaneLayout decides at measure time whether both panes fit, so
                 // the platform owns the presentation and Day observes it through
                 // `Event::NavPresentationChanged` rather than pushing one in

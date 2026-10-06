@@ -25,4 +25,4 @@ serde_norway = "0.9"
 
 [dev-dependencies]
 day-mock = { workspace = true }
-day-pieces = { workspace = true }
+day-pieces = { workspace = true, features = ["conformance"] }

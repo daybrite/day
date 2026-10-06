@@ -1091,6 +1091,24 @@ pub fn run_scripts(
                     .unwrap_or("failed");
                 eprintln!("  {ERROR}✗{ERROR:#} {op} {detail} — {err}");
             }
+            if op == "tests" && ok {
+                print_test_listing(&reply);
+            }
+            if op == "run_tests" && ok {
+                // The in-app runner's report (docs/testing.md): one line per test, the evidence
+                // beside the captures, the captures under tests/<test>/. A failed test fails
+                // the script the way a failed step does, so CI reads it the same way.
+                let report = reply
+                    .get("data")
+                    .cloned()
+                    .ok_or_else(|| ScriptError::Other("run_tests answered no report".into()))?;
+                let failed = print_test_report(&report);
+                run.steps_failed += failed;
+                match write_evidence(&dir, target, variant.or(locale), device, &report) {
+                    Ok(path) => eprintln!("      {BOLD}Evidence{BOLD:#} {}", path.display()),
+                    Err(e) => eprintln!("  {WARN}▸{WARN:#} evidence not written: {e}"),
+                }
+            }
             if op == "screenshot" && ok {
                 screenshot_engine += checkpoint_started.elapsed();
                 let capture_started = Instant::now();
@@ -1996,4 +2014,131 @@ esac
         }
         std::fs::remove_dir_all(root).unwrap();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tests (docs/testing.md): the `tests` listing and the `run_tests` report
+// ---------------------------------------------------------------------------
+
+/// Print the registry the `tests` step answered, one test per line.
+fn print_test_listing(reply: &serde_json::Value) {
+    let Some(list) = reply.get("data").and_then(|d| d.as_array()) else {
+        return;
+    };
+    for t in list {
+        let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let kind = t.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+        let proves: Vec<&str> = t
+            .get("proves")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|p| p.as_str()).collect())
+            .unwrap_or_default();
+        eprintln!("      {name:<32} {kind:<9} {}", proves.join(" "));
+    }
+}
+
+/// Print one line per test from a `run_tests` report; returns how many failed.
+fn print_test_report(report: &serde_json::Value) -> usize {
+    let Some(tests) = report.get("tests").and_then(|t| t.as_array()) else {
+        return 0;
+    };
+    let (mut passed, mut failed, mut skipped) = (0usize, 0usize, 0usize);
+    for t in tests {
+        let name = t.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+        let verdict = t.get("verdict").and_then(|v| v.as_str()).unwrap_or("?");
+        let ms = t.get("ms").and_then(|v| v.as_u64()).unwrap_or(0);
+        let dots = ".".repeat(40usize.saturating_sub(name.len()));
+        match verdict {
+            "pass" => {
+                passed += 1;
+                eprintln!("      {name} {dots} {SUCCESS}ok{SUCCESS:#}        ({ms} ms)");
+            }
+            "skip" => {
+                skipped += 1;
+                let reason = t.get("reason").and_then(|v| v.as_str()).unwrap_or("");
+                eprintln!("      {name} {dots} {WARN}skipped{WARN:#}   {reason}");
+            }
+            _ => {
+                failed += 1;
+                let message = t.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                eprintln!("      {name} {dots} {ERROR}FAILED{ERROR:#}    {message}");
+            }
+        }
+    }
+    eprintln!(
+        "      {} tests: {passed} passed, {skipped} skipped, {failed} failed",
+        tests.len()
+    );
+    failed
+}
+
+/// Write `evidence.json` beside the captures and each test's shots under `tests/<test>/`
+/// (docs/testing.md). The file is the contract the website reads; its shape is documented
+/// there, and the shots' PNGs are stripped from it (they are the files).
+fn write_evidence(
+    dir: &Path,
+    target: &Target,
+    variant: Option<&str>,
+    device: Option<&str>,
+    report: &serde_json::Value,
+) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let mut tests = serde_json::Map::new();
+    for t in report
+        .get("tests")
+        .and_then(|t| t.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let Some(name) = t.get("name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let mut entry = t.clone();
+        if let Some(m) = entry.as_object_mut() {
+            m.remove("name");
+        }
+        tests.insert(name.to_owned(), entry);
+    }
+    for shot in report
+        .get("shots")
+        .and_then(|s| s.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let (Some(test), Some(name), Some(png)) = (
+            shot.get("test").and_then(|v| v.as_str()),
+            shot.get("name").and_then(|v| v.as_str()),
+            shot.get("png_base64").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        let shot_dir = dir.join("tests").join(test);
+        std::fs::create_dir_all(&shot_dir).map_err(|e| e.to_string())?;
+        let path = shot_dir.join(format!("{name}.png"));
+        std::fs::write(&path, day_script_b64::b64decode(png)).map_err(|e| e.to_string())?;
+        if std::env::var_os("DAY_SCREENSHOT_RAW").is_none() {
+            let _ = crate::screenshot::normalize_capture(&path);
+        }
+    }
+    // What the run was: the commit and run id come from the CI environment when there is
+    // one, and are absent on a laptop rather than guessed.
+    let env = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
+    let evidence = serde_json::json!({
+        "schema": 1,
+        "target": target.name,
+        "device": device,
+        "variant": variant.unwrap_or("default"),
+        "day": env!("DAY_VERSION_LONG"),
+        "commit": env("GITHUB_SHA"),
+        "run": env("GITHUB_RUN_ID"),
+        "at": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+        "tests": tests,
+    });
+    let path = dir.join("evidence.json");
+    let text = serde_json::to_string_pretty(&evidence).map_err(|e| e.to_string())?;
+    std::fs::write(&path, text + "\n").map_err(|e| e.to_string())?;
+    Ok(path)
 }

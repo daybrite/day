@@ -551,6 +551,7 @@ dependencies = [
  "day-mock",
  "day-reactive",
  "day-spec",
+ "linkme",
  "log",
  "slotmap",
 ]

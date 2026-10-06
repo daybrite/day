@@ -22,6 +22,8 @@ use serde::{Deserialize, Serialize};
 /// [`record::start`]/[`record::play`].
 pub mod record;
 pub use record::play;
+/// The in-app test runner behind `day test` (docs/testing.md).
+pub mod conformance;
 
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
 
@@ -438,6 +440,25 @@ pub enum Step {
         #[serde(default)]
         id: Option<String>,
     },
+    /// List the `#[day::test]` cases the binary registers (docs/testing.md); the reply's
+    /// `data` is the listing.
+    Tests,
+    /// Run the registered tests whose names match `filter` (globs; empty = all), keeping
+    /// captures per `shots`. Retryable while the run is in progress, so the runner's wait loop
+    /// polls it; `timeout_secs` bounds the whole run, `case_timeout_secs` each case. The
+    /// reply's `data` is the report.
+    RunTests {
+        #[serde(default)]
+        filter: Vec<String>,
+        #[serde(default)]
+        shots: conformance::ShotPolicy,
+        #[serde(default)]
+        timeout_secs: Option<f64>,
+        /// Each case's time limit where the case sets none (default 30 s); `0` turns every
+        /// limit off, for a run held at a debugger's breakpoint.
+        #[serde(default)]
+        case_timeout_secs: Option<f64>,
+    },
     /// Move native focus to the control: the real Toolkit duty, not a synthetic event, so
     /// keyboards and end-editing flows engage (docs/focus.md). `focused: false` resigns it.
     Focus {
@@ -540,6 +561,10 @@ impl Step {
             | Step::WebEval {
                 timeout_secs: Some(t),
                 ..
+            }
+            | Step::RunTests {
+                timeout_secs: Some(t),
+                ..
             } if *t > 0.0 => *t,
             _ => DEFAULT_TIMEOUT_SECS,
         }
@@ -586,6 +611,9 @@ pub struct Reply {
     /// Internal retry cadence: frame checkpoints can complete on the next display tick.
     #[serde(skip)]
     pub capture_pending: bool,
+    /// A step's structured answer (`tests`, `run_tests`; docs/testing.md).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub data: Option<serde_json::Value>,
 }
 
 impl Reply {
@@ -798,6 +826,13 @@ static SNAPSHOT_NEVER: AtomicBool = AtomicBool::new(false);
 static CAPTURE_REVISION: AtomicU32 = AtomicU32::new(1);
 fn next_capture_revision() -> u32 {
     CAPTURE_REVISION.fetch_add(1, Ordering::Relaxed)
+}
+
+/// Run one step on the calling thread, which must be Day's UI thread with a tree installed:
+/// the entry a harness that already sits on that thread (the mock, `cargo test`) uses instead
+/// of the socket.
+pub fn step(step: Step) -> Reply {
+    exec(step, next_capture_revision())
 }
 
 fn run_step_with_wait(step: Step) -> Reply {
@@ -2035,6 +2070,16 @@ fn exec(step: Step, revision: u32) -> Reply {
                 day_reactive::flush_sync();
                 Ok(Reply::ok())
             }
+            Step::Tests => Ok(Reply {
+                data: Some(conformance::listing()),
+                ..Reply::ok()
+            }),
+            Step::RunTests {
+                filter,
+                shots,
+                case_timeout_secs,
+                ..
+            } => conformance::run_tests(&filter, shots, case_timeout_secs),
             Step::A11yAudit { id } => {
                 let rows = with_tree(|t| t.a11y_nodes());
                 let rows: Vec<_> = match &id {

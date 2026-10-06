@@ -15,6 +15,9 @@ license.workspace = true
 # app crate only (a dependency's defaults are unaffected), so this stays on in real builds.
 default = ["prefs"]
 prefs = ["dep:day-part-prefs"]
+# The built-in pieces' `#[day::test]` cases (docs/testing.md), for the conformance app and a
+# test flavor of an app; a shipping build leaves it off.
+conformance = ["day-pieces/conformance"]
 # Exactly one backend feature per binary (§3.2).
 appkit = ["dep:day-appkit"]
 gtk = ["dep:day-gtk"]

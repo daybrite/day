@@ -927,9 +927,9 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                 .grow()
                 .id(format!("sidebar:{}", slot.field(|r| r.id.clone())))
                 .on_tap(move || {
-                    if let Some(key) = slot.field(|r| r.key.clone())
-                        && tapped_selection.peek() == key
-                    {
+                    if let Some(key) = slot.field(|r| r.key.clone()) {
+                        let title = slot.field(|r| r.title.clone());
+                        day_core::note_navigation(&key.key(), Some(&title));
                         tapped_selection.write(key);
                     }
                 })

@@ -54,7 +54,7 @@ it matches the `libentry.so` the ArkTS runtime loads.
 
 The ArkTS host is the framework's, not the app's. It lives in the day-arkui crate at
 `toolkits/day-arkui/platform/harmony/` — `ets/` holds `EntryAbility` (which also reports the
-app lifecycle, docs/lifecycle.md, through the `lifecycle` export: its foreground/background,
+app lifecycle, [docs/lifecycle.md](lifecycle.md), through the `lifecycle` export: its foreground/background,
 memory and destroy callbacks plus the window stage's active/inactive events), `DayWindowAbility`,
 the `Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
 module's exports, so it always matches the `#[napi]` exports the app links. `day build`
@@ -323,7 +323,7 @@ on the Oniro emulator:
 - **Nav shell** (`nav`) — ArkUI's `Navigation`: the rows beside the detail where the window has
   room (a tablet, `NavigationMode.Auto` tiling its nav bar and content), a list that pushes detail
   pages where it has not; the mode is ArkUI's decision, observed and reconciled
-  (docs/size-classes.md).
+  ([docs/size-classes.md](size-classes.md)).
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list

@@ -404,7 +404,7 @@ export const dayPiece: DayPieceModule = {
 ```
 
 `settle` is for a component that renders outside ArkUI's own frame, which the screenshot
-checkpoint (docs/window-image.md) cannot see: a web view's renderer paints on its own thread and
+checkpoint ([docs/window-image.md](window-image.md)) cannot see: a web view's renderer paints on its own thread and
 can trail the DOM a script just changed. The capture waits for every module's `settle` before its
 ArkUI render checkpoint, so the hook resolves once the pending rendering has committed, and caps
 its own wait (a hidden page paints nothing): a capture may be late, never stuck. The web view
@@ -433,7 +433,7 @@ send, so a stand-in control needs no event translation in Rust. day-arkui also s
 piece its laid-out size as the command `day.frame` `"<w>,<h>"` (vp) whenever it changes: a
 component built in a `BuilderNode` resolves percentages against the window, so one that fills its
 frame sizes itself from that. `builtins` are the framework's own ArkTS-only components, which ride the same channel: the host
-passes the menu-style picker's `Select` (docs/picker.md), and an app's piece of the same kind wins.
+passes the menu-style picker's `Select` ([docs/picker.md](picker.md)), and an app's piece of the same kind wins.
 
 On the Rust side the renderer is the thinnest of all the backends, because there is no native widget
 to build. `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:

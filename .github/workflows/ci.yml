@@ -696,6 +696,83 @@ jobs:
           "$DAY" new app remote-check --toolkit ${{ matrix.combo }} --no-input >/dev/null
           grep -q 'git = "https://github.com/daybrite/day.git"' remote-check/Cargo.toml
 
+  # --- The conformance app: `day test` on every toolkit ---------------------------------------
+  # The built-in pieces' `#[day::test]` cases (docs/testing.md), run inside apps/conformance
+  # against THIS commit's crates (the app depends on them by path) with THIS run's CLI, on all
+  # nine targets through the shared app workflow: its simulator, emulator, xvfb and web-driver
+  # plumbing is what every app gets, and the conformance app is an app. Its one dayscript holds
+  # the `run_tests` step; the runner prints one line per test and writes `evidence.json` and the
+  # tests' captures into the screenshots directory, which the workflow uploads per target (and
+  # per device profile) as `conformance-screenshots-<target>[-<slug>]`. A failed test fails its
+  # leg. One phone row per mobile OS, since the cases prove pieces, not layouts.
+  conformance:
+    name: conformance
+    needs: [day-cli-macos, day-cli-linux, day-cli-windows]
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    permissions:
+      contents: read
+    uses: daybrite/actions/.github/workflows/dayapp.yml@v1
+    with:
+      targets: macos-appkit, ios-uikit, android-mdc, linux-gtk, linux-qt, windows-winui, windows-xaml, harmony-arkui, web-dom
+      day-source: artifact
+      project-path: apps/conformance
+      # The scaffold around the app's own files (Day.toml, build.rs, resource/, platform/) is
+      # written by this run's CLI from this commit's template, so it cannot lag the template.
+      # Setting the hook also marks the project generated, which skips the preflight checks
+      # and the pristine assertion: right for a tree this step writes into.
+      setup-command: bash apps/conformance/generate.sh
+      artifact-prefix: conformance-
+      app-id: dev.daybrite.conformance
+      scripts: dayscript/conformance.yaml
+      # The app is a workspace of its own inside this checkout, built by path: nothing to lint
+      # beyond what the framework's own legs lint.
+      lint: false
+      validate-rebuild: false
+      ios-devices: |
+        device=iPhone * Pro Max, os=iOS 27, orientation=portrait, slug=iphone
+      android-devices: |
+        device=pixel_5, os=36, orientation=portrait, slug=phone
+      harmony-devices: |
+        device=phone, orientation=portrait, slug=phone
+
+  # One artifact for every consumer of the run's evidence (docs/testing.md): the per-target
+  # `evidence.json` files merged under the path each was written at
+  # (`<target>[/<device>]/<variant>`), and the captures beside them. The website reads this
+  # from the latest green run on main; nothing here is committed.
+  conformance-evidence:
+    name: conformance (evidence)
+    runs-on: ubuntu-24.04
+    needs: [conformance]
+    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: conformance-screenshots-*
+          path: in
+      - name: Merge the evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out/shots
+          files="$(find in -name evidence.json | sort)"
+          [ -n "$files" ] || { echo "::error::no evidence.json in any conformance-screenshots-* artifact"; exit 1; }
+          # `in/<artifact>/<target>[/<device>]/<variant>/evidence.json` → one object keyed by
+          # the path below the artifact, which is the path the run wrote it at.
+          # shellcheck disable=SC2086
+          jq -n '[inputs | {(input_filename | sub("^in/[^/]*/"; "") | sub("/evidence.json$"; "")): .}] | add' $files > out/evidence.json
+          for f in $files; do
+            rel="$(dirname "${f#in/*/}")"
+            if [ -d "$(dirname "$f")/tests" ]; then
+              mkdir -p "out/shots/$rel" && cp -R "$(dirname "$f")/tests" "out/shots/$rel/"
+            fi
+          done
+          jq -r 'to_entries[] | "\(.key): \([.value.tests | to_entries[] | .value.verdict] | group_by(.) | map("\(length) \(.[0])") | join(", "))"' out/evidence.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: conformance-evidence
+          path: out/
+          if-no-files-found: error
+
   # --- macOS desktop: appkit / qt / gtk -------------------------------------
   macos:
     name: day-${{ matrix.combo }}

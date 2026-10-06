@@ -17,6 +17,9 @@ day-spec = { workspace = true }
 # assembles the bar lives, so every backend gets the same locale-correct furniture.
 day-l10n = { workspace = true }
 log = { workspace = true }
+# The `#[day::test]` registry (docs/testing.md): the same link-time slice the renderer registry
+# rides on, so a test is found by being compiled in.
+linkme = { workspace = true }
 slotmap = { workspace = true }
 
 # Color for the level column when the default logger falls back to stderr (src/lib.rs). Native

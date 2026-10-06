@@ -188,7 +188,7 @@ inside Xcode, so for IDE work raise the value in `DayApp.xcconfig` itself.
 
 Lowering it below the scaffold's 15.0 is the app's call, and the app owns what follows: 15 is
 day-uikit's own floor. The UIKit calls it makes that arrived in iOS 16 — navigation-bar item
-groups (`docs/toolbars.md`), a bar item's menu representation, a list or tree cell's default
+groups ([docs/toolbars.md](toolbars.md)), a bar item's menu representation, a list or tree cell's default
 background configuration — are guarded on the runtime version (2026-09, verified on an iOS 15
 iPad), so an app at 15 gets the iOS 15 shape of each; nothing below 15 has been run.
 

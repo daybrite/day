@@ -1104,6 +1104,24 @@ public final class DayBridge {
         if (flags == null) { flags = new boolean[2]; gestureFlags.put(v, flags); }
         if (isDrag) flags[1] = true; else flags[0] = true;
         final boolean[] f = flags; // {wantsTap, wantsDrag}
+        if (!f[1]) {
+            // Let View arbitrate taps, long presses and RecyclerView scroll interception.
+            // Consuming ACTION_DOWN ourselves prevents native long-press menus and an
+            // empty context-menu update can otherwise leave this target non-clickable.
+            final float[] point = new float[2];
+            v.setOnTouchListener((view, event) -> {
+                point[0] = event.getX();
+                point[1] = event.getY();
+                return false;
+            });
+            contextMenuForwardedClicks.remove(v);
+            gestureTapClicks.add(v);
+            v.setOnClickListener(view -> nativeOnEvent(id, K_GESTURE, 0,
+                    point[0] + "," + point[1] + ",0,0"));
+            return;
+        }
+        if (gestureTapClicks.remove(v)) v.setOnClickListener(null);
+        v.setClickable(true);
         v.setOnTouchListener(new View.OnTouchListener() {
             float sx, sy;
             public boolean onTouch(View view, MotionEvent ev) {
@@ -2228,8 +2246,9 @@ public final class DayBridge {
             if (!(navMenu instanceof NavigationView)) return;
             NavigationView nav = (NavigationView) navMenu;
             if (index < 0) {
-                Menu m = nav.getMenu();
-                for (int i = 0; i < m.size(); i++) m.getItem(i).setChecked(false);
+                // Grouped destinations live inside submenus. Clearing only the top
+                // menu leaves a stale selected row after returning to the root.
+                for (MenuItem item : navItems(nav)) item.setChecked(false);
                 return;
             }
             MenuItem it = nav.getMenu().findItem(ROW_ID_BASE + index);
@@ -3193,6 +3212,11 @@ public final class DayBridge {
         }
     }
 
+    private static final java.util.Set<View> contextMenuForwardedClicks =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+    private static final java.util.Set<View> gestureTapClicks =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
     /** Attach `spec` as `v`'s context menu (long-press). An empty spec detaches it. */
     /** Give `v` the bounded ripple every Material row draws under a finger, as its foreground:
      *  day fills these views with its own children, and a background ripple would be painted
@@ -3223,15 +3247,20 @@ public final class DayBridge {
         if (spec == null || spec.isEmpty()) {
             v.setOnLongClickListener(null);
             v.setLongClickable(false);
-            v.setOnClickListener(null);
-            v.setClickable(false);
-            setTouchFeedback(v, false);
+            // Remove only the forwarding listener this menu installed. Native menu
+            // items, buttons and declared tap gestures own their own click actions.
+            if (contextMenuForwardedClicks.remove(v)) {
+                v.setOnClickListener(null);
+                v.setClickable(false);
+                setTouchFeedback(v, false);
+            }
             return;
         }
         // See forwardClickToRow: the menu makes this view eat touches, so the tap it eats has to
         // be handed on. Only where the view has no click behavior of its own; a button with a
         // context menu keeps its own action.
         if (!v.hasOnClickListeners()) {
+            contextMenuForwardedClicks.add(v);
             v.setOnClickListener(new View.OnClickListener() {
                 public void onClick(View child) {
                     forwardClickToRow(child);

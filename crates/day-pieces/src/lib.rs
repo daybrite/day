@@ -33,6 +33,8 @@ mod decorators;
 mod dialogs;
 mod file_access;
 pub use file_access::FileAccess;
+#[cfg(feature = "conformance")]
+pub mod conformance;
 mod forms;
 mod image;
 mod inputs;

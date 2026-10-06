@@ -839,6 +839,8 @@ labeled(caption, control)
 when(cond_fn, build_fn)            // reactive conditional subtree
     .otherwise(build_fn)           //   optional else arm; without it, false builds nothing
 each(items_fn, key_fn, build_fn)   // reactive keyed collection (§5.4)
+test_host(content_fn)              // a test build's root: the content, or the case `day test`
+                                   //   drives shown alone, built fresh (docs/testing.md)
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
 tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-addressed rows,
                                    //   app-owned expansion, drag-to-reparent; sources are
@@ -3122,7 +3124,7 @@ stripped the same way and the runner says once that the listing moved.
 > tables alone. A key the file does not take is read past and is a `store-unknown-key` error
 > (a store key the rules do not know a `store-unknown-store` warning), so a typo never stages
 > and never blocks reading. `day store export` writes the whole listing resolved per target,
-> store and locale as one JSON document (docs/store.md "Exporting"), with the stores' rules in
+> store and locale as one JSON document ([docs/store.md](docs/store.md) "Exporting"), with the stores' rules in
 > force under `rules`: the app's website is built from it alone (daysite reads no project
 > file), and a release carries it as `storefront.json`; `day metadata --json` no longer carries
 > a storefront block. `day store stage` refuses a listing with any lint error, and placeholder
@@ -3846,6 +3848,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time ([docs/agent.md](docs/agent.md) — the agent inner loop) |
+| `day test -p <target>… [FILTER…] [--list] [--shots never\|on-failure\|always] [--skip-build] [--case-timeout SECS] [--locale …] [--env K=V]… [device flags]` | run the app's `#[day::test]` cases inside the built app on each target ([docs/testing.md](docs/testing.md)): a launch with one generated script whose `run_tests` step runs the registered cases in process, one line per test, `evidence.json` and the captures beside the run's screenshots; `--list` names the registry without running; a failed test exits 5 like a failed step |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
 | `day devices list [-p <target>] [--format json]` | what each mobile target can be launched onto right now: booted simulators and attached iPhones, adb devices and emulators, reachable hdc targets — plus shut-down simulators and defined AVDs under `bootable`. Every device names the FLAG that selects it (`--ios-simulator` and `--ios-device` differ per device), so an editor fills a picker without hard-coding that mapping; a target whose toolchain is missing reports `available: false` with a `note` rather than an empty list, so one absent SDK never blanks out the other two. Needs no project; the JSON envelope is schema-versioned and grow-only like `day metadata`. `day devices boot -p <target> <id>` starts one of the `bootable` entries — `simctl boot` plus the simulator's UI app, which is `Simulator.app` up to Xcode 26 and **Device Hub** from Xcode 27, opened on the device through its URL scheme (`devices://manage/select?id=<udid>`) because it shows nothing without one and does not correct itself once the route is handled, which is why a boot that will open a window waits for the device first; a detached `emulator -avd`, or the Oniro emulator — which is what makes a picker's "nothing running" one action from a device rather than a dead end (iOS cannot install onto a shut-down simulator). Booting an AVD also turns its hardware keyboard on (`hw.keyboard=yes`, announced when it changes anything): `avdmanager` creates AVDs with it off, the emulator has no flag that overrides it, and an emulator with it off silently ignores every key typed on the host — which reads as the app under development swallowing input. `boot` takes `--device`/`--os` (resolved the same way for a simulator: name PREFIX, OS major version), `--wait` (blocks on `sys.boot_completed` for Android, `simctl bootstatus` for iOS — adbd answering is minutes too early), `--headless` (no window: Android gets swiftshader, iOS leaves the simulator's UI app closed, which is what a CI runner with no display wants), and `--orientation portrait\|landscape`. Booting is IDEMPOTENT for Android: an emulator already running that AVD is reused rather than a second one started beside it, and the serial is printed on stdout (status lines go to stderr) so a workflow can capture it. Turning the display asks the WINDOW MANAGER (`cmd window fixed-to-user-rotation` + `user-rotation lock`), not `settings put system user_rotation`, which is only a request the foreground app may refuse — a portrait-locked launcher was measured reverting it while the write reported success; the target rotation is derived from the device's NATURAL orientation, which is landscape on a tablet and portrait on a phone, so the same request means different quarter-turns per device. `day devices shutdown -p <target> <id>` is the other direction, so an editor that can start a device can also give the machine back the gigabytes one holds. iOS hands the id to `simctl shutdown`, which resolves a name as readily as a UDID; Android accepts EITHER spelling of an emulator (the adb serial a listing reports, or the AVD name `boot` takes) because a serial is a console port rather than an identity — it slides when one is taken, and names nothing once the emulator stops — then `adb -s <serial> emu kill` and waits for it to leave `adb devices`, so the next listing describes the machine rather than one on its way out. Stopping something already stopped succeeds, the way booting something already booted does. A physical phone is refused rather than acted on: `emu kill` reaches only an emulator console, and the plausible alternative for real hardware (`adb reboot -p`) powers off a device someone is holding. The OpenHarmony emulator has no stop — it is a detached `qemu-system-x86_64` this command line never recorded, and a by-name match could only kill every QEMU on the machine. A running emulator's listing entry also carries the `avd` it is running (from `adb emu avd name`) and drops out of `bootable`, which is what lets an editor tie a stopped row back to something startable |
 | `day devices setup -p android-mdc --device <profile> --os <api> [--arch] [--tag] [--name] [--orientation] [--ram <MB>]` | create (or refresh) one AVD from a device profile, so CI and a developer stand a device up with the same command instead of the workflow carrying Android SDK trivia. Installs the system image when it is absent (`sdkmanager`), creates the AVD (`avdmanager create avd -d <profile>`), then writes the config that makes it usable — `hw.keyboard=yes`, and `hw.initialOrientation` when an orientation is named. Idempotent: an existing AVD of that name is left alone and only its config is brought up to date, which is what lets CI cache the system image (the slow part, hundreds of megabytes) and rebuild the AVD from it in about a second. `--os` accepts `36`, `API 36` or `android-36`; `--arch` defaults to the host's ABI, since an emulator only runs an image its CPU can execute. Prints the AVD name on stdout, and ONLY that: the SDK tools write progress to stdout, so their output is forwarded to stderr — a CI run captured three minutes of download bars along with the name and passed the whole blob to `--device`. The SDK root is pinned too (`sdkmanager --sdk_root`), and the SDK's own `cmdline-tools` are installed when absent: `avdmanager` takes its root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`) with no flag to override it, so a copy on PATH outside the SDK creates AVDs referencing images the emulator cannot resolve. `ANDROID_AVD_HOME` is pinned for every AVD tool for the same class of reason: `avdmanager` and the `emulator` resolve that directory INDEPENDENTLY from an overlapping set of variables (`ANDROID_USER_HOME`, the older `ANDROID_SDK_HOME`, `$HOME`) and need not agree — a CI runner created an AVD successfully and then reported having none. Listing AVDs unions `avdmanager list avd -c` (authoritative: the tool that created them), `emulator -list-avds` and a scan of every candidate directory, and an EMPTY union is read as "could not be asked" rather than "there are none", so a boot proceeds and lets the emulator give its own diagnosis. `--wait` NARRATES: a line whenever adb\'s view or the boot properties change, a heartbeat every 15s, and every poll under `--verbose`. The emulator\'s own output goes to a log file rather than `/dev/null` (its path printed), the child handle is watched so an emulator that EXITS fails in seconds instead of sitting out the timeout, and both that failure and a timeout quote the log\'s tail — the silent version printed "Waiting …" and then nothing for ten minutes, which is what a hung CI boot looked like. `adb` itself is resolved from `$ANDROID_HOME/platform-tools` before PATH, and the wait refuses to start when it cannot be run at all: a GitHub Linux runner sets `ANDROID_HOME` but does NOT put platform-tools on PATH, so every `adb` call answered "not found" — indistinguishable, to code reading `adb devices`, from a device that has not booted, and a CI boot polled the full ten minutes reporting "adb sees it: no" against an emulator whose own log said `Boot completed in 51826 ms` |
@@ -4918,6 +4921,9 @@ day/                                # THIS repository
                                     #   -http, -permissions, -location)
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
+  apps/conformance/                 # the app `day test` runs the built-in pieces' #[day::test]
+                                    #   cases in (docs/testing.md); its own workspace, day by path;
+                                    #   generate.sh writes its scaffold from the app template
                                     # (the apps live in their own repositories: daybrite/Day-Showcase
                                     #  is THE demo — every subsystem, 4 locales, the walkthrough —
                                     #  and daybrite/Day-Matrix is the scale proof, a full Matrix
@@ -5032,7 +5038,16 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    backends still lint from their own combo job, because that job already sets up the cross-target
    toolchain and a `toolkit` row would mean a second copy of it: arkui needs the OpenHarmony SDK,
    dom the wasm32 target plus a wasm-capable clang for persistence's bundled SQLite
-   ([docs/web.md](docs/web.md)).
+   ([docs/web.md](docs/web.md)). The third framework check is **`conformance (<combo>)`**
+   (2026-10, [docs/testing.md](docs/testing.md)): `apps/conformance`, the app that holds the
+   built-in pieces' `#[day::test]` cases, its scaffold regenerated from this commit's template
+   (`setup-command`), built against this commit by path and driven with
+   this run's CLI through `dayapp.yml` on all nine targets (one phone profile per mobile OS);
+   each leg uploads its screenshots tree, evidence and captures included, as
+   `conformance-screenshots-<target>[-<slug>]`, and `conformance (evidence)` merges them into
+   the one `conformance-evidence` artifact the website will read. `dayapp.yml` prefixes its
+   screenshot artifacts with the caller's `artifact-prefix` since 2026-10, which is what lets
+   two calls of it share one run.
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui, the
    deprecated xaml, and an MSYS2 qt/gtk leg; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
    host's toolkit dependencies and runs the checks that need it — above all
@@ -6425,6 +6440,8 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_not_presented` | — | no Day presentation request remains unanswered; not an OS-window dismissal assertion |
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
+| `tests` | — | the registered `#[day::test]` cases (name, kind, what each proves) in the reply's `data` ([docs/testing.md](docs/testing.md)) |
+| `run_tests` | `filter?`, `shots?`, `timeout_secs?`, `case_timeout_secs?` | run the matching cases as one main-loop task, each drive op the dayscript step it names, each GUI case's page shown alone by the app's `test_host`, a panic or a case past its limit (30 s default, `0` none) failing that case only; retryable while running; the reply's `data` is the report the runner prints and writes as `evidence.json` ([docs/testing.md](docs/testing.md)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
 | `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json; the retired `store` key is stripped with a warning |
 | `pause` | `secs` | demos only |
@@ -6690,7 +6707,7 @@ TextView singleLine/ellipsize; reactive text patches preserve the native configu
 GTK, AppKit, DOM, XAML and ArkUI also honor the flag; Qt clips without ellipsis.
 The mock stores the wrap flag and bounds the measured width. The regression
 `single_line_labels_stay_one_line_when_text_changes` covers constrained widths and recycled
-text updates. See `docs/text.md` for rich-text limitations. Mobile Stanza dayscripts and
+text updates. See [docs/text.md](docs/text.md) for rich-text limitations. Mobile Stanza dayscripts and
 native captures validate real list layouts; other toolkit runtimes were not exercised here.
 
 
@@ -6737,7 +6754,7 @@ exactly the same path validation and `day-fs/` root as buffer reads/writes. EPUB
 keep an archive handle and inflate requested entries without retaining the compressed file in
 memory. Calls remain blocking and belong on a worker; web retains its existing async whole-file
 buffer API. The part's storage round-trip test checks seek/read, read-only access, missing files
-and path rejection. See `docs/fs.md`.
+and path rejection. See [docs/fs.md](docs/fs.md).
 
 ### System application associations and explicit list focus (2026-09)
 
@@ -6775,7 +6792,7 @@ mock remounts and native content refresh, reorder, deletion, and focus transitio
 AppKit plain labels resolve their enclosing native table row's selection and emphasis at
 paint time, using system selected text colors without modifying the app's stored foreground.
 This keeps custom row layouts readable during native keyboard selection and window focus
-changes. Attributed runs retain their authored styling. See `docs/list.md`.
+changes. Attributed runs retain their authored styling. See [docs/list.md](docs/list.md).
 
 ### Grouped native pickers (2026-09)
 
@@ -6856,7 +6873,7 @@ AppKit and UIKit observe native scroll callbacks; Android and ArkUI report nativ
 indexes; GTK, Qt, DOM and XAML/WinUI derive indexes from uniform row pitch before overscan.
 MockProbe::list_first_visible exercises the same queue. No group model is embedded in the
 framework. Applications clamp the index after reload and compose a top overlay. Variable
-row heights are not covered by the pitch-based adapters. See docs/list.md and the mock
+row heights are not covered by the pitch-based adapters. See [docs/list.md](docs/list.md) and the mock
 viewport regression in crates/day-pieces/tests/mock_e2e.rs.
 
 ### Reorderable navigation sidebars
@@ -6969,3 +6986,17 @@ persistent binding's preview transaction. Plain `Signal` bindings do nothing: pr
 already stored the final value, and scope disposal removes signal nodes before cleanup runs.
 This avoids writes into disposed signals when dismissing a sheet with an edited text field.
 Reactive regressions cover both signal disposal and persistent preview sealing.
+
+Navigation on Android (2026-10; detail in [docs/navigation.md](docs/navigation.md)). A
+reorderable sidebar row selects its destination on a row-level tap, because a native gesture
+recognizer can consume the touch before the list cell reports a selection
+(`nav_sidebar_reorder_keeps_fixed_sections_and_selected_route`). Tap-only gestures use `View`
+click handling with an observing touch listener, so long-press menus, ripples and RecyclerView
+scroll interception keep working, and an emptied context menu clears only the click listener
+it installed. Android answers `NavReorder` Unsupported to keep Material's NavigationView, while
+`ListReorder` stays native. An adaptive host keeps its selected section out of fragment
+history (compact Back clears the selection and closes the locked pane); nested pages keep
+FragmentManager history and predictive Back, and a native pop's acknowledgement belongs to the
+page it removed. Real-touch coverage lives in Day-News `tests/android-navigation.py`. A
+proposed follow-up for compact predictive Back and fold-aware pane placement, not implemented,
+is [docs/android-adaptive-navigation-proposal.md](docs/android-adaptive-navigation-proposal.md).

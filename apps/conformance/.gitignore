@@ -1,0 +1,9 @@
+# Only the app's own files are source; generate.sh writes the rest from this checkout's app
+# template (docs/testing.md), and build/, target/ and Cargo.lock are build output.
+/*
+!/.gitignore
+!/Cargo.toml
+!/README.md
+!/generate.sh
+!/src/
+!/dayscript/

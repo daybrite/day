@@ -32,12 +32,15 @@ target, and stop/restart ride the standard task lifecycle.
   `tasks.json`, and key bindings (see `Day-Showcase/.vscode/tasks.json` for an example). Build errors
   surface through the `$rustc` problem matcher.
 - **Doctor**: runs `day doctor` to check toolchains.
+- **Tests**: every `#[day::test]` function in the Test Explorer and the editor gutter, run through
+  `day test` on each ticked target, debuggable on a desktop target ([testing.md](testing.md)).
 
 ## How it maps to the CLI
 
 | UI action | CLI invocation |
 |---|---|
 | Run target(s) | `day --project <root> launch -p <target> --profile <mode> [--locale …] [--script …] [--env …]` |
+| Run Tests | `day --project <root> test -p <target> --profile <mode> --shots <policy> [--locale …] [--env …] [<device flag>] [names…]`, once per ticked target |
 | Build target(s) | `day --project <root> build -p <target> --profile <mode>` |
 | Stop | `TaskExecution.terminate()` → SIGTERM → `day` kills the app + simctl/adb watchers (`signals.rs`) |
 | Restart | terminate + re-execute |

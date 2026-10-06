@@ -200,3 +200,54 @@ pub fn observable(input: TokenStream) -> TokenStream {
 pub fn model(input: TokenStream) -> TokenStream {
     obs::model(input)
 }
+
+/// Mark a function that builds a [`Case`](../day_core/conformance/struct.Case.html) as a Day
+/// test (docs/testing.md): the function stays as written, and a link-time registry entry is
+/// added beside it so `day test` and the mock harness find it. The test is named after the
+/// function, with hyphens for underscores: `button_status` runs as `button-status`.
+///
+/// ```ignore
+/// #[day::test]
+/// fn button_status() -> Case { Case::new().proves(kinds::BUTTON).page(..).drive(..) }
+/// ```
+///
+/// The registry lives in day-core; a crate below `day` names it: `#[day_macros::test(day_core)]`.
+/// On wasm there is no link-time registry, so a crate also lists its tests in a
+/// `day::tests! { .. }` roster, which the app registers at launch.
+#[proc_macro_attribute]
+pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let krate = attr.to_string();
+    let krate = if krate.trim().is_empty() {
+        "day".to_owned()
+    } else {
+        krate.trim().to_owned()
+    };
+    // The function's name: the identifier after `fn`.
+    let mut tokens = item.clone().into_iter();
+    let mut name = None;
+    while let Some(t) = tokens.next() {
+        if let proc_macro::TokenTree::Ident(i) = &t
+            && i.to_string() == "fn"
+            && let Some(proc_macro::TokenTree::Ident(n)) = tokens.next()
+        {
+            name = Some(n.to_string());
+            break;
+        }
+    }
+    let Some(name) = name else {
+        return "compile_error!(\"#[day::test] goes on a function that returns a Case\");"
+            .parse()
+            .unwrap_or_default();
+    };
+    let entry = format!(
+        "#[cfg(not(target_arch = \"wasm32\"))]\n\
+         #[::{krate}::linkme::distributed_slice(::{krate}::conformance::TESTS)]\n\
+         #[linkme(crate = ::{krate}::linkme)]\n\
+         #[allow(non_upper_case_globals)]\n\
+         static __day_test_{name}: ::{krate}::conformance::TestFn =\n\
+             ::{krate}::conformance::TestFn::new(\"{name}\", {name});\n"
+    );
+    let mut out: TokenStream = item;
+    out.extend(entry.parse::<TokenStream>().unwrap_or_default());
+    out
+}

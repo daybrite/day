@@ -136,7 +136,7 @@ that has it hears the arrows and a text field that takes it gets them back.
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
 | web-dom | a `tabindex` | a `pointerdown` listener |
 | XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members and a Panel is not a Control; WinUI 3 moved both up to `UIElement`, but the WinUI build keeps the same host | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
-| ArkUI | the `NODE_FOCUSABLE` attribute, on the transparent button that hosts the custom drawing node: ArkUI ignores the flag on an `ARKUI_NODE_CUSTOM` and on a childless container (docs/harmonyos.md) | ArkUI's own focus handling |
+| ArkUI | the `NODE_FOCUSABLE` attribute, on the transparent button that hosts the custom drawing node: ArkUI ignores the flag on an `ARKUI_NODE_CUSTOM` and on a childless container ([docs/harmonyos.md](harmonyos.md)) | ArkUI's own focus handling |
 | Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung `.on_key` on: in touch mode a focus move can dismiss a raised soft keyboard |
 
 Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,

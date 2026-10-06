@@ -30,10 +30,13 @@ day_reactive::tls_root! {
 /// Re-exported so every crate above day-core can reach it without taking a direct
 /// day-reactive dependency (see day-reactive for what it does and why Android needs it).
 pub use day_reactive::tls_group;
+/// The link-time registry crate `#[day::test]` expands through (docs/testing.md).
+pub use linkme;
 
 mod ambient;
 mod anim;
 mod build;
+pub mod conformance;
 pub mod frame;
 pub mod image;
 mod layout;
@@ -159,6 +162,8 @@ pub fn direction_of_locale(locale: &str) -> day_geometry::LayoutDirection {
 
 day_reactive::tls_slots! {
     root;
+    static SEARCH_HOSTS: std::cell::RefCell<Vec<(RNode, RNode)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
     static DIRECTION: std::cell::Cell<Option<day_geometry::LayoutDirection>> =
         const { std::cell::Cell::new(None) };
 
@@ -1240,10 +1245,6 @@ pub fn note_appearance_changed() {
 // The `.searchable()` hosts whose field is INLINE (docs/search.md), newest last: each has no
 // `day.search` bar item, so a caller holding that reserved id (dayscript's `toolbar:` step)
 // resolves it here and delivers `Event::SearchChanged` to the host, as the native field would.
-thread_local! {
-    static SEARCH_HOSTS: std::cell::RefCell<Vec<(RNode, RNode)>> = const { std::cell::RefCell::new(Vec::new()) };
-}
-
 /// Record `host` as showing an inline search field. Registered by the host's builder for the
 /// life of its scope; see [`inline_search_host`].
 pub fn register_search_host(host: RNode) {

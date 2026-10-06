@@ -20,6 +20,8 @@ day-l10n = { workspace = true }
 # Re-exported so external pieces register per-backend renderers through the `renderer!` macro
 # without depending on linkme (or day-spec's Renderer) directly.
 linkme = { workspace = true }
+# `#[day::test]` for the conformance cases, only with that feature (docs/testing.md).
+day-macros = { workspace = true, optional = true }
 
 [features]
 # The dynamic piece registry (docs/lite.md §4 in https://github.com/daybrite/day-lite):
@@ -30,6 +32,9 @@ dyn-registry = []
 # for `list`/`each`, rows binding fields through `ModelSlot`. Off by default, so apps that bind
 # plain data pay nothing for it.
 model = ["dep:day-model"]
+# The built-in pieces' conformance cases (docs/testing.md): compiled only into a test build,
+# never into a shipping app.
+conformance = ["dep:day-macros"]
 
 [dev-dependencies]
 day-mock = { workspace = true }

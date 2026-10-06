@@ -71,7 +71,7 @@ plain `main` that uses it with no Day framework at all.
   (Success/Error). Older APIs fall back to a short one-shot buzz whose length stands in for
   intensity. Requires `android.permission.VIBRATE`, a normal install-time permission the crate
   contributes to the manifest itself (see below).
-- **HarmonyOS**: an ArkTS daybridge arm (docs/bridge.md) plays the system's own haptic presets
+- **HarmonyOS**: an ArkTS daybridge arm ([docs/bridge.md](bridge.md)) plays the system's own haptic presets
   through the Sensor Service Kit's `vibrator`: `haptic.effect.soft` (Light), `haptic.clock.timer`
   (Medium/Selection), `haptic.effect.hard` (Heavy/Warning/Error), `haptic.effect.sharp` (Success).
   A device without a preset gets a timed buzz whose length stands in for strength, like Android's

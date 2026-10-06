@@ -4,7 +4,9 @@ resolver = "2"
 # against the app it documents. A package nested inside a workspace it is not a member of
 # fails every cargo command, so it is excluded here as well as declaring its own
 # `[workspace]`. This side is what keeps an older app ref building.
-exclude = ["showcase-src"]
+# `apps/*` are standalone packages (their own `[workspace]`): the conformance app builds against
+# this checkout by path through `day build`, never as a workspace member (docs/testing.md).
+exclude = ["showcase-src", "apps/*"]
 members = [
     "crates/day-geometry",
     "crates/day-fonts",

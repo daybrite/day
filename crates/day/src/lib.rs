@@ -418,7 +418,19 @@ pub use day_core::{RNode, invalidate_size};
 pub use day_pieces::NativeRef;
 pub use day_pieces::{Command, CommandHandle};
 // Typed routes (docs/navigation.md): `day::routes! { enum Section { Home => "home", … } }`.
+/// Tests that run inside the built app (docs/testing.md): `#[day::test]`, [`Case`], [`Drive`].
+pub use day_core::conformance;
+pub use day_core::conformance::{Case, Drive, Fail, TestResult};
+pub use day_core::linkme;
+/// The roster of an app's tests for the targets with no link-time registry (docs/testing.md).
+pub use day_core::tests;
+pub use day_macros::test;
+/// The built-in pieces' own cases and the conformance app's content (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub use day_pieces::conformance as builtin_tests;
 pub use day_pieces::routes;
+/// The root of an app's test build: the app's content, or the driven case's page alone.
+pub use day_pieces::test_host;
 pub use day_spec::{Lifecycle, WindowOptions};
 
 /// dayscript **recording** and **action logging** (docs/dayscript.md "Recording", DESIGN §14.6):

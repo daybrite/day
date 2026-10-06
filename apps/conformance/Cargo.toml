@@ -1,0 +1,40 @@
+[package]
+name = "conformance"
+version = "0.1.0"
+edition = "2024"
+publish = false
+# Generates typed `res::` constants from `resource/` (see build.rs).
+build = "build.rs"
+
+[features]
+# `mock` keeps bare cargo and rust-analyzer compiling; `day build` overrides it with
+# `--no-default-features --features <backend>` (https://daybrite.dev/docs/project-structure).
+default = ["mock"]
+appkit = ["day/appkit"]
+gtk = ["day/gtk"]
+qt = ["day/qt"]
+uikit = ["day/uikit"]
+mdc = ["day/mdc"]
+xaml = ["day/xaml"]
+winui = ["day/winui"]
+arkui = ["day/arkui"]
+dom = ["day/dom"]
+mock = ["day/mock"]
+
+# rlib for the desktop bin; the mobile pipeline requests staticlib/cdylib via `cargo rustc`.
+[lib]
+# A constant lib name: staged artifacts and the `dayapp::` import never move on a package rename.
+name = "dayapp"
+crate-type = ["rlib"]
+
+[dependencies]
+# The checkout this app lives in, by path: the conformance app is built against the commit it
+# sits in, never against a published Day (docs/testing.md).
+day = { path = "../../crates/day", features = ["conformance"] }
+
+[build-dependencies]
+day-build = { path = "../../crates/day-build" }
+
+# Its own workspace: a package nested inside the framework's workspace without being a member
+# fails every cargo command, and the root excludes `apps/*` for the same reason.
+[workspace]

@@ -92,7 +92,7 @@ from `getLastKnownLocation` so a fix appears immediately instead of waiting for 
 ### HarmonyOS: an ArkTS arm
 
 Location on HarmonyOS is an ArkTS API (`@kit.LocationKit`) with no NDK C surface, so the crate
-reaches it through a daybridge arm (docs/bridge.md "Streams"): `watch_native` subscribes to
+reaches it through a daybridge arm ([docs/bridge.md](bridge.md) "Streams"): `watch_native` subscribes to
 `locationChange` at the accuracy's priority (`LOW_POWER`, `FIRST_FIX`, `ACCURACY`) and streams each
 fix back as one line, a field the platform left out as `NaN`. The switch being off answers
 `LocationError::Disabled` at once rather than waiting for a fix that cannot come; error 201 is

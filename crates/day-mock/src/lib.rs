@@ -1482,11 +1482,19 @@ impl Toolkit for MockToolkit {
             .log(format!("enable_gesture #{} {:?}", h.0, kind));
     }
 
-    fn focus(&mut self, h: &MockHandle, _node: NodeId, focused: bool) {
-        let mut st = self.state.borrow_mut();
-        st.log(format!("focus #{} {}", h.0, focused));
-        if let Some(w) = st.widgets.get_mut(&h.0) {
-            w.focused = focused;
+    fn focus(&mut self, h: &MockHandle, node: NodeId, focused: bool) {
+        let sink = {
+            let mut st = self.state.borrow_mut();
+            st.log(format!("focus #{} {}", h.0, focused));
+            if let Some(w) = st.widgets.get_mut(&h.0) {
+                w.focused = focused;
+            }
+            st.sink.clone()
+        };
+        // A native toolkit reports the focus it was given back as an event, which is what
+        // day-core's probe mirrors (docs/focus.md); the mock does the same, after the borrow.
+        if let Some(sink) = sink {
+            sink(node, Event::FocusChanged(focused));
         }
     }
 
@@ -1932,6 +1940,12 @@ impl Platform for MockToolkit {
 
     fn post(f: Box<dyn FnOnce() + Send>) {
         // No loop to defer to: run immediately (tests are synchronous).
+        f();
+    }
+
+    fn post_delayed(_ms: u32, f: Box<dyn FnOnce() + Send>) {
+        // The default rides a helper thread home, which has no tree or task table: a sleep in
+        // a synchronous test is over the moment it starts, on this thread.
         f();
     }
 }

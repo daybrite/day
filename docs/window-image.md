@@ -149,7 +149,7 @@ step; they do not authorize a stale capture.
 
 | Toolkit / platform targets | Freshness boundary |
 |---|---|
-| ArkUI / HarmonyOS | Every ArkTS piece module's `settle` (docs/extending.md; the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
+| ArkUI / HarmonyOS | Every ArkTS piece module's `settle` ([docs/extending.md](extending.md); the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
 | GTK / Linux, macOS, Windows | Selected window's frame clock `after-paint`, following a requested draw |
 | Android / MDC | `registerFrameCommitCallback`; after-draw fallback for software rendering and Android before API 29 |
 | DOM / web | Two animation-frame turns; the browser screenshot operation performs final capture synchronization |

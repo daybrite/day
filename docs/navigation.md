@@ -109,7 +109,7 @@ navigation existed.
 | linux-gtk | `AdwViewSwitcher` over an `AdwViewStack` of resident pages, each in a filling `DayCell` | no |
 | linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
-| harmony-arkui | a composed suite over resident pages, built from Day's primitives (ArkUI's native node set has no tab container): a bottom bar on a compact window, a rail on a medium one, a sidebar column on an expanded one, by the host's width (docs/size-classes.md) | yes |
+| harmony-arkui | a composed suite over resident pages, built from Day's primitives (ArkUI's native node set has no tab container): a bottom bar on a compact window, a rail on a medium one, a sidebar column on an expanded one, by the host's width ([docs/size-classes.md](size-classes.md)) | yes |
 | windows-winui | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
@@ -924,15 +924,25 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   emits the same `NavBack` event mobile back does, writing the pop into the path signal.
 - **Android** hosts each page in an androidx **Fragment** that retains its Day-owned view
   (the react-native-screens pattern: the FragmentManager owns when a page shows, Day owns
-  what it shows). A push is a `replace()` back-stack transaction carrying `MaterialSharedAxis`
+  what it shows). An adaptive host keeps its current section outside fragment history,
+  matching Android’s [two-pane navigation guidance](https://developer.android.com/develop/ui/views/layout/twopane).
+  Compact section Back clears the selector and explicitly closes the sliding pane; wide
+  section changes replace the current content without accumulating history. Free pane
+  dragging is locked so pane visibility cannot diverge from selection.
+  A nested push is a `replace()` back-stack transaction carrying `MaterialSharedAxis`
   transitions, which gets the whole back behavior from the platform:
   `OnBackPressedDispatcher` dispatches hardware/gesture back on every API level, the
   FragmentManager **seeks the pop transition live under the predictive back gesture** on API
   34+ (progress, cancel, commit), and its back callback is enabled only while the back stack
   is non-empty, so the system's predictive back-to-home animation stays available at the
   root (apps opt in with `android:enableOnBackInvokedCallback="true"`; the scaffold does).
-  Native pops are reported to Rust as `NavBack { already_popped: true }`; Rust-initiated pops
-  run `popBackStack`. When testing on Android 13/14 (API 33/34), the system gates
+  Native pops are reported after fragment transactions settle as
+  `NavBack { already_popped: true }`. Acknowledgements are tied to the removed page,
+  consumed by either an answering `Popped` patch or page removal; owners that omit
+  `Popped` cannot leave a stale counter that skips a later pop. Compact section Back
+  uses an explicit `OnBackPressedCallback`, not fragment history; it does not have a
+  seekable fragment predictive animation. Nested pages retain fragment predictive Back.
+  Rust-initiated pops run `popBackStack`. When testing on Android 13/14 (API 33/34), the system gates
   predictive-back animation behind Developer options → "Predictive back animations"
   (`adb shell settings put global enable_back_animation 1`), and gesture navigation must be
   active; Android 15+ enables it by default.
@@ -980,7 +990,9 @@ make contiguous runs of destinations draggable. Static headers and ineligible ro
 boundaries that no drop can cross. `target` names the row whose position the moved row takes,
 in the pre-removal order. Keep the eligibility callback pure and persist changes in the commit
 callback. Rows use the shared list pipeline where `Cap::NavReorder` is supported, including
-long-press dragging on supported touch platforms. UIKit retains its native navigation sidebar
-and ignores this option, independently of its draggable content-list support. The internal list is addressable as `nav-reorder-list`
+long-press dragging on supported touch platforms. UIKit and Android retain their native
+navigation widgets and ignore this option, independently of their draggable content-list
+support. Android uses Material NavigationView so long-press feed menus do not compete with
+dragging. The internal list is addressable as `nav-reorder-list`
 for dayscript `reorder` steps; its indices include fixed section-header rows. Tabs and rails
 remain fixed. Without the option, the existing native sidebar widget is unchanged.

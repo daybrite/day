@@ -9142,6 +9142,24 @@ fn nav_sidebar_reorder_keeps_fixed_sections_and_selected_route() {
             )
     });
     let host = probe.find_by_kind("day.list")[0].0;
+    // The row's own gesture may consume a native tap before the list cell can
+    // select it (Android). It must select a different destination too.
+    probe.list_bind(host, 1, MockHandle(9301));
+    probe.list_bind(host, 4, MockHandle(9302));
+    let row = day_core::with_tree(|tree| tree.find_by_id("sidebar:item:today").unwrap());
+    probe.emit(
+        day_core::rnode_to_id(row),
+        Event::Tap(day_spec::Point::new(20.0, 18.0)),
+    );
+    flush_sync();
+    assert_eq!(selected.get_untracked().as_deref(), Some("today"));
+    let row = day_core::with_tree(|tree| tree.find_by_id("sidebar:item:feed:b").unwrap());
+    probe.emit(
+        day_core::rnode_to_id(row),
+        Event::Tap(day_spec::Point::new(20.0, 18.0)),
+    );
+    flush_sync();
+    assert_eq!(selected.get_untracked().as_deref(), Some("feed:b"));
     let before = reload_count(&probe);
     activity.set(vec![(Some("feed:b".into()), Some(0.5))]);
     flush_sync();

@@ -2898,3 +2898,58 @@ impl<S: NodeSource + 'static, Inner: TreeBuilder<S> + Piece> TreeBuilder<S> for 
         self.map_inner(|inner_piece| inner_piece.row_context_menu(f))
     }
 }
+
+// ---------------------------------------------------------------------------
+// The test host (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The root of an app's test build: `content` normally, and while `day test` drives a GUI
+/// case, that case's page alone, built fresh for the case and disposed when the next one
+/// starts. One page mounted at a time is what keeps one case's ids, signals and resident
+/// native views out of the next one's way.
+///
+/// ```ignore
+/// pub fn root() -> impl Piece {
+///     day::test_host(|| my_app_root())
+/// }
+/// ```
+///
+/// A panic while the case's page is built is caught here and reported as the case's failure;
+/// the host shows the message in its place.
+pub fn test_host<P: Piece>(content: impl Fn() -> P + 'static) -> impl Piece {
+    let content = Rc::new(content);
+    piece_fn(move |cx| {
+        // Bumped whenever the engine changes the active case: a new key is a new `each` row,
+        // so the old page's scope is disposed and the new one builds from scratch.
+        let generation = Signal::new(0u64);
+        day_core::conformance::set_host(Some(Rc::new(move || generation.update(|g| *g += 1))));
+        Scope::current().on_cleanup(|| day_core::conformance::set_host(None));
+        each(
+            items(move || vec![generation.get()], |g: &u64| *g),
+            move |_| match day_core::conformance::active() {
+                Some(case) => guarded_page(case),
+                None => AnyPiece::new(content()),
+            },
+        )
+        .build(cx)
+    })
+}
+
+/// A case's page, built with a panic caught and recorded rather than taking the app down.
+/// Also what a browsing view of the cases shows (the conformance app's navigation).
+pub fn guarded_page(case: day_core::conformance::Case) -> AnyPiece {
+    AnyPiece::new(piece_fn(move |cx| {
+        let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            case.build_page().map(|page| page.build(&mut *cx))
+        }));
+        match built {
+            Ok(Some(root)) => root,
+            Ok(None) => crate::label("").build(cx),
+            Err(payload) => {
+                let message = day_core::conformance::panic_message(payload.as_ref());
+                day_core::conformance::note_page_panic(message.clone());
+                crate::label(format!("panicked: {message}")).build(cx)
+            }
+        }
+    }))
+}

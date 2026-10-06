@@ -68,7 +68,7 @@ for path in rust_files("crates", "toolkits", "pieces", "parts", "tweaks"):
         rs = open(path, encoding="utf-8").read()
     except OSError:
         continue
-    exports |= set(re.findall(r'pub\s+extern\s+"C"\s+fn\s+(\w+)', rs))
+    exports |= set(re.findall(r'pub\s+(?:unsafe\s+)?extern\s+"C"\s+fn\s+(\w+)', rs))
     exports |= set(re.findall(r'#\[export_name\s*=\s*"(\w+)"\]', rs))
 for path in import_sources:
     try:

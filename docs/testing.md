@@ -1,0 +1,253 @@
+---
+title: "Tests in the app"
+description: "day test: #[day::test] cases that run inside a built Day app on a chosen toolkit, GUI and headless, the conformance app, the evidence they leave, and the mock harness that runs the same cases under cargo test."
+---
+
+<!--
+Copyright © The Daybrite Project
+SPDX-License-Identifier: CC-BY-SA-4.0
+-->
+
+# Tests in the app
+
+> **Status: shipped (2026-10).** `#[day::test]`, `Case`, `Drive`, the `tests` and `run_tests`
+> engine steps, `day test`, the conformance app under `apps/conformance`, the mock harness in
+> `crates/day-script/tests/conformance.rs`, and the `conformance` CI jobs. The first cases
+> cover `button`, `toggle`, `text_field` (three aspects), `slider` and `label`; the rest of
+> the built-in pieces follow in any order.
+
+`day test` runs tests inside a built Day app on a chosen toolkit. A test is a plain function
+marked `#[day::test]` that returns a [`Case`]: either a page plus a drive against it (a GUI
+test), or a body with no page (a headless test, for logic that needs the app's own
+environment). The same function runs on the mock toolkit under `cargo test`, so a broken
+binding or id fails in milliseconds before a toolkit is ever involved.
+
+A test is named after its function, with hyphens for underscores: `button_status` runs as
+`button-status`. The name has one source, so the CLI, the report, the evidence and an editor
+reading the source all agree on it.
+
+## Declaring a test
+
+```rust
+use day::prelude::*;
+use day::{Case, Drive};
+
+#[day::test]
+fn button_status() -> Case {
+    let presses = Signal::new(0i64);
+    Case::new()
+        .proves(kinds::BUTTON)
+        .page(move || column((
+            button("Press").action(move || presses.update(|n| *n += 1)).id("btn-press"),
+            label(move || presses.get().to_string()).id("btn-count"),
+        )))
+        .shot("default")
+        .drive(|d: Drive| async move {
+            d.tap("btn-press").await?;
+            d.assert_text("btn-count", "1").await
+        })
+}
+
+#[day::test]
+fn store_round_trip() -> Case {
+    Case::headless().run(|t: Drive| async move {
+        let store = Store::open()?;
+        t.check_eq(store.count(), 0)
+    })
+}
+```
+
+- **`Case::new()`** is a GUI test; `.page(..)` is any piece, which the app's test host shows
+  alone while the case runs. **`Case::headless()`** has no page.
+- **`.drive(|d| async { .. })`** (or `.run`, which reads better for a headless body) is an
+  async body over a [`Drive`]. Each op is awaited, so the app's main loop turns between ops
+  the way it does between a script's steps: a transition settles, a capture paints.
+- **`.proves(kind)`, `.proves_cap(cap)`, `.proves_duty(name)`** say what a pass marks in the
+  coverage tables, in the matrices' own spelling (`kind:day.button`, `cap:Announce`,
+  `duty:set_a11y`).
+- **`.requires(cap)`** skips the case with a recorded reason where the toolkit answers
+  `Unsupported`. This is the one way a case adapts to a toolkit: a case never asks which
+  toolkit it is on.
+- **`.shot(name)`** takes a capture once the page shows, before the drive; `d.shot(name)`
+  takes one mid-drive.
+- **`.timeout(secs)`** is how long the case may take, page and drive together; unset, the
+  run's limit applies (30 s, or `day test --case-timeout`). A case past its limit fails as
+  timed out and the run moves on.
+
+`Drive` speaks dayscript's vocabulary: `tap`, `input`, `toggle`, `set_value`, `select`,
+`focus`, `submit`, `navigate`, `wait_idle`, `pause`, `shot`, `assert_text`, `assert_visible`,
+`assert_missing`, `assert_value`, `assert_on`, `assert_focused`, `assert_route`, `a11y_audit`.
+Each is the dayscript step of that name, run in process with the step's own retry window, so a
+drive and a script mean the same thing by the same words; a step dayscript lacks is added to the
+engine, where a script gets it as well. For a headless body, `check(ok, what)` and
+`check_eq(got, want)` are the assertions. A failed op or check ends the test with its message.
+
+### The test host
+
+A GUI case's page needs somewhere to show. An app's test build roots its content in
+`day::test_host(..)`:
+
+```rust
+pub fn root() -> impl Piece {
+    day::test_host(|| app_root())
+}
+```
+
+The host shows the app's own content until a run starts; then it shows each driven case's page
+alone, built fresh for the case and disposed when the next one starts, so one case's ids,
+signals and native views never meet another's. When the run ends the app's content returns. A
+GUI case in an app with no test host fails with that said.
+
+### When a case panics
+
+A panic in a case's drive, its headless body, or while its page is built fails that case with
+the panic's message, and the run goes on to the next case. Where the target aborts on panic
+instead of unwinding (the web), the app still goes down and `day test` reports the lost run.
+
+### Where tests compile
+
+The built-in pieces' cases live in `crates/day-pieces/src/conformance.rs`, next to the
+constructors they prove, behind the `conformance` feature; a shipping app links none of them.
+An app's own tests go in its own crate the same way, behind a feature its test build turns on.
+
+### Registration
+
+`#[day::test]` adds the function, with its identifier, to a link-time registry (a `linkme`
+slice, the mechanism the renderer registry uses). Two test functions with one name, in two
+modules or two crates, both fail with that said. `linkme` does not compile for `wasm32-unknown-unknown`, so a crate
+also lists its tests once in a `day::tests! { .. }` roster, which expands to
+`register_tests()`: a no-op where the slice exists, the registration where it does not. A unit
+test in day-pieces holds the roster equal to the slice, so the two cannot drift. A crate below
+`day` names the registry's crate: `#[day_macros::test(day_core)]`.
+
+## Running tests
+
+### Under `cargo test`, on the mock
+
+`cargo test -p day-script --test conformance` boots the mock toolkit with the conformance
+app's content and runs every registered case through the real engine. A case's page builds,
+its drive runs, its assertions read the same probe a script reads.
+
+### `day test`, on a toolkit
+
+```
+day test -p macos-appkit                         # every test in the project
+day test -p macos-gtk 'text-field-*'             # a glob over test names
+day test -p ios-uikit --ios-simulator <udid>     # the device flags day launch takes
+day test -p android-mdc --shots always           # keep every capture, not only a failure's
+day test -p linux-gtk --case-timeout 0           # no per-case limit (a debugger attached)
+day test -p web-dom --list                       # the registry, without running
+```
+
+`day test` is a launch with one generated script: it builds the project for the target
+(`--skip-build` reuses the last build), launches it, sends the engine a `run_tests` step and
+prints one line per test:
+
+```
+      button-status ........................... ok        (95 ms)
+      slider-range ............................ skipped   Cap::Animation is Unsupported on this toolkit
+      text-field-secure ....................... FAILED    assert_text tfs-len: "13" ≠ "12"
+      8 tests: 6 passed, 1 skipped, 1 failed
+      Evidence build/day/screenshots/macos-appkit/default/evidence.json
+```
+
+A failed test fails the run the way a failed script step does (exit 5). With no `--project`,
+`day test` runs the project in the current directory; from the `day` checkout,
+`cargo run -q -p day-cli -- --project apps/conformance test -p <target>` runs Day's own cases.
+`--shots` is `on-failure` by default: a failing test's `failed.png` shows what the screen held
+when the assertion failed.
+
+### The engine steps
+
+Two dayscript steps carry it, usable from any script:
+
+| step | fields | what it does |
+|---|---|---|
+| `tests` | — | answers the registered tests (name, kind, what each proves and requires) in the reply's `data` |
+| `run_tests` | `filter?` (globs), `shots?` (`never`, `on-failure`, `always`), `timeout_secs?`, `case_timeout_secs?` | runs the matching tests as one main-loop task; retryable while running, so the runner's wait loop polls it; `case_timeout_secs` is each case's limit where it sets none, `0` for none; the reply's `data` is the report |
+
+`apps/conformance/dayscript/conformance.yaml` is the whole run as a script, which is what CI
+drives.
+
+### In VS Code
+
+The [Day extension](vscode.md) lists every `#[day::test]` function under **Day Tests** in the
+Test Explorer, with the play icon in the gutter beside it and one row per target ticked in the
+Day view. Running the function runs `day test` for each of those targets and puts the verdicts on
+the rows; a failure's message carries the assertion and links its `failed.png`. **Debug Test** on
+a desktop target hands the app to the installed Rust debugger with its engine open, and runs the
+tests inside it: a breakpoint in the app holds the run. The extension's own
+[testing page](https://vscode.daybrite.dev/docs/testing) has the details.
+
+## What a run leaves
+
+Beside the run's screenshots, the same place a dayscript run writes:
+
+```
+build/day/screenshots/<target>/<variant>/evidence.json
+build/day/screenshots/<target>/<variant>/tests/<test>/<shot>.png
+build/day/screenshots/<target>/<variant>/tests/<test>/failed.png    # on a failure
+```
+
+`evidence.json` is the contract between the CLI and whatever reads a run; there is no
+command to produce or merge it, only this layout (with a device profile, `<target>/<device>/<variant>/`):
+
+```json
+{
+  "schema": 1,
+  "target": "ios-uikit", "device": null, "variant": "default",
+  "day": "0.5.0 (release, branch main, 3fd74cc2)", "commit": "3fd74cc2…", "run": "18522271", "at": 1791304466,
+  "tests": {
+    "button-status":     { "kind": "gui", "verdict": "pass", "ms": 260, "proves": ["kind:day.button"], "shots": ["default"] },
+    "text-field-secure": { "kind": "gui", "verdict": "fail", "ms": 840, "proves": ["kind:day.text_field", "duty:set_input_traits"],
+                           "message": "assert_text tfs-len: \"7\" ≠ \"6\"", "shots": ["masked", "shown", "failed"] },
+    "slider-range":      { "kind": "gui", "verdict": "skip", "reason": "Cap::Animation is Unsupported on this toolkit", "proves": ["kind:day.slider"], "shots": [] }
+  }
+}
+```
+
+`commit` and `run` come from the CI environment (`GITHUB_SHA`, `GITHUB_RUN_ID`) and are absent
+on a laptop rather than guessed; `at` is Unix seconds.
+
+## The conformance app
+
+`apps/conformance` is the app `day test` runs Day's own cases in. It is almost empty: its
+root is a test host around a `nav` over every registered GUI case, one route per case, so a
+person can open any case on any toolkit and look at it, while a run shows each case alone. It
+depends on `day` by path with the `conformance` feature, so it is built against the commit it
+sits in and never against a published Day.
+
+Only its own files are committed: `Cargo.toml`, `src/`, `dayscript/` and `generate.sh`. The
+scaffold around them (`Day.toml`, `build.rs`, `resource/`, the `platform/` host projects) is
+`day new app` output, which `generate.sh` writes from the checkout's own template, so the app
+never runs on a host project an older template wrote. Run it once after a clone and again
+after a template change; CI runs it on every leg.
+
+## In CI
+
+`ci.yml`'s `conformance` job runs the app through `daybrite/actions`' `dayapp.yml` on all nine
+targets, with the run's own CLI, one phone profile per mobile OS, and `dayscript/conformance.yaml`
+as the script; its `setup-command` is `generate.sh`, run with that CLI. Each leg uploads its `screenshots/` tree (so `evidence.json` and the captures
+ride along) as `conformance-screenshots-<target>[-<slug>]`; `conformance-evidence` merges the
+`evidence.json` files into one object keyed by the path each was written at
+(`<target>[/<device>]/<variant>`), copies the captures beside it under `shots/`, and uploads the
+pair as the `conformance-evidence` artifact. A failed test fails its leg. The screenshot
+artifacts carry the caller's `artifact-prefix` since 2026-10, which is what lets this call of
+the workflow sit beside the showcase's in one run.
+
+## What a pass means
+
+A pass says the toolkit realized the pieces, the drive's events reached the app's signals and
+the assertions held on day-core's state, which is what dayscript reads too. It does not say
+native input would have produced the same: the native reads are `a11y_audit` (where the
+toolkit reads its tree back), `assert_no_placeholders`, and the captures. Captures are
+illustration; a case asserts effects, never looks.
+
+## Follow-ups
+
+- The website's coverage pages and per-piece galleries, read from the `conformance-evidence`
+  artifact of the latest green run on `main`.
+- `--watch` and a reusable detached app between runs; a `--baseline` comparison against the
+  last published evidence.
+- A scratch directory for headless tests, on the app's own data directory per platform.
+- The remaining built-in pieces' cases.

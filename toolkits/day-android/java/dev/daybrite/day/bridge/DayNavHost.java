@@ -36,7 +36,7 @@ import com.google.android.material.transition.MaterialSharedAxis;
  * Navigation host (docs/navigation.md): an M3 app bar ({@link AppBarLayout} hosting a
  * {@link MaterialToolbar} — title + up arrow) over a page container that is managed by the
  * activity's {@link FragmentManager}. Each Day page rides in a {@link PageFragment} that
- * retains its Rust-owned view (the react-native-screens pattern); a push is a back-stack
+ * retains its Rust-owned view (the react-native-screens pattern); a nested push is a back-stack
  * transaction with {@link MaterialSharedAxis} transitions. That buys the whole back story
  * from the system — androidx Fragment seeks the pop transition under the predictive back
  * gesture (progress, cancel, commit) on API 34+, dispatches the hardware/gesture back on
@@ -45,10 +45,13 @@ import com.google.android.material.transition.MaterialSharedAxis;
  * while the back stack is non-empty). No manual gesture math anywhere.
  *
  * Native pops (gesture, back button, toolbar up) happen first and are then REPORTED to Rust
- * as NavBack with already_popped=1, so the Popped patch Rust answers with is absorbed by
- * {@link #nativePops} instead of popping again. Rust-initiated pops (dayscript, signal
- * writes) run through {@link #pop} → popBackStack, tagged in {@link #pendingPops} so the
- * back-stack listener does not re-report them.
+ * as NavBack with already_popped=1. An answering Popped patch, when the owner sends one, is
+ * absorbed by {@link #nativePoppedPages} instead of popping again; removing that same page
+ * also consumes its acknowledgement. Adaptive hosts keep their selected section outside
+ * fragment history: compact back clears the section and closes the pane, while wide back
+ * leaves the current section selected. Rust-initiated pops (dayscript, signal writes) run
+ * through {@link #pop} → popBackStack, tagged in {@link #pendingPops} so the back-stack
+ * listener does not re-report them.
  */
 public class DayNavHost extends LinearLayout {
 
@@ -118,7 +121,9 @@ public class DayNavHost extends LinearLayout {
     /** Back-stack entries of ours the listener has already accounted for. */
     private int knownEntries;
     /** Pops the native side already performed — absorb the answering Popped patch. */
-    private int nativePops;
+    private final ArrayList<PageFragment> nativePoppedPages = new ArrayList<>();
+    /** Adaptive hosts have a selected section, not a history entry for that section. */
+    private OnBackPressedCallback sectionBackCallback;
     /** Back guard (docs/navigation.md): while armed, a native back must not pop — it emits
      *  NavBack{already_popped=0} so Rust's guard decides. */
     private boolean guarded;
@@ -141,9 +146,11 @@ public class DayNavHost extends LinearLayout {
         toolbar.setTitle(title);
         toolbar.setNavigationOnClickListener(new OnClickListener() {
             @Override public void onClick(View v) {
-                if (myEntries() == 0) return;
+                if (titles.isEmpty()) return;
                 if (guarded) {
                     // Route through Rust's guard instead of popping (docs/navigation.md).
+                    DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 0.0, null);
+                } else if (split != null && titles.size() == 1) {
                     DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 0.0, null);
                 } else {
                     // Pop natively (animated); the back-stack listener reports it to Rust.
@@ -182,6 +189,9 @@ public class DayNavHost extends LinearLayout {
             listColumn.addView(listPane, new LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
             split = new androidx.slidingpanelayout.widget.SlidingPaneLayout(ctx);
+            // The navigation model owns which pane is visible. A free pane drag can
+            // otherwise reveal the feed list without popping its logical destination.
+            split.setLockMode(androidx.slidingpanelayout.widget.SlidingPaneLayout.LOCK_MODE_LOCKED);
             // A fixed-width list beside a weighted detail. SlidingPaneLayout tiles them when
             // both minimum widths fit and overlaps them when they do not — the whole adaptive
             // decision, made by the platform at measure time (docs/size-classes.md).
@@ -215,6 +225,8 @@ public class DayNavHost extends LinearLayout {
                 @Override public void onLayoutChange(View v, int l, int t, int r, int b,
                         int ol, int ot, int or, int ob) {
                     syncPresentation();
+                    syncPane(depth());
+                    syncSectionBack();
                 }
             });
             content = split;
@@ -262,10 +274,20 @@ public class DayNavHost extends LinearLayout {
             }
             @Override public void onBackStackChangeCommitted(
                     androidx.fragment.app.Fragment f, boolean pop) {
-                resync();
+                // This hook precedes the settled history/view state. Reconcile only
+                // after FragmentManager completes its transaction.
                 pages.post(resyncRunnable);
             }
         });
+        if (split != null) {
+            sectionBackCallback = new OnBackPressedCallback(false) {
+                @Override public void handleOnBackPressed() {
+                    DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 0.0, null);
+                }
+            };
+            ((FragmentActivity) ctx).getOnBackPressedDispatcher()
+                    .addCallback(sectionBackCallback);
+        }
         active = this;
         syncChrome();
     }
@@ -314,12 +336,9 @@ public class DayNavHost extends LinearLayout {
     /**
      * Slide back to the list once the stack is empty.
      *
-     * `push` opens the detail pane; nothing but this closes it. A pop that leaves the pane open
-     * shows the emptied detail container — a blank screen under the app bar, with the top-level
-     * list sitting off to the side, present and laid out and not on screen. The system back
-     * button hides the bug: SlidingPaneLayout installs its own back callback and closes the pane
-     * itself, so only the routes that go through Rust (`navigate`, the toolbar up arrow, a
-     * dayscript `nav_back`) ever showed it.
+     * `push` opens the detail pane. Every return to the root explicitly closes it,
+     * including model-driven navigation and layout changes. Free pane dragging is locked:
+     * revealing the sidebar must also update the application's selected section.
      *
      * Tiled, both panes are on screen and there is nothing to slide.
      */
@@ -335,10 +354,10 @@ public class DayNavHost extends LinearLayout {
 
     private void resync() {
         int now = myEntries();
-        syncSearchVisibility(now);
-        syncPane(now);
         while (knownEntries > now) {
             knownEntries--;
+            int index = knownEntries + 1 + (split != null ? 1 : 0);
+            final PageFragment popped = index < frags.size() ? frags.get(index) : null;
             if (!titles.isEmpty()) titles.remove(titles.size() - 1);
             if (!immersives.isEmpty()) immersives.remove(immersives.size() - 1);
             if (pendingPops > 0) {
@@ -346,7 +365,9 @@ public class DayNavHost extends LinearLayout {
             } else {
                 pages.post(new Runnable() {
                     @Override public void run() {
-                        nativePops++;
+                        // A deferred callback for a released page must not pop a new one.
+                        if (popped == null || !frags.contains(popped)) return;
+                        nativePoppedPages.add(popped);
                         // kind 5 = NavBack; num 1.0 = the native container already popped.
                         DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_BACK, 1.0, null);
                     }
@@ -354,6 +375,8 @@ public class DayNavHost extends LinearLayout {
             }
         }
         knownEntries = now;
+        syncSearchVisibility(depth());
+        syncPane(depth());
         syncChrome();
     }
 
@@ -364,7 +387,24 @@ public class DayNavHost extends LinearLayout {
     /** Whether a system back would do something here — pop a page, or ask an armed guard —
      *  rather than fall through to the activity (DayBridge.nativeBack). */
     boolean canBack() {
-        return guarded || depth() > 0;
+        return guarded || myEntries() > 0 || (stacked() && depth() > 0);
+    }
+
+    private void syncSectionBack() {
+        if (sectionBackCallback != null) {
+            sectionBackCallback.setEnabled(isShown() && stacked() && !guarded
+                    && titles.size() == 1 && myEntries() == 0);
+        }
+    }
+
+    @Override protected void onVisibilityChanged(View changed, int visibility) {
+        super.onVisibilityChanged(changed, visibility);
+        syncSectionBack();
+    }
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        syncSectionBack();
     }
 
     /** Arm/disarm the back guard (NavPatch::GuardTop). While armed, the system/gesture back and
@@ -384,6 +424,7 @@ public class DayNavHost extends LinearLayout {
                     .addCallback(guardCallback);
         }
         guardCallback.setEnabled(on);
+        syncSectionBack();
     }
 
     /** Live retitle of the current top (`NavPatch::Title`): the root title when nothing is
@@ -457,7 +498,7 @@ public class DayNavHost extends LinearLayout {
         }
         // A surface can be built with pages already stacked (a launch deep link), so start from
         // the current depth rather than assuming the root.
-        syncSearchVisibility(myEntries());
+        syncSearchVisibility(depth());
     }
 
     void focusSearch() {
@@ -1037,6 +1078,7 @@ public class DayNavHost extends LinearLayout {
         // After the background above: the glyph color is derived from it, and the list-only items
         // depend on the depth this method just re-read.
         syncBarActions();
+        syncSectionBack();
     }
 
     /** Register the Rust-owned page view. The root page becomes a fragment immediately; a
@@ -1082,10 +1124,12 @@ public class DayNavHost extends LinearLayout {
         prev.setReenterTransition(skip ? null : new MaterialSharedAxis(MaterialSharedAxis.X, false));
         titles.add(title);
         immersives.add(immersive);
-        fm.beginTransaction().setReorderingAllowed(true)
-                .replace(containerId, top)
-                .addToBackStack(prefix + titles.size())
-                .commitAllowingStateLoss();
+        androidx.fragment.app.FragmentTransaction transaction = fm.beginTransaction()
+                .setReorderingAllowed(true).replace(containerId, top);
+        // A selector's first destination is the currently selected section. Only
+        // nested pages (article reader, editor, etc.) belong to FragmentManager history.
+        if (split == null || titles.size() > 1) transaction.addToBackStack(prefix + titles.size());
+        transaction.commitAllowingStateLoss();
         // Execute now (commitNow can't take a back stack): the entry must be registered
         // before the next resync(), or the count mismatch reads as a phantom pop.
         fm.executePendingTransactions();
@@ -1101,8 +1145,16 @@ public class DayNavHost extends LinearLayout {
      *  the fragment state is settled when Rust's removePage follows in the same patch batch
      *  (the exit transition still plays out visually). */
     void pop() {
-        if (nativePops > 0) {
-            nativePops--;
+        if (!nativePoppedPages.isEmpty()) {
+            nativePoppedPages.remove(0);
+            return;
+        }
+        if (split != null && titles.size() == 1 && myEntries() == 0) {
+            titles.clear();
+            immersives.clear();
+            syncSearchVisibility(0);
+            syncPane(0);
+            syncChrome();
             return;
         }
         if (myEntries() == 0) return;
@@ -1126,6 +1178,9 @@ public class DayNavHost extends LinearLayout {
         for (int i = frags.size() - 1; i >= 0; i--) {
             PageFragment f = frags.get(i);
             if (f.content == page) {
+                // Some Rust owners omit Popped after a native pop; others acknowledge
+                // before removing the page. Either path must consume only THIS page.
+                nativePoppedPages.remove(f);
                 frags.remove(i);
                 if (f.isAdded()) {
                     fm.beginTransaction().setReorderingAllowed(true)

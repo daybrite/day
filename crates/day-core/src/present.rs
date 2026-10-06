@@ -27,6 +27,9 @@ day_reactive::tls_slots! {
     /// Live async flows. `None` = currently being polled (taken out to avoid re-entrant borrow).
     static TASKS: RefCell<HashMap<u64, Option<LocalFuture>>> = RefCell::new(HashMap::new());
     static NEXT_TASK: Cell<u64> = const { Cell::new(1) };
+    /// Tasks woken while their own poll was running (their slot was `None`): the wake would
+    /// otherwise land on a missing future and be lost, so `poll_task` polls them again.
+    static REWAKE: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
     static PENDING: RefCell<HashMap<u64, PendingEntry>> = RefCell::new(HashMap::new());
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
     static PRESENTATION_MODE: Cell<Option<PresentationMode>> = const { Cell::new(None) };
@@ -154,22 +157,42 @@ pub fn task(fut: impl Future<Output = ()> + 'static) -> TaskHandle {
 fn poll_task(id: u64) {
     let fut = TASKS.with(|t| t.borrow_mut().get_mut(&id).and_then(|s| s.take()));
     let Some(mut fut) = fut else {
-        return; // finished or spuriously woken
+        // Finished, or woken while its own poll runs: a synchronous poster (the mock) runs a
+        // timer's wake inside the sleep's poll. Remember it, and the poll in progress goes
+        // round again rather than parking a future nobody will wake.
+        let live = TASKS.with(|t| t.borrow().contains_key(&id));
+        if live {
+            REWAKE.with(|r| r.borrow_mut().push(id));
+        }
+        return;
     };
     let waker = task_waker(id);
     let mut cx = Context::from_waker(&waker);
-    match fut.as_mut().poll(&mut cx) {
-        Poll::Ready(()) => {
-            TASKS.with(|t| {
-                t.borrow_mut().remove(&id);
-            });
-        }
-        Poll::Pending => {
-            TASKS.with(|t| {
-                if let Some(slot) = t.borrow_mut().get_mut(&id) {
-                    *slot = Some(fut);
+    loop {
+        match fut.as_mut().poll(&mut cx) {
+            Poll::Ready(()) => {
+                TASKS.with(|t| {
+                    t.borrow_mut().remove(&id);
+                });
+                REWAKE.with(|r| r.borrow_mut().retain(|w| *w != id));
+                return;
+            }
+            Poll::Pending => {
+                let again = REWAKE.with(|r| {
+                    let mut r = r.borrow_mut();
+                    let had = r.contains(&id);
+                    r.retain(|w| *w != id);
+                    had
+                });
+                if !again {
+                    TASKS.with(|t| {
+                        if let Some(slot) = t.borrow_mut().get_mut(&id) {
+                            *slot = Some(fut);
+                        }
+                    });
+                    return;
                 }
-            });
+            }
         }
     }
 }
