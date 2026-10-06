@@ -1043,8 +1043,9 @@ extern "C" int day_xaml_is_dark() { return effective_dark() ? 1 : 0; }
 // never the UI thread, and day-core's gate lives on Day's thread — so the handler only posts,
 // and the callback into Rust runs from the posted message like any other cross-thread work.
 // The UISettings instance holds the subscription, so it is kept alive for the process, never
-// released, like the DispatcherQueueController.
-static winrt::Windows::UI::ViewManagement::UISettings* g_ui_settings = nullptr;
+// released, like the DispatcherQueueController: its reference is detached into a raw ABI pointer.
+// (A projected type is itself a reference, and C++/WinRT deletes its `operator new`.)
+static void* g_ui_settings = nullptr;
 static void (*g_motion_cb)() = nullptr;
 // Defined further down, inside the big C-linkage block; declared with the same linkage.
 extern "C" void day_xaml_post(void (*cb)(void*), void* data);
@@ -1067,7 +1068,7 @@ extern "C" void day_xaml_watch_reduce_motion(void (*cb)()) try {
         day_xaml_post([](void*) { if (g_motion_cb) g_motion_cb(); }, nullptr);
     });
     // Only once the subscription took: a throw above leaves the setting unwatched, not leaked.
-    g_ui_settings = new winrt::Windows::UI::ViewManagement::UISettings(ui);
+    g_ui_settings = winrt::detach_abi(ui);
 } catch (...) {
 }
 
