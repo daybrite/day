@@ -186,10 +186,12 @@ unsafe extern "C" {
     /// until the socket is open and drops the line when scripting is not armed).
     fn day_dom_script_send(ptr: *const u8, len: usize);
     fn day_dom_env(key: *const u8, kl: usize, out: *mut u8, cap: usize) -> usize;
-    /// An element's `role`, `aria-label`, value (`aria-valuetext`, else the description) and
-    /// `id`, joined by U+001F, by the `day_dom_env` buffer protocol (docs/accessibility.md).
+    /// An element read back for `read_native`, by the `day_dom_env` buffer protocol: its
+    /// `role`, `aria-label`, value (`aria-valuetext`, else the description) and `id`, then
+    /// number, checked, enabled, visible, the frame's x, y, w, h, and last the displayed text
+    /// (`=`-prefixed), joined by U+001F; an empty field is one the element does not have.
     /// Empty when the element is gone.
-    fn day_dom_read_a11y(el: u32, out: *mut u8, cap: usize) -> usize;
+    fn day_dom_read_native(el: u32, out: *mut u8, cap: usize) -> usize;
     /// The page's font list in Day's list text (docs/fonts.md) — the CSS generic families plus
     /// the bundled `document.fonts` faces — by the `day_dom_env` buffer protocol.
     fn day_dom_fonts(out: *mut u8, cap: usize) -> usize;
@@ -2676,18 +2678,22 @@ impl Toolkit for Dom {
         unsafe { day_dom_announce(text.as_ptr(), text.len(), urgent as u32) };
     }
 
-    /// The ARIA attributes read back off the element, so `a11y_audit` runs on the web too.
-    /// The DOM is the accessibility tree here: what `set_a11y` wrote is what a screen reader
-    /// reads, and an element the page lost answers `found = false`.
-    fn read_a11y(&self, h: &DomHandle) -> day_spec::A11ySnapshot {
+    /// The element read back off the page, so `a11y_audit` and `assert_native` run on the web
+    /// too. The DOM is the accessibility tree here: what `set_a11y` wrote is what a screen
+    /// reader reads, and an element the page lost answers `found = false`. The rest is the
+    /// control's own state as the browser holds it (the shim's `day_dom_read_native` says which
+    /// property backs which field); a field the element does not carry stays `None`.
+    fn read_native(&self, h: &DomHandle) -> day_spec::NativeSnapshot {
         use day_spec::Role;
         let el = h.0;
-        let raw = read_buffer(|out, cap| unsafe { day_dom_read_a11y(el, out, cap) });
+        let raw = read_buffer(|out, cap| unsafe { day_dom_read_native(el, out, cap) });
         if raw.is_empty() {
-            return day_spec::A11ySnapshot::default();
+            return day_spec::NativeSnapshot::default();
         }
-        let mut parts = raw.split('\u{1f}').map(str::to_owned);
-        let mut next = || parts.next().filter(|s| !s.is_empty());
+        // Twelve fields before the text, which goes last and whole: a field's contents may
+        // hold the separator itself.
+        let mut parts = raw.splitn(13, '\u{1f}');
+        let mut next = || parts.next().filter(|s| !s.is_empty()).map(str::to_owned);
         let role = match next().as_deref() {
             Some("button") => Role::Button,
             Some("switch") => Role::Toggle,
@@ -2702,12 +2708,38 @@ impl Toolkit for Dom {
             Some("treeitem") => Role::TreeItem,
             _ => Role::None,
         };
-        day_spec::A11ySnapshot {
+        let label = next();
+        let value = next();
+        let identifier = next();
+        let number = next().and_then(|s| s.parse::<f64>().ok());
+        let flag = |s: Option<String>| match s.as_deref() {
+            Some("1") => Some(true),
+            Some("0") => Some(false),
+            _ => None,
+        };
+        let checked = flag(next());
+        let enabled = flag(next());
+        let visible = flag(next());
+        let mut coord = || next().and_then(|s| s.parse::<f64>().ok());
+        let (x, y, w, hgt) = (coord(), coord(), coord(), coord());
+        let frame = match (x, y, w, hgt) {
+            (Some(x), Some(y), Some(w), Some(hgt)) => Some(Rect::new(x, y, w, hgt)),
+            _ => None,
+        };
+        // "=" marks text the element shows, so an empty field still reads as `Some("")`.
+        let text = next().and_then(|s| s.strip_prefix('=').map(str::to_owned));
+        day_spec::NativeSnapshot {
             found: true,
             role,
-            label: next(),
-            value: next(),
-            identifier: next(),
+            label,
+            value,
+            identifier,
+            text,
+            number,
+            checked,
+            enabled,
+            visible,
+            frame,
         }
     }
 

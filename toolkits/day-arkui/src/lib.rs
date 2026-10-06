@@ -1942,6 +1942,141 @@ mod imp {
         SECONDARY.with(|s| s.borrow().iter().any(|(_, stack)| *stack == ptr))
     }
 
+    /// What a node shows, read back from ArkUI's own attributes (`Toolkit::read_native`). Only
+    /// what is read is reported; the accessibility group stays unread (`found: false`), since
+    /// ArkUI reports a component's default announcement nowhere a getter reaches.
+    fn read_native(n: Handle) -> day_spec::NativeSnapshot {
+        use ohos_sys::arkui::native_node::ArkUI_NodeAttributeType as Attr;
+        use ohos_sys::arkui::native_type::{ArkUI_TextInputType as Type, ArkUI_Visibility};
+        let mut snap = day_spec::NativeSnapshot::default();
+        if n.is_null() {
+            return snap;
+        }
+        // An item without a string is an unread attribute, not an empty one.
+        let string = |n: Handle, attr: Attr| {
+            node::get_item(n, attr)
+                .filter(|it| !it.string.is_null())
+                .map(|it| node::text_of(it.string))
+        };
+        match node::node_type(n) {
+            Some(node::TEXT) => {
+                // A label with runs keeps its text in SPAN children (`set_label_runs`), the
+                // Text's own content cleared.
+                let own = string(n, Attr::NODE_TEXT_CONTENT);
+                let count = node::child_count(n);
+                snap.text = match own {
+                    Some(own) if own.is_empty() && count > 0 => (0..count as i32)
+                        .map(|i| string(node::child_at(n, i), Attr::NODE_SPAN_CONTENT))
+                        .collect::<Option<String>>(),
+                    own => own,
+                };
+            }
+            Some(node::BUTTON) => {
+                // An icon button's title is a Text beside the image (`apply_button_content`),
+                // padded with two spaces; an icon-only one shows no text.
+                let content = BUTTON_CHILDREN.with(|m| {
+                    m.borrow()
+                        .get(&(n as usize))
+                        .map(|children| children.get(2).map(|label| label.0))
+                });
+                snap.text = match content {
+                    Some(Some(label)) => string(label, Attr::NODE_TEXT_CONTENT)
+                        .map(|s| s.strip_prefix("  ").map(str::to_owned).unwrap_or(s)),
+                    Some(None) => None,
+                    None => string(n, Attr::NODE_BUTTON_LABEL),
+                };
+            }
+            Some(node::TEXT_INPUT) => {
+                // A password type masks the text: nothing is reported, nor for an unread type.
+                let masked = node::get_i32(n, Attr::NODE_TEXT_INPUT_TYPE, 0).is_none_or(|t| {
+                    [
+                        Type::ARKUI_TEXTINPUT_TYPE_PASSWORD,
+                        Type::ARKUI_TEXTINPUT_TYPE_NUMBER_PASSWORD,
+                        Type::ARKUI_TEXTINPUT_TYPE_NEW_PASSWORD,
+                    ]
+                    .iter()
+                    .any(|ty| ty.0 as i32 == t)
+                });
+                if !masked {
+                    snap.text = string(n, Attr::NODE_TEXT_INPUT_TEXT);
+                }
+            }
+            Some(node::TEXT_AREA) => snap.text = string(n, Attr::NODE_TEXT_AREA_TEXT),
+            Some(node::TOGGLE) => {
+                snap.checked = node::get_i32(n, Attr::NODE_TOGGLE_VALUE, 0).map(|v| v != 0);
+            }
+            Some(node::SLIDER) => {
+                // ArkUI's 0..100, mapped back onto the range Day gave (`normalize`).
+                let range = CTRL_NODE
+                    .with(|m| m.borrow().get(&(n as usize)).copied())
+                    .and_then(|id| SLIDER_RANGE.with(|m| m.borrow().get(&id).copied()));
+                snap.number = node::get_f32(n, Attr::NODE_SLIDER_VALUE, 0)
+                    .zip(range)
+                    .map(|(v, (min, max))| min + f64::from(v) / 100.0 * (max - min));
+            }
+            Some(node::PROGRESS) => {
+                // The fraction over the total `set_progress` wrote; a spinner has no value.
+                let total = node::get_f32(n, Attr::NODE_PROGRESS_TOTAL, 0).filter(|t| *t > 0.0);
+                snap.number = node::get_f32(n, Attr::NODE_PROGRESS_VALUE, 0)
+                    .zip(total)
+                    .map(|(v, total)| f64::from(v) / f64::from(total));
+            }
+            _ => {}
+        }
+        snap.enabled = node::get_i32(n, Attr::NODE_ENABLED, 0).map(|v| v != 0);
+
+        // Walk the C-API ancestors up to a window root: the primary root, the cover layer above
+        // it, or a secondary window's. The walk stops short of one where a node sits in an
+        // ArkTS host (a Navigation page, a piece), whose own visibility is out of reach.
+        let primary = ROOT.with(|r| r.borrow().as_ref().map(|(h, _)| h.0 as usize));
+        let cover = COVER_ROOT.with(|r| r.get()).map(|(p, _, _)| p);
+        let secondaries: Vec<usize> =
+            SECONDARY.with(|s| s.borrow().iter().map(|(_, p)| *p).collect());
+        let visible = ArkUI_Visibility::ARKUI_VISIBILITY_VISIBLE.0 as i32;
+        let (mut hidden, mut unread, mut window) = (false, false, None);
+        let mut at = n;
+        // Bounded: a tree is never this deep, and a cycle must not hang the reader.
+        for _ in 0..4096 {
+            if at.is_null() {
+                break;
+            }
+            match node::get_i32(at, Attr::NODE_VISIBILITY, 0) {
+                Some(v) if v != visible => hidden = true,
+                Some(_) => {}
+                None => unread = true,
+            }
+            let ptr = at as usize;
+            if Some(ptr) == primary || Some(ptr) == cover {
+                window = primary;
+                break;
+            }
+            if secondaries.contains(&ptr) {
+                window = Some(ptr);
+                break;
+            }
+            at = node::parent(at);
+        }
+        snap.visible = if hidden {
+            Some(false)
+        } else if window.is_some() && !unread {
+            Some(true)
+        } else {
+            None
+        };
+
+        // The frame against its window's root, Day's content area there. A node the walk did
+        // not place still has one window to be in while no secondary is open.
+        let base = window.or_else(|| primary.filter(|_| secondaries.is_empty()));
+        if let Some(base) = base
+            && let Some((x, y, w, h)) = node::layout_frame_px(n)
+            && let Some((bx, by, _, _)) = node::layout_frame_px(base as Handle)
+        {
+            let d = node::density();
+            snap.frame = Some(Rect::new((x - bx) / d, (y - by) / d, w / d, h / d));
+        }
+        snap
+    }
+
     /// The ArkTS host reports a ROOT area change after start (keyboard RESIZE avoidance,
     /// rotation, window resize), routed to Day as a window resize, the shared rail
     /// (docs/focus.md; same shape as Android's kind-15 event).
@@ -3321,6 +3456,10 @@ mod imp {
         fn set_a11y(&mut self, h: &AHandle, a11y: &A11yProps) {
             // Every member is an ArkUI accessibility attribute (node.rs says which).
             node::set_a11y(h.0, a11y);
+        }
+
+        fn read_native(&self, h: &AHandle) -> day_spec::NativeSnapshot {
+            read_native(h.0)
         }
 
         fn announce(&mut self, text: &str, urgent: bool) {

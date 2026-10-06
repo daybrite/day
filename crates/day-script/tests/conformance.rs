@@ -36,11 +36,17 @@ fn boot_with(root: impl FnOnce() -> day_core::AnyPiece + 'static) -> day_mock::M
 /// Drive `run_tests` to its report: the first answer starts the run, and on the mock the whole
 /// run completes inside it, so the next answer carries the report.
 fn run(filter: &[&str]) -> RunReport {
+    // No time limits: the mock's timers fire the moment they are set, so a limit would trip
+    // on the first retry. `a_case_past_its_limit_fails_as_timed_out` runs with them on.
+    run_with(filter, Some(0.0))
+}
+
+fn run_with(filter: &[&str], case_timeout_secs: Option<f64>) -> RunReport {
     let step = Step::RunTests {
         filter: filter.iter().map(|s| s.to_string()).collect(),
         shots: ShotPolicy::Never,
         timeout_secs: None,
-        case_timeout_secs: None,
+        case_timeout_secs,
     };
     for _ in 0..100 {
         let reply: Reply = day_script::step(step.clone());
@@ -65,7 +71,7 @@ fn every_built_in_case_passes_on_the_mock() {
         .iter()
         .filter_map(|t| t.get("name").and_then(|n| n.as_str()))
         .collect();
-    assert!(names.contains(&"button-status"), "{names:?}");
+    assert!(names.contains(&"button-press"), "{names:?}");
 
     let report = run(&[]);
     assert_eq!(report.tests.len(), names.len());
@@ -158,7 +164,7 @@ fn a_panic_fails_its_case_and_the_run_goes_on() {
     ] {
         day_core::conformance::register(t);
     }
-    let report = run(&["panics-*", "button-status"]);
+    let report = run(&["panics-*", "button-press"]);
     let drive = only(&report, "panics-in-its-drive");
     assert_eq!(drive.verdict, "fail");
     assert!(
@@ -188,14 +194,14 @@ fn a_panic_fails_its_case_and_the_run_goes_on() {
         "{headless:?}"
     );
     // The cases after a panic still run, on a page built fresh for them.
-    assert_eq!(only(&report, "button-status").verdict, "pass");
+    assert_eq!(only(&report, "button-press").verdict, "pass");
 }
 
 #[test]
 fn a_case_past_its_limit_fails_as_timed_out() {
     let _probe = boot();
     day_core::conformance::register(TestFn::new("never_finishes", never_finishes));
-    let report = run(&["never-finishes"]);
+    let report = run_with(&["never-finishes"], None);
     let t = only(&report, "never-finishes");
     assert_eq!(t.verdict, "fail");
     assert!(
@@ -223,8 +229,8 @@ fn two_tests_with_one_name_both_fail() {
 #[test]
 fn a_gui_case_needs_a_test_host() {
     let _probe = boot_with(|| day_core::AnyPiece::new(day_pieces::label("no host here")));
-    let report = run(&["button-status"]);
-    let t = only(&report, "button-status");
+    let report = run(&["button-press"]);
+    let t = only(&report, "button-press");
     assert_eq!(t.verdict, "fail");
     assert!(
         t.message.as_deref().unwrap_or("").contains("test host"),
@@ -235,11 +241,47 @@ fn a_gui_case_needs_a_test_host() {
 #[test]
 fn test_names_come_from_the_function() {
     assert_eq!(
-        TestFn::new("button_status", shares_a_name).name(),
-        "button-status"
+        TestFn::new("button_press", shares_a_name).name(),
+        "button-press"
     );
     assert_eq!(
         TestFn::new("a :: b :: text_field_secure", shares_a_name).name(),
         "text-field-secure"
     );
+}
+
+fn reads_what_the_mock_cannot() -> Case {
+    Case::new()
+        .page(|| day_pieces::label("here").id("unread-label"))
+        .drive(|d: Drive| async move {
+            d.assert_native(
+                "unread-label",
+                day_core::conformance::NativeExpect {
+                    visible: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+        })
+}
+
+#[test]
+fn a_native_field_the_toolkit_cannot_read_is_recorded_not_failed() {
+    let _probe = boot();
+    day_core::conformance::register(TestFn::new(
+        "reads_what_the_mock_cannot",
+        reads_what_the_mock_cannot,
+    ));
+    let t = only(
+        &run(&["reads-what-the-mock-cannot"]),
+        "reads-what-the-mock-cannot",
+    );
+    assert_eq!(t.verdict, "pass", "{t:?}");
+    assert_eq!(t.native_unread, ["unread-label visible"]);
+    // The default native follow-up ran on every built-in case without leaving gaps on the
+    // mock, whose reader answers every field the leaves assert.
+    let report = run(&["button-*", "text-field-*", "toggle-*", "slider-*"]);
+    for t in &report.tests {
+        assert!(t.native_unread.is_empty(), "{t:?}");
+    }
 }

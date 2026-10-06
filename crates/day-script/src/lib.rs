@@ -335,6 +335,24 @@ pub enum Step {
         id: String,
         value: serde_json::Value,
     },
+    /// Compare the NATIVE widget with what is expected (docs/testing.md): the state the
+    /// platform reports through `Toolkit::read_native`, not Day's tree. Only the fields given
+    /// are checked. A field the toolkit cannot read passes and is listed as unread in the
+    /// reply's `data`, so a gap is recorded rather than hidden. `enabled` is also checked
+    /// against Day's own state, so a disagreement between the two fails either way.
+    AssertNative {
+        id: String,
+        #[serde(default)]
+        text: Option<String>,
+        #[serde(default)]
+        number: Option<f64>,
+        #[serde(default)]
+        checked: Option<bool>,
+        #[serde(default)]
+        enabled: Option<bool>,
+        #[serde(default)]
+        visible: Option<bool>,
+    },
     /// Fail if any piece kind rendered a `⟨kind⟩` placeholder, i.e. the backend had no renderer
     /// for it. Placeholders are invisible to every other assertion (the app still renders, the
     /// screenshot still looks plausible), so this is the only step that catches a missing or
@@ -1697,6 +1715,78 @@ fn exec(step: Step, revision: u32) -> Reply {
                         true,
                     ))
                 }
+            }
+            Step::AssertNative {
+                id,
+                text,
+                number,
+                checked,
+                enabled,
+                visible,
+            } => {
+                let node = find(&id)?;
+                let native = with_tree(|t| t.read_native(node)).unwrap_or_default();
+                if let Some(want) = enabled
+                    && probe(&id)?.enabled != want
+                {
+                    return Err(Reply::fail(
+                        format!("{id:?}: Day has enabled={}, expected {want}", !want),
+                        true,
+                    ));
+                }
+                let mut unread = Vec::new();
+                let mut fails = Vec::new();
+                let mut check = |field: &str,
+                                 got: Option<String>,
+                                 want: Option<String>,
+                                 eq: bool| match (got, want) {
+                    (_, None) => {}
+                    (None, Some(_)) => unread.push(field.to_owned()),
+                    (Some(g), Some(w)) if !eq => {
+                        fails.push(format!("native {field} {g} ≠ expected {w}"))
+                    }
+                    _ => {}
+                };
+                let text_eq =
+                    matches!((&native.text, &text), (Some(g), Some(w)) if norm(g) == norm(w));
+                check(
+                    "text",
+                    native.text.as_ref().map(|t| format!("{t:?}")),
+                    text.as_ref().map(|t| format!("{t:?}")),
+                    text_eq,
+                );
+                let number_eq = matches!((native.number, number), (Some(g), Some(w)) if (g - w).abs() <= 1e-3 * w.abs().max(1.0));
+                check(
+                    "number",
+                    native.number.map(|n| n.to_string()),
+                    number.map(|n| n.to_string()),
+                    number_eq,
+                );
+                check(
+                    "checked",
+                    native.checked.map(|b| b.to_string()),
+                    checked.map(|b| b.to_string()),
+                    native.checked == checked,
+                );
+                check(
+                    "enabled",
+                    native.enabled.map(|b| b.to_string()),
+                    enabled.map(|b| b.to_string()),
+                    native.enabled == enabled,
+                );
+                check(
+                    "visible",
+                    native.visible.map(|b| b.to_string()),
+                    visible.map(|b| b.to_string()),
+                    native.visible == visible,
+                );
+                if !fails.is_empty() {
+                    return Err(Reply::fail(format!("{id:?}: {}", fails.join("; ")), true));
+                }
+                Ok(Reply {
+                    data: (!unread.is_empty()).then(|| serde_json::json!({ "unread": unread })),
+                    ..Reply::ok()
+                })
             }
             Step::ScrollTo { id, edge, x, y } => {
                 let node = find(&id)?;

@@ -51,7 +51,7 @@ implement them, and this table proves it.
 | `supports_lifecycle` | · | · | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
 | `set_a11y` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `announce` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `read_a11y` | · | ✓ | ✓ | · | · | · | · | · | ✓ | ✓ |
+| `read_native` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `replay` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `font_families` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `measure_text` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |

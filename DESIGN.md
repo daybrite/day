@@ -1646,7 +1646,11 @@ pub trait Toolkit: Sized + 'static {
                                                                       // the screen reader without
                                                                       // moving its focus
                                                                       // (Cap::Announce, docs/accessibility.md)
-    fn read_a11y(&self, h) -> A11ySnapshot { … }                      // the a11y_audit's native read
+    fn read_native(&self, h) -> NativeSnapshot { … }                  // the widget's own state read
+                                                                      // back (a11y group, text,
+                                                                      // value, checked, enabled,
+                                                                      // visible, frame) for
+                                                                      // a11y_audit + assert_native
     fn replay(&mut self, h, ops: &[DrawOp], size: Size) {}            // canvas §11 — `DrawOp::Stamp`
                                                                       // is ONE op for many copies
                                                                       // of a shape (docs/canvas.md
@@ -1716,8 +1720,8 @@ through window creation.
 > mobile, and web present the content as a fullscreen cover in the primary window.
 
 **Evolution policy (held in practice):** every duty added after the freeze ships with a default
-no-op/`Unsupported` body — gestures, focus, lists, menus, presentation, lifecycle, `read_a11y`,
-and `ui_idle` all arrived that way, and no backend broke.
+no-op/`Unsupported` body — gestures, focus, lists, menus, presentation, lifecycle, `read_a11y`
+(since widened into `read_native`), and `ui_idle` all arrived that way, and no backend broke.
 
 `Props` is `&dyn Any` downcast to the piece's typed descriptor (e.g. `LabelProps`) — **zero
 serialization between Rust and Rust-implemented backends**; patches are sparse (only changed
@@ -5048,11 +5052,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    the one `conformance-evidence` artifact the website will read. `dayapp.yml` prefixes its
    screenshot artifacts with the caller's `artifact-prefix` since 2026-10, which is what lets
    two calls of it share one run.
-4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui, the
-   deprecated xaml, and an MSYS2 qt/gtk leg; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
+4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui and the
+   deprecated xaml; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
    host's toolkit dependencies and runs the checks that need it — above all
    `scripts/ci/scaffold-check.sh`, which proves `day new` output still lints, builds, packs and
-   rebuilds against this commit. The build comes before the pack on purpose: the pack then runs
+   rebuilds against this commit. Beside them, `host-test (windows-gnu)` runs the host-portable
+   tests under MSYS2's MinGW toolchain, which the msvc `day-cli-windows` legs do not cover. The build comes before the pack on purpose: the pack then runs
    in a tree carrying everything a build stages under `build/`, and the rebuild packs a copy
    carrying none of it, so a pack that takes anything from a build's leftovers instead of
    staging it for itself fails the comparison (the iOS DayPieces catalog did, 2026-09, packed
@@ -6440,6 +6445,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_not_presented` | — | no Day presentation request remains unanswered; not an OS-window dismissal assertion |
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
+| `assert_native` | `id`, `text?`, `number?`, `checked?`, `enabled?`, `visible?` | compare the NATIVE widget's own state (`Toolkit::read_native`) with the fields given; a field the toolkit cannot read passes and is listed as unread in the reply's `data`; `enabled` is checked against Day's tree too ([docs/testing.md](docs/testing.md)) |
 | `tests` | — | the registered `#[day::test]` cases (name, kind, what each proves) in the reply's `data` ([docs/testing.md](docs/testing.md)) |
 | `run_tests` | `filter?`, `shots?`, `timeout_secs?`, `case_timeout_secs?` | run the matching cases as one main-loop task, each drive op the dayscript step it names, each GUI case's page shown alone by the app's `test_host`, a panic or a case past its limit (30 s default, `0` none) failing that case only; retryable while running; the reply's `data` is the report the runner prints and writes as `evidence.json` ([docs/testing.md](docs/testing.md)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |

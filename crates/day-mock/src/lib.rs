@@ -1888,18 +1888,30 @@ impl Toolkit for MockToolkit {
         true
     }
 
-    fn read_a11y(&self, h: &MockHandle) -> day_spec::A11ySnapshot {
-        // Echo what set_a11y recorded, so `a11y_audit` diffs cleanly against expectations.
+    fn read_native(&self, h: &MockHandle) -> day_spec::NativeSnapshot {
+        // Echo what the setters recorded, so `a11y_audit` and `assert_native` diff cleanly
+        // against expectations: the mock's "native" state is its widget record.
         let s = self.state.borrow();
         let Some(w) = s.widgets.get(&h.0) else {
-            return day_spec::A11ySnapshot::default();
+            return day_spec::NativeSnapshot::default();
         };
-        day_spec::A11ySnapshot {
+        let kind = w.kind;
+        let texty = matches!(
+            kind,
+            "day.label" | "day.button" | "day.text_field" | "day.text_area"
+        );
+        day_spec::NativeSnapshot {
             found: true,
             role: w.a11y.role,
             label: w.a11y.label.clone(),
             value: w.a11y.value.clone(),
             identifier: w.a11y.identifier.clone(),
+            text: texty.then(|| w.text.clone()),
+            number: matches!(kind, "day.slider" | "day.progress").then_some(w.value),
+            checked: (kind == "day.toggle").then_some(w.flag),
+            enabled: Some(w.enabled),
+            visible: None,
+            frame: Some(w.frame),
         }
     }
 

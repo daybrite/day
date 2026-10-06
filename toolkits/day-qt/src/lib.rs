@@ -3267,6 +3267,72 @@ impl Toolkit for Qt {
         }
     }
 
+    /// The widget's own state (docs/testing.md), all of it read in the shim from the QWidget and
+    /// its QAccessibleInterface. Slider and progress ticks go back through the range Day built
+    /// them from; a slider whose range was never recorded reports no number.
+    fn read_native(&self, h: &QtHandle) -> day_spec::NativeSnapshot {
+        if h.0.is_null() {
+            return day_spec::NativeSnapshot::default();
+        }
+        let mut n = std::mem::MaybeUninit::<ffi::DayQtNative>::zeroed();
+        // SAFETY: the handle is a live QWidget Day realized, and the shim initializes every
+        // field of `n` before returning.
+        let mut n = unsafe {
+            ffi::day_qt_read_native(h.0, n.as_mut_ptr());
+            n.assume_init()
+        };
+        // SAFETY: each pointer is NULL or a NUL-terminated heap string the shim wrote, alive
+        // until `day_qt_native_free` below.
+        let string = |p: *mut c_char| {
+            (!p.is_null()).then(|| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned())
+        };
+        let role = match n.role {
+            1 => Role::Button,
+            2 => Role::Toggle,
+            3 => Role::Slider,
+            4 => Role::TextInput,
+            5 => Role::Heading(u8::try_from(n.level).unwrap_or(1).max(1)),
+            6 => Role::Image,
+            7 => Role::Meter,
+            8 => Role::Group,
+            9 => Role::Tree,
+            10 => Role::TreeItem,
+            _ => Role::None,
+        };
+        let ticks = f64::from(n.number) / 1000.0;
+        let number = match n.number_kind {
+            1 => RANGES_BY_PTR
+                .with(|r| r.get(h.0 as usize))
+                .map(|(min, max)| {
+                    // `slider_ticks` maps an empty range to tick 0, which is `min`.
+                    if max <= min {
+                        min
+                    } else {
+                        min + ticks * (max - min)
+                    }
+                }),
+            2 => Some(ticks),
+            _ => None,
+        };
+        let found = n.found != 0;
+        let snapshot = day_spec::NativeSnapshot {
+            found,
+            role: if found { role } else { Role::None },
+            label: string(n.label),
+            value: string(n.value),
+            identifier: string(n.identifier),
+            text: string(n.text),
+            number,
+            checked: (n.checked >= 0).then_some(n.checked != 0),
+            enabled: Some(n.enabled != 0),
+            visible: Some(n.visible != 0),
+            frame: (n.frame_ok != 0).then(|| Rect::new(n.x, n.y, n.w, n.h)),
+        };
+        // SAFETY: `n` holds the strings the shim allocated above, released exactly once.
+        unsafe { ffi::day_qt_native_free(&mut n) };
+        snapshot
+    }
+
     fn announce(&mut self, text: &str, urgent: bool) {
         if self.window.is_null() {
             return;

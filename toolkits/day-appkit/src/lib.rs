@@ -390,7 +390,7 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
     }
 }
 
-/// Native `AXRole` string → Day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
+/// Native `AXRole` string → Day `Role` (best-effort, for `read_native`/`a11y_audit`).
 fn day_role_from_ns(ax: &str) -> day_spec::Role {
     use day_spec::Role;
     match ax {
@@ -8413,13 +8413,13 @@ impl Toolkit for AppKit {
         }
     }
 
-    fn read_a11y(&self, h: &Handle) -> day_spec::A11ySnapshot {
+    fn read_native(&self, h: &Handle) -> day_spec::NativeSnapshot {
         unsafe {
             let role = h
                 .accessibilityRole()
                 .map(|r| day_role_from_ns(&r.to_string()))
                 .unwrap_or(day_spec::Role::None);
-            day_spec::A11ySnapshot {
+            day_spec::NativeSnapshot {
                 found: true,
                 role,
                 label: h.accessibilityLabel().map(|s| s.to_string()),
@@ -8430,6 +8430,26 @@ impl Toolkit for AppKit {
                     .accessibilityIdentifier()
                     .map(|s| s.to_string())
                     .filter(|s| !s.is_empty()),
+                text: native_text(h),
+                number: native_number(h),
+                checked: h
+                    .downcast_ref::<NSSwitch>()
+                    .and_then(|sw| match sw.state() {
+                        s if s == NSControlStateValueOn => Some(true),
+                        s if s == NSControlStateValueOff => Some(false),
+                        // Mixed is neither on nor off.
+                        _ => None,
+                    }),
+                // A label is a non-editable NSTextField whose `isEnabled` says nothing about
+                // input; every other control answers for itself.
+                enabled: match h.downcast_ref::<NSControl>() {
+                    Some(_) if h.downcast_ref::<DayLabel>().is_some() => None,
+                    Some(c) => Some(c.isEnabled()),
+                    None => None,
+                },
+                // Off-window counts as not shown: nothing of it reaches the screen.
+                visible: Some(h.window().is_some() && !h.isHiddenOrHasHiddenAncestor()),
+                frame: native_frame(h),
             }
         }
     }
@@ -9850,6 +9870,55 @@ pub(crate) fn pin_below_title_bar(window: &NSWindow) -> Option<Size> {
     let top = (full.height - layout.height).max(0.0);
     unsafe { content.setBoundsOrigin(NSPoint::new(0.0, -top)) };
     Some(Size::new(full.width, (full.height - top).max(0.0)))
+}
+
+/// The text a widget displays, for `read_native`: a label's or text field's string, a
+/// button's title, a text area's contents. `None` for a secure field (it masks its text), an
+/// icon-only button (its title is a tooltip), and every other view.
+fn native_text(h: &NSView) -> Option<String> {
+    if h.downcast_ref::<NSSecureTextField>().is_some() {
+        return None;
+    }
+    if let Some(tf) = h.downcast_ref::<NSTextField>() {
+        // `stringValue` answers the field editor's live text while the field edits.
+        return Some(tf.stringValue().to_string());
+    }
+    if let Some(btn) = h.downcast_ref::<NSButton>() {
+        if unsafe { btn.imagePosition() } == objc2_app_kit::NSCellImagePosition::ImageOnly {
+            return None;
+        }
+        return Some(btn.title().to_string());
+    }
+    // A text area is an NSTextView inside the scroll view its handle names (textarea.rs).
+    let sv = h.downcast_ref::<NSScrollView>()?;
+    let doc = sv.documentView()?;
+    let tv = doc.downcast_ref::<NSTextView>()?;
+    Some(tv.string().to_string())
+}
+
+/// A slider's value or a determinate progress bar's fraction, for `read_native`. Both native
+/// ranges are the ones Day gave: the slider is built with Day's min and max, the bar runs 0–1.
+fn native_number(h: &NSView) -> Option<f64> {
+    if let Some(sl) = h.downcast_ref::<NSSlider>() {
+        return Some(sl.doubleValue());
+    }
+    let pi = h.downcast_ref::<NSProgressIndicator>()?;
+    (!pi.isIndeterminate()).then(|| pi.doubleValue())
+}
+
+/// The view's frame in its window's content coordinates, origin top left, for `read_native`.
+/// The content view is flipped and pinned below the title bar (`pin_below_title_bar`), so
+/// converting into it gives Day's layout space; an unflipped content view is flipped here.
+fn native_frame(h: &NSView) -> Option<Rect> {
+    let content = h.window()?.contentView()?;
+    let r = h.convertRect_toView(h.bounds(), Some(&content));
+    let y = if content.isFlipped() {
+        r.origin.y
+    } else {
+        let b = content.bounds();
+        b.origin.y + b.size.height - (r.origin.y + r.size.height)
+    };
+    Some(Rect::new(r.origin.x, y, r.size.width, r.size.height))
 }
 
 /// The strip a pinned content view keeps above its layout origin (see `pin_below_title_bar`).

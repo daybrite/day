@@ -151,11 +151,15 @@ who removed animations gets what a scripted run gets.
 ## Verification: `a11y_audit` (§14.2)
 
 The dayscript step `a11y_audit: { id? }` walks Day's id'd nodes, reads each widget's actual
-native a11y (`Toolkit::read_a11y`), and diffs identifier + label + value + explicit-role against
-Day's stored expectation. Backends that can't read their native tree (`found=false`) skip. The
-Apple targets implement `read_a11y` (NSAccessibility / UIAccessibility → Day `Role`), and so
-does the web, where the ARIA attributes on the element are the tree (`role`, `aria-label`,
-`aria-valuetext` or else `aria-description`, `id`). It is required in the CI walkthrough on those
+native state (`Toolkit::read_native`, whose accessibility group this uses), and diffs identifier
++ label + value + explicit-role against Day's stored expectation. Backends that can't read their
+native tree (`found=false`) skip. The Apple targets read it from NSAccessibility /
+UIAccessibility (→ Day `Role`), the web from the ARIA attributes on the element (`role`,
+`aria-label`, `aria-valuetext` or else `aria-description`, `id`), Qt from the widget's
+`QAccessibleInterface` and `objectName`, Windows from the automation peer and
+`AutomationProperties`, and Android (API 30+) from the view's `AccessibilityNodeInfo`. GTK and
+ArkUI answer `found=false`: GTK 4 has no public getters for an accessible's label and value, and
+ArkUI's accessibility text is empty unless Day set it, so neither can be read back faithfully. It is required in the CI walkthrough on those
 targets and passes there (the showcase gauge audits as role=Meter + label + value + id, twice:
 once more after its slider moves, which is what shows the reactive value landing natively). Role
 is diffed only for explicit roles Day applied, since native controls own their roles, which vary
@@ -164,4 +168,4 @@ per platform.
 ## Follow-ups
 
 - `day lint` a11y rule: interactive piece without a derivable label → warning (`--strict` error).
-- `read_a11y` for GTK, Qt, Android, WinUI and ArkUI so `a11y_audit` runs there too.
+- The accessibility group of `read_native` for GTK and ArkUI, so `a11y_audit` runs there too.

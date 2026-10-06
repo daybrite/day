@@ -3076,6 +3076,77 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_announce(cstr(text).as_ptr(), urgent as c_int) };
     }
 
+    /// The element's own answers, read back by the shim: the automation peer's name, ItemStatus
+    /// (where `set_a11y` puts a value), AutomationId and the role `set_a11y` wrote; the text a
+    /// TextBlock, TextBox or Button shows; a Slider's value or a progress bar's fraction; a
+    /// toggle's state; IsEnabled; Visibility up to the content canvas and the bounds in it.
+    fn read_native(&self, h: &WinHandle) -> day_spec::NativeSnapshot {
+        let mut raw = ffi::DayXamlNative {
+            found: 0,
+            role: 0,
+            level: 0,
+            label: std::ptr::null_mut(),
+            value: std::ptr::null_mut(),
+            identifier: std::ptr::null_mut(),
+            text: std::ptr::null_mut(),
+            has_number: 0,
+            number: 0.0,
+            checked: -1,
+            enabled: -1,
+            visible: -1,
+            has_frame: 0,
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 0.0,
+        };
+        // SAFETY: `raw` is a live, writable `DayXamlNative`; the shim fills it in place.
+        unsafe { ffi::day_xaml_read_native(h.0, &mut raw) };
+        // Takes ownership of one of the shim's heap strings: copied out, then released.
+        let take = |p: *mut c_char| -> Option<String> {
+            if p.is_null() {
+                return None;
+            }
+            // SAFETY: a non-null string from the shim is NUL-terminated and released exactly
+            // once, here, through the shim's own free.
+            unsafe {
+                let s = CStr::from_ptr(p).to_string_lossy().into_owned();
+                ffi::day_xaml_string_free(p);
+                Some(s)
+            }
+        };
+        let tri = |v: c_int| (v >= 0).then_some(v != 0);
+        use day_spec::Role;
+        let found = raw.found != 0;
+        let role = match raw.role {
+            1 => Role::Button,
+            2 => Role::Toggle,
+            3 => Role::Slider,
+            4 => Role::TextInput,
+            5 => Role::Heading(raw.level.clamp(1, 9) as u8),
+            6 => Role::Image,
+            7 => Role::Meter,
+            8 => Role::Group,
+            9 => Role::Tree,
+            10 => Role::TreeItem,
+            _ => Role::None,
+        };
+        let (label, value, identifier) = (take(raw.label), take(raw.value), take(raw.identifier));
+        day_spec::NativeSnapshot {
+            found,
+            role: if found { role } else { Role::None },
+            label: label.filter(|_| found),
+            value: value.filter(|_| found),
+            identifier: identifier.filter(|_| found),
+            text: take(raw.text),
+            number: (raw.has_number != 0).then_some(raw.number),
+            checked: tri(raw.checked),
+            enabled: tri(raw.enabled),
+            visible: tri(raw.visible),
+            frame: (raw.has_frame != 0).then(|| Rect::new(raw.x, raw.y, raw.w, raw.h)),
+        }
+    }
+
     fn attach_list(&mut self, host: &WinHandle, source: day_spec::ListSource) {
         LIST_STATE.with(|m| {
             if let Some(st) = m.borrow().get(&(host.0 as usize)) {

@@ -22,8 +22,8 @@ test), or a body with no page (a headless test, for logic that needs the app's o
 environment). The same function runs on the mock toolkit under `cargo test`, so a broken
 binding or id fails in milliseconds before a toolkit is ever involved.
 
-A test is named after its function, with hyphens for underscores: `button_status` runs as
-`button-status`. The name has one source, so the CLI, the report, the evidence and an editor
+A test is named after its function, with hyphens for underscores: `button_press` runs as
+`button-press`. The name has one source, so the CLI, the report, the evidence and an editor
 reading the source all agree on it.
 
 ## Declaring a test
@@ -33,7 +33,7 @@ use day::prelude::*;
 use day::{Case, Drive};
 
 #[day::test]
-fn button_status() -> Case {
+fn button_press() -> Case {
     let presses = Signal::new(0i64);
     Case::new()
         .proves(kinds::BUTTON)
@@ -76,11 +76,26 @@ fn store_round_trip() -> Case {
 
 `Drive` speaks dayscript's vocabulary: `tap`, `input`, `toggle`, `set_value`, `select`,
 `focus`, `submit`, `navigate`, `wait_idle`, `pause`, `shot`, `assert_text`, `assert_visible`,
-`assert_missing`, `assert_value`, `assert_on`, `assert_focused`, `assert_route`, `a11y_audit`.
+`assert_missing`, `assert_value`, `assert_on`, `assert_focused`, `assert_route`, `a11y_audit`,
+`assert_native` (and `assert_enabled`, its `enabled` shorthand).
 Each is the dayscript step of that name, run in process with the step's own retry window, so a
 drive and a script mean the same thing by the same words; a step dayscript lacks is added to the
 engine, where a script gets it as well. For a headless body, `check(ok, what)` and
 `check_eq(got, want)` are the assertions. A failed op or check ends the test with its message.
+
+### Native checks
+
+Day's own assertions read Day's tree, so on their own they prove the binding and the event
+path but not that the platform's widget shows what Day thinks it shows. In a conformance run,
+`assert_text`, `assert_value` and `assert_on` are therefore each followed by `assert_native` of
+the same fact, read back from the widget through `Toolkit::read_native`: its displayed text,
+its value, its checked state. `d.assert_native(id, NativeExpect { .. })` checks what those do
+not cover (`enabled`, `visible`), and `d.assert_enabled(id, on)` checks enabled in Day and
+natively at once.
+
+A field a toolkit cannot read (a secure field's masked text, anything a backend has no getter
+for) does not fail the case: the report lists it as `native_unread` (`"<id> <field>"`), so the
+evidence shows exactly what was proven natively and what only in Day's tree.
 
 ### The test host
 
@@ -104,11 +119,41 @@ A panic in a case's drive, its headless body, or while its page is built fails t
 the panic's message, and the run goes on to the next case. Where the target aborts on panic
 instead of unwinding (the web), the app still goes down and `day test` reports the lost run.
 
-### Where tests compile
+### Where tests go
 
-The built-in pieces' cases live in `crates/day-pieces/src/conformance.rs`, next to the
-constructors they prove, behind the `conformance` feature; a shipping app links none of them.
-An app's own tests go in its own crate the same way, behind a feature its test build turns on.
+A piece's cases go in a `mod conformance` at the end of the file that defines it, the way unit
+tests go in `mod tests`, behind the crate's `conformance` feature so a shipping app links none
+of them:
+
+```rust
+// crates/day-pieces/src/leaves.rs, after the constructors
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use crate::*;
+
+    #[day_macros::test(day_core)]
+    fn button_press() -> Case { /* … */ }
+
+    day_core::tests! { button_press }
+}
+```
+
+- **Names** are `<piece>_<aspect>` (`button_press`, `text_field_secure`), so
+  `day test 'button-*'` selects a piece. A modifier's cases use the modifier's name
+  (`padding_insets`).
+- **One aspect per case**, named for it, so a failure reads as a sentence.
+- **Ids** only need to be unique within the case: the test host shows one case at a time.
+- **Each module ends with its roster** (`day_core::tests!`); `crates/day-pieces/src/conformance.rs`
+  calls every module's `register_tests()` and concatenates their `roster()`s, and holds the cases
+  that belong to no piece and the conformance app's browsing page.
+- **What a case proves** is declared with `.proves(kinds::X)`, `.proves_modifier("padding")`,
+  `.proves_cap(Cap::X)` and `.proves_duty("x")`. `scripts/ci/conformance-coverage.py` reads
+  those and reports, per family, what is proven and what is not (a `lint.sh` leg, report-only
+  until every family is covered, when it gains `--check`).
+
+An app's own tests take the same shape in its own crate, with `#[day::test]`, behind a feature
+its test build turns on.
 
 ### Registration
 
@@ -144,7 +189,7 @@ day test -p web-dom --list                       # the registry, without running
 prints one line per test:
 
 ```
-      button-status ........................... ok        (95 ms)
+      button-press ............................ ok        (95 ms)
       slider-range ............................ skipped   Cap::Animation is Unsupported on this toolkit
       text-field-secure ....................... FAILED    assert_text tfs-len: "13" ≠ "12"
       8 tests: 6 passed, 1 skipped, 1 failed
@@ -198,7 +243,7 @@ command to produce or merge it, only this layout (with a device profile, `<targe
   "target": "ios-uikit", "device": null, "variant": "default",
   "day": "0.5.0 (release, branch main, 3fd74cc2)", "commit": "3fd74cc2…", "run": "18522271", "at": 1791304466,
   "tests": {
-    "button-status":     { "kind": "gui", "verdict": "pass", "ms": 260, "proves": ["kind:day.button"], "shots": ["default"] },
+    "button-press":      { "kind": "gui", "verdict": "pass", "ms": 260, "proves": ["kind:day.button"], "shots": ["default"] },
     "text-field-secure": { "kind": "gui", "verdict": "fail", "ms": 840, "proves": ["kind:day.text_field", "duty:set_input_traits"],
                            "message": "assert_text tfs-len: \"7\" ≠ \"6\"", "shots": ["masked", "shown", "failed"] },
     "slider-range":      { "kind": "gui", "verdict": "skip", "reason": "Cap::Animation is Unsupported on this toolkit", "proves": ["kind:day.slider"], "shots": [] }
@@ -237,11 +282,13 @@ the workflow sit beside the showcase's in one run.
 
 ## What a pass means
 
-A pass says the toolkit realized the pieces, the drive's events reached the app's signals and
-the assertions held on day-core's state, which is what dayscript reads too. It does not say
-native input would have produced the same: the native reads are `a11y_audit` (where the
-toolkit reads its tree back), `assert_no_placeholders`, and the captures. Captures are
-illustration; a case asserts effects, never looks.
+A pass says the toolkit realized the pieces, the drive's events reached the app's signals, the
+assertions held on day-core's state, and the native widget reports the same text, value and
+state, except for the fields the evidence lists as `native_unread`. It does not say native
+INPUT would have produced the same: the drive's events are injected, as a script's are. The
+native reads are `assert_native`, `a11y_audit` (where the toolkit reads its accessibility tree
+back), `assert_no_placeholders`, and the captures. Captures are illustration; a case asserts
+effects, never looks.
 
 ## Follow-ups
 

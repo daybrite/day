@@ -159,6 +159,12 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &TextPatch) {
     });
 }
 
+/// The buffer's contents of the text area `h` backs, for `read_native`; `None` when `h` is not
+/// a text area's overlay.
+pub(crate) fn text_of(h: &gtk4::Widget) -> Option<String> {
+    STATE.with(|m| m.with(key(h), |st| buffer_text(&st.buffer)))
+}
+
 fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
     STATE
         .with(|m| {

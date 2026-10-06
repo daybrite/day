@@ -305,6 +305,66 @@ fn apply_button_content(
     btn.update_property(&[gtk4::accessible::Property::Label(title)]);
 }
 
+/// The title a button shows, read off its GtkLabel: the child itself for a text button, the
+/// label beside the image for an icon-and-title one (`apply_button_content`). `gtk_label_get_text`
+/// already drops mnemonic underscores and markup. `None` for an icon-only button.
+fn button_text(btn: &gtk4::Button) -> Option<String> {
+    let child = btn.child()?;
+    if let Some(label) = child.downcast_ref::<gtk4::Label>() {
+        return Some(label.text().to_string());
+    }
+    let row = child.downcast_ref::<gtk4::Box>()?;
+    let mut cur = row.first_child();
+    while let Some(w) = cur {
+        if let Some(label) = w.downcast_ref::<gtk4::Label>() {
+            return Some(label.text().to_string());
+        }
+        cur = w.next_sibling();
+    }
+    None
+}
+
+/// Whether `h` is on screen, for `read_native`. Once the window is mapped, GTK's drawable
+/// state (visible and mapped, so every ancestor shown and no unselected stack page above it)
+/// answers. Before that, only a hidden widget or ancestor answers (`false`); otherwise `None`.
+fn native_visible(h: &Handle) -> Option<bool> {
+    if h.root().is_some_and(|r| r.is_mapped()) {
+        return Some(h.is_drawable());
+    }
+    let mut cur = Some(h.clone());
+    while let Some(w) = cur {
+        if !w.is_visible() || !w.is_child_visible() {
+            return Some(false);
+        }
+        cur = w.parent();
+    }
+    None
+}
+
+/// The frame of `h` in points, relative to its window's content area (the `DayCell` wrapper
+/// `build_day_window` sets as the AdwToolbarView's content, below the header bar). `None` while
+/// the widget is unmapped (its allocation may be stale) or outside a Day window.
+fn native_frame(h: &Handle) -> Option<Rect> {
+    if !h.is_mapped() {
+        return None;
+    }
+    let mut cur = h.parent();
+    let content = loop {
+        let w = cur?;
+        if let Some(view) = w.downcast_ref::<adw::ToolbarView>() {
+            break view.content()?;
+        }
+        cur = w.parent();
+    };
+    let b = h.compute_bounds(&content)?;
+    Some(Rect::new(
+        f64::from(b.x()),
+        f64::from(b.y()),
+        f64::from(b.width()),
+        f64::from(b.height()),
+    ))
+}
+
 /// Put a [`day_spec::props::ButtonStyleSpec`] on a `GtkButton`, keeping it a GtkButton.
 ///
 /// Prominent is Adwaita's own `suggested-action`. A tint sets `background-image` (which is what
@@ -6454,6 +6514,46 @@ impl Toolkit for Gtk {
         if a11y.hidden {
             h.update_state(&[State::Hidden(true)]);
         }
+    }
+
+    fn read_native(&self, h: &Handle) -> day_spec::NativeSnapshot {
+        // The accessibility group stays unread (`found: false`): GtkAccessible offers setters
+        // for the label, description and value but no getters, and the widget name answers the
+        // type name when Day set none, so none of it reads back faithfully. The widget facts
+        // below come from the controls' own getters.
+        let mut snap = day_spec::NativeSnapshot {
+            enabled: Some(h.is_sensitive()),
+            visible: native_visible(h),
+            frame: native_frame(h),
+            ..Default::default()
+        };
+        if let Some(label) = h.downcast_ref::<gtk4::Label>() {
+            // `text` is the label without its Pango markup (the link runs, the attributes).
+            snap.text = Some(label.text().to_string());
+        } else if let Some(btn) = h.downcast_ref::<gtk4::Button>() {
+            snap.text = button_text(btn);
+            if let Some(toggle) = btn.downcast_ref::<gtk4::ToggleButton>() {
+                snap.checked = Some(toggle.is_active());
+            }
+        } else if let Some(sw) = h.downcast_ref::<gtk4::Switch>() {
+            snap.checked = Some(sw.is_active());
+        } else if let Some(check) = h.downcast_ref::<gtk4::CheckButton>() {
+            snap.checked = Some(check.is_active());
+        } else if let Some(scale) = h.downcast_ref::<gtk4::Scale>() {
+            // The adjustment holds Day's own min/max, so the value is in Day's range.
+            snap.number = Some(scale.value());
+        } else if let Some(bar) = h.downcast_ref::<gtk4::ProgressBar>() {
+            // Day's progress value is the 0…1 fraction, which is what the bar stores.
+            snap.number = Some(bar.fraction());
+        } else if let Some(entry) = h.downcast_ref::<gtk4::Entry>() {
+            // A secure field masks its characters, so its text is not reported.
+            if gtk4::prelude::EntryExt::is_visible(entry) {
+                snap.text = Some(entry.text().to_string());
+            }
+        } else {
+            snap.text = textarea::text_of(h);
+        }
+        snap
     }
 
     fn announce(&mut self, text: &str, urgent: bool) {

@@ -4,6 +4,10 @@
 # uploads. `day test -p <target>` generates the same step with a filter.
 #
 #     day launch -p macos-appkit --script dayscript/conformance.yaml
+#
+# The steps are the ones `day test` generates, so CI and a local run start the same way: the
+# app settles, then the run starts. (No `wait_for` on an element: the app's root is a test host
+# whose content is replaced by each case's page while the run goes on.)
 flow:
-  - wait_for: { id: nav }
+  - wait_idle: {}
   - run_tests: { shots: always, timeout_secs: 900 }

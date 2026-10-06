@@ -3043,6 +3043,142 @@ public final class DayBridge {
         }
     }
 
+    /** Slots of `readNative`'s answer, in the order Rust's `read_native` unpacks them. */
+    static final int RN_FOUND = 0, RN_ROLE = 1, RN_LABEL = 2, RN_VALUE = 3, RN_ID = 4,
+            RN_TEXT = 5, RN_NUMBER = 6, RN_CHECKED = 7, RN_ENABLED = 8, RN_VISIBLE = 9,
+            RN_FRAME = 10, RN_COUNT = 11;
+
+    /** Read a view's actual native state back for `Toolkit::read_native` (docs/testing.md), in
+     *  one call. A null slot is a field this reader did not take from the view; Rust reports it
+     *  as unread, never as a value. Flags are "1"/"0", numbers `Double.toString`, the frame
+     *  "x,y,w,h" in dp from the Day root's top left.
+     *
+     *  The accessibility group comes from the node the platform itself builds for TalkBack
+     *  (`createAccessibilityNodeInfo`, so `setA11y`'s delegate has run on it). It is only
+     *  reported from API 30: below that `setA11y` folds the value into the content description
+     *  and the label can no longer be told apart from it. */
+    public static String[] readNative(View v) {
+        String[] out = new String[RN_COUNT];
+        if (v == null) return out;
+        try {
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                androidx.core.view.accessibility.AccessibilityNodeInfoCompat info =
+                        androidx.core.view.accessibility.AccessibilityNodeInfoCompat.wrap(
+                                v.createAccessibilityNodeInfo());
+                CharSequence label = info.getContentDescription();
+                CharSequence value = info.getStateDescription();
+                out[RN_LABEL] = label != null ? label.toString() : null;
+                out[RN_VALUE] = value != null ? value.toString() : null;
+                out[RN_ID] = info.getUniqueId();
+                out[RN_ROLE] = Integer.toString(roleOfNode(info));
+                out[RN_FOUND] = "1";
+            }
+        } catch (Throwable t) {
+            // A widget's own delegate threw while building the node: report the group unread.
+            for (int i = RN_FOUND; i <= RN_ID; i++) out[i] = null;
+            android.util.Log.w("day", "readNative a11y (best-effort)", t);
+        }
+        try {
+            // The control itself: a text field's handle is its TextInputLayout box.
+            View c = v instanceof TextInputLayout ? editTextOf(v) : v;
+            if (c == null) c = v;
+            if (c instanceof EditText) {
+                EditText e = (EditText) c;
+                if (!isMasked(e)) out[RN_TEXT] = e.getText().toString();
+            } else if (c instanceof CompoundButton) {
+                out[RN_CHECKED] = ((CompoundButton) c).isChecked() ? "1" : "0";
+            } else if (c instanceof TextView) {
+                // A label (runs flatten to their plain string) or a button's title.
+                out[RN_TEXT] = ((TextView) c).getText().toString();
+            } else if (c instanceof Slider) {
+                // Material's Slider holds Day's own range (makeSlider sets valueFrom/valueTo).
+                out[RN_NUMBER] = Double.toString(((Slider) c).getValue());
+            } else if (c instanceof LinearProgressIndicator) {
+                // makeProgress scales Day's 0..1 fraction onto 0..1000 ticks; only that exact
+                // scale is inverted, and an indeterminate bar has no value to read.
+                LinearProgressIndicator pb = (LinearProgressIndicator) c;
+                if (!pb.isIndeterminate() && pb.getMax() == 1000) {
+                    out[RN_NUMBER] = Double.toString(pb.getProgress() / 1000.0);
+                }
+            }
+            out[RN_ENABLED] = v.isEnabled() && c.isEnabled() ? "1" : "0";
+            out[RN_VISIBLE] = v.isShown() ? "1" : "0";
+            out[RN_FRAME] = frameInDayRoot(v);
+        } catch (Throwable t) {
+            android.util.Log.w("day", "readNative (best-effort)", t);
+        }
+        return out;
+    }
+
+    /** Day's `Role` index for what the platform node says it is: its class name, or the
+     *  heading flag. `ROLE_NONE` where the class names nothing Day has a role for, a plain
+     *  ViewGroup included: every container is one, so it cannot stand for `Group`. */
+    private static int roleOfNode(androidx.core.view.accessibility.AccessibilityNodeInfoCompat info) {
+        if (info.isHeading()) return ROLE_HEADING;
+        CharSequence cls = info.getClassName();
+        if (cls == null) return ROLE_NONE;
+        switch (cls.toString()) {
+            case "android.widget.Button": return ROLE_BUTTON;
+            case "android.widget.Switch":
+            case "android.widget.CheckBox":
+            case "android.widget.ToggleButton":
+            case "android.widget.CompoundButton": return ROLE_TOGGLE;
+            case "android.widget.SeekBar": return ROLE_SLIDER;
+            case "android.widget.EditText":
+            case "android.widget.AutoCompleteTextView":
+            case "android.widget.MultiAutoCompleteTextView": return ROLE_TEXT_INPUT;
+            case "android.widget.ImageView": return ROLE_IMAGE;
+            case "android.widget.ProgressBar": return ROLE_METER;
+            default: return ROLE_NONE;
+        }
+    }
+
+    /** Does this field mask what it holds? A password transformation, or a password input
+     *  variation (the visible-password variation shows its text, so it does not count). */
+    private static boolean isMasked(EditText e) {
+        if (e.getTransformationMethod() instanceof android.text.method.PasswordTransformationMethod) {
+            return true;
+        }
+        int type = e.getInputType();
+        int cls = type & android.text.InputType.TYPE_MASK_CLASS;
+        int variation = type & android.text.InputType.TYPE_MASK_VARIATION;
+        if (cls == android.text.InputType.TYPE_CLASS_TEXT) {
+            return variation == android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    || variation == android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD;
+        }
+        return cls == android.text.InputType.TYPE_CLASS_NUMBER
+                && variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD;
+    }
+
+    /** A view's frame as "x,y,w,h" in dp from the top left of the Day root it sits in: the
+     *  DayFixed that DayActivity/DayWindowActivity hold in a wrapper under android.R.id.content,
+     *  which is where Day's frames start. Null when the view is not attached under one (a
+     *  dialog's own window, a detached view): there is no Day origin to measure from. */
+    private static String frameInDayRoot(View v) {
+        if (!v.isAttachedToWindow()) return null;
+        View root = null;
+        for (View p = v; p != null; ) {
+            android.view.ViewParent wp = p.getParent();
+            if (p instanceof DayFixed && wp instanceof View) {
+                android.view.ViewParent cp = ((View) wp).getParent();
+                if (cp instanceof View && ((View) cp).getId() == android.R.id.content) {
+                    root = p;
+                    break;
+                }
+            }
+            p = wp instanceof View ? (View) wp : null;
+        }
+        if (root == null) return null;
+        int[] at = new int[2];
+        int[] origin = new int[2];
+        v.getLocationInWindow(at);
+        root.getLocationInWindow(origin);
+        float d = v.getResources().getDisplayMetrics().density;
+        if (d <= 0f) return null;
+        return ((at[0] - origin[0]) / (double) d) + "," + ((at[1] - origin[1]) / (double) d) + ","
+                + (v.getWidth() / (double) d) + "," + (v.getHeight() / (double) d);
+    }
+
     /** Speak `text` through the running screen reader without moving its focus
      *  (docs/accessibility.md). Nothing is sent while no accessibility service is enabled.
      *  `urgent` cuts off what is being read first: the announcement event itself has no

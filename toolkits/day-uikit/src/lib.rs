@@ -892,6 +892,23 @@ mod imp {
         unsafe { send(recv, sel, arg) };
     }
 
+    /// Whether a `UITextField` masks its text. The getter is another forwarded
+    /// `UITextInputTraits` member (see [`send_input_trait`]), so a checked `msg_send!` panics in
+    /// a debug build even though the send succeeds; this takes the same raw path.
+    ///
+    /// # Safety
+    /// `tf` must be a live `UITextField`, used on the main thread.
+    unsafe fn is_secure_text_entry(tf: &UITextField) -> bool {
+        let recv = (tf as *const UITextField).cast::<AnyObject>().cast_mut();
+        // SAFETY: `recv` is a live main-thread `UITextField`; `isSecureTextEntry` takes no
+        // argument and returns `BOOL`, matching this `(id, SEL) -> Bool` retyping of
+        // `objc_msgSend` (which is `extern "C-unwind"`).
+        let send: unsafe extern "C-unwind" fn(*mut AnyObject, Sel) -> objc2::runtime::Bool = unsafe {
+            core::mem::transmute(objc2::ffi::objc_msgSend as unsafe extern "C-unwind" fn())
+        };
+        unsafe { send(recv, sel!(isSecureTextEntry)) }.as_bool()
+    }
+
     /// What a field's [`InputPurpose`] asks of UIKit: the keyboard, the AutoFill content
     /// type, capitalization, and whether the keyboard corrects and spell-checks. Everything
     /// but free text is typed exactly, so correction is off for all of them.
@@ -6422,6 +6439,86 @@ mod imp {
         }
     }
 
+    /// The text a widget displays, for `read_native`: a label's or text field's string, a
+    /// button's title, a text area's contents. `None` for a secure field (it masks its text),
+    /// an icon-only button (its title is empty, the name rides the accessibility label), and
+    /// every other view.
+    fn native_text(h: &UIView) -> Option<String> {
+        if let Some(label) = h.downcast_ref::<UILabel>() {
+            return Some(
+                unsafe { label.text() }
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+            );
+        }
+        if let Some(tf) = h.downcast_ref::<UITextField>() {
+            if unsafe { is_secure_text_entry(tf) } {
+                return None;
+            }
+            return Some(
+                unsafe { tf.text() }
+                    .map(|s| s.to_string())
+                    .unwrap_or_default(),
+            );
+        }
+        // A text area, or a label with links or `.selectable()` (both read-only text views).
+        if let Some(tv) = h.downcast_ref::<UITextView>() {
+            return Some(unsafe { tv.text() }.to_string());
+        }
+        let btn = h.downcast_ref::<UIButton>()?;
+        // A configured button titles through its configuration (`apply_button_style`), and
+        // falls back to the state title when that is empty, as UIKit draws it.
+        let title = unsafe {
+            btn.configuration()
+                .and_then(|config| config.title())
+                .filter(|t| !t.is_empty())
+                .or_else(|| btn.currentTitle())
+        }
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+        (!title.is_empty()).then_some(title)
+    }
+
+    /// A slider's value or a progress bar's fraction, for `read_native`. The slider is built
+    /// with Day's min and max and the bar runs 0–1, so both are already in Day's range; the
+    /// `f32` goes through its shortest decimal so 0.1 reads back as 0.1, not 0.10000000149.
+    fn native_number(h: &UIView) -> Option<f64> {
+        let v = if let Some(sl) = h.downcast_ref::<UISlider>() {
+            unsafe { sl.value() }
+        } else {
+            unsafe { h.downcast_ref::<UIProgressView>()?.progress() }
+        };
+        v.to_string().parse().ok()
+    }
+
+    /// Shown: in a window, and neither the view nor any superview hidden.
+    fn native_visible(h: &UIView) -> bool {
+        if h.window().is_none() {
+            return false;
+        }
+        let mut view: Option<Retained<UIView>> = Some(Retained::from(h));
+        while let Some(v) = view {
+            if v.isHidden() {
+                return false;
+            }
+            view = v.superview();
+        }
+        true
+    }
+
+    /// The view's frame in its window's coordinates (origin top left, points), for
+    /// `read_native`.
+    fn native_frame(h: &UIView) -> Option<Rect> {
+        h.window()?;
+        let r = h.convertRect_toView(h.bounds(), None);
+        Some(Rect::new(
+            r.origin.x,
+            r.origin.y,
+            r.size.width,
+            r.size.height,
+        ))
+    }
+
     fn apply_button_content(
         btn: &UIButton,
         title: &str,
@@ -7309,7 +7406,7 @@ mod imp {
         }
     }
 
-    /// Native UIAccessibility traits → Day `Role` (best-effort, for `read_a11y`/`a11y_audit`).
+    /// Native UIAccessibility traits → Day `Role` (best-effort, for `read_native`/`a11y_audit`).
     fn day_role_from_traits(t: objc2_ui_kit::UIAccessibilityTraits) -> day_spec::Role {
         use day_spec::Role;
         use objc2_ui_kit::{
@@ -10275,19 +10372,27 @@ mod imp {
             }
         }
 
-        fn read_a11y(&self, h: &Handle) -> day_spec::A11ySnapshot {
+        fn read_native(&self, h: &Handle) -> day_spec::NativeSnapshot {
             unsafe {
                 let traits: objc2_ui_kit::UIAccessibilityTraits =
                     msg_send![&**h, accessibilityTraits];
                 let label: Option<Retained<NSString>> = msg_send![&**h, accessibilityLabel];
                 let value: Option<Retained<NSString>> = msg_send![&**h, accessibilityValue];
                 let ident: Option<Retained<NSString>> = msg_send![&**h, accessibilityIdentifier];
-                day_spec::A11ySnapshot {
+                day_spec::NativeSnapshot {
                     found: true,
                     role: day_role_from_traits(traits),
                     label: label.map(|s| s.to_string()),
                     value: value.map(|s| s.to_string()),
                     identifier: ident.map(|s| s.to_string()).filter(|s| !s.is_empty()),
+                    text: native_text(h),
+                    number: native_number(h),
+                    checked: (**h).downcast_ref::<UISwitch>().map(|sw| sw.isOn()),
+                    // Only a UIControl takes input; a UILabel's `isEnabled` only dims it, and
+                    // a text view (a text area or a selectable label) has no enabled state.
+                    enabled: (**h).downcast_ref::<UIControl>().map(|c| c.isEnabled()),
+                    visible: Some(native_visible(h)),
+                    frame: native_frame(h),
                 }
             }
         }

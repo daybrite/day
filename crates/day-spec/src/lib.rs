@@ -3298,17 +3298,42 @@ impl A11yProps {
     }
 }
 
-/// A widget's actual native accessibility properties, read back by `Toolkit::read_a11y` so
-/// `a11y_audit` (§14.2) can diff the native tree against Day's expectation. `role` is the native
-/// role mapped back to Day's `Role` (best-effort); `found = false` means the backend can't read
-/// the native tree (audit skips the node).
+/// A widget's actual native state, read back from the platform by `Toolkit::read_native`
+/// (docs/testing.md): what the widget itself shows and reports, independently of Day's tree,
+/// so `a11y_audit` and `assert_native` (§14.2) can diff it against Day's expectation.
+///
+/// Two groups. The accessibility fields (`role`, `label`, `value`, `identifier`) are read
+/// together and `found` says whether they were: `found = false` means the backend cannot read
+/// its accessibility tree, and the audit skips the node. Every other field is read on its own,
+/// and `None` means "not read": the backend cannot read it, or it does not apply to this kind.
+/// A reader never reports a field it did not take from the widget, so a `None` is a recorded
+/// gap rather than a pass.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct A11ySnapshot {
+pub struct NativeSnapshot {
+    /// The accessibility fields below were read.
     pub found: bool,
+    /// The native role mapped back to Day's `Role` (best-effort).
     pub role: Role,
+    /// The accessibility label the platform reports.
     pub label: Option<String>,
+    /// The accessibility value the platform reports.
     pub value: Option<String>,
+    /// The automation identifier, which Day sets from `.id()`.
     pub identifier: Option<String>,
+    /// The text the widget displays: a label's string, a button's title, a text field's or
+    /// text area's contents, without markup or mnemonic markers. `None` for a secure field
+    /// that masks it.
+    pub text: Option<String>,
+    /// A slider's or progress indicator's value, in the range Day gave it.
+    pub number: Option<f64>,
+    /// A toggle's state.
+    pub checked: Option<bool>,
+    /// Whether the widget takes input.
+    pub enabled: Option<bool>,
+    /// Whether the widget is shown: not hidden itself, nor by an ancestor.
+    pub visible: Option<bool>,
+    /// The widget's frame in points, relative to the window's content area, origin top left.
+    pub frame: Option<Rect>,
 }
 
 // ---------------------------------------------------------------------------
@@ -6360,10 +6385,11 @@ pub trait Toolkit: Sized + 'static {
     /// waits its turn. Nothing happens when no screen reader is running. The default is a
     /// backend that reaches no announcement API.
     fn announce(&mut self, _text: &str, _urgent: bool) {}
-    /// Read a widget's native accessibility properties for `a11y_audit` (§14.2) to diff
-    /// against Day's expectation. Default: unsupported (`found = false`); the audit skips the node.
-    fn read_a11y(&self, _h: &Self::Handle) -> A11ySnapshot {
-        A11ySnapshot::default()
+    /// Read a widget's native state back from the platform for `a11y_audit` and
+    /// `assert_native` (§14.2, docs/testing.md) to diff against Day's expectation. Default:
+    /// nothing read; the audit skips the node and `assert_native` records each field as unread.
+    fn read_native(&self, _h: &Self::Handle) -> NativeSnapshot {
+        NativeSnapshot::default()
     }
     fn replay(&mut self, _h: &Self::Handle, _ops: &[DrawOp], _size: Size) {}
 

@@ -1236,28 +1236,17 @@ jobs:
         run: cargo clippy --locked -p day-xaml --features winui --all-targets
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" windows-winui
-  windows-msys2:
-    name: day-${{ matrix.combo }}
+  # The host-portable tests (scripts/ci/host-test.sh) under the windows-gnu toolchain, which the
+  # msvc row of the day-cli-windows legs does not cover: MinGW's GNU ld drops linker sections
+  # that MSVC keeps, and that is where the `linkme` registries have broken before. It builds
+  # from source and never runs the day CLI, so it needs no `day-cli-*` artifact. The toolkit
+  # crates are excluded there like everywhere else, so no Qt or GTK is installed: their MinGW
+  # builds are the windows-qt / windows-gtk targets' own concern.
+  windows-gnu:
+    name: host-test (windows-gnu)
     if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact; skip on tags
     runs-on: windows-2025
     continue-on-error: true
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # mingw-w64-x86_64-gcc provides the mingw gcc/g++ the pin step below points the linker
-          # (and the cc crate) at; the runner has no MSYS2 mingw compiler otherwise, only the libs.
-          # Neither web view has an MSYS2/MINGW64 package: no Qt6 WebEngine and no WebKitGTK 6 (both
-          # embed a browser engine, Chromium or WebKit, that won't build with MinGW GCC). So
-          # day-piece-webview degrades on both: the Qt view to a URL label (build.rs probes pkg-config
-          # for Qt6WebEngineWidgets), the GTK view to day's placeholder leaf (webkit6 is gated off
-          # Windows in Cargo.toml, exactly like macOS).
-          - combo: windows-qt
-            toolkit: qt
-            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-qt6-base mingw-w64-x86_64-pkgconf
-          - combo: windows-gtk
-            toolkit: gtk
-            msys_pkgs: mingw-w64-x86_64-gcc mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita mingw-w64-x86_64-pkgconf
     defaults:
       run:
         shell: msys2 {0}
@@ -1268,27 +1257,27 @@ jobs:
           toolchain: stable-x86_64-pc-windows-gnu
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Set up MSYS2 (qt/gtk)
+      # mingw-w64-x86_64-gcc is the MinGW gcc/g++ the pin step below points the linker (and the
+      # `cc` crate, for the vendored C sources) at; pkgconf answers the build scripts that probe
+      # for system libraries.
+      - name: Set up MSYS2
         uses: msys2/setup-msys2@v2
         with:
           msystem: MINGW64
           update: true
           path-type: inherit
-          install: ${{ matrix.msys_pkgs }}
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-pkgconf
       # rustup's windows-gnu toolchain links via whatever `x86_64-w64-mingw32-gcc` is first on
-      # PATH; on the runner that resolves to a different mingw (C:\mingw64) which lacks the
-      # MSYS2 Qt6/GTK4/glib import libs, so `-lQt6Widgets` / `-lglib-2.0` fail to link. Force
-      # MSYS2's mingw to the front of PATH and pin the linker + the `cc` crate's compiler (for the
-      # C++ shims) to MSYS2's gcc, so /mingw64/lib is searched. Forward-slash paths link cleanly.
-      - name: Pin the MSYS2 mingw toolchain (finds MSYS2 Qt6/GTK4 libs)
+      # PATH; on the runner that resolves to a different mingw (C:\mingw64). Force MSYS2's mingw
+      # to the front of PATH and pin the linker + the `cc` crate's compilers to MSYS2's gcc, so
+      # /mingw64/lib is searched. Forward-slash paths link cleanly.
+      - name: Pin the MSYS2 mingw toolchain
         run: |
           cygpath -w "$MINGW_PREFIX/bin" >> "$GITHUB_PATH"
           GCC="$(cygpath -m "$MINGW_PREFIX/bin/gcc.exe")"
           echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=$GCC" >> "$GITHUB_ENV"
           echo "CC=$GCC" >> "$GITHUB_ENV"
           echo "CXX=$(cygpath -m "$MINGW_PREFIX/bin/g++.exe")" >> "$GITHUB_ENV"
-      # Kept here rather than lifted into `test`: this runs under MSYS2's mingw toolchain, so it
-      # covers windows-gnu, which the msvc row of `test` does not.
       - name: Test host-portable crates
         run: scripts/ci/host-test.sh
   msrv:

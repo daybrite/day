@@ -5,7 +5,7 @@
 # need a platform SDK or a system toolkit the host may not have (and whose real coverage is the
 # per-combo build+walkthrough jobs; even day-appkit is excluded on macOS so all three OS legs
 # run the same set). This script is the one definition of that set; the day-cli-<os> native-arch
-# legs and the windows-msys2 job all call it, so the tested roster cannot drift between them.
+# legs and the host-test (windows-gnu) job all call it, so the tested roster cannot drift between them.
 #
 # Why not bare `cargo test`? A flagless cargo command builds only `default-members`, and that
 # list is tuned as the quick-iteration set for editors and local checks; the CLI and the
@@ -36,7 +36,7 @@ esac
 # crates/day-cli/src/ops.rs). GNU ld has no way to see that a `linkme` slice element is used:
 # `#[used]` becomes an /INCLUDE directive only for MSVC's linker. With rustc's default
 # `--gc-sections`, every element is dropped and a link-time registry comes up empty. That is
-# how `#[day::test]`'s TESTS slice held none of day-pieces' cases on the windows-msys2 jobs.
+# how `#[day::test]`'s TESTS slice held none of day-pieces' cases on the windows-gnu host test.
 # Keyed on rustc's host triple, not on `uname`: the MSVC Windows legs run this script under a
 # MinGW-flavored bash too, and link.exe must not be handed a GNU ld flag.
 if rustc -vV | grep -q '^host: .*-windows-gnu'; then

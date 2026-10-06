@@ -711,7 +711,7 @@ dayscript](/docs/dayscript).
 `day test -p <target>` builds the app, launches it, and runs its `#[day::test]` cases inside
 it: pages driven on the real toolkit, and headless logic in the app's own environment. One line
 per test, the evidence and captures beside the run's screenshots. A test is named after its
-function (`button_status` runs as `button-status`), a GUI case's page shows alone in the app's
+function (`button_press` runs as `button-press`), a GUI case's page shows alone in the app's
 `day::test_host`, and a case that panics or passes its time limit (`--case-timeout`, 30 s by
 default) fails without stopping the run. The guide is
 [Tests in the app](/docs/internal/testing).

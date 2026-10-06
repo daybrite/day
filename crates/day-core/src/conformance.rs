@@ -70,6 +70,24 @@ pub enum DriveOp {
     AssertFocused(String, bool),
     AssertRoute(String),
     A11yAudit(Option<String>),
+    /// The native widget's own state, as the platform reports it.
+    AssertNative(String, NativeExpect),
+}
+
+/// What [`Drive::assert_native`] expects the native widget to report; only the fields set are
+/// checked (docs/testing.md).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct NativeExpect {
+    /// The text the widget displays.
+    pub text: Option<String>,
+    /// A slider's or progress indicator's value.
+    pub number: Option<f64>,
+    /// A toggle's state.
+    pub checked: Option<bool>,
+    /// Whether the widget takes input.
+    pub enabled: Option<bool>,
+    /// Whether the widget is shown.
+    pub visible: Option<bool>,
 }
 
 /// The future one drive op resolves to.
@@ -163,6 +181,24 @@ impl Drive {
         self.op(DriveOp::A11yAudit(id.map(str::to_owned)))
     }
 
+    /// The native widget's own state, as the platform reports it (docs/testing.md). A field
+    /// the toolkit cannot read is recorded in the report as unread rather than failed. In a
+    /// conformance run `assert_text`, `assert_value` and `assert_on` check the native widget
+    /// too; this is for what they do not cover.
+    pub fn assert_native(&self, id: &str, expect: NativeExpect) -> OpFuture {
+        self.op(DriveOp::AssertNative(id.into(), expect))
+    }
+    /// Whether the element takes input, in Day's tree and in the native widget.
+    pub fn assert_enabled(&self, id: &str, enabled: bool) -> OpFuture {
+        self.assert_native(
+            id,
+            NativeExpect {
+                enabled: Some(enabled),
+                ..Default::default()
+            },
+        )
+    }
+
     /// A plain assertion for a headless test: fails with `what` when `ok` is false.
     pub fn check(&self, ok: bool, what: &str) -> TestResult {
         if ok { Ok(()) } else { Err(Fail(what.into())) }
@@ -243,6 +279,11 @@ impl Case {
     /// The capability this case proves.
     pub fn proves_cap(mut self, cap: Cap) -> Self {
         self.proves.push(format!("cap:{cap:?}"));
+        self
+    }
+    /// The `Decorate` modifier this case proves (`"padding"`).
+    pub fn proves_modifier(mut self, modifier: &str) -> Self {
+        self.proves.push(format!("modifier:{modifier}"));
         self
     }
     /// The toolkit duty this case proves (`"set_input_traits"`).

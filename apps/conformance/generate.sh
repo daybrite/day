@@ -39,6 +39,11 @@ if ! log="$(cd "$scratch" && "${day[@]}" new app conformance --toolkit "$targets
   exit 1
 fi
 
+# `day new` links two HarmonyOS media directories to icons it rendered under the scratch
+# copy's build/. Copied, those links dangle, and Git Bash on Windows cannot create a dangling
+# link at all. `day prepare` makes them again on every build (the template ignores them).
+find "$scratch/conformance/platform" -type l -exec rm -f {} +
+
 # An overlay: each generated part is replaced whole, and nothing else in the app is touched.
 for part in Day.toml build.rs resource platform; do
   rm -rf "${here:?}/$part"

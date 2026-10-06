@@ -835,11 +835,12 @@ pub trait TreeOps {
     fn node_probe(&self, node: RNode) -> Option<NodeProbe>;
     /// The node's accumulated accessibility annotations (§13): `a11y_audit`'s expectation.
     fn node_a11y(&self, node: RNode) -> Option<A11yProps>;
-    /// The node's actual native a11y properties (`a11y_audit` diffs this against `node_a11y`).
-    fn read_a11y(&self, node: RNode) -> Option<day_spec::A11ySnapshot>;
+    /// The node's actual native state (`a11y_audit` diffs it against `node_a11y`, and
+    /// `assert_native` against the probe).
+    fn read_native(&self, node: RNode) -> Option<day_spec::NativeSnapshot>;
     /// For every node with an `.id()` and a native handle: `(id, kind, expected, actual)`, the
     /// raw material for the `a11y_audit` step (§14.2). Comparison/policy lives in day-script.
-    fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)>;
+    fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::NativeSnapshot)>;
     fn find_by_id(&self, id: &str) -> Option<RNode>;
     /// Show/hide the sidebar pane of the navigation host `host`: what the sidebar affordance
     /// a `nav(Sidebar)` contributes for itself drives. `false` when the toolkit has no
@@ -1766,19 +1767,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.nodes.get(node).map(|n| n.a11y.clone())
     }
 
-    fn read_a11y(&self, node: RNode) -> Option<day_spec::A11ySnapshot> {
+    fn read_native(&self, node: RNode) -> Option<day_spec::NativeSnapshot> {
         let n = self.nodes.get(node)?;
         let h = n.handle.as_ref()?;
-        Some(self.toolkit.read_a11y(h))
+        Some(self.toolkit.read_native(h))
     }
 
-    fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::A11ySnapshot)> {
+    fn a11y_nodes(&self) -> Vec<(String, PieceKind, A11yProps, day_spec::NativeSnapshot)> {
         self.nodes
             .values()
             .filter_map(|n| {
                 let id = n.id.clone()?;
                 let h = n.handle.as_ref()?;
-                Some((id, n.kind, n.a11y.clone(), self.toolkit.read_a11y(h)))
+                Some((id, n.kind, n.a11y.clone(), self.toolkit.read_native(h)))
             })
             .collect()
     }

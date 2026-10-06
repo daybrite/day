@@ -1525,17 +1525,60 @@ const env = {
     mem().set(bytes, out);
     return bytes.length;
   },
-  // An element's accessibility attributes read back for `a11y_audit` (docs/accessibility.md),
-  // by the day_dom_env buffer protocol: role, label, value and id, joined by U+001F, where the
-  // value is `aria-valuetext` or else the description (a non-range role has no value slot of
-  // its own, so Day folds its value into the description). An empty answer is an element the
-  // page no longer has.
-  day_dom_read_a11y(id, out, cap) {
+  // An element read back for `a11y_audit` and `assert_native` (docs/testing.md), by the
+  // day_dom_env buffer protocol, as fields joined by U+001F:
+  //   role, label, value, id — the ARIA attributes, where the value is `aria-valuetext` or else
+  //     the description (a non-range role has no value slot of its own, so Day folds its value
+  //     into the description);
+  //   number, checked, enabled, visible — "" when this element has none, booleans as 1/0;
+  //   x, y, w, h — the frame in CSS px relative to #day-root, all "" when it has no box;
+  //   text — LAST, since a field's contents may hold any character: "" when the element shows
+  //     no text of its own (or masks it), else "=" followed by the text.
+  // The ARIA attributes and the value-carrying state live on V (the toggle's <input>); the box
+  // is E's, since the toggle's input is an invisible overlay on its wrapper. An empty answer is
+  // an element the page no longer has.
+  day_dom_read_native(id, out, cap) {
     const el = V(id);
+    const box = E(id);
     let v = '';
     if (el) {
       const a = (n) => el.getAttribute(n) ?? '';
-      v = [a('role'), a('aria-label'), a('aria-valuetext') || a('aria-description'), el.id || '']
+      const tag = el.tagName;
+      let text = null;
+      if (box.classList.contains('day-label')) text = box.textContent;
+      else if (tag === 'BUTTON' && el.classList.contains('day-btn')) {
+        // An icon button (apply_button_content) holds a hidden glyph span, then the title in a
+        // span of its own; icon-only shows no title at all.
+        const icon = el.querySelector(':scope > span[aria-hidden="true"]');
+        if (!icon) text = el.textContent;
+        else text = el.querySelector(':scope > span:not([aria-hidden])')?.textContent ?? null;
+      } else if (tag === 'INPUT' && el.type === 'text') text = el.value;
+      else if (tag === 'TEXTAREA') text = el.value;
+      else if (tag === 'SELECT') text = el.selectedOptions[0]?.text ?? null;
+      let number = '';
+      if (tag === 'INPUT' && el.type === 'range') number = String(Number(el.value));
+      else if (tag === 'PROGRESS') number = String(el.position >= 0 ? el.value : '');
+      const checked = tag === 'INPUT' && el.type === 'checkbox' ? (el.checked ? '1' : '0') : '';
+      const enabled = el.matches('button, input, select, textarea')
+        ? (el.matches(':disabled') ? '0' : '1') : '';
+      let frame = ['', '', '', ''];
+      let visible = '0';
+      if (box.isConnected && box.getClientRects().length > 0) {
+        const r = box.getBoundingClientRect();
+        const o = root().getBoundingClientRect();
+        frame = [r.left - o.left, r.top - o.top, r.width, r.height].map(String);
+        let shown = r.width > 0 && r.height > 0;
+        if (shown && box.checkVisibility) shown = box.checkVisibility({ visibilityProperty: true });
+        else if (shown) {
+          for (let n = box; n && n.nodeType === 1; n = n.parentElement) {
+            const cs = getComputedStyle(n);
+            if (cs.display === 'none' || (n === box && cs.visibility !== 'visible')) { shown = false; break; }
+          }
+        }
+        visible = shown ? '1' : '0';
+      }
+      v = [a('role'), a('aria-label'), a('aria-valuetext') || a('aria-description'), el.id || '',
+        number, checked, enabled, visible, ...frame, text === null ? '' : '=' + text]
         .join('\u001f');
     }
     const bytes = utf8enc.encode(v).slice(0, cap);

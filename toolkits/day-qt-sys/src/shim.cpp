@@ -94,6 +94,8 @@
 #include <QUrl>
 #include <QAccessible>
 #include <QAccessibleWidget>
+#include <QPlainTextEdit>
+#include <QTextDocument>
 
 #include <cstdint>
 
@@ -1189,6 +1191,161 @@ void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int
         QAccessibleStateChangeEvent ev(widget, changed);
         QAccessible::updateAccessibility(&ev);
     }
+}
+
+// --- native read-back (`Toolkit::read_native`, docs/testing.md) ---
+// What the widget itself shows and reports, for `a11y_audit` and `assert_native`. Every field is
+// taken from the widget, never from Day's props; a field the widget does not carry stays at its
+// "not read" value (NULL, -1, 0 for `number_kind`/`frame_ok`). Strings are heap copies that
+// `day_qt_native_free` releases.
+struct DayQtNative {
+    int found;          // the accessibility group (role, level, label, value, identifier) was read
+    int role;           // Day's role code (table above), 0 when the native role maps to none
+    int level;          // a heading's level
+    char *label;        // QAccessible::Name
+    char *value;        // QAccessible::Value
+    char *identifier;   // objectName, where `set_a11y` puts `.id()`
+    char *text;         // the displayed text, mnemonics stripped; NULL for a masked field
+    int number_kind;    // 0 none, 1 slider ticks (0..1000), 2 progress ticks (0..1000)
+    int number;         // the ticks
+    int checked;        // a toggle's state, -1 when the widget is not checkable
+    int enabled;        // isEnabled
+    int visible;        // isVisible: shown, and every ancestor too
+    int frame_ok;       // the frame below was read
+    double x, y, w, h;  // geometry in the window content's coordinates
+};
+
+// The inverse of `day_qt_a11y_role`, for any widget's reported role: what the platform says
+// rather than what Day asked for. A stock role with no Day counterpart (static text, a client
+// area) is 0.
+static int day_qt_role_code(QAccessible::Role role) {
+    switch (role) {
+    case QAccessible::Button: return 1;
+    case QAccessible::CheckBox: return 2;
+    case QAccessible::Slider: return 3;
+    case QAccessible::EditableText: return 4;
+    case QAccessible::Heading: return 5;
+    case QAccessible::Graphic: return 6;
+    case QAccessible::ProgressBar: return 7;
+    case QAccessible::Grouping: return 8;
+    case QAccessible::Tree: return 9;
+    case QAccessible::TreeItem: return 10;
+    default: return 0;
+    }
+}
+
+static char *day_qt_dup(const QString &s) {
+    return s.isEmpty() ? nullptr : strdup(s.toUtf8().constData());
+}
+
+// A button title as drawn: Qt treats `&` as a mnemonic marker (hidden or underlined, never
+// drawn) and `&&` as a literal ampersand.
+static QString day_qt_strip_mnemonic(const QString &s) {
+    QString out;
+    out.reserve(s.size());
+    for (qsizetype i = 0; i < s.size(); ++i) {
+        if (s[i] == QLatin1Char('&')) {
+            if (i + 1 < s.size() && s[i + 1] == QLatin1Char('&')) {
+                out += QLatin1Char('&');
+                ++i;
+            }
+            continue;
+        }
+        out += s[i];
+    }
+    return out;
+}
+
+void day_qt_read_native(void *w, DayQtNative *out) {
+    *out = DayQtNative{};
+    out->checked = -1;
+    QWidget *widget = static_cast<QWidget *>(w);
+    if (!widget) return;
+
+    // The accessibility group, through the same QAccessibleInterface a bridge would ask (Day's
+    // own for a widget with traits, Qt's stock one otherwise). With no bridge active nothing
+    // else holds the interface, and leaving it cached would keep a stock one in place after
+    // `day_qt_set_a11y_traits` later asks for Day's (that function only evicts while a bridge
+    // is up), so the read evicts what it built.
+    if (QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(widget)) {
+        if (iface->isValid()) {
+            out->found = 1;
+            out->role = day_qt_role_code(iface->role());
+            if (out->role == 5) out->level = std::max(1, widget->property("day_a11y_level").toInt());
+            out->label = day_qt_dup(iface->text(QAccessible::Name));
+            out->value = day_qt_dup(iface->text(QAccessible::Value));
+        }
+        if (!QAccessible::isActive())
+            QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(iface));
+    }
+    if (out->found) out->identifier = day_qt_dup(widget->objectName());
+
+    // The displayed text, per class. A label in rich text shows its document's plain text; a
+    // label holding only a picture shows none.
+    if (auto *l = qobject_cast<QLabel *>(widget)) {
+        const bool rich = l->textFormat() == Qt::RichText ||
+                          (l->textFormat() == Qt::AutoText && Qt::mightBeRichText(l->text()));
+        if (rich) {
+            QTextDocument doc;
+            doc.setHtml(l->text());
+            out->text = strdup(doc.toPlainText().toUtf8().constData());
+        } else if (!l->text().isEmpty() || l->pixmap().isNull()) {
+            out->text = strdup(l->text().toUtf8().constData());
+        }
+    } else if (auto *e = qobject_cast<QLineEdit *>(widget)) {
+        if (e->echoMode() == QLineEdit::Normal) out->text = strdup(e->text().toUtf8().constData());
+    } else if (auto *pe = qobject_cast<QPlainTextEdit *>(widget)) {
+        out->text = strdup(pe->toPlainText().toUtf8().constData());
+    } else if (auto *te = qobject_cast<QTextEdit *>(widget)) {
+        out->text = strdup(te->toPlainText().toUtf8().constData());
+    } else if (auto *b = qobject_cast<QAbstractButton *>(widget)) {
+        // A Day toggle is a bare QCheckBox whose label is a separate piece: no text of its own.
+        if (!qobject_cast<QCheckBox *>(widget) || !b->text().isEmpty())
+            out->text = strdup(day_qt_strip_mnemonic(b->text()).toUtf8().constData());
+    }
+
+    // A value in the tick range Day's sliders and progress bars use; any other range is not
+    // one Day built, and a busy bar (0..0) has no value.
+    if (auto *s = qobject_cast<QSlider *>(widget)) {
+        if (s->minimum() == 0 && s->maximum() == 1000) {
+            out->number_kind = 1;
+            out->number = s->value();
+        }
+    } else if (auto *p = qobject_cast<QProgressBar *>(widget)) {
+        if (p->minimum() == 0 && p->maximum() == 1000) {
+            out->number_kind = 2;
+            out->number = p->value();
+        }
+    }
+
+    if (auto *b = qobject_cast<QAbstractButton *>(widget); b && b->isCheckable())
+        out->checked = b->isChecked() ? 1 : 0;
+    out->enabled = widget->isEnabled() ? 1 : 0;
+    out->visible = widget->isVisible() ? 1 : 0;
+
+    // The frame against the window's content widget (below any in-window menu bar and the
+    // toolbar strip), where Day's own coordinates start. A widget re-homed outside it maps
+    // through global coordinates instead.
+    QWidget *top = widget->window();
+    if (auto *dw = dynamic_cast<DayWindow *>(top); dw && dw->content) top = dw->content;
+    if (top && top != widget) {
+        const QPoint origin = top->isAncestorOf(widget)
+                                  ? widget->mapTo(top, QPoint(0, 0))
+                                  : top->mapFromGlobal(widget->mapToGlobal(QPoint(0, 0)));
+        out->frame_ok = 1;
+        out->x = origin.x();
+        out->y = origin.y();
+        out->w = widget->width();
+        out->h = widget->height();
+    }
+}
+
+void day_qt_native_free(DayQtNative *n) {
+    free(n->label);
+    free(n->value);
+    free(n->identifier);
+    free(n->text);
+    n->label = n->value = n->identifier = n->text = nullptr;
 }
 
 // Announce (docs/accessibility.md): QAccessibleAnnouncementEvent reaches every bridge from

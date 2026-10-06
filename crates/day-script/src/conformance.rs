@@ -13,7 +13,9 @@ use std::pin::Pin;
 use std::rc::Rc;
 use std::task::{Context, Poll};
 
-use day_core::conformance::{Case, Drive, DriveBackend, DriveOp, Fail, OpFuture, TestKind};
+use day_core::conformance::{
+    Case, Drive, DriveBackend, DriveOp, Fail, NativeExpect, OpFuture, TestKind,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{Reply, Step, b64encode, next_capture_revision};
@@ -44,6 +46,10 @@ pub struct Outcome {
     /// The captures taken, by name; the PNG bytes ride beside them in [`RunReport::shots`].
     #[serde(default)]
     pub shots: Vec<String>,
+    /// Native fields this case asked about that the toolkit could not read (`<id> <field>`):
+    /// the case passed without them, and the evidence says so.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub native_unread: Vec<String>,
 }
 
 /// A capture a test took, for the runner to write beside the evidence.
@@ -217,6 +223,7 @@ fn outcome_for(case: &Case) -> Outcome {
         ms: 0,
         proves: case.proves_keys().to_vec(),
         shots: Vec::new(),
+        native_unread: Vec::new(),
     }
 }
 
@@ -241,6 +248,7 @@ async fn run_case(
     }
     let backend = Rc::new(Engine {
         shots: Rc::new(RefCell::new(Vec::new())),
+        unread: Rc::new(RefCell::new(Vec::new())),
     });
     let drive = Drive::new(backend.clone());
     // A run's `case_timeout_secs: 0` turns limits off (a debugger holding a breakpoint);
@@ -288,6 +296,8 @@ async fn run_case(
         }
     }
     outcome.ms = started.elapsed_ms();
+    outcome.native_unread = std::mem::take(&mut *backend.unread.borrow_mut());
+    outcome.native_unread.dedup();
     let keep = match policy {
         ShotPolicy::Never => false,
         ShotPolicy::OnFailure => result.is_err(),
@@ -352,8 +362,14 @@ impl Future for Guarded {
 /// The engine's [`DriveBackend`]: each op is the dayscript step of the same name, executed on
 /// the main thread and retried through the step's own wait window with the main loop turning
 /// in between, so a drive sees the app settle the way a script does.
+///
+/// In a conformance run the Day-side assertions also check the native widget: `assert_text`,
+/// `assert_value` and `assert_on` are each followed by the `assert_native` of the same fact,
+/// so a pass means the platform's widget shows it too, not only Day's tree.
 struct Engine {
     shots: Rc<RefCell<Vec<Capture>>>,
+    /// `<id> <field>` for each native field the toolkit could not read.
+    unread: Rc<RefCell<Vec<String>>>,
 }
 
 /// A capture a drive took: its name and the PNG.
@@ -361,43 +377,91 @@ type Capture = (String, Vec<u8>);
 
 impl DriveBackend for Engine {
     fn run(&self, op: DriveOp) -> OpFuture {
-        let shots = self.shots.clone();
+        let (shots, unread) = (self.shots.clone(), self.unread.clone());
         Box::pin(async move {
             if let DriveOp::Pause(secs) = op {
                 day_core::sleep((secs * 1000.0) as u32).await;
                 return Ok(());
             }
-            let step = step_for(&op)?;
-            // The wait is counted in sleeps rather than read off a clock: the browser has no
-            // `Instant` (std's panics on wasm), and the sleeps are what the wait is made of.
-            let mut waited_ms = 0u32;
-            let budget_ms = (crate::DEFAULT_TIMEOUT_SECS * 1000.0) as u32;
-            // One capture revision for the whole wait, as the socket runner keeps: a capture's
-            // checkpoint is armed under it, and a fresh one per retry would never see it land.
-            let revision = next_capture_revision();
-            loop {
-                let reply = crate::exec(step.clone(), revision);
-                if reply.ok {
-                    if let (DriveOp::Shot(name), Some(png)) = (&op, &reply.png_base64) {
-                        shots
-                            .borrow_mut()
-                            .push((name.clone(), crate::b64decode(png)));
-                    }
-                    return Ok(());
-                }
-                let message = reply.error.unwrap_or_else(|| "failed".into());
-                if !reply.retryable || waited_ms >= budget_ms {
-                    return Err(Fail(format!("{}: {message}", op_name(&op))));
-                }
-                let wait = if reply.capture_pending {
-                    16
-                } else {
-                    crate::RETRY_MS
-                };
-                waited_ms += wait;
-                day_core::sleep(wait).await;
+            run_step(&op, &shots, &unread).await?;
+            if let Some(native) = native_follow_up(&op) {
+                run_step(&native, &shots, &unread).await?;
             }
+            Ok(())
         })
+    }
+}
+
+/// The native check that follows a Day-side assertion in a conformance run.
+fn native_follow_up(op: &DriveOp) -> Option<DriveOp> {
+    let (id, expect) = match op {
+        DriveOp::AssertText(id, text) => (
+            id,
+            NativeExpect {
+                text: Some(text.clone()),
+                ..Default::default()
+            },
+        ),
+        DriveOp::AssertValue(id, value) => (
+            id,
+            NativeExpect {
+                number: Some(*value),
+                ..Default::default()
+            },
+        ),
+        DriveOp::AssertOn(id, on) => (
+            id,
+            NativeExpect {
+                checked: Some(*on),
+                ..Default::default()
+            },
+        ),
+        _ => return None,
+    };
+    Some(DriveOp::AssertNative(id.clone(), expect))
+}
+
+/// Run one op as its dayscript step through the step's retry window.
+async fn run_step(
+    op: &DriveOp,
+    shots: &Rc<RefCell<Vec<Capture>>>,
+    unread: &Rc<RefCell<Vec<String>>>,
+) -> Result<(), Fail> {
+    let step = step_for(op)?;
+    // The wait is counted in sleeps rather than read off a clock: the browser has no
+    // `Instant` (std's panics on wasm), and the sleeps are what the wait is made of.
+    let mut waited_ms = 0u32;
+    let budget_ms = (crate::DEFAULT_TIMEOUT_SECS * 1000.0) as u32;
+    // One capture revision for the whole wait, as the socket runner keeps: a capture's
+    // checkpoint is armed under it, and a fresh one per retry would never see it land.
+    let revision = next_capture_revision();
+    loop {
+        let reply = crate::exec(step.clone(), revision);
+        if reply.ok {
+            if let (DriveOp::Shot(name), Some(png)) = (op, &reply.png_base64) {
+                shots
+                    .borrow_mut()
+                    .push((name.clone(), crate::b64decode(png)));
+            }
+            if let (DriveOp::AssertNative(id, _), Some(data)) = (op, &reply.data) {
+                let fields = data.get("unread").and_then(|u| u.as_array());
+                for f in fields.into_iter().flatten().filter_map(|f| f.as_str()) {
+                    unread.borrow_mut().push(format!("{id} {f}"));
+                }
+            }
+            return Ok(());
+        }
+        let message = reply.error.unwrap_or_else(|| "failed".into());
+        if !reply.retryable || waited_ms >= budget_ms {
+            return Err(Fail(format!("{}: {message}", op_name(op))));
+        }
+        let wait = if reply.capture_pending {
+            16
+        } else {
+            crate::RETRY_MS
+        };
+        waited_ms += wait;
+        day_core::sleep(wait).await;
     }
 }
 
@@ -421,6 +485,7 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::AssertFocused(id, _) => format!("assert_focused {id}"),
         DriveOp::AssertRoute(route) => format!("assert_route {route}"),
         DriveOp::A11yAudit(_) => "a11y_audit".into(),
+        DriveOp::AssertNative(id, _) => format!("assert_native {id}"),
     }
 }
 
@@ -450,6 +515,10 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         }
         DriveOp::AssertRoute(route) => json!({"op": "assert_route", "route": route}),
         DriveOp::A11yAudit(id) => json!({"op": "a11y_audit", "id": id}),
+        DriveOp::AssertNative(id, e) => json!({
+            "op": "assert_native", "id": id, "text": e.text, "number": e.number,
+            "checked": e.checked, "enabled": e.enabled, "visible": e.visible,
+        }),
     };
     serde_json::from_value(v).map_err(|e| Fail(format!("{}: {e}", op_name(op))))
 }

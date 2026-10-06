@@ -198,6 +198,9 @@ leg "doc links" scripts/ci/doc-links.py
 # a LinkError at instantiate or a silently swallowed TypeError in a DOM handler (a button that
 # does nothing). Both are static facts, so they are checked here rather than in a browser.
 leg "web shim ABI" scripts/ci/web-shim-abi.py
+# How much of the built-in surface the `#[day::test]` cases prove (docs/testing.md). Report only
+# while the coverage backlog is open; it gains `--check` once every family is covered.
+leg "conformance coverage (report)" scripts/ci/conformance-coverage.py
 
 # ── summary ────────────────────────────────────────────────────────────────────────────────────
 printf '\n\033[1m── lint summary ──\033[0m\n'

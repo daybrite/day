@@ -4123,6 +4123,72 @@ mod imp {
             });
         }
 
+        /// `DayBridge.readNative`: every field in one call, as a `String[]` whose slots (the
+        /// bridge's `RN_*` order) are null where the view was not read.
+        fn read_native(&self, h: &AHandle) -> day_spec::NativeSnapshot {
+            if !vm_ready() {
+                return day_spec::NativeSnapshot::default();
+            }
+            let slots: Vec<Option<String>> = with_env(|env| {
+                let Ok(obj) = env
+                    .dcall_static(
+                        BRIDGE,
+                        "readNative",
+                        "(Landroid/view/View;)[Ljava/lang/String;",
+                        &[JValue::Object(h.0.as_obj())],
+                    )
+                    .and_then(|r| r.l())
+                else {
+                    return Vec::new();
+                };
+                let Ok(arr) = jni::objects::JObjectArray::<JString>::cast_local(env, obj) else {
+                    return Vec::new();
+                };
+                let len = arr.len(env).unwrap_or(0);
+                (0..len)
+                    .map(|i| {
+                        let s = arr.get_element(env, i).ok()?;
+                        read_jstring(env, &s)
+                    })
+                    .collect()
+            });
+            let slot = |i: usize| slots.get(i).cloned().flatten();
+            let flag = |i: usize| slot(i).map(|s| s == "1");
+            let found = flag(0) == Some(true);
+            // `DayBridge.ROLE_*`, `set_a11y`'s numbering; the node carries no heading level.
+            let role = match slot(1).and_then(|s| s.parse::<i32>().ok()) {
+                Some(1) => Role::Button,
+                Some(2) => Role::Toggle,
+                Some(3) => Role::Slider,
+                Some(4) => Role::TextInput,
+                Some(5) => Role::Heading(1),
+                Some(6) => Role::Image,
+                Some(7) => Role::Meter,
+                Some(8) => Role::Group,
+                _ => Role::None,
+            };
+            let frame = slot(10).and_then(|s| {
+                let v: Vec<f64> = s.split(',').filter_map(|n| n.parse().ok()).collect();
+                match v[..] {
+                    [x, y, w, h] => Some(Rect::new(x, y, w, h)),
+                    _ => None,
+                }
+            });
+            day_spec::NativeSnapshot {
+                found,
+                role,
+                label: found.then(|| slot(2)).flatten(),
+                value: found.then(|| slot(3)).flatten(),
+                identifier: found.then(|| slot(4)).flatten().filter(|s| !s.is_empty()),
+                text: slot(5),
+                number: slot(6).and_then(|s| s.parse().ok()),
+                checked: flag(7),
+                enabled: flag(8),
+                visible: flag(9),
+                frame,
+            }
+        }
+
         fn announce(&mut self, text: &str, urgent: bool) {
             with_env(|env| {
                 let text = jstr(env, text);

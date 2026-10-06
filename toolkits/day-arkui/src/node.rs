@@ -29,6 +29,8 @@ use ohos_sys::arkui::native_node::{
     ArkUI_AttributeItem, ArkUI_NativeNodeAPI_1, ArkUI_NodeAttributeType as Attr,
     ArkUI_NodeCustomEvent, ArkUI_NodeCustomEventType, ArkUI_NodeDirtyFlag, ArkUI_NodeEvent,
     ArkUI_NodeEventType, ArkUI_NodeType, OH_ArkUI_GetContextByNode, OH_ArkUI_NodeContent_AddNode,
+    OH_ArkUI_NodeUtils_GetLayoutPositionInWindow, OH_ArkUI_NodeUtils_GetLayoutSize,
+    OH_ArkUI_NodeUtils_GetNodeType,
 };
 use ohos_sys::arkui::native_type::*;
 
@@ -182,6 +184,42 @@ pub fn child_count(n: Handle) -> u32 {
 
 pub fn child_at(n: Handle, index: i32) -> Handle {
     api_call!(getChildAt(n, index)).unwrap_or(ptr::null_mut())
+}
+
+/// The node's parent in the C-API tree, or null at the top (a node mounted in an ArkTS
+/// `NodeContent`, or a detached one).
+pub fn parent(n: Handle) -> Handle {
+    api_call!(getParent(n)).unwrap_or(ptr::null_mut())
+}
+
+/// The node's kind as ArkUI reports it, `None` for a kind the C API does not name.
+pub fn node_type(n: Handle) -> Option<ArkUI_NodeType> {
+    // SAFETY: a query on a live node; -1 answers a kind with no C-API name.
+    let t = unsafe { OH_ArkUI_NodeUtils_GetNodeType(n) };
+    u32::try_from(t).ok().map(ArkUI_NodeType)
+}
+
+/// The node's laid-out frame in window coordinates, in px: the layout box, without the
+/// translate/scale channels. `None` when ArkUI refuses either query.
+pub fn layout_frame_px(n: Handle) -> Option<(f64, f64, f64, f64)> {
+    let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
+    let mut size = ArkUI_IntSize {
+        width: 0,
+        height: 0,
+    };
+    // SAFETY: queries on a live node into out-params that live across the calls.
+    let ok = unsafe {
+        OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(n, &mut pos) == 0
+            && OH_ArkUI_NodeUtils_GetLayoutSize(n, &mut size) == 0
+    };
+    ok.then(|| {
+        (
+            f64::from(pos.x),
+            f64::from(pos.y),
+            f64::from(size.width),
+            f64::from(size.height),
+        )
+    })
 }
 
 pub fn mark_dirty(n: Handle, flag: ArkUI_NodeDirtyFlag) {

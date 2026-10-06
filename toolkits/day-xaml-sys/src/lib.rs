@@ -9,6 +9,35 @@
 
 use std::os::raw::{c_char, c_double, c_int, c_void};
 
+/// What [`day_xaml_read_native`] reads back from an element: the shim's `DayXamlNative`,
+/// field for field. A member the element does not carry keeps its "not read" value: `0` in a
+/// `has_*` flag, `-1` in a tri-state (`checked`, `enabled`, `visible`), a null string. Strings
+/// are heap copies to release with [`day_xaml_string_free`].
+#[repr(C)]
+pub struct DayXamlNative {
+    /// The accessibility group (`role` through `identifier`) was read.
+    pub found: c_int,
+    /// [`day_xaml_set_a11y`]'s role table; `0` when the element carries none of it.
+    pub role: c_int,
+    /// The heading level, with role 5.
+    pub level: c_int,
+    pub label: *mut c_char,
+    pub value: *mut c_char,
+    pub identifier: *mut c_char,
+    /// The text on screen; null for a `PasswordBox` and elements without text.
+    pub text: *mut c_char,
+    pub has_number: c_int,
+    pub number: c_double,
+    pub checked: c_int,
+    pub enabled: c_int,
+    pub visible: c_int,
+    pub has_frame: c_int,
+    pub x: c_double,
+    pub y: c_double,
+    pub w: c_double,
+    pub h: c_double,
+}
+
 unsafe extern "C" {
     // window / app lifecycle
     pub fn day_xaml_window_new(
@@ -397,6 +426,9 @@ unsafe extern "C" {
         level: c_int,
         hidden: c_int,
     );
+    /// Read back what the element's native control reports into `out` (see
+    /// [`DayXamlNative`]); every string in it is released with [`day_xaml_string_free`].
+    pub fn day_xaml_read_native(w: *mut c_void, out: *mut DayXamlNative);
     /// Speak `text` through the screen reader without moving its focus — a UIA notification
     /// raised from the primary window's tree; `urgent` != 0 interrupts the current speech.
     /// Nothing happens before the window exists or with no screen reader listening.

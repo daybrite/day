@@ -238,6 +238,11 @@ unsafe extern "C" {
     /// Speak `text` through the running screen reader, posted on window `w`; nothing without
     /// one. `urgent` interrupts the current speech.
     pub fn day_qt_announce(w: *mut c_void, text: *const c_char, urgent: c_int);
+    /// Read a widget's native state back into `out` (`Toolkit::read_native`, docs/testing.md).
+    /// Release its strings with [`day_qt_native_free`].
+    pub fn day_qt_read_native(w: *mut c_void, out: *mut DayQtNative);
+    /// Release the strings [`day_qt_read_native`] wrote, and null them.
+    pub fn day_qt_native_free(n: *mut DayQtNative);
 
     pub fn day_qt_canvas_new() -> *mut c_void;
     pub fn day_qt_canvas_set_ops(
@@ -526,4 +531,42 @@ unsafe extern "C" {
     /// Per-row context menus for the nav list (docs/menus.md): a parallel array of QMenu*
     /// (null = no menu for that row); the shim maps a custom-context request to its row.
     pub fn day_qt_navlist_set_row_menus(w: *mut c_void, menus: *const *mut c_void, n: i32);
+}
+
+/// A widget's native state as `day_qt_read_native` writes it (shim.cpp's `DayQtNative`). Each
+/// field holds what was read from the widget, or its "not read" value: NULL, `checked` -1,
+/// `number_kind` 0, `frame_ok` 0.
+#[repr(C)]
+pub struct DayQtNative {
+    /// Nonzero when the accessibility group (`role` through `identifier`) was read.
+    pub found: c_int,
+    /// The reported role as a Day role code (the `day_qt_set_a11y_traits` table), 0 for none.
+    pub role: c_int,
+    /// A heading's level.
+    pub level: c_int,
+    /// The accessible name.
+    pub label: *mut c_char,
+    /// The accessible value.
+    pub value: *mut c_char,
+    /// The objectName, where Day puts `.id()`.
+    pub identifier: *mut c_char,
+    /// The displayed text, mnemonic markers stripped; NULL where it is masked or does not apply.
+    pub text: *mut c_char,
+    /// 0 none, 1 slider ticks, 2 progress ticks (both 0..=1000).
+    pub number_kind: c_int,
+    /// The ticks `number_kind` names.
+    pub number: c_int,
+    /// A checkable button's state, -1 when the widget is not checkable.
+    pub checked: c_int,
+    /// `isEnabled`.
+    pub enabled: c_int,
+    /// `isVisible`: shown, and every ancestor too.
+    pub visible: c_int,
+    /// Nonzero when the frame was read.
+    pub frame_ok: c_int,
+    /// The frame in the window content's coordinates, logical px.
+    pub x: c_double,
+    pub y: c_double,
+    pub w: c_double,
+    pub h: c_double,
 }
