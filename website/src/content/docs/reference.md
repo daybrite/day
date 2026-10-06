@@ -27,6 +27,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [buttons](/docs/internal/buttons) | button styles per backend |
 | [navigation](/docs/internal/navigation) | nav host/stack mapping per platform, routes |
 | [deep-links](/docs/internal/deep-links) | custom URL schemes, delivery, launcher shortcuts |
+| [manifest](/docs/internal/manifest) | additional URL schemes declared in Day.toml with `url_schemes` |
 | [dialogs](/docs/internal/dialogs) | alert/confirm/prompt, native presentation, results |
 | [commands](/docs/internal/commands) | reusable application operations across buttons, menus and toolbars |
 | [menus](/docs/internal/menus) | app menu bar, context menus, roles and shortcuts |
@@ -52,6 +53,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [shapes](/docs/internal/shapes) | canvas drawing, shape pieces, gestures |
 | [progress](/docs/internal/progress) | determinate bars and spinners |
 | [picker](/docs/internal/picker) | the built-in one-of-N picker: menu, segmented, and inline styles |
+| [textfield](/docs/internal/textfield) | single-line text: password entry, keyboard purpose, length limit |
 | [textarea](/docs/internal/textarea) | multi-line text: editing, selection, spell-check |
 | [texteditor](/docs/internal/texteditor) | `day-piece-texteditor` — editing a StyledText in each platform's rich-text view |
 | [localization](/docs/internal/localization) | Fluent mechanics, arguments, fallback |

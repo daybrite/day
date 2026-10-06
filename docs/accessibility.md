@@ -104,6 +104,50 @@ GTK makes the call only through an AT-SPI context, which exists only once the ac
 bus answered: GTK 4.14 reaches the announcement through its no-AT context otherwise and the
 process ends. On Windows the GTK build cannot look the symbol up and answers `Unsupported`.
 
+## Reduced motion
+
+Every platform has a switch for less motion, and users who set it do so for vestibular reasons
+or because animation distracts them. Day honors it in one place: a gate in day-core that every
+animation Day drives consults.
+
+- **What it covers.** `with_animation`, implicit `.animation()`, enter and exit pairs,
+  `set_frame`/`set_opacity`/`set_transform` transitions, canvas `Tweened` values, `animate`
+  and programmatic scrolls. Under the gate each finite transition lands at its destination,
+  and a tween already in flight finishes on its next frame. Nothing cross-fades: the
+  destination is applied as it is.
+- **What keeps moving.** An endless tween (`repeat: u32::MAX`): a spinner or a pulse that is
+  the only sign of work. Native transitions a toolkit owns (a navigation push) are the
+  toolkit's, and the backends that animate them read the gate before doing so.
+- **What is the app's.** Motion driven from `day::frame` (a simulation, a chart's easing) is
+  the app's own, and Day cannot know which of it is decoration. `day::reduce_motion()` is the
+  reactive read: a closure reading it re-runs when the setting flips, so the app settles or
+  slows what it drives.
+
+```rust
+let frames = day::frame::subscribe(move |f| {
+    if day::reduce_motion() { marbles.settle() } else { marbles.step(f) }
+    ControlFlow::Continue(())
+});
+```
+
+The gate is the user's system setting (`Toolkit::reduce_motion`, re-read when the backend's
+observer reports a flip) OR a launch that forced it. `day launch --fast` forces it: fast mode
+is this setting and nothing more, so a scripted run shows what a user who asked for less motion
+sees. `DAY_REDUCE_MOTION=1` is the same force under the name an app or a screenshot variant
+would use. `Cap::ReduceMotion` says whether the backend reads a real setting; where it does
+not, apps on that platform animate as with the setting off, and the force still applies.
+
+| | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
+|---|---|---|---|---|---|---|---|---|
+| setting | Reduce Motion | Reduce Motion | Animations off (`gtk-enable-animations`) | — | Remove animations (animator scale 0) | Show animations off | animator scale 0 | `prefers-reduced-motion` |
+| read | `accessibilityDisplayShouldReduceMotion` | `isReduceMotionEnabled` | `GtkSettings` | — | `Settings.Global.ANIMATOR_DURATION_SCALE` | `UISettings.AnimationsEnabled` | `settings.display.ANIMATOR_DURATION_SCALE` (ArkTS host) | `matchMedia` |
+| change | workspace options notification | status-did-change notification | `notify::gtk-enable-animations` | — | settings `ContentObserver` | `AnimationsEnabledChanged` | `settings.registerKeyObserver` | media-query `change` |
+
+Qt has no reduce-motion reading of its own (`QStyleHints` carries none), so `linux-qt` answers
+`Unsupported`; the forced gate still applies there. Android and ArkUI also route their native
+transition skips (list diffs, a navigation push, a cover slide) through the same gate, so a user
+who removed animations gets what a scripted run gets.
+
 ## Verification: `a11y_audit` (§14.2)
 
 The dayscript step `a11y_audit: { id? }` walks Day's id'd nodes, reads each widget's actual

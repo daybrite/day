@@ -5651,6 +5651,12 @@ impl Toolkit for AppKit {
             .contains("Dark")
     }
 
+    /// System Settings › Accessibility › Display › "Reduce motion", as NSWorkspace reports it
+    /// (docs/accessibility.md). `install_reduce_motion_observer` re-reads it on a flip.
+    fn reduce_motion(&mut self) -> bool {
+        objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion()
+    }
+
     /// macOS is the one platform whose badge takes arbitrary text: `NSDockTile.badgeLabel` is a
     /// `String`, so `Text` renders literally and a count is just its decimal form. A nil label
     /// clears it (docs/badge.md).
@@ -5702,6 +5708,9 @@ impl Toolkit for AppKit {
             // The announcement-requested notification, posted from the primary window
             // (docs/accessibility.md).
             Cap::Announce => Support::Native,
+            // `NSWorkspace.accessibilityDisplayShouldReduceMotion`, re-read when the workspace
+            // posts its display-options change (docs/accessibility.md).
+            Cap::ReduceMotion => Support::Native,
             Cap::Snapshot
             | Cap::NativeSymbols
             // The rows as chrome: `Rail` is the same source list pinned narrow, `Tabs` an
@@ -9177,6 +9186,7 @@ impl Platform for AppKit {
         // App activation / termination → day lifecycle events (docs/lifecycle.md).
         install_lifecycle_observers();
         install_appearance_observer();
+        install_reduce_motion_observer();
 
         let (window, delegate, content) =
             self.make_window(&options.title, options.size, options.min_size, false, None);
@@ -9536,6 +9546,31 @@ fn install_appearance_observer() {
     let name = NSString::from_str("AppleInterfaceThemeChangedNotification");
     let token = unsafe {
         center.addObserverForName_object_queue_usingBlock(Some(&name), None, None, &block)
+    };
+    std::mem::forget(token);
+}
+
+/// Follow the SYSTEM reduce-motion switch while the app runs: NSWorkspace posts
+/// `NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification` on its own notification
+/// center when any Accessibility › Display option flips, and
+/// `accessibilityDisplayShouldReduceMotion` already answers the new value by then. The
+/// notification arrives on the main thread; the main-queue hop keeps the re-read off the
+/// poster's stack, as the appearance observer does. The token is leaked to observe for the
+/// app's lifetime.
+fn install_reduce_motion_observer() {
+    use objc2_foundation::NSNotification;
+    let center = objc2_app_kit::NSWorkspace::sharedWorkspace().notificationCenter();
+    let block = block2::RcBlock::new(move |_: std::ptr::NonNull<NSNotification>| {
+        dispatch2::DispatchQueue::main()
+            .exec_async(|| ffi_guard::contain((), day_core::note_motion_changed));
+    });
+    let token = unsafe {
+        center.addObserverForName_object_queue_usingBlock(
+            Some(objc2_app_kit::NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification),
+            None,
+            None,
+            &block,
+        )
     };
     std::mem::forget(token);
 }

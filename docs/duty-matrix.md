@@ -76,6 +76,7 @@ implement them, and this table proves it.
 | `defer_system_gestures` | · | · | ✓ | · | · | · | ✓ | · | · | ✓ |
 | `set_status_bar_hidden` | · | · | ✓ | · | · | · | ✓ | ✓ | · | ✓ |
 | `dark_mode` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| `reduce_motion` | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_appearance` | · | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ | · |
 | `set_app_badge` | · | ✓ | ✓ | · | · | · | · | ✓ | ✓ | · |
 | `on_suspend` | · | · | · | · | · | · | · | · | · | ✓ |

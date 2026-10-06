@@ -3,10 +3,11 @@
 
 //! The toolkit duties HarmonyOS exposes only in ArkTS, reached through daybridge arms
 //! (docs/bridge.md) rather than the C node shim: the app's color mode (docs/appearance.md), the
-//! app-icon badge (docs/badge.md) and screen-reader announcements (docs/accessibility.md; the C
+//! app-icon badge (docs/badge.md), screen-reader announcements (docs/accessibility.md; the C
 //! API's announce event needs an XComponent's accessibility provider, which a node tree has
-//! none of). `day build` stages the ArkTS half beside every other bridged
-//! crate's, so a duty added here needs no shim or host-page change.
+//! none of) and the user's animation scale, which is the reduce-motion setting here. `day build`
+//! stages the ArkTS half beside every other bridged crate's, so a duty added here needs no shim
+//! or host-page change.
 
 use day_bridge::Support;
 
@@ -56,6 +57,28 @@ pub(crate) fn watch_appearance(on_change: fn(bool)) {
     });
 }
 
+/// Whether the user turned animations off (docs/accessibility.md): the settings data's
+/// `animator_duration_scale` at zero, the key the Android backend reads too. An unstaged arm
+/// reads as "not asked".
+pub(crate) fn reduce_motion() -> bool {
+    reduce_motion_native().unwrap_or(false)
+}
+
+pub(crate) fn reduce_motion_support() -> Support {
+    reduce_motion_native_support()
+}
+
+/// Run `on_change` on Day's UI thread each time the animation scale changes; the caller
+/// re-reads [`reduce_motion`] rather than trusting a value that may already be stale by then.
+/// Same threading as [`watch_appearance`]: the settings observer fires on the JS thread.
+pub(crate) fn watch_reduce_motion(on_change: fn()) {
+    let _ = watch_reduce_motion_native_stream(move |item| {
+        if let day_bridge::Item::Value(_) = item {
+            day_reactive::on_main(on_change);
+        }
+    });
+}
+
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
@@ -67,6 +90,10 @@ day_bridge::bridge! {
         fn announce_native(text: &str, urgent: bool);
         /// The color mode after every configuration change: 1 dark, 0 light.
         fn watch_color_mode_native(emit: day_bridge::Emit<i32>) -> Result<(), day_bridge::Error>;
+        /// Whether the settings data's animation duration scale is zero.
+        fn reduce_motion_native() -> Result<bool, day_bridge::Error>;
+        /// A tick each time that scale changes; the reader re-queries it.
+        fn watch_reduce_motion_native(emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error>;
     }
 
     #[day_bridge::impl(arkts, platforms = [ohos])]
@@ -75,7 +102,7 @@ day_bridge::bridge! {
             import { common, Configuration, ConfigurationConstant } from '@kit.AbilityKit';
             import { notificationManager } from '@kit.NotificationKit';
             import { accessibility } from '@kit.AccessibilityKit';
-            import { BusinessError } from '@kit.BasicServicesKit';
+            import { BusinessError, settings } from '@kit.BasicServicesKit';
         "#,
         body = r#"
             function dayAppContext(): common.ApplicationContext {
@@ -121,6 +148,33 @@ day_bridge::bridge! {
                 onMemoryLevel: (): void => {}
               });
             }
+
+            // The device-shared animation duration scale (the "Remove animations" switch writes
+            // 0); unreadable settings data counts as the default scale of 1.
+            function dayAnimationScale(): number {
+              try {
+                const raw = settings.getValueSync(getContext() as common.UIAbilityContext,
+                  settings.display.ANIMATOR_DURATION_SCALE, '1', settings.domainName.DEVICE_SHARED);
+                const scale = parseFloat(raw);
+                return Number.isNaN(scale) ? 1 : scale;
+              } catch (err) {
+                const e = err as BusinessError;
+                console.warn(`day-arkui: animation scale: ${e.code} ${e.message}`);
+                return 1;
+              }
+            }
+
+            export function reduce_motion_native(): boolean {
+              return dayAnimationScale() <= 0;
+            }
+
+            export function watch_reduce_motion_native(emit: number): void {
+              settings.registerKeyObserver(getContext() as common.UIAbilityContext,
+                settings.display.ANIMATOR_DURATION_SCALE, settings.domainName.DEVICE_SHARED,
+                (): void => {
+                  watch_reduce_motion_native_emit(emit);
+                });
+            }
         "#,
     );
 
@@ -135,6 +189,16 @@ day_bridge::bridge! {
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn watch_color_mode_native(_emit: day_bridge::Emit<i32>) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn reduce_motion_native() -> Result<bool, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn watch_reduce_motion_native(_emit: day_bridge::Emit<()>) -> Result<(), day_bridge::Error> {
         Err(day_bridge::Error::Unsupported)
     }
 }

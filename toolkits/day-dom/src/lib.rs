@@ -401,7 +401,7 @@ fn warn(msg: &str) {
 /// Read a host "environment" value (query params / navigator facts) as an app-facing
 /// environment lookup: `day launch --env K=V` lands in the page URL's query string and is
 /// read back here (docs/web.md). Empty/absent answers `None`. The page-fact keys (`vw`,
-/// `vh`, `dpr`, `dark`, `locales`, `route`) are reserved by the shim.
+/// `vh`, `dpr`, `dark`, `reduce_motion`, `locales`, `route`) are reserved by the shim.
 pub fn host_env(key: &str) -> Option<String> {
     let v = env(key);
     if v.is_empty() { None } else { Some(v) }
@@ -1284,8 +1284,13 @@ pub struct Dom {
 impl Dom {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        // The two launch overrides a process environment would carry (docs/accessibility.md),
+        // read from the page's query string instead.
         #[cfg(target_arch = "wasm32")]
-        day_core::testing::init_fast_animations(host_env("DAY_TEST_FAST").as_deref() == Some("1"));
+        day_core::testing::init_fast_animations(
+            host_env("DAY_TEST_FAST").as_deref() == Some("1")
+                || host_env("DAY_REDUCE_MOTION").as_deref() == Some("1"),
+        );
         #[cfg(target_arch = "wasm32")]
         day_core::init_presentation_mode(
             if host_env("DAY_TEST_DIALOGS").as_deref() == Some("scripted") {
@@ -1437,6 +1442,9 @@ impl Toolkit for Dom {
             // grow a tab bar as the viewport narrows (docs/navigation.md).
             Cap::NavTabsAdaptive => Support::Emulated,
             Cap::Appearance | Cap::Dialogs | Cap::Animation => Support::Native,
+            // The `prefers-reduced-motion` media query, read and watched by the shim
+            // (docs/accessibility.md).
+            Cap::ReduceMotion => Support::Native,
             // `createImageBitmap` decodes every format the engine reads; a canvas writes back
             // PNG/JPEG/WebP (docs/images.md). `Cap::ImageProperties` is deliberately NOT here:
             // the browser exposes no metadata reader, and an empty struct would read as "this
@@ -2974,6 +2982,12 @@ impl Toolkit for Dom {
         DARK.with(|d| d.get())
     }
 
+    /// The browser's `prefers-reduced-motion: reduce` (docs/accessibility.md), read live: the
+    /// shim's media query answers, and its `change` event reaches [`day_dom_motion_changed`].
+    fn reduce_motion(&mut self) -> bool {
+        env("reduce_motion") == "1"
+    }
+
     fn set_appearance(&mut self, dark: Option<bool>) {
         let mode = match dark {
             Some(false) => 0,
@@ -4428,6 +4442,13 @@ pub extern "C" fn day_dom_resized(w: f64, h: f64) {
         // nine.
         emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
     });
+}
+
+/// The reduce-motion media query flipped under the app (docs/accessibility.md): day-core
+/// re-reads the setting through `Toolkit::reduce_motion` and re-gates its transitions.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_motion_changed() {
+    day_spec::ffi_guard::contain((), day_core::note_motion_changed);
 }
 
 #[unsafe(no_mangle)]

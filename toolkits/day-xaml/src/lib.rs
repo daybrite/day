@@ -1643,6 +1643,12 @@ impl Toolkit for Xaml {
             // (docs/appearance.md). XAML's own controls follow theme resources by themselves; this
             // is what makes DAY's palette follow too.
             Cap::Appearance => Support::Native,
+            // Windows' "Show animations" switch (`UISettings.AnimationsEnabled`), read live and
+            // re-reported when the user flips it (docs/accessibility.md).
+            Cap::ReduceMotion => Support::Native,
+            // XAML Storyboards tween opacity, the transform channels and an animated fill
+            // (DESIGN.md §8.4); an animated frame applies at commit.
+            Cap::Animation => Support::Native,
             // A topmost child of the content Canvas — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             // The COMPOSED tree (docs/tree.md M2/M4): the piece flattens onto this backend's
@@ -3333,6 +3339,13 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_is_dark() != 0 }
     }
 
+    /// Windows' "Show animations" switch, off (docs/accessibility.md): `UISettings` publishes it
+    /// as `AnimationsEnabled`, and the shim re-reads it on every call so the answer is current
+    /// after each change report.
+    fn reduce_motion(&mut self) -> bool {
+        unsafe { ffi::day_xaml_reduce_motion() != 0 }
+    }
+
     /// Hold the bytes and answer from their HEADER (docs/images.md).
     ///
     /// XAML decodes lazily: a `BitmapImage` reports `PixelWidth`/`PixelHeight` only after the
@@ -3564,6 +3577,12 @@ extern "C" fn primary_closed() {
 extern "C" fn appearance_changed() {
     ffi_guard::contain((), day_core::note_appearance_changed);
 }
+/// The user flipped Windows' "Show animations" switch: re-read it into day's reduce-motion gate
+/// (docs/accessibility.md). The shim has already crossed from `UISettings`' thread-pool thread
+/// to the UI thread, so this runs where the gate lives, like `appearance_changed`.
+extern "C" fn motion_changed() {
+    ffi_guard::contain((), day_core::note_motion_changed);
+}
 extern "C" fn win_focused(node: u64, active: c_int) {
     ffi_guard::contain((), || {
         emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
@@ -3764,6 +3783,7 @@ impl Platform for Xaml {
             ffi::day_xaml_window_on_resize(win, window_resized);
             ffi::day_xaml_set_primary_closed_cb(primary_closed);
             ffi::day_xaml_set_appearance_cb(appearance_changed);
+            ffi::day_xaml_watch_reduce_motion(motion_changed);
             ffi::day_xaml_set_window_events_cb(win_resized, win_closed, win_focused);
             ffi::day_xaml_window_show(win);
             ffi::day_xaml_run(win);

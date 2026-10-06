@@ -98,8 +98,12 @@
 #include <cstdint>
 
 extern "C" void day_qt_open_file(const char *url);
-// Defined with the accessibility functions below; installed once the QApplication exists.
+// Defined with the accessibility functions below; installed once the QApplication exists. The
+// definition sits inside the `extern "C"` block, so this declaration takes the same linkage: GCC
+// rejects a mismatch (Apple clang accepts it).
+extern "C" {
 static void day_qt_install_a11y_factory();
+}
 class DayApplication : public QApplication {
 public:
     DayApplication(int &argc, char **argv) : QApplication(argc, argv) {}

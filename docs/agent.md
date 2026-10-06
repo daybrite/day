@@ -17,9 +17,12 @@ editors share one implementation; editor extensions only register it.
 ## Fast functional walkthroughs
 
 Use `day launch -p <target> --script dayscript/walkthrough.yaml --fast` to apply
-decorative motion at its destination state. This passes `DAY_TEST_FAST=1` to the app;
-it does not change the device's global animation settings. The equivalent
-`--env DAY_TEST_FAST=1` also works. The shared `daybrite/actions` workflow requests
+decorative motion at its destination state. This passes `DAY_TEST_FAST=1` to the app,
+which forces Day's reduced-motion gate on ([docs/accessibility.md](accessibility.md)):
+fast mode and the user's reduce-motion setting are one mechanism, so what a fast run
+shows is what a user who asked for less motion sees. It does not change the device's
+global animation settings. The equivalent `--env DAY_TEST_FAST=1` also works, as does
+`--env DAY_REDUCE_MOTION=1`, the spelling for a reduced-motion screenshot variant. The shared `daybrite/actions` workflow requests
 this by default with `fast-scripts: true`; set `fast-scripts: false` for animation
 coverage. An explicit `DAY_TEST_FAST` in `launch-env` overrides that input. Both app
 and CLI must be rebuilt for full acceleration. Local launches retain normal motion

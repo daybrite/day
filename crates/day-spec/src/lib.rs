@@ -574,6 +574,10 @@ pub mod bridge {
         ListActivated = 31,
         /// External document copied into app storage; `text` = its local locator.
         DocumentOpened = 32,
+        /// The user's reduce-motion setting flipped (docs/accessibility.md). No payload; node
+        /// id ignored and no `Event` is emitted; Rust calls `day_core::note_motion_changed`, as
+        /// the desktop backends' own observers do.
+        ReduceMotionChanged = 33,
         /// A non-text key reached the focused node (docs/menus.md); `text` = the day key name
         /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
@@ -582,7 +586,7 @@ pub mod bridge {
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 33] = [
+        pub const ALL: [BridgeKind; 34] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -616,6 +620,7 @@ pub mod bridge {
             BridgeKind::ToolbarChanged,
             BridgeKind::ListActivated,
             BridgeKind::DocumentOpened,
+            BridgeKind::ReduceMotionChanged,
         ];
     }
 
@@ -2376,6 +2381,11 @@ pub enum Cap {
     /// [`TextMetrics::approximate`]. Probe this before offering a font menu, not before
     /// drawing; a [`CanvasFont`] draws everywhere.
     FontList,
+    /// The toolkit reads the user's reduce-motion setting ([`Toolkit::reduce_motion`],
+    /// docs/accessibility.md) and reports when it changes. `Native` where the platform has the
+    /// switch and Day reaches it; `Unsupported` where Day reaches none (the app then animates as
+    /// it would with the setting off, and `DAY_REDUCE_MOTION=1` still forces it on).
+    ReduceMotion,
     /// The toolkit can speak a sentence through the screen reader without moving its focus
     /// ([`Toolkit::announce`], docs/accessibility.md): "Saved", "3 results", "Upload failed".
     /// `Native` where the platform has an announcement request (`NSAccessibility`'s
@@ -6545,6 +6555,16 @@ pub trait Toolkit: Sized + 'static {
     /// `DAY_THEME` launch override and otherwise answers light.
     fn dark_mode(&mut self) -> bool {
         std::env::var("DAY_THEME").ok().as_deref() == Some("dark")
+    }
+    /// Whether the user asked the system for less motion (docs/accessibility.md; probe
+    /// [`Cap::ReduceMotion`]): macOS and iOS "Reduce Motion", Android "Remove animations" (an
+    /// animator duration scale of zero), GTK's `gtk-enable-animations` off, Windows "Show
+    /// animations" off, the web's `prefers-reduced-motion`. Read at launch; a backend that
+    /// watches the setting calls `day_core::note_motion_changed` when it flips. Day then applies
+    /// every finite animation at its destination and keeps only indeterminate motion. The default
+    /// is a backend that reads no such setting.
+    fn reduce_motion(&mut self) -> bool {
+        false
     }
 
     /// App-level appearance override: `Some(true)` forces dark, `Some(false)` forces light,

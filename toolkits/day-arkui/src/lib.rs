@@ -1021,6 +1021,12 @@ mod imp {
         day_core::note_appearance_changed();
     }
 
+    /// The animation scale changed under the app (docs/accessibility.md): day-core re-reads
+    /// `reduce_motion()` and re-gates its transitions.
+    fn motion_changed() {
+        day_core::note_motion_changed();
+    }
+
     /// Move IS_DARK to `dark`, repainting every theme-following paint if it changed.
     fn repaint_themed(dark: bool) {
         if IS_DARK.with(|d| d.replace(dark)) == dark {
@@ -1171,6 +1177,9 @@ mod imp {
             // Follow the color mode live (a system switch, or the app's own override coming
             // back): neutral paints branch on IS_DARK, and `dark_mode()` closures recolor.
             crate::host::watch_appearance(appearance_changed);
+            // And the user's animation scale, the reduce-motion setting here; `launch_with`
+            // does the first read once the tree stands.
+            crate::host::watch_reduce_motion(motion_changed);
             // Serve bundled data resources (§18.3) from the app's rawfile store. Registered once
             // here; the opener is a no-op until the ArkTS host hands us its resourceManager.
             day_spec::resource::set_resource_opener(open_resource);
@@ -3502,6 +3511,13 @@ mod imp {
             IS_DARK.with(|d| d.get())
         }
 
+        /// The settings data's animation duration scale at zero (docs/accessibility.md), read
+        /// through the ArkTS arm in src/host.rs; false where the arm is not staged, which is
+        /// also what `Cap::ReduceMotion` reports.
+        fn reduce_motion(&mut self) -> bool {
+            crate::host::reduce_motion()
+        }
+
         /// The application context's color mode (docs/appearance.md). ArkTS components and
         /// the C nodes' theme colors restyle in place, and this backend repaints its own neutral
         /// paints (see [`themed`]). A return to the system mode has no answer until the
@@ -3690,6 +3706,14 @@ mod imp {
                 // The ArkTS host decides: Native once its announce arm is staged.
                 Cap::Announce => {
                     if crate::host::announce_support() == Support::Native {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
+                // Likewise: the settings data's animation scale, read and watched from ArkTS.
+                Cap::ReduceMotion => {
+                    if crate::host::reduce_motion_support() == Support::Native {
                         Support::Native
                     } else {
                         Support::Unsupported

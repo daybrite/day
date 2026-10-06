@@ -319,10 +319,11 @@ pub fn animate(
     timing: Timing,
     mut step: impl FnMut(Sample) + 'static,
 ) -> FrameHandle {
-    // Finish finite decorative tweens on their first frame. Keep continuous animations
-    // and simulations running; they have no meaningful final state.
-    let finish = if crate::testing::fast_animations() && timing.total().is_some() {
-        Some(Sample {
+    // Under reduced motion, finish finite decorative tweens on their first frame. Keep
+    // continuous animations and simulations running; they have no meaningful final state. The
+    // check is per frame, not per start, so a setting flipped mid-flight lands the tween too.
+    let finish = |timing: &Timing| {
+        (crate::reduce_motion_now() && timing.total().is_some()).then_some(Sample {
             progress: if timing.spec.duration_ms > 0
                 && timing.spec.autoreverse
                 && timing.spec.repeat % 2 == 1
@@ -333,14 +334,12 @@ pub fn animate(
             },
             done: true,
         })
-    } else {
-        None
     };
     let mut start: Option<Duration> = None;
     clock.subscribe(move |frame| {
         let t0 = *start.get_or_insert(frame.timestamp);
         let elapsed = frame.timestamp.saturating_sub(t0).as_secs_f64();
-        let sample = finish.unwrap_or_else(|| timing.sample(elapsed));
+        let sample = finish(&timing).unwrap_or_else(|| timing.sample(elapsed));
         step(sample);
         if sample.done {
             ControlFlow::Break(())
@@ -441,7 +440,9 @@ impl<T: Lerp + 'static> Tweened<T> {
 
     /// Animate from the value on screen to `target` under `spec`.
     pub fn animate_to(&self, target: T, spec: AnimSpec) {
-        if crate::testing::fast_animations() && spec.repeat != u32::MAX {
+        // Reduced motion (docs/accessibility.md): a finite transition lands at once; an
+        // endless one (a spinner, a pulse that is the only sign of work) keeps going.
+        if crate::reduce_motion_now() && spec.repeat != u32::MAX {
             self.set(target);
             return;
         }

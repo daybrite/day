@@ -3495,10 +3495,23 @@ impl Toolkit for Gtk {
         });
     }
 
+    fn reduce_motion(&mut self) -> bool {
+        // `gtk-enable-animations` is the one switch GNOME's "Animations" toggle and its
+        // reduce-motion accessibility setting both drive (docs/accessibility.md); libadwaita's
+        // own transitions read it too. No GtkSettings before `startup` means no display yet,
+        // which is not a request for less motion.
+        gtk4::Settings::default().is_some_and(|s| !s.is_gtk_enable_animations())
+    }
+
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             // `gdk::Cursor::from_name` takes the CSS vocabulary as it is (docs/cursor.md).
             Cap::Cursor => Support::Native,
+            // Opacity and transform tween on libadwaita's frame clock (`gtk_animation`); a
+            // frame applies instantly.
+            Cap::Animation => Support::Native,
+            // `gtk-enable-animations`, watched through its notify (docs/accessibility.md).
+            Cap::ReduceMotion => Support::Native,
             // Pango's font map lists every fontconfig family and face (docs/fonts.md).
             Cap::FontList => Support::Native,
             // `GdkTexture::from_bytes` reads what gdk-pixbuf's loaders read, and pixbuf writes
@@ -7314,6 +7327,14 @@ impl Platform for Gtk {
             adw::StyleManager::default().connect_dark_notify(|_| {
                 ffi_guard::contain((), day_core::note_appearance_changed);
             });
+            // Likewise the reduce-motion setting: the desktop's "Animations" switch lands on
+            // GtkSettings as `gtk-enable-animations`, and its notify arrives on the main
+            // thread, which is Day's — so the re-read happens in place (docs/accessibility.md).
+            if let Some(settings) = gtk4::Settings::default() {
+                settings.connect_gtk_enable_animations_notify(|_| {
+                    ffi_guard::contain((), day_core::note_motion_changed);
+                });
+            }
             if let Ok(theme) = std::env::var("DAY_THEME") {
                 let scheme = match theme.as_str() {
                     "dark" => Some(adw::ColorScheme::ForceDark),

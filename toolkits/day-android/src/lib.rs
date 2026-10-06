@@ -71,6 +71,7 @@ mod bridge_kinds_parity {
             ("K_WINDOW_FOCUSED", BridgeKind::WindowFocused),
             // Same story again: DayBridge.java gained K_APPEARANCE_CHANGED without this row.
             ("K_APPEARANCE_CHANGED", BridgeKind::AppearanceChanged),
+            ("K_REDUCE_MOTION_CHANGED", BridgeKind::ReduceMotionChanged),
             ("K_COVER_HIDDEN", BridgeKind::CoverHidden),
             ("K_LINK_ACTIVATED", BridgeKind::LinkActivated),
             ("K_TOOLBAR_CHANGED", BridgeKind::ToolbarChanged),
@@ -1352,6 +1353,7 @@ mod imp {
     const K_WINDOW_CLOSED: i32 = bridge::BridgeKind::WindowClosed as i32;
     const K_WINDOW_FOCUSED: i32 = bridge::BridgeKind::WindowFocused as i32;
     const K_APPEARANCE_CHANGED: i32 = bridge::BridgeKind::AppearanceChanged as i32;
+    const K_REDUCE_MOTION_CHANGED: i32 = bridge::BridgeKind::ReduceMotionChanged as i32;
     const K_COVER_HIDDEN: i32 = bridge::BridgeKind::CoverHidden as i32;
     const K_LINK_ACTIVATED: i32 = bridge::BridgeKind::LinkActivated as i32;
     const K_TOOLBAR_CHANGED: i32 = bridge::BridgeKind::ToolbarChanged as i32;
@@ -1574,6 +1576,13 @@ mod imp {
             // route to a node; day-core restyles what it owns and rebuilds app-painted surfaces.
             K_APPEARANCE_CHANGED => {
                 day_core::note_appearance_changed();
+                return;
+            }
+            // The user's "Remove animations" switch (DayBridge.watchReduceMotion). Likewise not
+            // an Event: day-core re-reads `reduce_motion` and lands every finite animation
+            // (docs/accessibility.md).
+            K_REDUCE_MOTION_CHANGED => {
+                day_core::note_motion_changed();
                 return;
             }
             K_WINDOW_RESIZED => {
@@ -2142,6 +2151,10 @@ mod imp {
                 // announcement event, sent only while an accessibility service is enabled
                 // (docs/accessibility.md).
                 Cap::Announce => Support::Native,
+                // The global animator duration scale, zero under Accessibility's "Remove
+                // animations", read from the settings provider and watched through a
+                // ContentObserver (docs/accessibility.md).
+                Cap::ReduceMotion => Support::Native,
                 // EditText honors editable / selectable / spell-check (DayTextArea shim).
                 Cap::Dialogs
                 | Cap::FileDialogs
@@ -4352,6 +4365,23 @@ mod imp {
                 env.dcall_static(
                     "dev/daybrite/day/bridge/DayBridge",
                     "isDarkMode",
+                    "()Z",
+                    &[],
+                )
+                .and_then(|v| v.z())
+                .unwrap_or(false)
+            })
+        }
+
+        /// The user's "Remove animations" setting (docs/accessibility.md): the global animator
+        /// duration scale read as zero (DayBridge.reduceMotion). The observer DayActivity
+        /// registers reports each flip as `K_REDUCE_MOTION_CHANGED`, after which day-core asks
+        /// here again.
+        fn reduce_motion(&mut self) -> bool {
+            with_env(|env| {
+                env.dcall_static(
+                    "dev/daybrite/day/bridge/DayBridge",
+                    "reduceMotion",
                     "()Z",
                     &[],
                 )

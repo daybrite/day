@@ -57,7 +57,7 @@
 #include <winrt/Windows.System.h>
 #include <winrt/Windows.UI.h>
 #include <winrt/Windows.UI.Input.h> // HoldingState (long-press gesture)
-#include <winrt/Windows.UI.ViewManagement.h> // UISettings: the system accent color
+#include <winrt/Windows.UI.ViewManagement.h> // UISettings: the system accent color, reduce motion
 #include <winrt/Windows.UI.Text.h>
 #include <dwrite.h> // IDWriteFontCollection: the platform font list (docs/fonts.md)
 #include <winrt/Windows.UI.Xaml.Interop.h> // TypeName: WinUI 3 still uses the system one
@@ -1033,6 +1033,43 @@ extern "C" void day_xaml_set_primary_closed_cb(void (*cb)()) { g_primary_closed 
 // else the live system value — so day's palette resolves the same way the window chrome does.
 extern "C" void day_xaml_set_appearance_cb(void (*cb)()) { g_appearance_cb = cb; }
 extern "C" int day_xaml_is_dark() { return effective_dark() ? 1 : 0; }
+
+// Reduce motion (docs/accessibility.md): Windows' "Show animations" switch, which UISettings
+// publishes as `AnimationsEnabled` — reduce motion is that switch OFF. `day_xaml_reduce_motion`
+// answers the `reduce_motion` duty from a fresh read, so it is current whenever day-core asks.
+//
+// `AnimationsEnabledChanged` (Windows 10 1803+; an older build throws out of the subscription,
+// which leaves the setting readable but unwatched) is raised on a WinRT thread-pool thread,
+// never the UI thread, and day-core's gate lives on Day's thread — so the handler only posts,
+// and the callback into Rust runs from the posted message like any other cross-thread work.
+// The UISettings instance holds the subscription, so it is kept alive for the process, never
+// released, like the DispatcherQueueController.
+static winrt::Windows::UI::ViewManagement::UISettings* g_ui_settings = nullptr;
+static void (*g_motion_cb)() = nullptr;
+// Defined further down, inside the big C-linkage block; declared with the same linkage.
+extern "C" void day_xaml_post(void (*cb)(void*), void* data);
+
+extern "C" int day_xaml_reduce_motion() {
+    int out = 0;
+    guard([&] {
+        winrt::Windows::UI::ViewManagement::UISettings ui;
+        out = ui.AnimationsEnabled() ? 0 : 1;
+    });
+    return out;
+}
+
+extern "C" void day_xaml_watch_reduce_motion(void (*cb)()) try {
+    g_motion_cb = cb;
+    if (g_ui_settings) return; // subscribed once; a later call only changes the callback
+    winrt::Windows::UI::ViewManagement::UISettings ui;
+    ui.AnimationsEnabledChanged([](auto const&, auto const&) {
+        // Thread-pool thread: cross to the UI thread before touching Rust.
+        day_xaml_post([](void*) { if (g_motion_cb) g_motion_cb(); }, nullptr);
+    });
+    // Only once the subscription took: a throw above leaves the setting unwatched, not leaked.
+    g_ui_settings = new winrt::Windows::UI::ViewManagement::UISettings(ui);
+} catch (...) {
+}
 
 // Destroy the primary window's host, once day-core has torn its content down (the released
 // root handle is the signal). The counterpart of day_xaml_window_destroy2 for window zero.

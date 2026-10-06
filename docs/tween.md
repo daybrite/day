@@ -62,6 +62,13 @@ canvas reading it re-records on every frame of its transition and at no other ti
 motion rather than snapping it; `set(value)` jumps. `Tweened::new` animates on the current page's
 window; `Tweened::on(clock, ..)` names one.
 
+Under reduced motion ([accessibility.md](accessibility.md): the user's system setting, or a
+run that forced it with `--fast` / `DAY_REDUCE_MOTION=1`) `animate_to` sets its target at once
+and `animate` finishes a finite tween on its first frame, even one already in flight when the
+setting flipped. An endless tween (`repeat: u32::MAX`) keeps running: a spinner is the one sign
+that work is going on. Motion an app drives from `day::frame` directly is the app's own; read
+`day::reduce_motion()` there and settle it.
+
 ## Pairs
 
 When what changed is a collection (the bars of a chart, the cards on a table, the tiles of a

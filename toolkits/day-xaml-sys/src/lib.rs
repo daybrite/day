@@ -68,6 +68,12 @@ unsafe extern "C" {
     pub fn day_xaml_is_dark() -> c_int;
     /// The app's own override: 0 follow the system, 1 light, 2 dark. Re-themes every live window.
     pub fn day_xaml_set_appearance(mode: c_int);
+    /// Reduce motion (docs/accessibility.md): 1 while Windows' "Show animations" switch is off
+    /// (`UISettings.AnimationsEnabled` false), read fresh on every call.
+    pub fn day_xaml_reduce_motion() -> c_int;
+    /// Fire `cb` on the UI thread whenever that switch flips while the app runs. The shim
+    /// subscribes once; a later call only replaces the callback.
+    pub fn day_xaml_watch_reduce_motion(cb: extern "C" fn());
     pub fn day_xaml_request_frame(token: u64, cb: extern "C" fn(u64, f64));
     pub fn day_xaml_cancel_frame(token: u64);
     pub fn day_xaml_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);

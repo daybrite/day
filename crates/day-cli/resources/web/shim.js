@@ -9,6 +9,9 @@
 let wasm = null;            // wasm exports once instantiated
 const els = [null, null];   // element registry; id 1 = the day root (set in start())
 let lastSetRoute = null;    // the route we last wrote to the hash (echo suppression)
+// The user's reduce-motion setting (docs/accessibility.md): read by `day_dom_env('reduce_motion')`
+// and watched from start(), one query for both so the read and the change agree.
+const reduceMotionQuery = matchMedia('(prefers-reduced-motion: reduce)');
 const PREF_NS = 'day.pref.'; // localStorage namespace for day-part-prefs
 let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token present)
 let appStarted = false;     // day_dom_main has run; script lines before that queue in the inbox
@@ -1485,6 +1488,8 @@ const env = {
       case 'vh': v = String(root().clientHeight); break;
       case 'dpr': v = String(devicePixelRatio || 1); break;
       case 'dark': v = (q.get('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? '1' : '0'; break;
+      // The user's reduce-motion setting, as the browser relays it (docs/accessibility.md).
+      case 'reduce_motion': v = reduceMotionQuery.matches ? '1' : ''; break;
       case 'locales': v = (q.get('locale') ? [q.get('locale')] : navigator.languages).join(','); break;
       case 'day_url': v = q.get('day_url') || ''; break;
       case 'route': v = location.hash.slice(1) || q.get('route') || ''; break;
@@ -2668,6 +2673,9 @@ async function boot(wasmUrl) {
   // The page's last moment (a navigation, a reload, a closed tab): DidExit, after which
   // nothing of the app runs.
   addEventListener('pagehide', () => wasm.day_dom_lifecycle(2));
+  // The reduce-motion setting flipped under the app: day-core re-reads it through
+  // `day_dom_env('reduce_motion')` and re-gates its transitions.
+  reduceMotionQuery.addEventListener('change', () => wasm.day_dom_motion_changed());
   // Hash changes we did not write ourselves (back/forward, a hand-edited URL) are route
   // requests for the app.
   window.addEventListener('hashchange', () => {

@@ -43,6 +43,9 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayBridge.fastAnimations = "1".equals(getIntent().getStringExtra("day.env.DAY_TEST_FAST"));
         lastNightMode = DayBridge.isDarkMode();
         lastLocales = getResources().getConfiguration().getLocales().toLanguageTags();
+        // The user's "Remove animations" switch has no configuration change to ride, so it is
+        // watched directly (docs/accessibility.md); onDestroy takes the observer down.
+        reduceMotionObserver = DayBridge.watchReduceMotion(this);
         // Navigation state saved before this process was reclaimed (DayBridge.navState). Restored
         // Before native starts, so the first build of a `.restore(key)` surface reads it. A cold
         // launch has no saved state and the map stays empty, which is how a fresh start stays
@@ -244,6 +247,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onStop() { DayBridge.lifecycle(5); super.onStop(); }     // DidEnterBackground
 
     @Override protected void onDestroy() {
+        DayBridge.unwatchReduceMotion(this, reduceMotionObserver);
+        reduceMotionObserver = null;
         // Only a real finish is a termination; a config-change recreation is not.
         if (isFinishing()) {
             DayBridge.lifecycle(7); // WillTerminate
@@ -307,6 +312,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
 
     /** The night-mode bit the window is currently themed for; seeded in onCreate. */
     private boolean lastNightMode = false;
+    /** The animator-duration-scale observer this activity registered; null once destroyed. */
+    private android.database.ContentObserver reduceMotionObserver;
     /** The language list the app was built in (BCP-47, comma-joined); seeded in onCreate. */
     private String lastLocales = "";
 

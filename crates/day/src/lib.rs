@@ -25,8 +25,8 @@ compile_error!("day: enable exactly one backend feature");
 /// Display-synchronized, cancellable frame callbacks for any UI client.
 pub use day_core::frame;
 pub use day_core::{
-    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, safe_area, set_app_badge,
-    set_appearance, size_class, sleep, task,
+    AnyPiece, BuildCx, Piece, PieceSeq, TaskHandle, dark_mode, reduce_motion, safe_area,
+    set_app_badge, set_appearance, size_class, sleep, task,
 };
 pub use day_core::{AssetDir, AssetName, FontFamily, ImageName, Resource, VectorName, resource};
 /// Raster images from bytes (docs/images.md): decode an encoded PNG or JPEG the app already

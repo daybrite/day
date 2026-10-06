@@ -291,7 +291,9 @@ impl<B: Toolkit> Tree<B> {
     /// propagation). `None` ⇒ the change applies instantly. The ancestor walk is skipped entirely
     /// when no implicit animations exist anywhere (`implicit_anim_count == 0`).
     pub(crate) fn resolve_anim(&self, node: RNode) -> Option<day_spec::AnimSpec> {
-        if crate::testing::fast_animations() {
+        // Reduced motion (the user's setting, or a scripted run's fast mode): every property
+        // and frame animation lands at its destination (docs/accessibility.md).
+        if crate::reduce_motion_now() {
             return None;
         }
         if let Some(a) = crate::anim::current_anim() {
@@ -729,6 +731,8 @@ pub trait TreeOps {
     fn node_exists(&self, node: RNode) -> bool;
     /// Whether the platform renders in dark appearance (see `Toolkit::dark_mode`).
     fn dark_mode(&mut self) -> bool;
+    /// Whether the user asked for less motion (see `Toolkit::reduce_motion`).
+    fn reduce_motion(&mut self) -> bool;
     /// Apply an app-level appearance override (see `Toolkit::set_appearance`).
     fn set_appearance(&mut self, dark: Option<bool>);
     /// Put a badge on the app icon (see `Toolkit::set_app_badge`, docs/badge.md).
@@ -1256,6 +1260,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn dark_mode(&mut self) -> bool {
         self.toolkit.dark_mode()
     }
+    fn reduce_motion(&mut self) -> bool {
+        self.toolkit.reduce_motion()
+    }
 
     fn set_id(&mut self, node: RNode, id: String) {
         if let Some(n) = self.nodes.get_mut(node) {
@@ -1469,7 +1476,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             ScrollTarget::Id(_) => unreachable!("routed to scroll_reveal above"),
         };
         self.toolkit
-            .scroll_to(&h, rect, animated && !crate::testing::fast_animations());
+            .scroll_to(&h, rect, animated && !crate::reduce_motion_now());
         true
     }
 
@@ -1493,7 +1500,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     return false;
                 };
                 self.toolkit
-                    .scroll_to(&h, rect, animated && !crate::testing::fast_animations());
+                    .scroll_to(&h, rect, animated && !crate::reduce_motion_now());
                 return true;
             }
             if a.handle.is_some()

@@ -1651,6 +1651,9 @@ impl Toolkit for Qt {
             Cap::Cursor => Support::Emulated,
             // `QFontDatabase::families()` + `styles()` (docs/fonts.md).
             Cap::FontList => Support::Native,
+            // Opacity and transform tween through the shim's QVariantAnimations on the
+            // per-widget graphics effect; a frame applies instantly.
+            Cap::Animation => Support::Native,
             // `QImage::loadFromData` reads every format Qt's image plugins handle, and
             // `QImage::save` writes back PNG/JPEG/TIFF/BMP (docs/images.md). `Cap::ImageProperties`
             // is deliberately NOT here: Qt exposes no metadata reader on this path, and an empty
@@ -1710,6 +1713,13 @@ impl Toolkit for Qt {
                     Support::Unsupported
                 }
             }
+            // Qt publishes no system reduce-motion read (docs/accessibility.md): QStyleHints and
+            // QGuiApplication carry nothing, `QStyle::SH_Widget_Animation_Duration` is the active
+            // style's own constant rather than the user's setting, and
+            // `QApplication::isEffectEnabled` answers the menu/tooltip effect switches. So
+            // `Toolkit::reduce_motion` keeps its default, and `DAY_REDUCE_MOTION=1` is the one
+            // way on.
+            Cap::ReduceMotion => Support::Unsupported,
             _ => Support::Unsupported,
         }
     }

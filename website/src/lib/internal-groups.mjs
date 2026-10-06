@@ -23,6 +23,7 @@ export const groups = [
       ['buttons', 'button styles per backend'],
       ['navigation', 'nav host/stack mapping per platform, routes'],
       ['deep-links', 'custom URL schemes, delivery, launcher shortcuts'],
+      ['manifest', 'additional URL schemes declared in Day.toml with `url_schemes`'],
       ['dialogs', 'alert/confirm/prompt, native presentation, results'],
       ['commands', 'reusable application operations across buttons, menus and toolbars'],
       ['menus', 'app menu bar, context menus, roles and shortcuts'],

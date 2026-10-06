@@ -180,6 +180,13 @@ day_reactive::tls_slots! {
     static DARK_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
         const { std::cell::OnceCell::new() };
 
+    /// The system's reduce-motion answer as last read (docs/accessibility.md), kept beside the
+    /// signal so the animation gates can ask without a tracked read or a tree borrow: they run
+    /// inside the tree.
+    static REDUCE_MOTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static REDUCE_MOTION_SIGNAL: std::cell::OnceCell<day_reactive::Signal<bool>> =
+        const { std::cell::OnceCell::new() };
+
     static FONT_FAMILIES: std::cell::OnceCell<std::rc::Rc<[day_spec::FontFamilyInfo]>> =
         const { std::cell::OnceCell::new() };
 
@@ -711,6 +718,9 @@ pub fn launch_with<P: Platform>(
             let tree = Tree::new(toolkit, root_handle, size);
             let root = tree.root();
             tree::install_tree(Box::new(tree));
+            // The launch read of the user's motion setting (docs/accessibility.md), before the
+            // root piece builds: its first transitions already land where the user asked.
+            note_motion_changed();
 
             // Seed the window's size class from the size the backend just reported
             // (docs/size-classes.md), before the root piece builds below: a nav host resolving
@@ -1160,6 +1170,47 @@ pub fn measure_text(text: &str, size: f64, font: &day_spec::CanvasFont) -> day_s
         c.insert(m);
     });
     m
+}
+
+/// Whether motion should be reduced (docs/accessibility.md): the user's system setting
+/// (`Toolkit::reduce_motion`), or a launch that forced it (`DAY_REDUCE_MOTION=1`, and
+/// `day launch --fast`, whose fast mode is this setting forced on). Day already applies every
+/// finite animation at its destination under it and keeps only indeterminate motion; this read
+/// is for the motion an app drives itself, such as a `day::frame` simulation or a decorative
+/// loop, which the app opts down. Reactive: a closure reading it re-runs when the setting flips.
+pub fn reduce_motion() -> bool {
+    reduce_motion_signal().get()
+}
+
+/// [`reduce_motion`] untracked and borrow-free, for the animation gates inside the tree.
+pub fn reduce_motion_now() -> bool {
+    testing::forced_reduce_motion() || REDUCE_MOTION.with(|c| c.get())
+}
+
+/// The reactive backing for [`reduce_motion`], seeded from the current answer.
+fn reduce_motion_signal() -> day_reactive::Signal<bool> {
+    REDUCE_MOTION_SIGNAL.with(|c| {
+        *c.get_or_init(|| {
+            let seed = reduce_motion_now();
+            day_reactive::Scope::detached().enter(|| day_reactive::Signal::new(seed))
+        })
+    })
+}
+
+/// Re-read the toolkit's reduce-motion setting into [`reduce_motion`]. Backends call this
+/// when the user flips the setting under a running app; [`launch_with`] calls it once the tree
+/// stands, which is the launch read. Like [`note_appearance_changed`], it may fire before the
+/// tree is installed and then does nothing.
+pub fn note_motion_changed() {
+    if let Some(system) = tree::try_with_tree(|t| t.reduce_motion()) {
+        REDUCE_MOTION.with(|c| c.set(system));
+        let now = reduce_motion_now();
+        REDUCE_MOTION_SIGNAL.with(|c| {
+            if let Some(s) = c.get() {
+                s.set(now);
+            }
+        });
+    }
 }
 
 /// The reactive backing for [`dark_mode`], lazily seeded from the toolkit's answer.

@@ -1496,7 +1496,7 @@ pub trait Toolkit: Sized + 'static {
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
     // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
-    // …, Cursor, FontList, Announce)
+    // …, Cursor, FontList, Announce, ReduceMotion)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1634,6 +1634,8 @@ pub trait Toolkit: Sized + 'static {
     fn defer_system_gestures(&mut self, edges: Edges) {}   // the shield union (docs/cover.md)
     fn set_status_bar_hidden(&mut self, hidden: bool) {}   // any mounted status_bar_hidden (Cap::StatusBarHidden)
     fn dark_mode(&mut self) -> bool {}     // current appearance, for app-painted opaque surfaces
+    fn reduce_motion(&mut self) -> bool { false } // the user's reduce-motion setting; a flip calls
+                                                  // day_core::note_motion_changed (Cap::ReduceMotion, §8.4)
     fn set_appearance(&mut self, dark: Option<bool>) {}  // runtime light/dark/system override (Cap::Appearance)
 
     // pillars
@@ -1945,6 +1947,18 @@ Native-widget animation stays **backend-executed**: Day passes intent through `A
 General display scheduling is independent: clients can animate canvas state today, and future
 custom tween/timeline support can share the same native frame service. `.transition(anim)` for
 `when`/`each` enter/exit remains a design sketch, not an implemented API.
+
+**Reduced motion** ([docs/accessibility.md](docs/accessibility.md)): one gate in day-core,
+`reduce_motion_now()`, decides for every animation Day drives. It is the user's system setting
+(`Toolkit::reduce_motion`, re-read through `note_motion_changed` when a backend's observer
+reports a flip; `Cap::ReduceMotion`) OR a launch that forced it: `DAY_REDUCE_MOTION=1`, and
+`DAY_TEST_FAST=1` (`day launch --fast`), whose fast mode is nothing but this setting forced on.
+Under it `resolve_anim` answers `None` so every property and frame transition lands at its
+destination, `Tweened::animate_to` sets its target and `animate` finishes a finite tween on
+its first frame (also mid-flight), and programmatic scrolls stop animating; an endless tween
+(`repeat == u32::MAX`, a spinner) keeps going, since indeterminate motion is the only sign of
+work. App-driven `day::frame` motion is the app's own; `day::reduce_motion()` is the reactive
+read it opts down with.
 
 ### §8.5 Panics and crashes
 
@@ -2758,6 +2772,8 @@ canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.g
   reactively: the string is re-sent alone and merged onto the node's set).
 - Roles map to native: `Role::Button/Toggle/Slider/TextInput/Heading(level)/Image/Meter/Group/…` —
   most built-ins set their role automatically; `role` matters for canvas and custom pieces.
+- **Reduced motion**: `day::reduce_motion()` is the user's setting as a reactive read, and the
+  gate Day's own animations already honor ([§8.4](#84-animation-and-display-frames)).
 - **Announcements**: `day::announce(text)` / `announce_urgent(text)` speak a sentence through the
   screen reader without moving its focus (`Toolkit::announce`, `Cap::Announce`), for the change a
   user cannot otherwise learn about. The per-toolkit mechanism table is in

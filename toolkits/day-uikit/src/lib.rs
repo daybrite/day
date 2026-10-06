@@ -7824,6 +7824,9 @@ mod imp {
                 // `UIAccessibilityAnnouncementNotification`, queued or interrupting per the
                 // speech attribute (docs/accessibility.md).
                 Cap::Announce => Support::Native,
+                // `UIAccessibilityIsReduceMotionEnabled`, re-read when UIKit posts the
+                // reduce-motion status change (docs/accessibility.md).
+                Cap::ReduceMotion => Support::Native,
                 // UIGraphicsImageRenderer draws this app's own window into a bitmap
                 // (docs/window-image.md).
                 // A label carrying a link run is built as a read-only UITextView, whose delegate
@@ -10946,6 +10949,12 @@ mod imp {
             });
         }
 
+        /// Settings › Accessibility › Motion › "Reduce Motion" (docs/accessibility.md). The
+        /// app delegate's `reduceMotionChanged:` observer re-reads it on a flip.
+        fn reduce_motion(&mut self) -> bool {
+            objc2_ui_kit::UIAccessibilityIsReduceMotionEnabled()
+        }
+
         fn dark_mode(&mut self) -> bool {
             // A DAY_THEME launch override wins (themed capture runs); else the current
             // trait collection's interface style.
@@ -11677,6 +11686,17 @@ mod imp {
                             None,
                         )
                 };
+                // The system reduce-motion switch (docs/accessibility.md): app-scoped like
+                // the setting itself; the handler re-reads it into day-core's gate.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(reduceMotionChanged:),
+                            Some(objc2_ui_kit::UIAccessibilityReduceMotionStatusDidChangeNotification),
+                            None,
+                        )
+                };
                 true
             }
 
@@ -11791,6 +11811,14 @@ mod imp {
                         reveal_focused_field();
                     }
                 });
+            }
+
+            /// Reduce Motion flipped in Settings: UIKit posts the status change on the main
+            /// thread with `UIAccessibilityIsReduceMotionEnabled` already answering the new
+            /// value, so the re-read runs right here.
+            #[unsafe(method(reduceMotionChanged:))]
+            fn reduce_motion_changed(&self, _notification: &objc2_foundation::NSNotification) {
+                day_spec::ffi_guard::contain((), day_core::note_motion_changed);
             }
         }
     );

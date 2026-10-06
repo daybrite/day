@@ -167,7 +167,7 @@ public class DayCover extends FrameLayout {
             slideAnim = null;
             slidesInFlight = Math.max(0, slidesInFlight - 1);
         }
-        if (DayBridge.fastAnimations) {
+        if (DayBridge.skipTransitions()) {
             setTranslationY(to);
             if (done != null) done.run();
             return;

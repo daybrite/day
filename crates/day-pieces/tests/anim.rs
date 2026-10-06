@@ -192,3 +192,39 @@ fn curve_and_spring_math_is_well_formed() {
     };
     assert!((1..60).all(|i| cd.fraction(i as f64 * 0.02, 0.0) <= 1.000001));
 }
+
+#[test]
+fn reduced_motion_lands_transitions_and_follows_the_setting() {
+    let op = Signal::new(1.0f64);
+    let probe = boot(move || label("hi").opacity(op).any());
+    flush_sync();
+    let (h, _) = layer(&probe, |w| w.opacity.is_some());
+    assert!(
+        !day_core::reduce_motion(),
+        "the mock models the setting off"
+    );
+
+    // The user turns the setting on under the running app: the backend's observer reports
+    // it, the reactive read flips, and a transition that would have animated lands at once.
+    probe.set_reduce_motion(true);
+    day_core::note_motion_changed();
+    flush_sync();
+    assert!(day_core::reduce_motion());
+    with_animation(Animation::ease_in_out(200), || op.set(0.0));
+    flush_sync();
+    let w = probe.widget(h);
+    assert_eq!(w.opacity, Some(0.0), "the destination is applied");
+    assert!(
+        w.last_anim.is_none(),
+        "with no animation intent under reduced motion"
+    );
+
+    // And back: the next transition animates again.
+    probe.set_reduce_motion(false);
+    day_core::note_motion_changed();
+    flush_sync();
+    assert!(!day_core::reduce_motion());
+    with_animation(Animation::ease_in_out(200), || op.set(0.5));
+    flush_sync();
+    assert!(probe.widget(h).last_anim.is_some());
+}

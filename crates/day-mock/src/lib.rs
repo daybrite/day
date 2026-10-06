@@ -149,6 +149,10 @@ pub struct MockState {
     pub no_multi_window: bool,
     /// Every `announce` in order, as `(text, urgent)` (docs/accessibility.md), probe-visible.
     pub announcements: Vec<(String, bool)>,
+    /// What `reduce_motion` answers (docs/accessibility.md): the user's system setting as
+    /// the mock models it. A test flips it and calls `day_core::note_motion_changed`, as a
+    /// backend's observer would.
+    pub reduce_motion: bool,
     /// Model a toolkit whose secure field is a different native class (AppKit, WinUI):
     /// `set_input_traits` answers a secure flip with a replacement widget under a new handle
     /// (docs/textfield.md). Off by default: most toolkits flip a property.
@@ -604,6 +608,12 @@ impl MockProbe {
         self.state.borrow().windows.clone()
     }
 
+    /// Model the user flipping the system's reduce-motion setting (docs/accessibility.md). The
+    /// test then calls `day_core::note_motion_changed()`, which is the backend observer's job.
+    pub fn set_reduce_motion(&self, v: bool) {
+        self.state.borrow_mut().reduce_motion = v;
+    }
+
     /// Make a secure flip rebuild the text field under a new handle, the harness for the
     /// toolkits whose secure field is its own native class (docs/textfield.md).
     pub fn set_secure_class_swap(&self, v: bool) {
@@ -811,6 +821,7 @@ impl Toolkit for MockToolkit {
             // A fixed two-family list (`font_families` below), composed, not read.
             Cap::FontList => Support::Emulated,
             Cap::Announce => Support::Native,
+            Cap::ReduceMotion => Support::Native,
             // The mock answers `first_baseline` from its synthetic metrics (see below).
             Cap::BaselineAlignment => Support::Native,
             // The mock records the text-area attributes (probe-visible), so it "supports" all three.
@@ -1506,6 +1517,10 @@ impl Toolkit for MockToolkit {
             ..Default::default()
         });
         MockHandle(h)
+    }
+
+    fn reduce_motion(&mut self) -> bool {
+        self.state.borrow().reduce_motion
     }
 
     fn announce(&mut self, text: &str, urgent: bool) {

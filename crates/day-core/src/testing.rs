@@ -1,21 +1,34 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Opt-in presentation policy for functional walkthroughs. This is not a virtual clock:
-//! timers, network requests, physics and media retain their real timing.
+//! Opt-in presentation policy for functional walkthroughs: fast mode is reduced motion forced
+//! on (docs/accessibility.md), nothing more. This is not a virtual clock: timers, network
+//! requests, physics and media retain their real timing.
 
-static FAST_ANIMATIONS: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
 
-/// Skip decorative motion, applying its destination state immediately.
-/// Set `DAY_TEST_FAST=1` before launch (`day launch --fast`). Ordinary runs are unchanged.
+/// Whether the launch forced reduced motion: `DAY_TEST_FAST=1` (`day launch --fast`) or
+/// `DAY_REDUCE_MOTION=1`, the override that lets a script or a screenshot run the reduced
+/// variant without the system setting. Neither is read after launch, and the user's own
+/// setting is OR-ed in by [`crate::reduce_motion_now`].
+pub(crate) fn forced_reduce_motion() -> bool {
+    *FORCED.get_or_init(|| {
+        let on = |key: &str| std::env::var(key).as_deref() == Ok("1");
+        on("DAY_TEST_FAST") || on("DAY_REDUCE_MOTION")
+    })
+}
+
+/// Skip decorative motion, applying its destination state immediately: the reduced-motion
+/// gate ([`crate::reduce_motion_now`]), which fast mode forces on. Kept under this name for
+/// the backends that ask it before animating a native transition.
 pub fn fast_animations() -> bool {
-    *FAST_ANIMATIONS.get_or_init(|| std::env::var("DAY_TEST_FAST").as_deref() == Ok("1"))
+    crate::reduce_motion_now()
 }
 
 /// Browser hosts have no process environment. Initialize once before constructing the UI.
 #[cfg(target_arch = "wasm32")]
 pub fn init_fast_animations(enabled: bool) {
-    let _ = FAST_ANIMATIONS.set(enabled);
+    let _ = FORCED.set(enabled);
 }
 
 #[cfg(test)]

@@ -155,6 +155,8 @@ public final class DayBridge {
     /** A nav host's SlidingPaneLayout settled on a presentation (docs/size-classes.md). */
     public static final int K_NAV_PRESENTATION = 24;
     public static final int K_APPEARANCE_CHANGED = 25;
+    /** The user's "Remove animations" setting flipped (docs/accessibility.md); no payload. */
+    public static final int K_REDUCE_MOTION_CHANGED = 33;
     public static final int K_COVER_HIDDEN = 26;
     /** A styled run's link was tapped (docs/text-runs.md); the string is the target. */
     public static final int K_LINK_ACTIVATED = 27;
@@ -478,7 +480,7 @@ public final class DayBridge {
                                 final boolean reorderable, final boolean deletable,
                                 final String deleteLabel) {
         final RecyclerView rv = new RecyclerView(ctx);
-        if (fastAnimations) rv.setItemAnimator(null);
+        if (skipTransitions()) rv.setItemAnimator(null);
         rv.setLayoutManager(new LinearLayoutManager(ctx));
         rv.addOnScrollListener(new RecyclerView.OnScrollListener() {
             int previous = -1;
@@ -679,7 +681,7 @@ public final class DayBridge {
                 RecyclerView.Adapter<?> a = rv.getAdapter();
                 int n = (a == null) ? 0 : a.getItemCount();
                 if (n > 0) {
-                    if (fastAnimations) rv.scrollToPosition(n - 1);
+                    if (skipTransitions()) rv.scrollToPosition(n - 1);
                     else rv.smoothScrollToPosition(n - 1);
                 }
             }
@@ -1780,6 +1782,13 @@ public final class DayBridge {
 
     static boolean fastAnimations;
 
+    /** Whether the shim's own native transitions (page push, cover slide, list item moves)
+     *  jump to their end state: a scripted run (`fastAnimations`) or a user who removed
+     *  animations (docs/accessibility.md). The platform already drives its animators at zero
+     *  duration for the latter; skipping them outright lands the same frame synchronously, so
+     *  a completion callback runs in the same pass instead of one frame later. */
+    static boolean skipTransitions() { return fastAnimations || reduceMotion(); }
+
     private static final class CaptureFence {
         long revision;
         volatile boolean ready;
@@ -1916,6 +1925,61 @@ public final class DayBridge {
      *  rebuilds app-painted surfaces. */
     public static void appearanceChanged() {
         if (started) nativeOnEvent(0L, K_APPEARANCE_CHANGED, 0, "");
+    }
+
+    /** Whether the user asked the system for less motion (Toolkit::reduce_motion,
+     *  docs/accessibility.md): Accessibility's "Remove animations", which writes the global
+     *  animator duration scale to zero (Developer options' "Animator duration scale: off" is
+     *  the same write).
+     *
+     *  Read from the settings provider every time rather than from
+     *  `ValueAnimator.areAnimatorsEnabled()`: that answer is the scale the window manager last
+     *  pushed into this process, on a binder path of its own, so at the moment the observer
+     *  below fires it can still hold the old value. The provider is current by definition, and
+     *  its in-process cache makes a repeat read cheap. */
+    public static boolean reduceMotion() {
+        if (ctx == null) return false;
+        try {
+            return android.provider.Settings.Global.getFloat(ctx.getContentResolver(),
+                    android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f;
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /** Watch the animator duration scale (docs/accessibility.md) and report each flip to native
+     *  as event kind 33, the way a light/dark switch is reported as 25. The caller keeps the
+     *  returned observer and hands it back to `unwatchReduceMotion`: DayActivity registers from
+     *  onCreate and unregisters from onDestroy, and holding it per activity keeps a recreation
+     *  honest whichever of the two runs first. The observer's handler is the main looper, so
+     *  `onChange` arrives on Day's UI thread and the report crosses straight into Rust, where
+     *  day-core re-reads `reduceMotion()`. `null` when the registration failed. */
+    public static android.database.ContentObserver watchReduceMotion(Context host) {
+        android.database.ContentObserver observer = new android.database.ContentObserver(main) {
+            @Override public void onChange(boolean selfChange) {
+                if (started) nativeOnEvent(0L, K_REDUCE_MOTION_CHANGED, 0, "");
+            }
+        };
+        try {
+            host.getContentResolver().registerContentObserver(
+                    android.provider.Settings.Global.getUriFor(
+                            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE),
+                    false, observer);
+        } catch (RuntimeException e) {
+            android.util.Log.w("Day", "animator duration scale observer not registered", e);
+            return null;
+        }
+        return observer;
+    }
+
+    /** Take down an observer `watchReduceMotion` returned. */
+    public static void unwatchReduceMotion(Context host, android.database.ContentObserver observer) {
+        if (observer == null) return;
+        try {
+            host.getContentResolver().unregisterContentObserver(observer);
+        } catch (RuntimeException e) {
+            android.util.Log.w("Day", "animator duration scale observer not unregistered", e);
+        }
     }
 
     /** A PNG of this app's own window (docs/window-image.md), or `null` when there is nothing
