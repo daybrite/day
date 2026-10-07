@@ -4906,8 +4906,8 @@ pub(crate) mod conformance {
     use day_core::Piece;
     use day_core::conformance::{Case, Drive};
     use day_reactive::Signal;
-    use day_spec::kinds;
     use day_spec::props::NavPresentation;
+    use day_spec::{Cap, kinds};
 
     use crate::*;
 
@@ -5024,6 +5024,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn cover_presents_and_dismisses() -> Case {
         Case::new()
+            .proves_cap(Cap::Cover)
             .proves(kinds::COVER)
             .page(|| covered(Signal::new(None), false))
             .drive(|d: Drive| async move {

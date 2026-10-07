@@ -651,6 +651,79 @@ fn exec(step: Step, revision: u32) -> Reply {
                 day_core::set_modifier_override(None);
                 Ok(Reply::ok())
             }
+            Step::Hover { id, at, leave } => {
+                let node = find(&id)?;
+                let location = match at {
+                    Some([x, y]) => day_spec::Point::new(x, y),
+                    None => {
+                        let f = with_tree(|t| t.node_frame(node)).unwrap_or_default();
+                        day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0)
+                    }
+                };
+                let phase = if leave {
+                    day_spec::DragPhase::Ended
+                } else {
+                    day_spec::DragPhase::Began
+                };
+                day_core::enqueue_event(rnode_to_id(node), Event::Hover { phase, location });
+                day_reactive::flush_sync();
+                Ok(Reply::ok())
+            }
+            Step::Pan { id, by, steps } => {
+                let node = find(&id)?;
+                let f = with_tree(|t| t.node_frame(node)).unwrap_or_default();
+                let location = day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0);
+                let n = steps.unwrap_or(4).max(1);
+                let emit_pan = |phase, dx: f64, dy: f64| {
+                    day_core::enqueue_event(
+                        rnode_to_id(node),
+                        Event::Pan {
+                            phase,
+                            delta: day_spec::Point::new(dx, dy),
+                            location,
+                        },
+                    );
+                    day_reactive::flush_sync();
+                };
+                emit_pan(day_spec::DragPhase::Began, 0.0, 0.0);
+                // Incremental deltas, as the platforms report them, adding up to `by`.
+                for _ in 0..n {
+                    emit_pan(
+                        day_spec::DragPhase::Changed,
+                        by[0] / n as f64,
+                        by[1] / n as f64,
+                    );
+                }
+                emit_pan(day_spec::DragPhase::Ended, 0.0, 0.0);
+                Ok(Reply::ok())
+            }
+            Step::Pinch { id, scale, steps } => {
+                let node = find(&id)?;
+                let f = with_tree(|t| t.node_frame(node)).unwrap_or_default();
+                let location = day_spec::Point::new(f.size.width / 2.0, f.size.height / 2.0);
+                let n = steps.unwrap_or(4).max(1);
+                let emit_pinch = |phase, s: f64| {
+                    day_core::enqueue_event(
+                        rnode_to_id(node),
+                        Event::Pinch {
+                            phase,
+                            scale: s,
+                            location,
+                        },
+                    );
+                    day_reactive::flush_sync();
+                };
+                emit_pinch(day_spec::DragPhase::Began, 1.0);
+                // Cumulative since `Began`, as the platforms report it.
+                for i in 1..=n {
+                    emit_pinch(
+                        day_spec::DragPhase::Changed,
+                        1.0 + (scale - 1.0) * i as f64 / n as f64,
+                    );
+                }
+                emit_pinch(day_spec::DragPhase::Ended, scale);
+                Ok(Reply::ok())
+            }
             Step::Submit { id } => emit(&id, Event::Submitted).map(|()| Reply::ok()),
             Step::Input {
                 id,
@@ -1234,6 +1307,17 @@ fn exec(step: Step, revision: u32) -> Reply {
                             "{id:?}: expected {value}, probe text={:?} value={} flag={}",
                             p.text, p.value, p.flag
                         ),
+                        true,
+                    ))
+                }
+            }
+            Step::AssertAnnounced { text } => {
+                let said = day_core::conformance::announcements();
+                if said.iter().any(|s| norm(s) == norm(&text)) {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(
+                        format!("{text:?} was not announced (announced: {said:?})"),
                         true,
                     ))
                 }

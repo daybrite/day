@@ -1801,6 +1801,8 @@ pub(crate) mod conformance {
         let count = Signal::new(0i64);
         Case::new()
             .proves(kinds::LABEL)
+            .proves_duty("update")
+            .proves_duty("read_native")
             .page(move || {
                 column((
                     label(move || format!("Count {}", count.get())).id("text"),

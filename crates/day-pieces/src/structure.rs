@@ -2991,6 +2991,8 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn list_rows_realize() -> Case {
         Case::new()
+            .proves_duty("attach_list")
+            .proves_duty("adopt")
             .proves(kinds::LIST)
             .proves(kinds::LIST_CELL)
             .page(|| {
@@ -3008,6 +3010,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn list_follows_source() -> Case {
         Case::new()
+            .proves_duty("release")
             .proves(kinds::LIST)
             .page(|| {
                 let rows = names(&["Alpha", "Beta"]);
@@ -3198,6 +3201,8 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn tree_rows_disclose() -> Case {
         Case::new()
+            .proves_duty("attach_tree")
+            .proves_cap(Cap::Tree)
             .proves(kinds::TREE)
             .requires(Cap::Tree)
             .page(|| names_tree(fruit()).id("tree").height(240.0))
@@ -3229,6 +3234,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn tree_move_reparents() -> Case {
         Case::new()
+            .proves_cap(Cap::TreeMove)
             .proves(kinds::TREE)
             .requires(Cap::Tree)
             .page(|| {

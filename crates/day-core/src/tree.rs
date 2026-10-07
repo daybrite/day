@@ -752,6 +752,13 @@ pub trait TreeOps {
     fn set_app_badge(&mut self, badge: &day_spec::AppBadge);
     fn on_event(&mut self, node: RNode, h: EventHandler);
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler>;
+    /// The node itself if it has a native view, else the one a chain of single-child
+    /// layout-only wrappers leads down to: the descent `enable_gesture` and `set_focusable`
+    /// make, for a modifier that has to reach the view (`Decorate::on_key`'s key mark).
+    fn native_view_of(&self, node: RNode) -> Option<RNode>;
+    /// The layout-only wrappers directly above `node` (single child, no native view), nearest
+    /// first: the same element as `node`, where an id or a modifier often sits.
+    fn wrappers_above(&self, node: RNode) -> Vec<RNode>;
     fn set_id(&mut self, node: RNode, id: String);
     /// Merge non-default grid cell facts onto a node's [`Flex`]: what the `.grid_span`/
     /// `.grid_align` modifiers call (docs/grid.md). Called at build time, before the first layout.
@@ -1279,6 +1286,37 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn handlers_for(&self, node: RNode) -> Vec<EventHandler> {
         self.handlers.get(&node).cloned().unwrap_or_default()
     }
+    fn native_view_of(&self, node: RNode) -> Option<RNode> {
+        let mut cur = node;
+        for _ in 0..16 {
+            let n = self.nodes.get(cur)?;
+            if n.handle.is_some() {
+                return Some(cur);
+            }
+            match n.children.as_slice() {
+                [only] => cur = *only,
+                _ => return None,
+            }
+        }
+        None
+    }
+    fn wrappers_above(&self, node: RNode) -> Vec<RNode> {
+        let mut out = Vec::new();
+        let mut cur = node;
+        for _ in 0..16 {
+            let Some(parent) = self.nodes.get(cur).map(|n| n.parent) else {
+                break;
+            };
+            match self.nodes.get(parent) {
+                Some(p) if p.handle.is_none() && p.children.len() == 1 && parent != cur => {
+                    out.push(parent);
+                    cur = parent;
+                }
+                _ => break,
+            }
+        }
+        out
+    }
     fn node_exists(&self, node: RNode) -> bool {
         self.nodes.contains_key(node)
     }
@@ -1370,10 +1408,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn focus_node(&mut self, node: RNode, focused: bool) {
-        if let Some(n) = self.nodes.get(node)
-            && let Some(h) = n.handle.clone()
-        {
-            self.toolkit.focus(&h, rnode_to_id(node), focused);
+        // The wrapper-descent `set_focusable` makes: an id (and so a `focus:` step) often lands
+        // on a layout-only wrapper (`.frame`, `.padding`), and focusing it did nothing at all.
+        let mut cur = node;
+        for _ in 0..16 {
+            let Some(n) = self.nodes.get(cur) else { return };
+            if let Some(h) = n.handle.clone() {
+                self.toolkit.focus(&h, rnode_to_id(node), focused);
+                return;
+            }
+            match n.children.as_slice() {
+                [only] => cur = *only,
+                _ => return,
+            }
         }
     }
 
@@ -1402,6 +1449,15 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn set_probe_focused(&mut self, node: RNode, focused: bool) {
         if let Some(n) = self.nodes.get_mut(node) {
             n.probe.focused = focused;
+        }
+        // The layout-only wrappers directly above a native view are the same element: an id
+        // (`.frame(..).id(..)`) and a modifier often sit on one, while the toolkit reports
+        // focus on the view itself. Mirror the state up through them, the inverse of the
+        // descent `set_focusable` and `focus_node` make.
+        for w in self.wrappers_above(node) {
+            if let Some(p) = self.nodes.get_mut(w) {
+                p.probe.focused = focused;
+            }
         }
         // Remember which node has it, beyond the per-node flag: keys follow focus
         // (docs/menus.md), so dayscript's `key:` step needs the same answer the platform gives.
@@ -2572,12 +2628,14 @@ pub fn open_url(url: &str) {
 /// Nothing happens when no screen reader is running, and nothing happens on a toolkit that
 /// answers [`Cap::Announce`](day_spec::Cap::Announce) with `Unsupported`.
 pub fn announce(text: &str) {
+    crate::conformance::note_announcement(text);
     with_tree(|t| t.announce(text, false));
 }
 
 /// [`announce`], interrupting what the screen reader is saying: an error, or a change that
 /// cannot wait.
 pub fn announce_urgent(text: &str) {
+    crate::conformance::note_announcement(text);
     with_tree(|t| t.announce(text, true));
 }
 
@@ -2925,7 +2983,18 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
     } else {
         id_to_rnode(id)
     };
-    let handlers = with_tree(|t| t.handlers_for(node));
+    let mut handlers = with_tree(|t| t.handlers_for(node));
+    // A key or a focus change the toolkit raised on a native view also reaches the layout-only
+    // wrappers directly above it (the same element): `.frame(..).on_key(..)` listens on the
+    // wrapper, while the platform delivers the key to the view. Only these two: a tap or a drag
+    // already reaches the wrapper through `enable_gesture`'s descent, and would arrive twice.
+    if matches!(ev, Event::Key(_) | Event::FocusChanged(_)) {
+        with_tree(|t| {
+            for w in t.wrappers_above(node) {
+                handlers.extend(t.handlers_for(w));
+            }
+        });
+    }
     if handlers.is_empty() {
         // A press routed to a node that no longer exists is a staleness bug somewhere
         // upstream (an element index, a native view outliving its node); surface it in

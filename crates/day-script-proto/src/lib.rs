@@ -115,6 +115,35 @@ pub enum Step {
         #[serde(default)]
         modifiers: Vec<String>,
     },
+    /// A synthetic pointer hover over one element (`.on_hover`, docs/canvas.md "Interaction"):
+    /// the pointer enters at `at` (element coordinates; the center when omitted), or, with
+    /// `leave: true`, leaves. Injected, like [`Step::Drag`].
+    Hover {
+        id: String,
+        #[serde(default)]
+        at: Option<[f64; 2]>,
+        #[serde(default)]
+        leave: bool,
+    },
+    /// A synthetic two-finger pan over one element (`.on_pan`, docs/shapes.md): `Began`, a few
+    /// `Changed` samples whose deltas add up to `by`, `Ended`. Injected, like [`Step::Drag`].
+    Pan {
+        id: String,
+        by: [f64; 2],
+        /// `Changed` samples (default 4).
+        #[serde(default)]
+        steps: Option<u32>,
+    },
+    /// A synthetic pinch over one element (`.on_pinch`, docs/shapes.md): `Began` at scale 1,
+    /// `Changed` samples toward `scale`, `Ended` at `scale` (cumulative, as the platforms
+    /// report it), centered on the element. Injected, like [`Step::Drag`].
+    Pinch {
+        id: String,
+        scale: f64,
+        /// `Changed` samples (default 4).
+        #[serde(default)]
+        steps: Option<u32>,
+    },
     /// Deliver `Event::Submitted` to the element: the scripted stand-in for the platform's
     /// submit gesture (Enter in a `text_area` with `.on_submit`, a field's return key).
     Submit {
@@ -378,6 +407,11 @@ pub enum Step {
     AssertOpenedUrl {
         url: String,
     },
+    /// Check that the app announced `text` to the screen reader during this test run
+    /// (`day::announce`, docs/accessibility.md). The announcement still reaches the toolkit.
+    AssertAnnounced {
+        text: String,
+    },
     /// Compare the NATIVE widget with what is expected (docs/testing.md): the state the
     /// platform reports through `Toolkit::read_native`, not Day's tree. Only the fields given
     /// are checked. A field the toolkit cannot read passes and is listed as unread in the
@@ -618,6 +652,9 @@ impl Step {
             Self::Tap { .. } => "tap",
             Self::Key { .. } => "key",
             Self::Drag { .. } => "drag",
+            Self::Hover { .. } => "hover",
+            Self::Pan { .. } => "pan",
+            Self::Pinch { .. } => "pinch",
             Self::Submit { .. } => "submit",
             Self::Input { .. } => "input",
             Self::SetValue { .. } => "set_value",
@@ -643,6 +680,7 @@ impl Step {
             Self::AssertFrame { .. } => "assert_frame",
             Self::SamplePixel { .. } => "sample_pixel",
             Self::AssertOpenedUrl { .. } => "assert_opened_url",
+            Self::AssertAnnounced { .. } => "assert_announced",
             Self::AssertNative { .. } => "assert_native",
             Self::AssertNoPlaceholders { .. } => "assert_no_placeholders",
             Self::CloseWindow { .. } => "close_window",

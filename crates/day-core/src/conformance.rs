@@ -66,6 +66,22 @@ pub enum DriveOp {
     AssertMissing(String),
     /// That an element is not on screen: missing, empty, or natively hidden.
     AssertHidden(String),
+    /// A pointer entering an element, at a point in it or (for `None`) its center.
+    Hover(String, Option<(f64, f64)>),
+    /// The pointer leaving an element.
+    HoverLeave(String),
+    /// A two-finger pan over an element, by this much in total.
+    Pan(String, f64, f64),
+    /// A pinch over an element, to this cumulative scale.
+    Pinch(String, f64),
+    /// A drag over an element, from one point to another in its coordinates.
+    Drag(String, (f64, f64), (f64, f64)),
+    /// A tap at a point in an element's coordinates.
+    TapAt(String, f64, f64),
+    /// A key press, to an element or (for `None`) to whatever holds focus.
+    Key(Option<String>, String),
+    /// That the app announced this text to the screen reader during the run.
+    AssertAnnounced(String),
     AssertValue(String, f64),
     /// A toggle's state.
     AssertOn(String, bool),
@@ -214,6 +230,39 @@ impl Drive {
     }
     pub fn assert_missing(&self, id: &str) -> OpFuture {
         self.op(DriveOp::AssertMissing(id.into()))
+    }
+    /// The pointer entering `id` at (`x`, `y`) in its coordinates (its center for `None`).
+    pub fn hover(&self, id: &str, at: Option<(f64, f64)>) -> OpFuture {
+        self.op(DriveOp::Hover(id.into(), at))
+    }
+    /// The pointer leaving `id`.
+    pub fn hover_leave(&self, id: &str) -> OpFuture {
+        self.op(DriveOp::HoverLeave(id.into()))
+    }
+    /// A two-finger pan over `id` by (`dx`, `dy`) in total.
+    pub fn pan(&self, id: &str, dx: f64, dy: f64) -> OpFuture {
+        self.op(DriveOp::Pan(id.into(), dx, dy))
+    }
+    /// A pinch over `id` to `scale` (cumulative; 1 = unchanged).
+    pub fn pinch(&self, id: &str, scale: f64) -> OpFuture {
+        self.op(DriveOp::Pinch(id.into(), scale))
+    }
+    /// A pointer drag over `id` from `from` to `to`, in its coordinates.
+    pub fn drag(&self, id: &str, from: (f64, f64), to: (f64, f64)) -> OpFuture {
+        self.op(DriveOp::Drag(id.into(), from, to))
+    }
+    /// A tap at (`x`, `y`) in `id`'s coordinates.
+    pub fn tap_at(&self, id: &str, x: f64, y: f64) -> OpFuture {
+        self.op(DriveOp::TapAt(id.into(), x, y))
+    }
+    /// A key press (web `KeyboardEvent.key` names: `"Enter"`, `"ArrowRight"`, `"a"`) to `id`,
+    /// or to whatever holds focus for `None`.
+    pub fn key(&self, id: Option<&str>, key: &str) -> OpFuture {
+        self.op(DriveOp::Key(id.map(str::to_owned), key.into()))
+    }
+    /// That the app announced `text` to the screen reader during the run.
+    pub fn assert_announced(&self, text: &str) -> OpFuture {
+        self.op(DriveOp::AssertAnnounced(text.into()))
     }
     /// That an element is not on screen: missing, with an empty frame, or hidden natively (a
     /// collapsed pane a toolkit keeps built).
@@ -574,6 +623,8 @@ thread_local! {
     static PAGE_PANIC: RefCell<Option<String>> = const { RefCell::new(None) };
     /// The URLs the app asked to open while a test run was going on, when one is.
     static OPENED: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+    /// What the app announced to the screen reader while a test run was going on, when one is.
+    static ANNOUNCED: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
 }
 
 /// Start or end a test run's interception of [`crate::open_url`]: while it is on, a URL the app
@@ -581,6 +632,23 @@ thread_local! {
 /// browser starts on the machine running the tests.
 pub fn set_intercepting_urls(on: bool) {
     OPENED.with(|o| *o.borrow_mut() = on.then(Vec::new));
+    ANNOUNCED.with(|a| *a.borrow_mut() = on.then(Vec::new));
+}
+
+/// Record a screen-reader announcement if a test run is going on. Unlike a URL it still goes
+/// to the toolkit: announcing has no side effect a run must avoid, and the duty is what a case
+/// proves.
+pub fn note_announcement(text: &str) {
+    ANNOUNCED.with(|a| {
+        if let Some(list) = a.borrow_mut().as_mut() {
+            list.push(text.to_owned());
+        }
+    });
+}
+
+/// The announcements made since the run began.
+pub fn announcements() -> Vec<String> {
+    ANNOUNCED.with(|a| a.borrow().clone().unwrap_or_default())
 }
 
 /// Record `url` if a test run is intercepting; whether it did.

@@ -125,8 +125,7 @@ impl NativeRef {
 }
 
 /// A transparent native layer node (`CONTAINER`, no fill/clip/corner) used by the animatable
-/// modifiers (`.opacity`/`.transform`/`.animation`) to carry a per-node opacity, transform, or
-/// implicit animation. Layout-transparent (`FillThrough`), so it never affects sizing and a
+/// modifiers (`.opacity`/`.transform`) to carry a per-node opacity or transform. Layout-transparent (`FillThrough`), so it never affects sizing and a
 /// granted stretch flows through to what it paints.
 fn layer_node(cx: &mut BuildCx) -> RNode {
     cx.native(
@@ -438,8 +437,16 @@ fn op_on_key(f: impl Fn(&day_spec::KeyEvent) + 'static) -> impl FnOnce(Build) ->
         Box::new(move |cx| {
             let n = inner(cx);
             // Declare the intent as well as listening: a backend whose focused view would have
-            // to claim the key from the platform's dispatch checks this first.
+            // to claim the key from the platform's dispatch checks this first. That check runs
+            // on the view, which sits below `n` when `n` is a layout wrapper (`.frame(..)`), so
+            // the view is marked too; the key it claims reaches this handler through the
+            // wrapper (day-core's dispatch).
             day_spec::keys::mark(day_core::rnode_to_id(n));
+            if let Some(view) = with_tree(|t| t.native_view_of(n))
+                && view != n
+            {
+                day_spec::keys::mark(day_core::rnode_to_id(view));
+            }
             cx.on(n, move |ev| {
                 if let Event::Key(k) = ev {
                     f(k);
@@ -818,7 +825,12 @@ fn op_transform(t: Reactive<Transform>) -> impl FnOnce(Build) -> Build {
 fn op_animation(anim: AnimSpec) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
-            let node = layer_node(cx);
+            // Layout-only: the implicit animation is Day's own state, which the patches beneath
+            // look up through their ancestors, and needs no native view. A native layer here
+            // also clipped what it held on the toolkits whose containers clip their children
+            // (Qt always, Android by default), so a translated or scaled view under
+            // `.animation(..)` vanished past the layer's frame.
+            let node = cx.layout_only(Rc::new(FillThrough), Flex::default(), Boundary::No);
             with_tree(|t| t.set_implicit_anim(node, Some(anim)));
             cx.under(node, |cx| {
                 let _ = inner(cx);
@@ -1689,8 +1701,10 @@ fn scoped_drop_target(target: day_spec::transfer::Target) -> day_spec::transfer:
 /// The modifiers' `#[day::test]` cases, next to the `Decorate` methods they prove.
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
+    use day_core::AnyPiece;
     use day_core::conformance::{Case, Drive, FrameExpect};
-    use day_spec::{Cap, Color};
+    use day_reactive::Signal;
+    use day_spec::{Cap, Color, DragPhase, Transform};
 
     use crate::*;
 
@@ -1877,6 +1891,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn opacity_hides() -> Case {
         Case::new()
+            .proves_duty("set_opacity")
             .proves_modifier("opacity")
             .requires(Cap::Snapshot)
             .page(|| {
@@ -1993,8 +2008,525 @@ pub(crate) mod conformance {
             })
     }
 
+    // ---- input: every op injects Day's own event, the stream a native recognizer delivers,
+    // so these prove the routing and the handler, not that the platform's recognizer fires
+    // (docs/testing.md "Known gaps").
+
+    /// A plain target for gestures: a filled rectangle of a known size.
+    fn pad(id: &str) -> Decorated<ShapePiece> {
+        rectangle()
+            .fill(Color::rgb(0.2, 0.4, 0.9))
+            .frame(120.0, 80.0)
+            .id(id.to_string())
+    }
+
+    /// A tap runs `.on_tap`'s work, once per tap.
+    #[day_macros::test(day_core)]
+    fn on_tap_runs() -> Case {
+        Case::new()
+            .proves_modifier("on_tap")
+            .page(|| {
+                let taps = Signal::new(0i64);
+                column((
+                    label(move || format!("taps {}", taps.get())).id("taps"),
+                    label("Tap me")
+                        .padding(12.0)
+                        .on_tap(move || taps.update(|n| *n += 1))
+                        .id("target"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("target").await?;
+                d.tap("target").await?;
+                d.assert_text("taps", "taps 2").await
+            })
+    }
+
+    /// `.on_tap_at` hears where in the element the tap landed.
+    #[day_macros::test(day_core)]
+    fn on_tap_at_reports_point() -> Case {
+        Case::new()
+            .proves_modifier("on_tap_at")
+            .page(|| {
+                let at = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("at {}", at.get())).id("at"),
+                    rectangle()
+                        .fill(Color::rgb(0.2, 0.4, 0.9))
+                        .frame(120.0, 80.0)
+                        .on_tap_at(move |p| at.set(format!("{:.0},{:.0}", p.x, p.y)))
+                        .id("target"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap_at("target", 30.0, 20.0).await?;
+                d.assert_text("at", "at 30,20").await
+            })
+    }
+
+    /// A drag reports its phases, and its translation from where it began.
+    #[day_macros::test(day_core)]
+    fn on_drag_reports_translation() -> Case {
+        Case::new()
+            .proves_duty("enable_gesture")
+            .proves_modifier("on_drag")
+            .page(|| {
+                let state = Signal::new(String::from("idle"));
+                column((
+                    label(move || state.get()).id("state"),
+                    pad("target").on_drag(move |d: Drag| {
+                        state.set(match d.phase {
+                            DragPhase::Began => "began".into(),
+                            DragPhase::Changed => "moving".into(),
+                            DragPhase::Ended => {
+                                format!("moved {:.0},{:.0}", d.translation.x, d.translation.y)
+                            }
+                        })
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.drag("target", (10.0, 10.0), (50.0, 30.0)).await?;
+                d.assert_text("state", "moved 40,20").await
+            })
+    }
+
+    /// Hover reports the pointer's place while it is over the element, and `None` on leaving.
+    #[day_macros::test(day_core)]
+    fn on_hover_enters_and_leaves() -> Case {
+        Case::new()
+            .proves_modifier("on_hover")
+            .page(|| {
+                let state = Signal::new(String::from("out"));
+                column((
+                    label(move || state.get()).id("state"),
+                    pad("target").on_hover(move |p| {
+                        state.set(match p {
+                            Some(p) => format!("over {:.0},{:.0}", p.x, p.y),
+                            None => "out".into(),
+                        })
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.hover("target", Some((5.0, 6.0))).await?;
+                d.assert_text("state", "over 5,6").await?;
+                d.hover_leave("target").await?;
+                d.assert_text("state", "out").await
+            })
+    }
+
+    /// A pan delivers incremental deltas that add up to the whole movement.
+    #[day_macros::test(day_core)]
+    fn on_pan_adds_deltas() -> Case {
+        Case::new()
+            .proves_modifier("on_pan")
+            .page(|| {
+                let total = Signal::new((0.0f64, 0.0f64));
+                column((
+                    label(move || {
+                        let (x, y) = total.get();
+                        format!("pan {x:.0},{y:.0}")
+                    })
+                    .id("total"),
+                    pad("target").on_pan(move |p: Pan| {
+                        total.update(|(x, y)| {
+                            *x += p.delta.x;
+                            *y += p.delta.y;
+                        })
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.pan("target", 40.0, -20.0).await?;
+                d.assert_text("total", "pan 40,-20").await
+            })
+    }
+
+    /// A pinch's scale is cumulative from where it began; its end carries the final scale.
+    #[day_macros::test(day_core)]
+    fn on_pinch_reports_scale() -> Case {
+        Case::new()
+            .proves_modifier("on_pinch")
+            .page(|| {
+                let scale = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("scale {}", scale.get())).id("scale"),
+                    pad("target").on_pinch(move |p: Pinch| {
+                        if p.phase == DragPhase::Ended {
+                            scale.set(format!("{:.1}", p.scale));
+                        }
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.pinch("target", 2.5).await?;
+                d.assert_text("scale", "scale 2.5").await
+            })
+    }
+
+    /// A focusable element takes focus, and the keys pressed while it holds it reach `.on_key`.
+    #[day_macros::test(day_core)]
+    fn on_key_reaches_focused() -> Case {
+        Case::new()
+            .proves_duty("focus")
+            .proves_duty("set_focusable")
+            .proves_modifier("on_key")
+            .proves_modifier("focusable")
+            .page(|| {
+                let last = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("key {}", last.get())).id("last"),
+                    pad("target")
+                        .focusable()
+                        .on_key(move |k| last.set(k.key.clone())),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                // Focus, then a key to whatever holds focus: the route a real press takes.
+                d.focus("target").await?;
+                d.assert_focused("target", true).await?;
+                d.key(None, "ArrowRight").await?;
+                d.assert_text("last", "key ArrowRight").await
+            })
+    }
+
+    /// A focus binding moves focus when the app sets it, and follows the field when it is
+    /// focused natively.
+    #[day_macros::test(day_core)]
+    fn focused_binding_moves_focus() -> Case {
+        Case::new()
+            .proves_modifier("focused")
+            .page(|| {
+                let want = Signal::new(false);
+                column((
+                    label(move || format!("focused {}", want.get())).id("state"),
+                    button("Focus").action(move || want.set(true)).id("go"),
+                    text_field(Signal::new(String::new()))
+                        .focused(want)
+                        .id("field"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_focused("field", false).await?;
+                d.tap("go").await?;
+                d.assert_focused("field", true).await?;
+                d.assert_text("state", "focused true").await
+            })
+    }
+
+    // ---- layout and the remaining modifiers -------------------------------------------------
+
+    /// `.height` fixes the height and leaves the width to the layout.
+    #[day_macros::test(day_core)]
+    fn height_fixes_height() -> Case {
+        Case::new()
+            .proves_modifier("height")
+            .page(|| {
+                column((rectangle()
+                    .fill(Color::rgb(1.0, 0.0, 0.0))
+                    .id("bar")
+                    .height(37.0),))
+                .width(100.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "bar",
+                    FrameExpect {
+                        height: Some(37.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// `.grow_h` takes the height its column has left; `.grow_axes` grows on the axes named.
+    #[day_macros::test(day_core)]
+    fn grow_vertical_fills_column() -> Case {
+        Case::new()
+            .proves_modifier("grow_h")
+            .proves_modifier("grow_axes")
+            .page(|| {
+                row((
+                    column((
+                        rectangle()
+                            .fill(Color::rgb(1.0, 0.0, 0.0))
+                            .id("top")
+                            .frame(40.0, 20.0),
+                        rectangle()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .id("rest")
+                            .width(40.0)
+                            .grow_h(),
+                    ))
+                    .spacing(0.0)
+                    .height(120.0),
+                    rectangle()
+                        .fill(Color::rgb(0.0, 1.0, 0.0))
+                        .id("both")
+                        .width(30.0)
+                        .grow_axes(false, true),
+                ))
+                .spacing(0.0)
+                .align(VAlign::Top)
+                .height(120.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "rest",
+                    FrameExpect {
+                        height: Some(100.0),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                d.assert_frame(
+                    "both",
+                    FrameExpect {
+                        height: Some(120.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A grid cell spans the columns it asks for, and aligns within its cell as asked.
+    #[day_macros::test(day_core)]
+    fn grid_span_and_align() -> Case {
+        Case::new()
+            .proves_modifier("grid_span")
+            .proves_modifier("grid_align")
+            .page(|| {
+                let cell = |id: &str, w: f64| {
+                    rectangle()
+                        .fill(Color::rgb(0.2, 0.4, 0.9))
+                        .id(id.to_string())
+                        .frame(w, 20.0)
+                };
+                grid((
+                    grid_row((cell("a", 40.0), cell("b", 60.0))),
+                    grid_row((cell("wide", 30.0)
+                        .grid_align(day_core::Alignment::TopTrailing)
+                        .grid_span(2),)),
+                ))
+                .spacing(0.0)
+                .align(day_core::Alignment::TopLeading)
+            })
+            .drive(|d: Drive| async move {
+                // The spanning cell's rect is both columns, 100 wide; trailing puts its
+                // 30-wide content at x 70 from the first column's start.
+                d.assert_frame(
+                    "wide",
+                    FrameExpect {
+                        x: Some(70.0),
+                        relative_to: Some("a".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// `.overlay` draws its piece centered over the content.
+    #[day_macros::test(day_core)]
+    fn overlay_centers() -> Case {
+        Case::new()
+            .proves_modifier("overlay")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                rectangle()
+                    .fill(Color::rgb(1.0, 0.0, 0.0))
+                    .frame(90.0, 90.0)
+                    .overlay(
+                        rectangle()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .frame(30.0, 30.0),
+                    )
+                    .id("base")
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("base", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("base", 0.1, 0.1, "#ff0000").await
+            })
+    }
+
+    /// `.transform` takes a whole transform: here a translation and a scale together.
+    #[day_macros::test(day_core)]
+    fn transform_applies_whole() -> Case {
+        Case::new()
+            .proves_duty("set_transform")
+            .proves_modifier("transform")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    label("")
+                        .frame(20.0, 20.0)
+                        .background(Color::rgb(0.0, 0.0, 1.0))
+                        .transform(Transform {
+                            tx: 30.0,
+                            sx: 2.0,
+                            sy: 2.0,
+                            ..Transform::default()
+                        }),
+                ))
+                .id("ground")
+                .frame(120.0, 60.0)
+            })
+            .drive(|d: Drive| async move {
+                // Centered at x 60, moved to 90, scaled to 40 wide: 70..110 of 120.
+                d.sample_pixel("ground", 0.75, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.5, 0.5, "#ffffff").await
+            })
+    }
+
+    /// An implicit animation still lands on the final value: a square slid across by an
+    /// animated translation ends where the translation says.
+    #[day_macros::test(day_core)]
+    fn animation_lands_on_final() -> Case {
+        Case::new()
+            .proves_modifier("animation")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let moved = Signal::new(false);
+                column((
+                    button("Move").action(move || moved.set(true)).id("move"),
+                    zstack((
+                        rectangle().fill(Color::WHITE),
+                        label("")
+                            .frame(40.0, 40.0)
+                            .background(Color::rgb(0.0, 0.0, 1.0))
+                            .translation(move || if moved.get() { 80.0 } else { 0.0 }, 0.0)
+                            .animation(day_spec::AnimSpec::linear(150)),
+                    ))
+                    .align(day_core::Alignment::Leading)
+                    .id("ground")
+                    .frame(120.0, 40.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.1, 0.5, "#0000ff").await?;
+                d.tap("move").await?;
+                d.wait_idle().await?;
+                d.pause(0.4).await?;
+                d.sample_pixel("ground", 0.85, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.1, 0.5, "#ffffff").await
+            })
+    }
+
+    /// Each way of naming an element finds it: a fixed id, a derived one, a keyed one.
+    #[day_macros::test(day_core)]
+    fn ids_name_elements() -> Case {
+        Case::new()
+            .proves_modifier("id")
+            .proves_modifier("id_of")
+            .proves_modifier("id_keyed")
+            .page(|| {
+                let n = Signal::new(1i64);
+                column((
+                    label("Fixed").id("fixed"),
+                    label("Derived").id_of(move || format!("derived-{}", n.get())),
+                    label("Keyed").id_keyed("keyed", 7),
+                    button("Next").action(move || n.set(2)).id("next"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("fixed", "Fixed").await?;
+                d.assert_text("keyed:7", "Keyed").await?;
+                d.assert_text("derived-1", "Derived").await?;
+                d.tap("next").await?;
+                d.assert_missing("derived-1").await?;
+                d.assert_text("derived-2", "Derived").await
+            })
+    }
+
+    /// `.tweak` runs with the realized node, and `.native_ref` holds it while the piece lives.
+    #[day_macros::test(day_core)]
+    fn tweak_and_native_ref_see_node() -> Case {
+        Case::new()
+            .proves_modifier("tweak")
+            .proves_modifier("native_ref")
+            .page(|| {
+                let tweaked = Signal::new(false);
+                let r = NativeRef::new();
+                let held = r.clone();
+                column((
+                    label(move || format!("tweaked {}", tweaked.get())).id("tweaked"),
+                    label(move || format!("held {}", held.node().is_some())).id("held"),
+                    label("Target")
+                        .tweak(move |_node| tweaked.set(true))
+                        .native_ref(&r),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("tweaked", "tweaked true").await?;
+                d.assert_text("held", "held true").await
+            })
+    }
+
+    /// `.modifier` applies a reusable modifier: here, a closure that pads.
+    #[day_macros::test(day_core)]
+    fn modifier_applies() -> Case {
+        Case::new()
+            .proves_modifier("modifier")
+            .page(|| {
+                let padded = |content: AnyPiece| content.padding(10.0).any();
+                column((label("Inner").id("inner").modifier(padded).id("outer"),))
+                    .align(HAlign::Leading)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "inner",
+                    FrameExpect {
+                        x: Some(10.0),
+                        y: Some(10.0),
+                        relative_to: Some("outer".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// An announcement reaches the screen reader (the toolkit's `announce`) and the run.
+    #[day_macros::test(day_core)]
+    fn announce_reaches_reader() -> Case {
+        Case::new()
+            .proves_duty("announce")
+            .proves_cap(Cap::Announce)
+            .page(|| {
+                button("Save")
+                    .action(|| day_core::announce("Saved"))
+                    .id("save")
+            })
+            .drive(|d: Drive| async move {
+                d.tap("save").await?;
+                d.assert_announced("Saved").await
+            })
+    }
+
     day_core::tests! {
         padding_insets,
+        on_tap_runs,
+        on_tap_at_reports_point,
+        on_drag_reports_translation,
+        on_hover_enters_and_leaves,
+        on_pan_adds_deltas,
+        on_pinch_reports_scale,
+        on_key_reaches_focused,
+        focused_binding_moves_focus,
+        height_fixes_height,
+        grow_vertical_fills_column,
+        grid_span_and_align,
+        overlay_centers,
+        transform_applies_whole,
+        animation_lands_on_final,
+        ids_name_elements,
+        tweak_and_native_ref_see_node,
+        modifier_applies,
+        announce_reaches_reader,
         rotation_turns_clockwise,
         scale_grows_drawing,
         translation_moves_view,

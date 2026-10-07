@@ -609,6 +609,8 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn shape_fill() -> Case {
         Case::new()
+            .proves_duty("snapshot_window")
+            .proves_duty("prepare_snapshot")
             .proves_cap(Cap::Snapshot)
             .requires(Cap::Snapshot)
             .page(|| on_white(rectangle().fill(Color::rgb(1.0, 0.0, 0.0))))

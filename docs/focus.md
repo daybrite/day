@@ -122,6 +122,11 @@ join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't obser
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.
 
+**An element is its wrappers too.** An id, `.focusable()` or `.on_key` often sits on a layout
+wrapper (`.frame(..)`, `.padding(..)`) above the native view. Focusing it descends to the view,
+a focus change or key the toolkit reports on the view reaches the wrapper's handlers and probe,
+and `.on_key` marks the view as well, so a backend claims the key for it.
+
 **A `canvas` is focusable on every toolkit**, and observes both ways. It is the
 one built-in piece with no native control underneath, so nothing would otherwise make it the
 focused element, and without that, keys could never reach what an app draws.

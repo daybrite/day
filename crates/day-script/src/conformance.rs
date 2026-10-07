@@ -502,6 +502,13 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::AssertVisible(id) => format!("assert_visible {id}"),
         DriveOp::AssertMissing(id) => format!("assert_missing {id}"),
         DriveOp::AssertHidden(id) => format!("assert_hidden {id}"),
+        DriveOp::Hover(id, _) | DriveOp::HoverLeave(id) => format!("hover {id}"),
+        DriveOp::Pan(id, ..) => format!("pan {id}"),
+        DriveOp::Pinch(id, _) => format!("pinch {id}"),
+        DriveOp::Drag(id, ..) => format!("drag {id}"),
+        DriveOp::TapAt(id, ..) => format!("tap {id}"),
+        DriveOp::Key(_, key) => format!("key {key}"),
+        DriveOp::AssertAnnounced(text) => format!("assert_announced {text}"),
         DriveOp::AssertValue(id, _) | DriveOp::AssertOn(id, _) => format!("assert_value {id}"),
         DriveOp::AssertFocused(id, _) => format!("assert_focused {id}"),
         DriveOp::AssertRoute(route) => format!("assert_route {route}"),
@@ -547,6 +554,16 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         DriveOp::AssertVisible(id) => json!({"op": "assert_visible", "id": id}),
         DriveOp::AssertMissing(id) => json!({"op": "assert_missing", "id": id}),
         DriveOp::AssertHidden(id) => json!({"op": "assert_hidden", "id": id}),
+        DriveOp::Hover(id, at) => json!({"op": "hover", "id": id, "at": at.map(|(x, y)| [x, y])}),
+        DriveOp::HoverLeave(id) => json!({"op": "hover", "id": id, "leave": true}),
+        DriveOp::Pan(id, dx, dy) => json!({"op": "pan", "id": id, "by": [dx, dy]}),
+        DriveOp::Pinch(id, scale) => json!({"op": "pinch", "id": id, "scale": scale}),
+        DriveOp::Drag(id, (fx, fy), (tx, ty)) => {
+            json!({"op": "drag", "id": id, "from": [fx, fy], "to": [tx, ty]})
+        }
+        DriveOp::TapAt(id, x, y) => json!({"op": "tap", "id": id, "at": [x, y]}),
+        DriveOp::Key(id, key) => json!({"op": "key", "id": id, "key": key}),
+        DriveOp::AssertAnnounced(text) => json!({"op": "assert_announced", "text": text}),
         DriveOp::AssertValue(id, value) => json!({"op": "assert_value", "id": id, "value": value}),
         DriveOp::AssertOn(id, on) => json!({"op": "assert_value", "id": id, "value": on}),
         DriveOp::AssertFocused(id, focused) => {

@@ -592,6 +592,8 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn toolbar_button_runs_action() -> Case {
         Case::new()
+            .proves_duty("edit_toolbar")
+            .proves_cap(Cap::Toolbar)
             .proves_modifier("toolbar")
             .requires(Cap::Toolbar)
             .page(|| {
@@ -613,6 +615,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn toolbar_toggle_writes_signal() -> Case {
         Case::new()
+            .proves_duty("update_toolbar")
             .proves_modifier("toolbar")
             .requires(Cap::Toolbar)
             .page(|| {

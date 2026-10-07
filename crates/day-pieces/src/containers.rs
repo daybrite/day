@@ -679,6 +679,10 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn column_spacing() -> Case {
         Case::new()
+            .proves_duty("realize")
+            .proves_duty("insert")
+            .proves_duty("set_frame")
+            .proves_duty("measure")
             .proves(kinds::CONTAINER)
             .page(|| {
                 column((
@@ -764,6 +768,8 @@ pub(crate) mod conformance {
         let jump = Signal::new(None::<ScrollTarget>);
         Case::new()
             .proves(kinds::SCROLL)
+            .proves_duty("scroll_to")
+            .proves_duty("set_scroll_content")
             .page(move || {
                 let rows: Vec<AnyPiece> = (0..30)
                     .map(|i| {

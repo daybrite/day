@@ -81,7 +81,8 @@ fn store_round_trip() -> Case {
 `assert_size`), `sample_pixel`, `assert_opened_url`, and for lists, trees and navigation
 `activate`, `reorder`, `delete_row`, `swipe_row`, `scroll_to`, `expand`, `tree_move`,
 `nav_back`; for chrome and dialogs `context_menu`, `menu`, `toolbar_press`, `toolbar_toggle`,
-`dialogs_scripted`, `assert_presented`, `respond`; and `assert_hidden`.
+`dialogs_scripted`, `assert_presented`, `respond`; for input `tap_at`, `drag`, `hover`,
+`hover_leave`, `pan`, `pinch`, `key`; and `assert_hidden`, `assert_announced`.
 Each is the dayscript step of that name, run in process with the step's own retry window, so a
 drive and a script mean the same thing by the same words; a step dayscript lacks is added to the
 engine, where a script gets it as well. For a headless body, `check(ok, what)` and
@@ -337,6 +338,10 @@ What a pass does not yet cover, so a skip or an unread field reads as recorded:
   in-app capture through `Toolkit::snapshot_origin`. Android answers it (its content capture
   runs under the status and navigation bars); elsewhere, rows beyond Day's content are taken to
   be above it, true of AppKit's title bar and the mobile status bar.
+- **Input is injected.** Every input op delivers Day's own event, the stream a native
+  recognizer would, so a gesture case proves the routing and the app's handling, not that the
+  platform's recognizer fires on a real press, pan or pinch. That takes real input (posted
+  events on macOS, `adb input`, Playwright), outside a run.
 - **Dialogs** are answered through `respond`, which resolves the request and has the toolkit
   dismiss the dialog it showed: a pass proves `present` and `dismiss` ran on the toolkit and the
   answer came back, not that the dialog drew. A system dialog is its own window, out of reach of
