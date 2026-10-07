@@ -17,6 +17,7 @@
 #include <QWidget>
 
 #include <cstdint>
+#include <cstring>
 
 class DayPicker : public QWidget {
 public:
@@ -136,6 +137,24 @@ void day_picker_set_options(void *w, const char *items_joined) {
     DayPicker *p = static_cast<DayPicker *>(w);
     QStringList items = QString::fromUtf8(items_joined).split(QChar('\n'), Qt::SkipEmptyParts);
     p->setOptions(items);
+}
+
+// The selected option as the picker shows it, for `day_qt_read_native`: a heap copy in `*out`
+// (NULL with nothing selected). Returns -1 when `w` is not a DayPicker, 0 for the combo's
+// plain text, 1 for a button title that still carries its `&` mnemonic markers.
+int day_picker_selected_text(void *w, char **out) {
+    *out = nullptr;
+    auto *p = dynamic_cast<DayPicker *>(static_cast<QWidget *>(w));
+    if (!p)
+        return -1;
+    if (p->combo) {
+        if (p->combo->currentIndex() >= 0)
+            *out = strdup(p->combo->currentText().toUtf8().constData());
+        return 0;
+    }
+    if (QAbstractButton *b = p->group ? p->group->checkedButton() : nullptr)
+        *out = strdup(b->text().toUtf8().constData());
+    return 1;
 }
 
 } // extern "C"

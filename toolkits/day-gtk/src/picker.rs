@@ -152,6 +152,9 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
             )
         }
     };
+    // Insensitive on the root: a dropdown greys itself, and a segmented or inline box hands
+    // the state down to every button it holds (and to any it gains later).
+    root.set_sensitive(p.enabled);
     STATE.with(|m| m.insert(key(&root), state));
     NODES.with(|m| m.insert(key(&root), id));
     root
@@ -161,6 +164,7 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &PickerPatch) {
     let i = match patch {
         PickerPatch::Selected(i) => *i,
         PickerPatch::Options(opts) => return set_options(h, opts),
+        PickerPatch::Enabled(on) => return h.set_sensitive(*on),
     };
     STATE.with(|m| {
         m.with(key(h), |st| {
@@ -259,6 +263,33 @@ fn set_options(h: &gtk4::Widget, opts: &[String]) {
             st.suppress.set(false);
         })
     });
+}
+
+/// The label of the option a picker shows as selected, for `read_native`: the dropdown's
+/// selected string, or the active segmented/inline button's label. `None` when `h` is not a
+/// picker root; `Some(None)` for a picker with no selection showing.
+pub(crate) fn selected_text(h: &gtk4::Widget) -> Option<Option<String>> {
+    STATE.with(|m| {
+        m.with(key(h), |st| {
+            if let Some(dd) = &st.dropdown {
+                dd.selected_item()
+                    .and_then(|o| o.downcast::<gtk4::StringObject>().ok())
+                    .map(|s| s.string().to_string())
+            } else if !st.toggles.is_empty() {
+                st.toggles
+                    .iter()
+                    .find(|t| t.is_active())
+                    .and_then(|t| t.label())
+                    .map(|l| l.to_string())
+            } else {
+                st.checks
+                    .iter()
+                    .find(|c| c.is_active())
+                    .and_then(|c| c.label())
+                    .map(|l| l.to_string())
+            }
+        })
+    })
 }
 
 fn measure(_backend: &mut Gtk, h: &gtk4::Widget, _p: Proposal) -> Size {

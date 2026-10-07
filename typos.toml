@@ -17,6 +17,8 @@ locale = "en-us"
 # Every entry below maps a word to itself, which is how typos is told "this is not a mistake".
 # Each one is a decision, so each one says why.
 [default.extend-words]
+# The PNG filter type named after Alan W. Paeth (crates/day-script/src/png.rs).
+paeth = "paeth"
 
 # --- the one deliberate departure from STYLE_GUIDE.md's American rule -----------------------
 # `cancelled` stays double-l. day-part-http's public `HttpError::Cancelled` and GitHub Actions'

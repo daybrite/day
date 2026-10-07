@@ -2,6 +2,7 @@
 // the host registers this ArkTS component for a Select or a compact row of native buttons.
 // Props are <index><US><option>...; separate kinds preserve older menu-only host compatibility.
 // Options updates keep the style and clamp selection. SelectionChanged is Day event kind 4.
+// `enabled` ('0'/'1') disables the Select or every segment button.
 
 import { BuilderNode, FrameNode, UIContext } from '@kit.ArkUI';
 import nativeEntry from 'libentry.so';
@@ -18,6 +19,7 @@ class DaySelectParams {
   selected: number = 0;
   // The width day-arkui laid out (its widest option), in vp; 0 until it says.
   width: number = 0;
+  enabled: boolean = true;
 }
 
 // The live parameters each Select was last built with, by day node id.
@@ -56,6 +58,7 @@ function daySelectBuilder(params: DaySelectParams) {
           .backgroundColor(index === params.selected ? '#337DFF' : Color.Transparent)
           .borderRadius(6)
           .accessibilitySelected(index === params.selected)
+          .enabled(params.enabled)
           .onClick(() => {
             const live: DaySelectParams | undefined = current.get(params.id);
             if (live !== undefined) {
@@ -75,6 +78,7 @@ function daySelectBuilder(params: DaySelectParams) {
       .width(params.width > 0 ? params.width : 'auto')
       .selected(params.selected)
       .value(params.selected >= 0 ? params.options[params.selected].value : '')
+      .enabled(params.enabled)
       .onSelect((index: number) => {
         // Remembered, so a later option list or re-render keeps the user's choice.
         const live: DaySelectParams | undefined = current.get(params.id);
@@ -130,10 +134,17 @@ function update(id: number, cmd: string, arg: string): void {
     const i: number = Number(arg);
     next.selected = i >= 0 && i < was.options.length ? i : was.selected;
     next.width = was.width;
+  } else if (cmd === 'enabled') {
+    next = new DaySelectParams();
+    next.id = id;
+    next.options = was.options;
+    next.selected = was.selected;
+    next.width = was.width;
   } else {
     return;
   }
   next.segmented = was.segmented;
+  next.enabled = cmd === 'enabled' ? arg !== '0' : was.enabled;
   current.set(id, next);
   node.update(next);
 }

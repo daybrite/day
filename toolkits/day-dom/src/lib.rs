@@ -2045,15 +2045,18 @@ impl Toolkit for Dom {
                         let selected = keep.unwrap_or(0).min(opts.len().saturating_sub(1));
                         let json = picker_json(&PickerProps {
                             options: opts.clone(),
-                            separators_before: Vec::new(),
                             selected,
-                            style: Default::default(),
+                            ..Default::default()
                         });
                         unsafe { day_dom_options(el, json.as_ptr(), json.len()) };
                         if SEG_COUNT.with(|m| m.borrow().contains_key(&el)) {
                             SEG_COUNT.with(|m| m.borrow_mut().insert(el, opts.len()));
                         }
                     }
+                    // A segmented or inline picker is a group of buttons; the shim passes the
+                    // group's `disabled` to each one (and to the ones a later Options rebuild
+                    // makes).
+                    Some(PickerPatch::Enabled(on)) => set_enabled(el, *on),
                     None => {}
                 }
             }
@@ -3145,7 +3148,7 @@ fn realize_picker(p: &PickerProps) -> u32 {
         .map(|o| measure_str(o).width)
         .fold(0.0f64, f64::max);
     let n = p.options.len() as f64;
-    match p.style {
+    let el = match p.style {
         PickerStyle::Menu => {
             let el = unsafe { day_dom_create(EL_SELECT) };
             PICKER_SELECTED.with(|m| m.borrow_mut().insert(el, p.selected));
@@ -3169,7 +3172,12 @@ fn realize_picker(p: &PickerProps) -> u32 {
             PICKER_SIZE.with(|m| m.borrow_mut().insert(el, size));
             el
         }
+    };
+    // After the options exist, so a segmented or inline group passes it to its buttons.
+    if !p.enabled {
+        set_enabled(el, false);
     }
+    el
 }
 
 fn picker_json(p: &PickerProps) -> String {

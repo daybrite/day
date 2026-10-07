@@ -93,4 +93,8 @@ follow.
 
 - Reactive `options` (currently fixed at build; only `selected` patches), mirroring the combobox's
   `Items`.
-- Disabled/enabled state; per-option a11y labels.
+- Per-option a11y labels.
+
+(`.enabled(e)`, constant or reactive, shipped 2026-10: `PickerProps::enabled` at realize and
+`PickerPatch::Enabled` on change, disabling every style on all eight toolkits, the composite
+segmented and inline styles child by child.)

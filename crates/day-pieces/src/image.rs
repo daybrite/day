@@ -368,3 +368,83 @@ impl<Inner: VectorBuilder + Piece> VectorBuilder for Decorated<Inner> {
         self.map_inner(|inner_piece| inner_piece.decorative())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The image piece's `#[day::test]` cases, next to its constructor.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_spec::{Cap, kinds};
+
+    use crate::*;
+
+    /// A 4×2 PNG: the left half red, the right half blue. Encoded once by hand (zlib level 9),
+    /// so the case needs no image resource and every toolkit decodes the same bytes.
+    const RED_BLUE: [u8; 76] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xf0,
+        0xca, 0xea, 0x34, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xf8,
+        0xcf, 0xc0, 0x00, 0x44, 0x60, 0xe2, 0x3f, 0x03, 0x32, 0x07, 0x00, 0x67, 0xb2, 0x07, 0xf9,
+        0xf7, 0x92, 0x56, 0x82, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60,
+        0x82,
+    ];
+
+    /// Encoded bytes decode natively and draw at the frame Day gives them, each half its color.
+    #[day_macros::test(day_core)]
+    fn image_bytes() -> Case {
+        Case::new()
+            .proves(kinds::IMAGE)
+            .proves_cap(Cap::ImageDecode)
+            .proves_modifier("frame")
+            .page(|| {
+                image(RED_BLUE.to_vec())
+                    .stretch()
+                    .id("image")
+                    .frame(120.0, 60.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.assert_size("image", 120.0, 60.0).await?;
+                d.sample_pixel("image", 0.2, 0.5, "#ff0000").await?;
+                d.sample_pixel("image", 0.8, 0.5, "#0000ff").await
+            })
+    }
+
+    /// Fit keeps the image's 2:1 shape inside a square frame: the middle row still shows both
+    /// halves, in order.
+    #[day_macros::test(day_core)]
+    fn image_fit() -> Case {
+        Case::new()
+            .proves(kinds::IMAGE)
+            .page(|| {
+                image(RED_BLUE.to_vec())
+                    .fit()
+                    .id("image")
+                    .frame(100.0, 100.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_size("image", 100.0, 100.0).await?;
+                d.sample_pixel("image", 0.25, 0.5, "#ff0000").await?;
+                d.sample_pixel("image", 0.75, 0.5, "#0000ff").await
+            })
+    }
+
+    /// A decorative image is hidden from assistive technology; a described one is announced.
+    #[day_macros::test(day_core)]
+    fn image_a11y() -> Case {
+        Case::new()
+            .proves(kinds::IMAGE)
+            .page(|| {
+                image(RED_BLUE.to_vec())
+                    .a11y(|a| a.label("Red and blue"))
+                    .id("image")
+                    .frame(40.0, 20.0)
+            })
+            .drive(|d: Drive| async move { d.a11y_audit(Some("image")).await })
+    }
+
+    day_core::tests! { image_bytes, image_fit, image_a11y }
+}

@@ -417,3 +417,65 @@ impl<Inner: FormSectionBuilder + Piece> FormSectionBuilder for Decorated<Inner> 
         self.map_inner(|inner_piece| inner_piece.title(t))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The form pieces' `#[day::test]` cases, next to their constructors.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive, FrameExpect};
+    use day_reactive::Signal;
+
+    use crate::*;
+
+    /// A form's rows hold their controls, and a control in a form works as anywhere else.
+    #[day_macros::test(day_core)]
+    fn form_sections() -> Case {
+        let name = Signal::new(String::new());
+        let on = Signal::new(false);
+        Case::new()
+            .proves_modifier("grow")
+            .page(move || {
+                form((
+                    section((labeled("Name", text_field(name).id("name")),)).title("Profile"),
+                    section((labeled("Updates", toggle(on).id("updates")),)).title("Mail"),
+                ))
+                .id("form")
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.input("name", "Ada").await?;
+                d.assert_text("name", "Ada").await?;
+                d.toggle("updates", true).await?;
+                d.assert_on("updates", true).await
+            })
+    }
+
+    /// Every row's control starts at the same x: the form shares one label column.
+    #[day_macros::test(day_core)]
+    fn labeled_aligns_controls() -> Case {
+        let (a, b) = (Signal::new(String::new()), Signal::new(String::new()));
+        Case::new()
+            .page(move || {
+                form((section((
+                    labeled("Name", text_field(a).id("short")),
+                    labeled("A much longer label", text_field(b).id("long")),
+                )),))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "short",
+                    FrameExpect {
+                        x: Some(0.0),
+                        relative_to: Some("long".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    day_core::tests! { form_sections, labeled_aligns_controls }
+}

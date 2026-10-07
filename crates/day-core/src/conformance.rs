@@ -72,6 +72,26 @@ pub enum DriveOp {
     A11yAudit(Option<String>),
     /// The native widget's own state, as the platform reports it.
     AssertNative(String, NativeExpect),
+    /// An element's frame, in Day's layout and natively.
+    AssertFrame(String, FrameExpect),
+    /// The color at a point of an element (fractions of its frame), `#rrggbb`.
+    SamplePixel(String, f64, f64, String),
+    /// A URL the app asked to open during the run.
+    AssertOpenedUrl(String),
+}
+
+/// What [`Drive::assert_frame`] expects of an element's frame, in points; only the fields set
+/// are checked. `x`/`y` are relative to `relative_to`'s origin, or the window content's.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct FrameExpect {
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    /// The element whose origin `x`/`y` are measured from.
+    pub relative_to: Option<String>,
+    /// How far each value may be off (default 1 point).
+    pub tolerance: Option<f64>,
 }
 
 /// What [`Drive::assert_native`] expects the native widget to report; only the fields set are
@@ -187,6 +207,31 @@ impl Drive {
     /// too; this is for what they do not cover.
     pub fn assert_native(&self, id: &str, expect: NativeExpect) -> OpFuture {
         self.op(DriveOp::AssertNative(id.into(), expect))
+    }
+    /// The element's frame in Day's layout and, where the toolkit reads it back, natively.
+    pub fn assert_frame(&self, id: &str, expect: FrameExpect) -> OpFuture {
+        self.op(DriveOp::AssertFrame(id.into(), expect))
+    }
+    /// The element's size, the common case of [`Drive::assert_frame`].
+    pub fn assert_size(&self, id: &str, width: f64, height: f64) -> OpFuture {
+        self.assert_frame(
+            id,
+            FrameExpect {
+                width: Some(width),
+                height: Some(height),
+                ..Default::default()
+            },
+        )
+    }
+    /// The color drawn at (`x`, `y`), fractions of the element's frame, as `#rrggbb`. Passes as
+    /// unread where the toolkit has no capture.
+    pub fn sample_pixel(&self, id: &str, x: f64, y: f64, color: &str) -> OpFuture {
+        self.op(DriveOp::SamplePixel(id.into(), x, y, color.into()))
+    }
+    /// That the app asked to open `url` (a link, `day::open_url`) during the run; in a run
+    /// nothing actually opens.
+    pub fn assert_opened_url(&self, url: &str) -> OpFuture {
+        self.op(DriveOp::AssertOpenedUrl(url.into()))
     }
     /// Whether the element takes input, in Day's tree and in the native widget.
     pub fn assert_enabled(&self, id: &str, enabled: bool) -> OpFuture {
@@ -411,6 +456,31 @@ thread_local! {
     static HOST: RefCell<Option<HostNotify>> = const { RefCell::new(None) };
     /// A panic raised while the host built the active case's page, for the runner to report.
     static PAGE_PANIC: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// The URLs the app asked to open while a test run was going on, when one is.
+    static OPENED: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+}
+
+/// Start or end a test run's interception of [`crate::open_url`]: while it is on, a URL the app
+/// asks to open is recorded instead of opened, so `assert_opened_url` can check it and no
+/// browser starts on the machine running the tests.
+pub fn set_intercepting_urls(on: bool) {
+    OPENED.with(|o| *o.borrow_mut() = on.then(Vec::new));
+}
+
+/// Record `url` if a test run is intercepting; whether it did.
+pub fn intercept_open_url(url: &str) -> bool {
+    OPENED.with(|o| match o.borrow_mut().as_mut() {
+        Some(list) => {
+            list.push(url.to_owned());
+            true
+        }
+        None => false,
+    })
+}
+
+/// The URLs opened (and intercepted) since the run began.
+pub fn opened_urls() -> Vec<String> {
+    OPENED.with(|o| o.borrow().clone().unwrap_or_default())
 }
 
 /// Register a test at run time: what the [`tests!`] roster expands to on wasm, where the

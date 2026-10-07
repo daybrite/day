@@ -37,11 +37,23 @@ mod general {
 pub fn register_tests() {
     general::register_tests();
     crate::leaves::conformance::register_tests();
+    crate::inputs::conformance::register_tests();
+    crate::image::conformance::register_tests();
+    crate::forms::conformance::register_tests();
+    crate::canvas::conformance::register_tests();
 }
 
 /// Every module's roster as written, for the lint that holds it equal to the link-time slice.
 pub fn roster() -> Vec<TestFn> {
-    [general::roster(), crate::leaves::conformance::roster()].concat()
+    [
+        general::roster(),
+        crate::leaves::conformance::roster(),
+        crate::inputs::conformance::roster(),
+        crate::image::conformance::roster(),
+        crate::forms::conformance::roster(),
+        crate::canvas::conformance::roster(),
+    ]
+    .concat()
 }
 
 /// The conformance app's content: a nav over every registered GUI case, one route per case,

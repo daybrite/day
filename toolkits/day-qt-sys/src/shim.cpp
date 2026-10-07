@@ -100,6 +100,8 @@
 #include <cstdint>
 
 extern "C" void day_qt_open_file(const char *url);
+// shim-picker.cpp: a DayPicker's selected option, for `day_qt_read_native`.
+extern "C" int day_picker_selected_text(void *w, char **out);
 // Defined with the accessibility functions below; installed once the QApplication exists. The
 // definition sits inside the `extern "C"` block, so this declaration takes the same linkage: GCC
 // rejects a mismatch (Apple clang accepts it).
@@ -1171,15 +1173,17 @@ void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int
     if (hidden) widget->setProperty("day_a11y_hidden", true);
     if (role <= 0 && !value && !hidden) return;
     widget->setProperty("day_a11y", true);
-    // Nothing is listening without a screen reader: no bridge, no cached interface, and
-    // `updateAccessibility` would return at once. With one, the bridge builds the interface on
-    // its first visit, after the properties above — unless it visited while the widget was
-    // still plain and cached Qt's stock one, which is dropped here so the next query builds
-    // Day's; the events then tell the bridge what changed.
-    if (!QAccessible::isActive()) return;
+    // A query made while the widget was still plain cached Qt's stock interface, which cannot
+    // carry Day's role or value: drop it so the next query builds Day's. Not only when a bridge
+    // is up: some Qt builds create and cache that stock interface for the name change
+    // `set_a11y` makes just before this (`setAccessibleName`) even with no screen reader, and a
+    // bridge that starts later, or `read_native`, would then be handed it (seen on Linux CI:
+    // the showcase gauge's value read back empty).
     if (QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(widget);
         iface && !dynamic_cast<DayAccessibleWidget *>(iface))
         QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(iface));
+    // Nothing is listening without a screen reader, so there is no one to tell what changed.
+    if (!QAccessible::isActive()) return;
     if (value) {
         QAccessibleValueChangeEvent ev(widget, QString::fromUtf8(value));
         QAccessible::updateAccessibility(&ev);
@@ -1267,7 +1271,14 @@ void day_qt_read_native(void *w, DayQtNative *out) {
     // else holds the interface, and leaving it cached would keep a stock one in place after
     // `day_qt_set_a11y_traits` later asks for Day's (that function only evicts while a bridge
     // is up), so the read evicts what it built.
-    if (QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(widget)) {
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(widget);
+    // A stock interface cached for a widget Day has since given traits cannot report them;
+    // drop it and ask again, which builds Day's.
+    if (iface && widget->property("day_a11y").toBool() && !dynamic_cast<DayAccessibleWidget *>(iface)) {
+        QAccessible::deleteAccessibleInterface(QAccessible::uniqueId(iface));
+        iface = QAccessible::queryAccessibleInterface(widget);
+    }
+    if (iface) {
         if (iface->isValid()) {
             out->found = 1;
             out->role = day_qt_role_code(iface->role());
@@ -1302,6 +1313,16 @@ void day_qt_read_native(void *w, DayQtNative *out) {
         // A Day toggle is a bare QCheckBox whose label is a separate piece: no text of its own.
         if (!qobject_cast<QCheckBox *>(widget) || !b->text().isEmpty())
             out->text = strdup(day_qt_strip_mnemonic(b->text()).toUtf8().constData());
+    } else {
+        // A picker (a plain QWidget wrapping its combo or button group) shows its selected
+        // option: the combo's text as is, a segment or radio title without its mnemonics.
+        char *pick = nullptr;
+        if (day_picker_selected_text(widget, &pick) == 1 && pick) {
+            out->text = strdup(day_qt_strip_mnemonic(QString::fromUtf8(pick)).toUtf8().constData());
+            free(pick);
+        } else {
+            out->text = pick;
+        }
     }
 
     // A value in the tick range Day's sliders and progress bars use; any other range is not

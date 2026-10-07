@@ -24,6 +24,8 @@ pub mod record;
 pub use record::play;
 /// The in-app test runner behind `day test` (docs/testing.md).
 pub mod conformance;
+/// The PNG reader behind `sample_pixel` (docs/testing.md).
+pub mod png;
 
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
 
@@ -334,6 +336,44 @@ pub enum Step {
     AssertValue {
         id: String,
         value: serde_json::Value,
+    },
+    /// Check an element's frame (docs/testing.md): its size, and its origin relative to
+    /// `relative_to`'s (or to the window content when absent), in points, within `tolerance`
+    /// (default 1). Day's layout must match, and so must the native widget's frame where the
+    /// toolkit reads it back; where it cannot, the reply's `data` lists the frame as unread.
+    AssertFrame {
+        id: String,
+        #[serde(default)]
+        width: Option<f64>,
+        #[serde(default)]
+        height: Option<f64>,
+        #[serde(default)]
+        x: Option<f64>,
+        #[serde(default)]
+        y: Option<f64>,
+        #[serde(default)]
+        relative_to: Option<String>,
+        #[serde(default)]
+        tolerance: Option<f64>,
+    },
+    /// Check the color of one point of an element in an in-process capture (docs/testing.md).
+    /// `x` and `y` are fractions of the element's frame (0.5, 0.5 is its center); `color` is
+    /// `#rrggbb`, matched per channel within `tolerance` (default 64 of 255, which absorbs color
+    /// management, such as a Display P3 capture reading sRGB red as `#ea3323`, and antialiasing,
+    /// but not a different color). A toolkit with no capture
+    /// (`Cap::Snapshot` unsupported) passes it as unread.
+    SamplePixel {
+        id: String,
+        x: f64,
+        y: f64,
+        color: String,
+        #[serde(default)]
+        tolerance: Option<u8>,
+    },
+    /// Check that the app asked to open `url` during this test run (docs/testing.md). While
+    /// `run_tests` runs, `open_url` records instead of opening anything.
+    AssertOpenedUrl {
+        url: String,
     },
     /// Compare the NATIVE widget with what is expected (docs/testing.md): the state the
     /// platform reports through `Toolkit::read_native`, not Day's tree. Only the fields given
@@ -1070,6 +1110,16 @@ fn visible(id: &str) -> Result<(), Reply> {
     }
 }
 
+/// `#rrggbb` as its three channels.
+fn parse_hex_color(s: &str) -> Option<[u8; 3]> {
+    let hex = s.strip_prefix('#')?;
+    if hex.len() != 6 {
+        return None;
+    }
+    let channel = |i: usize| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?])
+}
+
 fn norm(s: &str) -> String {
     day_fluent::strip_isolates(s)
 }
@@ -1711,6 +1761,149 @@ fn exec(step: Step, revision: u32) -> Reply {
                         format!(
                             "{id:?}: expected {value}, probe text={:?} value={} flag={}",
                             p.text, p.value, p.flag
+                        ),
+                        true,
+                    ))
+                }
+            }
+            Step::AssertOpenedUrl { url } => {
+                let opened = day_core::conformance::opened_urls();
+                if opened.contains(&url) {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(
+                        format!("{url:?} was not opened (opened: {opened:?})"),
+                        true,
+                    ))
+                }
+            }
+            Step::AssertFrame {
+                id,
+                width,
+                height,
+                x,
+                y,
+                relative_to,
+                tolerance,
+            } => {
+                let tol = tolerance.unwrap_or(1.0);
+                let node = find(&id)?;
+                let day = with_tree(|t| t.node_frame(node))
+                    .ok_or_else(|| Reply::fail(format!("{id:?} has no frame"), true))?;
+                let native = with_tree(|t| t.read_native(node)).and_then(|n| n.frame);
+                let (base_day, base_native) = match &relative_to {
+                    Some(other) => {
+                        let o = find(other)?;
+                        let f = with_tree(|t| t.node_frame(o))
+                            .ok_or_else(|| Reply::fail(format!("{other:?} has no frame"), true))?;
+                        let n = with_tree(|t| t.read_native(o)).and_then(|n| n.frame);
+                        (f.origin, n.map(|r| r.origin))
+                    }
+                    None => (day_spec::Point::ZERO, Some(day_spec::Point::ZERO)),
+                };
+                let mut fails = Vec::new();
+                let mut check = |source: &str, f: day_spec::Rect, base: day_spec::Point| {
+                    let got = [
+                        ("width", f.size.width, width),
+                        ("height", f.size.height, height),
+                        ("x", f.origin.x - base.x, x),
+                        ("y", f.origin.y - base.y, y),
+                    ];
+                    for (name, value, want) in got {
+                        if let Some(w) = want
+                            && (value - w).abs() > tol
+                        {
+                            fails.push(format!("{source} {name} {value:.1} ≠ {w}"));
+                        }
+                    }
+                };
+                check("Day", day, base_day);
+                let unread = match (native, base_native) {
+                    (Some(f), Some(base)) => {
+                        check("native", f, base);
+                        false
+                    }
+                    _ => true,
+                };
+                if !fails.is_empty() {
+                    return Err(Reply::fail(format!("{id:?}: {}", fails.join("; ")), true));
+                }
+                Ok(Reply {
+                    data: unread.then(|| serde_json::json!({ "unread": ["frame"] })),
+                    ..Reply::ok()
+                })
+            }
+            Step::SamplePixel {
+                id,
+                x,
+                y,
+                color,
+                tolerance,
+            } => {
+                let want = parse_hex_color(&color).ok_or_else(|| {
+                    Reply::fail(format!("sample_pixel: {color:?} is not #rrggbb"), false)
+                })?;
+                if day_core::capability(day_spec::Cap::Snapshot) == day_spec::Support::Unsupported {
+                    return Ok(Reply {
+                        data: Some(serde_json::json!({ "unread": ["pixel"] })),
+                        ..Reply::ok()
+                    });
+                }
+                day_reactive::flush_sync();
+                if !with_tree(|t| t.ui_idle()) {
+                    return Err(Reply::fail("ui transitions still settling", true));
+                }
+                let readiness = with_tree(|t| t.prepare_snapshot(None, revision))
+                    .map_err(|e| Reply::fail(format!("sample_pixel readiness: {e}"), false))?;
+                if readiness == day_spec::capture::Readiness::Pending {
+                    return Err(Reply {
+                        capture_pending: true,
+                        ..Reply::fail("waiting for a render checkpoint", true)
+                    });
+                }
+                let node = find(&id)?;
+                let frame = with_tree(|t| t.node_frame(node))
+                    .ok_or_else(|| Reply::fail(format!("{id:?} has no frame"), true))?;
+                let window = with_tree(|t| t.node_frame(t.root_node()))
+                    .ok_or_else(|| Reply::fail("the window has no frame", true))?;
+                let bytes = with_tree(|t| t.snapshot())
+                    .map_err(|e| Reply::fail(format!("sample_pixel capture: {e}"), true))?;
+                // A capture this reader cannot read (the mock's placeholder bytes) is a gap
+                // to record, like a toolkit with no capture, not a wrong color.
+                let Ok(img) = png::decode(&bytes) else {
+                    return Ok(Reply {
+                        data: Some(serde_json::json!({ "unread": ["pixel"] })),
+                        ..Reply::ok()
+                    });
+                };
+                // The capture is the window's content at the screen's scale, measured across its
+                // width. Where it is taller than Day's content, the extra rows are window area
+                // above Day's content (AppKit's full-size content view under a transparent
+                // title bar), so they offset every row below.
+                let scale = img.width as f64 / window.size.width.max(1.0);
+                let above = (img.height as f64 / scale - window.size.height).max(0.0);
+                let px = ((frame.origin.x - window.origin.x + x * frame.size.width) * scale)
+                    .floor()
+                    .max(0.0) as usize;
+                let py = ((above + frame.origin.y - window.origin.y + y * frame.size.height)
+                    * scale)
+                    .floor()
+                    .max(0.0) as usize;
+                let got = img.pixel(px, py).ok_or_else(|| {
+                    Reply::fail(
+                        format!("{id:?}: ({px}, {py}) is outside the capture"),
+                        false,
+                    )
+                })?;
+                let tol = tolerance.unwrap_or(64);
+                let near = (0..3).all(|i| got[i].abs_diff(want[i]) <= tol);
+                if near {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(
+                        format!(
+                            "{id:?} at ({x}, {y}): #{:02x}{:02x}{:02x} ≠ {color}",
+                            got[0], got[1], got[2]
                         ),
                         true,
                     ))

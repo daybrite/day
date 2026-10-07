@@ -4969,8 +4969,12 @@ void day_xaml_remove_child(void* parent, void* child) {
     });
 }
 void day_xaml_transfer_release(void* h);
+extern "C++" { // inside the extern "C" block; defined with the picker section below
+static void picker_forget(void* h);
+} // extern "C++"
 void day_xaml_delete(void* h) {
     day_xaml_transfer_release(h);
+    picker_forget(h);
     g_clip_geometry.erase(h);
     g_field_live.erase(h);
     delete reinterpret_cast<Node*>(h);
@@ -5253,6 +5257,9 @@ struct DayXamlNative {
 };
 
 static char* native_dup(std::string const& s) { return _strdup(s.c_str()); }
+extern "C++" { // inside the extern "C" block; defined with the picker section below
+static void picker_read_native(void* h, UIElement const& el, DayXamlNative* out);
+} // extern "C++"
 static char* native_dup_nonempty(winrt::hstring const& s) {
     return s.empty() ? nullptr : native_dup(u8(s));
 }
@@ -5386,6 +5393,9 @@ void day_xaml_read_native(void* h, DayXamlNative* out) {
     guard([&] {
         if (auto c = el.try_as<WUXC::Control>()) out->enabled = c.IsEnabled() ? 1 : 0;
     });
+    // A picker's choice as displayed, and a button-style picker's enabled state (its panel is
+    // not a Control, so the read above left it unset).
+    guard([&] { picker_read_native(h, el, out); });
 
     // Visibility up the visual parents to the window's content canvas. A collapsed element or
     // ancestor is hidden wherever the chain ends; an all-visible chain that never reaches a
@@ -7231,8 +7241,55 @@ struct XamlPickerState {
     int style;
     uint64_t id;
     void (*cb)(uint64_t, int);
+    // Re-applied to the rebuilt buttons when the option list changes.
+    bool enabled = true;
 };
 static std::map<void*, XamlPickerState> g_pickers;
+
+// Dropped with the handle (day_xaml_delete), so a later handle at the same address is not
+// taken for this picker.
+static void picker_forget(void* h) { g_pickers.erase(h); }
+
+// Control.IsEnabled for each button of a segmented or inline picker: the StackPanel around them
+// is a Panel, not a Control, and carries no IsEnabled of its own.
+static void picker_children_enabled(WUXC::Panel const& panel, bool on) {
+    for (auto const& kid : panel.Children()) {
+        if (auto c = kid.try_as<WUXC::Control>()) c.IsEnabled(on);
+    }
+}
+
+// The string a picker option was built with (fill_segmented, fill_inline, the combo's items).
+static char* picker_content_text(WF::IInspectable const& content) {
+    auto s = content.try_as<WF::IReference<winrt::hstring>>();
+    return s ? native_dup(u8(s.Value())) : nullptr;
+}
+
+// day_xaml_read_native's picker part: `text` is the selected option as displayed, and for the
+// button styles `enabled` is the buttons' (all enabled = enabled). A handle that is not a picker
+// is left alone.
+static void picker_read_native(void* h, UIElement const& el, DayXamlNative* out) {
+    if (g_pickers.find(h) == g_pickers.end()) return;
+    if (auto box = el.try_as<WUXC::ComboBox>()) {
+        if (auto item = box.SelectedItem().try_as<WUXC::ComboBoxItem>()) {
+            out->text = picker_content_text(item.Content());
+        }
+        return;
+    }
+    auto panel = el.try_as<WUXC::Panel>();
+    if (!panel) return;
+    bool any = false;
+    bool all_on = true;
+    for (auto const& kid : panel.Children()) {
+        // RadioButton derives from ToggleButton, so this reads both styles.
+        auto tb = kid.try_as<WUXCP::ToggleButton>();
+        if (!tb) continue;
+        any = true;
+        if (!tb.IsEnabled()) all_on = false;
+        auto on = tb.IsChecked();
+        if (!out->text && on && on.Value()) out->text = picker_content_text(tb.Content());
+    }
+    if (any) out->enabled = all_on ? 1 : 0;
+}
 
 // The segmented row's children, built fresh. Mutual exclusion is manual (ToggleButton has no
 // GroupName): `guard` keeps the programmatic un-checking of siblings from re-entering as a user
@@ -7377,6 +7434,23 @@ void day_picker_xaml_set_options(void* handle, const char* items_joined) {
     if (keep > last) keep = last < 0 ? 0 : last;
     if (st->second.style == 1) fill_segmented(panel, items, keep, st->second.id, st->second.cb);
     else fill_inline(panel, items, keep, st->second.id, st->second.cb);
+    if (!st->second.enabled) picker_children_enabled(panel, false);
+}
+
+// PickerProps::enabled / PickerPatch::Enabled. The combo is a Control; the button styles disable
+// each button (picker_children_enabled), and remember it for a later option rebuild.
+void day_picker_xaml_set_enabled(void* handle, int on) {
+    auto st = g_pickers.find(handle);
+    if (st != g_pickers.end()) st->second.enabled = on != 0;
+    guard([&] {
+        WUX::UIElement e{ nullptr };
+        winrt::copy_from_abi(e, day_xaml_unbox(handle));
+        if (auto box = e.try_as<WUXC::ComboBox>()) {
+            box.IsEnabled(on != 0);
+            return;
+        }
+        if (auto panel = e.try_as<WUXC::Panel>()) picker_children_enabled(panel, on != 0);
+    });
 }
 
 void day_picker_xaml_set_selected(void* handle, int idx) {

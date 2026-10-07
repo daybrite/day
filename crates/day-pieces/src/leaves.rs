@@ -996,6 +996,7 @@ pub struct Slider<S: Binding<f64>> {
     min: f64,
     max: f64,
     step: Option<f64>,
+    enabled: Reactive<bool>,
 }
 
 pub fn slider<S: Binding<f64>>(value: S) -> Slider<S> {
@@ -1004,10 +1005,16 @@ pub fn slider<S: Binding<f64>>(value: S) -> Slider<S> {
         min: 0.0,
         max: 1.0,
         step: None,
+        enabled: Reactive::Const(true),
     }
 }
 
 impl<S: Binding<f64>> Slider<S> {
+    /// Whether the slider takes input (default `true`); a constant or a reactive `bool`.
+    pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = v.into_reactive();
+        self
+    }
     pub fn range(mut self, r: std::ops::RangeInclusive<f64>) -> Self {
         self.min = *r.start();
         self.max = *r.end();
@@ -1029,13 +1036,22 @@ impl<S: Binding<f64>> Piece for Slider<S> {
                 min: self.min,
                 max: self.max,
                 step: self.step,
-                enabled: true,
+                enabled: self.enabled.get_untracked(),
             },
             Flex {
                 grow_w: true,
                 ..Default::default()
             },
         );
+        let enabled = self.enabled;
+        if let Reactive::Dyn(_) = &enabled {
+            bind(
+                move || enabled.get(),
+                move |e: &bool| {
+                    with_tree(|t| t.patch(node, Box::new(SliderPatch::Enabled(*e)), false));
+                },
+            );
+        }
         let v = self.value.clone();
         bind_seeded(
             initial,
@@ -1084,6 +1100,7 @@ pub struct TextField<S: Binding<String>> {
     purpose: day_spec::InputPurpose,
     submit_label: day_spec::SubmitLabel,
     max_length: Option<u32>,
+    enabled: Reactive<bool>,
 }
 
 pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
@@ -1096,6 +1113,7 @@ pub fn text_field<S: Binding<String>>(value: S) -> TextField<S> {
         purpose: day_spec::InputPurpose::Text,
         submit_label: day_spec::SubmitLabel::Return,
         max_length: None,
+        enabled: Reactive::Const(true),
     }
 }
 
@@ -1112,6 +1130,12 @@ pub fn secure_field<S: Binding<String>>(value: S) -> TextField<S> {
 }
 
 impl<S: Binding<String>> TextField<S> {
+    /// Whether the field takes input (default `true`); a constant or a reactive `bool`. A
+    /// disabled field neither edits nor focuses; [`TextField::read_only`] keeps it selectable.
+    pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = v.into_reactive();
+        self
+    }
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
         self.placeholder = Some(t.into_text());
         self
@@ -1170,13 +1194,22 @@ impl<S: Binding<String>> Piece for TextField<S> {
             &TextFieldProps {
                 text: initial.clone(),
                 placeholder: ph,
-                enabled: true,
+                enabled: self.enabled.get_untracked(),
             },
             Flex {
                 grow_w: true,
                 ..Default::default()
             },
         );
+        if let Reactive::Dyn(_) = &self.enabled {
+            let enabled = self.enabled.clone();
+            bind(
+                move || enabled.get(),
+                move |e: &bool| {
+                    with_tree(|t| t.patch(node, Box::new(TextFieldPatch::Enabled(*e)), false));
+                },
+            );
+        }
         // Text entry traits (docs/textfield.md). The duty is skipped for a field that asks for
         // nothing, so a plain field costs what it did; a reactive member re-sends the whole
         // set, which is what lets a backend rebuild the widget as its secure class and dress
@@ -1433,6 +1466,7 @@ impl<Inner: ToggleBuilder + Piece> ToggleBuilder for Decorated<Inner> {
 pub trait SliderBuilder: Sized {
     fn range(self, r: std::ops::RangeInclusive<f64>) -> Self;
     fn step(self, s: f64) -> Self;
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
 }
 
 impl<S: Binding<f64>> SliderBuilder for Slider<S> {
@@ -1442,6 +1476,9 @@ impl<S: Binding<f64>> SliderBuilder for Slider<S> {
     fn step(self, s: f64) -> Self {
         Slider::step(self, s)
     }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        Slider::enabled(self, v)
+    }
 }
 
 impl<Inner: SliderBuilder + Piece> SliderBuilder for Decorated<Inner> {
@@ -1450,6 +1487,9 @@ impl<Inner: SliderBuilder + Piece> SliderBuilder for Decorated<Inner> {
     }
     fn step(self, s: f64) -> Self {
         self.map_inner(|inner_piece| inner_piece.step(s))
+    }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.enabled(v))
     }
 }
 
@@ -1463,6 +1503,7 @@ pub trait TextFieldBuilder: Sized {
     fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self;
     fn submit_label(self, label: day_spec::SubmitLabel) -> Self;
     fn max_length(self, characters: u32) -> Self;
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
 }
 
 impl<S: Binding<String>> TextFieldBuilder for TextField<S> {
@@ -1486,6 +1527,9 @@ impl<S: Binding<String>> TextFieldBuilder for TextField<S> {
     }
     fn max_length(self, characters: u32) -> Self {
         TextField::max_length(self, characters)
+    }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        TextField::enabled(self, v)
     }
 }
 
@@ -1511,6 +1555,9 @@ impl<Inner: TextFieldBuilder + Piece> TextFieldBuilder for Decorated<Inner> {
     fn max_length(self, characters: u32) -> Self {
         self.map_inner(|inner_piece| inner_piece.max_length(characters))
     }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.enabled(v))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1521,9 +1568,9 @@ impl<Inner: TextFieldBuilder + Piece> TextFieldBuilder for Decorated<Inner> {
 /// the `conformance` feature, so a shipping app links none of it.
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
-    use day_core::conformance::{Case, Drive};
+    use day_core::conformance::{Case, Drive, FrameExpect, NativeExpect};
     use day_reactive::Signal;
-    use day_spec::{Font, Role, kinds};
+    use day_spec::{Cap, Font, Role, kinds};
 
     use crate::*;
 
@@ -1739,14 +1786,416 @@ pub(crate) mod conformance {
             })
     }
 
+    /// A label shows its text, natively too.
+    #[day_macros::test(day_core)]
+    fn label_text() -> Case {
+        Case::new()
+            .proves(kinds::LABEL)
+            .page(|| label("Plain text").id("text"))
+            .drive(|d: Drive| async move { d.assert_text("text", "Plain text").await })
+    }
+
+    /// A label bound to a signal follows every write.
+    #[day_macros::test(day_core)]
+    fn label_reactive() -> Case {
+        let count = Signal::new(0i64);
+        Case::new()
+            .proves(kinds::LABEL)
+            .page(move || {
+                column((
+                    label(move || format!("Count {}", count.get())).id("text"),
+                    button("Add")
+                        .action(move || count.update(|n| *n += 1))
+                        .id("add"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("text", "Count 0").await?;
+                d.tap("add").await?;
+                d.tap("add").await?;
+                d.assert_text("text", "Count 2").await
+            })
+    }
+
+    /// Styled runs draw as one string: the native text is the runs joined, without markup.
+    #[day_macros::test(day_core)]
+    fn label_runs() -> Case {
+        Case::new()
+            .proves(kinds::LABEL)
+            .proves_cap(Cap::TextRuns)
+            .requires(Cap::TextRuns)
+            .page(|| {
+                label("")
+                    .runs_from(
+                        TextBuilder::new()
+                            .text("Plain, ")
+                            .strong("strong")
+                            .text(" and ")
+                            .emphasis("emphasized"),
+                    )
+                    .id("runs")
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.assert_text("runs", "Plain, strong and emphasized").await
+            })
+    }
+
+    /// A selectable label still shows its text. Every toolkit implements label selection
+    /// (`set_selectable`); `Cap::TextSelectable` is the text area's toggle, not this.
+    #[day_macros::test(day_core)]
+    fn label_selectable() -> Case {
+        Case::new()
+            .proves(kinds::LABEL)
+            .proves_modifier("selectable")
+            .proves_duty("set_selectable")
+            .page(|| label("Copy me").selectable().id("text"))
+            .drive(|d: Drive| async move { d.assert_text("text", "Copy me").await })
+    }
+
+    /// A button's title shows natively, and a title bound to a signal follows it.
+    #[day_macros::test(day_core)]
+    fn button_title() -> Case {
+        let saved = Signal::new(false);
+        Case::new()
+            .proves(kinds::BUTTON)
+            .page(move || {
+                button(move || if saved.get() { "Saved" } else { "Save" }.to_owned())
+                    .action(move || saved.set(true))
+                    .id("save")
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("save", "Save").await?;
+                d.tap("save").await?;
+                d.assert_text("save", "Saved").await
+            })
+    }
+
+    /// A button's accessibility label, as the platform reports it.
+    #[day_macros::test(day_core)]
+    fn button_a11y() -> Case {
+        Case::new()
+            .proves(kinds::BUTTON)
+            .proves_modifier("a11y")
+            .page(|| {
+                button("Send")
+                    .a11y(|a| a.label("Send the message"))
+                    .id("send")
+            })
+            .drive(|d: Drive| async move { d.a11y_audit(Some("send")).await })
+    }
+
+    /// A disabled toggle reports itself disabled, natively too, until it is enabled.
+    #[day_macros::test(day_core)]
+    fn toggle_disabled() -> Case {
+        let on = Signal::new(false);
+        let enabled = Signal::new(false);
+        Case::new()
+            .proves(kinds::TOGGLE)
+            .page(move || {
+                column((
+                    toggle(on).enabled(move || enabled.get()).id("switch"),
+                    button("Enable")
+                        .action(move || enabled.set(true))
+                        .id("enable"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_enabled("switch", false).await?;
+                d.tap("enable").await?;
+                d.assert_enabled("switch", true).await?;
+                d.toggle("switch", true).await?;
+                d.assert_on("switch", true).await
+            })
+    }
+
+    /// A toggle built disabled from a constant is disabled from the start.
+    #[day_macros::test(day_core)]
+    fn toggle_disabled_constant() -> Case {
+        let on = Signal::new(true);
+        Case::new()
+            .proves(kinds::TOGGLE)
+            .page(move || toggle(on).enabled(false).id("switch"))
+            .drive(|d: Drive| async move {
+                d.assert_enabled("switch", false).await?;
+                d.assert_on("switch", true).await
+            })
+    }
+
+    /// A toggle's accessibility label, as the platform reports it.
+    #[day_macros::test(day_core)]
+    fn toggle_a11y() -> Case {
+        let on = Signal::new(false);
+        Case::new()
+            .proves(kinds::TOGGLE)
+            .page(move || toggle(on).a11y(|a| a.label("Notifications")).id("switch"))
+            .drive(|d: Drive| async move { d.a11y_audit(Some("switch")).await })
+    }
+
+    /// A disabled slider reports itself disabled, natively too, until it is enabled.
+    #[day_macros::test(day_core)]
+    fn slider_disabled() -> Case {
+        let value = Signal::new(0.5f64);
+        let enabled = Signal::new(false);
+        Case::new()
+            .proves(kinds::SLIDER)
+            .page(move || {
+                column((
+                    slider(value).enabled(move || enabled.get()).id("slider"),
+                    button("Enable")
+                        .action(move || enabled.set(true))
+                        .id("enable"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_enabled("slider", false).await?;
+                d.tap("enable").await?;
+                d.assert_enabled("slider", true).await?;
+                d.set_value("slider", 0.25).await?;
+                d.assert_value("slider", 0.25).await
+            })
+    }
+
+    /// A write to a slider's signal moves the native thumb.
+    #[day_macros::test(day_core)]
+    fn slider_follows_signal() -> Case {
+        let value = Signal::new(10.0f64);
+        Case::new()
+            .proves(kinds::SLIDER)
+            .page(move || {
+                column((
+                    slider(value).range(0.0..=50.0).id("slider"),
+                    button("Set 40").action(move || value.set(40.0)).id("set"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_value("slider", 10.0).await?;
+                d.tap("set").await?;
+                d.assert_value("slider", 40.0).await
+            })
+    }
+
+    /// A slider's accessibility label, as the platform reports it.
+    #[day_macros::test(day_core)]
+    fn slider_a11y() -> Case {
+        let value = Signal::new(0.5f64);
+        Case::new()
+            .proves(kinds::SLIDER)
+            .page(move || slider(value).a11y(|a| a.label("Volume")).id("slider"))
+            .drive(|d: Drive| async move { d.a11y_audit(Some("slider")).await })
+    }
+
+    /// A disabled text field reports itself disabled, natively too, until it is enabled.
+    #[day_macros::test(day_core)]
+    fn text_field_disabled() -> Case {
+        let text = Signal::new("Fixed".to_owned());
+        let enabled = Signal::new(false);
+        Case::new()
+            .proves(kinds::TEXT_FIELD)
+            .page(move || {
+                column((
+                    text_field(text).enabled(move || enabled.get()).id("field"),
+                    button("Enable")
+                        .action(move || enabled.set(true))
+                        .id("enable"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_enabled("field", false).await?;
+                d.assert_text("field", "Fixed").await?;
+                d.tap("enable").await?;
+                d.assert_enabled("field", true).await?;
+                d.input("field", "Changed").await?;
+                d.assert_text("field", "Changed").await
+            })
+    }
+
+    /// A read-only field shows what its signal holds and stays enabled (selectable).
+    #[day_macros::test(day_core)]
+    fn text_field_read_only() -> Case {
+        let text = Signal::new("Shown".to_owned());
+        Case::new()
+            .proves(kinds::TEXT_FIELD)
+            .proves_duty("set_input_traits")
+            .page(move || {
+                column((
+                    text_field(text).read_only(true).id("field"),
+                    button("Replace")
+                        .action(move || text.set("Replaced".into()))
+                        .id("replace"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("field", "Shown").await?;
+                d.assert_enabled("field", true).await?;
+                d.tap("replace").await?;
+                d.assert_text("field", "Replaced").await
+            })
+    }
+
+    /// Return in a field runs its submit action.
+    #[day_macros::test(day_core)]
+    fn text_field_submit() -> Case {
+        let text = Signal::new(String::new());
+        let sent = Signal::new(String::new());
+        Case::new()
+            .proves(kinds::TEXT_FIELD)
+            .page(move || {
+                column((
+                    text_field(text)
+                        .submit_label(day_spec::SubmitLabel::Send)
+                        .on_submit(move || sent.set(text.get_untracked()))
+                        .id("field"),
+                    label(move || sent.get()).id("sent"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.input("field", "hello").await?;
+                d.submit("field").await?;
+                d.assert_text("sent", "hello").await
+            })
+    }
+
+    /// A determinate bar shows its fraction natively and follows its signal.
+    #[day_macros::test(day_core)]
+    fn progress_value() -> Case {
+        let done = Signal::new(0.25f64);
+        Case::new()
+            .proves(kinds::PROGRESS)
+            .page(move || {
+                column((
+                    progress(done).id("bar"),
+                    button("Advance")
+                        .action(move || done.set(0.75))
+                        .id("advance"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_value("bar", 0.25).await?;
+                d.tap("advance").await?;
+                d.assert_value("bar", 0.75).await
+            })
+    }
+
+    /// A spinner shows, and stays shown under reduced motion (it keeps moving).
+    #[day_macros::test(day_core)]
+    fn spinner_renders() -> Case {
+        Case::new()
+            .proves(kinds::PROGRESS)
+            .page(|| spinner().id("spin"))
+            .drive(|d: Drive| async move {
+                d.assert_visible("spin").await?;
+                d.assert_native(
+                    "spin",
+                    NativeExpect {
+                        visible: Some(true),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A divider takes the width it is given and draws as a thin rule.
+    #[day_macros::test(day_core)]
+    fn divider_renders() -> Case {
+        Case::new()
+            .proves(kinds::DIVIDER)
+            .page(|| {
+                column((label("Above"), divider().id("rule"), label("Below")))
+                    .spacing(8.0)
+                    .width(200.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_visible("rule").await?;
+                d.assert_frame(
+                    "rule",
+                    FrameExpect {
+                        width: Some(200.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A spacer takes the room between its neighbors.
+    #[day_macros::test(day_core)]
+    fn spacer_fills() -> Case {
+        Case::new()
+            .proves_modifier("width")
+            .page(|| {
+                row((
+                    label("A").width(50.0).id("first"),
+                    spacer(),
+                    label("B").width(50.0).id("last"),
+                ))
+                .width(300.0)
+                .id("row")
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "last",
+                    FrameExpect {
+                        width: Some(50.0),
+                        x: Some(250.0),
+                        relative_to: Some("row".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A link opens its URL (recorded during a test run, so nothing opens).
+    #[day_macros::test(day_core)]
+    fn link_opens_url() -> Case {
+        Case::new()
+            .proves_duty("open_url")
+            .page(|| link("daybrite.dev", "https://daybrite.dev/").id("link"))
+            .drive(|d: Drive| async move {
+                d.assert_text("link", "daybrite.dev").await?;
+                d.tap("link").await?;
+                d.assert_opened_url("https://daybrite.dev/").await
+            })
+    }
+
     day_core::tests! {
         button_press,
         button_disabled,
+        button_title,
+        button_a11y,
         toggle_binding,
+        toggle_disabled,
+        toggle_disabled_constant,
+        toggle_a11y,
         text_field_binding,
         text_field_secure,
         text_field_max_length,
+        text_field_disabled,
+        text_field_read_only,
+        text_field_submit,
         slider_range,
+        slider_disabled,
+        slider_follows_signal,
+        slider_a11y,
         label_heading,
+        label_text,
+        label_reactive,
+        label_runs,
+        label_selectable,
+        progress_value,
+        spinner_renders,
+        divider_renders,
+        spacer_fills,
+        link_opens_url,
     }
 }

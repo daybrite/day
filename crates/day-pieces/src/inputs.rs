@@ -24,6 +24,7 @@ pub struct Picker<Sel: Binding<usize>> {
     reactive_options: Option<Rc<dyn Fn() -> Vec<String>>>,
     selected: Sel,
     style: day_spec::props::PickerStyle,
+    enabled: Reactive<bool>,
 }
 
 /// `picker(["A", "B", "C"], choice).segmented()`: options are fixed, `selected` is the bound
@@ -38,10 +39,16 @@ pub fn picker<S: Into<String>, Sel: Binding<usize>>(
         reactive_options: None,
         selected,
         style: day_spec::props::PickerStyle::Menu,
+        enabled: Reactive::Const(true),
     }
 }
 
 impl<Sel: Binding<usize>> Picker<Sel> {
+    /// Whether the picker takes input (default `true`); a constant or a reactive `bool`.
+    pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = v.into_reactive();
+        self
+    }
     /// Insert native menu separators before these option indexes. Indexes still refer to
     /// options, so separators never change the selection binding. AppKit/UIKit menu style
     /// honors this; other backends and styles display the same options without grouping.
@@ -90,14 +97,31 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
             separators_before,
             selected,
             style,
+            enabled,
         } = self;
         let initial = day_spec::props::PickerProps {
             options,
             separators_before,
             selected: selected.peek(),
             style,
+            enabled: enabled.get_untracked(),
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
+        // A reactive `enabled` patches on change; a constant is applied once at realize.
+        if let Reactive::Dyn(_) = &enabled {
+            bind(
+                move || enabled.get(),
+                move |e: &bool| {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(day_spec::props::PickerPatch::Enabled(*e)),
+                            false,
+                        )
+                    });
+                },
+            );
+        }
         // Data-driven labels: patch the native items whenever they change. Always a
         // remeasure, since the option strings are the control's intrinsic width, in every style.
         if let Some(f) = reactive_options {
@@ -365,6 +389,7 @@ pub trait PickerBuilder: Sized {
     fn segmented(self) -> Self;
     fn inline(self) -> Self;
     fn style(self, style: day_spec::props::PickerStyle) -> Self;
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
 }
 
 impl<Sel: Binding<usize>> PickerBuilder for Picker<Sel> {
@@ -383,6 +408,9 @@ impl<Sel: Binding<usize>> PickerBuilder for Picker<Sel> {
     fn style(self, style: day_spec::props::PickerStyle) -> Self {
         Picker::style(self, style)
     }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        Picker::enabled(self, v)
+    }
 }
 
 impl<Inner: PickerBuilder + Piece> PickerBuilder for Decorated<Inner> {
@@ -400,6 +428,9 @@ impl<Inner: PickerBuilder + Piece> PickerBuilder for Decorated<Inner> {
     }
     fn style(self, style: day_spec::props::PickerStyle) -> Self {
         self.map_inner(|inner_piece| inner_piece.style(style))
+    }
+    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.enabled(v))
     }
 }
 
@@ -453,5 +484,263 @@ impl<Inner: TextAreaBuilder + Piece> TextAreaBuilder for Decorated<Inner> {
     }
     fn on_submit(self, f: impl Fn() + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.on_submit(f))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The picker's and text area's `#[day::test]` cases, next to their constructors.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+    use day_spec::{Cap, kinds};
+
+    use crate::*;
+
+    const FRUIT: [&str; 3] = ["Apple", "Pear", "Plum"];
+
+    /// A menu picker shows its selection natively and reports a choice to its signal.
+    #[day_macros::test(day_core)]
+    fn picker_select() -> Case {
+        let choice = Signal::new(0usize);
+        Case::new()
+            .proves(kinds::PICKER)
+            .page(move || {
+                column((
+                    picker(FRUIT, choice).id("picker"),
+                    label(move || choice.get().to_string()).id("index"),
+                ))
+                .spacing(8.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.assert_text("picker", "Apple").await?;
+                d.select("picker", 2).await?;
+                d.assert_text("index", "2").await?;
+                d.assert_text("picker", "Plum").await
+            })
+    }
+
+    /// A segmented picker selects the same way.
+    #[day_macros::test(day_core)]
+    fn picker_segmented() -> Case {
+        let choice = Signal::new(1usize);
+        Case::new()
+            .proves(kinds::PICKER)
+            .page(move || {
+                column((
+                    picker(FRUIT, choice).segmented().id("picker"),
+                    label(move || choice.get().to_string()).id("index"),
+                ))
+                .spacing(8.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.assert_text("picker", "Pear").await?;
+                d.select("picker", 0).await?;
+                d.assert_text("index", "0").await?;
+                d.assert_text("picker", "Apple").await
+            })
+    }
+
+    /// An inline picker selects the same way.
+    #[day_macros::test(day_core)]
+    fn picker_inline() -> Case {
+        let choice = Signal::new(0usize);
+        Case::new()
+            .proves(kinds::PICKER)
+            .page(move || {
+                column((
+                    picker(FRUIT, choice).inline().id("picker"),
+                    label(move || choice.get().to_string()).id("index"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.select("picker", 1).await?;
+                d.assert_text("index", "1").await?;
+                d.assert_text("picker", "Pear").await
+            })
+    }
+
+    /// A write to the picker's signal moves the native selection.
+    #[day_macros::test(day_core)]
+    fn picker_follows_signal() -> Case {
+        let choice = Signal::new(0usize);
+        Case::new()
+            .proves(kinds::PICKER)
+            .page(move || {
+                column((
+                    picker(FRUIT, choice).id("picker"),
+                    button("Plum").action(move || choice.set(2)).id("set"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.tap("set").await?;
+                d.assert_text("picker", "Plum").await
+            })
+    }
+
+    /// Options from data replace the native items and keep the selection where it exists.
+    #[day_macros::test(day_core)]
+    fn picker_options_reactive() -> Case {
+        let choice = Signal::new(1usize);
+        let more = Signal::new(false);
+        Case::new()
+            .proves(kinds::PICKER)
+            .page(move || {
+                column((
+                    picker(["One", "Two"], choice)
+                        .options_reactive(move || {
+                            let mut v = vec!["One".to_owned(), "Two".to_owned()];
+                            if more.get() {
+                                v.push("Three".to_owned());
+                            }
+                            v
+                        })
+                        .id("picker"),
+                    button("More").action(move || more.set(true)).id("more"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("picker", "Two").await?;
+                d.tap("more").await?;
+                d.select("picker", 2).await?;
+                d.assert_text("picker", "Three").await
+            })
+    }
+
+    /// A disabled picker reports itself disabled, natively too, in every style, until enabled.
+    #[day_macros::test(day_core)]
+    fn picker_disabled() -> Case {
+        let (a, b, c) = (
+            Signal::new(0usize),
+            Signal::new(0usize),
+            Signal::new(0usize),
+        );
+        let enabled = Signal::new(false);
+        Case::new()
+            .proves(kinds::PICKER)
+            .page(move || {
+                column((
+                    picker(FRUIT, a).enabled(move || enabled.get()).id("menu"),
+                    picker(FRUIT, b)
+                        .segmented()
+                        .enabled(move || enabled.get())
+                        .id("segmented"),
+                    picker(FRUIT, c)
+                        .inline()
+                        .enabled(move || enabled.get())
+                        .id("inline"),
+                    button("Enable")
+                        .action(move || enabled.set(true))
+                        .id("enable"),
+                ))
+                .spacing(8.0)
+            })
+            .shot("disabled")
+            .drive(|d: Drive| async move {
+                for id in ["menu", "segmented", "inline"] {
+                    d.assert_enabled(id, false).await?;
+                }
+                d.tap("enable").await?;
+                for id in ["menu", "segmented", "inline"] {
+                    d.assert_enabled(id, true).await?;
+                }
+                Ok(())
+            })
+    }
+
+    /// A text area mirrors its signal both ways.
+    #[day_macros::test(day_core)]
+    fn text_area_binding() -> Case {
+        let text = Signal::new(String::new());
+        Case::new()
+            .proves(kinds::TEXT_AREA)
+            .page(move || {
+                column((
+                    text_area(text).placeholder("Notes").id("area"),
+                    label(move || text.get().chars().count().to_string()).id("len"),
+                    button("Set")
+                        .action(move || text.set("Set from Day".into()))
+                        .id("set"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.input("area", "typed").await?;
+                d.assert_text("len", "5").await?;
+                d.tap("set").await?;
+                d.assert_text("area", "Set from Day").await
+            })
+    }
+
+    /// Lines survive the round trip: a text area holds and shows a newline as a newline.
+    #[day_macros::test(day_core)]
+    fn text_area_multiline() -> Case {
+        let text = Signal::new("first\nsecond".to_owned());
+        Case::new()
+            .proves(kinds::TEXT_AREA)
+            .page(move || text_area(text).min_lines(3).id("area"))
+            .drive(|d: Drive| async move {
+                d.assert_text("area", "first\nsecond").await?;
+                d.input("area", "one\ntwo\nthree").await?;
+                d.assert_text("area", "one\ntwo\nthree").await
+            })
+    }
+
+    /// A read-only text area shows what its signal holds.
+    #[day_macros::test(day_core)]
+    fn text_area_read_only() -> Case {
+        let text = Signal::new("Read me".to_owned());
+        Case::new()
+            .proves(kinds::TEXT_AREA)
+            .proves_cap(Cap::TextEditable)
+            .requires(Cap::TextEditable)
+            .page(move || {
+                column((
+                    text_area(text).editable(false).id("area"),
+                    button("Replace")
+                        .action(move || text.set("Replaced".into()))
+                        .id("replace"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("area", "Read me").await?;
+                d.tap("replace").await?;
+                d.assert_text("area", "Replaced").await
+            })
+    }
+
+    /// A text area whose selection is turned off still shows its text; skipped where the
+    /// toolkit's editor always allows selection (`Cap::TextSelectable`).
+    #[day_macros::test(day_core)]
+    fn text_area_unselectable() -> Case {
+        let text = Signal::new("Fixed".to_owned());
+        Case::new()
+            .proves(kinds::TEXT_AREA)
+            .proves_cap(Cap::TextSelectable)
+            .requires(Cap::TextSelectable)
+            .page(move || text_area(text).selectable(false).editable(false).id("area"))
+            .drive(|d: Drive| async move { d.assert_text("area", "Fixed").await })
+    }
+
+    day_core::tests! {
+        picker_select,
+        picker_segmented,
+        picker_inline,
+        picker_follows_signal,
+        picker_options_reactive,
+        picker_disabled,
+        text_area_binding,
+        text_area_multiline,
+        text_area_read_only,
+        text_area_unselectable,
     }
 }

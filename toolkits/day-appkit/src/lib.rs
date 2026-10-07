@@ -8419,6 +8419,9 @@ impl Toolkit for AppKit {
                 .accessibilityRole()
                 .map(|r| day_role_from_ns(&r.to_string()))
                 .unwrap_or(day_spec::Role::None);
+            // A picker answers its displayed selection and its enabled state itself: the
+            // inline style is a stack of radios, not one control.
+            let picker = picker::read_native(h);
             day_spec::NativeSnapshot {
                 found: true,
                 role,
@@ -8430,7 +8433,10 @@ impl Toolkit for AppKit {
                     .accessibilityIdentifier()
                     .map(|s| s.to_string())
                     .filter(|s| !s.is_empty()),
-                text: native_text(h),
+                text: match &picker {
+                    Some((text, _)) => text.clone(),
+                    None => native_text(h),
+                },
                 number: native_number(h),
                 checked: h
                     .downcast_ref::<NSSwitch>()
@@ -8442,10 +8448,11 @@ impl Toolkit for AppKit {
                     }),
                 // A label is a non-editable NSTextField whose `isEnabled` says nothing about
                 // input; every other control answers for itself.
-                enabled: match h.downcast_ref::<NSControl>() {
-                    Some(_) if h.downcast_ref::<DayLabel>().is_some() => None,
-                    Some(c) => Some(c.isEnabled()),
-                    None => None,
+                enabled: match (&picker, h.downcast_ref::<NSControl>()) {
+                    (Some((_, on)), _) => *on,
+                    (None, Some(_)) if h.downcast_ref::<DayLabel>().is_some() => None,
+                    (None, Some(c)) => Some(c.isEnabled()),
+                    (None, None) => None,
                 },
                 // Off-window counts as not shown: nothing of it reaches the screen.
                 visible: Some(h.window().is_some() && !h.isHiddenOrHasHiddenAncestor()),

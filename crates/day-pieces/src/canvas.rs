@@ -479,6 +479,57 @@ impl<T: Clone + 'static, F: Fn() -> T + 'static> IntoReactive<T, FnMark> for F {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The canvas's `#[day::test]` cases, next to its constructor.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+    use day_spec::{Color, Role, Shape, kinds};
+
+    use crate::*;
+
+    /// A canvas with an explicit role, label and a value that follows a signal reports all
+    /// three natively, after the value changes too (the showcase gauge's shape).
+    #[day_macros::test(day_core)]
+    fn canvas_a11y_value() -> Case {
+        let level = Signal::new(40.0f64);
+        Case::new()
+            .proves(kinds::CANVAS)
+            .proves_modifier("a11y")
+            .page(move || {
+                column((
+                    canvas(move |d, size| {
+                        let w = size.width * level.get() / 100.0;
+                        d.fill(
+                            Shape::Rect(day_spec::Rect::new(0.0, 0.0, w, size.height)),
+                            Color::rgb(0.2, 0.5, 0.9),
+                        );
+                    })
+                    .a11y(move |a| {
+                        a.role(Role::Meter)
+                            .label("Level")
+                            .value(move || format!("{:.0}", level.get()))
+                    })
+                    .id("meter")
+                    .frame(160.0, 24.0),
+                    button("Raise").action(move || level.set(80.0)).id("raise"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.a11y_audit(Some("meter")).await?;
+                d.tap("raise").await?;
+                d.a11y_audit(Some("meter")).await
+            })
+    }
+
+    day_core::tests! { canvas_a11y_value }
+}
+
 #[cfg(test)]
 mod arc_tests {
     use super::PathBuilder;

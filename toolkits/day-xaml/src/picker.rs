@@ -25,6 +25,7 @@ unsafe extern "C" {
     ) -> *mut c_void;
     fn day_picker_xaml_set_selected(w: *mut c_void, idx: c_int);
     fn day_picker_xaml_set_options(w: *mut c_void, items_joined: *const c_char);
+    fn day_picker_xaml_set_enabled(w: *mut c_void, on: c_int);
     // Generic size hint from day-xaml-sys (already linked) — like the Qt renderer reusing
     // day-qt-sys's `day_qt_size_hint`.
     fn day_xaml_measure(
@@ -54,7 +55,7 @@ fn style_code(s: PickerStyle) -> c_int {
 fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
     // crate::cstr strips interior NULs, so one bad option can't blank the whole list.
     let joined = crate::cstr(&p.options.join("\n"));
-    WinHandle(unsafe {
+    let h = unsafe {
         day_picker_xaml_new(
             style_code(p.style),
             joined.as_ptr(),
@@ -62,7 +63,12 @@ fn make(_backend: &mut Xaml, p: &PickerProps, id: NodeId) -> WinHandle {
             id.0,
             on_select,
         )
-    })
+    };
+    // Enabled is every control's default, so only a disabled picker needs the call.
+    if !p.enabled {
+        unsafe { day_picker_xaml_set_enabled(h, 0) };
+    }
+    WinHandle(h)
 }
 
 fn update(_backend: &mut Xaml, h: &WinHandle, patch: &PickerPatch) {
@@ -72,6 +78,7 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &PickerPatch) {
             let joined = crate::cstr(&opts.join("\n"));
             unsafe { day_picker_xaml_set_options(h.0, joined.as_ptr()) };
         }
+        PickerPatch::Enabled(on) => unsafe { day_picker_xaml_set_enabled(h.0, *on as c_int) },
     }
 }
 

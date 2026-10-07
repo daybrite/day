@@ -15,13 +15,28 @@ import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
+import android.widget.TextView;
+
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 import dev.daybrite.day.bridge.DayBridge;
 
 public final class DayPicker {
     // style 0 = menu (Spinner), 1 = segmented (button row), 2 = inline (RadioGroup). All report
-    // selection via DayBridge.nativeOnEvent kind 4 (SelectionChanged), like any built-in.
-    public static View makePicker(final long id, int style, String joinedItems, int selected) {
+    // selection via DayBridge.nativeOnEvent kind 4 (SelectionChanged), like any built-in. A
+    // disabled picker (PickerProps::enabled false) is built enabled and then switched off, the
+    // same path PickerPatch::Enabled takes.
+    public static View makePicker(final long id, int style, String joinedItems, int selected,
+            boolean enabled) {
+        View v = build(id, style, joinedItems, selected);
+        MADE.add(v);
+        if (!enabled) setPickerEnabled(v, false);
+        return v;
+    }
+
+    private static View build(final long id, int style, String joinedItems, int selected) {
         String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\n");
         if (style == 0) {
             Spinner sp = new Spinner(DayBridge.ctx);
@@ -73,6 +88,10 @@ public final class DayPicker {
             if (selected >= 0 && selected < items.length) g.check(selected + 1);
             g.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
                 public void onCheckedChanged(RadioGroup grp, int checkedId) {
+                    // Day's own check (setPickerSelected) runs inside a patch, and reporting it
+                    // back from there re-enters Day mid-patch, which blocked the main thread.
+                    // Only the user's choice is reported.
+                    if (ECHO.equals(grp.getTag())) return;
                     if (checkedId > 0) DayBridge.nativeOnEvent(id, 4, checkedId - 1, null);
                 }
             });
@@ -112,6 +131,7 @@ public final class DayPicker {
                     RadioButton rb = new RadioButton(DayBridge.ctx);
                     rb.setText(items[i]);
                     rb.setId(i + 1);
+                    rb.setEnabled(g.isEnabled()); // a disabled picker's new option stays off
                     g.addView(rb);
                 }
             }
@@ -132,6 +152,7 @@ public final class DayPicker {
                     Button b = new Button(DayBridge.ctx);
                     b.setText(items[i]);
                     b.setAllCaps(false);
+                    b.setEnabled(row.isEnabled()); // a disabled picker's new segment stays off
                     b.setOnClickListener(new View.OnClickListener() {
                         public void onClick(View x) {
                             selectSegment(row, idx);
@@ -146,6 +167,47 @@ public final class DayPicker {
         }
     }
 
+    /** The views makePicker built, so readNative can tell a picker's button row from any other
+     *  LinearLayout. Weak: a released picker drops out with its view. UI thread only. */
+    private static final Set<View> MADE = Collections.newSetFromMap(new WeakHashMap<View, Boolean>());
+
+    /** Switch input on or off (PickerProps::enabled, PickerPatch::Enabled). The spinner takes it
+     *  itself; the button row and the radio group take it on the group and on every option,
+     *  because a ViewGroup's enabled flag does not stop its children's clicks. */
+    public static void setPickerEnabled(View v, boolean on) {
+        v.setEnabled(on);
+        if (!(v instanceof LinearLayout)) return;
+        LinearLayout g = (LinearLayout) v;
+        for (int i = 0; i < g.getChildCount(); i++) g.getChildAt(i).setEnabled(on);
+    }
+
+    /** Is this a view makePicker built? */
+    public static boolean isPicker(View v) {
+        return MADE.contains(v);
+    }
+
+    /** The selected option as the picker shows it, for DayBridge.readNative: the spinner's
+     *  selected item, the checked radio button's label, or the selected segment's label. Null
+     *  when nothing is selected or the view is not one of these. */
+    public static String selectedText(View v) {
+        if (v instanceof Spinner) {
+            Object item = ((Spinner) v).getSelectedItem();
+            return item != null ? item.toString() : null;
+        } else if (v instanceof RadioGroup) {
+            RadioGroup g = (RadioGroup) v;
+            int checked = g.getCheckedRadioButtonId();
+            View b = checked > 0 ? g.findViewById(checked) : null;
+            return b instanceof TextView ? ((TextView) b).getText().toString() : null;
+        } else if (v instanceof LinearLayout) {
+            LinearLayout row = (LinearLayout) v;
+            for (int i = 0; i < row.getChildCount(); i++) {
+                View c = row.getChildAt(i);
+                if (c.isSelected() && c instanceof TextView) return ((TextView) c).getText().toString();
+            }
+        }
+        return null;
+    }
+
     /** The tag a programmatic Spinner selection leaves for its own onItemSelected (see makePicker). */
     private static final Object ECHO = new Object();
 
@@ -156,7 +218,15 @@ public final class DayPicker {
             sp.setTag(ECHO);
             sp.setSelection(idx);
         } else if (v instanceof RadioGroup) {
-            if (idx >= 0) ((RadioGroup) v).check(idx + 1);
+            RadioGroup g = (RadioGroup) v;
+            if (idx < 0 || g.getCheckedRadioButtonId() == idx + 1) return;
+            // check() calls the listener synchronously; the tag tells it this one is Day's.
+            g.setTag(ECHO);
+            try {
+                g.check(idx + 1);
+            } finally {
+                g.setTag(null);
+            }
         } else if (v instanceof LinearLayout) {
             selectSegment((LinearLayout) v, idx);
         }

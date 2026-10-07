@@ -49,7 +49,7 @@ fn style_code(s: PickerStyle) -> c_int {
 }
 
 fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
-    QtHandle(unsafe {
+    let w = unsafe {
         day_picker_new(
             style_code(p.style),
             joined(&p.options).as_ptr(),
@@ -57,13 +57,22 @@ fn make(_backend: &mut Qt, p: &PickerProps, id: NodeId) -> QtHandle {
             id.0,
             on_select,
         )
-    })
+    };
+    // Every style wraps its combo or buttons in one DayPicker widget, and disabling it
+    // disables them all.
+    if !p.enabled {
+        unsafe { crate::ffi::day_qt_set_enabled(w, 0) };
+    }
+    QtHandle(w)
 }
 
 fn update(_backend: &mut Qt, h: &QtHandle, patch: &PickerPatch) {
     match patch {
         PickerPatch::Selected(i) => unsafe { day_picker_set_selected(h.0, *i as c_int) },
         PickerPatch::Options(opts) => unsafe { day_picker_set_options(h.0, joined(opts).as_ptr()) },
+        PickerPatch::Enabled(on) => unsafe {
+            crate::ffi::day_qt_set_enabled(h.0, c_int::from(*on))
+        },
     }
 }
 

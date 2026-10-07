@@ -25,4 +25,7 @@ serde_norway = "0.9"
 
 [dev-dependencies]
 day-mock = { workspace = true }
+# Only to write the PNGs the in-engine reader (src/png.rs) is tested against; the engine itself
+# reads them with its own few hundred lines, since it is linked into every app.
+png = "0.18"
 day-pieces = { workspace = true, features = ["conformance"] }

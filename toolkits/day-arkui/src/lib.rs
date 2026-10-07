@@ -1143,6 +1143,14 @@ mod imp {
         piece::update(h, "width", &size.width.to_string());
     }
 
+    /// Enable or disable a menu or segmented picker. The C API cannot set attributes on the
+    /// ArkTS-built Select or buttons, so DaySelect.ets applies `.enabled()` to each of them; the
+    /// wrapper Day created carries NODE_ENABLED too, which is what `read_native` reports.
+    fn set_picker_piece_enabled(h: &AHandle, enabled: bool) {
+        node::set_enabled(h.0, enabled);
+        piece::update(h, "enabled", if enabled { "1" } else { "0" });
+    }
+
     fn widest_label(options: &[String]) -> f64 {
         options
             .iter()
@@ -2014,6 +2022,16 @@ mod imp {
                     .zip(range)
                     .map(|(v, (min, max))| min + f64::from(v) / 100.0 * (max - min));
             }
+            Some(node::TEXT_PICKER) => {
+                // The wheel's option at its selected index, split the way `set_picker` joined
+                // the range. A menu or segmented picker is an ArkTS piece, out of a getter's reach.
+                // The index slot is a u32, read as i32: the same bits for any real index.
+                let selected = node::get_i32(n, Attr::NODE_TEXT_PICKER_OPTION_SELECTED, 0)
+                    .and_then(|i| usize::try_from(i).ok());
+                snap.text = string(n, Attr::NODE_TEXT_PICKER_OPTION_RANGE)
+                    .zip(selected)
+                    .and_then(|(range, i)| range.split(';').nth(i).map(str::to_owned));
+            }
             Some(node::PROGRESS) => {
                 // The fraction over the total `set_progress` wrote; a spinner has no value.
                 let total = node::get_f32(n, Attr::NODE_PROGRESS_TOTAL, 0).filter(|t| *t > 0.0);
@@ -2304,6 +2322,7 @@ mod imp {
                     node::set_placeholder(n.0, &p.placeholder);
                     node::register_event(n.0, node::EV_TEXT_INPUT_CHANGE, id.0);
                     node::enable_focus(n.0, id.0, true);
+                    node::set_enabled(n.0, p.enabled);
                     n
                 }
                 // Multi-line editor (docs/textarea.md): ARKUI_NODE_TEXT_AREA. min/max-lines
@@ -2344,6 +2363,9 @@ mod imp {
                             &select_props(Some(p.selected), &p.options),
                         )
                     {
+                        if !p.enabled {
+                            set_picker_piece_enabled(&n, false);
+                        }
                         if p.style == PickerStyle::Segmented {
                             size_segmented_picker(&n, &p.options);
                         } else {
@@ -2361,6 +2383,7 @@ mod imp {
                     node::set_picker(n.0, &joined, p.selected as u32);
                     node::register_event(n.0, node::EV_TEXT_PICKER_CHANGE, id.0);
                     node::enable_focus(n.0, id.0, false);
+                    node::set_enabled(n.0, p.enabled);
                     n
                 }
                 Some(Builtin::Toggle) => {
@@ -2385,6 +2408,7 @@ mod imp {
                     node::register_event(n.0, node::EV_TOUCH, id.0);
                     node::register_event(n.0, node::EV_KEY, id.0);
                     node::enable_focus(n.0, id.0, false);
+                    node::set_enabled(n.0, p.enabled);
                     n
                 }
                 Some(Builtin::Slider) => {
@@ -2398,6 +2422,7 @@ mod imp {
                     node::set_slider(n.0, normalize(p.value, p.min, p.max));
                     node::register_event(n.0, node::EV_SLIDER_CHANGE, id.0);
                     node::enable_focus(n.0, id.0, false);
+                    node::set_enabled(n.0, p.enabled);
                     n
                 }
                 // A 1-vp hairline: a thin Stack tinted with a faint separator color.
@@ -2849,8 +2874,8 @@ mod imp {
                     Some(ButtonPatch::Style(s)) => apply_button_style(h.0, *s),
                     _ => {}
                 },
-                kinds::TOGGLE => {
-                    if let Some(TogglePatch::On(on)) = patch.downcast_ref::<TogglePatch>() {
+                kinds::TOGGLE => match patch.downcast_ref::<TogglePatch>() {
+                    Some(TogglePatch::On(on)) => {
                         // The gate (see TOGGLE_GATE): this write's echo is not the user's.
                         if let Some(nid) =
                             CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
@@ -2859,9 +2884,11 @@ mod imp {
                         }
                         node::set_toggle(h.0, *on);
                     }
-                }
-                kinds::SLIDER => {
-                    if let Some(SliderPatch::Value(v)) = patch.downcast_ref::<SliderPatch>() {
+                    Some(TogglePatch::Enabled(on)) => node::set_enabled(h.0, *on),
+                    None => {}
+                },
+                kinds::SLIDER => match patch.downcast_ref::<SliderPatch>() {
+                    Some(SliderPatch::Value(v)) => {
                         let nid = CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied());
                         let (min, max) = nid
                             .and_then(|nid| SLIDER_RANGE.with(|m| m.borrow().get(&nid).copied()))
@@ -2873,30 +2900,30 @@ mod imp {
                         }
                         node::set_slider(h.0, normalize(*v, min, max));
                     }
-                }
-                kinds::TEXT_FIELD => {
-                    if let Some(TextFieldPatch::Text { text, from_native }) =
-                        patch.downcast_ref::<TextFieldPatch>()
-                    {
-                        // A from_native echo would fight the user's caret: skip it (§4.4).
-                        if !from_native {
-                            if let Some(nid) =
-                                CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
-                            {
-                                TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
-                                // The app's own write is the text a read-only field holds.
-                                INPUT_FIELDS.with(|m| {
-                                    if let Some(f) = m.borrow_mut().get_mut(&nid)
-                                        && f.held.is_some()
-                                    {
-                                        f.held = Some(text.clone());
-                                    }
-                                });
-                            }
-                            node::set_input_text(h.0, text);
+                    Some(SliderPatch::Enabled(on)) => node::set_enabled(h.0, *on),
+                    None => {}
+                },
+                kinds::TEXT_FIELD => match patch.downcast_ref::<TextFieldPatch>() {
+                    // A from_native echo would fight the user's caret: skip it (§4.4).
+                    Some(TextFieldPatch::Text { text, from_native }) if !from_native => {
+                        if let Some(nid) =
+                            CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
+                        {
+                            TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
+                            // The app's own write is the text a read-only field holds.
+                            INPUT_FIELDS.with(|m| {
+                                if let Some(f) = m.borrow_mut().get_mut(&nid)
+                                    && f.held.is_some()
+                                {
+                                    f.held = Some(text.clone());
+                                }
+                            });
                         }
+                        node::set_input_text(h.0, text);
                     }
-                }
+                    Some(TextFieldPatch::Enabled(on)) => node::set_enabled(h.0, *on),
+                    _ => {}
+                },
                 kinds::TEXT_AREA => {
                     if let Some(TextAreaPatch::SetText(text)) =
                         patch.downcast_ref::<TextAreaPatch>()
@@ -2917,6 +2944,7 @@ mod imp {
                         piece::update(h, "options", &select_props(None, opts));
                         resize_menu_picker(h, opts);
                     }
+                    Some(PickerPatch::Enabled(on)) => set_picker_piece_enabled(h, *on),
                     None => {}
                 },
                 kinds::PICKER => match patch.downcast_ref::<PickerPatch>() {
@@ -2934,6 +2962,7 @@ mod imp {
                             .min(opts.len().saturating_sub(1));
                         node::set_picker(h.0, &joined, selected as u32);
                     }
+                    Some(PickerPatch::Enabled(on)) => node::set_enabled(h.0, *on),
                     None => {}
                 },
                 kinds::PROGRESS => {

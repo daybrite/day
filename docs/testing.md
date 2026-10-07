@@ -77,7 +77,8 @@ fn store_round_trip() -> Case {
 `Drive` speaks dayscript's vocabulary: `tap`, `input`, `toggle`, `set_value`, `select`,
 `focus`, `submit`, `navigate`, `wait_idle`, `pause`, `shot`, `assert_text`, `assert_visible`,
 `assert_missing`, `assert_value`, `assert_on`, `assert_focused`, `assert_route`, `a11y_audit`,
-`assert_native` (and `assert_enabled`, its `enabled` shorthand).
+`assert_native` (and `assert_enabled`, its `enabled` shorthand), `assert_frame` (and
+`assert_size`), `sample_pixel`, `assert_opened_url`.
 Each is the dayscript step of that name, run in process with the step's own retry window, so a
 drive and a script mean the same thing by the same words; a step dayscript lacks is added to the
 engine, where a script gets it as well. For a headless body, `check(ok, what)` and
@@ -93,8 +94,17 @@ its value, its checked state. `d.assert_native(id, NativeExpect { .. })` checks 
 not cover (`enabled`, `visible`), and `d.assert_enabled(id, on)` checks enabled in Day and
 natively at once.
 
-A field a toolkit cannot read (a secure field's masked text, anything a backend has no getter
-for) does not fail the case: the report lists it as `native_unread` (`"<id> <field>"`), so the
+`assert_frame` checks an element's size and its origin relative to another element (or the
+window content) in Day's layout and in the native frame. `sample_pixel` reads one point of an
+in-process capture, given as fractions of the element's frame, and compares it with a
+`#rrggbb` within a tolerance that absorbs color management (a Display P3 capture reads sRGB
+red as `#ea3323`) but not a different color; the engine decodes the capture with its own small
+PNG reader rather than linking a decoder into every app. While a run goes on, `open_url` (a
+link, `day::open_url`) records the URL instead of opening it, so `assert_opened_url` can check
+it and no browser starts on the machine running the tests.
+
+A field a toolkit cannot read (a secure field's masked text, a toolkit with no capture,
+anything a backend has no getter for) does not fail the case: the report lists it as `native_unread` (`"<id> <field>"`), so the
 evidence shows exactly what was proven natively and what only in Day's tree.
 
 ### The test host

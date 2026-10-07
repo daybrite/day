@@ -1146,12 +1146,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 probe.value = probe.selected as f64;
             } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
                 probe.text = p.title.clone();
+                probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
                 probe.flag = p.on;
+                probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<SliderProps>() {
                 probe.value = p.value;
+                probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
                 probe.text = p.text.clone();
+                probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
                 // `flag` marks indeterminate; `value` holds the determinate fraction.
                 probe.flag = p.value.is_none();
@@ -1163,6 +1167,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 // (the index is `assert_value`'s answer). Kept current by both patches below.
                 probe.text = p.options.get(p.selected).cloned().unwrap_or_default();
                 probe.options = p.options.clone();
+                probe.enabled = p.enabled;
             } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
                 probe.text = p.text.clone();
             }
@@ -1552,6 +1557,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                             n.probe.value = *i as f64;
                         }
                         PickerPatch::Options(opts) => n.probe.options = opts.clone(),
+                        PickerPatch::Enabled(e) => n.probe.enabled = *e,
                     }
                     let i = n.probe.selected.max(0) as usize;
                     n.probe.text = n.probe.options.get(i).cloned().unwrap_or_default();
@@ -2500,6 +2506,11 @@ pub fn capability(cap: day_spec::Cap) -> day_spec::Support {
 /// directly from a tap handler for a custom affordance. Fire and forget: no result, unopenable
 /// URLs are ignored by the backend.
 pub fn open_url(url: &str) {
+    // While `day test` runs the app's cases, a link is recorded for `assert_opened_url` and
+    // nothing opens: a test run must not launch the machine's browser (docs/testing.md).
+    if crate::conformance::intercept_open_url(url) {
+        return;
+    }
     with_tree(|t| t.open_url(url));
 }
 

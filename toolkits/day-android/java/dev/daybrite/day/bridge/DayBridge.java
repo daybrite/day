@@ -3100,6 +3100,9 @@ public final class DayBridge {
                 if (!pb.isIndeterminate() && pb.getMax() == 1000) {
                     out[RN_NUMBER] = Double.toString(pb.getProgress() / 1000.0);
                 }
+            } else if (dev.daybrite.day.piece.picker.DayPicker.isPicker(c)) {
+                // A picker reads as its selected option's label (null with nothing selected).
+                out[RN_TEXT] = dev.daybrite.day.piece.picker.DayPicker.selectedText(c);
             }
             out[RN_ENABLED] = v.isEnabled() && c.isEnabled() ? "1" : "0";
             out[RN_VISIBLE] = v.isShown() ? "1" : "0";

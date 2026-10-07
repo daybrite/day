@@ -803,7 +803,8 @@ button(text).action(f)             // .bordered() / .prominent() / .tint(color) 
     .icon(Symbol::Play)            // native symbol; reactive symbol sources are supported
     .icon_only()                   // hide the visible title, retain its accessible name
 button(text).image(res::vectors::mark) // bundled image/vector instead of a symbol
-toggle(on)                         // two-way bool
+toggle(on)                         // two-way bool; .enabled(e) on toggle, slider, text_field and
+                                   //   picker too, constant or reactive (as on button)
 slider(value).range(0.0..=100.0)   // two-way f64; .step(…)
 text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .focused(…) (docs/focus.md)
     .secure(s).read_only(r)                    // reactive: hidden characters, no edits (docs/textfield.md)
@@ -6445,6 +6446,9 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_not_presented` | — | no Day presentation request remains unanswered; not an OS-window dismissal assertion |
 | `respond` | `button?` \| `text?` \| `path?` \| `dismiss` | answer the open modal / file picker |
 | `a11y_audit` | `id?` | diff the NATIVE accessibility tree against Day's expectations ([§13](#13-accessibility), [§14.2](#142-the-embedded-engine)) |
+| `assert_frame` | `id`, `width?`, `height?`, `x?`, `y?`, `relative_to?`, `tolerance?` | check an element's frame in points (origin relative to `relative_to`'s, or the window content's), in Day's layout and, where the toolkit reads it back, natively; an unread native frame is listed in the reply's `data` ([docs/testing.md](docs/testing.md)) |
+| `sample_pixel` | `id`, `x`, `y` (fractions of its frame), `color` (`#rrggbb`), `tolerance?` (default 64) | the color at that point of an in-process capture, decoded by the engine's own PNG reader; unread where the toolkit has no capture ([docs/testing.md](docs/testing.md)) |
+| `assert_opened_url` | `url` | the app asked to open `url` during the run; while `run_tests` runs, `open_url` records instead of opening ([docs/testing.md](docs/testing.md)) |
 | `assert_native` | `id`, `text?`, `number?`, `checked?`, `enabled?`, `visible?` | compare the NATIVE widget's own state (`Toolkit::read_native`) with the fields given; a field the toolkit cannot read passes and is listed as unread in the reply's `data`; `enabled` is checked against Day's tree too ([docs/testing.md](docs/testing.md)) |
 | `tests` | — | the registered `#[day::test]` cases (name, kind, what each proves) in the reply's `data` ([docs/testing.md](docs/testing.md)) |
 | `run_tests` | `filter?`, `shots?`, `timeout_secs?`, `case_timeout_secs?` | run the matching cases as one main-loop task, each drive op the dayscript step it names, each GUI case's page shown alone by the app's `test_host`, a panic or a case past its limit (30 s default, `0` none) failing that case only; retryable while running; the reply's `data` is the report the runner prints and writes as `evidence.json` ([docs/testing.md](docs/testing.md)) |

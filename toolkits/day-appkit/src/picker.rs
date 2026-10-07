@@ -170,13 +170,73 @@ fn make(backend: &mut AppKit, p: &PickerProps, id: NodeId) -> Retained<NSView> {
         PickerStyle::Inline => make_inline(mtm, p, &target),
     };
     TARGETS.with(|t| t.insert((view.as_ref() as *const NSView) as usize, target));
+    if !p.enabled {
+        set_enabled(&view, false);
+    }
     view
+}
+
+/// The radio buttons of an inline picker, in option order.
+fn radios(stack: &NSStackView) -> Vec<Retained<NSButton>> {
+    stack
+        .arrangedSubviews()
+        .iter()
+        .filter_map(|v| v.downcast_ref::<NSButton>().map(Retained::from))
+        .collect()
+}
+
+/// Enable or disable the picker: the pop-up and segmented control are one NSControl each;
+/// the inline style disables every radio, since the stack itself takes no input.
+fn set_enabled(h: &NSView, on: bool) {
+    if let Some(c) = h.downcast_ref::<objc2_app_kit::NSControl>() {
+        c.setEnabled(on);
+    } else if let Some(stack) = h.downcast_ref::<NSStackView>() {
+        for b in radios(stack) {
+            b.setEnabled(on);
+        }
+    }
+}
+
+/// The displayed selection and enabled state of a picker, for `read_native`; `None` when `h`
+/// is not a picker. The text is the selected option's title as shown (`None` with nothing
+/// selected); an inline picker reads enabled only when all its radios agree.
+pub(crate) fn read_native(h: &NSView) -> Option<(Option<String>, Option<bool>)> {
+    if !TARGETS.with(|t| t.contains((h as *const NSView) as usize)) {
+        return None;
+    }
+    if let Some(popup) = h.downcast_ref::<NSPopUpButton>() {
+        let text = popup.selectedItem().map(|item| item.title().to_string());
+        return Some((text, Some(popup.isEnabled())));
+    }
+    if let Some(seg) = h.downcast_ref::<NSSegmentedControl>() {
+        let i = seg.selectedSegment();
+        let text = (i >= 0 && i < seg.segmentCount())
+            .then(|| seg.labelForSegment(i))
+            .flatten()
+            .map(|s| s.to_string());
+        return Some((text, Some(seg.isEnabled())));
+    }
+    let stack = h.downcast_ref::<NSStackView>()?;
+    let radios = radios(stack);
+    let text = radios
+        .iter()
+        .find(|b| b.state() == NSControlStateValueOn)
+        .map(|b| b.title().to_string());
+    let enabled = match radios.first() {
+        Some(first) => {
+            let on = first.isEnabled();
+            radios.iter().all(|b| b.isEnabled() == on).then_some(on)
+        }
+        None => None,
+    };
+    Some((text, enabled))
 }
 
 fn update(_backend: &mut AppKit, h: &Retained<NSView>, patch: &PickerPatch) {
     let i = match patch {
         PickerPatch::Selected(i) => *i,
         PickerPatch::Options(opts) => return set_options(h, opts),
+        PickerPatch::Enabled(on) => return set_enabled(h, *on),
     };
     // Range guards throughout: an out-of-range index raises an NSException in AppKit,
     // which Rust cannot catch, so the process aborts.
@@ -248,6 +308,8 @@ fn set_options(h: &Retained<NSView>, opts: &[String]) {
                         )
                     };
                     radio.setTag(i as isize);
+                    // A radio added while the picker is disabled stays disabled with it.
+                    radio.setEnabled(first.isEnabled());
                     stack.addArrangedSubview(<NSButton as AsRef<NSView>>::as_ref(&radio));
                 }
             }

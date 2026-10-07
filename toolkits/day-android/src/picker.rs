@@ -46,12 +46,13 @@ fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
                 env,
                 PICKER_CLASS,
                 "makePicker",
-                "(JILjava/lang/String;I)Landroid/view/View;",
+                "(JILjava/lang/String;IZ)Landroid/view/View;",
                 &[
                     JValue::Long(id.0 as i64),
                     JValue::Int(style_code(p.style)),
                     JValue::Object(&s),
                     JValue::Int(p.selected as i32),
+                    JValue::Bool(p.enabled),
                 ],
             )
             .ok()
@@ -73,6 +74,14 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
                 "setPickerSelected",
                 "(Landroid/view/View;I)V",
                 &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
+            );
+        }),
+        PickerPatch::Enabled(on) => with_env(|env| {
+            let _ = env.dcall_static(
+                PICKER_CLASS,
+                "setPickerEnabled",
+                "(Landroid/view/View;Z)V",
+                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
             );
         }),
         PickerPatch::Options(opts) => with_env(|env| {

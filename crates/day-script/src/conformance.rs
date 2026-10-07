@@ -175,6 +175,8 @@ fn start(filter: Vec<String>, policy: ShotPolicy, case_timeout_secs: Option<f64>
         done: false,
     }));
     RUN.with(|r| *r.borrow_mut() = Some(run.clone()));
+    // Links open nothing during the run; they are recorded for `assert_opened_url`.
+    day_core::conformance::set_intercepting_urls(true);
     day_core::task(async move {
         let cases: Vec<Case> = day_core::conformance::cases()
             .into_iter()
@@ -209,6 +211,7 @@ fn start(filter: Vec<String>, policy: ShotPolicy, case_timeout_secs: Option<f64>
         if gui {
             day_core::conformance::clear_active();
         }
+        day_core::conformance::set_intercepting_urls(false);
         run.borrow_mut().done = true;
     });
 }
@@ -428,8 +431,11 @@ async fn run_step(
     unread: &Rc<RefCell<Vec<String>>>,
 ) -> Result<(), Fail> {
     let step = step_for(op)?;
-    // The wait is counted in sleeps rather than read off a clock: the browser has no
-    // `Instant` (std's panics on wasm), and the sleeps are what the wait is made of.
+    // The wait is the sleeps, or the clock where there is one, whichever says more: an attempt
+    // can itself be slow (a capture), and counted in sleeps alone a failing one would retry past
+    // the case's limit and report a timeout instead of its own message. The browser has no
+    // `Instant` (std's panics on wasm), so there the sleeps are the whole count.
+    let clock = Stopwatch::start();
     let mut waited_ms = 0u32;
     let budget_ms = (crate::DEFAULT_TIMEOUT_SECS * 1000.0) as u32;
     // One capture revision for the whole wait, as the socket runner keeps: a capture's
@@ -443,7 +449,13 @@ async fn run_step(
                     .borrow_mut()
                     .push((name.clone(), crate::b64decode(png)));
             }
-            if let (DriveOp::AssertNative(id, _), Some(data)) = (op, &reply.data) {
+            let checked = match op {
+                DriveOp::AssertNative(id, _)
+                | DriveOp::AssertFrame(id, _)
+                | DriveOp::SamplePixel(id, ..) => Some(id),
+                _ => None,
+            };
+            if let (Some(id), Some(data)) = (checked, &reply.data) {
                 let fields = data.get("unread").and_then(|u| u.as_array());
                 for f in fields.into_iter().flatten().filter_map(|f| f.as_str()) {
                     unread.borrow_mut().push(format!("{id} {f}"));
@@ -452,7 +464,8 @@ async fn run_step(
             return Ok(());
         }
         let message = reply.error.unwrap_or_else(|| "failed".into());
-        if !reply.retryable || waited_ms >= budget_ms {
+        let elapsed_ms = u32::try_from(clock.elapsed_ms()).unwrap_or(u32::MAX);
+        if !reply.retryable || waited_ms.max(elapsed_ms) >= budget_ms {
             return Err(Fail(format!("{}: {message}", op_name(op))));
         }
         let wait = if reply.capture_pending {
@@ -486,6 +499,9 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::AssertRoute(route) => format!("assert_route {route}"),
         DriveOp::A11yAudit(_) => "a11y_audit".into(),
         DriveOp::AssertNative(id, _) => format!("assert_native {id}"),
+        DriveOp::AssertFrame(id, _) => format!("assert_frame {id}"),
+        DriveOp::SamplePixel(id, ..) => format!("sample_pixel {id}"),
+        DriveOp::AssertOpenedUrl(url) => format!("assert_opened_url {url}"),
     }
 }
 
@@ -519,6 +535,14 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
             "op": "assert_native", "id": id, "text": e.text, "number": e.number,
             "checked": e.checked, "enabled": e.enabled, "visible": e.visible,
         }),
+        DriveOp::AssertFrame(id, f) => json!({
+            "op": "assert_frame", "id": id, "width": f.width, "height": f.height,
+            "x": f.x, "y": f.y, "relative_to": f.relative_to, "tolerance": f.tolerance,
+        }),
+        DriveOp::SamplePixel(id, x, y, color) => {
+            json!({"op": "sample_pixel", "id": id, "x": x, "y": y, "color": color})
+        }
+        DriveOp::AssertOpenedUrl(url) => json!({"op": "assert_opened_url", "url": url}),
     };
     serde_json::from_value(v).map_err(|e| Fail(format!("{}: {e}", op_name(op))))
 }

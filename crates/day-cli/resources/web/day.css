@@ -173,6 +173,8 @@ body.day-has-toolbar #day-root {
 .day-btn:hover:not(:disabled) { filter: brightness(1.06); }
 .day-btn:active:not(:disabled) { filter: brightness(0.92); }
 .day-btn:disabled { opacity: 0.4; cursor: default; }
+/* A disabled segmented or inline picker dims every choice, as a disabled button does. */
+.day-seg:disabled, .day-radio:disabled { opacity: 0.4; cursor: default; }
 .day-btn.prominent { background: var(--day-accent); color: var(--day-accent-fg); }
 /* An app-chosen fill, still a <button>: the :hover/:active/:disabled rules above apply to it
    unchanged, which is why the tint goes through a variable rather than inline. */

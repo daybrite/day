@@ -10379,18 +10379,27 @@ mod imp {
                 let label: Option<Retained<NSString>> = msg_send![&**h, accessibilityLabel];
                 let value: Option<Retained<NSString>> = msg_send![&**h, accessibilityValue];
                 let ident: Option<Retained<NSString>> = msg_send![&**h, accessibilityIdentifier];
+                // A picker answers its displayed selection and its enabled state itself: the
+                // inline style is a stack of row buttons, not one control.
+                let picker = crate::picker::read_native(h);
                 day_spec::NativeSnapshot {
                     found: true,
                     role: day_role_from_traits(traits),
                     label: label.map(|s| s.to_string()),
                     value: value.map(|s| s.to_string()),
                     identifier: ident.map(|s| s.to_string()).filter(|s| !s.is_empty()),
-                    text: native_text(h),
+                    text: match &picker {
+                        Some((text, _)) => text.clone(),
+                        None => native_text(h),
+                    },
                     number: native_number(h),
                     checked: (**h).downcast_ref::<UISwitch>().map(|sw| sw.isOn()),
                     // Only a UIControl takes input; a UILabel's `isEnabled` only dims it, and
                     // a text view (a text area or a selectable label) has no enabled state.
-                    enabled: (**h).downcast_ref::<UIControl>().map(|c| c.isEnabled()),
+                    enabled: match &picker {
+                        Some((_, on)) => *on,
+                        None => (**h).downcast_ref::<UIControl>().map(|c| c.isEnabled()),
+                    },
                     visible: Some(native_visible(h)),
                     frame: native_frame(h),
                 }

@@ -18,9 +18,9 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_core_foundation::CGSize;
 use objc2_foundation::{NSArray, NSString};
 use objc2_ui_kit::{
-    UIAction, UIButton, UIControlEvents, UIControlState, UIImage, UILayoutConstraintAxis, UIMenu,
-    UIMenuElement, UISegmentedControl, UIStackView, UIStackViewAlignment, UIStackViewDistribution,
-    UIView,
+    UIAction, UIButton, UIControl, UIControlEvents, UIControlState, UIImage,
+    UILayoutConstraintAxis, UIMenu, UIMenuElement, UISegmentedControl, UIStackView,
+    UIStackViewAlignment, UIStackViewDistribution, UIView,
 };
 
 struct TargetIvars {
@@ -328,13 +328,71 @@ fn make(_backend: &mut Uikit, p: &PickerProps, id: NodeId) -> Retained<UIView> {
             },
         )
     });
+    if !p.enabled {
+        set_enabled(&view, false);
+    }
     view
+}
+
+/// Enable or disable the picker: the segmented control and the menu button are one UIControl
+/// each; the inline style disables every row button, since the stack itself takes no input.
+fn set_enabled(h: &Retained<UIView>, on: bool) {
+    if let Some(c) = (**h).downcast_ref::<UIControl>() {
+        c.setEnabled(on);
+        return;
+    }
+    STATE.with(|t| {
+        t.with((h.as_ref() as *const UIView) as usize, |st| {
+            for b in &st.buttons {
+                b.setEnabled(on);
+            }
+        })
+    });
+}
+
+/// The displayed selection and enabled state of a picker, for `read_native`; `None` when `h`
+/// is not a picker. The text is the selected option's title as shown (`None` with nothing
+/// selected); an inline picker reads enabled only when all its rows agree.
+pub(crate) fn read_native(h: &UIView) -> Option<(Option<String>, Option<bool>)> {
+    let key = (h as *const UIView) as usize;
+    if let Some(seg) = h.downcast_ref::<UISegmentedControl>() {
+        if !STATE.with(|t| t.contains(key)) {
+            return None;
+        }
+        let i = seg.selectedSegmentIndex();
+        let text = (i >= 0 && (i as usize) < seg.numberOfSegments())
+            .then(|| seg.titleForSegmentAtIndex(i as usize))
+            .flatten()
+            .map(|s| s.to_string());
+        return Some((text, Some(seg.isEnabled())));
+    }
+    STATE.with(|t| {
+        t.with(key, |st| {
+            if let Some(btn) = &st.menu_button {
+                let text = btn.currentTitle().map(|s| s.to_string());
+                return (text, Some(btn.isEnabled()));
+            }
+            let text = st
+                .buttons
+                .get(st.selected)
+                .filter(|b| !b.isHidden())
+                .and_then(|b| b.currentTitle())
+                .map(|s| s.to_string());
+            let shown: Vec<_> = st.buttons.iter().filter(|b| !b.isHidden()).collect();
+            let enabled = shown.first().and_then(|first| {
+                let on = first.isEnabled();
+                shown.iter().all(|b| b.isEnabled() == on).then_some(on)
+            });
+            (text, enabled)
+        })
+    })
 }
 
 fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &PickerPatch) {
     let i = match patch {
         PickerPatch::Selected(i) => *i,
         PickerPatch::Options(opts) => return set_options(h, opts),
+        PickerPatch::Enabled(on) => return set_enabled(h, *on),
     };
     if let Some(seg) = (**h).downcast_ref::<UISegmentedControl>() {
         if seg.selectedSegmentIndex() != i as isize {

@@ -5198,9 +5198,9 @@ pub mod props {
         Inline,
     }
 
-    /// Full picker props (realize). `style` is set once at build; `options` and `selected`
-    /// patch (via [`PickerPatch`]).
-    #[derive(Clone, Debug, Default, PartialEq)]
+    /// Full picker props (realize). `style` is set once at build; `options`, `selected` and
+    /// `enabled` patch (via [`PickerPatch`]).
+    #[derive(Clone, Debug, PartialEq)]
     pub struct PickerProps {
         /// Decorative boundaries before option indexes (not selectable options). Native menu
         /// grouping on AppKit/UIKit; ignored by other backends and non-menu styles.
@@ -5208,6 +5208,19 @@ pub mod props {
         pub options: Vec<String>,
         pub selected: usize,
         pub style: PickerStyle,
+        /// Whether the picker takes input. Default `true`.
+        pub enabled: bool,
+    }
+    impl Default for PickerProps {
+        fn default() -> Self {
+            PickerProps {
+                separators_before: Vec::new(),
+                options: Vec::new(),
+                selected: 0,
+                style: PickerStyle::default(),
+                enabled: true,
+            }
+        }
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -5218,6 +5231,8 @@ pub mod props {
         /// still exists, clamping to the last option otherwise; a fresh
         /// [`PickerPatch::Selected`] follows whenever the app's own binding disagrees.
         Options(Vec<String>),
+        /// Enable or disable the whole control, every style alike.
+        Enabled(bool),
     }
 
     /// Full text-area props (realize, kinds::TEXT_AREA; docs/textarea.md). `text` seeds the

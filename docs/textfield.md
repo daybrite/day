@@ -35,7 +35,9 @@ form((
 `text_field(text)` binds a `Signal<String>` (or any `Binding<String>`) two-way: typing writes the
 signal, and setting the signal replaces the field's text. `.placeholder(_)` sets the empty-state
 prompt and `.on_submit(_)` fires on Return or the keyboard's action key. Focus is the
-`.focused(_)` decorator ([docs/focus.md](focus.md)).
+`.focused(_)` decorator ([docs/focus.md](focus.md)). `.enabled(_)`, a constant or a reactive
+`bool`, turns input off altogether: a disabled field neither edits nor takes focus, where
+`.read_only(_)` keeps it focusable and selectable.
 
 ## Password fields
 

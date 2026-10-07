@@ -1210,6 +1210,7 @@ dependencies = [
  "day-reactive",
  "day-spec",
  "log",
+ "png",
  "serde",
  "serde_json",
  "serde_norway",

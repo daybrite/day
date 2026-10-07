@@ -543,6 +543,7 @@ const env = {
       if (radios) { const dot = div('day-radio-dot'); b.append(dot, document.createTextNode(o)); }
       else b.textContent = o;
       if (i === spec.selected) b.classList.add('selected');
+      b.disabled = el.hasAttribute('disabled');
       b.addEventListener('click', () => {
         selectAmong(el, i);
         wasm.day_dom_event(id, 6, i, 0, 0, 0);
@@ -586,6 +587,13 @@ const env = {
     // Boolean attrs use a marker convention from the Rust side: "" removes, "-" sets.
     if (name === 'disabled' || name === 'readonly') {
       val === '' ? el.removeAttribute(name) : el.setAttribute(name, '');
+      // A segmented or radio picker is a <div> of buttons, which `disabled` does not reach:
+      // the group keeps the attribute as its state (day_dom_options rebuilds read it) and
+      // passes it to each choice.
+      if (name === 'disabled' && isChoiceGroup(el)) {
+        [...el.children].forEach((b) => { b.disabled = val !== ''; });
+        el.setAttribute('aria-disabled', val === '' ? 'false' : 'true');
+      }
       return;
     }
     el.setAttribute(name, val);
@@ -1555,12 +1563,14 @@ const env = {
       } else if (tag === 'INPUT' && el.type === 'text') text = el.value;
       else if (tag === 'TEXTAREA') text = el.value;
       else if (tag === 'SELECT') text = el.selectedOptions[0]?.text ?? null;
+      else if (isChoiceGroup(el)) text = el.querySelector(':scope > .selected')?.textContent ?? null;
       let number = '';
       if (tag === 'INPUT' && el.type === 'range') number = String(Number(el.value));
       else if (tag === 'PROGRESS') number = String(el.position >= 0 ? el.value : '');
       const checked = tag === 'INPUT' && el.type === 'checkbox' ? (el.checked ? '1' : '0') : '';
-      const enabled = el.matches('button, input, select, textarea')
-        ? (el.matches(':disabled') ? '0' : '1') : '';
+      let enabled = '';
+      if (el.matches('button, input, select, textarea')) enabled = el.matches(':disabled') ? '0' : '1';
+      else if (isChoiceGroup(el)) enabled = el.hasAttribute('disabled') ? '0' : '1';
       let frame = ['', '', '', ''];
       let visible = '0';
       if (box.isConnected && box.getClientRects().length > 0) {
@@ -1645,6 +1655,11 @@ const env = {
 
 function selectAmong(group, idx) {
   [...group.children].forEach((b, i) => b.classList.toggle('selected', i === idx));
+}
+
+/** A segmented or inline (radio) picker: a `<div>` whose children are the choice buttons. */
+function isChoiceGroup(el) {
+  return el.classList.contains('day-segmented') || el.classList.contains('day-radios');
 }
 
 // ---- day-part-fs store (see day_dom_fs_start) ---------------------------------------------

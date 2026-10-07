@@ -923,9 +923,11 @@ impl Toolkit for MockToolkit {
             w.enabled = p.enabled;
         } else if let Some(p) = props.downcast_ref::<SliderProps>() {
             w.value = p.value;
+            w.enabled = p.enabled;
         } else if let Some(p) = props.downcast_ref::<TextFieldProps>() {
             w.text = p.text.clone();
             w.placeholder = p.placeholder.clone();
+            w.enabled = p.enabled;
         } else if let Some(p) = props.downcast_ref::<CanvasProps>() {
             w.ops = p.ops.clone();
         } else if let Some(p) = props.downcast_ref::<ContainerProps>() {
@@ -975,6 +977,7 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<PickerProps>() {
             w.text = p.options.join("|");
             w.value = p.selected as f64;
+            w.enabled = p.enabled;
             detail = format!(" options={:?} selected={}", p.options, p.selected);
         } else if let Some(p) = props.downcast_ref::<TextAreaProps>() {
             w.text = p.text.clone();
@@ -1100,11 +1103,24 @@ impl Toolkit for MockToolkit {
                 w.flag = v.is_none();
                 w.value = v.unwrap_or(0.0);
                 format!("value={v:?}")
-            } else if let Some(PickerPatch::Selected(i)) = patch.downcast_ref::<PickerPatch>() {
-                if let Some(w) = s.widgets.get_mut(&h.0) {
-                    w.value = *i as f64;
+            } else if let Some(pp) = patch.downcast_ref::<PickerPatch>() {
+                let Some(w) = s.widgets.get_mut(&h.0) else {
+                    return;
+                };
+                match pp {
+                    PickerPatch::Selected(i) => {
+                        w.value = *i as f64;
+                        format!("picker.selected {i}")
+                    }
+                    PickerPatch::Options(opts) => {
+                        w.text = opts.join("|");
+                        format!("picker.options {opts:?}")
+                    }
+                    PickerPatch::Enabled(e) => {
+                        w.enabled = *e;
+                        format!("picker.enabled {e}")
+                    }
                 }
-                format!("picker.selected {i}")
             } else if let Some(tp) = patch.downcast_ref::<TextAreaPatch>() {
                 if let Some(w) = s.widgets.get_mut(&h.0) {
                     match tp {
@@ -1900,13 +1916,17 @@ impl Toolkit for MockToolkit {
             kind,
             "day.label" | "day.button" | "day.text_field" | "day.text_area"
         );
+        // A picker shows its selected option; the mock keeps the options `|`-joined.
+        let picked = (kind == "day.picker")
+            .then(|| w.text.split('|').nth(w.value as usize).map(str::to_owned))
+            .flatten();
         day_spec::NativeSnapshot {
             found: true,
             role: w.a11y.role,
             label: w.a11y.label.clone(),
             value: w.a11y.value.clone(),
             identifier: w.a11y.identifier.clone(),
-            text: texty.then(|| w.text.clone()),
+            text: texty.then(|| w.text.clone()).or(picked),
             number: matches!(kind, "day.slider" | "day.progress").then_some(w.value),
             checked: (kind == "day.toggle").then_some(w.flag),
             enabled: Some(w.enabled),

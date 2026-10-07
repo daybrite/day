@@ -6527,7 +6527,11 @@ impl Toolkit for Gtk {
             frame: native_frame(h),
             ..Default::default()
         };
-        if let Some(label) = h.downcast_ref::<gtk4::Label>() {
+        if let Some(text) = picker::selected_text(h) {
+            // A picker of any style: the selected option's label; `enabled` above is the
+            // root's sensitivity, which every segmented/inline button inherits.
+            snap.text = text;
+        } else if let Some(label) = h.downcast_ref::<gtk4::Label>() {
             // `text` is the label without its Pango markup (the link runs, the attributes).
             snap.text = Some(label.text().to_string());
         } else if let Some(btn) = h.downcast_ref::<gtk4::Button>() {

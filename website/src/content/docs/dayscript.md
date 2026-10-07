@@ -104,7 +104,7 @@ shape whichever tool captured them. Set `DAY_SCREENSHOT_RAW=1` to keep the captu
 | Asserting | `assert_visible`, `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
 | Web views | `web_eval` (`id`, `script`, `text`/`contains`; `timeout_secs` raises its budget for cold engine startup or slow page loads) |
 | Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |
-| Evidence | `screenshot` (`window` captures a secondary window), `a11y_audit`, `assert_native` (the widget's own text, value, checked, enabled or visible state, as the platform reports it) |
+| Evidence | `screenshot` (`window` captures a secondary window), `a11y_audit`, `assert_native` (the widget's own text, value, checked, enabled or visible state, as the platform reports it), `assert_frame` (size and relative position, in Day and natively), `sample_pixel` (the color at a point of a capture), `assert_opened_url` (a URL the app opened during a `run_tests` run) |
 | Exit | `expect_exit` (the app must terminate within `within` seconds; always the last step) |
 
 `input`, `assert_text`, and `toolbar` accept a Fluent `key` (with `args`) in place of literal

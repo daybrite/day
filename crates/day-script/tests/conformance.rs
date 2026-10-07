@@ -100,8 +100,11 @@ fn a_filter_selects_by_glob() {
         names,
         [
             "text-field-binding",
+            "text-field-disabled",
             "text-field-max-length",
-            "text-field-secure"
+            "text-field-read-only",
+            "text-field-secure",
+            "text-field-submit"
         ]
     );
     assert!(
