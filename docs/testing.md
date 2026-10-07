@@ -14,7 +14,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > engine steps, `day test`, the conformance app under `apps/conformance`, the mock harness in
 > `crates/day-script/tests/conformance.rs`, and the `conformance` CI jobs. Cases cover the
 > controls, layout and appearance, lists, trees, navigation stacks, sidebars, tabs, covers,
-> context menus, toolbars, dialogs and the inspector.
+> context menus, toolbars, dialogs, the inspector, gestures, focus and announcements, and the
+> pieces in this repository.
 
 `day test` runs tests inside a built Day app on a chosen toolkit. A test is a plain function
 marked `#[day::test]` that returns a [`Case`]: either a page plus a drive against it (a GUI
@@ -66,8 +67,10 @@ fn store_round_trip() -> Case {
   coverage tables, in the matrices' own spelling (`kind:day.button`, `cap:Announce`,
   `duty:set_a11y`).
 - **`.requires(cap)`** skips the case with a recorded reason where the toolkit answers
-  `Unsupported`. This is the one way a case adapts to a toolkit: a case never asks which
-  toolkit it is on.
+  `Unsupported`; **`.requires_support(name, f)`** does the same for a piece's own `support()`
+  answer. A case never asks which toolkit it is on. A case is also skipped, not failed, when a
+  kind it proves renders a placeholder: the piece has no renderer on that toolkit (a native
+  stepper on iOS, a map off the Apple platforms).
 - **`.shot(name)`** takes a capture once the page shows, before the drive; `d.shot(name)`
   takes one mid-drive.
 - **`.timeout(secs)`** is how long the case may take, page and drive together; unset, the
@@ -164,9 +167,16 @@ pub(crate) mod conformance {
 - **What a case proves** is declared with `.proves(kinds::X)`, `.proves_modifier("padding")`,
   `.proves_cap(Cap::X)` and `.proves_duty("x")`. `scripts/ci/conformance-coverage.py` reads
   those and reports, per family, what is proven and what is not. Its `lint.sh` leg gates the
-  families already complete (`--require kinds`: every built-in kind has a case, so a new kind
-  without one fails lint) and reports the rest; `--check` gates them all once every family is
+  families already complete (`--require kinds,pieces`: every built-in kind and every piece crate
+  has a case, so a new one without one fails lint) and reports the rest; `--check` gates them all once every family is
   covered.
+
+**The pieces in this repository** (`pieces/*`) carry their cases the same way, in a
+`pub mod conformance` behind each crate's own `conformance` feature. The conformance app depends
+on every one of them with that feature on, and its root calls each crate's `register_tests()`
+for the web. A piece from another repository is that repository's to test; the conformance app
+takes none. The coverage script counts a piece crate as proven when it has cases, and `lint.sh`
+gates that family with the kinds (`--require kinds,pieces`).
 
 An app's own tests take the same shape in its own crate, with `#[day::test]`, behind a feature
 its test build turns on.
@@ -338,10 +348,12 @@ What a pass does not yet cover, so a skip or an unread field reads as recorded:
   in-app capture through `Toolkit::snapshot_origin`. Android answers it (its content capture
   runs under the status and navigation bars); elsewhere, rows beyond Day's content are taken to
   be above it, true of AppKit's title bar and the mobile status bar.
-- **Input is injected.** Every input op delivers Day's own event, the stream a native
-  recognizer would, so a gesture case proves the routing and the app's handling, not that the
-  platform's recognizer fires on a real press, pan or pinch. That takes real input (posted
-  events on macOS, `adb input`, Playwright), outside a run.
+- **Input is injected, by design.** Every input op delivers Day's own event, the stream a
+  native recognizer would, so a gesture case proves the routing and the app's handling, not
+  that the platform's recognizer fires on a real press, pan or pinch. Driving real platform
+  input from a run (posted events, `adb input`, Playwright) was considered and set aside: each
+  platform needs its own driver, and those drivers are the flakiest part of any UI test
+  harness.
 - **Dialogs** are answered through `respond`, which resolves the request and has the toolkit
   dismiss the dialog it showed: a pass proves `present` and `dismiss` ran on the toolkit and the
   answer came back, not that the dialog drew. A system dialog is its own window, out of reach of

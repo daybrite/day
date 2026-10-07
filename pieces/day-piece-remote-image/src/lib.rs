@@ -279,6 +279,59 @@ impl<Inner: RemoteImageBuilder + day_pieces::prelude::Piece> RemoteImageBuilder
     }
 }
 
+/// The remote image's conformance cases (docs/testing.md): the bytes path, which needs no
+/// network.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use std::sync::Arc;
+
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+    use day_spec::{Cap, Color};
+
+    use super::{KIND, remote_image};
+
+    /// A 4×2 PNG, red on the left half, blue on the right.
+    const RED_BLUE: [u8; 76] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x02, 0x08, 0x02, 0x00, 0x00, 0x00, 0xf0,
+        0xca, 0xea, 0x34, 0x00, 0x00, 0x00, 0x13, 0x49, 0x44, 0x41, 0x54, 0x78, 0xda, 0x63, 0xf8,
+        0xcf, 0xc0, 0x00, 0x44, 0x60, 0xe2, 0x3f, 0x03, 0x32, 0x07, 0x00, 0x67, 0xb2, 0x07, 0xf9,
+        0xf7, 0x92, 0x56, 0x82, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60,
+        0x82,
+    ];
+
+    /// Until bytes arrive the placeholder color shows; once they do, the image draws.
+    #[day_macros::test(day_core)]
+    fn remote_image_shows_bytes() -> Case {
+        Case::new()
+            .proves(KIND)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let source: Signal<Option<Arc<Vec<u8>>>> = Signal::new(None);
+                column((
+                    button("Load")
+                        .action(move || source.set(Some(Arc::new(RED_BLUE.to_vec()))))
+                        .id("load"),
+                    remote_image(source)
+                        .placeholder_color(Color::rgb(0.5, 0.5, 0.5))
+                        .id("image")
+                        .frame(120.0, 60.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                // Gray: a saturated placeholder shifts under a wide-gamut capture (iOS).
+                d.sample_pixel("image", 0.5, 0.5, "#808080").await?;
+                d.tap("load").await?;
+                d.sample_pixel("image", 0.2, 0.5, "#ff0000").await?;
+                d.sample_pixel("image", 0.8, 0.5, "#0000ff").await
+            })
+    }
+
+    day_core::tests! { remote_image_shows_bytes }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

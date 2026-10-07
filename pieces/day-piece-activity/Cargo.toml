@@ -17,6 +17,9 @@ build = "build.rs"
 # crate. See docs/extending.md + docs/activity.md.
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 # NSProgressIndicator (NSView subclass). NSCell carries NSControlSize for `.large`.
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
@@ -41,6 +44,7 @@ mock = []
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "arkui", "mock"]
 
 [dependencies]
+day-macros = { workspace = true, optional = true }
 log = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }

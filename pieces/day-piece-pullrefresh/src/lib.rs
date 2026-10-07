@@ -310,3 +310,45 @@ impl<Inner: PullRefreshBuilder + day_pieces::prelude::Piece> PullRefreshBuilder
         self.map_inner(|inner_piece| inner_piece.on_refresh(f))
     }
 }
+
+/// Pull-to-refresh's conformance cases (docs/testing.md). The `toggle` step is the synthetic
+/// pull, on every backend.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{KIND, pull_to_refresh};
+
+    /// A pull begins a refresh: `refreshing` goes true and `on_refresh` runs; the app ending it
+    /// sets it false.
+    #[day_macros::test(day_core)]
+    fn pullrefresh_begins_and_ends() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let refreshing = Signal::new(false);
+                let runs = Signal::new(0i64);
+                column((
+                    label(move || format!("refreshing {} runs {}", refreshing.get(), runs.get()))
+                        .id("state"),
+                    button("Done")
+                        .action(move || refreshing.set(false))
+                        .id("done"),
+                    pull_to_refresh(refreshing, scroll(column((label("Row 1"), label("Row 2")))))
+                        .on_refresh(move || runs.update(|n| *n += 1))
+                        .id("pull")
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.toggle("pull", true).await?;
+                d.assert_text("state", "refreshing true runs 1").await?;
+                d.tap("done").await?;
+                d.assert_text("state", "refreshing false runs 1").await
+            })
+    }
+
+    day_core::tests! { pullrefresh_begins_and_ends }
+}

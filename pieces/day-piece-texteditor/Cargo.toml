@@ -17,6 +17,9 @@ build = "build.rs"
 # editor loses IME, bidi, undo, dictation and the accessibility tree.
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QTextEdit)
@@ -38,6 +41,7 @@ mock = []
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "arkui", "dom", "mock"]
 
 [dependencies]
+day-macros = { workspace = true, optional = true }
 log = { workspace = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }

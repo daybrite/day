@@ -256,6 +256,11 @@ async fn run_case(
         outcome.reason = Some(format!("Cap::{cap:?} is Unsupported on this toolkit"));
         return outcome;
     }
+    if let Some(what) = case.missing_support() {
+        outcome.verdict = "skip".into();
+        outcome.reason = Some(format!("{what} is Unsupported on this toolkit"));
+        return outcome;
+    }
     let backend = Rc::new(Engine {
         shots: Rc::new(RefCell::new(Vec::new())),
         unread: Rc::new(RefCell::new(Vec::new())),
@@ -297,6 +302,18 @@ async fn run_case(
         }
     };
     let result = Guarded::new(Box::pin(body), limit).await;
+    // A kind the case proves that rendered a placeholder has no renderer on this toolkit (a
+    // piece without an arm here): the case does not apply, as when a `Cap` is missing.
+    let placeholders = day_spec::placeholder::seen();
+    if let Some(kind) = case.proves_keys().iter().find_map(|k| {
+        k.strip_prefix("kind:")
+            .filter(|kind| placeholders.iter().any(|seen| seen == kind))
+    }) {
+        outcome.verdict = "skip".into();
+        outcome.reason = Some(format!("no {kind} renderer on this toolkit"));
+        outcome.ms = started.elapsed_ms();
+        return outcome;
+    }
     if let Err(Fail(message)) = &result {
         outcome.verdict = "fail".into();
         outcome.message = Some(message.clone());

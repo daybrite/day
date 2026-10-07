@@ -12,7 +12,13 @@ license.workspace = true
 # core primitives, with no native/per-toolkit code. Works on every backend.
 # The flagship example that native pieces are the exception, not the rule. Filled in by the build.
 
+[features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
+
 [dependencies]
+day-macros = { workspace = true, optional = true }
 day-pieces = { workspace = true }
 day-core = { workspace = true }
 day-reactive = { workspace = true }

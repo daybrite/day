@@ -200,7 +200,7 @@ leg "doc links" scripts/ci/doc-links.py
 leg "web shim ABI" scripts/ci/web-shim-abi.py
 # How much of the built-in surface the `#[day::test]` cases prove (docs/testing.md). Report only
 # while the coverage backlog is open; it gains `--check` once every family is covered.
-leg "conformance coverage (kinds gated)" scripts/ci/conformance-coverage.py --require kinds
+leg "conformance coverage (kinds, pieces gated)" scripts/ci/conformance-coverage.py --require kinds,pieces
 
 # ── summary ────────────────────────────────────────────────────────────────────────────────────
 printf '\n\033[1m── lint summary ──\033[0m\n'

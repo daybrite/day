@@ -167,3 +167,39 @@ impl<Inner: SearchFieldBuilder + day_pieces::prelude::Piece> SearchFieldBuilder
         self.map_inner(|inner_piece| inner_piece.placeholder(t))
     }
 }
+
+/// The search field's conformance cases (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{KIND, search_field};
+
+    /// Typing reaches the query, and a cleared query empties the field.
+    #[day_macros::test(day_core)]
+    fn searchfield_query_two_way() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let query = Signal::new(String::new());
+                column((
+                    label(move || format!("query {}", query.get())).id("query"),
+                    search_field(query).placeholder("Search").id("search"),
+                    button("Clear")
+                        .action(move || query.set(String::new()))
+                        .id("clear"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("search", "choc").await?;
+                d.assert_text("query", "query choc").await?;
+                d.tap("clear").await?;
+                d.assert_text("query", "query ").await?;
+                d.assert_text("search", "").await
+            })
+    }
+
+    day_core::tests! { searchfield_query_two_way }
+}

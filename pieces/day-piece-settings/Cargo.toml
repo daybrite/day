@@ -13,7 +13,13 @@ license.workspace = true
 # day-core's set_appearance/set_locale. Pure composition, with no native code and no cargo
 # features.
 
+[features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
+
 [dependencies]
+day-macros = { workspace = true, optional = true }
 day-pieces = { workspace = true }
 day-core = { workspace = true }
 day-spec = { workspace = true }

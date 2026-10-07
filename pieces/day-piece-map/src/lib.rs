@@ -208,6 +208,44 @@ impl<Inner: MapBuilder + day_pieces::prelude::Piece> MapBuilder for day_pieces::
     }
 }
 
+/// The map's conformance cases (docs/testing.md). Native only where the platform ships a map
+/// view; elsewhere the kind renders a placeholder and the cases skip.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive, NativeExpect};
+    use day_pieces::*;
+
+    use super::{KIND, map};
+
+    /// The map realizes natively and is shown.
+    #[day_macros::test(day_core)]
+    fn map_realizes() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                map()
+                    .center(48.8566, 2.3522)
+                    .span(0.2)
+                    .marker(48.8566, 2.3522)
+                    .id("map")
+                    .frame(300.0, 200.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_visible("map").await?;
+                d.assert_native(
+                    "map",
+                    NativeExpect {
+                        visible: Some(true),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    day_core::tests! { map_realizes }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

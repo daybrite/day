@@ -140,6 +140,45 @@ impl<Inner: ActivityBuilder + day_pieces::prelude::Piece> ActivityBuilder
     }
 }
 
+/// The activity indicator's conformance cases (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive, NativeExpect};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{KIND, activity};
+
+    /// The indicator realizes natively, and a stopped one keeps its place in the layout (shown
+    /// still on most platforms, invisible on Android and HarmonyOS: docs/activity.md).
+    #[day_macros::test(day_core)]
+    fn activity_shows_and_toggles() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let on = Signal::new(true);
+                column((
+                    activity().animating(on).id("spinner"),
+                    button("Stop").action(move || on.set(false)).id("stop"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_native(
+                    "spinner",
+                    NativeExpect {
+                        visible: Some(true),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                d.tap("stop").await?;
+                d.assert_visible("spinner").await
+            })
+    }
+
+    day_core::tests! { activity_shows_and_toggles }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

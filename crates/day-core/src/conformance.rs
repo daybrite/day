@@ -441,6 +441,8 @@ pub struct Case {
     kind: TestKind,
     proves: Vec<String>,
     requires: Vec<Cap>,
+    /// Supports the case needs beyond a `Cap`: a piece's own `support()` answer, named.
+    requires_support: Vec<(String, fn() -> day_spec::Support)>,
     page: Option<Rc<dyn Fn() -> AnyPiece>>,
     shots: Vec<String>,
     body: Option<Body>,
@@ -461,6 +463,7 @@ impl Case {
             kind: TestKind::Gui,
             proves: Vec::new(),
             requires: Vec::new(),
+            requires_support: Vec::new(),
             page: None,
             shots: Vec::new(),
             body: None,
@@ -506,6 +509,20 @@ impl Case {
     pub fn requires(mut self, cap: Cap) -> Self {
         self.requires.push(cap);
         self
+    }
+    /// A piece's own support the case needs (`day_piece_map::support`), named for the skip
+    /// reason: where it answers `Unsupported` the case is skipped, as for [`Case::requires`].
+    /// For a piece realized only where its platform ships the widget.
+    pub fn requires_support(mut self, what: &str, support: fn() -> day_spec::Support) -> Self {
+        self.requires_support.push((what.to_owned(), support));
+        self
+    }
+    /// The first support this case needs that the running toolkit lacks, named.
+    pub fn missing_support(&self) -> Option<String> {
+        self.requires_support
+            .iter()
+            .find(|(_, f)| f() == day_spec::Support::Unsupported)
+            .map(|(what, _)| what.clone())
     }
     /// The page the app shows for this case; any piece.
     pub fn page<P: crate::Piece>(mut self, page: impl Fn() -> P + 'static) -> Self {

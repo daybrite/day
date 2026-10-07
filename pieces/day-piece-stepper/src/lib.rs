@@ -149,7 +149,8 @@ impl<V: Binding<f64>> Stepper<V> {
     pub fn composed(self) -> Self {
         self.idiom(StepperIdiom::Composed)
     }
-    /// The composed field's dayscript id (default `"stepper"`). It goes here rather than on
+    /// The composed field's dayscript id (default `"stepper"`; its − and + buttons are
+    /// `<key>-dec` and `<key>-inc`). It goes here rather than on
     /// `Decorate::id` for the same reason the color well's does: what the app can reach from
     /// outside is the row wrapper, and an id on that tags a node no toolkit realizes. The
     /// native leaf takes this as its id too, so one name drives both idioms.
@@ -306,8 +307,10 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
 
     // Glyph-sized buttons: a stock Material button is 88 dp wide, and two of them beside the
     // field made the composed stepper a 240 dp control that clipped in a 280 dp inspector.
+    // The buttons carry ids derived from the key, so a script can press them as a person would.
+    let (dec_id, inc_id) = (format!("{key}-dec"), format!("{key}-inc"));
     row((
-        button("−").compact().action(dec),
+        button("−").compact().action(dec).id(dec_id),
         text_field(FieldBinding {
             value,
             min,
@@ -316,7 +319,7 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
         })
         .id(key)
         .width(56.0),
-        button("+").compact().action(inc),
+        button("+").compact().action(inc).id(inc_id),
     ))
     .spacing(4.0)
     .align(VAlign::Center)
@@ -324,3 +327,79 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
 }
 
 day_pieces::glue_modules!(appkit, gtk, qt);
+
+/// The stepper's conformance cases (docs/testing.md), in both idioms.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::AnyPiece;
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{KIND, stepper};
+
+    fn page(composed: bool) -> AnyPiece {
+        let value = Signal::new(3.0f64);
+        // Each idiom asked for explicitly: a toolkit with no native arm renders a placeholder
+        // for `.native()`, and the native cases skip there.
+        let field = stepper(value).range(0.0..=10.0).key("count");
+        column((
+            label(move || format!("value {}", value.get())).id("value"),
+            if composed {
+                field.composed().any()
+            } else {
+                field.native().any()
+            },
+        ))
+        .any()
+    }
+
+    /// A value set on the stepper reaches its binding and shows in the field.
+    #[day_macros::test(day_core)]
+    fn stepper_sets_value() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| page(false))
+            .drive(|d: Drive| async move {
+                d.assert_text("count", "3").await?;
+                d.set_value("count", 7.0).await?;
+                d.assert_text("value", "value 7").await?;
+                d.assert_text("count", "7").await
+            })
+    }
+
+    /// The range holds: a value past the top lands on it.
+    #[day_macros::test(day_core)]
+    fn stepper_clamps_to_range() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| page(false))
+            .drive(|d: Drive| async move {
+                d.set_value("count", 42.0).await?;
+                d.assert_text("value", "value 10").await
+            })
+    }
+
+    /// The composed idiom (− / field / +) behaves the same on every toolkit.
+    #[day_macros::test(day_core)]
+    fn stepper_composed_sets_value() -> Case {
+        // Proves no kind: the composed idiom is ordinary pieces, never the native leaf.
+        Case::new()
+            .page(|| page(true))
+            .drive(|d: Drive| async move {
+                // Typed text commits on submit, as Return does.
+                d.input("count", "5").await?;
+                d.submit("count").await?;
+                d.assert_text("value", "value 5").await?;
+                d.tap("count-inc").await?;
+                d.assert_text("value", "value 6").await?;
+                d.assert_text("count", "6").await
+            })
+    }
+
+    day_core::tests! {
+        stepper_sets_value,
+        stepper_clamps_to_range,
+        stepper_composed_sets_value,
+    }
+}

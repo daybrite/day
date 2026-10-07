@@ -172,3 +172,53 @@ pub fn settings_sections(
     ))
     .any()
 }
+
+/// The settings rows' conformance cases (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_spec::Cap;
+
+    use super::appearance_picker;
+
+    const KEY: &str = "conformance.theme";
+
+    /// Choosing a theme applies it and keeps it; System clears both again.
+    #[day_macros::test(day_core)]
+    fn settings_theme_applies_and_persists() -> Case {
+        Case::new()
+            .proves_cap(Cap::Appearance)
+            .proves_duty("set_appearance")
+            .requires(Cap::Appearance)
+            .page(|| {
+                column((
+                    appearance_picker(KEY),
+                    label(|| {
+                        format!(
+                            "saved {}",
+                            day_part_prefs::get(KEY).unwrap_or_else(|| "none".into())
+                        )
+                    })
+                    .id("saved"),
+                    button("Refresh").id("refresh"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.select("theme-picker", 1).await?;
+                d.wait_idle().await?;
+                d.check(
+                    day_part_prefs::get(KEY).as_deref() == Some("dark"),
+                    "dark not saved",
+                )?;
+                d.select("theme-picker", 2).await?;
+                d.wait_idle().await?;
+                d.check(
+                    day_part_prefs::get(KEY).is_none(),
+                    "System did not clear the key",
+                )
+            })
+    }
+
+    day_core::tests! { settings_theme_applies_and_persists }
+}

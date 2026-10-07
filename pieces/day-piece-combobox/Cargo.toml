@@ -17,6 +17,9 @@ build = "build.rs"
 # piece carries no uikit renderer; day renders its placeholder leaf there. See docs/combobox.md.
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (editable QComboBox), Qt libs linked by day-qt-sys
@@ -41,6 +44,7 @@ mock = []
 backends = ["appkit", "gtk", "qt", "mdc", "xaml", "winui", "mock", "arkui"]
 
 [dependencies]
+day-macros = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 log = { workspace = true }
 day-spec = { workspace = true }

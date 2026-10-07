@@ -548,8 +548,9 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-shade")))
-    .frame(FIELD_W, FIELD_H)
+    // The id before the frame, so it names the canvas the gestures live on.
     .id("color-picker-shade")
+    .frame(FIELD_W, FIELD_H)
     .any()
 }
 
@@ -570,8 +571,9 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-hue")))
-    .frame(FIELD_W, STRIP_H)
+    // The id before the frame, so it names the canvas the gestures live on.
     .id("color-picker-hue")
+    .frame(FIELD_W, STRIP_H)
     .any()
 }
 
@@ -597,8 +599,9 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-opacity")))
-    .frame(FIELD_W, STRIP_H)
+    // The id before the frame, so it names the canvas the gestures live on.
     .id("color-picker-opacity")
+    .frame(FIELD_W, STRIP_H)
     .any()
 }
 
@@ -808,4 +811,49 @@ impl<Inner: ColorPickerBuilder + day_pieces::prelude::Piece> ColorPickerBuilder
     fn key(self, key: impl Into<String>) -> Self {
         self.map_inner(|inner_piece| inner_piece.key(key))
     }
+}
+
+/// The color picker's conformance cases (docs/testing.md): the composed panel, identical on
+/// every toolkit.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+    use day_spec::Color;
+
+    use super::{KIND, color_picker};
+
+    fn hex(c: Color) -> String {
+        let ch = |v: f64| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+        format!("#{:02x}{:02x}{:02x}", ch(c.r), ch(c.g), ch(c.b))
+    }
+
+    /// The well opens the panel on the current color; a press in the shade field's white corner
+    /// picks white, and Done writes it back.
+    #[day_macros::test(day_core)]
+    fn colorpicker_composed_picks() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let tint = Signal::new(Color::rgb(232.0 / 255.0, 106.0 / 255.0, 60.0 / 255.0));
+                column((
+                    label(move || format!("tint {}", hex(tint.get()))).id("tint-value"),
+                    color_picker(tint).composed().key("tint"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("tint").await?;
+                d.wait_idle().await?;
+                d.assert_visible("color-picker-panel").await?;
+                d.assert_text("color-picker-value", "#e86a3c").await?;
+                d.tap_at("color-picker-shade", 0.0, 0.0).await?;
+                d.assert_text("color-picker-value", "#ffffff").await?;
+                d.tap("color-picker-done").await?;
+                d.wait_idle().await?;
+                d.assert_text("tint-value", "tint #ffffff").await
+            })
+    }
+
+    day_core::tests! { colorpicker_composed_picks }
 }

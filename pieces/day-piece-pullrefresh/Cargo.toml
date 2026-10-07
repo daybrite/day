@@ -17,6 +17,9 @@ license.workspace = true
 # that hosts a Day child inside its own native view (docs/extending.md).
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:block2"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation"]
@@ -31,6 +34,7 @@ arkui = ["dep:day-arkui"]
 backends = ["appkit", "gtk", "uikit", "mdc", "arkui"]
 
 [dependencies]
+day-macros = { workspace = true, optional = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }

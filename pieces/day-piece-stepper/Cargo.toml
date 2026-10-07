@@ -27,6 +27,9 @@ qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (Q
 # No renderer: the feature exists so an app can enable `day-piece-stepper/mock` uniformly;
 # the composed field carries mock, like every backend without an arm.
 mock = []
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 
 # Backends this piece carries a native-renderer [features] entry for. `day` unions
 # `<pkg>/<backend>` into an app build (Tier A.2), so an app depends on this piece with a plain
@@ -40,6 +43,7 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-reactive = { workspace = true }
 linkme = { workspace = true }
+day-macros = { workspace = true, optional = true }
 day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }

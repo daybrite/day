@@ -267,3 +267,49 @@ impl<Inner: RatingBuilder + day_pieces::prelude::Piece> RatingBuilder
         self.map_inner(|inner_piece| inner_piece.color(color))
     }
 }
+
+/// The rating's conformance cases (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::rating;
+
+    /// Tapping a star sets the value to that star.
+    #[day_macros::test(day_core)]
+    fn rating_tap_sets_value() -> Case {
+        Case::new()
+            .page(|| {
+                let value = Signal::new(1usize);
+                column((
+                    label(move || format!("value {}", value.get())).id("value"),
+                    rating(value).id("stars"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("stars:4").await?;
+                d.assert_text("value", "value 4").await
+            })
+    }
+
+    /// A rating that is not editable ignores taps.
+    #[day_macros::test(day_core)]
+    fn rating_read_only_ignores_taps() -> Case {
+        Case::new()
+            .page(|| {
+                let value = Signal::new(2usize);
+                column((
+                    label(move || format!("value {}", value.get())).id("value"),
+                    rating(value).editable(false).id("stars"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("stars:5").await?;
+                d.assert_text("value", "value 2").await
+            })
+    }
+
+    day_core::tests! { rating_tap_sets_value, rating_read_only_ignores_taps }
+}

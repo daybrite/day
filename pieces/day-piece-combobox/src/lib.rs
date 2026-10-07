@@ -170,3 +170,52 @@ impl<Inner: ComboBoxBuilder + day_pieces::prelude::Piece> ComboBoxBuilder
         self.map_inner(|inner_piece| inner_piece.placeholder(t))
     }
 }
+
+/// The combo box's conformance cases (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{KIND, combo_box};
+
+    fn page() -> impl day_core::Piece {
+        let items = Signal::new(vec![
+            "Vanilla".to_string(),
+            "Chocolate".into(),
+            "Pistachio".into(),
+        ]);
+        let text = Signal::new(String::new());
+        column((
+            label(move || format!("chose {}", text.get())).id("chose"),
+            combo_box(items, text).placeholder("Flavor").id("combo"),
+        ))
+    }
+
+    /// Choosing from the menu writes the item's text.
+    #[day_macros::test(day_core)]
+    fn combobox_menu_selects() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(page)
+            .drive(|d: Drive| async move {
+                d.select("combo", 2).await?;
+                d.assert_text("chose", "chose Pistachio").await
+            })
+    }
+
+    /// Typing writes free-form text that is in no menu item.
+    #[day_macros::test(day_core)]
+    fn combobox_free_text() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(page)
+            .drive(|d: Drive| async move {
+                d.input("combo", "Stracciatella").await?;
+                d.assert_text("chose", "chose Stracciatella").await
+            })
+    }
+
+    day_core::tests! { combobox_menu_selects, combobox_free_text }
+}

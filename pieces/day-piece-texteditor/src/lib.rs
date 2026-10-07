@@ -561,6 +561,51 @@ impl<Inner: TextEditorBuilder + day_pieces::prelude::Piece> TextEditorBuilder
     }
 }
 
+/// The styled editor's conformance cases (docs/testing.md).
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive, NativeExpect};
+    use day_pieces::*;
+    use day_reactive::Signal;
+    use day_spec::Font;
+    use day_spec::styled::StyledText;
+
+    use super::{KIND, text_editor};
+
+    /// Typing reaches the bound document, and a document the app writes reaches the view.
+    #[day_macros::test(day_core)]
+    fn texteditor_text_two_way() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let doc = Signal::new(StyledText::plain("Start"));
+                column((
+                    label(move || format!("doc {}", doc.get().text)).id("doc"),
+                    button("Replace")
+                        .action(move || doc.set(StyledText::markdown("**Bold** end", Font::Body)))
+                        .id("replace"),
+                    text_editor(doc).min_lines(3).id("editor"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("editor", "Hello world").await?;
+                d.assert_text("doc", "doc Hello world").await?;
+                d.tap("replace").await?;
+                d.assert_text("doc", "doc Bold end").await?;
+                d.assert_native(
+                    "editor",
+                    NativeExpect {
+                        text: Some("Bold end".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    day_core::tests! { texteditor_text_two_way }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

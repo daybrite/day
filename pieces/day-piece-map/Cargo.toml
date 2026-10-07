@@ -17,6 +17,9 @@ license.workspace = true
 # same shape the media piece uses for AVPlayerViewController). See docs/extending.md + docs/map.md.
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 # AppKit uses objc2-map-kit's typed macOS MKMapView (feature `MKMapView` + `objc2-app-kit`).
 appkit = [
     "dep:day-appkit",
@@ -56,6 +59,7 @@ mock = []
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "mock"]
 
 [dependencies]
+day-macros = { workspace = true, optional = true }
 day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }

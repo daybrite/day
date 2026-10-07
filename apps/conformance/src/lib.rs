@@ -33,5 +33,17 @@ pub fn root() -> impl Piece {
     // The web has no link-time registry; each crate's roster registers its tests at launch
     // (a no-op everywhere else).
     day::builtin_tests::register_tests();
+    day_piece_activity::conformance::register_tests();
+    day_piece_colorpicker::conformance::register_tests();
+    day_piece_combobox::conformance::register_tests();
+    day_piece_datetime::conformance::register_tests();
+    day_piece_map::conformance::register_tests();
+    day_piece_pullrefresh::conformance::register_tests();
+    day_piece_rating::conformance::register_tests();
+    day_piece_remote_image::conformance::register_tests();
+    day_piece_searchfield::conformance::register_tests();
+    day_piece_settings::conformance::register_tests();
+    day_piece_texteditor::conformance::register_tests();
+    day_piece_stepper::conformance::register_tests();
     day::test_host(day::builtin_tests::test_pages)
 }

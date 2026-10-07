@@ -4966,7 +4966,9 @@ day/                                # THIS repository
   tweaks/                           # packaged tweaks (day-tweak-button-bezel, -tooltip,
                                     #   -slider-tickmarks) — Addendum, docs/tweaks.md
   apps/conformance/                 # the app `day test` runs the built-in pieces' #[day::test]
-                                    #   cases in (docs/testing.md); its own workspace, day by path;
+                                    #   cases in, and those of every crate under pieces/ (each
+                                    #   with its `conformance` feature; docs/testing.md); its own
+                                    #   workspace, day and the pieces by path;
                                     #   generate.sh writes its scaffold from the app template
                                     # (the apps live in their own repositories: daybrite/Day-Showcase
                                     #  is THE demo — every subsystem, 4 locales, the walkthrough —
@@ -5084,7 +5086,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    dom the wasm32 target plus a wasm-capable clang for persistence's bundled SQLite
    ([docs/web.md](docs/web.md)). The third framework check is **`conformance (<combo>)`**
    (2026-10, [docs/testing.md](docs/testing.md)): `apps/conformance`, the app that holds the
-   built-in pieces' `#[day::test]` cases, its scaffold regenerated from this commit's template
+   built-in pieces' `#[day::test]` cases and those of the repository's own `pieces/` crates
+   (never another repository's), its scaffold regenerated from this commit's template
    (`setup-command`), built against this commit by path and driven with
    this run's CLI through `dayapp.yml` on all nine targets (one phone profile per mobile OS);
    each leg uploads its screenshots tree, evidence and captures included, as

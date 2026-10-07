@@ -18,6 +18,9 @@ build = "build.rs"
 # gtk-rs / C++ shim / Android Java) without touching any core day crate. See docs/extending.md.
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QWidget + QPixmap), Qt libs linked by day-qt-sys
@@ -40,6 +43,7 @@ mock = []
 backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "mock"]
 
 [dependencies]
+day-macros = { workspace = true, optional = true }
 day-spec = { workspace = true }
 # `remote_image_url` fetches through the platform HTTP stack (docs/http.md) and pushes the bytes
 # into the piece's own signal: the one-liner for "show this image from the network".

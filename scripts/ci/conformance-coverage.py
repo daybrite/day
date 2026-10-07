@@ -10,7 +10,7 @@
 # Report mode (the default) always exits 0: it is how the coverage milestones measure
 # progress while the backlog is open. `--check` fails on anything unproven and not in
 # ALLOWED below; it becomes the gate once every family is covered. `--require kinds` gates the
-# named families only (kinds, modifiers, caps, duties) and reports the rest: a family is gated
+# named families only (kinds, pieces, modifiers, caps, duties) and reports the rest: a family is gated
 # from the milestone that completes it, so a new piece cannot arrive without its case.
 
 import os
@@ -24,6 +24,7 @@ ALLOWED = {
     "cap:Lottie": "no toolkit supports it (docs/coverage-matrix.md)",
     "cap:DragFilePromises": "no toolkit supports it",
     "cap:DragExternalMove": "no toolkit supports it",
+    "piece:day-piece-swiftui": "a case needs a SwiftUI view in the app's own Swift sources",
 }
 
 
@@ -82,8 +83,21 @@ for root in case_roots:
             proven |= {"duty:" + d for d in re.findall(r"\.proves_duty\(\s*\"(\w+)\"\s*\)", text)}
             proven |= {"modifier:" + m for m in re.findall(r"\.proves_modifier\(\s*\"(\w+)\"\s*\)", text)}
 
+# Pieces: the crates under pieces/, each proven by cases of its own (a `#[day::test]` in its
+# sources, which the conformance app runs with the crate's `conformance` feature on).
+pieces_dir = os.path.join(ROOT, "pieces")
+pieces = sorted(d for d in os.listdir(pieces_dir) if os.path.isdir(os.path.join(pieces_dir, d)))
+for piece in pieces:
+    for dirpath, dirs, files in os.walk(os.path.join(pieces_dir, piece, "src")):
+        for name in files:
+            if name.endswith(".rs"):
+                with open(os.path.join(dirpath, name), encoding="utf-8") as f:
+                    if "#[day_macros::test" in f.read():
+                        proven.add("piece:" + piece)
+
 families = [
     ("kinds", "kind", kinds),
+    ("pieces", "piece", pieces),
     ("modifiers", "modifier", modifiers),
     ("caps", "cap", caps),
     ("duties", "duty", duties),

@@ -740,6 +740,78 @@ impl<Inner: TimePickerBuilder + day_pieces::prelude::Piece> TimePickerBuilder
     }
 }
 
+/// The date and time pickers' conformance cases (docs/testing.md). Every picker takes a
+/// synthetic ISO `input`, on every backend.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{DATE_KIND, DayDate, DayTime, TIME_KIND, date_picker, time_picker};
+
+    /// A picked date reaches the bound date.
+    #[day_macros::test(day_core)]
+    fn date_picker_sets_date() -> Case {
+        Case::new()
+            .proves(DATE_KIND)
+            .page(|| {
+                let date = Signal::new(DayDate::new(2026, 1, 15).unwrap_or(DayDate::today()));
+                column((
+                    label(move || format!("date {}", date.get())).id("value"),
+                    date_picker(date).compact().id("date"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("date", "2026-11-05").await?;
+                d.assert_text("value", "date 2026-11-05").await
+            })
+    }
+
+    /// A date past the picker's bounds lands on the bound.
+    #[day_macros::test(day_core)]
+    fn date_picker_clamps() -> Case {
+        Case::new()
+            .proves(DATE_KIND)
+            .page(|| {
+                let date = Signal::new(DayDate::new(2026, 6, 1).unwrap_or(DayDate::today()));
+                let (lo, hi) = (DayDate::new(2026, 1, 1), DayDate::new(2026, 12, 31));
+                let mut picker = date_picker(date).compact();
+                if let (Some(lo), Some(hi)) = (lo, hi) {
+                    picker = picker.min(lo).max(hi);
+                }
+                column((
+                    label(move || format!("date {}", date.get())).id("value"),
+                    picker.id("date"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("date", "2027-06-15").await?;
+                d.assert_text("value", "date 2026-12-31").await
+            })
+    }
+
+    /// A picked time reaches the bound time.
+    #[day_macros::test(day_core)]
+    fn time_picker_sets_time() -> Case {
+        Case::new()
+            .proves(TIME_KIND)
+            .page(|| {
+                let time = Signal::new(DayTime::new(9, 0, 0).unwrap_or(DayTime::now()));
+                column((
+                    label(move || format!("time {}", time.get())).id("value"),
+                    time_picker(time).compact().id("time"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("time", "14:45").await?;
+                d.assert_text("value", "time 14:45").await
+            })
+    }
+
+    day_core::tests! { date_picker_sets_date, date_picker_clamps, time_picker_sets_time }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
