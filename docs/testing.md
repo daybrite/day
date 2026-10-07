@@ -12,9 +12,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 > **Status: shipped (2026-10).** `#[day::test]`, `Case`, `Drive`, the `tests` and `run_tests`
 > engine steps, `day test`, the conformance app under `apps/conformance`, the mock harness in
-> `crates/day-script/tests/conformance.rs`, and the `conformance` CI jobs. The first cases
-> cover `button`, `toggle`, `text_field` (three aspects), `slider` and `label`; the rest of
-> the built-in pieces follow in any order.
+> `crates/day-script/tests/conformance.rs`, and the `conformance` CI jobs. Cases cover the
+> controls, layout and appearance, lists, trees, navigation stacks, sidebars, tabs and covers;
+> menus, toolbars, dialogs and the inspector follow.
 
 `day test` runs tests inside a built Day app on a chosen toolkit. A test is a plain function
 marked `#[day::test]` that returns a [`Case`]: either a page plus a drive against it (a GUI
@@ -78,7 +78,9 @@ fn store_round_trip() -> Case {
 `focus`, `submit`, `navigate`, `wait_idle`, `pause`, `shot`, `assert_text`, `assert_visible`,
 `assert_missing`, `assert_value`, `assert_on`, `assert_focused`, `assert_route`, `a11y_audit`,
 `assert_native` (and `assert_enabled`, its `enabled` shorthand), `assert_frame` (and
-`assert_size`), `sample_pixel`, `assert_opened_url`.
+`assert_size`), `sample_pixel`, `assert_opened_url`, and for lists, trees and navigation
+`activate`, `reorder`, `delete_row`, `swipe_row`, `scroll_to`, `expand`, `tree_move`,
+`nav_back`.
 Each is the dayscript step of that name, run in process with the step's own retry window, so a
 drive and a script mean the same thing by the same words; a step dayscript lacks is added to the
 engine, where a script gets it as well. For a headless body, `check(ok, what)` and
@@ -182,6 +184,13 @@ test in day-pieces holds the roster equal to the slice, so the two cannot drift.
 `cargo test -p day-script --test conformance` boots the mock toolkit with the conformance
 app's content and runs every registered case through the real engine. A case's page builds,
 its drive runs, its assertions read the same probe a script reads.
+
+The harness turns on the mock's native behavior (`MockProbe::set_native_behavior`): what a
+native toolkit does unasked, which a unit test otherwise drives by hand. Lists and trees bind a
+window of rows (on attach, after a reload, around a scrolled-to row), and a cover reports its
+size when presented and that it is hidden once dismissed. Those binds and reports happen at
+the next `sleep`, where Day's tree is free, so an op that looks for a row too early finds it on
+its retry.
 
 ### `day test`, on a toolkit
 

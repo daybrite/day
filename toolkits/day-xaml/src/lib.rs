@@ -3480,6 +3480,19 @@ impl Toolkit for Xaml {
         snapshot_via(|path| unsafe { ffi::day_xaml_snapshot_png(win, path) })
     }
 
+    /// The content's offset in the capture: the system-XAML capture is the whole window rect,
+    /// title bar and resize borders included (the shim's `day_xaml_snapshot_origin`).
+    fn snapshot_origin(&mut self, _root: &WinHandle) -> Option<Point> {
+        if self.window.is_null() {
+            return None;
+        }
+        let mut out = [0.0f64; 2];
+        // SAFETY: `window` is the live AppWindow token the shim handed out, and `out` holds the
+        // two doubles the shim writes.
+        let rc = unsafe { ffi::day_xaml_snapshot_origin(self.window, out.as_mut_ptr()) };
+        (rc == 0).then(|| Point::new(out[0], out[1]))
+    }
+
     /// DirectWrite's system font collection, decoded from the shim's list text
     /// (docs/fonts.md).
     fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {

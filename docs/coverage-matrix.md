@@ -96,7 +96,7 @@ An app branches on this rather than on the target name.
 | `NavRepresent` | N | E | – | N | – | E | E | N |
 | `NavContentList` | N | E | N | N | – | – | – | – |
 | `NavHeader` | – | N | – | – | N | N | N | – |
-| `Appearance` | N | N | N | – | N | ? | – | N |
+| `Appearance` | N | N | N | – | N | ? | ? | N |
 | `AppMenu` | N | – | N | N | N | – | – | – |
 | `Dialogs` | N | N | N | N | N | N | – | N |
 | `FileDialogs` | N | N | N | N | N | N | N | N |
@@ -106,8 +106,8 @@ An app branches on this rather than on the target name.
 | `TextEditable` | N | N | N | N | N | N | – | N |
 | `TextSelectable` | N | N | – | N | E | N | – | N |
 | `TextSpellCheck` | N | N | – | – | N | N | – | N |
-| `MultiWindow` | N | – | N | N | N | N | ? | – |
-| `AppBadgeCount` | N | N | – | – | – | – | – | E |
+| `MultiWindow` | N | ? | N | N | N | N | ? | – |
+| `AppBadgeCount` | N | N | – | – | – | – | ? | E |
 | `AppBadgeText` | N | – | – | – | – | – | – | – |
 | `AppBadgeDot` | N | – | – | – | – | – | – | E |
 | `Toolbar` | N | N | N | N | N | N | E | E |

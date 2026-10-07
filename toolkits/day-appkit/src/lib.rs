@@ -3188,6 +3188,58 @@ define_class!(
             })
         }
 
+        #[unsafe(method(tableView:didRemoveRowView:forRow:))]
+        fn did_remove_row_view(
+            &self,
+            _tv: &NSTableView,
+            row_view: &objc2_app_kit::NSTableRowView,
+            _row: isize,
+        ) {
+            // The row went back to the reuse pool (a reload dropping it past a shrunk source, a
+            // scroll): clear its day element ids so it stops answering lookups, as the tree's
+            // `outlineView:didRemoveRowView:forRow:` does. Deferred, since this fires inside
+            // reload stacks that hold the day-core borrow, and re-checked: a cell the same
+            // turn's reload already reused has a window again, and its fresh ids must survive.
+            ffi_guard::contain((), || {
+                let Some(cell) = row_view.subviews().iter().find(|sub| {
+                    sub.identifier()
+                        .map(|i| i.to_string() == "day.cell")
+                        .unwrap_or(false)
+                }) else {
+                    return;
+                };
+                // Raw +1 pointers across the post (the closure must be Send, which Retained is
+                // not; everything stays on the main thread). AppKit may free a removed row view.
+                let cell = Retained::into_raw(cell) as usize;
+                let Some(this) = (unsafe {
+                    Retained::retain(self as *const DayListData as *mut DayListData)
+                }) else {
+                    return;
+                };
+                let this = Retained::into_raw(this) as usize;
+                <AppKit as Platform>::post(Box::new(move || {
+                    // Reclaim both +1s first, so every early return balances them.
+                    let this = unsafe { Retained::from_raw(this as *mut DayListData) };
+                    let cell = unsafe { Retained::from_raw(cell as *mut NSView) };
+                    let (Some(this), Some(cell)) = (this, cell) else {
+                        return;
+                    };
+                    if cell.window().is_some() {
+                        return; // reused already: its ids are the live row's
+                    }
+                    let recycle = this
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .map(|s| s.recycle.clone());
+                    if let Some(recycle) = recycle {
+                        recycle(Retained::as_ptr(&cell) as RawHandle);
+                    }
+                }));
+            })
+        }
+
         #[unsafe(method(tableViewSelectionDidChange:))]
         fn selection_did_change(&self, notification: &NSNotification) {
             ffi_guard::contain((), || {

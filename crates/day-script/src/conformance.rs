@@ -517,6 +517,14 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::AssertFrame(id, _) => format!("assert_frame {id}"),
         DriveOp::SamplePixel(id, ..) => format!("sample_pixel {id}"),
         DriveOp::AssertOpenedUrl(url) => format!("assert_opened_url {url}"),
+        DriveOp::Activate(id, _) => format!("activate {id}"),
+        DriveOp::Reorder(id, ..) => format!("reorder {id}"),
+        DriveOp::DeleteRow(id, _) => format!("delete_row {id}"),
+        DriveOp::SwipeRow(id, ..) => format!("swipe_row {id}"),
+        DriveOp::ScrollTo(id, _) => format!("scroll_to {id}"),
+        DriveOp::Expand(id, row, _) => format!("expand {id} {row}"),
+        DriveOp::NavBack => "nav_back".into(),
+        DriveOp::TreeMove(id, row, ..) => format!("tree_move {id} {row}"),
     }
 }
 
@@ -558,6 +566,23 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
             json!({"op": "sample_pixel", "id": id, "x": x, "y": y, "color": color})
         }
         DriveOp::AssertOpenedUrl(url) => json!({"op": "assert_opened_url", "url": url}),
+        DriveOp::Activate(id, index) => json!({"op": "activate", "id": id, "index": index}),
+        DriveOp::Reorder(id, from, to) => {
+            json!({"op": "reorder", "id": id, "from": from, "to": to})
+        }
+        DriveOp::DeleteRow(id, row) => json!({"op": "delete_row", "id": id, "row": row}),
+        DriveOp::SwipeRow(id, row, leading, action) => json!({
+            "op": "swipe_row", "id": id, "row": row, "action": action,
+            "edge": if *leading { "leading" } else { "trailing" },
+        }),
+        DriveOp::ScrollTo(id, edge) => json!({"op": "scroll_to", "id": id, "edge": edge}),
+        DriveOp::Expand(id, row, expanded) => {
+            json!({"op": "expand", "id": id, "row": row, "expanded": expanded})
+        }
+        DriveOp::NavBack => json!({"op": "nav_back"}),
+        DriveOp::TreeMove(id, row, parent, index) => json!({
+            "op": "tree_move", "id": id, "row": row, "parent": parent, "index": index,
+        }),
     };
     serde_json::from_value(v).map_err(|e| Fail(format!("{}: {e}", op_name(op))))
 }

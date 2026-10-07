@@ -452,6 +452,9 @@ unsafe extern "C" {
     pub fn day_xaml_snapshot_png(win: *mut c_void, path: *const c_char) -> c_int;
     /// The same capture against a SECONDARY window's token — a `screenshot: { window: … }` step.
     pub fn day_xaml_snapshot_png2(win: *mut c_void, path: *const c_char) -> c_int;
+    /// Where the content sits in `day_xaml_snapshot_png`'s capture, in DIPs, written to
+    /// `out[0..2]` as x, y. Returns 0 on success.
+    pub fn day_xaml_snapshot_origin(win: *mut c_void, out: *mut f64) -> c_int;
 
     // Canvas fonts (docs/fonts.md).
     /// The DirectWrite system font collection in Day's font-list text; a heap string to

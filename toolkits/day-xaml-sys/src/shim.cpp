@@ -5941,6 +5941,32 @@ int day_xaml_snapshot_png(void* win, const char* path) try {
     return 9;
 }
 
+// Where the content sits in the primary capture, in DIPs (`Toolkit::snapshot_origin`). The
+// system-XAML capture is the whole window rect: the title bar above and the invisible resize
+// borders on the left, right and bottom, so the client area's offset in that rect is what a
+// reader of the capture needs. WinUI's is the client area already.
+int day_xaml_snapshot_origin(void* win, double* out) try {
+    auto app = reinterpret_cast<AppWindow*>(win);
+    if (!app || !out) return 1;
+#ifdef DAY_WINUI
+    out[0] = 0.0;
+    out[1] = 0.0;
+    return 0;
+#else
+    if (!app->host) return 1;
+    RECT r{};
+    POINT p{0, 0};
+    if (!GetWindowRect(app->host, &r) || !ClientToScreen(app->host, &p)) return 2;
+    double scale = GetDpiForWindow(app->host) / 96.0;
+    if (scale <= 0.0) scale = 1.0;
+    out[0] = (p.x - r.left) / scale;
+    out[1] = (p.y - r.top) / scale;
+    return 0;
+#endif
+} catch (...) {
+    return 9;
+}
+
 // The same capture for a SECONDARY window (docs/windows.md) — what a dayscript
 // `screenshot: { window: … }` step targets. Without this the backend fell back to the primary
 // and the walkthrough's `preferences` capture silently showed the main window instead.

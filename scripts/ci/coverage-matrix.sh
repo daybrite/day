@@ -102,16 +102,17 @@ caps = re.findall(r"\n    (\w+),", body_of(spec, re.compile(r"\bpub enum Cap\s*\
 
 
 def cap_answer(backend: str, cap: str) -> str:
-    """Parse one backend's `capability()` match. Handles the three shapes in the tree: a grouped
-    arm (which may carry `//` comments BETWEEN variants), a braced arm body, and a runtime
-    conditional (reported `?` — a static table cannot resolve it; day-dom's NavSplit depends on
-    the viewport width)."""
+    """Parse one backend's `capability()` match. Handles the shapes in the tree: a grouped arm
+    (which may carry `//` comments BETWEEN variants), a braced arm body, and an answer decided
+    at run time, reported `?` because a static table cannot resolve it: a conditional (day-dom's
+    NavSplit depends on the viewport width) or a call (day-arkui asks its host whether the
+    device has color modes and app badges)."""
     body = re.sub(r"//[^\n]*", "", cap_bodies[backend])
     for m in re.finditer(
-        r"((?:Cap::\w+\s*\|\s*)*Cap::\w+)\s*=>\s*\{?\s*(Support::(\w+)|if\b)", body
+        r"((?:Cap::\w+\s*\|\s*)*Cap::\w+)\s*=>\s*\{?\s*(Support::(\w+)|\S)", body
     ):
         if cap in re.findall(r"Cap::(\w+)", m.group(1)):
-            if m.group(2) == "if":
+            if m.group(3) is None:
                 return "?"
             return {"Native": "N", "Emulated": "E"}.get(m.group(3), "\u2013")
     m = re.search(r"_\s*=>\s*\{?\s*Support::(\w+)", body)

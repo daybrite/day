@@ -1536,6 +1536,52 @@ struct NavMenuState {
     current: Rc<std::cell::Cell<Option<i32>>>,
 }
 
+/// Scroll a list host to `row`, or to its end for `None` (`ListPatch::ScrollToRow` /
+/// `ScrollToEnd`). `GtkListView::scroll_to` needs v4_12 and Day targets v4_10, so this drives
+/// the scrolled window's vertical adjustment instead, at the row's offset by the uniform pitch
+/// (the extent over the count; docs/list.md notes the Automatic-height approximation).
+///
+/// On the frame clock rather than at once or on the next idle: the request can arrive before
+/// the deferred reload (`schedule_list_resize`) has filled the model, or before the list has
+/// laid out the rows it filled, and either way the extent would say there is nothing to
+/// scroll. It waits until the model has rows and the extent covers them, a few frames at most.
+fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
+    // The callback is an `Fn`, so the frame count lives in a cell.
+    let frames = std::cell::Cell::new(0u32);
+    sw.add_tick_callback(move |sw, _| {
+        frames.set(frames.get() + 1);
+        let frames = frames.get();
+        let sw = match sw.downcast_ref::<gtk4::ScrolledWindow>() {
+            Some(sw) => sw,
+            None => return gtk4::glib::ControlFlow::Break,
+        };
+        let n = sw
+            .child()
+            .and_then(|c| c.downcast::<gtk4::ListView>().ok())
+            .and_then(|lv| lv.model())
+            .map(|m| m.n_items() as f64)
+            .unwrap_or(0.0);
+        let adj = sw.vadjustment();
+        // Laid out: the rows overflow the viewport, or have had a few frames to (a list that
+        // fits has nothing to scroll, and waiting longer would not change that).
+        let laid = n > 0.0 && (adj.upper() > adj.page_size() || frames >= 4);
+        if !laid {
+            return if frames < 60 {
+                gtk4::glib::ControlFlow::Continue
+            } else {
+                gtk4::glib::ControlFlow::Break
+            };
+        }
+        let end = adj.upper() - adj.page_size();
+        let y = match row {
+            Some(row) => ((adj.upper() / n) * row as f64).min(end),
+            None => end,
+        };
+        adj.set_value(y);
+        gtk4::glib::ControlFlow::Break
+    });
+}
+
 fn widget_key(w: &Handle) -> usize {
     w.as_ptr() as usize
 }
@@ -4611,6 +4657,24 @@ impl Toolkit for Gtk {
                         });
                     }
                 });
+                factory.connect_unbind({
+                    let source = source.clone();
+                    // The cell left its row (a source that shrank, a scroll): clear its day
+                    // element ids so a hidden row stops answering lookups. The next bind
+                    // restores the live row's (docs/list.md; the tree's unbind does the same).
+                    move |_, item| {
+                        ffi_guard::contain((), || {
+                            let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
+                                return;
+                            };
+                            if let Some(cell) = li.child()
+                                && let Some(src) = source.borrow().as_ref()
+                            {
+                                (src.recycle)(cell.as_ptr() as RawHandle);
+                            }
+                        });
+                    }
+                });
                 let selection = p.selectable.then(|| ListSelection {
                     model: gtk4::SingleSelection::new(Some(model.clone())),
                     requested: Rc::new(std::cell::Cell::new(gtk4::INVALID_LIST_POSITION)),
@@ -5216,36 +5280,13 @@ impl Toolkit for Gtk {
                     });
                 }
                 Some(ListPatch::ScrollToEnd) => {
-                    // GtkListView::scroll_to needs v4_12; we target v4_10, so drive the scrolled
-                    // window's vertical adjustment to its maximum instead. Deferred past this
-                    // with_tree borrow AND past any pending reload splice so the freshly bound rows
-                    // are allocated before we read the extent.
                     if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
-                        let adj = sw.vadjustment();
-                        gtk4::glib::idle_add_local_once(move || {
-                            adj.set_value(adj.upper() - adj.page_size());
-                        });
+                        scroll_list_when_laid(sw, None);
                     }
                 }
                 Some(ListPatch::ScrollToRow(row)) => {
-                    // Same v4_10 route: position the adjustment at the row's offset (uniform
-                    // pitch — the extent/count give the effective row height; docs/list.md notes
-                    // the Automatic-height approximation). Deferred like ScrollToEnd.
                     if let Some(sw) = h.downcast_ref::<gtk4::ScrolledWindow>() {
-                        let adj = sw.vadjustment();
-                        let n = LIST_STATE.with(|m| {
-                            m.borrow()
-                                .get(&widget_key(h))
-                                .map(|e| e.model.n_items() as f64)
-                                .unwrap_or(0.0)
-                        });
-                        let row = *row as f64;
-                        gtk4::glib::idle_add_local_once(move || {
-                            if n > 0.0 {
-                                let y = (adj.upper() / n) * row;
-                                adj.set_value(y.min(adj.upper() - adj.page_size()));
-                            }
-                        });
+                        scroll_list_when_laid(sw, Some(*row));
                     }
                 }
                 Some(ListPatch::Selected(rows)) => {

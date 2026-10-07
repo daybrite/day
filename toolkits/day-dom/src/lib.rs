@@ -697,6 +697,9 @@ struct ListEntry {
     /// A scroll-driven fill is already posted — a flick emits a stream of scroll events, and
     /// they would each post a pass that does the same work.
     fill_pending: bool,
+    /// A row jump (`ListPatch::ScrollToRow`) for the next fill to repeat once the content has
+    /// its full height.
+    pending_scroll: Option<f64>,
     last_width: f64,
     selectable: bool,
     /// Host-drawn row separators (docs/list.md): a bottom border on each cell, so the line
@@ -1828,6 +1831,7 @@ impl Toolkit for Dom {
                             cells: Vec::new(),
                             bound: Vec::new(),
                             fill_pending: false,
+                            pending_scroll: None,
                             last_width: -1.0,
                             activatable: p.activatable,
                             selectable: p.selectable,
@@ -3515,6 +3519,16 @@ fn list_fill_window(host: u32) {
     // The extent is the whole source, built or not: the scrollbar is how the user reaches rows
     // that do not exist yet, so it cannot be sized to what happens to be realized.
     s(content, "height", &format!("{}px", n as f64 * rowh));
+    // A row jump that arrived before this extent existed lands now; its scroll event builds the
+    // rows it reveals.
+    let pending = LISTS.with(|m| {
+        m.borrow_mut()
+            .get_mut(&host)
+            .and_then(|st| st.pending_scroll.take())
+    });
+    if let Some(y) = pending {
+        unsafe { day_dom_scroll_to(host, 0.0, y, 0) };
+    }
     // Rows realized just now start unpainted, and a reload can move which rows are selected
     // under a selection that never changed — so repaint from the entry's set on every fill.
     LISTS.with(|m| {
@@ -3678,6 +3692,14 @@ fn list_patch(el: u32, p: &ListPatch) {
                     .get(&el)
                     .map(|st| *row as f64 * st.row_height)
                     .unwrap_or(0.0)
+            });
+            // Also held for the next fill: a jump asked for before the first one (a list the
+            // page scrolls as it builds) meets content with no height yet, so the browser has
+            // nothing to scroll and no scroll event comes to build the rows.
+            LISTS.with(|m| {
+                if let Some(st) = m.borrow_mut().get_mut(&el) {
+                    st.pending_scroll = Some(y);
+                }
             });
             unsafe { day_dom_scroll_to(el, 0.0, y, 1) };
         }

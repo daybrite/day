@@ -17,6 +17,126 @@ use std::rc::Rc;
 use day_spec::props::*;
 use day_spec::*;
 
+// --- the opt-in native behavior: list and tree viewports, cover reports ----------------------
+//
+// A native list binds the rows it shows into cells by itself: on attach, after a reload, and
+// around a row it is asked to scroll to. Unit tests drive that by hand through
+// `MockProbe::list_bind`; the conformance harness has no test in the loop to do it, so it turns
+// this on (`MockProbe::set_list_viewport`) and the mock binds a window of rows itself.
+//
+// The binding cannot happen where the list learns of a change: that is inside a Toolkit duty,
+// with Day's tree borrowed, and day-core skips a bind it cannot reach the tree for. So a change
+// marks the viewport dirty, and the next `post_delayed` (a `sleep`, which the runner's retry
+// loop reaches with the tree free) binds it.
+
+/// An event a native toolkit raises by itself, with the sink to raise it through.
+type NativeEvent = (Rc<dyn Fn(NodeId, Event)>, NodeId, Event);
+/// A viewport's rows in display order, given the disclosed rows.
+type VisibleRows = Rc<dyn Fn(&std::collections::HashSet<u64>) -> Vec<u64>>;
+
+thread_local! {
+    /// Rows a list shows at once; 0 = off (the default: unit tests bind by hand).
+    static VIEWPORT_ROWS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    static VIEWPORTS: RefCell<HashMap<u64, Viewport>> = RefCell::new(HashMap::new());
+    /// Events a native toolkit would raise by itself (a cover's size and its dismissal), held
+    /// like the viewport binds until the tree is free, with the sink to raise them through.
+    static NATIVE_EVENTS: RefCell<Vec<NativeEvent>> = RefCell::new(Vec::new());
+    /// The primary window's size, which a presented cover fills.
+    static MOCK_WINDOW: std::cell::Cell<Size> = const { std::cell::Cell::new(Size::new(0.0, 0.0)) };
+}
+
+struct Viewport {
+    /// The rows in display order, given the tree's disclosed rows: a list's indices, a tree's
+    /// tokens.
+    visible: VisibleRows,
+    bind_row: Rc<dyn Fn(u64, RawHandle)>,
+    recycle: Rc<dyn Fn(RawHandle)>,
+    /// A tree's disclosed rows, as `TreePatch::Expand` set them.
+    expanded: std::collections::HashSet<u64>,
+    /// The first row shown.
+    start: usize,
+    /// Scroll to the end on the next bind.
+    to_end: bool,
+    /// Cells bound by the last bind.
+    bound: usize,
+    dirty: bool,
+}
+
+/// The physical cell `slot` of list `host`: stable per list and slot, clear of widget handles.
+fn viewport_cell(host: u64, slot: usize) -> RawHandle {
+    ((1u64 << 40) + host * 4096 + slot as u64) as RawHandle
+}
+
+fn viewport_touch(host: u64, f: impl FnOnce(&mut Viewport)) {
+    VIEWPORTS.with(|v| {
+        if let Some(port) = v.borrow_mut().get_mut(&host) {
+            f(port);
+            port.dirty = true;
+        }
+    });
+}
+
+/// Bind every dirty viewport's rows, outside any borrow of the registry.
+fn viewport_flush() {
+    let rows = VIEWPORT_ROWS.with(|r| r.get());
+    if rows == 0 {
+        return;
+    }
+    let events = NATIVE_EVENTS.with(|q| std::mem::take(&mut *q.borrow_mut()));
+    for (sink, node, event) in events {
+        sink(node, event);
+    }
+    let dirty: Vec<u64> = VIEWPORTS.with(|v| {
+        v.borrow()
+            .iter()
+            .filter(|(_, p)| p.dirty)
+            .map(|(h, _)| *h)
+            .collect()
+    });
+    for host in dirty {
+        let Some((visible, bind_row, recycle, expanded, start, to_end, bound)) =
+            VIEWPORTS.with(|v| {
+                let mut v = v.borrow_mut();
+                let p = v.get_mut(&host)?;
+                p.dirty = false;
+                Some((
+                    p.visible.clone(),
+                    p.bind_row.clone(),
+                    p.recycle.clone(),
+                    p.expanded.clone(),
+                    p.start,
+                    p.to_end,
+                    p.bound,
+                ))
+            })
+        else {
+            continue;
+        };
+        let rows_now = visible(&expanded);
+        let total = rows_now.len();
+        let start = if to_end {
+            total.saturating_sub(rows)
+        } else {
+            start.min(total.saturating_sub(rows))
+        };
+        let count = rows.min(total - start.min(total));
+        for slot in 0..count {
+            bind_row(rows_now[start + slot], viewport_cell(host, slot));
+        }
+        // Cells past a shrunk source go back to the pool, as a native list's would.
+        for slot in count..bound {
+            recycle(viewport_cell(host, slot));
+        }
+        VIEWPORTS.with(|v| {
+            if let Some(p) = v.borrow_mut().get_mut(&host) {
+                p.start = start;
+                p.to_end = false;
+                p.bound = count;
+            }
+        });
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct MockHandle(pub u64);
 
@@ -207,6 +327,10 @@ pub struct MockProbe {
 
 impl MockToolkit {
     pub fn new() -> (Self, MockProbe) {
+        // A fresh mock starts with the viewport off and no lists from an earlier one.
+        VIEWPORT_ROWS.with(|r| r.set(0));
+        VIEWPORTS.with(|v| v.borrow_mut().clear());
+        NATIVE_EVENTS.with(|q| q.borrow_mut().clear());
         let state = Rc::new(RefCell::new(MockState::default()));
         (
             MockToolkit {
@@ -321,6 +445,15 @@ impl MockProbe {
     /// `onViewRecycled` / prepare-for-reuse moment. Day parks the cell subtree's ids so the
     /// hidden row stops answering lookups; the next [`Self::list_bind`] of that cell restores
     /// them (docs/list.md).
+    /// Have the mock do by itself what a native toolkit does without being asked, for harnesses
+    /// with no test in the loop to drive it (the conformance runner): lists and trees bind a
+    /// window of `viewport_rows` rows (on attach, after a reload, around a scrolled-to row), and
+    /// a presented cover reports its size and, once dismissed, that it is hidden. 0 turns it off,
+    /// the default, where unit tests drive [`Self::list_bind`] and the cover events by hand.
+    pub fn set_native_behavior(&self, viewport_rows: usize) {
+        VIEWPORT_ROWS.with(|r| r.set(viewport_rows));
+    }
+
     pub fn list_recycle(&self, host: MockHandle, cell: MockHandle) {
         let f = self
             .state
@@ -1007,6 +1140,8 @@ impl Toolkit for MockToolkit {
         // mutably below.
         let described = s.describers.iter().find_map(|d| d(patch));
         let detail;
+        // A cover shown or hidden, for the native-behavior mode to report (see `NATIVE_EVENTS`).
+        let mut cover_shown: Option<(u64, bool)> = None;
         {
             let w = s.widgets.get_mut(&h.0).expect("update on unknown widget");
             if anim.is_some() {
@@ -1196,6 +1331,7 @@ impl Toolkit for MockToolkit {
                     } => {
                         w.flag = true;
                         w.background = *background;
+                        cover_shown = Some((w.node, true));
                         format!(
                             "cover present bg={background:?} dismiss_disabled={dismiss_disabled}"
                         )
@@ -1203,6 +1339,7 @@ impl Toolkit for MockToolkit {
                     CoverPatch::DismissDisabled(d) => format!("cover dismiss_disabled={d}"),
                     CoverPatch::Dismiss => {
                         w.flag = false;
+                        cover_shown = Some((w.node, false));
                         "cover dismiss".into()
                     }
                 }
@@ -1213,21 +1350,45 @@ impl Toolkit for MockToolkit {
                 format!("bg={c:?}")
             } else if let Some(p) = patch.downcast_ref::<ListPatch>() {
                 match p {
-                    ListPatch::Reload => "list reload".into(),
-                    ListPatch::Splice(deltas) => format!("list splice {deltas:?}"),
+                    ListPatch::Reload => {
+                        viewport_touch(h.0, |_| {});
+                        "list reload".into()
+                    }
+                    ListPatch::Splice(deltas) => {
+                        viewport_touch(h.0, |_| {});
+                        format!("list splice {deltas:?}")
+                    }
                     ListPatch::RowSizeInvalidated(i) => format!("list row-size-invalidated {i}"),
                     ListPatch::ScrollToEnd => {
                         // Record that the host was asked to follow its last row (probe-visible).
                         w.flag = true;
+                        viewport_touch(h.0, |p| p.to_end = true);
                         "list scroll-to-end".into()
                     }
-                    ListPatch::ScrollToRow(row) => format!("list scroll-to-row {row}"),
+                    ListPatch::ScrollToRow(row) => {
+                        let rows = VIEWPORT_ROWS.with(|r| r.get());
+                        viewport_touch(h.0, |p| p.start = row.saturating_sub(rows / 2));
+                        format!("list scroll-to-row {row}")
+                    }
                     ListPatch::Selected(rows) => format!("list selected {rows:?}"),
                 }
             } else if let Some(p) = patch.downcast_ref::<TreePatch>() {
                 match p {
-                    TreePatch::Reload => "tree reload".into(),
-                    TreePatch::Expand(tok, on) => format!("tree expand {tok} {on}"),
+                    TreePatch::Reload => {
+                        viewport_touch(h.0, |_| {});
+                        "tree reload".into()
+                    }
+                    TreePatch::Expand(tok, on) => {
+                        let (tok, on) = (*tok, *on);
+                        viewport_touch(h.0, |p| {
+                            if on {
+                                p.expanded.insert(tok);
+                            } else {
+                                p.expanded.remove(&tok);
+                            }
+                        });
+                        format!("tree expand {tok} {on}")
+                    }
                     TreePatch::Selected(toks) => format!("tree selected {toks:?}"),
                     TreePatch::Reveal(tok) => format!("tree reveal {tok}"),
                 }
@@ -1236,9 +1397,22 @@ impl Toolkit for MockToolkit {
             };
         }
         s.log(format!("update {kind} #{} {detail}", h.0));
+        // What a native cover reports by itself: the size it gave the content, and that the
+        // hide transition finished.
+        if let (Some((node, shown)), Some(sink)) = (cover_shown, s.sink.clone())
+            && VIEWPORT_ROWS.with(|r| r.get()) > 0
+        {
+            let event = if shown {
+                Event::FrameChanged(MOCK_WINDOW.with(|w| w.get()))
+            } else {
+                Event::CoverHidden
+            };
+            NATIVE_EVENTS.with(|q| q.borrow_mut().push((sink, NodeId(node), event)));
+        }
     }
 
     fn release(&mut self, h: MockHandle) {
+        VIEWPORTS.with(|v| v.borrow_mut().remove(&h.0));
         let mut s = self.state.borrow_mut();
         s.widgets.remove(&h.0);
         s.context_menu_providers.remove(&h.0);
@@ -1526,12 +1700,75 @@ impl Toolkit for MockToolkit {
     }
 
     fn attach_tree(&mut self, host: &MockHandle, source: day_spec::TreeSource) {
+        if VIEWPORT_ROWS.with(|r| r.get()) > 0 {
+            let (children_len, child_token) =
+                (source.children_len.clone(), source.child_token.clone());
+            // Depth first, into the disclosed rows only: the order a native tree shows.
+            let visible = move |open: &std::collections::HashSet<u64>| {
+                let mut out = Vec::new();
+                fn walk(
+                    parent: Option<u64>,
+                    open: &std::collections::HashSet<u64>,
+                    len: &dyn Fn(Option<u64>) -> usize,
+                    tok: &dyn Fn(Option<u64>, usize) -> u64,
+                    out: &mut Vec<u64>,
+                ) {
+                    for i in 0..len(parent) {
+                        let t = tok(parent, i);
+                        out.push(t);
+                        if open.contains(&t) {
+                            walk(Some(t), open, len, tok, out);
+                        }
+                    }
+                }
+                walk(None, open, &*children_len, &*child_token, &mut out);
+                out
+            };
+            VIEWPORTS.with(|v| {
+                v.borrow_mut().insert(
+                    host.0,
+                    Viewport {
+                        visible: Rc::new(visible),
+                        bind_row: source.bind_row.clone(),
+                        recycle: source.recycle.clone(),
+                        expanded: Default::default(),
+                        start: 0,
+                        to_end: false,
+                        bound: 0,
+                        dirty: true,
+                    },
+                )
+            });
+        }
         let mut s = self.state.borrow_mut();
         s.tree_sources.insert(host.0, source);
         s.log(format!("attach_tree #{}", host.0));
     }
 
     fn attach_list(&mut self, host: &MockHandle, source: ListSource) {
+        if VIEWPORT_ROWS.with(|r| r.get()) > 0 {
+            VIEWPORTS.with(|v| {
+                v.borrow_mut().insert(
+                    host.0,
+                    Viewport {
+                        visible: {
+                            let len = source.len.clone();
+                            Rc::new(move |_| (0..len() as u64).collect())
+                        },
+                        bind_row: {
+                            let bind = source.bind_row.clone();
+                            Rc::new(move |row, cell| bind(row as usize, cell))
+                        },
+                        recycle: source.recycle.clone(),
+                        expanded: Default::default(),
+                        start: 0,
+                        to_end: false,
+                        bound: 0,
+                        dirty: true,
+                    },
+                )
+            });
+        }
         let mut s = self.state.borrow_mut();
         s.list_sources.insert(host.0, source);
         s.log(format!("attach_list #{}", host.0));
@@ -1974,6 +2211,7 @@ impl Platform for MockToolkit {
         // No native loop: create the root container, hand off, return. Tests drive via
         // MockProbe::emit + day_reactive::flush_sync.
         let root = self.realize(kinds::CONTAINER, &ContainerProps::default(), NodeId(0));
+        MOCK_WINDOW.with(|w| w.set(options.size));
         ready(self, root, options.size);
     }
 
@@ -1983,6 +2221,8 @@ impl Platform for MockToolkit {
     }
 
     fn post_delayed(_ms: u32, f: Box<dyn FnOnce() + Send>) {
+        // A sleep is where the opt-in list viewport binds (see `viewport_flush`).
+        viewport_flush();
         // The default rides a helper thread home, which has no tree or task table: a sleep in
         // a synchronous test is over the moment it starts, on this thread.
         f();

@@ -2447,12 +2447,16 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                             }
                         }
                         // No app signal: this record IS the expansion state.
+                        // The native tree is told too: a no-op after a native click, and for a
+                        // synthetic event (the dayscript `expand:` step) the disclosure itself,
+                        // which recording alone never showed.
                         None => {
                             if *expanded {
                                 open.borrow_mut().insert(*token);
                             } else {
                                 open.borrow_mut().remove(token);
                             }
+                            day_core::tree_set_expanded(node, *token, *expanded);
                         }
                     }
                 }
@@ -2952,4 +2956,330 @@ pub fn guarded_page(case: day_core::conformance::Case) -> AnyPiece {
             }
         }
     }))
+}
+
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_geometry::Insets;
+    use day_reactive::Signal;
+    use day_spec::props::RowHeight;
+    use day_spec::{Cap, kinds};
+
+    use crate::*;
+
+    /// A list of the given names, each row a label with the id `row:<name>`.
+    fn names_list(names: Signal<Vec<String>>) -> List<Items<String, String>> {
+        list(
+            items(move || names.get(), |n: &String| n.clone()),
+            |row: ItemSlot<String, String>| {
+                // A reactive id, before the padding: a recycled cell rebinds to other rows, and
+                // the id must name the label rather than its wrapper.
+                label(move || row.get())
+                    .id_of(move || format!("row:{}", row.get()))
+                    .padding(Insets::symmetric(12.0, 6.0))
+            },
+        )
+        .row_height(RowHeight::Uniform(32.0))
+    }
+
+    fn names(list: &[&str]) -> Signal<Vec<String>> {
+        Signal::new(list.iter().map(|s| s.to_string()).collect())
+    }
+
+    /// A list realizes a native cell for each row, showing the row's content.
+    #[day_macros::test(day_core)]
+    fn list_rows_realize() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves(kinds::LIST_CELL)
+            .page(|| {
+                names_list(names(&["Alpha", "Beta", "Gamma"]))
+                    .id("list")
+                    .height(200.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("row:Alpha", "Alpha").await?;
+                d.assert_text("row:Gamma", "Gamma").await
+            })
+    }
+
+    /// A row added to the source appears in the native list; one removed goes away.
+    #[day_macros::test(day_core)]
+    fn list_follows_source() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = names(&["Alpha", "Beta"]);
+                column((
+                    button("Add")
+                        .action(move || rows.update(|v| v.push("Delta".into())))
+                        .id("add"),
+                    button("Drop")
+                        .action(move || rows.update(|v| v.retain(|n| n != "Alpha")))
+                        .id("drop"),
+                    names_list(rows).id("list").height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_missing("row:Delta").await?;
+                d.tap("add").await?;
+                d.assert_text("row:Delta", "Delta").await?;
+                d.tap("drop").await?;
+                d.assert_missing("row:Alpha").await?;
+                d.assert_text("row:Beta", "Beta").await
+            })
+    }
+
+    /// Selecting a row reports its key; activating one reports its key too.
+    #[day_macros::test(day_core)]
+    fn list_select_and_activate() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let picked = Signal::new(String::new());
+                let opened = Signal::new(String::new());
+                column((
+                    label(move || format!("picked {}", picked.get())).id("picked"),
+                    label(move || format!("opened {}", opened.get())).id("opened"),
+                    names_list(names(&["Alpha", "Beta", "Gamma"]))
+                        .on_select(move |k| picked.set(k))
+                        .on_activate(move |k| opened.set(k))
+                        .id("list")
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.select("list", 1).await?;
+                d.assert_text("picked", "picked Beta").await?;
+                d.activate("list", 2).await?;
+                d.assert_text("opened", "opened Gamma").await
+            })
+    }
+
+    /// A committed reorder reaches the app, which moves the row in its source.
+    #[day_macros::test(day_core)]
+    fn list_reorder_moves_row() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = names(&["Alpha", "Beta", "Gamma"]);
+                column((
+                    label(move || rows.get().join(",")).id("order"),
+                    names_list(rows)
+                        .reorderable(true)
+                        .on_reorder(move |from, to| {
+                            rows.update(|v| {
+                                let item = v.remove(from);
+                                v.insert(to.min(v.len()), item);
+                            })
+                        })
+                        .id("list")
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.reorder("list", 0, 2).await?;
+                d.assert_text("order", "Beta,Gamma,Alpha").await?;
+                d.assert_text("row:Alpha", "Alpha").await
+            })
+    }
+
+    /// A deleted row reaches the app, and the native list drops it.
+    #[day_macros::test(day_core)]
+    fn list_delete_row() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = names(&["Alpha", "Beta", "Gamma"]);
+                column((
+                    label(move || rows.get().join(",")).id("order"),
+                    names_list(rows)
+                        .deletable(true)
+                        .on_delete(move |at| {
+                            rows.update(|v| {
+                                v.remove(at);
+                            })
+                        })
+                        .id("list")
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.delete_row("list", 1).await?;
+                d.assert_text("order", "Alpha,Gamma").await?;
+                d.assert_missing("row:Beta").await
+            })
+    }
+
+    /// A row's trailing swipe action runs its work for that row.
+    #[day_macros::test(day_core)]
+    fn list_swipe_action() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = names(&["Alpha", "Beta", "Gamma"]);
+                let flagged = Signal::new(String::new());
+                column((
+                    label(move || format!("flagged {}", flagged.get())).id("flagged"),
+                    names_list(rows)
+                        .swipe_trailing(move |at| {
+                            let name = rows.get_untracked()[at].clone();
+                            vec![swipe_action("Flag").action(move || flagged.set(name.clone()))]
+                        })
+                        .id("list")
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.swipe_row("list", 2, false, 0).await?;
+                d.assert_text("flagged", "flagged Gamma").await
+            })
+    }
+
+    /// Scrolling a long list to a row realizes it, even where rows are recycled.
+    #[day_macros::test(day_core)]
+    fn list_scroll_to_row() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows: Signal<Vec<String>> =
+                    Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                let jump: Signal<Option<usize>> = Signal::new(None);
+                column((
+                    button("Jump")
+                        .action(move || jump.set(Some(250)))
+                        .id("jump"),
+                    names_list(rows)
+                        .scroll_to_row(jump)
+                        .id("list")
+                        .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_missing("row:Row 250").await?;
+                d.tap("jump").await?;
+                d.assert_text("row:Row 250", "Row 250").await
+            })
+    }
+
+    type Node = (String, Option<String>);
+
+    /// A tree over `(name, parent)` rows, each row a label with the id `row:<name>`; the tree's
+    /// own row ids are the names, which `expand` and `tree_move` address.
+    fn names_tree(rows: Signal<Vec<Node>>) -> TreePiece<Branches<Node, String>> {
+        tree(
+            branches(
+                move || rows.get(),
+                |n: &Node| n.0.clone(),
+                |n: &Node| n.1.clone(),
+            ),
+            |row: ItemSlot<Node, String>| {
+                label(move || row.get().0)
+                    .id_of(move || format!("row:{}", row.get().0))
+                    .padding(Insets::symmetric(8.0, 4.0))
+            },
+        )
+        .row_height(RowHeight::Uniform(28.0))
+        .row_id(|k: &String| k.clone())
+    }
+
+    fn fruit() -> Signal<Vec<Node>> {
+        let n = |name: &str, parent: Option<&str>| (name.to_string(), parent.map(str::to_owned));
+        Signal::new(vec![
+            n("Fruit", None),
+            n("Apple", Some("Fruit")),
+            n("Pear", Some("Fruit")),
+            n("Nuts", None),
+        ])
+    }
+
+    /// A tree shows its root rows, and disclosing a row shows its children.
+    #[day_macros::test(day_core)]
+    fn tree_rows_disclose() -> Case {
+        Case::new()
+            .proves(kinds::TREE)
+            .requires(Cap::Tree)
+            .page(|| names_tree(fruit()).id("tree").height(240.0))
+            .drive(|d: Drive| async move {
+                d.assert_text("row:Fruit", "Fruit").await?;
+                d.assert_text("row:Nuts", "Nuts").await?;
+                d.assert_missing("row:Apple").await?;
+                d.expand("tree", "Fruit", true).await?;
+                d.assert_text("row:Apple", "Apple").await?;
+                d.expand("tree", "Fruit", false).await?;
+                d.assert_missing("row:Apple").await
+            })
+    }
+
+    /// The expanded set is app state: rows it names start disclosed.
+    #[day_macros::test(day_core)]
+    fn tree_expanded_signal() -> Case {
+        Case::new()
+            .proves(kinds::TREE)
+            .requires(Cap::Tree)
+            .page(|| {
+                let open = Signal::new(std::collections::HashSet::from(["Fruit".to_string()]));
+                names_tree(fruit()).expanded(open).id("tree").height(240.0)
+            })
+            .drive(|d: Drive| async move { d.assert_text("row:Pear", "Pear").await })
+    }
+
+    /// A committed move reaches the app, which re-parents the row in its source.
+    #[day_macros::test(day_core)]
+    fn tree_move_reparents() -> Case {
+        Case::new()
+            .proves(kinds::TREE)
+            .requires(Cap::Tree)
+            .page(|| {
+                let rows = fruit();
+                let open = Signal::new(std::collections::HashSet::from([
+                    "Fruit".to_string(),
+                    "Nuts".to_string(),
+                ]));
+                column((
+                    label(move || {
+                        rows.get()
+                            .iter()
+                            .map(|(n, p)| format!("{n}<{}", p.clone().unwrap_or_default()))
+                            .collect::<Vec<_>>()
+                            .join(",")
+                    })
+                    .id("shape"),
+                    // "Nuts" has no children, so it takes a dropped row only as a declared folder.
+                    names_tree(rows)
+                        .expanded(open)
+                        .expandable(|k: &String| k == "Fruit" || k == "Nuts")
+                        .movable(true)
+                        .on_move(move |key, parent, _at| {
+                            rows.update(|v| {
+                                if let Some(n) = v.iter_mut().find(|n| n.0 == key) {
+                                    n.1 = parent;
+                                }
+                            })
+                        })
+                        .id("tree")
+                        .height(240.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tree_move("tree", "Pear", Some("Nuts"), None).await?;
+                d.assert_text("shape", "Fruit<,Apple<Fruit,Pear<Nuts,Nuts<")
+                    .await?;
+                d.assert_text("row:Pear", "Pear").await
+            })
+    }
+
+    day_core::tests! {
+        tree_rows_disclose,
+        tree_expanded_signal,
+        tree_move_reparents,
+        list_rows_realize,
+        list_follows_source,
+        list_select_and_activate,
+        list_reorder_moves_row,
+        list_delete_row,
+        list_swipe_action,
+        list_scroll_to_row,
+    }
 }

@@ -78,6 +78,23 @@ pub enum DriveOp {
     SamplePixel(String, f64, f64, String),
     /// A URL the app asked to open during the run.
     AssertOpenedUrl(String),
+    /// Activate a list's row (a double click, Return, a tap on the phones), by position.
+    Activate(String, usize),
+    /// Move a list's row from one position to another, as a drag-to-reorder commits it.
+    Reorder(String, usize, usize),
+    /// Delete a list's row, as the platform's delete gesture commits it.
+    DeleteRow(String, usize),
+    /// Press a row's swipe action: the list, the row, the edge (`true` = leading) and the
+    /// action's position in that edge's offer.
+    SwipeRow(String, usize, bool, usize),
+    /// Scroll a scroll view or list to an edge (`"top"`, `"bottom"`, `"leading"`, `"trailing"`).
+    ScrollTo(String, String),
+    /// Expand or collapse a tree's row, named by its row id.
+    Expand(String, String, bool),
+    /// Go back one page in the innermost navigation stack.
+    NavBack,
+    /// Move a tree's row (by row id) under a parent (`None` = the root) at a position.
+    TreeMove(String, String, Option<String>, Option<usize>),
 }
 
 /// What [`Drive::assert_frame`] expects of an element's frame, in points; only the fields set
@@ -242,6 +259,51 @@ impl Drive {
                 ..Default::default()
             },
         )
+    }
+
+    /// Activate a list's row by position: what a double click, Return or a phone's tap commits.
+    pub fn activate(&self, id: &str, index: usize) -> OpFuture {
+        self.op(DriveOp::Activate(id.into(), index))
+    }
+    /// Move a list's row from `from` to `to`, as a native drag-to-reorder commits it.
+    pub fn reorder(&self, id: &str, from: usize, to: usize) -> OpFuture {
+        self.op(DriveOp::Reorder(id.into(), from, to))
+    }
+    /// Delete a list's row, as the platform's delete gesture commits it.
+    pub fn delete_row(&self, id: &str, row: usize) -> OpFuture {
+        self.op(DriveOp::DeleteRow(id.into(), row))
+    }
+    /// Press the `action`th swipe action on a list row's leading or trailing edge.
+    pub fn swipe_row(&self, id: &str, row: usize, leading: bool, action: usize) -> OpFuture {
+        self.op(DriveOp::SwipeRow(id.into(), row, leading, action))
+    }
+    /// Scroll a scroll view or list to an edge: `"top"`, `"bottom"`, `"leading"`, `"trailing"`.
+    pub fn scroll_to(&self, id: &str, edge: &str) -> OpFuture {
+        self.op(DriveOp::ScrollTo(id.into(), edge.into()))
+    }
+    /// Expand or collapse a tree's row, named by its row id.
+    pub fn expand(&self, id: &str, row: &str, expanded: bool) -> OpFuture {
+        self.op(DriveOp::Expand(id.into(), row.into(), expanded))
+    }
+    /// Go back one page in the innermost navigation stack.
+    pub fn nav_back(&self) -> OpFuture {
+        self.op(DriveOp::NavBack)
+    }
+    /// Move a tree's row (by row id) under `parent` (`None` = the root level), at `index` among
+    /// its new siblings (`None` = last), as a native drag commits it.
+    pub fn tree_move(
+        &self,
+        id: &str,
+        row: &str,
+        parent: Option<&str>,
+        index: Option<usize>,
+    ) -> OpFuture {
+        self.op(DriveOp::TreeMove(
+            id.into(),
+            row.into(),
+            parent.map(str::to_owned),
+            index,
+        ))
     }
 
     /// A plain assertion for a headless test: fails with `what` when `ok` is false.

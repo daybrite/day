@@ -21,6 +21,9 @@ fn boot() -> day_mock::MockProbe {
 fn boot_with(root: impl FnOnce() -> day_core::AnyPiece + 'static) -> day_mock::MockProbe {
     day_core::uninstall_tree();
     let (mock, probe) = MockToolkit::new();
+    // No test drives the mock's native side here (binding rows, reporting covers), so it does
+    // that by itself.
+    probe.set_native_behavior(20);
     day_core::launch_with(
         mock,
         WindowOptions {

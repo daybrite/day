@@ -4900,3 +4900,166 @@ impl<Inner: CoverBuilder + Piece> CoverBuilder for Decorated<Inner> {
         self.map_inner(|inner_piece| inner_piece.unrouted())
     }
 }
+
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::Piece;
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+    use day_spec::kinds;
+    use day_spec::props::NavPresentation;
+
+    use crate::*;
+
+    /// A stack whose root pushes `detail` and whose pages show their key.
+    fn stack(path: Signal<Vec<String>>) -> impl Piece {
+        nav_stack(
+            path,
+            column((
+                label(move || format!("depth {}", path.get().len())).id("depth"),
+                button("Open")
+                    .action(move || path.update(|p| p.push("detail".into())))
+                    .id("open"),
+            )),
+        )
+        .title("Root")
+        .destination(|key: &String| label(format!("Page {key}")).id(format!("page-{key}")))
+    }
+
+    /// Pushing a page shows it; going back pops it and writes the pop into the path.
+    #[day_macros::test(day_core)]
+    fn nav_stack_push_pop() -> Case {
+        Case::new()
+            .proves(kinds::NAV)
+            .proves(kinds::NAV_PAGE)
+            .page(|| stack(Signal::new(Vec::new())))
+            .drive(|d: Drive| async move {
+                d.assert_text("depth", "depth 0").await?;
+                d.tap("open").await?;
+                d.assert_text("page-detail", "Page detail").await?;
+                d.wait_idle().await?;
+                d.nav_back().await?;
+                d.assert_missing("page-detail").await?;
+                d.assert_text("depth", "depth 0").await
+            })
+    }
+
+    /// The stack follows its path: two keys push two pages, and back returns through them.
+    #[day_macros::test(day_core)]
+    fn nav_stack_follows_path() -> Case {
+        Case::new()
+            .proves(kinds::NAV)
+            .page(|| stack(Signal::new(vec!["first".into(), "second".into()])))
+            .drive(|d: Drive| async move {
+                d.assert_text("page-second", "Page second").await?;
+                d.wait_idle().await?;
+                d.nav_back().await?;
+                d.assert_missing("page-second").await?;
+                d.assert_text("page-first", "Page first").await?;
+                d.wait_idle().await?;
+                d.nav_back().await?;
+                d.assert_missing("page-first").await?;
+                d.assert_text("depth", "depth 0").await
+            })
+    }
+
+    /// A sidebar's items each show their page when selected, as a route.
+    #[day_macros::test(day_core)]
+    fn nav_sidebar_selects() -> Case {
+        Case::new()
+            .proves(kinds::NAV)
+            .proves(kinds::NAV_MENU)
+            .page(|| {
+                nav(Signal::new("alpha".to_string()))
+                    .item("alpha", "Alpha", || label("Page Alpha").id("page-alpha"))
+                    .item("beta", "Beta", || label("Page Beta").id("page-beta"))
+            })
+            .drive(|d: Drive| async move {
+                d.navigate("beta").await?;
+                d.assert_text("page-beta", "Page Beta").await?;
+                d.assert_route("beta").await?;
+                d.wait_idle().await?;
+                d.navigate("alpha").await?;
+                d.assert_text("page-alpha", "Page Alpha").await
+            })
+    }
+
+    /// Tabs show the selected tab's page and switch on a route.
+    #[day_macros::test(day_core)]
+    fn nav_tabs_switch() -> Case {
+        Case::new()
+            .proves(kinds::NAV)
+            .page(|| {
+                nav(Signal::new("alpha".to_string()))
+                    .presentation(NavPresentation::Tabs)
+                    .item("alpha", "Alpha", || label("Tab Alpha").id("tab-alpha"))
+                    .item("beta", "Beta", || label("Tab Beta").id("tab-beta"))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("tab-alpha", "Tab Alpha").await?;
+                d.navigate("beta").await?;
+                d.assert_text("tab-beta", "Tab Beta").await?;
+                d.assert_route("beta").await
+            })
+    }
+
+    /// The page under a cover: a button that opens it and the open value as text.
+    fn covered(open: Signal<Option<String>>, sheet: bool) -> impl Piece {
+        let c = cover(open, move |key: &String| {
+            column((
+                label(format!("Cover {key}")).id("cover-text"),
+                button("Close").action(move || open.set(None)).id("close"),
+            ))
+        });
+        column((
+            label(move || format!("open {}", open.get().unwrap_or_default())).id("state"),
+            button("Show")
+                .action(move || open.set(Some("panel".into())))
+                .id("show"),
+            if sheet { c.sheet().any() } else { c.any() },
+        ))
+    }
+
+    /// Setting the open value presents the cover; clearing it dismisses it.
+    #[day_macros::test(day_core)]
+    fn cover_presents_and_dismisses() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            .page(|| covered(Signal::new(None), false))
+            .drive(|d: Drive| async move {
+                d.assert_missing("cover-text").await?;
+                d.tap("show").await?;
+                d.assert_text("cover-text", "Cover panel").await?;
+                d.wait_idle().await?;
+                d.tap("close").await?;
+                d.assert_missing("cover-text").await?;
+                d.assert_text("state", "open ").await
+            })
+    }
+
+    /// A sheet presents the same way, and going back dismisses it and writes `None` back.
+    #[day_macros::test(day_core)]
+    fn cover_sheet_back_dismisses() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            .page(|| covered(Signal::new(None), true))
+            .drive(|d: Drive| async move {
+                d.tap("show").await?;
+                d.assert_text("cover-text", "Cover panel").await?;
+                d.assert_text("state", "open panel").await?;
+                d.wait_idle().await?;
+                d.nav_back().await?;
+                d.assert_missing("cover-text").await?;
+                d.assert_text("state", "open ").await
+            })
+    }
+
+    day_core::tests! {
+        nav_stack_push_pop,
+        nav_stack_follows_path,
+        nav_sidebar_selects,
+        nav_tabs_switch,
+        cover_presents_and_dismisses,
+        cover_sheet_back_dismisses,
+    }
+}
