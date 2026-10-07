@@ -852,6 +852,8 @@ mod imp {
     fn set_label_runs(n: Handle, text: &str, runs: &[day_spec::TextRun]) {
         if runs.is_empty() {
             // Plain text goes back on the Text itself; `runs_begin` cleared it when runs arrived.
+            // Any spans go first: a Text still holding them would keep drawing them.
+            node::label_runs_clear(n);
             node::set_text(n, text);
             return;
         }
@@ -1970,11 +1972,14 @@ mod imp {
             Some(node::TEXT) => {
                 // A label with runs keeps its text in SPAN children (`set_label_runs`), the
                 // Text's own content cleared.
+                // The spans come from the backend's own list: ArkUI's child walk does not return a
+                // Text's spans (`node::label_spans`).
                 let own = string(n, Attr::NODE_TEXT_CONTENT);
-                let count = node::child_count(n);
+                let spans = node::label_spans(n);
                 snap.text = match own {
-                    Some(own) if own.is_empty() && count > 0 => (0..count as i32)
-                        .map(|i| string(node::child_at(n, i), Attr::NODE_SPAN_CONTENT))
+                    Some(own) if own.is_empty() && !spans.is_empty() => spans
+                        .iter()
+                        .map(|&c| string(c, Attr::NODE_SPAN_CONTENT))
                         .collect::<Option<String>>(),
                     own => own,
                 };

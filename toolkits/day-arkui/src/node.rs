@@ -157,6 +157,7 @@ pub fn dispose(n: Handle) {
     crate::canvas::forget(n);
     crate::list::forget(n);
     forget_a11y(n);
+    label_runs_clear(n);
     api_call!(disposeNode(n));
 }
 
@@ -561,15 +562,33 @@ pub fn label_set_selectable(n: Handle, on: bool) {
 /// cleared first: a Text with both content and spans renders the content and ignores the spans.
 pub fn label_runs_begin(n: Handle) {
     set_text(n, "");
-    // Remove any spans a previous runs patch left behind, last to first.
-    let count = child_count(n) as i32;
-    for i in (0..count).rev() {
-        let c = child_at(n, i);
-        if !c.is_null() {
-            remove_child(n, c);
-            api_call!(disposeNode(c));
-        }
+    label_runs_clear(n);
+}
+
+thread_local! {
+    /// Each styled Text's SPAN children, in order (docs/text-runs.md). ArkUI takes a span
+    /// through `addChild` but never hands it back: on OpenHarmony 6.1 (API 18)
+    /// `getTotalChildCount` answers 0 for a Text holding spans and `getChildAt` returns null,
+    /// while the spans render. So the backend keeps the handles it attached. Clearing a label's
+    /// runs reaches the old spans through this list (a child walk found none, so a changed run
+    /// list stacked its spans after the old ones), and `native_text` reads each span's own
+    /// NODE_SPAN_CONTENT through it.
+    static LABEL_SPANS: RefCell<HashMap<usize, Vec<Handle>>> = RefCell::new(HashMap::new());
+}
+
+/// Remove and dispose a label's spans, last to first: before new runs, and when the label goes
+/// back to plain text, which renders only once its spans are gone.
+pub fn label_runs_clear(n: Handle) {
+    let spans = LABEL_SPANS.with(|m| m.borrow_mut().remove(&(n as usize)));
+    for c in spans.unwrap_or_default().into_iter().rev() {
+        remove_child(n, c);
+        api_call!(disposeNode(c));
     }
+}
+
+/// The spans [`label_runs_add`] attached to `n`, in order (empty for a plain label).
+pub fn label_spans(n: Handle) -> Vec<Handle> {
+    LABEL_SPANS.with(|m| m.borrow().get(&(n as usize)).cloned().unwrap_or_default())
 }
 
 /// One run's styling flags for [`label_runs_add`].
@@ -643,6 +662,7 @@ pub fn label_runs_add(n: Handle, text: &str, style: RunStyle) {
         set_u32(span, Attr::NODE_FONT_COLOR, color);
     }
     add_child(n, span);
+    LABEL_SPANS.with(|m| m.borrow_mut().entry(n as usize).or_default().push(span));
 }
 
 pub fn set_enabled(n: Handle, enabled: bool) {
