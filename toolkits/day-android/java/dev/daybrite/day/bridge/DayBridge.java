@@ -987,7 +987,9 @@ public final class DayBridge {
         button.setIconGravity(com.google.android.material.button.MaterialButton.ICON_GRAVITY_TEXT_START);
         button.setIconPadding(iconOnly ? 0 : (int) (6 * view.getResources().getDisplayMetrics().density));
         button.setText(iconOnly && icon != null ? "" : title);
-        button.setContentDescription(title);
+        // The title is the spoken name, unless the app named the button itself (setA11y); writing
+        // it here then replaced the app's label on every title or icon change.
+        if (!appLabeled.containsKey(button)) button.setContentDescription(title);
         button.setTooltipText(iconOnly && icon != null ? title : null);
     }
 
@@ -2011,6 +2013,27 @@ public final class DayBridge {
      *
      *  `chrome` picks the decor view (the whole window, action bar and system-bar backgrounds)
      *  over the app's content view. */
+    /** Where `root` sits in {@link #windowImage}'s content capture, as "x,y" in dp, or null
+     *  when there is no window. The content view runs edge-to-edge, under the status bar above
+     *  and the navigation bar below, while Day's root is inset from both. */
+    public static String snapshotOrigin(View root) {
+        try {
+            if (!(ctx instanceof android.app.Activity)) return null;
+            View content = ((android.app.Activity) ctx).getWindow()
+                    .findViewById(android.R.id.content);
+            if (content == null || root == null) return null;
+            int[] at = new int[2];
+            int[] origin = new int[2];
+            root.getLocationInWindow(at);
+            content.getLocationInWindow(origin);
+            float d = root.getResources().getDisplayMetrics().density;
+            if (d <= 0f) return null;
+            return ((at[0] - origin[0]) / (double) d) + "," + ((at[1] - origin[1]) / (double) d);
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
     public static byte[] windowImage(boolean chrome) {
         try {
             if (!(ctx instanceof android.app.Activity)) return null;
@@ -3004,10 +3027,15 @@ public final class DayBridge {
      *  `ROLE_NONE` mean "not set": those members leave the native default alone, and a member
      *  set once stays set, so re-sending the same values changes nothing. `level` is the heading
      *  level, informational here: Android's node has heading yes/no and no level. */
+    /** Views the app gave an accessibility label (setA11y), whose content description a later
+     *  button content change must leave alone. Weak: a released view drops out with it. */
+    static final java.util.Map<View, Boolean> appLabeled = new java.util.WeakHashMap<>();
+
     public static void setA11y(View v, String label, String hint, String value, String id,
             int role, int level, boolean hidden) {
         try {
             boolean hasLabel = label != null && !label.isEmpty();
+            if (hasLabel) appLabeled.put(v, Boolean.TRUE); else appLabeled.remove(v);
             boolean hasValue = value != null && !value.isEmpty();
             if (hasValue && android.os.Build.VERSION.SDK_INT >= 30) {
                 v.setStateDescription(value);

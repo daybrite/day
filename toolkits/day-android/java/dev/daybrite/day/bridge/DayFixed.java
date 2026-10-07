@@ -78,6 +78,43 @@ public class DayFixed extends ViewGroup {
         }
     }
 
+    // Outline clipping (`setClipToOutline`, a `corner_radius` or `clips` surface) is a property
+    // of the hardware render node: a software canvas, which is what `DayBridge.windowImage`
+    // draws into, ignores it, so `day::window_image()` showed rounded views square. Clip to the
+    // outline by hand there. `draw` covers the view's own background; `dispatchDraw` the
+    // children of a view with no background, whose `draw` Android skips.
+    private final android.graphics.Outline outline = new android.graphics.Outline();
+    private final android.graphics.Rect outlineRect = new android.graphics.Rect();
+    private final android.graphics.Path outlinePath = new android.graphics.Path();
+
+    private boolean clipSoftware(android.graphics.Canvas canvas) {
+        if (canvas.isHardwareAccelerated() || !getClipToOutline()) return false;
+        android.view.ViewOutlineProvider provider = getOutlineProvider();
+        if (provider == null) return false;
+        outline.setEmpty();
+        provider.getOutline(this, outline);
+        if (!outline.getRect(outlineRect)) return false; // not a (rounded) rect: leave it
+        float r = outline.getRadius();
+        outlinePath.reset();
+        outlinePath.addRoundRect(outlineRect.left, outlineRect.top, outlineRect.right,
+                outlineRect.bottom, r, r, android.graphics.Path.Direction.CW);
+        canvas.save();
+        canvas.clipPath(outlinePath);
+        return true;
+    }
+
+    @Override public void draw(android.graphics.Canvas canvas) {
+        boolean clipped = clipSoftware(canvas);
+        super.draw(canvas);
+        if (clipped) canvas.restore();
+    }
+
+    @Override protected void dispatchDraw(android.graphics.Canvas canvas) {
+        boolean clipped = clipSoftware(canvas);
+        super.dispatchDraw(canvas);
+        if (clipped) canvas.restore();
+    }
+
     @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
         for (int i = 0; i < getChildCount(); i++) {
             View c = getChildAt(i);

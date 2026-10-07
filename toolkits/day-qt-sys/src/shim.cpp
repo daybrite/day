@@ -100,8 +100,6 @@
 #include <cstdint>
 
 extern "C" void day_qt_open_file(const char *url);
-// shim-picker.cpp: a DayPicker's selected option, for `day_qt_read_native`.
-extern "C" int day_picker_selected_text(void *w, char **out);
 // Defined with the accessibility functions below; installed once the QApplication exists. The
 // definition sits inside the `extern "C"` block, so this declaration takes the same linkage: GCC
 // rejects a mismatch (Apple clang accepts it).
@@ -732,7 +730,10 @@ void day_qt_button_set_content(void *w, const char *title, const char *icon, int
     button->setIcon(image);
     button->setIconSize(QSize(20, 20));
     button->setText(icon_only && !image.isNull() ? QString() : QString::fromUtf8(title));
-    button->setAccessibleName(QString::fromUtf8(title));
+    // The title is the accessible name (an icon-only button shows none), unless the app named
+    // the button itself (`day_qt_set_accessible_name`); overwriting that replaced app labels on
+    // every title change.
+    if (!button->property("day_app_named").toBool()) button->setAccessibleName(QString::fromUtf8(title));
     button->setToolTip(icon_only && !image.isNull() ? QString::fromUtf8(title) : QString());
 }
 void *day_qt_button_new(const char *title, uint64_t id, void (*cb)(uint64_t)) {
@@ -1045,7 +1046,9 @@ void day_qt_set_tooltip(void *w, const char *text) {
 // AT-SPI on Linux, NSAccessibility on macOS). Role/value/hidden derive from the widget type in
 // Qt's stock interfaces, so a widget Day annotates with them gets DayAccessibleWidget instead.
 void day_qt_set_accessible_name(void *w, const char *name) {
-    static_cast<QWidget *>(w)->setAccessibleName(QString::fromUtf8(name));
+    auto *widget = static_cast<QWidget *>(w);
+    widget->setAccessibleName(QString::fromUtf8(name));
+    widget->setProperty("day_app_named", true);
 }
 void day_qt_set_accessible_description(void *w, const char *text) {
     static_cast<QWidget *>(w)->setAccessibleDescription(QString::fromUtf8(text));
@@ -1313,17 +1316,10 @@ void day_qt_read_native(void *w, DayQtNative *out) {
         // A Day toggle is a bare QCheckBox whose label is a separate piece: no text of its own.
         if (!qobject_cast<QCheckBox *>(widget) || !b->text().isEmpty())
             out->text = strdup(day_qt_strip_mnemonic(b->text()).toUtf8().constData());
-    } else {
-        // A picker (a plain QWidget wrapping its combo or button group) shows its selected
-        // option: the combo's text as is, a segment or radio title without its mnemonics.
-        char *pick = nullptr;
-        if (day_picker_selected_text(widget, &pick) == 1 && pick) {
-            out->text = strdup(day_qt_strip_mnemonic(QString::fromUtf8(pick)).toUtf8().constData());
-            free(pick);
-        } else {
-            out->text = pick;
-        }
     }
+    // A picker (a plain QWidget wrapping its combo or button group) is read by day-qt's
+    // `read_native` through shim-picker.cpp's `day_picker_selected_text`, so this file, which
+    // the native tests link alone, does not depend on the picker unit.
 
     // A value in the tick range Day's sliders and progress bars use; any other range is not
     // one Day built, and a busy bar (0..0) has no value.

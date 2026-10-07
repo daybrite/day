@@ -1868,6 +1868,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                     .ok_or_else(|| Reply::fail("the window has no frame", true))?;
                 let bytes = with_tree(|t| t.snapshot())
                     .map_err(|e| Reply::fail(format!("sample_pixel capture: {e}"), true))?;
+                let origin = with_tree(|t| t.snapshot_origin());
                 // A capture this reader cannot read (the mock's placeholder bytes) is a gap
                 // to record, like a toolkit with no capture, not a wrong color.
                 let Ok(img) = png::decode(&bytes) else {
@@ -1876,13 +1877,25 @@ fn exec(step: Step, revision: u32) -> Reply {
                         ..Reply::ok()
                     });
                 };
-                // The capture is the window's content at the screen's scale, measured across its
-                // width. Where it is taller than Day's content, the extra rows are window area
-                // above Day's content (AppKit's full-size content view under a transparent
-                // title bar), so they offset every row below.
-                let scale = img.width as f64 / window.size.width.max(1.0);
-                let above = (img.height as f64 / scale - window.size.height).max(0.0);
-                let px = ((frame.origin.x - window.origin.x + x * frame.size.width) * scale)
+                // The capture is the window's content at the screen's scale. Where the toolkit
+                // says where Day's root sits in it (Android's edge-to-edge content, with bars
+                // above and below), that is the offset, and the scale comes from the screen
+                // width the capture spans. Otherwise the capture is measured across Day's own
+                // width, and rows beyond Day's content are window area above it (AppKit's
+                // full-size content view under a transparent title bar).
+                let (scale, left, above) = match origin {
+                    Some(o) => (
+                        img.width as f64 / (window.size.width + 2.0 * o.x).max(1.0),
+                        o.x,
+                        o.y,
+                    ),
+                    None => {
+                        let scale = img.width as f64 / window.size.width.max(1.0);
+                        let above = (img.height as f64 / scale - window.size.height).max(0.0);
+                        (scale, 0.0, above)
+                    }
+                };
+                let px = ((left + frame.origin.x - window.origin.x + x * frame.size.width) * scale)
                     .floor()
                     .max(0.0) as usize;
                 let py = ((above + frame.origin.y - window.origin.y + y * frame.size.height)

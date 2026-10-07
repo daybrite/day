@@ -1682,6 +1682,333 @@ fn scoped_drop_target(target: day_spec::transfer::Target) -> day_spec::transfer:
     }
 }
 
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The modifiers' `#[day::test]` cases, next to the `Decorate` methods they prove.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive, FrameExpect};
+    use day_spec::{Cap, Color};
+
+    use crate::*;
+
+    fn size(width: f64, height: f64) -> FrameExpect {
+        FrameExpect {
+            width: Some(width),
+            height: Some(height),
+            ..Default::default()
+        }
+    }
+
+    /// Padding grows the frame by its insets and moves the content in by them.
+    #[day_macros::test(day_core)]
+    fn padding_insets() -> Case {
+        Case::new()
+            .proves_modifier("padding")
+            .page(|| {
+                rectangle()
+                    .fill(Color::rgb(1.0, 0.0, 0.0))
+                    .id("inner")
+                    .frame(40.0, 20.0)
+                    .padding(10.0)
+                    .id("outer")
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame("outer", size(60.0, 40.0)).await?;
+                d.assert_frame(
+                    "inner",
+                    FrameExpect {
+                        x: Some(10.0),
+                        y: Some(10.0),
+                        relative_to: Some("outer".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A minimum width widens a narrow piece; a maximum narrows a wide one.
+    #[day_macros::test(day_core)]
+    fn min_max_width() -> Case {
+        Case::new()
+            .proves_modifier("min_width")
+            .proves_modifier("max_width")
+            .page(|| {
+                column((
+                    label("Hi").min_width(120.0).id("min"),
+                    label("A label long enough that it would run past eighty points")
+                        .max_width(80.0)
+                        .id("max"),
+                ))
+                .align(HAlign::Leading)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "min",
+                    FrameExpect {
+                        width: Some(120.0),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+                d.assert_frame(
+                    "max",
+                    FrameExpect {
+                        width: Some(80.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// An aspect ratio sets the height from the width.
+    #[day_macros::test(day_core)]
+    fn aspect_ratio_height() -> Case {
+        Case::new()
+            .proves_modifier("aspect_ratio")
+            .page(|| {
+                rectangle()
+                    .fill(Color::rgb(0.0, 0.0, 1.0))
+                    .aspect_ratio(2.0)
+                    .id("shape")
+                    .width(100.0)
+            })
+            .drive(|d: Drive| async move { d.assert_frame("shape", size(100.0, 50.0)).await })
+    }
+
+    /// A growing child takes the row's remaining width.
+    #[day_macros::test(day_core)]
+    fn grow_width() -> Case {
+        Case::new()
+            .proves_modifier("grow_w")
+            .page(|| {
+                row((
+                    rectangle()
+                        .fill(Color::rgb(1.0, 0.0, 0.0))
+                        .frame(40.0, 20.0),
+                    rectangle()
+                        .fill(Color::rgb(0.0, 0.0, 1.0))
+                        .height(20.0)
+                        .grow_w()
+                        .id("grower"),
+                ))
+                .spacing(0.0)
+                .width(200.0)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame(
+                    "grower",
+                    FrameExpect {
+                        width: Some(160.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// An aligned overlay draws over its base, in the corner it names.
+    #[day_macros::test(day_core)]
+    fn overlay_aligned_corner() -> Case {
+        Case::new()
+            .proves_modifier("overlay_aligned")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                rectangle()
+                    .fill(Color::rgb(1.0, 0.0, 0.0))
+                    .frame(100.0, 60.0)
+                    .overlay_aligned(
+                        day_core::Alignment::BottomTrailing,
+                        rectangle()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .frame(20.0, 20.0),
+                    )
+                    .id("base")
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("base", 0.95, 0.9, "#0000ff").await?;
+                d.sample_pixel("base", 0.1, 0.1, "#ff0000").await
+            })
+    }
+
+    /// A background fills the piece's frame.
+    #[day_macros::test(day_core)]
+    fn background_fill() -> Case {
+        Case::new()
+            .proves_modifier("background")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                label("")
+                    .frame(80.0, 40.0)
+                    .background(Color::rgb(1.0, 0.0, 0.0))
+                    .id("filled")
+            })
+            .drive(|d: Drive| async move { d.sample_pixel("filled", 0.5, 0.5, "#ff0000").await })
+    }
+
+    /// A corner radius cuts a background's corners and keeps its middle.
+    #[day_macros::test(day_core)]
+    fn corner_radius_cuts() -> Case {
+        Case::new()
+            .proves_modifier("corner_radius")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    label("")
+                        .frame(80.0, 80.0)
+                        .background(Color::rgb(0.0, 0.0, 1.0))
+                        .corner_radius(30.0),
+                ))
+                .id("ground")
+                .frame(80.0, 80.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.03, 0.03, "#ffffff").await
+            })
+    }
+
+    /// Opacity zero leaves what is below showing.
+    #[day_macros::test(day_core)]
+    fn opacity_hides() -> Case {
+        Case::new()
+            .proves_modifier("opacity")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    rectangle().fill(Color::rgb(1.0, 0.0, 0.0)).opacity(0.0),
+                ))
+                .id("ground")
+                .frame(80.0, 40.0)
+            })
+            .drive(|d: Drive| async move { d.sample_pixel("ground", 0.5, 0.5, "#ffffff").await })
+    }
+
+    /// A translation moves what is drawn without moving the layout.
+    #[day_macros::test(day_core)]
+    fn translation_moves_drawing() -> Case {
+        Case::new()
+            .proves_modifier("translation")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    rectangle()
+                        .fill(Color::rgb(0.0, 0.0, 1.0))
+                        .frame(40.0, 40.0)
+                        .translation(40.0, 0.0),
+                ))
+                .align(day_core::Alignment::Leading)
+                .id("ground")
+                .frame(120.0, 40.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.1, 0.5, "#ffffff").await
+            })
+    }
+
+    /// A translation moves a plain view's drawing too, not only a canvas's.
+    #[day_macros::test(day_core)]
+    fn translation_moves_view() -> Case {
+        Case::new()
+            .proves_modifier("translation")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    label("")
+                        .frame(40.0, 40.0)
+                        .background(Color::rgb(0.0, 0.0, 1.0))
+                        .translation(40.0, 0.0),
+                ))
+                .align(day_core::Alignment::Leading)
+                .id("ground")
+                .frame(120.0, 40.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.1, 0.5, "#ffffff").await
+            })
+    }
+
+    /// A scale grows the drawing about its center without moving the layout.
+    #[day_macros::test(day_core)]
+    fn scale_grows_drawing() -> Case {
+        Case::new()
+            .proves_modifier("scale")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    label("")
+                        .frame(40.0, 40.0)
+                        .background(Color::rgb(0.0, 0.0, 1.0))
+                        .scale(2.0),
+                ))
+                .id("ground")
+                .frame(120.0, 80.0)
+            })
+            .drive(|d: Drive| async move {
+                // Unscaled, the square spans x 40..80 of 120; scaled twice it spans 20..100.
+                d.sample_pixel("ground", 0.25, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.08, 0.5, "#ffffff").await
+            })
+    }
+
+    /// A rotation turns the drawing clockwise (y points down): a bar red on the left and blue
+    /// on the right, turned 90°, is red on top and blue below.
+    #[day_macros::test(day_core)]
+    fn rotation_turns_clockwise() -> Case {
+        Case::new()
+            .proves_modifier("rotation")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    rectangle().fill(Color::WHITE),
+                    shape_group([
+                        rectangle()
+                            .fill(Color::rgb(1.0, 0.0, 0.0))
+                            .at(0.0, 0.0, 0.5, 1.0),
+                        rectangle()
+                            .fill(Color::rgb(0.0, 0.0, 1.0))
+                            .at(0.5, 0.0, 0.5, 1.0),
+                    ])
+                    .frame(80.0, 40.0)
+                    .rotation(90.0),
+                ))
+                .id("ground")
+                .frame(120.0, 120.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.4, "#ff0000").await?;
+                d.sample_pixel("ground", 0.5, 0.6, "#0000ff").await
+            })
+    }
+
+    day_core::tests! {
+        padding_insets,
+        rotation_turns_clockwise,
+        scale_grows_drawing,
+        translation_moves_view,
+        min_max_width,
+        aspect_ratio_height,
+        grow_width,
+        overlay_aligned_corner,
+        background_fill,
+        corner_radius_cuts,
+        opacity_hides,
+        translation_moves_drawing,
+    }
+}
+
 #[cfg(test)]
 mod transfer_tests {
     use super::*;

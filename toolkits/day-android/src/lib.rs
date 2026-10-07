@@ -4241,6 +4241,31 @@ mod imp {
 
         /// `DayBridge.fontFamilies()`: the `fonts.xml` families in Day's list text
         /// (docs/fonts.md), one string across JNI like `locale_hints`.
+        /// `DayBridge.snapshotOrigin`: the root's offset in the edge-to-edge content capture.
+        fn snapshot_origin(&mut self, root: &AHandle) -> Option<Point> {
+            if !vm_ready() {
+                return None;
+            }
+            let text = with_env(|env| {
+                let obj = env
+                    .dcall_static(
+                        BRIDGE,
+                        "snapshotOrigin",
+                        "(Landroid/view/View;)Ljava/lang/String;",
+                        &[JValue::Object(root.0.as_obj())],
+                    )
+                    .ok()?
+                    .l()
+                    .ok()?;
+                if obj.is_null() {
+                    return None;
+                }
+                env.dstr(&as_jstring(obj)).ok()
+            })?;
+            let (x, y) = text.split_once(',')?;
+            Some(Point::new(x.parse().ok()?, y.parse().ok()?))
+        }
+
         fn font_families(&mut self) -> Vec<day_spec::FontFamilyInfo> {
             if !vm_ready() {
                 return Vec::new();

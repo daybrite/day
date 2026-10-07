@@ -262,7 +262,8 @@ command to produce or merge it, only this layout (with a device profile, `<targe
 ```
 
 `commit` and `run` come from the CI environment (`GITHUB_SHA`, `GITHUB_RUN_ID`) and are absent
-on a laptop rather than guessed; `at` is Unix seconds.
+on a laptop rather than guessed; `at` is Unix seconds. `caps` holds what the toolkit answered for
+every `Cap` during the run (`N`, `E`, `-`), which CI holds against the declared matrix.
 
 ## The conformance app
 
@@ -286,7 +287,15 @@ as the script; its `setup-command` is `generate.sh`, run with that CLI. Each leg
 ride along) as `conformance-screenshots-<target>[-<slug>]`; `conformance-evidence` merges the
 `evidence.json` files into one object keyed by the path each was written at
 (`<target>[/<device>]/<variant>`), copies the captures beside it under `shots/`, and uploads the
-pair as the `conformance-evidence` artifact. A failed test fails its leg. The screenshot
+pair as the `conformance-evidence` artifact. A failed test fails its leg.
+
+The same job then runs `scripts/ci/conformance-claims.py` over the merged evidence. Each leg's
+`caps` (what its toolkit answered during the run) is held against
+[docs/coverage-matrix.md](coverage-matrix.md), which is generated from source: a disagreement
+fails the job, naming the target and capability, because the published matrix would then be
+wrong for that target (a `?` cell, decided at run time, accepts any answer and reports it). The
+script also writes `verified-matrix.md` into the artifact: per built-in kind and target, `✓`
+where every case proving the kind passed, `✗` where one failed, `·` where all were skipped. The screenshot
 artifacts carry the caller's `artifact-prefix` since 2026-10, which is what lets this call of
 the workflow sit beside the showcase's in one run.
 
@@ -299,6 +308,24 @@ INPUT would have produced the same: the drive's events are injected, as a script
 native reads are `assert_native`, `a11y_audit` (where the toolkit reads its accessibility tree
 back), `assert_no_placeholders`, and the captures. Captures are illustration; a case asserts
 effects, never looks.
+
+## Known gaps
+
+What a pass does not yet cover, so a skip or an unread field reads as recorded:
+
+- **No capture on the web** (`Cap::Snapshot` is unsupported on DOM), so the pixel cases
+  (shapes, backgrounds, opacity, transforms, overlays) skip there. Reading the computed styles
+  through `read_native` instead is the planned answer.
+- **No accessibility group on GTK and ArkUI**: GTK 4 has no public getters for an accessible's
+  label and value, and ArkUI's accessibility text is empty unless Day set it, so `a11y_audit`
+  skips their nodes.
+- **ArkUI's menu and segmented pickers** are built in ArkTS and report no text.
+- **Where Day's content sits in a capture**: `sample_pixel` maps a node's frame into the
+  in-app capture through `Toolkit::snapshot_origin`. Android answers it (its content capture
+  runs under the status and navigation bars); elsewhere, rows beyond Day's content are taken to
+  be above it, true of AppKit's title bar and the mobile status bar.
+- **Visibility** reads hidden flags and window membership; a view with opacity 0 or clipped
+  away still reports visible.
 
 ## Follow-ups
 

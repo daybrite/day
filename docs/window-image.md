@@ -85,7 +85,7 @@ no window on screen yet, a zero-size window, a compositor that declined.
 | Linux (GTK) | `GtkWidgetPaintable` rendered through the window's own `GskRenderer` |
 | Qt | `QWidget::grab()` |
 | Windows (XAML) | `PrintWindow` with `PW_RENDERFULLCONTENT`, `BitBlt` from the screen as a fallback |
-| Android | `View.draw(Canvas)` into a `Bitmap`, `Bitmap.compress(PNG)` |
+| Android | `View.draw(Canvas)` into a `Bitmap`, `Bitmap.compress(PNG)`; a software canvas ignores outline clipping, so Day's containers clip their rounded corners by hand there |
 | HarmonyOS (ArkUI) | `OH_ArkUI_GetNodeSnapshot` + the native image packer |
 | web-dom | unsupported |
 

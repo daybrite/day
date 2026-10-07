@@ -584,3 +584,88 @@ impl<Inner: ShapePieceBuilder + Piece> ShapePieceBuilder for Decorated<Inner> {
         self.map_inner(|inner_piece| inner_piece.at(fx, fy, fw, fh))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The shapes' `#[day::test]` cases, next to their constructors.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::Piece;
+    use day_core::conformance::{Case, Drive};
+    use day_spec::{Cap, Color};
+
+    use crate::*;
+
+    /// `shape` on a white ground, so a sample outside it reads white on every theme.
+    fn on_white(s: ShapePiece) -> impl Piece {
+        zstack((rectangle().fill(Color::WHITE), s))
+            .id("ground")
+            .frame(80.0, 80.0)
+    }
+
+    /// A filled rectangle fills its frame.
+    #[day_macros::test(day_core)]
+    fn shape_fill() -> Case {
+        Case::new()
+            .proves_cap(Cap::Snapshot)
+            .requires(Cap::Snapshot)
+            .page(|| on_white(rectangle().fill(Color::rgb(1.0, 0.0, 0.0))))
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#ff0000").await?;
+                d.sample_pixel("ground", 0.05, 0.05, "#ff0000").await
+            })
+    }
+
+    /// A circle fills its middle and leaves its frame's corners to what is below.
+    #[day_macros::test(day_core)]
+    fn shape_circle() -> Case {
+        Case::new()
+            .requires(Cap::Snapshot)
+            .page(|| on_white(circle().fill(Color::rgb(0.0, 0.0, 1.0))))
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.04, 0.04, "#ffffff").await
+            })
+    }
+
+    /// A rounded rectangle's corners are cut, its middle filled.
+    #[day_macros::test(day_core)]
+    fn shape_rounded() -> Case {
+        Case::new()
+            .requires(Cap::Snapshot)
+            .page(|| on_white(rounded_rectangle(30.0).fill(Color::rgb(0.0, 0.0, 1.0))))
+            .drive(|d: Drive| async move {
+                d.sample_pixel("ground", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("ground", 0.03, 0.03, "#ffffff").await?;
+                d.sample_pixel("ground", 0.5, 0.03, "#0000ff").await
+            })
+    }
+
+    /// A shape group places each shape in its own fraction of the frame.
+    #[day_macros::test(day_core)]
+    fn shape_group_places() -> Case {
+        Case::new()
+            .requires(Cap::Snapshot)
+            .page(|| {
+                shape_group([
+                    rectangle()
+                        .fill(Color::rgb(1.0, 0.0, 0.0))
+                        .at(0.0, 0.0, 0.5, 1.0),
+                    rectangle()
+                        .fill(Color::rgb(0.0, 0.0, 1.0))
+                        .at(0.5, 0.0, 0.5, 1.0),
+                ])
+                .id("group")
+                .frame(80.0, 40.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("group", 0.25, 0.5, "#ff0000").await?;
+                d.sample_pixel("group", 0.75, 0.5, "#0000ff").await
+            })
+    }
+
+    day_core::tests! { shape_fill, shape_circle, shape_rounded, shape_group_places }
+}

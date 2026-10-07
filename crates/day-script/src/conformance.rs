@@ -66,6 +66,10 @@ pub struct RunReport {
     pub tests: Vec<Outcome>,
     #[serde(default)]
     pub shots: Vec<Shot>,
+    /// What the toolkit answered for every capability during this run (`N`, `E` or `-`), keyed
+    /// by name, so the evidence can be held against the declared coverage matrix.
+    #[serde(default)]
+    pub caps: std::collections::BTreeMap<String, String>,
 }
 
 struct Run {
@@ -174,6 +178,17 @@ fn start(filter: Vec<String>, policy: ShotPolicy, case_timeout_secs: Option<f64>
         report: RunReport::default(),
         done: false,
     }));
+    run.borrow_mut().report.caps = day_spec::Cap::ALL
+        .iter()
+        .map(|cap| {
+            let answer = match day_core::capability(*cap) {
+                day_spec::Support::Native => "N",
+                day_spec::Support::Emulated => "E",
+                day_spec::Support::Unsupported => "-",
+            };
+            (format!("{cap:?}"), answer.to_owned())
+        })
+        .collect();
     RUN.with(|r| *r.borrow_mut() = Some(run.clone()));
     // Links open nothing during the run; they are recorded for `assert_opened_url`.
     day_core::conformance::set_intercepting_urls(true);

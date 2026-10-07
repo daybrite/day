@@ -647,3 +647,151 @@ impl<Inner: ZStackBuilder + Piece> ZStackBuilder for Decorated<Inner> {
         self.map_inner(|inner_piece| inner_piece.align(a))
     }
 }
+
+// ---------------------------------------------------------------------------
+// Conformance cases (docs/testing.md)
+// ---------------------------------------------------------------------------
+
+/// The containers' `#[day::test]` cases, next to their constructors.
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive, FrameExpect};
+    use day_core::{AnyPiece, PieceVec, ScrollTarget};
+    use day_reactive::Signal;
+    use day_spec::{Color, kinds};
+
+    use crate::*;
+
+    fn block(color: Color, id: &str, w: f64, h: f64) -> AnyPiece {
+        rectangle().fill(color).id(id).frame(w, h).any()
+    }
+
+    fn at(relative_to: &str, x: Option<f64>, y: Option<f64>) -> FrameExpect {
+        FrameExpect {
+            x,
+            y,
+            relative_to: Some(relative_to.into()),
+            ..Default::default()
+        }
+    }
+
+    /// A column stacks its children with the spacing it is given.
+    #[day_macros::test(day_core)]
+    fn column_spacing() -> Case {
+        Case::new()
+            .proves(kinds::CONTAINER)
+            .page(|| {
+                column((
+                    block(Color::rgb(1.0, 0.0, 0.0), "a", 50.0, 20.0),
+                    block(Color::rgb(0.0, 0.0, 1.0), "b", 50.0, 20.0),
+                ))
+                .spacing(10.0)
+                .align(HAlign::Leading)
+            })
+            .drive(
+                |d: Drive| async move { d.assert_frame("b", at("a", Some(0.0), Some(30.0))).await },
+            )
+    }
+
+    /// A row lays its children side by side and centers them on its cross axis.
+    #[day_macros::test(day_core)]
+    fn row_alignment() -> Case {
+        Case::new()
+            .proves(kinds::CONTAINER)
+            .page(|| {
+                row((block(Color::rgb(1.0, 0.0, 0.0), "a", 50.0, 20.0), block(Color::rgb(0.0, 0.0, 1.0), "b", 50.0, 40.0)))
+                    .spacing(8.0)
+                    .align(VAlign::Center)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_frame("b", at("a", Some(58.0), Some(-10.0))).await
+            })
+    }
+
+    /// A grid aligns its rows' cells into shared columns.
+    #[day_macros::test(day_core)]
+    fn grid_columns() -> Case {
+        Case::new()
+            .proves(kinds::CONTAINER)
+            .page(|| {
+                grid((
+                    grid_row((
+                        block(Color::rgb(1.0, 0.0, 0.0), "a", 40.0, 20.0),
+                        block(Color::rgb(0.0, 0.0, 1.0), "b", 60.0, 20.0),
+                    )),
+                    grid_row((
+                        block(Color::rgb(0.0, 0.0, 1.0), "c", 30.0, 20.0),
+                        block(Color::rgb(1.0, 0.0, 0.0), "d", 30.0, 20.0),
+                    )),
+                ))
+                .spacing(0.0)
+                .align(day_core::Alignment::TopLeading)
+            })
+            .drive(|d: Drive| async move {
+                // The second column starts after the first column's widest cell; cells sit at
+                // their column's leading edge (they center by default).
+                d.assert_frame("d", at("a", Some(40.0), Some(20.0))).await?;
+                d.assert_frame("b", at("a", Some(40.0), Some(0.0))).await
+            })
+    }
+
+    /// A zstack draws its children over each other, the last on top, centered by default.
+    #[day_macros::test(day_core)]
+    fn zstack_layers() -> Case {
+        Case::new()
+            .proves(kinds::CONTAINER)
+            .proves_cap(day_spec::Cap::Snapshot)
+            .page(|| {
+                zstack((
+                    block(Color::rgb(1.0, 0.0, 0.0), "under", 100.0, 60.0),
+                    block(Color::rgb(0.0, 0.0, 1.0), "over", 50.0, 30.0),
+                ))
+                .id("stack")
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                d.assert_frame("over", at("under", Some(25.0), Some(15.0)))
+                    .await?;
+                d.sample_pixel("under", 0.5, 0.5, "#0000ff").await?;
+                d.sample_pixel("under", 0.05, 0.1, "#ff0000").await
+            })
+    }
+
+    /// A scroll view scrolls natively to the target the app sets: the window shows what was
+    /// out of view.
+    #[day_macros::test(day_core)]
+    fn scroll_to_target() -> Case {
+        let jump = Signal::new(None::<ScrollTarget>);
+        Case::new()
+            .proves(kinds::SCROLL)
+            .page(move || {
+                let rows: Vec<AnyPiece> = (0..30)
+                    .map(|i| {
+                        let color = if i < 20 {
+                            Color::rgb(1.0, 0.0, 0.0)
+                        } else {
+                            Color::rgb(0.0, 0.0, 1.0)
+                        };
+                        rectangle().fill(color).frame(120.0, 40.0).any()
+                    })
+                    .collect();
+                column((
+                    scroll(column(PieceVec(rows)).spacing(0.0))
+                        .scroll_target(jump)
+                        .id("scroll")
+                        .frame(120.0, 120.0),
+                    button("Bottom")
+                        .action(move || jump.set(Some(ScrollTarget::Bottom)))
+                        .id("bottom"),
+                ))
+                .spacing(8.0)
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("scroll", 0.5, 0.5, "#ff0000").await?;
+                d.tap("bottom").await?;
+                d.sample_pixel("scroll", 0.5, 0.5, "#0000ff").await
+            })
+    }
+
+    day_core::tests! { column_spacing, row_alignment, grid_columns, zstack_layers, scroll_to_target }
+}

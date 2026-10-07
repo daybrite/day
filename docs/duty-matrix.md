@@ -62,6 +62,7 @@ implement them, and this table proves it.
 | `encode_formats` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
 | `release_image` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
+| `snapshot_origin` | · | · | · | · | · | · | ✓ | · | · | · |
 | `prepare_snapshot` | · | · | · | ✓ | · | · | ✓ | ✓ | ✓ | · |
 | `snapshot_window_chrome` | · | ✓ | ✓ | ✓ | · | · | ✓ | · | · | · |
 | `toggle_sidebar` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | · |

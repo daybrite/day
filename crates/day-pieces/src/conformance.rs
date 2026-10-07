@@ -41,6 +41,9 @@ pub fn register_tests() {
     crate::image::conformance::register_tests();
     crate::forms::conformance::register_tests();
     crate::canvas::conformance::register_tests();
+    crate::containers::conformance::register_tests();
+    crate::shapes::conformance::register_tests();
+    crate::decorators::conformance::register_tests();
 }
 
 /// Every module's roster as written, for the lint that holds it equal to the link-time slice.
@@ -52,6 +55,9 @@ pub fn roster() -> Vec<TestFn> {
         crate::image::conformance::roster(),
         crate::forms::conformance::roster(),
         crate::canvas::conformance::roster(),
+        crate::containers::conformance::roster(),
+        crate::shapes::conformance::roster(),
+        crate::decorators::conformance::roster(),
     ]
     .concat()
 }

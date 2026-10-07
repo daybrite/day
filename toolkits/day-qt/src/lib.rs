@@ -3321,7 +3321,11 @@ impl Toolkit for Qt {
             label: string(n.label),
             value: string(n.value),
             identifier: string(n.identifier),
-            text: string(n.text),
+            // A picker's text comes from its own unit (see `picker::selected_text`).
+            text: match crate::picker::selected_text(h.0) {
+                Some(picked) => picked,
+                None => string(n.text),
+            },
             number,
             checked: (n.checked >= 0).then_some(n.checked != 0),
             enabled: Some(n.enabled != 0),

@@ -127,6 +127,9 @@ mod imp {
 
     day_core::tls_group! {
         static BUTTON_CONTENT: day_spec::sidetable::SideTable<day_spec::props::ButtonContent> = day_spec::sidetable::SideTable::new();
+        /// Views the app gave an accessibility label (`set_a11y`): a button's title change must
+        /// then leave the label alone (`apply_button_content`). Swept on release.
+        static APP_LABELED: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
 
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
@@ -6553,7 +6556,11 @@ mod imp {
                 config.setImagePadding(if icon_only { 0.0 } else { 6.0 });
                 btn.setConfiguration(Some(&config));
             }
-            btn.setAccessibilityLabel(Some(&NSString::from_str(title)), btn.mtm());
+            // The title is the spoken name, unless the app named the button itself; overwriting
+            // that here replaced app labels on every title change.
+            if !APP_LABELED.with(|t| t.contains(ptr_of(btn))) {
+                btn.setAccessibilityLabel(Some(&NSString::from_str(title)), btn.mtm());
+            }
         }
         BUTTON_CONTENT.with(|m| {
             m.insert(
@@ -10022,7 +10029,30 @@ mod imp {
                 CGSize::new(frame.size.width, frame.size.height),
             );
             let v = h.clone();
-            with_uikit_anim(anim, move || unsafe { v.setFrame(f) });
+            with_uikit_anim(anim, move || unsafe {
+                // `frame` is undefined under a transform (`set_transform`): setting it fits the
+                // transformed box into the rect, which cancels the scale and the offset. Size
+                // and center are independent of the transform, so a transformed view takes
+                // those. Others keep `setFrame`: a scroll view's bounds origin is its offset.
+                let t = v.transform();
+                let identity = t.a == 1.0
+                    && t.b == 0.0
+                    && t.c == 0.0
+                    && t.d == 1.0
+                    && t.tx == 0.0
+                    && t.ty == 0.0;
+                if identity {
+                    v.setFrame(f);
+                } else {
+                    let mut b = v.bounds();
+                    b.size = f.size;
+                    v.setBounds(b);
+                    v.setCenter(CGPoint::new(
+                        f.origin.x + f.size.width / 2.0,
+                        f.origin.y + f.size.height / 2.0,
+                    ));
+                }
+            });
         }
 
         fn set_opacity(&mut self, h: &Handle, opacity: f64, anim: Option<&AnimSpec>) {
@@ -10306,6 +10336,7 @@ mod imp {
                     let _: () = msg_send![&**h, setAccessibilityIdentifier: &*ns];
                 }
                 if let Some(label) = &a11y.label {
+                    APP_LABELED.with(|t| t.insert(ptr_of(h), ()));
                     let ns = NSString::from_str(label);
                     let _: () = msg_send![&**h, setAccessibilityLabel: &*ns];
                 }

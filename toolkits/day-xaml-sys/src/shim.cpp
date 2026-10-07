@@ -198,6 +198,9 @@ static std::string lf(std::string s) {
 // A plain wrapper struct owns the WinRT reference on the heap; delete releases it.
 struct Node {
     UIElement e;
+    // The app gave this element an accessibility label (`day_xaml_set_a11y`): a button's title
+    // change must then leave its automation name alone (`day_xaml_button_set_content`).
+    bool app_named = false;
     explicit Node(UIElement const& x) : e(x) {}
 };
 static void* boxh(UIElement const& e) { return new Node(e); }
@@ -5192,6 +5195,7 @@ void day_xaml_set_a11y(void* h, const char* label, const char* hint, const char*
         auto el = elem(h);
         if (!el) return;
         if (label && *label) WUXA::AutomationProperties::SetName(el, hs(label));
+        reinterpret_cast<Node*>(h)->app_named = label && *label;
         if (hint && *hint) WUXA::AutomationProperties::SetHelpText(el, hs(hint));
         if (value && *value) WUXA::AutomationProperties::SetItemStatus(el, hs(value));
         if (role == 5) {
@@ -6392,7 +6396,10 @@ extern "C" void day_xaml_button_set_content(void* h, const char* title, const ch
         content.Children().Append(label);
     }
     button.Content(content);
-    WUX::Automation::AutomationProperties::SetName(button, hs(title));
+    // The title names the button for UI Automation (an icon-only one shows none), unless the app
+    // named it itself; overwriting that here is what replaced app labels on a title change.
+    if (!reinterpret_cast<Node*>(h)->app_named)
+        WUX::Automation::AutomationProperties::SetName(button, hs(title));
     WUXC::ToolTipService::SetToolTip(button, icon_only && icon ? winrt::box_value(hs(title)) : nullptr);
 } catch (...) {
 }

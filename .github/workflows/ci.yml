@@ -694,6 +694,8 @@ jobs:
     needs: [conformance]
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
     steps:
+      # The claims check reads docs/coverage-matrix.md and its own script from the checkout.
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           pattern: conformance-screenshots-*
@@ -716,7 +718,14 @@ jobs:
             fi
           done
           jq -r 'to_entries[] | "\(.key): \([.value.tests | to_entries[] | .value.verdict] | group_by(.) | map("\(length) \(.[0])") | join(", "))"' out/evidence.json
+      # What each toolkit answered for every capability during its run, held against the
+      # declared docs/coverage-matrix.md: a disagreement means the published matrix is wrong for
+      # that target. Also writes the verified matrix (per kind and target, what the cases proved)
+      # into the artifact. Runs before the upload's step, which still uploads on failure.
+      - name: Hold the evidence against the declared matrix
+        run: python3 scripts/ci/conformance-claims.py out/evidence.json --out out/verified-matrix.md
       - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
         with:
           name: conformance-evidence
           path: out/

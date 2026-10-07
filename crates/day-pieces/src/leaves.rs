@@ -1886,6 +1886,29 @@ pub(crate) mod conformance {
             .drive(|d: Drive| async move { d.a11y_audit(Some("send")).await })
     }
 
+    /// An app's accessibility label survives a title change on a button with an icon (Windows
+    /// and Android used to replace it with the new title).
+    #[day_macros::test(day_core)]
+    fn button_a11y_survives_title_change() -> Case {
+        let playing = Signal::new(false);
+        Case::new()
+            .proves(kinds::BUTTON)
+            .proves_modifier("a11y")
+            .page(move || {
+                button(move || if playing.get() { "Pause" } else { "Play" }.to_owned())
+                    .icon(day_spec::Symbol::Play)
+                    .action(move || playing.set(true))
+                    .a11y(|a| a.label("Playback"))
+                    .id("play")
+            })
+            .drive(|d: Drive| async move {
+                d.a11y_audit(Some("play")).await?;
+                d.tap("play").await?;
+                d.assert_text("play", "Pause").await?;
+                d.a11y_audit(Some("play")).await
+            })
+    }
+
     /// A disabled toggle reports itself disabled, natively too, until it is enabled.
     #[day_macros::test(day_core)]
     fn toggle_disabled() -> Case {
@@ -2173,6 +2196,7 @@ pub(crate) mod conformance {
         button_disabled,
         button_title,
         button_a11y,
+        button_a11y_survives_title_change,
         toggle_binding,
         toggle_disabled,
         toggle_disabled_constant,

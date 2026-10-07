@@ -2416,6 +2416,126 @@ pub enum Cap {
     ImageProperties,
 }
 
+impl Cap {
+    /// Every capability, in declaration order: what a conformance run asks the toolkit about,
+    /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
+    pub const ALL: [Cap; 53] = [
+        Cap::DragDrop,
+        Cap::DragExternalImport,
+        Cap::DragExternalExport,
+        Cap::DragMultipleItems,
+        Cap::DragFileReferences,
+        Cap::DragDeferredReceipt,
+        Cap::DragFilePromises,
+        Cap::DragExternalMove,
+        Cap::ListRecycling,
+        Cap::UndoBridge,
+        Cap::EditBridge,
+        Cap::ListReorder,
+        Cap::NavReorder,
+        Cap::ListDelete,
+        Cap::ListSwipeActions,
+        Cap::Tree,
+        Cap::TreeMove,
+        Cap::BaselineAlignment,
+        Cap::TextRuns,
+        Cap::TextLinks,
+        Cap::Lottie,
+        Cap::NativeSymbols,
+        Cap::Snapshot,
+        Cap::NavSplit,
+        Cap::NavTabs,
+        Cap::NavTabsAdaptive,
+        Cap::NavRepresent,
+        Cap::NavContentList,
+        Cap::NavHeader,
+        Cap::Appearance,
+        Cap::AppMenu,
+        Cap::Dialogs,
+        Cap::FileDialogs,
+        Cap::Animation,
+        Cap::Cover,
+        Cap::StatusBarHidden,
+        Cap::TextEditable,
+        Cap::TextSelectable,
+        Cap::TextSpellCheck,
+        Cap::MultiWindow,
+        Cap::AppBadgeCount,
+        Cap::AppBadgeText,
+        Cap::AppBadgeDot,
+        Cap::Toolbar,
+        Cap::ToolbarSearch,
+        Cap::Inspector,
+        Cap::Cursor,
+        Cap::FontList,
+        Cap::ReduceMotion,
+        Cap::Announce,
+        Cap::ImageDecode,
+        Cap::ImageEncode,
+        Cap::ImageProperties,
+    ];
+
+    /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
+    /// here until it is given one, and the unit test below then holds `ALL` to it.
+    pub const fn ordinal(self) -> usize {
+        match self {
+            Cap::DragDrop => 0,
+            Cap::DragExternalImport => 1,
+            Cap::DragExternalExport => 2,
+            Cap::DragMultipleItems => 3,
+            Cap::DragFileReferences => 4,
+            Cap::DragDeferredReceipt => 5,
+            Cap::DragFilePromises => 6,
+            Cap::DragExternalMove => 7,
+            Cap::ListRecycling => 8,
+            Cap::UndoBridge => 9,
+            Cap::EditBridge => 10,
+            Cap::ListReorder => 11,
+            Cap::NavReorder => 12,
+            Cap::ListDelete => 13,
+            Cap::ListSwipeActions => 14,
+            Cap::Tree => 15,
+            Cap::TreeMove => 16,
+            Cap::BaselineAlignment => 17,
+            Cap::TextRuns => 18,
+            Cap::TextLinks => 19,
+            Cap::Lottie => 20,
+            Cap::NativeSymbols => 21,
+            Cap::Snapshot => 22,
+            Cap::NavSplit => 23,
+            Cap::NavTabs => 24,
+            Cap::NavTabsAdaptive => 25,
+            Cap::NavRepresent => 26,
+            Cap::NavContentList => 27,
+            Cap::NavHeader => 28,
+            Cap::Appearance => 29,
+            Cap::AppMenu => 30,
+            Cap::Dialogs => 31,
+            Cap::FileDialogs => 32,
+            Cap::Animation => 33,
+            Cap::Cover => 34,
+            Cap::StatusBarHidden => 35,
+            Cap::TextEditable => 36,
+            Cap::TextSelectable => 37,
+            Cap::TextSpellCheck => 38,
+            Cap::MultiWindow => 39,
+            Cap::AppBadgeCount => 40,
+            Cap::AppBadgeText => 41,
+            Cap::AppBadgeDot => 42,
+            Cap::Toolbar => 43,
+            Cap::ToolbarSearch => 44,
+            Cap::Inspector => 45,
+            Cap::Cursor => 46,
+            Cap::FontList => 47,
+            Cap::ReduceMotion => 48,
+            Cap::Announce => 49,
+            Cap::ImageDecode => 50,
+            Cap::ImageEncode => 51,
+            Cap::ImageProperties => 52,
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Raster images (docs/images.md): the currency shared by the `image` piece, the canvas, and
 // the decode/metadata/encode duties below.
@@ -6481,6 +6601,17 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())
     }
+    /// Where `root`, the primary window's root container, sits in [`Self::snapshot_window`]'s
+    /// image, in points from its top-left. A reader of the capture (dayscript `sample_pixel`)
+    /// maps Day's frames into it with this; it matters where the capture spans more than Day's
+    /// content on more than one side, as Android's edge-to-edge content does (status bar
+    /// above, navigation bar below).
+    ///
+    /// Defaulted to `None`, which the reader takes as "any rows beyond Day's content are
+    /// above it", true where the only extra area is a title bar.
+    fn snapshot_origin(&mut self, _root: &Self::Handle) -> Option<Point> {
+        None
+    }
     /// Establish a fresh screenshot checkpoint after reactive work and native transitions.
     /// `revision` is stable across retries and unique to the request; `host` selects a
     /// secondary window, or None for the primary. Never block the UI thread waiting for
@@ -8587,5 +8718,17 @@ mod text_anchor_tests {
         let e = TextMetrics::approximate("", 20.0);
         assert_eq!(e.width, 0.0);
         assert!(e.height > 0.0);
+    }
+}
+
+#[cfg(test)]
+mod cap_list_tests {
+    use super::Cap;
+
+    #[test]
+    fn every_capability_is_listed_once_in_its_place() {
+        for (i, cap) in Cap::ALL.iter().enumerate() {
+            assert_eq!(cap.ordinal(), i, "{cap:?} is out of place in Cap::ALL");
+        }
     }
 }

@@ -24,6 +24,8 @@ unsafe extern "C" {
     ) -> *mut c_void;
     fn day_picker_set_selected(w: *mut c_void, idx: c_int);
     fn day_picker_set_options(w: *mut c_void, items_joined: *const c_char);
+    fn day_picker_selected_text(w: *mut c_void, out: *mut *mut c_char) -> c_int;
+    fn day_qt_string_free(p: *mut c_char);
     // From day-qt-sys (already linked into the binary):
     fn day_qt_size_hint(w: *mut c_void, out_w: *mut f64, out_h: *mut f64);
 }
@@ -108,4 +110,58 @@ pub(crate) fn measure_any(
     p: day_spec::Proposal,
 ) -> day_spec::Size {
     measure(b, h, p)
+}
+
+/// The option a picker shows, for `read_native`: the combo's text, or the checked segment's or
+/// radio's title without its `&` mnemonic markers. `None` when `w` is not a picker (the outer
+/// `Option`), or when nothing is selected (the inner one).
+pub(crate) fn selected_text(w: *mut c_void) -> Option<Option<String>> {
+    let mut out: *mut c_char = std::ptr::null_mut();
+    // SAFETY: `w` is a live QWidget Day realized; the shim checks it is a DayPicker and writes a
+    // heap string (or NULL) to `out`, released below with the matching `free`.
+    let kind = unsafe { day_picker_selected_text(w, &mut out) };
+    if kind < 0 {
+        return None;
+    }
+    if out.is_null() {
+        return Some(None);
+    }
+    // SAFETY: `out` is a NUL-terminated string the shim allocated, freed exactly once here.
+    let text = unsafe { std::ffi::CStr::from_ptr(out) }
+        .to_string_lossy()
+        .into_owned();
+    unsafe { day_qt_string_free(out) };
+    Some(Some(if kind == 1 {
+        strip_mnemonic(&text)
+    } else {
+        text
+    }))
+}
+
+/// A button title as Qt draws it: a lone `&` marks the next character as the mnemonic and is
+/// not shown; `&&` shows one `&`.
+fn strip_mnemonic(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '&' {
+            if chars.peek() == Some(&'&') {
+                out.push('&');
+                chars.next();
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn mnemonic_markers_are_dropped_and_doubled_ampersands_kept() {
+        assert_eq!(super::strip_mnemonic("&Pear"), "Pear");
+        assert_eq!(super::strip_mnemonic("Salt && Pepper"), "Salt & Pepper");
+        assert_eq!(super::strip_mnemonic("Plum"), "Plum");
+    }
 }

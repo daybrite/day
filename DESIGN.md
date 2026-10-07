@@ -1676,6 +1676,7 @@ pub trait Toolkit: Sized + 'static {
     fn release_image(&mut self, id: BitmapId) {}                          // the handle's last drop
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14, docs/window-image.md
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> { … } // + titlebar/status bar
+    fn snapshot_origin(&mut self, root: &Self::Handle) -> Option<Point> { None } // root's place in the capture
     fn ui_idle(&mut self) -> bool { true }                            // transitions settled? (screenshots)
 
     // app lifecycle (docs/lifecycle.md)
@@ -1912,6 +1913,17 @@ enqueue-only ([§8.1](#81-the-toolkit-trait)); handlers run under their registra
 > — and per §0.3 Day does not tick its own animations for native widgets — so there, and on
 > the remaining backends, the color applies at commit. The `.transition` enter/exit surface
 > remains unimplemented.
+>
+> **AppKit transforms (2026-10).** The transform channel wrote the view's layer
+> `affineTransform`, which AppKit re-syncs from the view for layer-backed views, so on current
+> macOS no scale, rotation or offset ever showed (the conformance cases
+> `translation-moves-*`, `scale-grows-drawing`, `rotation-turns-clockwise` caught it). It is now
+> the view's own geometry (`apply_geometry`): the laid-out frame scaled about its center and
+> moved by the translation, the bounds kept at the laid-out size so the content draws scaled,
+> and `frameCenterRotation` for the rotation. Hit-testing therefore follows the drawing, as on
+> UIKit. UIKit had the mirror-image fault: `set_frame` set `frame` on a transformed view, where
+> `frame` is undefined, and UIKit fitted the transformed box back into the rect, cancelling the
+> scale and offset; a transformed view now takes `bounds` size and `center` instead.
 >
 > **XAML (2026-08, shipped on windows-xaml; windows-winui runs the same code).**
 > `set_opacity`/`set_transform` were the trait's defaulted no-ops until now, so scale, rotation, offset and opacity did nothing at all on Windows
@@ -5050,7 +5062,9 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    this run's CLI through `dayapp.yml` on all nine targets (one phone profile per mobile OS);
    each leg uploads its screenshots tree, evidence and captures included, as
    `conformance-screenshots-<target>[-<slug>]`, and `conformance (evidence)` merges them into
-   the one `conformance-evidence` artifact the website will read. `dayapp.yml` prefixes its
+   the one `conformance-evidence` artifact the website will read, after holding each leg's
+   run-time capability answers against [coverage-matrix.md](docs/coverage-matrix.md) (a disagreement fails the
+   job) and writing `verified-matrix.md` beside it (`scripts/ci/conformance-claims.py`). `dayapp.yml` prefixes its
    screenshot artifacts with the caller's `artifact-prefix` since 2026-10, which is what lets
    two calls of it share one run.
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui and the

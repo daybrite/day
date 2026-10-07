@@ -110,6 +110,16 @@ day_core::tls_group! {
     /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
     /// (replay inserted but nothing ever removed).
     static OPS: SideTable<Vec<DrawOp>> = SideTable::new();
+    /// Views the app gave an accessibility label (`set_a11y`): a button's title change must then
+    /// leave the label alone (`apply_button_content`). Swept on release like the other tables.
+    static APP_LABELED: SideTable<()> = SideTable::new();
+    /// Each transformed view's `Transform` (`set_transform`). AppKit owns a layer-backed view's
+    /// layer geometry and re-syncs it from the view, so a transform written into the layer
+    /// never showed. It is expressed in the view's own geometry instead (`apply_geometry`).
+    static TRANSFORMS: SideTable<Transform> = SideTable::new();
+    /// Each view's frame as Day laid it out, before any translation, so a translation change can
+    /// move the view without waiting for the next layout.
+    static BASE_FRAMES: SideTable<[f64; 4]> = SideTable::new();
     static COVER_SHEETS: SideTable<CoverSheet> = SideTable::new();
     /// View ptr → node for `GestureKind::Pan` (docs/shapes.md): macOS pans arrive as trackpad
     /// scroll events, so `DayCanvas::scrollWheel:` reports them here instead of a recognizer.
@@ -4377,7 +4387,11 @@ fn apply_button_content(
         } else {
             objc2_app_kit::NSCellImagePosition::ImageLeading
         });
-        btn.setAccessibilityLabel(Some(&NSString::from_str(title)));
+        // The title is the spoken name (an icon-only button shows none), unless the app named
+        // the button itself; overwriting that here replaced app labels on every title change.
+        if !APP_LABELED.with(|t| t.contains(ptr_of(btn))) {
+            btn.setAccessibilityLabel(Some(&NSString::from_str(title)));
+        }
         let tooltip = (icon_only && image.is_some()).then(|| NSString::from_str(title));
         btn.setToolTip(tooltip.as_deref());
     }
@@ -7729,24 +7743,14 @@ impl Toolkit for AppKit {
     }
 
     fn set_transform(&mut self, h: &Handle, t: Transform, _size: Size, anim: Option<&AnimSpec>) {
-        // Scale → rotate → translate about the layer's center anchor (matches UIKit); Day's
-        // containers are flipped (y-down), so the sense matches the mobile backends.
-        let th = t.rotate_deg.to_radians();
-        let (s, c) = th.sin_cos();
-        let cg = CGAffineTransform {
-            a: t.sx * c,
-            b: t.sx * s,
-            c: -t.sy * s,
-            d: t.sy * c,
-            tx: t.tx,
-            ty: t.ty,
-        };
+        // Expressed in the view's own geometry (see `TRANSFORMS`), so hit-testing follows the
+        // drawing, as UIKit's does. Without a laid-out frame yet, `set_frame` applies it.
+        TRANSFORMS.with(|m| m.insert(ptr_of(h), t));
+        let base = BASE_FRAMES.with(|m| m.get(ptr_of(h)));
         let v = h.clone();
-        with_appkit_anim(anim, move || unsafe {
-            v.setWantsLayer(true);
-            let layer: *mut objc2::runtime::AnyObject = msg_send![&*v, layer];
-            if !layer.is_null() {
-                let _: () = msg_send![layer, setAffineTransform: cg];
+        with_appkit_anim(anim, move || {
+            if let Some(base) = base {
+                apply_geometry(&v, base, t);
             }
         });
     }
@@ -7994,7 +7998,31 @@ impl Toolkit for AppKit {
                 }
             }
         } else {
-            unsafe { h.setFrame(r) };
+            BASE_FRAMES.with(|m| {
+                m.insert(
+                    ptr_of(h),
+                    [
+                        frame.origin.x,
+                        frame.origin.y,
+                        frame.size.width,
+                        frame.size.height,
+                    ],
+                )
+            });
+            // A transform (`set_transform`) is applied to the frame Day laid out.
+            match TRANSFORMS.with(|m| m.get(ptr_of(h))) {
+                Some(t) => apply_geometry(
+                    h,
+                    [
+                        frame.origin.x,
+                        frame.origin.y,
+                        frame.size.width,
+                        frame.size.height,
+                    ],
+                    t,
+                ),
+                None => unsafe { h.setFrame(r) },
+            }
         }
     }
 
@@ -8349,6 +8377,9 @@ impl Toolkit for AppKit {
             }
             if let Some(label) = &a11y.label {
                 h.setAccessibilityLabel(Some(&NSString::from_str(label)));
+                APP_LABELED.with(|t| t.insert(ptr_of(h), ()));
+            } else {
+                APP_LABELED.with(|t| t.remove(ptr_of(h)));
             }
             if let Some(hint) = &a11y.hint {
                 h.setAccessibilityHelp(Some(&NSString::from_str(hint)));
@@ -9467,6 +9498,29 @@ fn snapshot_via_window_server(content: &NSView, chrome: bool) -> Result<Vec<u8>,
 /// The window server first, because it is the only one of the two that can show macOS's own
 /// composited materials; the offscreen render when it declines, because it is the only one of the
 /// two that works with no window on screen. See each for why.
+/// Put a [`Transform`] on a view through its own geometry rather than its layer: the frame is
+/// the laid-out `base` scaled about its center and moved by the translation, the bounds keep the
+/// laid-out size (so the content draws at the scale), and the rotation is the frame's center
+/// rotation (positive is clockwise on screen: Day's parents are flipped, y down).
+fn apply_geometry(v: &NSView, base: [f64; 4], t: Transform) {
+    let [x, y, w, h] = base;
+    let (sw, sh) = (w * t.sx, h * t.sy);
+    let frame = NSRect::new(
+        NSPoint::new(x + (w - sw) / 2.0 + t.tx, y + (h - sh) / 2.0 + t.ty),
+        NSSize::new(sw, sh),
+    );
+    unsafe {
+        // The rotation goes first and comes back last: a rotated view's frame is its bounding
+        // box, so setting the frame of a rotated view would scale it.
+        v.setFrameCenterRotation(0.0);
+        v.setFrame(frame);
+        v.setBoundsSize(NSSize::new(w, h));
+        if t.rotate_deg != 0.0 {
+            v.setFrameCenterRotation(t.rotate_deg);
+        }
+    }
+}
+
 fn snapshot_view(content: &NSView) -> Result<Vec<u8>, String> {
     let modal = content
         .window()

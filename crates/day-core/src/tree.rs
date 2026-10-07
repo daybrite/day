@@ -861,6 +861,9 @@ pub trait TreeOps {
         revision: u32,
     ) -> Result<day_spec::capture::Readiness, String>;
     fn snapshot(&mut self) -> Result<Vec<u8>, String>;
+    /// Where the primary window's root sits in [`Self::snapshot`]'s image, in points (see
+    /// `Toolkit::snapshot_origin`); `None` when the toolkit does not say.
+    fn snapshot_origin(&mut self) -> Option<Point>;
     /// The same capture with the window's own chrome (see `Toolkit::snapshot_window_chrome`).
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String>;
 
@@ -1827,6 +1830,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn snapshot(&mut self) -> Result<Vec<u8>, String> {
         self.toolkit.snapshot_window()
+    }
+
+    fn snapshot_origin(&mut self) -> Option<Point> {
+        let root = self.windows[0].root;
+        let h = self.nodes.get(root).and_then(|n| n.handle.clone())?;
+        self.toolkit.snapshot_origin(&h)
     }
 
     fn snapshot_chrome(&mut self) -> Result<Vec<u8>, String> {

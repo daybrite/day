@@ -1103,7 +1103,10 @@ pub fn run_scripts(
                     .cloned()
                     .ok_or_else(|| ScriptError::Other("run_tests answered no report".into()))?;
                 let failed = print_test_report(&report);
-                run.steps_failed += failed;
+                // One step, whatever the number of tests that failed in it: the step counts
+                // are per step (`steps_total` counts this one once), and the report above
+                // already names each failed test.
+                run.steps_failed += usize::from(failed > 0);
                 match write_evidence(&dir, target, variant.or(locale), device, &report) {
                     Ok(path) => eprintln!("      {BOLD}Evidence{BOLD:#} {}", path.display()),
                     Err(e) => eprintln!("  {WARN}▸{WARN:#} evidence not written: {e}"),
@@ -2136,6 +2139,9 @@ fn write_evidence(
             .map(|d| d.as_secs())
             .unwrap_or(0),
         "tests": tests,
+        // The toolkit's own capability answers during the run, which the CI evidence job
+        // holds against docs/coverage-matrix.md (scripts/ci/conformance-claims.py).
+        "caps": report.get("caps").cloned().unwrap_or(serde_json::Value::Null),
     });
     let path = dir.join("evidence.json");
     let text = serde_json::to_string_pretty(&evidence).map_err(|e| e.to_string())?;

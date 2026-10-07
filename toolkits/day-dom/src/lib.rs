@@ -271,7 +271,11 @@ fn apply_button_content(el: u32, title: &str, icon: Option<&day_spec::Icon>, ico
         Some(day_spec::Icon::Image(name)) => Some(image_url(name)),
         None => None,
     };
-    attr(el, "aria-label", title);
+    // The title is the accessible name (an icon-only button shows none), unless the app named
+    // the button itself (`set_a11y`); overwriting that replaced app labels on every title change.
+    if !APP_NAMED.with(|t| t.contains(el as usize)) {
+        attr(el, "aria-label", title);
+    }
     attr(
         el,
         "title",
@@ -448,6 +452,12 @@ fn read_buffer(fill: impl Fn(*mut u8, usize) -> usize) -> String {
         buf.truncate(n);
         return String::from_utf8_lossy(&buf).into_owned();
     }
+}
+
+thread_local! {
+    /// Elements the app gave an accessibility label (`set_a11y`), whose `aria-label` a button's
+    /// title change must leave alone. A `SideTable`, so release sweeps it.
+    static APP_NAMED: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
 }
 
 thread_local! {
@@ -2614,6 +2624,7 @@ impl Toolkit for Dom {
         use day_spec::Role;
         if let Some(label) = &a11y.label {
             attr(h.0, "aria-label", label);
+            APP_NAMED.with(|t| t.insert(h.0 as usize, ()));
         }
         // `aria-description`, not `title`: a title is also a tooltip, and the hint is for the
         // screen reader alone.
