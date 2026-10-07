@@ -619,28 +619,15 @@ pub fn script_screenshot_meta(path: &Path) -> Vec<(String, ShotMeta)> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    let Ok(doc) = serde_norway::from_str::<serde_json::Value>(&text) else {
-        return Vec::new();
-    };
-    let Some(flow) = doc.get("flow").and_then(|f| f.as_array()) else {
+    let Ok(script) = day_script_proto::Script::from_yaml(&text) else {
         return Vec::new();
     };
     let mut out = Vec::new();
-    for entry in flow {
-        let Some(obj) = entry.as_object() else {
-            continue;
-        };
-        let Some(params) = obj.get("screenshot") else {
-            continue;
-        };
-        let Some(params) = params.as_object() else {
-            continue;
-        };
-        let Some(name) = params.get("name").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let mut params = params.clone();
-        out.push((name.to_string(), extract_meta(&mut params)));
+    for entry in script.steps {
+        if let day_script_proto::Step::Screenshot { name, .. } = entry.step {
+            let mut annotations = entry.annotations;
+            out.push((name, extract_meta(&mut annotations)));
+        }
     }
     out
 }
@@ -2131,6 +2118,25 @@ fn embeds_icc_profile(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screenshot_lint_reads_shared_scalar_and_mapping_forms_with_bom() {
+        // Synthetic author document, not an app-owned resource or UI translation.
+        let path = std::env::temp_dir().join(format!(
+            "day-shot-shared-format-{}.yaml",
+            std::process::id()
+        ));
+        std::fs::write(&path, "\u{feff}flow:\n- screenshot: fixture-bare\n- screenshot: {name: fixture-full, title: 'Fixture title', source: src/fixture.rs, store: true}\n- resize: auto\n").unwrap();
+        let shots = script_screenshot_meta(&path);
+        assert_eq!(shots.len(), 2);
+        assert_eq!(shots[0].0, "fixture-bare");
+        assert!(shots[0].1.title.is_none());
+        assert_eq!(shots[1].0, "fixture-full");
+        assert!(shots[1].1.title.is_some());
+        assert_eq!(shots[1].1.source.as_deref(), Some("src/fixture.rs"));
+        assert!(shots[1].1.legacy_store);
+        std::fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn capture_size_parses_pixels_scale_and_the_window_opt_out() {

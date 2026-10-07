@@ -519,6 +519,7 @@ dependencies = [
  "clap",
  "day-build",
  "day-fonts",
+ "day-script-proto",
  "day-toolchain",
  "day-vector",
  "filetime",
@@ -1208,9 +1209,18 @@ dependencies = [
  "day-mock",
  "day-pieces",
  "day-reactive",
+ "day-script-proto",
  "day-spec",
  "log",
  "png",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "day-script-proto"
+version = "0.5.0"
+dependencies = [
  "serde",
  "serde_json",
  "serde_norway",

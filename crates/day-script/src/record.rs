@@ -11,7 +11,7 @@
 //! Scope is narrow: **actions only, and only where the step is portable**. A tap, a text edit, a
 //! selection/toggle, a navigation, a back: the id-addressed things a walkthrough is made of.
 //! Positional taps, gestures, slider drags, and native OS chrome are dropped (see
-//! [`event_to_step`]); the resulting script is a starting point to edit, not a pixel-exact replay.
+//! `event_to_step`); the resulting script is a starting point to edit, not a pixel-exact replay.
 //!
 //! Everything here is main-thread state (the observer only ever runs on the main thread, where
 //! day-core dispatches). On wasm there is no in-process playback ([`play`]); the WebSocket
@@ -25,22 +25,8 @@ use day_spec::{Event, NodeId};
 
 use crate::Step;
 
-// ---------------------------------------------------------------------------
-// Canonical on-disk form <-> Step (the exact inverse of day-cli's `parse_flow`)
-// ---------------------------------------------------------------------------
-
-/// Serialize steps to the canonical on-disk dayscript form: a `flow:` document of
-/// `- <op>: { <params> }` entries (§14.1), byte-compatible with the file day-cli's `parse_flow`
-/// reads. Each [`Step`] serializes to its internal-`op`-tag map (`{op: tap, id: inc, …}`); this
-/// lifts the `op` out to become the entry key and drops null-valued optional params, then
-/// serde_norway renders the whole `{flow: […]}` document as YAML.
-pub fn steps_to_yaml(steps: &[Step]) -> String {
-    let entries: Vec<serde_json::Value> = steps.iter().map(step_to_entry).collect();
-    let doc = serde_json::json!({ "flow": entries });
-    // The document is a plain map/seq of scalars we just built, so serialization cannot fail; the
-    // fallback keeps this total for callers (the observer mirrors on every event).
-    serde_norway::to_string(&doc).unwrap_or_else(|_| "flow: []\n".to_string())
-}
+// The recorder and CLI use the same canonical format; preserve the recorder's public paths.
+pub use day_script_proto::{steps_from_yaml, steps_to_yaml};
 
 /// Like [`steps_to_yaml`], but each step's identifying line carries a trailing `# "label"` comment
 /// naming the control it came from (§14.6): its accessibility label, or its visible text. The
@@ -89,75 +75,6 @@ pub fn annotate_yaml(steps: &[Step], labels: &[Option<String>]) -> String {
         out.push('\n');
     }
     out
-}
-
-/// One `Step` as its on-disk `{ <op>: { <params> } }` mapping (params `null` when the op takes
-/// none, e.g. `nav_back`).
-fn step_to_entry(step: &Step) -> serde_json::Value {
-    let mut map = match serde_json::to_value(step) {
-        Ok(serde_json::Value::Object(m)) => m,
-        // A Step always serializes to an internally-tagged object; anything else is unreachable,
-        // but stay total rather than panicking on the event path.
-        _ => return serde_json::Value::Null,
-    };
-    let op = match map.remove("op") {
-        Some(serde_json::Value::String(s)) => s,
-        _ => return serde_json::Value::Null,
-    };
-    // Drop null optional params so a recorded `input` reads `{ id, text }`, not
-    // `{ id, text, key: null, args: null }`, and so it round-trips (the fields default to None).
-    map.retain(|_, v| !v.is_null());
-    let params = if map.is_empty() {
-        serde_json::Value::Null
-    } else {
-        serde_json::Value::Object(map)
-    };
-    let mut entry = serde_json::Map::new();
-    entry.insert(op, params);
-    serde_json::Value::Object(entry)
-}
-
-/// Parse the canonical on-disk dayscript form back into steps, the inverse of [`steps_to_yaml`].
-///
-/// This mirrors day-cli's `parse_flow` (crates/day-cli/src/script.rs): it accepts the same
-/// `- <op>: {…}` entries, the `- screenshot: name` / `- pause: 1.5` scalar shorthands, and a bare
-/// `- nav_back:` (null params). The two are kept in step by a test that round-trips the CLI's
-/// `demo.yaml` template through here. (day-cli does not call this, because the CLI does not depend
-/// on day-script's runtime graph, so the shared shape is guarded by test, not code.)
-pub fn steps_from_yaml(yaml: &str) -> Result<Vec<Step>, String> {
-    let doc: serde_json::Value = serde_norway::from_str(yaml).map_err(|e| e.to_string())?;
-    let flow = doc
-        .get("flow")
-        .and_then(|f| f.as_array())
-        .ok_or("script has no `flow:` sequence")?;
-    let mut steps = Vec::with_capacity(flow.len());
-    for entry in flow {
-        let obj = entry
-            .as_object()
-            .ok_or("flow entries must be single-key mappings")?;
-        let (op, params) = obj.iter().next().ok_or("empty flow entry")?;
-        let mut step = serde_json::Map::new();
-        step.insert("op".into(), serde_json::Value::String(op.clone()));
-        match params {
-            serde_json::Value::Object(m) => {
-                for (k, v) in m {
-                    step.insert(k.clone(), v.clone());
-                }
-            }
-            serde_json::Value::String(s) if op == "screenshot" => {
-                step.insert("name".into(), serde_json::Value::String(s.clone()));
-            }
-            serde_json::Value::Number(n) if op == "pause" => {
-                step.insert("secs".into(), serde_json::Value::Number(n.clone()));
-            }
-            serde_json::Value::Null => {}
-            other => return Err(format!("step {op}: unsupported params {other}")),
-        }
-        let step: Step = serde_json::from_value(serde_json::Value::Object(step))
-            .map_err(|e| format!("step {op}: {e}"))?;
-        steps.push(step);
-    }
-    Ok(steps)
 }
 
 // ---------------------------------------------------------------------------
@@ -766,7 +683,7 @@ pub fn exclude_prefix(prefix: &str) {
 // ---------------------------------------------------------------------------
 
 /// Play a dayscript in-process (§14.6): parse `yaml` and run each step through the same executor
-/// the socket runner uses ([`crate::run_step_with_wait`]), on a spawned thread that dispatches each
+/// the socket runner uses (`crate::run_step_with_wait`), on a spawned thread that dispatches each
 /// step to the main thread and awaits its reply, mirroring the engine's connection loop. Returns
 /// as soon as the run is *dispatched* (the steps then run asynchronously against the live UI).
 /// Refuses while a recording is live, so a replay never records itself.
@@ -1029,9 +946,7 @@ mod tests {
 
     #[test]
     fn accepts_cli_demo_template() {
-        // The recorder's parser must accept the exact file day-cli's `parse_flow` reads: string
-        // `screenshot`, inline `{ id: … }` mappings, `skip_on:` lists and all. If this drifts, the
-        // two parsers have diverged (see `steps_from_yaml`'s doc-comment).
+        // Fixture: the scaffold's demo must parse and round-trip through the shared format.
         let demo = include_str!("../../day-cli/templates/app/dayscript/demo.yaml");
         let steps = steps_from_yaml(demo).expect("demo.yaml parses");
         assert!(

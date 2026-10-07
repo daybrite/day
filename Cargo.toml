@@ -20,6 +20,7 @@ members = [
     "crates/day-l10n",
     "crates/day-fluent",
     "crates/day-script",
+    "crates/day-script-proto",
     "crates/day-vector",
     "crates/day-model",
     "crates/day-persistence",
@@ -78,6 +79,7 @@ members = [
 # scripts/ci/host-test.sh, so a crate absent here still has its tests run on every push.
 default-members = [
     "crates/day-fluent",
+    "crates/day-script-proto",
     "crates/day-geometry",
     "crates/day-fonts",
     "crates/day-build",
@@ -92,8 +94,8 @@ default-members = [
 ]
 
 # crates.io publishing policy: `day-cli`, its dependencies `day-fonts`, `day-toolchain`,
-# `day-build`, and `day-vector`, plus `day-macros`, are publishable. Every other member carries
-# `publish = false`, so `cargo publish --workspace` (and the `release` CI job) selects those six
+# `day-build`, `day-vector`, and `day-script-proto`, plus `day-macros`, are publishable.
+# Every other member carries `publish = false`, so `cargo publish --workspace` (and the `release` CI job) selects those seven
 # in dependency order. To publish another crate later, drop its `publish = false`.
 [workspace.package]
 version = "0.5.0"
@@ -109,7 +111,7 @@ rust-version = "1.89"
 
 [workspace.dependencies]
 # Internal dependencies use paths and take their package version from [workspace.package].
-# Only day-fonts, day-vector, day-toolchain, and day-build need explicit dependency versions:
+# Only day-fonts, day-vector, day-toolchain, day-build, and day-script-proto need versions:
 # published crates depend on them, and crates.io requires a registry version requirement.
 # Cargo cannot inherit these requirements from workspace.package; update them when releasing.
 day-geometry = { path = "crates/day-geometry" }
@@ -122,6 +124,7 @@ day-pieces = { path = "crates/day-pieces" }
 day-l10n = { path = "crates/day-l10n" }
 day-fluent = { path = "crates/day-fluent" }
 day-script = { path = "crates/day-script" }
+day-script-proto = { path = "crates/day-script-proto", version = "0.5.0" }
 day-vector = { path = "crates/day-vector", version = "0.5.0" }
 day-model = { path = "crates/day-model" }
 day-macros = { path = "crates/day-macros" }

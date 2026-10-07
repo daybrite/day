@@ -12,6 +12,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+use day_script_proto::{FailurePolicy, Reply, Request, Script, ScriptStep, Step};
+
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
 use crate::term::{BOLD, ERROR, SUCCESS, WARN};
@@ -76,68 +78,21 @@ fn expand_project(v: &mut serde_json::Value, root: &str) {
     }
 }
 
-#[derive(Debug, PartialEq)]
-struct Flow {
-    steps: Vec<(String, serde_json::Value)>,
-    stop_on_failure: bool,
-}
-
-fn parse_flow(path: &Path, project_root: &Path) -> Result<Flow, String> {
+fn parse_flow(path: &Path, project_root: &Path) -> Result<Script, String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     parse_flow_text(&text, project_root)
 }
 
-fn parse_flow_text(text: &str, project_root: &Path) -> Result<Flow, String> {
-    let doc: serde_json::Value =
-        serde_norway::from_str(text.trim_start_matches('\u{feff}')).map_err(|e| e.to_string())?;
-    let stop_on_failure = match doc.get("on_failure").and_then(|v| v.as_str()) {
-        None if doc.get("on_failure").is_none() => false,
-        Some("continue") => false,
-        Some("stop") => true,
-        _ => return Err("on_failure must be stop or continue".into()),
-    };
-    let flow = doc
-        .get("flow")
-        .and_then(|f| f.as_array())
-        .ok_or("script has no `flow:` sequence")?;
-    let mut steps = Vec::new();
-    for entry in flow {
-        let obj = entry
-            .as_object()
-            .ok_or("flow entries must be single-key mappings")?;
-        let (op, params) = obj.iter().next().ok_or("empty flow entry")?;
-        let mut step = serde_json::Map::new();
-        step.insert("op".into(), serde_json::Value::String(op.clone()));
-        match params {
-            serde_json::Value::Object(m) => {
-                for (k, v) in m {
-                    step.insert(k.clone(), v.clone());
-                }
-            }
-            serde_json::Value::String(s) if op == "screenshot" => {
-                step.insert("name".into(), serde_json::Value::String(s.clone()));
-            }
-            serde_json::Value::Number(n) if op == "pause" => {
-                step.insert("secs".into(), serde_json::Value::Number(n.clone()));
-            }
-            // `- resize: auto` is the same spelling `size_class: { width: auto }` uses for
-            // "back to what the device actually is".
-            serde_json::Value::String(s) if op == "resize" && s == "auto" => {
-                step.insert("restore".into(), serde_json::Value::Bool(true));
-            }
-            serde_json::Value::Null => {}
-            other => {
-                return Err(format!("step {op}: unsupported params {other}"));
-            }
-        }
-        let mut step = serde_json::Value::Object(step);
-        expand_project(&mut step, &project_root.to_string_lossy());
-        steps.push((op.clone(), step));
+fn parse_flow_text(text: &str, project_root: &Path) -> Result<Script, String> {
+    let mut script = Script::from_yaml(text).map_err(|e| e.to_string())?;
+    // Project substitution is a host concern. Re-validate the expanded step through the
+    // shared schema, retaining platform gates and gallery annotations for the runner.
+    for step in &mut script.steps {
+        let mut value = step.to_value();
+        expand_project(&mut value, &project_root.to_string_lossy());
+        *step = ScriptStep::from_value(value).map_err(|e| e.to_string())?;
     }
-    Ok(Flow {
-        steps,
-        stop_on_failure,
-    })
+    Ok(script)
 }
 
 /// Perform a `resize:` step's geometry change, host-side (docs/size-classes.md).
@@ -815,18 +770,17 @@ pub fn run_scripts(
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     for script in scripts {
-        let Flow {
-            steps,
-            stop_on_failure,
+        let Script {
+            steps, on_failure, ..
         } = parse_flow(script, &project.root).map_err(ScriptError::Other)?;
+        let stop_on_failure = on_failure == FailurePolicy::Stop;
         let failures_before_script = run.steps_failed;
         let planned = steps.len();
         if stop_on_failure {
             // A stopped retry must not leave old "successful" captures for steps it never
             // reached. Clear only this flow's named outputs in the current variant.
-            for (op, step) in &steps {
-                if op == "screenshot" {
-                    let name = step.get("name").and_then(|v| v.as_str()).unwrap_or("shot");
+            for step in &steps {
+                if let Step::Screenshot { name, .. } = &step.step {
                     let path = dir.join(format!("{name}.png"));
                     if path.exists() {
                         std::fs::remove_file(path)
@@ -834,16 +788,6 @@ pub fn run_scripts(
                     }
                 }
             }
-        }
-        // `expect_exit` tolerates the app dying, so it must be terminal: a step after it could
-        // never run (the connection is gone). Reject a misplaced one before driving anything.
-        if let Some(pos) = steps.iter().position(|(op, _)| op == "expect_exit")
-            && pos != steps.len() - 1
-        {
-            return Err(ScriptError::Other(format!(
-                "{}: expect_exit must be the last step",
-                script.display()
-            )));
         }
         eprintln!(
             "{BOLD}     Script{BOLD:#} {} on {} ({} steps)",
@@ -866,7 +810,9 @@ pub fn run_scripts(
         // A gate token nothing can match is a typo, reported once per token: `only_on: [iso]`
         // would otherwise drop the step on every target without a word.
         let mut warned_gates: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (index, (mut op, step)) in steps.into_iter().enumerate() {
+        for (index, entry) in steps.into_iter().enumerate() {
+            let mut op = entry.step.op().to_string();
+            let step = entry.to_value();
             if stop_on_failure && run.steps_failed > failures_before_script {
                 let remaining = planned - index;
                 run.steps_aborted += remaining;
@@ -985,7 +931,10 @@ pub fn run_scripts(
             if op == "expect_exit" {
                 let within = step.get("within").and_then(|v| v.as_f64()).unwrap_or(15.0);
                 let deadline = std::time::Instant::now() + Duration::from_secs_f64(within);
-                let probe = serde_json::json!({"token": token, "step": {"op": "wait_idle"}});
+                let probe = Request {
+                    token: token.into(),
+                    step: Step::WaitIdle,
+                };
                 let mut probe_line = serde_json::to_string(&probe).unwrap();
                 probe_line.push('\n');
                 let mut exited = false;
@@ -1043,16 +992,14 @@ pub fn run_scripts(
                     }
                 }
             }
-            // Kept for the fallback re-request: `step` itself is moved into the request.
-            let step_for_retry = step.clone();
-            let req = serde_json::json!({"token": token, "step": step});
+            let req = Request {
+                token: token.into(),
+                step: serde_json::from_value(step.clone())
+                    .map_err(|e| ScriptError::Other(e.to_string()))?,
+            };
             let mut line = serde_json::to_string(&req).unwrap();
             line.push('\n');
-            let budget = step
-                .get("timeout_secs")
-                .and_then(|v| v.as_f64())
-                .filter(|t| *t > 0.0)
-                .unwrap_or(5.0);
+            let budget = req.step.wait_budget_secs();
             // A roundtrip that gives up reconnecting means the app process is gone. Carry
             // the failure count seen so far, so the caller can tell a clean-run flake (retry)
             // from a failing run that then died (report).
@@ -1065,10 +1012,10 @@ pub fn run_scripts(
                         detail,
                     }
                 })?;
-            let reply: serde_json::Value = serde_json::from_str(reply_line.trim())
+            let reply: Reply = serde_json::from_str(reply_line.trim())
                 .map_err(|e| ScriptError::Other(e.to_string()))?;
-            app_fast = reply.get("fast_animations").and_then(|v| v.as_bool()) == Some(true);
-            let ok = reply.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+            app_fast = reply.fast_animations == Some(true);
+            let ok = reply.ok;
             let detail = step
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -1078,17 +1025,10 @@ pub fn run_scripts(
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} {op} {detail}");
             } else {
                 run.steps_failed += 1;
-                if reply
-                    .get("retryable")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-                {
+                if reply.retryable {
                     run.retryable_failed += 1;
                 }
-                let err = reply
-                    .get("error")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("failed");
+                let err = reply.error.as_deref().unwrap_or("failed");
                 eprintln!("  {ERROR}✗{ERROR:#} {op} {detail} — {err}");
             }
             if op == "tests" && ok {
@@ -1099,8 +1039,8 @@ pub fn run_scripts(
                 // beside the captures, the captures under tests/<test>/. A failed test fails
                 // the script the way a failed step does, so CI reads it the same way.
                 let report = reply
-                    .get("data")
-                    .cloned()
+                    .data
+                    .clone()
                     .ok_or_else(|| ScriptError::Other("run_tests answered no report".into()))?;
                 let failed = print_test_report(&report);
                 // One step, whatever the number of tests that failed in it: the step counts
@@ -1121,10 +1061,7 @@ pub fn run_scripts(
                 if path.exists() {
                     std::fs::remove_file(&path).map_err(|e| ScriptError::Other(e.to_string()))?;
                 }
-                let in_process = reply
-                    .get("png_base64")
-                    .and_then(|v| v.as_str())
-                    .map(day_script_b64::b64decode);
+                let in_process = reply.png_base64.as_deref().map(day_script_b64::b64decode);
                 let write_in_process = |bytes: &[u8]| std::fs::write(&path, bytes).is_ok();
 
                 // On a device or simulator the device capture stays the one that is saved. It is
@@ -1136,10 +1073,7 @@ pub fn run_scripts(
                 // the fallback instead: a refusing device tool used to abandon the shot outright.
                 // Desktop is the other way round: the in-process render is the capture there
                 // and `device_screenshot` has no desktop arm at all.
-                let ready = reply
-                    .get("capture_revision")
-                    .and_then(|v| v.as_u64())
-                    .is_some();
+                let ready = reply.capture_revision.is_some();
                 let mut saved = false;
                 if device_first {
                     match device_screenshot(target, &path, ready) {
@@ -1147,22 +1081,21 @@ pub fn run_scripts(
                         Err(e) => {
                             // The payload was skipped above, so fetch it now; this arm
                             // runs when a device tool refuses, not once per shot.
-                            let mut again = step_for_retry.clone();
-                            if let Some(m) = again.as_object_mut() {
-                                m.insert("in_process".into(), serde_json::Value::Bool(true));
+                            let mut again = req.step.clone();
+                            if let Step::Screenshot { in_process, .. } = &mut again {
+                                *in_process = true;
                             }
-                            let req = serde_json::json!({"token": token, "step": again});
+                            let req = Request {
+                                token: token.into(),
+                                step: again,
+                            };
                             let mut l = serde_json::to_string(&req).unwrap();
                             l.push('\n');
                             let bytes = roundtrip(&mut stream, &mut reader, &l, 0.0)
                                 .ok()
+                                .and_then(|r| serde_json::from_str::<Reply>(r.trim()).ok())
                                 .and_then(|r| {
-                                    serde_json::from_str::<serde_json::Value>(r.trim()).ok()
-                                })
-                                .and_then(|r| {
-                                    r.get("png_base64")
-                                        .and_then(|v| v.as_str())
-                                        .map(day_script_b64::b64decode)
+                                    r.png_base64.as_deref().map(day_script_b64::b64decode)
                                 });
                             match bytes {
                                 Some(b) => {
@@ -1643,6 +1576,124 @@ mod gate_tests {
     use super::{gate_is_known, gate_names};
 
     #[test]
+    fn shared_format_preserves_host_annotations_and_expands_only_project_values() {
+        // Synthetic author document: expansion belongs to the CLI, including annotations.
+        let script = super::parse_flow_text(
+            "flow:\n- screenshot: {name: fixture, title: {en: '${project}/title'}, source: '${project}/src', only_on: [macos-appkit], future: ['${project}/file']}\n- resize: auto\n",
+            std::path::Path::new("/fixture-project"),
+        )
+        .unwrap();
+        assert_eq!(
+            script.steps[0].annotations["title"]["en"],
+            "/fixture-project/title"
+        );
+        assert_eq!(
+            script.steps[0].annotations["source"],
+            "/fixture-project/src"
+        );
+        assert_eq!(
+            script.steps[0].annotations["future"][0],
+            "/fixture-project/file"
+        );
+        assert_eq!(script.steps[0].annotations["only_on"][0], "macos-appkit");
+        assert!(matches!(
+            script.steps[1].step,
+            day_script_proto::Step::Resize { restore: true, .. }
+        ));
+        for text in [
+            "flow:\n- wait_idle:\n- tap: {}",
+            "flow:\n- tap: {id: fixture, op: wait_idle}",
+            "flow:\n- wait_idle:\n  nav_back:",
+            "flow:\n- unknown: {only_on: [web-dom]}",
+        ] {
+            assert!(super::parse_flow_text(text, std::path::Path::new("/fixture")).is_err());
+        }
+    }
+
+    #[test]
+    fn runner_sends_shared_requests_without_annotations_and_reads_old_replies() {
+        use std::io::{BufRead, Write};
+
+        let root = std::env::temp_dir().join(format!("day-shared-protocol-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("flow.yaml");
+        // Synthetic runner fixture: an acknowledged animation pause becomes wait_idle;
+        // gates and gallery fields stay host-side. No successful capture invokes OS tools.
+        std::fs::write(&script, "flow:\n- wait_idle: {only_on: [macos-appkit], future: true}\n- pause: {secs: 0, animation: true}\n- screenshot: {name: fixture, title: Fixture caption, source: src/fixture.rs, store: true, skip_on: [web-dom]}\n").unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+        };
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut seen = Vec::new();
+            for index in 0..3 {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                let request: day_script_proto::Request = serde_json::from_str(&line).unwrap();
+                assert_eq!(request.token, "fixture-token");
+                let wire: serde_json::Value = serde_json::from_str(&line).unwrap();
+                for annotation in [
+                    "only_on",
+                    "skip_on",
+                    "animation",
+                    "title",
+                    "source",
+                    "store",
+                    "future",
+                ] {
+                    assert!(
+                        wire["step"].get(annotation).is_none(),
+                        "{annotation} leaked"
+                    );
+                }
+                seen.push(request.step);
+                match index {
+                    0 => writeln!(stream, "{{\"ok\":true,\"fast_animations\":true}}").unwrap(),
+                    1 => writeln!(stream, "{{\"ok\":true}}").unwrap(),
+                    _ => writeln!(
+                        stream,
+                        "{{\"ok\":false,\"error\":\"fixture capture unavailable\"}}"
+                    )
+                    .unwrap(),
+                }
+            }
+            seen
+        });
+        let run = super::run_scripts(
+            &project,
+            crate::targets::find("macos-appkit").unwrap(),
+            port,
+            "fixture-token",
+            &[script],
+            None,
+            None,
+            None,
+            true,
+            false,
+            true,
+        )
+        .unwrap();
+        let seen = server.join().unwrap();
+        assert_eq!(seen[0], day_script_proto::Step::WaitIdle);
+        assert_eq!(seen[1], day_script_proto::Step::WaitIdle);
+        assert!(
+            matches!(&seen[2], day_script_proto::Step::Screenshot { name, in_process: true, .. } if name == "fixture")
+        );
+        assert_eq!(run.steps_total, 3);
+        assert_eq!(run.steps_failed, 1);
+        assert_eq!(run.retryable_failed, 0);
+        assert!(run.screenshots.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn a_failed_prerequisite_stops_only_the_opted_in_flow() {
         use std::io::{BufRead, Write};
         for policy in ["stop", "continue"] {
@@ -1730,10 +1781,9 @@ mod gate_tests {
         }
         let root = std::path::Path::new("/fixture");
         assert!(super::parse_flow_text("on_failure: typo\nflow: []", root).is_err());
-        assert!(
-            !super::parse_flow_text("flow: []", root)
-                .unwrap()
-                .stop_on_failure
+        assert_eq!(
+            super::parse_flow_text("flow: []", root).unwrap().on_failure,
+            day_script_proto::FailurePolicy::Continue,
         );
     }
 
@@ -1744,7 +1794,7 @@ mod gate_tests {
         let plain = super::parse_flow_text(script, root).unwrap();
         let bom = super::parse_flow_text(&format!("\u{feff}{script}"), root).unwrap();
         assert_eq!(bom, plain);
-        assert_eq!(bom.steps[0].1["text"], "Français C:/Showcase");
+        assert_eq!(bom.steps[0].to_value()["text"], "Français C:/Showcase");
     }
 
     /// A gate opts a step in or out by target, toolkit, platform or flavor; nothing else.
@@ -2024,8 +2074,8 @@ esac
 // ---------------------------------------------------------------------------
 
 /// Print the registry the `tests` step answered, one test per line.
-fn print_test_listing(reply: &serde_json::Value) {
-    let Some(list) = reply.get("data").and_then(|d| d.as_array()) else {
+fn print_test_listing(reply: &Reply) {
+    let Some(list) = reply.data.as_ref().and_then(|d| d.as_array()) else {
         return;
     };
     for t in list {

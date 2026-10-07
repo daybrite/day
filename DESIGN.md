@@ -278,11 +278,11 @@ git dependencies (`day new --git`), with `--registry` ready for the day they are
 
 **Workspace versions.** Every framework crate inherits `[workspace.package].version` through
 `version.workspace = true`. Internal dependencies use workspace paths, including `day-macros`,
-so unpublished crates do not repeat a release version in dependency requirements. The four
-dependencies used by published packages (`day-fonts`, `day-vector`, `day-toolchain`, and
-`day-build`) retain explicit versions in `[workspace.dependencies]`: crates.io requires them,
-and Cargo cannot inherit a dependency requirement from `[workspace.package]`. Releases update
-the shared package version and these four requirements; member manifests need no version edits.
+so unpublished crates do not repeat a release version in dependency requirements. The five
+dependencies used by published packages (`day-fonts`, `day-vector`, `day-toolchain`,
+`day-build`, and `day-script-proto`) retain explicit versions in `[workspace.dependencies]`:
+crates.io requires them, and Cargo cannot inherit a dependency requirement from `[workspace.package]`. Releases update
+the shared package version and these five requirements; member manifests need no version edits.
 
 **Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
 --platform`, CI job names, screenshot directory names, `PerTarget` style values. The toolkit half
@@ -346,15 +346,16 @@ pillars deliberately build on each other:
 Beside the runtime graph sit the build-time crates: `day-build` (an app's `build.rs` dependency —
 typed resource constants, [§18.5](#185-typed-resource-constants-docsresourcesmd)), `day-fonts` (font name-table parsing shared by the CLI and the
 runtimes), `day-toolchain` (host SDK/toolchain discovery shared by the CLI and the `-sys` build
-scripts), and `day-cli` (the `day` binary).
+scripts), `day-script-proto` (the shared dayscript protocol and document format, with no
+Day runtime dependencies), and `day-cli` (the `day` binary).
 
 ### §3.2 Crates
 
 > [!IMPORTANT]
 > **Status: shipped differently.** This table reflects the crates as they exist. Relative to the
 > original design: `day-canvas` was folded into `day-pieces`/`day-spec` (the `DrawOp` types live
-> in the spec, the `canvas()`/shape pieces in day-pieces); `day-script-proto` was dropped (the
-> wire protocol is newline-delimited JSON inside `day-script`); `day-meta` became a `day-cli`
+> in the spec, the `canvas()`/shape pieces in day-pieces); `day-script-proto` shares serde wire
+> types and the YAML document grammar between the CLI and embedded engine; `day-meta` became a `day-cli`
 > module plus the published `day-build` crate; `day-web` was never built; and `day-l10n`,
 > `day-build`, `day-fonts`, `day-toolchain` were added.
 
@@ -370,7 +371,8 @@ scripts), and `day-cli` (the `day` binary).
 | `day-pieces` | the built-in vocabulary ([§5.3](#53-built-in-pieces-mvp-set)), the `Decorate` modifier set, `routes!`, forms, `nav`/`nav_stack` navigation, dialogs, canvas + shape pieces, the prelude | day-core |
 | `day-fluent` | the app-facing Fluent API: `install`, `tr()`, `set_locale`, `LocalizedText` | day-l10n |
 | `day-l10n` | the core localization engine — low in the graph so day-pieces' own strings (dialog buttons, menu roles) localize too; also the `res::str` typing rules ([§18.5](#185-typed-resource-constants-docsresourcesmd)) | — |
-| `day-script` | the embedded dayscript engine: step executor, element index, localhost-TCP transport (token-gated, newline-delimited JSON) | day-core, day-fluent |
+| `day-script-proto` | shared `Step`/`Request`/`Reply`/`DialogMode`/`ShotPolicy` types, the YAML `Script` document and its validation; a publishable leaf crate with no UI, localization or transport dependencies | serde, serde_json, serde_norway |
+| `day-script` | the embedded dayscript engine: step executor, element index, recorder, localhost-TCP transport (token-gated, newline-delimited JSON); re-exports the shared protocol at its existing public paths | day-script-proto, day-core, day-fluent |
 | `day-vector` | the vector-graphics engine ([docs/icons.md](docs/icons.md), [docs/vectors.md](docs/vectors.md)): SVG parse/raster (resvg, text shaping off), SF Symbol template handling, VectorDrawable/.ico/.icns/.symbolset writers, the seeded icon generator (`icongen`) — consumed by day-cli (`day prepare`, `day icon new`, `resource/vectors/` staging) | resvg, tiny-skia, roxmltree |
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
 | `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, the `TokenRegistry` a platform completion resolves through, and the process's one timer thread (`schedule`/`unschedule`) — no runtime, no reactor, no pool | — |
@@ -380,7 +382,7 @@ scripts), and `day-cli` (the `day` binary).
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui`, `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
-| `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
+| `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts, day-script-proto (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
 Two structural rules carried over from pane, both still enforced:
 
@@ -2870,11 +2872,36 @@ asserting (`assert_visible`, `assert_missing`, `assert_text`, `assert_value`, `a
 [docs/break.md](docs/break.md)) — is specified in
 [Appendix C](#appendix-c--dayscript-reference-v1), with `day drive` exposing the same vocabulary to agents ([docs/agent.md](docs/agent.md)).
 
+The wire types and on-disk grammar live in the publishable leaf crate `day-script-proto`.
+`Script::from_yaml` validates the entire `flow` before execution: each entry has exactly one
+operation key, the operation and its parameter types must match `Step`, and parameters cannot
+replace the operation with an embedded `op`. Duplicate YAML keys and non-finite numbers are rejected. The scalar
+shorthands `screenshot: name`, `pause: 1.5`, and `resize: auto`, bare null operations, UTF-8 BOMs,
+and comments are handled identically by the CLI and in-process playback. `on_failure` is
+`continue` (the default) or `stop`; `expect_exit` must be terminal. Host sleeps must fit a finite,
+non-negative duration. Parse errors identify the one-based flow position where applicable.
+
+A `ScriptStep` carries a typed `Step` plus annotations. Platform gates (`only_on`/`skip_on`),
+`animation`, screenshot gallery metadata, and unknown future fields survive document round trips;
+only the typed operation enters a wire `Request`. Gates must be string sequences and `animation`
+a boolean. Document metadata such as `name` and `description` is retained too. Unknown wire
+fields remain ignored by serde for forward compatibility, and omitted optional fields retain
+the existing defaults for older peers. The CLI owns `${project}` expansion and all host/device
+operations; the embedded engine owns main-thread execution and transport. `day drive` accepts
+both flattened JSON operations and single-key entries through the same normalizer.
+
+Compatibility paths remain: `day_script::{Step, Request, Reply, DialogMode, DEFAULT_TIMEOUT_SECS}`,
+`day_script::conformance::ShotPolicy`, and `day_script::record::{steps_to_yaml, steps_from_yaml}`
+re-export the shared definitions. Format/catalog and old-peer compatibility tests live in
+`crates/day-script-proto/tests`; CLI transport and recorder/executor integration tests remain
+with their consumers. The leaf crate builds on native and wasm targets without a toolkit SDK.
+
 ### §14.2 The embedded engine
 
-`day-script` compiles **into the app** (cargo feature `dayscript`, on by default in debug profiles;
-in release only if `Day.toml` sets `scripting.release: true` — and `day pack` verifies that
-release artifacts without the opt-in contain no engine). It:
+`day-script` compiles **into the app** through the facade's ordinary dependency. Native launch
+entry points call `init`, which starts the TCP listener only when `DAYSCRIPT_PORT` and
+`DAYSCRIPT_TOKEN` invite it; web launch arms the WebSocket transport with the serving session's
+token. Re-exporting the shared types does not initialize either transport. The engine:
 
 - maintains the **element index**: id → NodeId (from [§5.5](#55-node-identity-ids-and-the-element-index)), plus role/text/value accessors that
   read day-core's cached last-applied props (not platform a11y trees — one implementation, all
@@ -2980,9 +3007,9 @@ See [docs/harmonyos.md](docs/harmonyos.md) and the CLI's log-reader lifecycle te
 
 > [!IMPORTANT]
 > **Status: shipped simpler.** The protocol is **newline-delimited JSON over localhost TCP**,
-> defined by serde types inside `day-script` itself (`Request { token, step }` → `Reply { ok,
-> error, retryable, png_base64, … }`); the separate `day-script-proto` crate and length-prefixed
-> framing were dropped. Screenshots return as base64 within the reply.
+> defined by shared serde types in `day-script-proto` (`Request { token, step }` → `Reply { ok,
+> error, retryable, png_base64, … }`). The engine and CLI use the same types; length-prefixed
+> framing is not used. Screenshots return as base64 within the reply.
 
 **Rendezvous** (parallel targets share the host loopback — fixed ports are a design bug): the
 engine binds **only when invited** — `DAYSCRIPT_PORT` + `DAYSCRIPT_TOKEN` present in the
@@ -3089,8 +3116,8 @@ recording_signal, script, steps, save, clear, exclude_prefix}`, with `exclude_pr
 UI's own record/stop controls out of its own recording. `start_into(Signal<String>)` streams the
 script into an editable buffer (the showcase binds a `text_area` to it); `start_to_file` flushes
 continuously, so `DAY_RECORD` / `day launch --record` capture headlessly and survive a kill. The
-on-disk form is the ordinary `flow:` document (`steps_to_yaml`/`steps_from_yaml` are the exact
-inverse of day-cli's `parse_flow`), so a recorded script replays cross-toolkit through
+on-disk form is the ordinary `flow:` document (the recorder and CLI share
+`day-script-proto`'s parser and serializer), so a recorded script replays cross-toolkit through
 `day::play_script(yaml)` in-process **or** `day launch -p <other-target> --script <file>` — record
 on one backend, replay on any.
 
@@ -4925,7 +4952,7 @@ day/                                # THIS repository
   Cargo.toml                        # workspace
   DESIGN.md                         # this document
   crates/                           # day, day-core, day-reactive, day-geometry, day-spec,
-                                    #   day-pieces, day-fluent, day-l10n, day-script, day-mock,
+                                    #   day-pieces, day-fluent, day-l10n, day-script, day-script-proto, day-mock,
                                     #   day-build, day-fonts, day-toolchain, day-cli
   toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys),
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
@@ -5711,7 +5738,7 @@ implementation as noted above.
 > [!NOTE]
 > Historical record of the pre-implementation review. The "accepted resolutions" below were
 > folded into Part I's sections before implementation began; where implementation later
-> diverged (dayffi, day-script-proto, the CLI's error framework), Part I's status stamps are
+> diverged (dayffi, the CLI's error framework), Part I's status stamps are
 > the record.
 
 **Round 1 (2026-07-01):** 8 parallel reviewers (reactivity, layout-lists, polyglot-ffi, cli-build,

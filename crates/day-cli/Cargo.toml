@@ -36,6 +36,8 @@ toml_edit = "0.25"
 serde = { version = "1", features = ["derive"] }
 serde_norway = "0.9"
 serde_json = "1"
+# Shared dayscript types and YAML grammar, without the embedded engine/runtime graph.
+day-script-proto = { workspace = true }
 # Merge generated App Sandbox entitlements with custom XML or binary property lists.
 plist = "1"
 # HarmonyOS JSON5: round-trip parsing retains comments and whitespace during manifest edits.

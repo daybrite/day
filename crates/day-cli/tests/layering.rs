@@ -6,6 +6,7 @@
 //! (the built-ins they configure; `Decorate::tweak` lives there) but not on any satellite
 //! day-piece-* or day-part-*. Enforced over `cargo metadata` so a violating edge fails
 //! `cargo test` on the host instead of quietly knotting the graph.
+//! The dayscript protocol must remain a leaf too: no framework/runtime dependency may creep in.
 
 use std::collections::HashMap;
 use std::process::Command;
@@ -62,7 +63,8 @@ fn parts_and_tweaks_stay_below_pieces() {
         };
         let is_part = name.starts_with("day-part-");
         let is_tweak = name.starts_with("day-tweak-");
-        if !is_part && !is_tweak {
+        let is_protocol = name == "day-script-proto";
+        if !is_part && !is_tweak && !is_protocol {
             continue;
         }
         for dep in &node.deps {
@@ -72,6 +74,9 @@ fn parts_and_tweaks_stay_below_pieces() {
             let dep_is_core_pieces = dep_name == "day-pieces";
             let dep_is_satellite_piece = dep_name.starts_with("day-piece-");
             let dep_is_part = dep_name.starts_with("day-part-");
+            if is_protocol && dep_name.starts_with("day-") {
+                violations.push(format!("protocol {name} -> {dep_name}"));
+            }
             if is_part && (dep_is_core_pieces || dep_is_satellite_piece) {
                 violations.push(format!("part {name} -> {dep_name}"));
             }

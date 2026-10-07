@@ -8,7 +8,7 @@
 //! on stdout (an array). Steps use the walkthrough vocabulary in either spelling:
 //!
 //! ```json
-//! [{"navigate": {"route": "controls"}}, {"ui_idle": null}, {"screenshot": "controls"}]
+//! [{"navigate": {"route": "controls"}}, {"wait_idle": null}, {"screenshot": "controls"}]
 //! [{"op": "tap", "id": "increment"}]
 //! ```
 //!
@@ -17,52 +17,25 @@
 
 use std::io::{BufRead, BufReader, Write};
 
+use day_script_proto::{Reply, Request, ScriptStep};
+
 use crate::cli::{CliError, ErrKind};
 use crate::meta::Project;
 use crate::script;
 use crate::sessions;
 use crate::targets::Target;
 
-/// Normalize either step spelling into the engine's flattened `{"op": …, …}` form.
-fn normalize(
-    step: &serde_json::Value,
-) -> Result<serde_json::Map<String, serde_json::Value>, String> {
-    let obj = step.as_object().ok_or("steps must be JSON objects")?;
-    if obj.contains_key("op") {
-        return Ok(obj.clone());
-    }
-    let (op, params) = obj.iter().next().ok_or("empty step")?;
-    if obj.len() != 1 {
-        return Err(format!(
-            "step must be {{\"op\": …}} or a single-key mapping, got {} keys",
-            obj.len()
-        ));
-    }
-    let mut out = serde_json::Map::new();
-    out.insert("op".into(), serde_json::Value::String(op.clone()));
-    match params {
-        serde_json::Value::Object(m) => {
-            for (k, v) in m {
-                out.insert(k.clone(), v.clone());
-            }
-        }
-        serde_json::Value::String(s) if op == "screenshot" => {
-            out.insert("name".into(), serde_json::Value::String(s.clone()));
-        }
-        serde_json::Value::Number(n) if op == "pause" => {
-            out.insert("secs".into(), serde_json::Value::Number(n.clone()));
-        }
-        serde_json::Value::Null => {}
-        other => return Err(format!("step {op}: unsupported params {other}")),
-    }
-    Ok(out)
-}
-
 /// The Ok value is the run's verdict code: 0, or the script-failure code when steps failed;
 /// the per-step JSON report on stdout already carries the detail.
 pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, CliError> {
     let steps: Vec<serde_json::Value> = serde_json::from_str(steps_json)
         .map_err(|e| CliError::usage(format!("--steps-json must be a JSON array of steps: {e}")))?;
+    // Validate every operation before connecting or driving the first one.
+    let steps = steps
+        .into_iter()
+        .map(ScriptStep::from_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| CliError::usage(e.to_string()))?;
     let Some(session) = sessions::find(&project.root, target.name) else {
         return Err(CliError::env(format!(
             "no live session for {} — `day launch -p {}` first (sessions: build/day/sessions.json)",
@@ -94,8 +67,8 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
 
     let mut results: Vec<serde_json::Value> = Vec::new();
     let mut failed = 0usize;
-    for raw in &steps {
-        let step = normalize(raw).map_err(CliError::usage)?;
+    for parsed in steps {
+        let step = parsed.to_value();
         let op = step
             .get("op")
             .and_then(|v| v.as_str())
@@ -110,21 +83,20 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
         }
         // Like `launch --script`, allow the engine's UI dispatch and implicit retries to
         // finish before declaring the connection lost (including explicit long waits).
-        let budget = step
-            .get("timeout_secs")
-            .and_then(|v| v.as_f64())
-            .filter(|t| *t > 0.0)
-            .unwrap_or(5.0);
+        let budget = parsed.step.wait_budget_secs();
         stream
             .set_read_timeout(Some(script::read_window(
                 script::connect_window_secs(target.kind),
                 budget,
             )))
             .map_err(|e| CliError::failure(e.to_string()))?;
-        let req = serde_json::json!({"token": session.engine_token, "step": step});
+        let req = Request {
+            token: session.engine_token.clone(),
+            step: parsed.step,
+        };
         let mut line = serde_json::to_string(&req).unwrap();
         line.push('\n');
-        let reply: serde_json::Value = match stream
+        let reply: Reply = match stream
             .write_all(line.as_bytes())
             .map_err(|e| e.to_string())
             .and_then(|_| {
@@ -142,7 +114,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
                 break;
             }
         };
-        let ok = reply.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+        let ok = reply.ok;
         if !ok {
             failed += 1;
         }
@@ -150,7 +122,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
             "op": op,
             "ok": ok,
         });
-        if let Some(err) = reply.get("error").and_then(|v| v.as_str()) {
+        if let Some(err) = reply.error.as_deref() {
             result["error"] = serde_json::Value::String(err.into());
         }
         if let Some(id) = step.get("id") {
@@ -162,8 +134,8 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
             // picture on a device or simulator, the in-process one on desktop. Splitting the rule
             // between the two entry points would frame the same screen two different ways.
             let in_process = reply
-                .get("png_base64")
-                .and_then(|v| v.as_str())
+                .png_base64
+                .as_deref()
                 .filter(|_| target.kind == crate::targets::TargetKind::Desktop);
             if let Some(b64) = in_process {
                 let path = shot_dir.join(format!("{name}.png"));
@@ -177,16 +149,9 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
                 // Device-side capture, inlined for parity with the in-process path. When it
                 // refuses, an in-process capture the backend did supply stands in.
                 let path = shot_dir.join(format!("{name}.png"));
-                let fallback = reply.get("png_base64").and_then(|v| v.as_str());
-                if script::device_screenshot_public(
-                    target,
-                    &path,
-                    reply
-                        .get("capture_revision")
-                        .and_then(|v| v.as_u64())
-                        .is_some(),
-                )
-                .is_ok()
+                let fallback = reply.png_base64.as_deref();
+                if script::device_screenshot_public(target, &path, reply.capture_revision.is_some())
+                    .is_ok()
                 {
                     let b64 = std::fs::read(&path)
                         .map(|b| script::b64encode_public(&b))
@@ -229,4 +194,29 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
     } else {
         0
     })
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn invalid_steps_are_usage_errors_before_session_lookup_or_execution() {
+        let project = crate::meta::Project {
+            root: std::env::temp_dir().join("day-drive-invalid-fixture"),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+        };
+        for fixture in [
+            r#"[{"wait_idle":null},{"tap":{}}]"#,
+            r#"[{"tap":{"id":"fixture","op":"wait_idle"}}]"#,
+            r#"[{"pause":-1}]"#,
+            r#"[{"resize":"other"}]"#,
+        ] {
+            let error = super::run(
+                &project,
+                crate::targets::find("macos-appkit").unwrap(),
+                fixture,
+            )
+            .unwrap_err();
+            assert_eq!(error.exit_code(), crate::cli::ErrKind::Usage.exit_code());
+        }
+    }
 }

@@ -20,15 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{Reply, Step, b64encode, next_capture_revision};
 
-/// Which captures a run keeps.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ShotPolicy {
-    Never,
-    #[default]
-    OnFailure,
-    Always,
-}
+pub use day_script_proto::ShotPolicy;
 
 /// One test's outcome, the shape `evidence.json` records (docs/testing.md).
 #[derive(Clone, Debug, Serialize, Deserialize)]
