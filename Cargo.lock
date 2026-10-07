@@ -3400,9 +3400,9 @@ dependencies = [
 
 [[package]]
 name = "ohos-sys-opaque-types"
-version = "0.1.11"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "709d9a23a7fd92c4c1f94c6772fd0e6607aa302c382601cc475000b68758cbbf"
+checksum = "f9bcb2b286419c28f51401c39807cd035999472e8fd07b23878209eebd990851"
 
 [[package]]
 name = "ohos-video-processing-engine-sys"
