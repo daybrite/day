@@ -669,6 +669,20 @@ fn post_list_scroll_row(host_key: usize, row: usize) {
         });
         if let Some((host, y, rowh)) = target {
             unsafe { ffi::day_xaml_scroll_to(host, y, rowh, 1) };
+            // A ScrollViewer XAML has not laid out yet (ViewportHeight 0) drops the ChangeView,
+            // and no ViewChanged follows to build the rows it would reveal. Keep the jump
+            // pending — the first fill that sees a measured viewport lands it — and fill now,
+            // which builds the window around the jump rather than around the unmoved top.
+            let (mut offset, mut vh) = (0.0, 0.0);
+            unsafe { ffi::day_xaml_list_viewport(host, &mut offset, &mut vh) };
+            if vh <= 0.0 {
+                LIST_STATE.with(|m| {
+                    if let Some(st) = m.borrow_mut().get_mut(&host_key) {
+                        st.pending_scroll = Some(row);
+                    }
+                });
+                schedule_list_fill(host_key);
+            }
         }
     });
     let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
@@ -730,7 +744,7 @@ fn list_populate(host_key: usize) {
 /// nothing moved, which is what lets every scroll event call it.
 fn list_fill_window(host_key: usize) {
     // Phase 1 — under the LIST_STATE borrow: realize the window's cells + snapshot what we need.
-    let Some((content, rowh, source, work, n, width)) = LIST_STATE.with(|m| {
+    let Some((content, rowh, source, work, n, width, measured)) = LIST_STATE.with(|m| {
         let mut m = m.borrow_mut();
         let st = m.get_mut(&host_key)?;
         let source = st.source.borrow().clone()?;
@@ -757,7 +771,8 @@ fn list_fill_window(host_key: usize) {
         // ScrollViewer out — the framed height stands in until then, exactly as the width does.
         let (mut offset, mut vh) = (0.0_f64, 0.0_f64);
         unsafe { ffi::day_xaml_list_viewport(st.host, &mut offset, &mut vh) };
-        if vh <= 0.0 {
+        let measured = vh > 0.0;
+        if !measured {
             vh = if st.frame_height > 0 {
                 st.frame_height as f64
             } else {
@@ -765,6 +780,13 @@ fn list_fill_window(host_key: usize) {
                 // not blank, and let the frame that follows widen the window.
                 600.0
             };
+            // A row jump the unmeasured ScrollViewer could not take yet: build the window it
+            // will reveal (the minimal reveal from the top, as `day_xaml_scroll_to` scrolls), so
+            // the row exists before the scroll lands.
+            if let Some(row) = st.pending_scroll {
+                let max = (n as f64 * rowh - vh).max(0.0);
+                offset = ((row.min(n.saturating_sub(1)) + 1) as f64 * rowh - vh).clamp(0.0, max);
+            }
         }
         if let Some(report) = &source.first_visible {
             report(((offset / rowh).floor() as usize).min(n.saturating_sub(1)));
@@ -800,7 +822,7 @@ fn list_fill_window(host_key: usize) {
             }
         }
         st.last_width = width;
-        Some((st.content, rowh, source, work, n, width))
+        Some((st.content, rowh, source, work, n, width, measured))
     }) else {
         return;
     };
@@ -817,10 +839,12 @@ fn list_fill_window(host_key: usize) {
     // that do not exist yet, so it cannot be sized to what happens to be realized.
     unsafe { ffi::day_xaml_list_set_content_size(content, width, (n as f64 * rowh) as c_int) };
     // A row jump that arrived before this extent existed lands now, on the next turn so the
-    // ScrollViewer has measured the new extent; its ViewChanged builds the rows it reveals.
+    // ScrollViewer has measured the new extent; its ViewChanged builds the rows it reveals. An
+    // unmeasured viewport keeps the jump for a later fill: the scroll would only be dropped again.
     let pending = LIST_STATE.with(|m| {
         m.borrow_mut()
             .get_mut(&host_key)
+            .filter(|_| measured)
             .and_then(|st| st.pending_scroll.take())
     });
     if let Some(row) = pending {
