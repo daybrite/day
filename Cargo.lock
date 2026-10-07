@@ -558,6 +558,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-dbus"
+version = "0.5.0"
+
+[[package]]
 name = "day-dom"
 version = "0.5.0"
 dependencies = [
@@ -590,6 +594,7 @@ name = "day-gtk"
 version = "0.5.0"
 dependencies = [
  "day-core",
+ "day-dbus",
  "day-pieces",
  "day-spec",
  "gtk4",
@@ -1189,6 +1194,7 @@ name = "day-qt"
 version = "0.5.0"
 dependencies = [
  "day-core",
+ "day-dbus",
  "day-pieces",
  "day-qt-sys",
  "day-spec",
@@ -1348,6 +1354,7 @@ name = "day-xaml"
 version = "0.5.0"
 dependencies = [
  "day-core",
+ "day-l10n",
  "day-pieces",
  "day-spec",
  "day-xaml-sys",

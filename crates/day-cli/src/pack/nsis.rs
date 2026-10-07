@@ -64,6 +64,7 @@ pub fn pack(
                     &setup,
                 ),
                 &project.manifest.file_types,
+                &crate::documents::descriptions(project).unwrap_or_default(),
                 &project.manifest.app.id,
                 name,
             ),

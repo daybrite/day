@@ -57,6 +57,24 @@ unsafe extern "C" {
     /// Put the selection at a BYTE range in a contenteditable element's flattened text.
     fn day_dom_editor_select(el: u32, start: u32, end: u32);
     fn day_dom_set_app_badge(count: i32);
+    /// Enter (`on` = 1) or leave (0) fullscreen through the Fullscreen API on the document
+    /// element (docs/windows.md "Window properties"). Returns -1 when a request is in flight,
+    /// whose outcome comes back through `day_dom_window_state`; otherwise nothing was asked of
+    /// the browser (no Fullscreen API, or already in that state) and the answer is the state the
+    /// page is in, as a `WindowState` code.
+    fn day_dom_set_fullscreen(on: u32) -> i32;
+    /// The primary window's chrome, once at boot (docs/window-chrome.md): `overlay` 1 runs the
+    /// content under an installed app's window-controls overlay, answers its height now (0 while
+    /// hidden) and reports every later change through `day_dom_titlebar_inset`; 0 keeps the
+    /// content below it. Also installs the drag-region rules `set_drag_region`'s class relies on.
+    fn day_dom_window_chrome(overlay: u32) -> f64;
+    /// The browser window's outer frame (`screenX`, `screenY`, `outerWidth`, `outerHeight`) into
+    /// `out[0..4]`, in CSS px on the desktop. Returns 0 when the browser reports no frame.
+    fn day_dom_window_frame(out: *mut f64) -> u32;
+    /// The screen the page is on into `out[0..9]`: its frame (`screen.left`/`top`, else 0, then
+    /// `width`, `height`), its work area (`availLeft`/`availTop`, else the frame's origin, then
+    /// `availWidth`, `availHeight`), and `devicePixelRatio`.
+    fn day_dom_screen(out: *mut f64);
     /// Speak `text` through the shim's ARIA live regions (docs/accessibility.md); `urgent`
     /// picks the assertive one, which interrupts, over the polite one, which queues.
     fn day_dom_announce(ptr: *const u8, len: usize, urgent: u32);
@@ -718,6 +736,9 @@ struct ListEntry {
 
 thread_local! {
     static SINK: RefCell<Option<EventSink>> = const { RefCell::new(None) };
+    /// The page's display state as last reported (`report_window_state`): Normal or Fullscreen.
+    static WINDOW_STATE: Cell<day_spec::WindowState> =
+        const { Cell::new(day_spec::WindowState::Normal) };
     /// Element id → day node id, for event routing (the shim only knows element ids).
     static NODE_OF: RefCell<HashMap<u32, NodeId>> = RefCell::new(HashMap::new());
     /// Elements whose frames are CSS-managed (nav/tab pages): `set_frame` skips them.
@@ -736,6 +757,9 @@ thread_local! {
 
     static SPLIT_MODE: Cell<bool> = const { Cell::new(true) };
     static DARK: Cell<bool> = const { Cell::new(false) };
+    /// The app-wide appearance (`Toolkit::set_appearance`) and the window's own override
+    /// (`WindowChange::Appearance`); the page is the one window, so the override wins.
+    static APPEARANCE: Cell<(Option<bool>, Option<bool>)> = const { Cell::new((None, None)) };
     /// The latest viewport size (updated on resize, seeded at launch). A `cover` fills the
     /// viewport (`position:fixed; inset:0`), so presenting it seeds its frame from here
     /// SYNCHRONOUSLY — without waiting for the async ResizeObserver, whose gap otherwise leaves
@@ -1421,6 +1445,73 @@ impl Toolkit for Dom {
         unsafe { day_dom_set_app_badge(encoded) };
     }
 
+    /// The page's one window: fullscreen through the Fullscreen API, Normal by leaving it.
+    /// Minimize and maximize are not the page's to ask for, so they are declined at once by
+    /// reporting the state the page is in. Content protection has no web mechanism.
+    fn apply_window(&mut self, _host: &DomHandle, change: &day_spec::WindowChange) {
+        use day_spec::{WindowChange, WindowState};
+        let state = match change {
+            WindowChange::State(state) => state,
+            // The page is the app's one window, so its own appearance is the page's: the
+            // override replaces the app-wide one until it is cleared.
+            WindowChange::Appearance(dark) => {
+                APPEARANCE.with(|a| a.set((a.get().0, *dark)));
+                apply_appearance();
+                // day-core's dark signal re-reads `dark_mode()`, which needs the tree this call
+                // is borrowed from: one hop later.
+                post_local(day_core::note_appearance_changed);
+                return;
+            }
+            // A page cannot move, resize, restack, hide or flash the browser window: `moveTo`
+            // and `resizeTo` work only on popups the script opened.
+            _ => return,
+        };
+        let answer = match state {
+            WindowState::Fullscreen => unsafe { day_dom_set_fullscreen(1) },
+            WindowState::Normal => unsafe { day_dom_set_fullscreen(0) },
+            WindowState::Minimized | WindowState::Maximized => {
+                WINDOW_STATE.with(|c| c.get()).code()
+            }
+        };
+        // -1: the browser has the request; `fullscreenchange` or the rejection reports back.
+        if answer >= 0 {
+            report_window_state(WindowState::from_code(answer), true);
+        }
+    }
+
+    /// `app-region: drag` on the element and `no-drag` on the controls inside it, through the
+    /// rules `day_dom_window_chrome` installed. Live only in an installed app's window-controls
+    /// overlay, where Chromium moves the window and maximizes it on a double click.
+    /// `screenX`/`screenY`/`outerWidth`/`outerHeight`: the browser window's outer frame on the
+    /// desktop, in CSS px (points at 100% zoom).
+    fn window_frame(&self, _host: &DomHandle) -> Option<Rect> {
+        let mut f = [0f64; 4];
+        let ok = unsafe { day_dom_window_frame(f.as_mut_ptr()) } != 0;
+        (ok && f[2] > 0.0 && f[3] > 0.0).then(|| Rect::new(f[0], f[1], f[2], f[3]))
+    }
+
+    /// The one screen the page is on, from `window.screen`. The Window Management API would
+    /// list them all, but only asynchronously and behind a permission prompt.
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        let mut v = [0f64; 9];
+        unsafe { day_dom_screen(v.as_mut_ptr()) };
+        if v[2] <= 0.0 || v[3] <= 0.0 {
+            return Vec::new();
+        }
+        vec![day_spec::Monitor {
+            id: "0".into(),
+            name: String::new(),
+            frame: Rect::new(v[0], v[1], v[2], v[3]),
+            work_area: Rect::new(v[4], v[5], v[6], v[7]),
+            scale: if v[8] > 0.0 { v[8] } else { 1.0 },
+            primary: true,
+        }]
+    }
+
+    fn set_drag_region(&mut self, h: &DomHandle, drag: bool) {
+        class(h.0, "day-drag-region", drag);
+    }
+
     fn set_drag_source(&mut self, h: &DomHandle, source: day_spec::transfer::Source) {
         transfer::source(h.0, source);
     }
@@ -1430,6 +1521,48 @@ impl Toolkit for Dom {
 
     fn capability(&self, cap: Cap) -> Support {
         match cap {
+            // `requestFullscreen` on the document element. A page in an iframe without
+            // `allow="fullscreen"`, and Safari on iPhone, have no element fullscreen, which
+            // `document.fullscreenEnabled` says. The browser grants the request only during a
+            // user gesture; a button action runs inside the click handler, so a press qualifies,
+            // and a refused request reads back as the state the page kept.
+            Cap::WindowFullscreen => {
+                if fullscreen_enabled() {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // A page cannot minimize or zoom the browser window, and nothing keeps it out of a
+            // screenshot or a shared tab.
+            Cap::WindowStates | Cap::ContentProtection => Support::Unsupported,
+            // Window Controls Overlay (docs/window-chrome.md): only an installed Chromium app on
+            // the desktop, and only once the user hides its title bar, runs content under the
+            // overlay and honors `app-region: drag`. Emulated where the API exists at all.
+            Cap::OverlayTitleBar | Cap::DragRegion => {
+                if window_controls_overlay() {
+                    Support::Emulated
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // The browser owns the window's frame and what is behind it.
+            Cap::FramelessWindow | Cap::TransparentWindow | Cap::WindowMaterial => {
+                Support::Unsupported
+            }
+            // `window.screen`: the one screen the page is on.
+            Cap::Monitors => Support::Emulated,
+            // The page is the app's one window, so its appearance is the app's: the override
+            // goes through the same path as `set_appearance`.
+            Cap::WindowAppearance => Support::Emulated,
+            // Browsers resize and move only the popups a script opened; nothing stacks a tab
+            // above other apps or flashes it. The manifest's `shortcuts` are static: day-cli
+            // writes the Day.toml ones, and a page cannot add any while it runs.
+            Cap::WindowGeometry
+            | Cap::WindowPosition
+            | Cap::WindowLevel
+            | Cap::RequestAttention
+            | Cap::DynamicShortcuts => Support::Unsupported,
             // Composed, not read: the CSS generic families plus the bundled `document.fonts`
             // faces. A browser lists local fonts only through `queryLocalFonts()` — Chromium
             // only, asynchronous, behind a permission prompt — so the list is what CSS can
@@ -3039,13 +3172,8 @@ impl Toolkit for Dom {
     }
 
     fn set_appearance(&mut self, dark: Option<bool>) {
-        let mode = match dark {
-            Some(false) => 0,
-            Some(true) => 1,
-            None => 2,
-        };
-        let effective = unsafe { day_dom_set_dark(mode) };
-        DARK.with(|d| d.set(effective == 1));
+        APPEARANCE.with(|a| a.set((dark, a.get().1)));
+        apply_appearance();
     }
 
     fn adopt(&mut self, raw: day_spec::RawHandle) -> DomHandle {
@@ -3065,6 +3193,19 @@ impl Platform for Dom {
 
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, DomHandle, Size)>) {
         unsafe { day_dom_set_title(options.title.as_ptr(), options.title.len()) };
+        // Before the viewport is read: the Standard chrome's rules can move the root down.
+        // Frameless, the backgrounds, placement and resizability are the browser's to decide.
+        let overlay = options.chrome == day_spec::WindowChrome::Overlay;
+        let inset = unsafe { day_dom_window_chrome(u32::from(overlay)) };
+        // The root's content reads its safe area while it builds, before any tree exists to
+        // report into: seed it, as the first window's inset.
+        if overlay && inset > 0.0 {
+            log::debug!("web: title bar overlay inset {inset} at boot");
+            day_core::seed_safe_area(day_spec::Insets {
+                top: inset,
+                ..Default::default()
+            });
+        }
         let w: f64 = env("vw").parse().unwrap_or(1000.0);
         let h: f64 = env("vh").parse().unwrap_or(700.0);
         LAST_VIEWPORT.with(|v| v.set(Size::new(w, h)));
@@ -4538,6 +4679,77 @@ pub extern "C" fn day_dom_resized(w: f64, h: f64) {
         // nine.
         emit(day_spec::WINDOW_NODE, Event::WindowResized(Size::new(w, h)));
     });
+}
+
+/// The page's display state, as the browser last reported it.
+///
+/// Called by the shim on `fullscreenchange` (entering, leaving, the user's Esc) with
+/// `declined` = 0, and when the browser refuses a request (no user gesture, a permissions
+/// policy) with `declined` = 1 and the state the page kept.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_window_state(code: i32, declined: u32) {
+    day_spec::ffi_guard::contain((), || {
+        report_window_state(day_spec::WindowState::from_code(code), declined != 0);
+    });
+}
+
+/// Report the page's display state on `WINDOW_NODE`, deduped against the last report. A
+/// declined request reports even when nothing changed, so day-core's optimistic `state()`
+/// signal settles back on the truth (docs/windows.md "Window properties").
+fn report_window_state(state: day_spec::WindowState, declined: bool) {
+    let was = WINDOW_STATE.with(|c| c.replace(state));
+    if declined {
+        log::debug!("web: window state request declined, still {state:?}");
+    } else if was == state {
+        return;
+    } else {
+        log::debug!("web: window state now {state:?}");
+    }
+    emit(day_spec::WINDOW_NODE, Event::WindowStateChanged(state));
+}
+
+/// How far an installed app's window-controls overlay reaches into the page, from the shim on
+/// every `geometrychange` after boot (`run` seeds the boot value); 0 while the user shows the
+/// title bar. Only an Overlay primary reports, as its safe-area top inset
+/// (docs/window-chrome.md). A fresh browser task: the tree is free.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_titlebar_inset(top: f64) {
+    day_spec::ffi_guard::contain((), || {
+        log::debug!("web: title bar overlay inset {top}");
+        day_core::set_safe_area(day_spec::Insets {
+            top,
+            ..Default::default()
+        });
+    });
+}
+
+/// Put the effective appearance on the page: the window's override, else the app-wide one,
+/// else the browser's `prefers-color-scheme`.
+fn apply_appearance() {
+    let (app, window) = APPEARANCE.with(|a| a.get());
+    let mode = match window.or(app) {
+        Some(false) => 0,
+        Some(true) => 1,
+        None => 2,
+    };
+    let effective = unsafe { day_dom_set_dark(mode) };
+    DARK.with(|d| d.set(effective == 1));
+}
+
+/// Whether the browser has the Window Controls Overlay API, read once.
+fn window_controls_overlay() -> bool {
+    thread_local! {
+        static WCO: std::cell::OnceCell<bool> = const { std::cell::OnceCell::new() };
+    }
+    WCO.with(|c| *c.get_or_init(|| env("wco") == "1"))
+}
+
+/// `document.fullscreenEnabled`, read once: whether this page can go fullscreen at all.
+fn fullscreen_enabled() -> bool {
+    thread_local! {
+        static ENABLED: std::cell::OnceCell<bool> = const { std::cell::OnceCell::new() };
+    }
+    ENABLED.with(|c| *c.get_or_init(|| env("fullscreen") == "1"))
 }
 
 /// The reduce-motion media query flipped under the app (docs/accessibility.md): day-core

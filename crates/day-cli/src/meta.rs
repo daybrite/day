@@ -640,6 +640,10 @@ pub struct AppOverride {
     pub scheme: Option<String>,
     #[serde(default)]
     pub build: Option<u64>,
+    /// `false` keeps the app out of the macOS Dock: a menu-bar app that lives in its status item
+    /// (docs/status-item.md). Read for macOS targets only (`[app.macos]`).
+    #[serde(default)]
+    pub dock: Option<bool>,
 }
 
 /// One `[[shortcuts]]` entry, a launcher shortcut. Declaration order is display order on
@@ -669,6 +673,8 @@ pub struct ResolvedApp {
     /// `Day.toml [app] scheme` as declared for this target, if it was. `None` means "derive it";
     /// see [`ResolvedApp::scheme`].
     pub scheme: Option<String>,
+    /// Whether the app shows a Dock icon (macOS; `[app.macos] dock = false` hides it).
+    pub dock: bool,
 }
 
 impl ResolvedApp {
@@ -723,6 +729,7 @@ impl Manifest {
             artifact: String::new(),
             build: self.app.build,
             scheme: self.app.scheme.clone(),
+            dock: true,
         };
         let mut artifact = self.app.artifact.clone();
         // `[app.ohos]` is the platform table for harmony-arkui: for builtin targets the key
@@ -758,6 +765,9 @@ impl Manifest {
                 }
                 if let Some(build) = o.build {
                     out.build = build;
+                }
+                if let Some(dock) = o.dock {
+                    out.dock = dock;
                 }
             }
         }

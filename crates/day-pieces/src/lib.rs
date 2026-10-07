@@ -47,6 +47,7 @@ mod menus;
 mod nav;
 mod shapes;
 mod sources;
+mod status;
 mod structure;
 mod toolbar;
 
@@ -63,6 +64,7 @@ pub use menus::*;
 pub use nav::*;
 pub use shapes::*;
 pub use sources::*;
+pub use status::{StatusItem, StatusItemHandle, status_item};
 pub use structure::*;
 // The ambient environment and the `Ambient` state trait (docs/state.md) live in day-core, so an
 // app's `*-core` crate (which depends on day-core but not on day-pieces) can `impl Ambient`
@@ -82,18 +84,18 @@ pub mod prelude {
         IntoFocusBinding, IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot,
         LabelBuilder, Labeled, Link, List, MenuEntry, Modifier, NativeRef, Nav, NavItem, NavStack,
         NavStyle, OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath,
-        RowBuilder, RowFit, SaveFile, ShapeKind, ShapePiece, SwipeAction, TextBuilder, VAlign,
-        VectorWeight, When, ZStack, alert, app_environment, app_menu, app_menu_reactive, arc,
-        button, canvas, capsule, circle, column, confirm, cover, current_route, divider, each,
-        ellipse, environment, focused_environment, form, frame_clock, grid, grid_row, image,
-        inspector, item, items, label, labeled, line, link, list, menu_item, menu_role,
-        menu_separator, nav, nav_back, nav_link, nav_link_to, nav_stack, navigate, navigate_to,
-        open_file, open_link, picker, polygon, progress, prompt, rectangle, rounded_rectangle,
-        route, route_param, route_params, row, save_file, scroll, section, secure_field, segment,
-        shape, shape_group, shape_group_fn, slider, spacer, spinner, sub_menu, swipe_action,
-        text_area, text_field, toggle, toolbar_button, toolbar_label, toolbar_menu,
-        toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when, with_environment,
-        zstack,
+        RowBuilder, RowFit, SaveFile, ShapeKind, ShapePiece, StatusItem, SwipeAction, TextBuilder,
+        VAlign, VectorWeight, When, ZStack, alert, app_environment, app_menu, app_menu_reactive,
+        arc, button, canvas, capsule, circle, column, confirm, cover, current_route, divider,
+        dock_menu, dock_menu_reactive, each, ellipse, environment, focused_environment, form,
+        frame_clock, grid, grid_row, image, inspector, item, items, label, labeled, line, link,
+        list, menu_item, menu_role, menu_separator, nav, nav_back, nav_link, nav_link_to,
+        nav_stack, navigate, navigate_to, open_file, open_link, picker, polygon, progress, prompt,
+        rectangle, rounded_rectangle, route, route_param, route_params, row, save_file, scroll,
+        section, secure_field, segment, shape, shape_group, shape_group_fn, slider, spacer,
+        spinner, status_item, sub_menu, swipe_action, text_area, text_field, toggle,
+        toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator,
+        toolbar_toggle, vector, when, with_environment, zstack,
     };
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{

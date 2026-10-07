@@ -1,17 +1,120 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! File associations declared in Day.toml. Registration never changes the user's default app.
+//! File associations declared in Day.toml (docs/documents.md): what each platform's package
+//! says the app opens, how strongly it claims each type, and the types the app itself defines.
 use crate::meta::Project;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::Path;
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileType {
     pub extensions: Vec<String>,
     pub mime_types: Vec<String>,
     #[serde(default)]
     pub apple_uti: Option<String>,
+    /// A Fluent message id (resource/locales) naming the type for people: Finder's Kind
+    /// column, Explorer's Type column, a file manager's MIME comment. Unset: `"<EXT> document"`.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// What the app does with these files.
+    #[serde(default)]
+    pub role: Role,
+    /// How strongly the app claims these files against other apps that open them.
+    #[serde(default)]
+    pub rank: Rank,
+    /// The app defines this type: it is the app's own format, declared to the system as such
+    /// (an exported UTI on Apple platforms, a shared-mime-info package on Linux). Leave it off for
+    /// formats other apps define (PDF, Markdown, PNG): those are imported.
+    #[serde(default)]
+    pub exported: bool,
+    /// The Apple types an exported type is a kind of. Defaults to `public.data` and
+    /// `public.content`; add `public.json`, `public.text` or `public.archive` where it applies.
+    #[serde(default)]
+    pub conforms_to: Vec<String>,
+}
+
+/// What the app does with a file type (Apple's `CFBundleTypeRole`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    /// Opens and shows the files.
+    #[default]
+    Viewer,
+    /// Opens, changes and saves them.
+    Editor,
+    /// Declares the type without offering to open it (an exported type the app only writes).
+    None,
+}
+
+/// How strongly the app claims a file type (Apple's `LSHandlerRank`, and on Windows whether the
+/// installer makes the app the extension's default).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Rank {
+    /// One of the apps that can open these files; never the default by itself.
+    #[default]
+    Alternate,
+    /// A good default for these files, though another app defines the format.
+    Default,
+    /// The app defines the format and should open it. The Windows installer registers the app as
+    /// the extension's default handler (restoring the previous one on uninstall); Windows still
+    /// lets a user's own choice win.
+    Owner,
+    /// Lists the type without wanting to be chosen for it.
+    None,
+}
+
+impl Role {
+    fn apple(self) -> &'static str {
+        match self {
+            Role::Viewer => "Viewer",
+            Role::Editor => "Editor",
+            Role::None => "None",
+        }
+    }
+}
+
+impl Rank {
+    fn apple(self) -> &'static str {
+        match self {
+            Rank::Alternate => "Alternate",
+            Rank::Default => "Default",
+            Rank::Owner => "Owner",
+            Rank::None => "None",
+        }
+    }
+}
+
+/// Each declared type's human-readable name in the app's default locale: its `name` message, or
+/// `"<EXT> document"` when it has none.
+pub fn descriptions(project: &Project) -> Result<Vec<String>, String> {
+    let en = project.root.join("resource/locales/en");
+    project
+        .manifest
+        .file_types
+        .iter()
+        .map(|t| match &t.name {
+            Some(key) => crate::shortcuts::ftl_value(&en, key)?.ok_or_else(|| {
+                format!("[[file_types]] name `{key}` is missing from resource/locales/en/")
+            }),
+            None => Ok(format!(
+                "{} document",
+                t.extensions
+                    .first()
+                    .map(|e| e.to_uppercase())
+                    .unwrap_or_default()
+            )),
+        })
+        .collect()
+}
+
+/// The identifier of type `i`: its declared `apple_uti`, else one minted under the app id. Also
+/// what names an exported type on Windows and Linux.
+fn type_id(project: &Project, i: usize, t: &FileType) -> String {
+    t.apple_uti
+        .clone()
+        .unwrap_or_else(|| format!("{}.document.{i}", project.manifest.app.id))
 }
 pub fn validate(types: &[FileType]) -> Result<(), String> {
     for t in types {
@@ -37,13 +140,22 @@ pub fn validate(types: &[FileType]) -> Result<(), String> {
                 "[[file_types]] mime_types must be explicit MIME types, without wildcards".into(),
             );
         }
-        if t.apple_uti.as_ref().is_some_and(|u| {
-            u.is_empty()
-                || !u
-                    .bytes()
+        let uti_ok = |u: &String| {
+            !u.is_empty()
+                && u.bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b".-".contains(&b))
-        }) {
+        };
+        if t.apple_uti.as_ref().is_some_and(|u| !uti_ok(u)) {
             return Err("invalid [[file_types]] apple_uti".into());
+        }
+        if t.conforms_to.iter().any(|u| !uti_ok(u)) {
+            return Err("invalid [[file_types]] conforms_to: give Apple type identifiers such as public.json".into());
+        }
+        if !t.conforms_to.is_empty() && !t.exported {
+            return Err(
+                "[[file_types]] conforms_to describes a type the app defines; set exported = true"
+                    .into(),
+            );
         }
     }
     Ok(())
@@ -63,9 +175,20 @@ pub fn android(project: &Project) -> Option<String> {
         "<activity android:name=\"dev.daybrite.day.bridge.DayActivity\" android:exported=\"true\">\n",
     );
     s.push_str(&crate::url_handlers::android(project));
-    for t in &project.manifest.file_types {
+    for t in project
+        .manifest
+        .file_types
+        .iter()
+        .filter(|t| t.role != Role::None)
+    {
+        // An editor also answers EDIT, which is what a file manager's "Edit with" sends.
+        let edit = if t.role == Role::Editor {
+            "<action android:name=\"android.intent.action.EDIT\"/>"
+        } else {
+            ""
+        };
         for mime in &t.mime_types {
-            s.push_str(&format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/><category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"content\"/><data android:scheme=\"file\"/><data android:scheme=\"http\"/><data android:scheme=\"https\"/><data android:mimeType=\"{}\"/></intent-filter>\n",xml(mime)));
+            s.push_str(&format!("<intent-filter><action android:name=\"android.intent.action.VIEW\"/>{edit}<category android:name=\"android.intent.category.DEFAULT\"/><category android:name=\"android.intent.category.BROWSABLE\"/><data android:scheme=\"content\"/><data android:scheme=\"file\"/><data android:scheme=\"http\"/><data android:scheme=\"https\"/><data android:mimeType=\"{}\"/></intent-filter>\n",xml(mime)));
         }
     }
     s.push_str("</activity>");
@@ -88,7 +211,7 @@ pub fn sync_apple(project: &Project, path: &Path, ios: bool) -> Result<(), Strin
         crate::url_handlers::apple(project, d.get("CFBundleURLTypes")),
     )];
     if !project.manifest.file_types.is_empty() || d.contains_key("DayManagedDocumentTypes") {
-        managed.extend(document_keys(project, d, ios));
+        managed.extend(document_keys(project, d, ios, &descriptions(project)?));
     }
     let mut out = text.clone();
     for (key, value) in managed {
@@ -103,11 +226,14 @@ pub fn sync_apple(project: &Project, path: &Path, ios: bool) -> Result<(), Strin
 }
 
 /// The document-type keys `Day.toml`'s `[[file_types]]` call for, each with its wanted value
-/// (`None` removes the key). App-authored entries in `d` are kept.
+/// (`None` removes the key). App-authored entries in `d` are kept: Day marks its own document
+/// types by name (`day.document.<i>`) and lists the type identifiers it declared under
+/// `DayManagedDocumentTypes`, so a later build replaces exactly those.
 fn document_keys(
     project: &Project,
     d: &plist::Dictionary,
     ios: bool,
+    descriptions: &[String],
 ) -> Vec<(&'static str, Option<plist::Value>)> {
     let previous: Vec<String> = d
         .get("DayManagedDocumentTypes")
@@ -151,38 +277,39 @@ fn document_keys(
                 .is_some_and(|s| s.starts_with("day.document."))
         })
         .collect();
-    let mut imports: Vec<_> = d
-        .get("UTImportedTypeDeclarations")
-        .and_then(|v| v.as_array())
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|v| {
-            !v.as_dictionary()
-                .and_then(|d| d.get("UTTypeIdentifier"))
-                .and_then(|v| v.as_string())
-                .is_some_and(|s| previous.iter().any(|p| p == s))
-        })
-        .collect();
-    let mut managed_imports = Vec::new();
+    // App-authored declarations survive; Day's own (named in `previous`) are rebuilt below.
+    let keep_unmanaged = |key: &str| -> Vec<plist::Value> {
+        d.get(key)
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|v| {
+                !v.as_dictionary()
+                    .and_then(|d| d.get("UTTypeIdentifier"))
+                    .and_then(|v| v.as_string())
+                    .is_some_and(|s| previous.iter().any(|p| p == s))
+            })
+            .collect()
+    };
+    let mut imports = keep_unmanaged("UTImportedTypeDeclarations");
+    let mut exports = keep_unmanaged("UTExportedTypeDeclarations");
+    let mut managed = Vec::new();
     for (i, t) in project.manifest.file_types.iter().enumerate() {
-        let uti = t
-            .apple_uti
-            .clone()
-            .unwrap_or_else(|| format!("{}.document.{i}", project.manifest.app.id));
+        let uti = type_id(project, i, t);
+        let description = descriptions.get(i).cloned().unwrap_or_default();
         let mut item = plist::Dictionary::new();
         item.insert(
             "CFBundleTypeName".into(),
             format!("day.document.{i}").into(),
         );
-        item.insert("CFBundleTypeRole".into(), "Viewer".into());
-        item.insert("LSHandlerRank".into(), "Alternate".into());
+        item.insert("CFBundleTypeRole".into(), t.role.apple().into());
+        item.insert("LSHandlerRank".into(), t.rank.apple().into());
         item.insert(
             "LSItemContentTypes".into(),
             plist::Value::Array(vec![uti.clone().into()]),
         );
         docs.push(plist::Value::Dictionary(item));
-        // Known UTIs are imported, never redefined as owned/exported types.
         let mut tags = plist::Dictionary::new();
         tags.insert(
             "public.filename-extension".into(),
@@ -192,22 +319,34 @@ fn document_keys(
             "public.mime-type".into(),
             plist::Value::Array(t.mime_types.iter().cloned().map(Into::into).collect()),
         );
-        let mut imported = plist::Dictionary::new();
-        imported.insert("UTTypeIdentifier".into(), uti.into());
-        imported.insert(
-            "UTTypeConformsTo".into(),
-            plist::Value::Array(vec!["public.data".into()]),
-        );
-        imported.insert(
+        // An exported type is the app's own format and conforms to what the app says; an
+        // imported one is somebody else's, described only so the system can match its files.
+        let conforms: Vec<plist::Value> = if !t.exported {
+            vec!["public.data".into()]
+        } else if t.conforms_to.is_empty() {
+            vec!["public.data".into(), "public.content".into()]
+        } else {
+            t.conforms_to.iter().cloned().map(Into::into).collect()
+        };
+        let mut decl = plist::Dictionary::new();
+        decl.insert("UTTypeIdentifier".into(), uti.clone().into());
+        decl.insert("UTTypeDescription".into(), description.into());
+        decl.insert("UTTypeConformsTo".into(), plist::Value::Array(conforms));
+        decl.insert(
             "UTTypeTagSpecification".into(),
             plist::Value::Dictionary(tags),
         );
-        if !imports.iter().any(|v| {
+        let list = if t.exported {
+            &mut exports
+        } else {
+            &mut imports
+        };
+        if !list.iter().any(|v| {
             v.as_dictionary().and_then(|d| d.get("UTTypeIdentifier"))
-                == imported.get("UTTypeIdentifier")
+                == decl.get("UTTypeIdentifier")
         }) {
-            managed_imports.push(imported["UTTypeIdentifier"].clone());
-            imports.push(plist::Value::Dictionary(imported));
+            managed.push(plist::Value::String(uti));
+            list.push(plist::Value::Dictionary(decl));
         }
     }
     let declared = !project.manifest.file_types.is_empty();
@@ -218,11 +357,15 @@ fn document_keys(
         ),
         (
             "UTImportedTypeDeclarations",
-            Some(plist::Value::Array(imports)),
+            (!imports.is_empty()).then(|| plist::Value::Array(imports)),
+        ),
+        (
+            "UTExportedTypeDeclarations",
+            (!exports.is_empty()).then(|| plist::Value::Array(exports)),
         ),
         (
             "DayManagedDocumentTypes",
-            declared.then(|| plist::Value::Array(managed_imports)),
+            declared.then(|| plist::Value::Array(managed)),
         ),
     ];
     if ios && declared {
@@ -277,13 +420,54 @@ pub fn linux_entry(entry: String, types: &[FileType]) -> String {
     s.push('\n');
     s
 }
-pub fn windows_manifest(manifest: String, types: &[FileType]) -> String {
+/// The shared-mime-info package for the types the app defines (`exported = true`): installed as
+/// `share/mime/packages/<app-id>.xml`, it is what gives a custom extension a MIME type on Linux
+/// at all. Without it, `MimeType=` in the `.desktop` file names a type no file ever has. `None`
+/// when the app defines no type.
+pub fn linux_mime_package(types: &[FileType], descriptions: &[String]) -> Option<String> {
+    let mut body = String::new();
+    for (i, t) in types.iter().enumerate().filter(|(_, t)| t.exported) {
+        for mime in &t.mime_types {
+            body.push_str(&format!("  <mime-type type=\"{}\">\n", xml(mime)));
+            body.push_str(&format!(
+                "    <comment>{}</comment>\n",
+                xml(descriptions.get(i).map(String::as_str).unwrap_or_default())
+            ));
+            for ext in &t.extensions {
+                body.push_str(&format!("    <glob pattern=\"*.{}\"/>\n", xml(ext)));
+            }
+            let parent = if t.conforms_to.iter().any(|c| c == "public.json") {
+                "application/json"
+            } else if t
+                .conforms_to
+                .iter()
+                .any(|c| c == "public.text" || c == "public.plain-text")
+            {
+                "text/plain"
+            } else if t.conforms_to.iter().any(|c| c == "public.zip-archive") {
+                "application/zip"
+            } else {
+                "application/octet-stream"
+            };
+            body.push_str(&format!("    <sub-class-of type=\"{parent}\"/>\n"));
+            body.push_str("  </mime-type>\n");
+        }
+    }
+    (!body.is_empty()).then(|| {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<mime-info xmlns=\"http://www.freedesktop.org/standards/shared-mime-info\">\n{body}</mime-info>\n"
+        )
+    })
+}
+
+pub fn windows_manifest(manifest: String, types: &[FileType], descriptions: &[String]) -> String {
     if types.is_empty() {
         return manifest;
     }
     let mut s = String::from("<Extensions>");
     for (i, t) in types.iter().enumerate() {
-        s.push_str(&format!("<uap:Extension Category=\"windows.fileTypeAssociation\"><uap3:FileTypeAssociation Name=\"daydocument{i}\"><uap:SupportedFileTypes>"));
+        let name = descriptions.get(i).map(String::as_str).unwrap_or_default();
+        s.push_str(&format!("<uap:Extension Category=\"windows.fileTypeAssociation\"><uap3:FileTypeAssociation Name=\"daydocument{i}\"><uap:DisplayName>{}</uap:DisplayName><uap:SupportedFileTypes>", xml(name)));
         for e in &t.extensions {
             s.push_str(&format!("<uap:FileType>.{}</uap:FileType>", xml(e)))
         }
@@ -328,8 +512,16 @@ pub fn harmony_module(text: &str, types: &[FileType]) -> Result<String, String> 
     Ok(doc.to_string())
 }
 
-/// Per-user Open With registration. Never overwrite the extension's default association.
-pub fn nsis(script: String, types: &[FileType], id: &str, exe: &str) -> String {
+/// Per-user registration: every type lands in the extension's Open With list, and a type the
+/// app owns (`rank = "owner"`) also becomes the extension's default handler, with the previous
+/// default kept and restored on uninstall. Windows still lets the user's own choice win.
+pub fn nsis(
+    script: String,
+    types: &[FileType],
+    descriptions: &[String],
+    id: &str,
+    exe: &str,
+) -> String {
     if types.is_empty() {
         return script;
     }
@@ -342,6 +534,10 @@ pub fn nsis(script: String, types: &[FileType], id: &str, exe: &str) -> String {
     let mut uninstall = String::new();
     for (i, t) in types.iter().enumerate() {
         let prog = format!("{id}.document.{i}");
+        let name = quote(descriptions.get(i).map(String::as_str).unwrap_or_default());
+        install.push_str(&format!(
+            "  WriteRegStr HKCU \"Software\\Classes\\{prog}\" \"\" \"{name}\"\n  WriteRegStr HKCU \"Software\\Classes\\{prog}\\DefaultIcon\" \"\" '$\\\"$INSTDIR\\{exe}.exe$\\\",0'\n"
+        ));
         install.push_str(&format!(r#"  WriteRegStr HKCU "Software\Classes\{prog}\shell\open\command" "" '$\"$INSTDIR\{exe}.exe$\" --day-open-file $\"%1$\"'
 "#));
         for ext in &t.extensions {
@@ -349,6 +545,16 @@ pub fn nsis(script: String, types: &[FileType], id: &str, exe: &str) -> String {
             uninstall.push_str(&format!(
                 "  DeleteRegValue HKCU \"Software\\Classes\\.{ext}\\OpenWithProgids\" \"{prog}\"\n"
             ));
+            if t.rank == Rank::Owner {
+                // Take the extension's default, keeping whatever held it before.
+                install.push_str(&format!(
+                    "  ReadRegStr $0 HKCU \"Software\\Classes\\.{ext}\" \"\"\n  StrCmp $0 \"{prog}\" +2 0\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\" \"$0\"\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"\" \"{prog}\"\n"
+                ));
+                // Hand it back on uninstall, but only if the app still holds it.
+                uninstall.push_str(&format!(
+                    "  ReadRegStr $0 HKCU \"Software\\Classes\\.{ext}\" \"\"\n  StrCmp $0 \"{prog}\" 0 +4\n  ReadRegStr $1 HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\"\n  WriteRegStr HKCU \"Software\\Classes\\.{ext}\" \"\" \"$1\"\n  DeleteRegValue HKCU \"Software\\Classes\\.{ext}\" \"DayPreviousDefault\"\n"
+                ));
+            }
         }
         uninstall.push_str(&format!(
             "  DeleteRegKey HKCU \"Software\\Classes\\{prog}\"\n"
@@ -523,6 +729,7 @@ mod tests {
             extensions: vec!["epub".into()],
             mime_types: vec!["application/epub+zip".into()],
             apple_uti: Some("org.idpf.epub-container".into()),
+            ..Default::default()
         }]
     }
     #[test]
@@ -535,14 +742,14 @@ mod tests {
             ".epub"
         );
         assert!(
-            windows_manifest("    </Application>".into(), &t)
+            windows_manifest("    </Application>".into(), &t, &["EPUB book".into()])
                 .contains("<uap:FileType>.epub</uap:FileType>")
         );
     }
     #[test]
     fn generated_registrations_preserve_other_handlers_and_escape_paths() {
         let types = epub();
-        let appx = windows_manifest("<Package >    </Application>".into(), &types);
+        let appx = windows_manifest("<Package >    </Application>".into(), &types, &[]);
         assert!(appx.contains("xmlns:uap3="));
         assert!(appx.contains("<uap2:SupportedVerbs>"));
         assert!(appx.contains("&quot;%1&quot;"));
@@ -550,10 +757,13 @@ mod tests {
         let script = nsis(
             "Section \"Install\"\nSectionEnd\nSection \"Uninstall\"\nSectionEnd".into(),
             &types,
+            &[],
             "org.test.reader",
             "reader",
         );
         assert!(script.contains("OpenWithProgids"));
+        // Not an owner: the extension's default stays the user's.
+        assert!(!script.contains("DayPreviousDefault"));
         assert!(script.contains("DeleteRegValue"));
         assert!(!script.contains("DeleteRegKey HKCU \"Software\\Classes\\.epub\""));
         let module=harmony_module(r#"{module:{abilities:[{name:'EntryAbility',skills:[{actions:['existing.action']}]}]}}"#,&types).unwrap();
@@ -617,12 +827,8 @@ mod tests {
         let d = value.as_dictionary().unwrap();
         assert_eq!(d["CFBundleDocumentTypes"].as_array().unwrap().len(), 1);
         assert_eq!(d["CFBundleURLTypes"].as_array().unwrap().len(), 1);
-        assert!(
-            d["UTImportedTypeDeclarations"]
-                .as_array()
-                .unwrap()
-                .is_empty()
-        );
+        // Nothing left to declare: the emptied key goes too.
+        assert!(!d.contains_key("UTImportedTypeDeclarations"));
         std::fs::remove_dir_all(dir).unwrap();
     }
     /// A build must leave the scaffold's checked-in plist alone: CI asserts a pristine checkout
@@ -684,5 +890,115 @@ mod tests {
         t = epub();
         t[0].extensions = vec!["epub\"/><evil>".into()];
         assert!(validate(&t).is_err());
+    }
+    fn daynote() -> Vec<FileType> {
+        vec![FileType {
+            extensions: vec!["daynote".into()],
+            mime_types: vec!["application/x-daynote".into()],
+            role: Role::Editor,
+            rank: Rank::Owner,
+            exported: true,
+            conforms_to: vec!["public.json".into()],
+            ..Default::default()
+        }]
+    }
+    #[test]
+    fn an_owned_type_takes_the_windows_default_and_gives_it_back() {
+        let script = nsis(
+            "Section \"Install\"\nSectionEnd\nSection \"Uninstall\"\nSectionEnd".into(),
+            &daynote(),
+            &["Day Note".into()],
+            "org.test.notes",
+            "notes",
+        );
+        // Install: keep the old default, then take the extension.
+        assert!(script.contains(
+            "WriteRegStr HKCU \"Software\\Classes\\.daynote\" \"DayPreviousDefault\" \"$0\""
+        ));
+        assert!(script.contains(
+            "WriteRegStr HKCU \"Software\\Classes\\.daynote\" \"\" \"org.test.notes.document.0\""
+        ));
+        // The ProgID carries the type's name for Explorer's Type column.
+        assert!(script.contains(
+            "WriteRegStr HKCU \"Software\\Classes\\org.test.notes.document.0\" \"\" \"Day Note\""
+        ));
+        // Uninstall restores the previous default only while the app still holds it.
+        let uninstall = &script[script.find("Section \"Uninstall\"").unwrap()..];
+        assert!(uninstall.contains("StrCmp $0 \"org.test.notes.document.0\" 0 +4"));
+        assert!(uninstall.contains(
+            "DeleteRegValue HKCU \"Software\\Classes\\.daynote\" \"DayPreviousDefault\""
+        ));
+    }
+    #[test]
+    fn an_exported_type_gets_a_linux_mime_package() {
+        let package = linux_mime_package(&daynote(), &["Day Note".into()]).unwrap();
+        assert!(package.contains("<mime-type type=\"application/x-daynote\">"));
+        assert!(package.contains("<comment>Day Note</comment>"));
+        assert!(package.contains("<glob pattern=\"*.daynote\"/>"));
+        assert!(package.contains("<sub-class-of type=\"application/json\"/>"));
+        // Somebody else's format declares no MIME type of its own.
+        assert!(linux_mime_package(&epub(), &[]).is_none());
+    }
+    #[test]
+    fn conforms_to_needs_an_exported_type() {
+        let mut t = daynote();
+        t[0].exported = false;
+        assert!(validate(&t).is_err());
+        validate(&daynote()).unwrap();
+    }
+    #[test]
+    fn apple_declares_an_owned_type_as_exported_with_its_role_and_rank() {
+        let dir = std::env::temp_dir().join(format!("day-document-export-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("resource/locales/en")).unwrap();
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]\nname='notes-fixture'\nversion='0.1.0'\nedition='2024'\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("resource/locales/en/app.ftl"),
+            "file-type-note = Day Note\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("Day.toml"),"schema=1\n[app]\nid='org.test.notes'\n[[file_types]]\nextensions=['daynote']\nmime_types=['application/x-daynote']\nname='file-type-note'\nrole='editor'\nrank='owner'\nexported=true\nconforms_to=['public.json']\n").unwrap();
+        let project = crate::meta::find_project(Some(&dir)).unwrap();
+        let path = dir.join("Info.plist");
+        let mut seed = plist::Dictionary::new();
+        seed.insert("CFBundleName".into(), "Notes".into());
+        plist::Value::Dictionary(seed).to_file_xml(&path).unwrap();
+        sync_apple(&project, &path, false).unwrap();
+        let v = plist::Value::from_file(&path).unwrap();
+        let d = v.as_dictionary().unwrap();
+        let doc = d["CFBundleDocumentTypes"].as_array().unwrap()[0]
+            .as_dictionary()
+            .unwrap();
+        assert_eq!(doc["CFBundleTypeRole"].as_string(), Some("Editor"));
+        assert_eq!(doc["LSHandlerRank"].as_string(), Some("Owner"));
+        let exported = d["UTExportedTypeDeclarations"].as_array().unwrap()[0]
+            .as_dictionary()
+            .unwrap();
+        assert_eq!(
+            exported["UTTypeIdentifier"].as_string(),
+            Some("org.test.notes.document.0")
+        );
+        assert_eq!(exported["UTTypeDescription"].as_string(), Some("Day Note"));
+        assert_eq!(
+            exported["UTTypeConformsTo"].as_array().unwrap()[0].as_string(),
+            Some("public.json")
+        );
+        assert!(!d.contains_key("UTImportedTypeDeclarations"));
+        // Dropping the declaration removes Day's entries and nothing else.
+        std::fs::write(
+            dir.join("Day.toml"),
+            "schema=1\n[app]\nid='org.test.notes'\n",
+        )
+        .unwrap();
+        let project = crate::meta::find_project(Some(&dir)).unwrap();
+        sync_apple(&project, &path, false).unwrap();
+        let v = plist::Value::from_file(&path).unwrap();
+        let d = v.as_dictionary().unwrap();
+        assert!(!d.contains_key("UTExportedTypeDeclarations"));
+        assert!(!d.contains_key("CFBundleDocumentTypes"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

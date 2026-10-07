@@ -38,6 +38,7 @@ mod anim;
 mod build;
 pub mod conformance;
 pub mod frame;
+mod frames;
 pub mod image;
 mod layout;
 pub mod lifecycle;
@@ -46,6 +47,8 @@ pub mod menu;
 mod nav;
 mod present;
 pub mod shield;
+pub mod shortcuts;
+pub mod status;
 pub mod testing;
 pub mod toolbar;
 mod tree;
@@ -55,8 +58,8 @@ pub mod windows;
 
 pub use ambient::{
     Ambient, app_environment, environment, focused_environment, override_size_class, reset_ambient,
-    restore_reported_size_class, safe_area, set_safe_area, set_size_class, set_window_safe_area,
-    set_window_size_class, size_class, window_safe_area, window_size_class,
+    restore_reported_size_class, safe_area, seed_safe_area, set_safe_area, set_size_class,
+    set_window_safe_area, set_window_size_class, size_class, window_safe_area, window_size_class,
     window_size_class_untracked, with_environment,
 };
 pub use anim::{current_anim, with_animation};
@@ -78,12 +81,17 @@ pub use list::{
 };
 pub use menu::{
     dispatch_menu_action, has_app_menu, register_menu_action, register_scoped_menu_action,
-    set_app_menu,
+    set_app_menu, set_dock_menu,
 };
 pub use nav::*;
+pub use shortcuts::set_launcher_shortcuts;
+pub use status::{
+    KeepRunning, remove_status_item, set_app_progress, set_dock_visible, set_keep_running,
+    set_status_item, status_items,
+};
 pub mod documents;
 #[doc(hidden)]
-pub use documents::take_launch_files;
+pub use documents::{forward_launch_args, launch_link, take_launch_files};
 mod urls;
 pub use documents::{on_open_files, request_open_files};
 pub use present::*;
@@ -107,8 +115,9 @@ pub use day_spec::resource::{
 };
 pub use tree::*;
 pub use windows::{
-    WindowHandle, finish_window_open, focused_scope, focused_window, open_new_window,
-    open_preferences, open_window, register_new_window, register_preferences,
+    WindowHandle, current_window, finish_window_open, focused_scope, focused_window,
+    initial_window, monitors, open_new_window, open_new_window_for_group, open_preferences,
+    open_window, quit, register_new_window, register_new_window_for, register_preferences,
     register_preferences_with, window_by_key, window_title,
 };
 
@@ -794,6 +803,12 @@ pub fn launch_with<P: Platform>(
                 t.layout_if_needed();
             });
             day_reactive::on_turn_end(|| with_tree(|t| t.layout_if_needed()));
+            // The Dock menu lists the app's launcher shortcuts from the start (docs/menus.md),
+            // ahead of whatever `dock_menu(..)` the root just installed.
+            menu::install_dock_menu();
+            // A keep-running policy or a status item set before the tree existed reaches the
+            // backend now (docs/windows.md "Keeping the app running").
+            status::boot_sync();
 
             #[cfg(not(any(
                 target_arch = "wasm32",

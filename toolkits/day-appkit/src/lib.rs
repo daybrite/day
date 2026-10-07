@@ -78,12 +78,15 @@ use day_spec::{
 pub type Handle = Retained<NSView>;
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+mod dock;
 mod documents;
 mod frame;
 mod picker;
+mod status_item;
 mod textarea;
 mod toolbar;
 mod transfer;
+mod window_chrome;
 use objc2_app_kit::NSDraggingSource;
 
 pub mod ext;
@@ -4711,6 +4714,12 @@ fn undo_front(mtm: MainThreadMarker) -> Retained<DayUndoManager> {
 /// (docs/windows.md) reports to its own root and close tears down just that window.
 struct WinIvars {
     node: Option<NodeId>,
+    /// The tab group this window was opened in (`WindowTabbing::Group`/`Preferred`): the
+    /// tab bar's "+" opens another window of the same group.
+    group: Option<String>,
+    /// The last display state reported (`WindowState::code`), so a resize that does not change
+    /// the zoom state reports nothing.
+    last_state: Cell<i32>,
 }
 
 define_class!(
@@ -4820,6 +4829,8 @@ define_class!(
                     let target = self.ivars().node.unwrap_or(WINDOW_NODE);
                     emit(target, Event::WindowResized(size));
                 }
+                // Zooming is a resize with no notification of its own.
+                self.report_state_of(notification);
             })
         }
 
@@ -4831,7 +4842,10 @@ define_class!(
                     // subtree down on a DEFERRED hop (never inside this AppKit close frame).
                     Some(node) => emit(node, Event::WindowClosed),
                     // Primary window: closing it quits, taking secondaries with it
-                    // (docs/windows.md close policy).
+                    // (docs/windows.md close policy), unless the app keeps running without a
+                    // window (a status item, `KeepRunning::Always`): then it closes like any
+                    // other window and day-core decides.
+                    None if status_item::keeps_running() => emit(WINDOW_NODE, Event::WindowClosed),
                     None => {
                         let app = NSApplication::sharedApplication(self.mtm());
                         unsafe { app.terminate(None) };
@@ -4874,6 +4888,26 @@ define_class!(
                 }
             })
         }
+
+        #[unsafe(method(windowDidMiniaturize:))]
+        fn window_did_miniaturize(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || self.report_state_of(notification))
+        }
+
+        #[unsafe(method(windowDidDeminiaturize:))]
+        fn window_did_deminiaturize(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || self.report_state_of(notification))
+        }
+
+        #[unsafe(method(windowDidEnterFullScreen:))]
+        fn window_did_enter_full_screen(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || self.report_state_of(notification))
+        }
+
+        #[unsafe(method(windowDidExitFullScreen:))]
+        fn window_did_exit_full_screen(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || self.report_state_of(notification))
+        }
     }
 
     // The tab bar's "+" button walks the responder chain (window → delegate) for
@@ -4883,11 +4917,26 @@ define_class!(
         #[unsafe(method(newWindowForTab:))]
         fn new_window_for_tab(&self, _sender: Option<&NSObject>) {
             ffi_guard::contain((), || {
-                let _ = day_core::windows::open_new_window();
+                // A window in a tab group of its own gets another window of that group
+                // (`register_new_window_for`); everything else gets File ▸ New Window's.
+                let _ = match self.ivars().group.as_deref() {
+                    Some(group) => day_core::windows::open_new_window_for_group(group),
+                    None => day_core::windows::open_new_window(),
+                };
             })
         }
     }
 );
+
+impl DayWinDelegate {
+    fn report_state_of(&self, notification: &NSNotification) {
+        if let Some(obj) = unsafe { notification.object() }
+            && let Ok(win) = obj.downcast::<NSWindow>()
+        {
+            self.report_state(&win);
+        }
+    }
+}
 
 /// The day name for a key press, or `None` for every key the route does not carry — the
 /// [`day_spec::KeyEvent`] names (docs/menus.md).
@@ -4954,9 +5003,76 @@ impl DayWinDelegate {
 }
 
 impl DayWinDelegate {
-    fn new(mtm: MainThreadMarker, node: Option<NodeId>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(WinIvars { node });
+    fn new(mtm: MainThreadMarker, node: Option<NodeId>, group: Option<String>) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(WinIvars {
+            node,
+            group,
+            last_state: Cell::new(day_spec::WindowState::Normal.code()),
+        });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// Report the window's display state if it changed since the last report
+    /// (docs/windows.md "Window properties"): to the window's root node, or `WINDOW_NODE` for the
+    /// primary, the same routing as `WindowResized`.
+    fn report_state(&self, window: &NSWindow) {
+        let state = ns_window_state(window);
+        if self.ivars().last_state.replace(state.code()) != state.code() {
+            log::debug!("appkit: window state now {state:?}");
+            let target = self.ivars().node.unwrap_or(WINDOW_NODE);
+            emit(target, Event::WindowStateChanged(state));
+        }
+    }
+}
+
+/// What AppKit says a window is showing as: miniaturized wins (a fullscreen window can be
+/// neither), then fullscreen (whose frame also reads as zoomed), then zoomed.
+fn ns_window_state(window: &NSWindow) -> day_spec::WindowState {
+    if window.isMiniaturized() {
+        day_spec::WindowState::Minimized
+    } else if window
+        .styleMask()
+        .contains(objc2_app_kit::NSWindowStyleMask::FullScreen)
+    {
+        day_spec::WindowState::Fullscreen
+    } else if window.isZoomed() {
+        day_spec::WindowState::Maximized
+    } else {
+        day_spec::WindowState::Normal
+    }
+}
+
+/// Ask AppKit for `state`, undoing whatever the window is in first: fullscreen and miniaturized
+/// have to be left before a window can zoom, and each is its own toggle.
+fn set_ns_window_state(window: &NSWindow, state: day_spec::WindowState) {
+    use day_spec::WindowState as S;
+    let current = ns_window_state(window);
+    if current == state {
+        return;
+    }
+    unsafe {
+        match current {
+            S::Minimized => window.deminiaturize(None),
+            // Leaving fullscreen animates; asking for another state in the same turn would be
+            // dropped by AppKit mid-transition, so the request stops at leaving it. The state
+            // signal reads back `Normal`, and a second request takes it from there.
+            S::Fullscreen => {
+                window.toggleFullScreen(None);
+                return;
+            }
+            S::Maximized if state != S::Minimized => window.zoom(None),
+            _ => {}
+        }
+        match state {
+            S::Normal => {}
+            S::Minimized => window.miniaturize(None),
+            S::Maximized => {
+                if !window.isZoomed() {
+                    window.zoom(None)
+                }
+            }
+            S::Fullscreen => window.toggleFullScreen(None),
+        }
     }
 }
 
@@ -5149,6 +5265,21 @@ impl AppKit {
         self.mtm
     }
 
+    /// The `NSWindow` whose content container is `host`: a secondary window, or the primary.
+    fn ns_window_for(&self, host: &Handle) -> Option<Retained<NSWindow>> {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| ptr_of(&w.content) == ptr_of(host))
+        {
+            return Some(w.window.clone());
+        }
+        self.content
+            .as_ref()
+            .filter(|c| ptr_of(c) == ptr_of(host))
+            .and(self.window.clone())
+    }
+
     /// Build a Day window: titled + closable (Preferences kind drops resize/minimize and
     /// disallows tabbing per macOS convention; Normal windows share the `day.normal`
     /// tabbing group), a flipped content view, and a per-window delegate (`node`: `None` =
@@ -5156,50 +5287,66 @@ impl AppKit {
     /// the AppKit default would double-release under us on close.
     fn make_window(
         &self,
-        title: &str,
-        size: Size,
-        min_size: Option<Size>,
+        options: &WindowOptions,
         prefs_style: bool,
         node: Option<NodeId>,
     ) -> (Retained<NSWindow>, Retained<DayWinDelegate>, Handle) {
         let mtm = self.mtm;
+        let (title, size, min_size, tabbing) = (
+            options.title.as_str(),
+            options.size,
+            options.min_size,
+            &options.tabbing,
+        );
         let content_rect =
             NSRect::new(NSPoint::new(0.0, 0.0), NSSize::new(size.width, size.height));
-        let mut style = NSWindowStyleMask::Titled | NSWindowStyleMask::Closable;
-        if !prefs_style {
-            style |= NSWindowStyleMask::Miniaturizable | NSWindowStyleMask::Resizable;
-            // The unified title bar runs the full width, which is what lets a toolbar's
-            // SIDEBAR TRACKING SEPARATOR find the split's divider and pin the sidebar's own
-            // items over the sidebar (docs/toolbars.md). AppKit only configures that item on a
-            // window with this mask, and Mail, Finder and Notes all carry it.
-            style |= NSWindowStyleMask::FullSizeContentView;
-        }
-        let window = unsafe {
-            NSWindow::initWithContentRect_styleMask_backing_defer(
-                NSWindow::alloc(mtm),
-                content_rect,
-                style,
-                NSBackingStoreType::Buffered,
-                false,
-            )
-        };
+        // The kind decides the controls, the chrome decides the frame (docs/window-chrome.md).
+        let style = window_chrome::style_mask(options, prefs_style);
+        let window = window_chrome::alloc_window(
+            mtm,
+            content_rect,
+            style,
+            options.chrome == day_spec::WindowChrome::Frameless,
+        );
         unsafe { window.setReleasedWhenClosed(false) };
         window.setTitle(&NSString::from_str(title));
         if let Some(min) = min_size {
             unsafe { window.setContentMinSize(NSSize::new(min.width, min.height)) };
         }
-        if prefs_style {
-            window.setTabbingMode(objc2_app_kit::NSWindowTabbingMode::Disallowed);
-        } else {
+        if let Some(max) = options.max_size {
+            unsafe { window.setContentMaxSize(NSSize::new(max.width, max.height)) };
+        }
+        use day_spec::WindowTabbing as T;
+        use objc2_app_kit::NSWindowTabbingMode as M;
+        let group = match tabbing {
+            T::Group(g) | T::Preferred(g) => Some(g.clone()),
+            T::Automatic | T::Disallowed => None,
+        };
+        match tabbing {
+            _ if prefs_style => window.setTabbingMode(M::Disallowed),
+            T::Disallowed => window.setTabbingMode(M::Disallowed),
             // Same-kind Day windows group as native tabs (System Settings "prefer tabs",
             // View ▸ Show Tab Bar, Merge All Windows) — meaningful once a second Normal
             // window can exist; inert while automatic tabbing is globally off (see `run`).
-            unsafe { window.setTabbingIdentifier(&NSString::from_str("day.normal")) };
+            T::Automatic => unsafe {
+                window.setTabbingIdentifier(&NSString::from_str("day.normal"))
+            },
+            T::Group(g) => unsafe { window.setTabbingIdentifier(&NSString::from_str(g)) },
+            T::Preferred(g) => {
+                unsafe { window.setTabbingIdentifier(&NSString::from_str(g)) };
+                window.setTabbingMode(M::Preferred);
+            }
         }
-        let delegate = DayWinDelegate::new(mtm, node);
+        if group.is_some() {
+            // A named group is the app asking for tabs, so the class-wide switch `run` may have
+            // turned off (no New Window builder) goes back on for it.
+            unsafe { NSWindow::setAllowsAutomaticWindowTabbing(true, mtm) };
+        }
+        let delegate = DayWinDelegate::new(mtm, node, group);
         window.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
         let content = view_of(DayFlipped::new(mtm));
         window.setContentView(Some(&content));
+        window_chrome::apply(&window, &content, options);
         // Tab / Shift-Tab (docs/focus.md). AppKit does NOT derive the key view loop from the view
         // hierarchy: `nextKeyView` is nil on a programmatically built window and the loop stays
         // empty, so Tab moves focus OUT of a text field and onto nothing — measured on the
@@ -5814,6 +5961,41 @@ impl Toolkit for AppKit {
             | Cap::TreeMove
             // Real NSWindows with native tabbing + the Windows menu (docs/windows.md).
             | Cap::MultiWindow
+            // `miniaturize:` / `zoom:` / `toggleFullScreen:`, reported back through the window
+            // delegate's notifications (docs/windows.md "Window properties").
+            | Cap::WindowStates
+            | Cap::WindowFullscreen
+            // `NSWindowSharingNone`: captures, recordings and screen sharing see an empty window.
+            | Cap::ContentProtection
+            // Per-window `tabbingIdentifier` / `tabbingMode`, with the "+" opening the group's
+            // own builder.
+            | Cap::WindowTabbing
+            // `applicationDockMenu:` on the app delegate (docs/menus.md).
+            | Cap::DockMenu
+            // Borderless windows that still take key, a transparent title bar over the
+            // content, a clear window background, and `NSVisualEffectView` materials behind the
+            // content (docs/window-chrome.md).
+            | Cap::FramelessWindow
+            | Cap::OverlayTitleBar
+            | Cap::TransparentWindow
+            | Cap::WindowMaterial
+            // `performWindowDragWithEvent:` from a press on the region's own background.
+            | Cap::DragRegion
+            // `NSStatusItem`s in the menu bar, a progress bar drawn on the Dock tile, and the
+            // accessory activation policy (docs/status-item.md).
+            | Cap::StatusItem
+            | Cap::AppProgress
+            | Cap::DockVisibility
+            // Frame, limits, level, Spaces, style-mask controls, per-window appearance, Dock
+            // bounces, and `NSScreen` (docs/windows.md "Window properties").
+            | Cap::WindowGeometry
+            | Cap::WindowPosition
+            | Cap::WindowLevel
+            | Cap::WindowAppearance
+            | Cap::RequestAttention
+            | Cap::Monitors
+            // Run-time shortcuts appear in the Dock menu beside the declared ones.
+            | Cap::DynamicShortcuts
             // A real NSToolbar in the title bar (docs/toolbars.md).
             | Cap::Toolbar
             // The bar holds a native search field (docs/search.md).
@@ -8823,13 +9005,7 @@ impl Toolkit for AppKit {
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<Handle> {
         let prefs = kind == day_spec::WindowKind::Preferences;
-        let (window, delegate, content) = self.make_window(
-            &options.title,
-            options.size,
-            options.min_size,
-            prefs,
-            Some(id),
-        );
+        let (window, delegate, content) = self.make_window(options, prefs, Some(id));
         if prefs {
             // A settings panel is one-of-a-kind and centered, and it stays OUT of the Window
             // menu — the macOS convention every stock app follows (docs/windows.md).
@@ -8858,6 +9034,11 @@ impl Toolkit for AppKit {
                     .unwrap_or(NSPoint::new(0.0, 0.0)),
             };
             self.cascade = Some(unsafe { window.cascadeTopLeftFromPoint(from) });
+        }
+        window_chrome::place(&window, options.placement);
+        if window_chrome::is_overlay(&window) {
+            // The first report of the title bar's height, before any resize sends one.
+            let _ = pin_below_title_bar(&window);
         }
         window.makeKeyAndOrderFront(None);
         // Same macOS 26 quirk as the primary (`run`): a window ordered front before its
@@ -8937,6 +9118,65 @@ impl Toolkit for AppKit {
         {
             w.setTitle(&NSString::from_str(title));
         }
+    }
+
+    fn apply_window(&mut self, host: &Handle, change: &day_spec::WindowChange) {
+        use day_spec::WindowChange as C;
+        let Some(window) = self.ns_window_for(host) else {
+            return;
+        };
+        match change {
+            C::State(state) => set_ns_window_state(&window, *state),
+            // Screen capture, recording and sharing see an empty window; the user still does.
+            C::ContentProtected(on) => window.setSharingType(if *on {
+                objc2_app_kit::NSWindowSharingType::None
+            } else {
+                objc2_app_kit::NSWindowSharingType::ReadOnly
+            }),
+            other => window_chrome::apply_property(&window, other),
+        }
+    }
+
+    fn window_frame(&self, host: &Handle) -> Option<day_spec::Rect> {
+        self.ns_window_for(host)
+            .map(|w| window_chrome::frame_of(&w))
+    }
+
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        window_chrome::monitors(self.mtm)
+    }
+
+    /// The Dock menu lists them: day-core folds the run-time shortcuts into the model it sends
+    /// through `set_dock_menu`, so there is nothing more to install here.
+    fn set_launcher_shortcuts(&mut self, _shortcuts: &[day_spec::LauncherShortcut]) {}
+
+    fn set_dock_menu(&mut self, items: &[day_spec::MenuItem]) {
+        dock::set_app_items(self.mtm, items);
+    }
+
+    fn set_drag_region(&mut self, h: &Handle, drag: bool) {
+        window_chrome::set_drag_region(h, drag);
+    }
+
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]) {
+        status_item::set_items(self.mtm, items);
+    }
+
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress) {
+        status_item::set_progress(self.mtm, progress);
+    }
+
+    fn set_dock_visible(&mut self, visible: bool) {
+        status_item::set_dock_visible(self.mtm, visible);
+    }
+
+    fn set_keep_running(&mut self, keep: bool) {
+        status_item::set_keep_running(keep);
+    }
+
+    fn quit_app(&mut self) {
+        let app = NSApplication::sharedApplication(self.mtm);
+        unsafe { app.terminate(None) };
     }
 
     fn present(&mut self, req: u64, spec: &present::PresentSpec) {
@@ -9269,7 +9509,25 @@ impl Platform for AppKit {
             }
         }
         let app = NSApplication::sharedApplication(mtm);
-        app.setActivationPolicy(NSApplicationActivationPolicy::Regular);
+        // A menu-bar app keeps out of the Dock from the first frame (docs/status-item.md): its
+        // bundle carries LSUIElement, and an unbundled `day launch` run hears DAY_MACOS_DOCK=0.
+        let menu_bar_app = std::env::var("DAY_MACOS_DOCK").is_ok_and(|v| v == "0")
+            || unsafe {
+                let bundle = objc2_foundation::NSBundle::mainBundle();
+                let value: Option<Retained<objc2::runtime::AnyObject>> = msg_send![
+                    &bundle,
+                    objectForInfoDictionaryKey: &*NSString::from_str("LSUIElement")
+                ];
+                value.is_some_and(|v| {
+                    let on: bool = msg_send![&v, boolValue];
+                    on
+                })
+            };
+        app.setActivationPolicy(if menu_bar_app {
+            NSApplicationActivationPolicy::Accessory
+        } else {
+            NSApplicationActivationPolicy::Regular
+        });
         let document_delegate = documents::delegate(mtm);
         app.setDelegate(Some(ProtocolObject::from_ref(&*document_delegate)));
         // DAY_THEME=light|dark forces the appearance app-wide (themed CI screenshot runs and
@@ -9298,8 +9556,7 @@ impl Platform for AppKit {
         install_appearance_observer();
         install_reduce_motion_observer();
 
-        let (window, delegate, content) =
-            self.make_window(&options.title, options.size, options.min_size, false, None);
+        let (window, delegate, content) = self.make_window(&options, false, None);
         // Optional window-appearance override (opt-in via env). An app with a fixed light/dark
         // palette sets `DAY_APPEARANCE=light|dark` so native controls (list, fields, editor) match
         // its own colors instead of following the system appearance. Unset = follow the system.
@@ -9329,7 +9586,9 @@ impl Platform for AppKit {
         // `ready` ran the app's root() — registrations are in. Without a new-window
         // builder only one Normal window can ever exist: turn automatic tabbing off so no
         // tab bar, "+" button, or dead tab menu items appear (docs/windows.md).
-        if day_core::windows::new_window_action_id() == 0 {
+        if day_core::windows::new_window_action_id() == 0
+            && options.tabbing == day_spec::WindowTabbing::Automatic
+        {
             unsafe { NSWindow::setAllowsAutomaticWindowTabbing(false, mtm) };
         }
         // The DEFAULT menu bar was built before `root()` ran, so its registration-dependent
@@ -9352,6 +9611,8 @@ impl Platform for AppKit {
         let autosave = NSString::from_str("day.main");
         if deterministic || !unsafe { window.setFrameUsingName(&autosave) } {
             window.center();
+            // An explicit placement wins over centering, but not over the frame the user left.
+            window_chrome::place(&window, options.placement);
         }
         // A scripted run whose capture needs a display scale this host's displays lack opens on
         // the one `day launch` made for it (`DAY_WINDOW_SCREEN`, a CGDirectDisplayID): a
@@ -9981,6 +10242,14 @@ pub(crate) fn pin_below_title_bar(window: &NSWindow) -> Option<Size> {
     let full = content.frame().size;
     let layout = unsafe { window.contentLayoutRect() }.size;
     let top = (full.height - layout.height).max(0.0);
+    // An overlay title bar (docs/window-chrome.md) is the one place the content belongs under
+    // the bar: it keeps the full height, and the bar's height goes to the app as a safe-area
+    // inset so it can pad its own content.
+    if window_chrome::is_overlay(window) {
+        unsafe { content.setBoundsOrigin(NSPoint::new(0.0, 0.0)) };
+        window_chrome::report_title_bar_inset(window, top);
+        return Some(Size::new(full.width, full.height));
+    }
     unsafe { content.setBoundsOrigin(NSPoint::new(0.0, -top)) };
     Some(Size::new(full.width, (full.height - top).max(0.0)))
 }

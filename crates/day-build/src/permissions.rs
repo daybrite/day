@@ -57,7 +57,8 @@ pub struct PermissionSpec {
     /// The kebab-case name written in `Day.toml`'s `[permissions]` table.
     pub name: &'static str,
     /// The `day_part_permissions::Permission` variant spelling, so `day lint` can map a source
-    /// reference back to a declaration.
+    /// reference back to a declaration. Empty for a declaration-only row, which nothing requests
+    /// at run time.
     pub variant: &'static str,
     pub android: &'static [AndroidPermission],
     pub ios: &'static [&'static str],
@@ -195,7 +196,24 @@ pub const ALL: &[PermissionSpec] = &[
         ohos: &[ohos("ohos.permission.ACTIVITY_MOTION")],
         needs_reason: true,
     },
+    PermissionSpec {
+        name: "screen-privacy",
+        // Declaration only, so no variant: nothing asks the user, and `day_part_permissions` has
+        // nothing to request. It opts a HarmonyOS app into `WindowHandle::set_content_protected`
+        // (`setWindowPrivacyMode`, docs/windows.md); every other platform keeps a window out of
+        // captures without a permission.
+        variant: "",
+        android: &[],
+        ios: &[],
+        macos: &[],
+        ohos: &[ohos("ohos.permission.PRIVACY_WINDOW")],
+        needs_reason: false,
+    },
 ];
+
+/// The HarmonyOS permissions in [`ALL`] that the system grants at install (`system_grant`): no
+/// prompt shows them to the user, so their `module.json5` entries carry no reason.
+pub const OHOS_SYSTEM_GRANT: &[&str] = &["ohos.permission.PRIVACY_WINDOW"];
 
 /// The warning both the CLI and the docs use for HarmonyOS photo access, kept in one place so they
 /// cannot drift.
@@ -207,9 +225,11 @@ pub fn find(name: &str) -> Option<&'static PermissionSpec> {
     ALL.iter().find(|s| s.name == name)
 }
 
-/// Look a permission up by its Rust variant spelling (`day lint`'s source scan).
+/// Look a permission up by its Rust variant spelling (`day lint`'s source scan). A
+/// declaration-only row has no variant and is never found this way.
 pub fn find_variant(variant: &str) -> Option<&'static PermissionSpec> {
-    ALL.iter().find(|s| s.variant == variant)
+    ALL.iter()
+        .find(|s| !s.variant.is_empty() && s.variant == variant)
 }
 
 /// Every valid `[permissions]` key, for error messages.
@@ -234,7 +254,9 @@ mod tests {
                 spec.name
             );
             assert_eq!(find(spec.name).map(|s| s.variant), Some(spec.variant));
-            assert_eq!(find_variant(spec.variant).map(|s| s.name), Some(spec.name));
+            if !spec.variant.is_empty() {
+                assert_eq!(find_variant(spec.variant).map(|s| s.name), Some(spec.name));
+            }
         }
         assert_eq!(names().len(), ALL.len());
         assert!(find("nonsense").is_none());
@@ -291,12 +313,28 @@ mod tests {
                 );
             } else {
                 assert!(
-                    spec.ios.is_empty() && spec.macos.is_empty() && spec.ohos.is_empty(),
+                    spec.ios.is_empty()
+                        && spec.macos.is_empty()
+                        && spec
+                            .ohos
+                            .iter()
+                            .all(|p| OHOS_SYSTEM_GRANT.contains(&p.name)),
                     "{} needs no reason, so it must declare no reason-carrying key",
                     spec.name
                 );
             }
         }
+    }
+
+    /// Screen privacy is a HarmonyOS opt-in and nothing else: no prompt, so no reason, and no
+    /// other platform needs a permission to keep a window out of captures.
+    #[test]
+    fn screen_privacy_declares_harmonyos_only() {
+        let spec = find("screen-privacy").expect("screen-privacy");
+        assert!(spec.android.is_empty() && spec.ios.is_empty() && spec.macos.is_empty());
+        assert_eq!(spec.ohos.len(), 1);
+        assert_eq!(spec.ohos[0].name, "ohos.permission.PRIVACY_WINDOW");
+        assert!(!spec.needs_reason);
     }
 
     /// macOS has no CoreMotion activity API, so it has nothing to declare for motion.

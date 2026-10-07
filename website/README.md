@@ -8,6 +8,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 The marketing + documentation site for **Day**, built with [Astro](https://astro.build). Deployed
 to GitHub Pages at <https://daybrite.dev>.
 
+App project websites use the separate [daysite template](https://github.com/daybrite/daysite).
+The [App websites guide](src/content/docs/websites.md) covers their configuration, reusable
+themes, custom Astro pages, built-in Actions deployment, and GitHub Pages/custom-domain setup.
+This directory maintains Day's own documentation and marketing site.
+
 ## Local development
 
 From the repository root:

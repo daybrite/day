@@ -22,7 +22,7 @@ use crate::{Reply, Step, b64encode, next_capture_revision};
 
 pub use day_script_proto::ShotPolicy;
 
-/// One test's outcome, the shape `evidence.json` records (docs/testing.md).
+/// One test's outcome, the shape `conformance.json` records (docs/testing.md).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Outcome {
     pub name: String,

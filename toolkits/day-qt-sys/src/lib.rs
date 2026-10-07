@@ -32,6 +32,76 @@ unsafe extern "C" {
     pub fn day_qt_window_set_title(win: *mut c_void, title: *const c_char);
     pub fn day_qt_window_destroy(win: *mut c_void);
     pub fn day_qt_window_is_active(win: *mut c_void) -> c_int;
+    /// Display-state reports for every Day window (docs/windows.md "Window properties"): the
+    /// window's node id (0 = the primary) and a `day_spec::WindowState` code.
+    pub fn day_qt_set_window_state_cb(state: extern "C" fn(u64, c_int));
+    /// Ask for a display state by `day_spec::WindowState` code (showNormal / showMinimized /
+    /// showMaximized / showFullScreen); the outcome comes back through the state callback.
+    pub fn day_qt_window_set_state(win: *mut c_void, code: c_int);
+
+    // The desktop shell (docs/window-chrome.md, docs/windows.md, docs/status-item.md).
+    /// Keep the process when the primary window closes; its close then reports as node 0.
+    pub fn day_qt_set_keep_running(on: c_int);
+    /// `QCoreApplication::quit`.
+    pub fn day_qt_quit();
+    /// Whether Qt runs on its Wayland platform (no window positions there).
+    pub fn day_qt_is_wayland() -> c_int;
+    /// The chrome a window opens with, before it is first shown.
+    pub fn day_qt_window_set_chrome(
+        win: *mut c_void,
+        frameless: c_int,
+        transparent: c_int,
+        shadow: c_int,
+        resizable: c_int,
+    );
+    /// Open position: 1 centered, 2 at (x, y).
+    pub fn day_qt_window_place(win: *mut c_void, mode: c_int, x: c_double, y: c_double);
+    /// Move (frame top-left) and/or resize (content size).
+    pub fn day_qt_window_set_frame(
+        win: *mut c_void,
+        has_origin: c_int,
+        x: c_double,
+        y: c_double,
+        has_size: c_int,
+        w: c_double,
+        h: c_double,
+    );
+    /// The frame into `out[4]`; 0 where the platform does not say.
+    pub fn day_qt_window_frame(win: *mut c_void, out: *mut c_double) -> c_int;
+    /// Content-size limits; negative lifts a bound.
+    pub fn day_qt_window_set_limits(
+        win: *mut c_void,
+        min_w: c_double,
+        min_h: c_double,
+        max_w: c_double,
+        max_h: c_double,
+    );
+    /// 0 on top, 1 tool window, 2 minimize, 3 maximize, 4 close button, 5 resizable, 6 visible.
+    pub fn day_qt_window_set_switch(win: *mut c_void, which: c_int, on: c_int);
+    pub fn day_qt_window_alert(win: *mut c_void, critical: c_int);
+    pub fn day_qt_screen_count() -> c_int;
+    /// `out[9]`: frame, work area, scale. Returns 1 primary, 0 other, -1 out of range.
+    pub fn day_qt_screen_info(
+        i: c_int,
+        out: *mut c_double,
+        name: *mut c_char,
+        name_len: c_int,
+        id: *mut c_char,
+        id_len: c_int,
+    ) -> c_int;
+    pub fn day_qt_set_drag_region(widget: *mut c_void, on: c_int);
+    pub fn day_qt_tray_available() -> c_int;
+    pub fn day_qt_tray_new() -> *mut c_void;
+    pub fn day_qt_tray_update(
+        tray: *mut c_void,
+        icon: *const c_char,
+        fallback: c_int,
+        mask: c_int,
+        tooltip: *const c_char,
+        menu: *mut c_void,
+        activate: u64,
+    );
+    pub fn day_qt_tray_delete(tray: *mut c_void);
     pub fn day_qt_container_new() -> *mut c_void;
     pub fn day_qt_app_set_rtl();
     pub fn day_qt_open_url(url: *const c_char);

@@ -49,3 +49,8 @@ windows = { version = "0.62", features = ["ApplicationModel_DataTransfer", "Foun
 # at its v4_10 level, so the library on the machine decides at run time whether the call exists.
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
+
+# The Linux status item and launcher entry (docs/status-item.md): StatusNotifierItem + dbusmenu
+# and Unity LauncherEntry over the session bus, std-only.
+[target.'cfg(target_os = "linux")'.dependencies]
+day-dbus = { workspace = true }

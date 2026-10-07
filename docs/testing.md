@@ -1,6 +1,6 @@
 ---
 title: "Tests in the app"
-description: "day test: #[day::test] cases that run inside a built Day app on a chosen toolkit, GUI and headless, the conformance app, the evidence they leave, and the mock harness that runs the same cases under cargo test."
+description: "day test: #[day::test] cases that run inside a built Day app on a chosen toolkit, GUI and headless, the conformance app, the results they leave, and the mock harness that runs the same cases under cargo test."
 ---
 
 <!--
@@ -24,7 +24,7 @@ environment). The same function runs on the mock toolkit under `cargo test`, so 
 binding or id fails in milliseconds before a toolkit is ever involved.
 
 A test is named after its function, with hyphens for underscores: `button_press` runs as
-`button-press`. The name has one source, so the CLI, the report, the evidence and an editor
+`button-press`. The name has one source, so the CLI, the report, `conformance.json` and an editor
 reading the source all agree on it.
 
 ## Declaring a test
@@ -112,7 +112,7 @@ it and no browser starts on the machine running the tests.
 
 A field a toolkit cannot read (a secure field's masked text, a toolkit with no capture,
 anything a backend has no getter for) does not fail the case: the report lists it as `native_unread` (`"<id> <field>"`), so the
-evidence shows exactly what was proven natively and what only in Day's tree.
+`conformance.json` shows exactly what was proven natively and what only in Day's tree.
 
 ### The test host
 
@@ -227,7 +227,7 @@ prints one line per test:
       slider-range ............................ skipped   Cap::Animation is Unsupported on this toolkit
       text-field-secure ....................... FAILED    assert_text tfs-len: "13" ≠ "12"
       8 tests: 6 passed, 1 skipped, 1 failed
-      Evidence build/day/screenshots/macos-appkit/default/evidence.json
+      Results build/day/screenshots/macos-appkit/default/conformance.json
 ```
 
 A failed test fails the run the way a failed script step does (exit 5). With no `--project`,
@@ -263,12 +263,12 @@ tests inside it: a breakpoint in the app holds the run. The extension's own
 Beside the run's screenshots, the same place a dayscript run writes:
 
 ```
-build/day/screenshots/<target>/<variant>/evidence.json
+build/day/screenshots/<target>/<variant>/conformance.json
 build/day/screenshots/<target>/<variant>/tests/<test>/<shot>.png
 build/day/screenshots/<target>/<variant>/tests/<test>/failed.png    # on a failure
 ```
 
-`evidence.json` is the contract between the CLI and whatever reads a run; there is no
+`conformance.json` is the contract between the CLI and whatever reads a run; there is no
 command to produce or merge it, only this layout (with a device profile, `<target>/<device>/<variant>/`):
 
 ```json
@@ -307,13 +307,13 @@ after a template change; CI runs it on every leg.
 
 `ci.yml`'s `conformance` job runs the app through `daybrite/actions`' `dayapp.yml` on all nine
 targets, with the run's own CLI, one phone profile per mobile OS, and `dayscript/conformance.yaml`
-as the script; its `setup-command` is `generate.sh`, run with that CLI. Each leg uploads its `screenshots/` tree (so `evidence.json` and the captures
-ride along) as `conformance-screenshots-<target>[-<slug>]`; `conformance-evidence` merges the
-`evidence.json` files into one object keyed by the path each was written at
+as the script; its `setup-command` is `generate.sh`, run with that CLI. Each leg uploads its `screenshots/` tree (so `conformance.json` and the captures
+ride along) as `conformance-screenshots-<target>[-<slug>]`; `conformance-results` merges the
+`conformance.json` files into one object keyed by the path each was written at
 (`<target>[/<device>]/<variant>`), copies the captures beside it under `shots/`, and uploads the
-pair as the `conformance-evidence` artifact. A failed test fails its leg.
+pair as the `conformance-results` artifact. A failed test fails its leg.
 
-The same job then runs `scripts/ci/conformance-claims.py` over the merged evidence. Each leg's
+The same job then runs `scripts/ci/conformance-claims.py` over the merged results. Each leg's
 `caps` (what its toolkit answered during the run) is held against
 [docs/coverage-matrix.md](coverage-matrix.md), which is generated from source: a disagreement
 fails the job, naming the target and capability, because the published matrix would then be
@@ -327,7 +327,7 @@ the workflow sit beside the showcase's in one run.
 
 A pass says the toolkit realized the pieces, the drive's events reached the app's signals, the
 assertions held on day-core's state, and the native widget reports the same text, value and
-state, except for the fields the evidence lists as `native_unread`. It does not say native
+state, except for the fields `conformance.json` lists as `native_unread`. It does not say native
 INPUT would have produced the same: the drive's events are injected, as a script's are. The
 native reads are `assert_native`, `a11y_audit` (where the toolkit reads its accessibility tree
 back), `assert_no_placeholders`, and the captures. Captures are illustration; a case asserts
@@ -366,9 +366,9 @@ What a pass does not yet cover, so a skip or an unread field reads as recorded:
 
 ## Follow-ups
 
-- The website's coverage pages and per-piece galleries, read from the `conformance-evidence`
+- The website's coverage pages and per-piece galleries, read from the `conformance-results`
   artifact of the latest green run on `main`.
 - `--watch` and a reusable detached app between runs; a `--baseline` comparison against the
-  last published evidence.
+  last published results.
 - A scratch directory for headless tests, on the app's own data directory per platform.
 - The remaining built-in pieces' cases.

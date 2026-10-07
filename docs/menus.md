@@ -400,17 +400,32 @@ matrix.
   quartz bridge that mirrors the model into `NSMenu` does not carry it across. Linux GTK's
   in-window `PopoverMenuBar` resolves the same action group directly and is unaffected.
 
-## Future surfaces: dock, taskbar, and launcher menus
+## Dock menu
 
-The same [`MenuEntry`] tree is the right shape for the app-wide surfaces day does not drive
-yet: a macOS Dock menu is the existing builder plus one delegate hook
-(`applicationDockMenu(_:)`), while Windows jump lists and `.desktop` Actions persist while
-the app is closed, so their dispatch would have to lower to a relaunch argument; that is the
-design gap, gated on those platforms' deep-link intake.
+`dock_menu(entries)` installs the items macOS lists when the user right-clicks the app's Dock
+icon, above the system's Show, Hide and Quit (`Cap::DockMenu`). The entries are the same
+`MenuEntry` tree as `app_menu`, with ordinary closures, because the Dock menu only exists while
+the app runs. `dock_menu_reactive(builder)` rebuilds it whenever a signal the builder reads
+changes, for a "Resume <document>" item or a check mark:
 
-Launcher shortcuts already shipped by another road: Day.toml `[[shortcuts]]` drives iOS,
-Android, and HarmonyOS as route-keyed saved deep links, and
-[docs/deep-links.md](deep-links.md) describes that end to end.
+```rust
+use day::prelude::*;
+
+fn install_dock_menu(timer_running: Signal<bool>) {
+    dock_menu_reactive(move || {
+        vec![
+            menu_item(if timer_running.get() { "Pause Timer" } else { "Start Timer" })
+                .action(move || timer_running.set(!timer_running.get())),
+            menu_item("New Note").action(new_note),
+        ]
+    });
+}
+```
+
+The app's launcher shortcuts ([docs/deep-links.md](deep-links.md#launcher-shortcuts)) come first
+in the menu, then these entries. Other platforms have no Dock menu; their equivalents are the
+shortcuts themselves: Windows jump lists, Linux `.desktop` actions, iOS quick actions, Android
+launcher shortcuts.
 
 ## Runtime language changes: `app_menu_reactive`
 

@@ -322,6 +322,33 @@ pub fn app_menu_reactive(builder: impl Fn() -> Vec<MenuEntry> + 'static) {
     });
 }
 
+/// Install the app's Dock menu (docs/menus.md "Dock menu"): the entries macOS lists when the
+/// user right-clicks the app's Dock icon, above the app's `[[shortcuts]]` and the system's own
+/// Show / Hide / Quit items. Probe `Cap::DockMenu`; elsewhere the call does nothing.
+///
+/// The menu works while the app runs, so its actions are ordinary closures, unlike shortcuts,
+/// which are routes because they also launch the app.
+pub fn dock_menu(entries: Vec<MenuEntry>) {
+    day_core::set_dock_menu(lower_menu(entries));
+}
+
+/// [`dock_menu`] that re-lowers and re-installs whenever a signal the builder reads changes:
+/// "Resume <last document>", a checked "Do Not Disturb", the locale. Install once, at startup.
+pub fn dock_menu_reactive(builder: impl Fn() -> Vec<MenuEntry> + 'static) {
+    let scope = day_reactive::Scope::root().enter(day_reactive::Scope::child);
+    scope.enter(|| {
+        day_reactive::bind(
+            move || {
+                let _ = day_l10n::locale().get();
+                lower_menu(builder())
+            },
+            |items: &Vec<day_spec::MenuItem>| {
+                day_core::set_dock_menu(items.clone());
+            },
+        );
+    });
+}
+
 // ---------------------------------------------------------------------------
 // The composed context menu (docs/menus.md "Dynamic context menus"): presentation for a
 // toolkit that REPORTS the summon (`Event::ContextMenu`) instead of showing a native menu

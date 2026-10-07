@@ -1,6 +1,6 @@
 # The conformance run (docs/testing.md): every `#[day::test]` case the app registers, driven
 # inside the app by its own engine. The runner prints one line per test and writes
-# `evidence.json` and the tests' captures beside this run's screenshots, which is what CI
+# `conformance.json` and the tests' captures beside this run's screenshots, which is what CI
 # uploads. `day test -p <target>` generates the same step with a filter.
 #
 #     day launch -p macos-appkit --script dayscript/conformance.yaml

@@ -64,6 +64,12 @@ thread_local! {
     /// `(node, title)` / `(node)`: the multiton window launchers (docs/windows.md).
     static WINDOW_OPEN: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static WINDOW_CLOSE: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
+    /// `(node, op, on)`: a window property request (docs/windows.md "Window properties") for the
+    /// primary window (node 0) or a secondary one (its day node id). See [`WindowOp`].
+    static WINDOW_CONTROL: Callback<FnArgs<(f64, i32, bool)>> = const { RefCell::new(None) };
+    /// Whether the app holds `ohos.permission.PRIVACY_WINDOW`, which it has only when its Day.toml
+    /// declares `screen-privacy` (docs/permissions.md): privacy mode is refused without it.
+    static PRIVACY_GRANTED: Cell<bool> = const { Cell::new(false) };
     // The Navigation bridge (docs/navigation.md).
     static NAV_PUSH: Callback<FnArgs<(f64, f64, String, bool)>> = const { RefCell::new(None) };
     /// Host-addressed pop: independent stacks never share a window-global path.
@@ -339,6 +345,32 @@ pub fn register_windows(
     store(&WINDOW_CLOSE, close);
 }
 
+/// `registerWindowControl(cb, privacy)` (docs/windows.md "Window properties"): the ArkTS half of
+/// `Toolkit::apply_window`, which owns the `window.Window` calls. `privacy` says whether the app
+/// was granted the permission privacy mode needs; an older host passes nothing, which reads as no.
+#[napi(js_name = "registerWindowControl")]
+pub fn register_window_control(
+    env: Env,
+    callback: Registered<FnArgs<(f64, i32, bool)>>,
+    privacy: Option<bool>,
+) {
+    remember(&env);
+    store(&WINDOW_CONTROL, callback);
+    PRIVACY_GRANTED.with(|p| p.set(privacy.unwrap_or(false)));
+}
+
+/// `windowStateChanged(node, state)`: what a window reads as after a fullscreen request settled,
+/// as a `day_spec::WindowState` code; node 0 is the primary window.
+#[napi(js_name = "windowStateChanged")]
+pub fn window_state_changed(node: f64, state: f64) {
+    let id = if node == 0.0 {
+        day_spec::WINDOW_NODE.0
+    } else {
+        node as u64
+    };
+    crate::on_event(id, K::WindowStateChanged as i32, state, "");
+}
+
 /// `windowStart(nodeContent, node, w, h)`: a secondary window's page connected; true when the
 /// pending open completed (false = closed before connecting; the page's ability terminates).
 #[napi(js_name = "windowStart")]
@@ -589,6 +621,38 @@ pub fn open_window(node: u64, title: &str) -> bool {
 
 pub fn close_window(node: u64) {
     call(&WINDOW_CLOSE, FnArgs::from((node as f64,)), |_, _| ());
+}
+
+/// A window property the ArkTS host sets through `registerWindowControl`'s callback.
+#[derive(Clone, Copy)]
+pub enum WindowOp {
+    /// `setWindowLayoutFullScreen` plus the system bars hidden or restored; the host answers
+    /// with `windowStateChanged`.
+    Fullscreen = 0,
+    /// `setWindowPrivacyMode`: the window's content is left out of screenshots and recordings.
+    Privacy = 1,
+}
+
+/// Whether the host registered the window property control (drives `Cap::WindowFullscreen`).
+pub fn has_window_control() -> bool {
+    WINDOW_CONTROL.with(|w| w.borrow().is_some())
+}
+
+/// Whether privacy mode can be set: the control is registered and the app holds
+/// `ohos.permission.PRIVACY_WINDOW` (drives `Cap::ContentProtection`).
+pub fn can_protect_content() -> bool {
+    has_window_control() && PRIVACY_GRANTED.with(|p| p.get())
+}
+
+/// Ask the host to set `op` on the window of day node `node` (0 = the primary). True when the
+/// request went out.
+pub fn window_control(node: u64, op: WindowOp, on: bool) -> bool {
+    call(
+        &WINDOW_CONTROL,
+        FnArgs::from((node as f64, op as i32, on)),
+        |_, _| (),
+    )
+    .is_some()
 }
 
 /// Push one Day page into the ArkTS Navigation: ask the registered push callback for a fresh

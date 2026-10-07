@@ -199,12 +199,16 @@ pub fn build_web(
     let icons = stage_home_icons(project, &dist)?;
     std::fs::write(
         dist.join("manifest.webmanifest"),
-        serde_json::to_string_pretty(&crate::url_handlers::web(
-            crate::documents::web_manifest(
-                serde_json::from_str(&manifest_json(&home, &icons)).map_err(|e| e.to_string())?,
-                &project.manifest.file_types,
+        serde_json::to_string_pretty(&crate::shortcuts::web_manifest(
+            crate::url_handlers::web(
+                crate::documents::web_manifest(
+                    serde_json::from_str(&manifest_json(&home, &icons))
+                        .map_err(|e| e.to_string())?,
+                    &project.manifest.file_types,
+                ),
+                &project.manifest.url_schemes,
             ),
-            &project.manifest.url_schemes,
+            &crate::shortcuts::resolved(project)?,
         ))
         .map_err(|e| e.to_string())?,
     )
@@ -489,6 +493,17 @@ pub fn manifest_json(home: &HomeScreen, icons: &[u32]) -> String {
     m.insert("start_url".into(), "./".into());
     m.insert("scope".into(), "./".into());
     m.insert("display".into(), home.display.as_str().into());
+    // Lets an installed desktop Chromium app trade its title bar for the window-controls
+    // overlay, which `WindowChrome::Overlay` draws under (docs/window-chrome.md). The window
+    // still opens with its title bar; the overlay comes only when the user picks it from the
+    // bar's toggle. Standalone only: `display_override` outranks `display`, so it would turn a
+    // minimal-ui, browser or fullscreen app into an overlay app.
+    if home.display == crate::meta::WebDisplay::Standalone {
+        m.insert(
+            "display_override".into(),
+            serde_json::json!(["window-controls-overlay"]),
+        );
+    }
     m.insert(
         "background_color".into(),
         home.background_color.clone().into(),
@@ -1298,6 +1313,10 @@ mod home_screen_tests {
         assert_eq!(v["start_url"], "./");
         assert_eq!(v["scope"], "./");
         assert_eq!(v["display"], "standalone");
+        assert_eq!(
+            v["display_override"],
+            serde_json::json!(["window-controls-overlay"])
+        );
         assert_eq!(v["lang"], "fr");
         assert_eq!(v["name"], "Day \"Showcase\" <demo>");
         assert!(
@@ -1310,6 +1329,16 @@ mod home_screen_tests {
         let none = manifest_json(&home(), &[]);
         let v: serde_json::Value = serde_json::from_str(&none).expect("valid JSON");
         assert_eq!(v["icons"].as_array().map(Vec::len), Some(0));
+        let tab = HomeScreen {
+            display: crate::meta::WebDisplay::Browser,
+            ..home()
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&manifest_json(&tab, &[])).expect("valid JSON");
+        assert!(
+            v.get("display_override").is_none(),
+            "only a standalone app offers the overlay"
+        );
     }
 
     #[test]

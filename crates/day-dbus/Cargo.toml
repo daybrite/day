@@ -1,0 +1,18 @@
+[package]
+name = "day-dbus"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+# A std-only client for the freedesktop session bus: the wire format, SASL EXTERNAL over a unix
+# socket, one reader thread per connection, method calls, signals and exported objects. On top
+# of it sit the StatusNotifierItem + dbusmenu server (the Linux status item) and the Unity
+# launcher entry (badge and progress). No zbus, no libdbus and no async runtime: the protocol is
+# small enough to speak directly, and the same client later carries desktop notifications. It
+# compiles everywhere; off unix, `Connection::session()` returns `Error::Unsupported`.
+
+[dependencies]

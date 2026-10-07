@@ -35,6 +35,9 @@ struct Index {
   @State coverShown: boolean = false;
   private started: boolean = false;
   @State windowMenus: DayToolbarItem[] = [];
+  // The primary window's last status-bar request (docs/cover.md), so leaving fullscreen brings
+  // back only the bars Day did not hide on purpose.
+  private statusBarHidden: boolean = false;
   onBackPress(): boolean {
     return this.coverShown && nativeEntry.coverBackRequested();
   }
@@ -74,6 +77,7 @@ struct Index {
     // skips the bar's slide, like every other transition: a screenshot right after a page
     // that hides the bar would otherwise catch the window mid-resize.
     nativeEntry.registerStatusBar((hidden: boolean): void => {
+      this.statusBarHidden = hidden;
       const animated: boolean = AppStorage.get<boolean>('dayDriven') !== true;
       window.getLastWindow(this.getUIContext().getHostContext() as common.UIAbilityContext)
         .then((win: window.Window) => win.setSpecificSystemBarEnabled('status', !hidden, animated))
@@ -81,6 +85,13 @@ struct Index {
           console.error(`day: status bar update failed: ${err.code} ${err.message}`);
         });
     });
+
+    // Window properties (docs/windows.md "Window properties"): fullscreen and privacy mode
+    // on the primary window (node 0) or a secondary DayWindowAbility's (its day node id).
+    // Before start(): the first tree build can already ask for either.
+    nativeEntry.registerWindowControl((node: number, op: number, on: boolean): void => {
+      this.applyWindow(node, op, on);
+    }, Index.privacyGranted(this.getUIContext().getHostContext() as common.UIAbilityContext));
 
     const d = display.getDefaultDisplaySync();
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
@@ -143,6 +154,64 @@ struct Index {
       }
     );
 
+  }
+
+  // Whether privacy mode is open to this app: ohos.permission.PRIVACY_WINDOW is granted at install
+  // to an app whose Day.toml declares `screen-privacy` (docs/permissions.md), and to no other.
+  private static privacyGranted(ctx: common.UIAbilityContext): boolean {
+    try {
+      return abilityAccessCtrl.createAtManager().checkAccessTokenSync(
+        ctx.applicationInfo.accessTokenId, 'ohos.permission.PRIVACY_WINDOW'
+      ) === abilityAccessCtrl.GrantStatus.PERMISSION_GRANTED;
+    } catch (err) {
+      const e = err as BusinessError;
+      console.warn(`day: privacy permission check failed: ${e.code} ${e.message}`);
+      return false;
+    }
+  }
+
+  // One window property for Day (`Toolkit::apply_window`). The window is the topmost one of
+  // the ability that owns it: this page's EntryAbility for the primary (node 0), the multiton
+  // DayWindowAbility instance for a secondary window. op 0 = fullscreen, answered with the
+  // window's real state through `windowStateChanged` whether the calls succeeded or not;
+  // op 1 = privacy mode, which needs ohos.permission.PRIVACY_WINDOW (`screen-privacy`).
+  private async applyWindow(node: number, op: number, on: boolean): Promise<void> {
+    const owner: common.UIAbilityContext | undefined = node === 0
+      ? this.getUIContext().getHostContext() as common.UIAbilityContext
+      : DayWindowAbility.active.get(node);
+    if (owner === undefined) {
+      return;
+    }
+    let win: window.Window | undefined = undefined;
+    try {
+      win = await window.getLastWindow(owner);
+      if (op === 1) {
+        await win.setWindowPrivacyMode(on);
+        return;
+      }
+      // Fullscreen is the layout under the system bars plus the bars hidden; leaving it brings
+      // the bars back, except a status bar Day hides on purpose (registerStatusBar above).
+      await win.setWindowLayoutFullScreen(on);
+      if (on) {
+        await win.setWindowSystemBarEnable([]);
+      } else if (node === 0 && this.statusBarHidden) {
+        await win.setWindowSystemBarEnable(['navigation']);
+      } else {
+        await win.setWindowSystemBarEnable(['status', 'navigation']);
+      }
+    } catch (err) {
+      const e = err as BusinessError;
+      console.error(`day: window ${node} op ${op} failed: ${e.code} ${e.message}`);
+    }
+    if (op === 0) {
+      let full: boolean = false;
+      try {
+        full = win !== undefined && win.getWindowProperties().isLayoutFullScreen;
+      } catch (_e) {
+        // No window to read: report Normal, which is all a window Day cannot reach can be.
+      }
+      nativeEntry.windowStateChanged(node, full ? 3 : 0);
+    }
   }
 
   // Day → ArkTS file picker. mode 0 = open (copy the pick into app cache, hand back a readable

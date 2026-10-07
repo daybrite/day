@@ -76,6 +76,7 @@ mod bridge_kinds_parity {
             ("K_LINK_ACTIVATED", BridgeKind::LinkActivated),
             ("K_TOOLBAR_CHANGED", BridgeKind::ToolbarChanged),
             ("K_KEY", BridgeKind::Key),
+            ("K_WINDOW_STATE_CHANGED", BridgeKind::WindowStateChanged),
         ];
         assert_eq!(
             found.len(),
@@ -1358,6 +1359,7 @@ mod imp {
     const K_LINK_ACTIVATED: i32 = bridge::BridgeKind::LinkActivated as i32;
     const K_TOOLBAR_CHANGED: i32 = bridge::BridgeKind::ToolbarChanged as i32;
     const K_KEY: i32 = bridge::BridgeKind::Key as i32;
+    const K_WINDOW_STATE_CHANGED: i32 = bridge::BridgeKind::WindowStateChanged as i32;
 
     /// The single native trampoline (the app's `nativeOnEvent` forwards here). The kind
     /// numbers are `day_spec::bridge::BridgeKind`, the shared wire table. A JNI up-call
@@ -1602,6 +1604,20 @@ mod imp {
                 emit(target, Event::WindowResized(Size::new(p[0] / d, p[1] / d)));
                 return;
             }
+            // A window's display state (docs/windows.md): the system bars hid or showed for a
+            // fullscreen request, or a request the platform declined reports what the window
+            // kept. Id 0 is the primary activity (WINDOW_NODE), like the resize rail.
+            K_WINDOW_STATE_CHANGED => {
+                let state = day_spec::WindowState::from_code(num as i32);
+                log::debug!("android: window state now {state:?}");
+                let target = if id == 0 {
+                    day_spec::WINDOW_NODE
+                } else {
+                    day_spec::NodeId(id as u64)
+                };
+                emit(target, Event::WindowStateChanged(state));
+                return;
+            }
             // Secondary-window lifecycle (docs/windows.md): the id is the window's root.
             K_WINDOW_CLOSED => Event::WindowClosed,
             K_WINDOW_FOCUSED => Event::WindowFocused(num != 0.0),
@@ -1670,6 +1686,30 @@ mod imp {
         fn default() -> Self {
             Self::new()
         }
+    }
+
+    /// `DayBridge.displayInfo()`'s tab-separated line as a [`day_spec::Monitor`]: id, name,
+    /// scale, frame width and height, work-area left, top, width and height (dp).
+    fn parse_display_info(line: &str) -> Option<day_spec::Monitor> {
+        let f: Vec<&str> = line.split('\t').collect();
+        let [id, name, rest @ ..] = f.as_slice() else {
+            return None;
+        };
+        let n: Vec<f64> = rest
+            .iter()
+            .map(|s| s.parse::<f64>().ok())
+            .collect::<Option<_>>()?;
+        let [scale, w, h, wl, wt, ww, wh] = n.as_slice() else {
+            return None;
+        };
+        Some(day_spec::Monitor {
+            id: (*id).to_string(),
+            name: (*name).to_string(),
+            frame: day_spec::Rect::new(0.0, 0.0, *w, *h),
+            work_area: day_spec::Rect::new(*wl, *wt, *ww, *wh),
+            scale: *scale,
+            primary: true,
+        })
     }
 
     fn jstr(env: &mut Env, s: &str) -> jni::objects::JString<'static> {
@@ -2182,6 +2222,14 @@ mod imp {
                 // ItemTouchHelper's swipe half, with the Material red field revealing behind
                 // the row (docs/list.md).
                 | Cap::ListDelete
+                // The window's insets controller hides the system bars, swipe to reveal them
+                // transiently; the state reports once the bars have moved (docs/windows.md).
+                | Cap::WindowFullscreen
+                // FLAG_SECURE on the window's activity: screenshots, recordings, casting and
+                // the recents thumbnail see black (docs/windows.md). `Cap::WindowStates` stays
+                // Unsupported: an app cannot minimize or maximize its own window here, so
+                // those requests report the state the window kept.
+                | Cap::ContentProtection
                 // Document-style DayWindowActivity instances (docs/windows.md): separate
                 // recents entries; side-by-side in split-screen/freeform/desktop windowing.
                 | Cap::MultiWindow
@@ -2203,6 +2251,21 @@ mod imp {
                 // `Event::NavPresentationChanged` rather than pushing one in
                 // (docs/size-classes.md).
                 Cap::NavRepresent => Support::Emulated,
+                // The display the primary window is on: one, however many are attached
+                // (docs/windows.md).
+                Cap::Monitors => Support::Emulated,
+                // ShortcutManager's dynamic shortcuts, from API 25 (docs/deep-links.md).
+                Cap::DynamicShortcuts => {
+                    if with_env(|env| {
+                        env.dcall_static(BRIDGE, "canSetLauncherShortcuts", "()Z", &[])
+                            .and_then(|v| v.z())
+                            .unwrap_or(false)
+                    }) {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
                 // The composed tree (docs/tree.md M2/M5): the piece flattens onto this
                 // backend's RecyclerView list; disclosure, indentation and row content are
                 // day pieces. No native drag wiring yet, so `Cap::TreeMove` stays
@@ -4049,6 +4112,83 @@ mod imp {
                         &[JValue::Long(node as i64)],
                     );
                 }
+            });
+        }
+
+        /// Window properties (docs/windows.md): fullscreen through the activity window's
+        /// insets controller, content protection through `FLAG_SECURE`. `DayBridge` addresses
+        /// a window by its day node, 0 for the primary activity, and reports the outcome
+        /// back as `K_WINDOW_STATE_CHANGED`.
+        fn apply_window(&mut self, host: &AHandle, change: &day_spec::WindowChange) {
+            use day_spec::WindowChange as C;
+            with_env(|env| {
+                let node = secondary_node_of(env, host).unwrap_or(0) as i64;
+                match change {
+                    C::State(state) => {
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setWindowState",
+                            "(JI)V",
+                            &[JValue::Long(node), JValue::Int(state.code())],
+                        );
+                    }
+                    C::ContentProtected(on) => {
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setWindowSecure",
+                            "(JZ)V",
+                            &[JValue::Long(node), JValue::Bool(*on)],
+                        );
+                    }
+                    // Size, position and stacking belong to the system and the user here.
+                    // `Appearance` stays Unsupported too: the activities are FragmentActivity,
+                    // and the one per-activity route (an overridden uiMode configuration)
+                    // recreates the activity, losing what the window shows; the app-wide
+                    // `set_appearance` still applies to every window.
+                    _ => {}
+                }
+            });
+        }
+
+        /// The display the primary window is on (`Cap::Monitors` Emulated), in dp, with the
+        /// work area inside the system bars and any cutout.
+        fn monitors(&self) -> Vec<day_spec::Monitor> {
+            let line = with_env(|env| {
+                let obj = env
+                    .dcall_static(BRIDGE, "displayInfo", "()Ljava/lang/String;", &[])
+                    .ok()?
+                    .l()
+                    .ok()?;
+                if obj.is_null() {
+                    return None;
+                }
+                env.dstr(&as_jstring(obj)).ok()
+            });
+            line.and_then(|l| parse_display_info(&l))
+                .into_iter()
+                .collect()
+        }
+
+        /// Dynamic shortcuts through `ShortcutManager` (docs/deep-links.md): each opens its
+        /// route through the same deep-link intent the Day.toml `[[shortcuts]]` carry.
+        fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]) {
+            // One string over JNI: records split by U+001E, route and label by U+001F.
+            let packed = shortcuts
+                .iter()
+                .map(|sc| {
+                    let clean = |s: &str| s.replace(['\u{1e}', '\u{1f}'], " ");
+                    format!("{}\u{1f}{}", clean(&sc.route), clean(&sc.label))
+                })
+                .collect::<Vec<_>>()
+                .join("\u{1e}");
+            with_env(|env| {
+                let jpacked = jstr(env, &packed);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "setLauncherShortcuts",
+                    "(Ljava/lang/String;)V",
+                    &[JValue::Object(&jpacked)],
+                );
             });
         }
 

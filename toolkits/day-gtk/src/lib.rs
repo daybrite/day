@@ -78,6 +78,7 @@ fn gtk_input_purpose(
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod picker;
+mod shell;
 mod textarea;
 mod toolbar;
 mod transfer;
@@ -3161,6 +3162,23 @@ impl Gtk {
             menu_group: None,
         }
     }
+
+    /// The GtkWindow whose content container is `host`: a secondary window's, or the
+    /// primary's (`window_fixed`, which `ready` handed out).
+    fn gtk_window_for(&self, host: &Handle) -> Option<gtk4::Window> {
+        if let Some(w) = self
+            .secondary
+            .iter()
+            .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
+        {
+            return Some(w.window.clone().upcast());
+        }
+        self.window_fixed
+            .as_ref()
+            .filter(|f| f.upcast_ref::<gtk4::Widget>() == host)
+            .and_then(|f| f.root())
+            .and_then(|r| r.downcast::<gtk4::Window>().ok())
+    }
 }
 
 /// Apply the app icon `day launch` resolved from the project's `icons/` (§18.2) to the dock /
@@ -3651,6 +3669,25 @@ impl Toolkit for Gtk {
             | Cap::Tree
             // Real AdwApplicationWindows on the shared GtkApplication (docs/windows.md).
             | Cap::MultiWindow
+            // `gtk_window_minimize` / `maximize` / `fullscreen` and their inverses, reported
+            // back from the window's `maximized` / `fullscreened` properties and the toplevel
+            // surface's state (`watch_window_state`). Wayland never reports minimized; see
+            // `StateTrack` for how this backend stands in for it there. `Cap::ContentProtection`
+            // stays Unsupported: no Linux display server lets a client opt out of capture.
+            | Cap::WindowStates
+            | Cap::WindowFullscreen
+            // No title bar (`set_decorated(false)` without the shadow; the client-side frame
+            // keeps its resize edges otherwise), or GtkWindowControls over the content's top
+            // band for an overlay title bar (docs/window-chrome.md).
+            | Cap::FramelessWindow
+            | Cap::OverlayTitleBar
+            // GtkWindowHandle's behavior through `gdk::Toplevel::begin_move`.
+            | Cap::DragRegion
+            // `set_default_size` and size requests; no maximum size in GTK 4.
+            | Cap::WindowGeometry
+            // `gdk::Display::monitors()`: geometry and scale, no work area (it reads as the whole
+            // display).
+            | Cap::Monitors
             // The window's AdwHeaderBar — GNOME's toolbar (docs/toolbars.md).
             | Cap::Toolbar
             // The bar holds a native search field (docs/search.md).
@@ -3675,6 +3712,31 @@ impl Toolkit for Gtk {
                     Support::Unsupported
                 }
             }
+            // An RGBA visual on a composited display; bare X11 has none.
+            Cap::TransparentWindow => {
+                if shell::can_be_transparent() {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // A StatusNotifierWatcher on the session bus (docs/status-item.md).
+            Cap::StatusItem => shell::status_item_support(),
+            // The Unity LauncherEntry signal, which docks may or may not read.
+            // Written as a plain arm so the coverage matrix reads it as decided per platform (a
+            // guard arm reads as unsupported).
+            Cap::AppProgress | Cap::AppBadgeCount => {
+                if cfg!(target_os = "linux") {
+                    Support::Emulated
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // Deliberately Unsupported (the default arm): `WindowPosition`, `WindowLevel`,
+            // `RequestAttention` (GTK 4 removed positioning, keep-above, stick, skip-taskbar and
+            // the urgency hint), `WindowAppearance` (the color scheme is app-wide),
+            // `WindowMaterial` (no blur behind a window on Linux), `ContentProtection`,
+            // `DynamicShortcuts` (a .desktop file's actions are fixed at install).
             _ => Support::Unsupported,
         }
     }
@@ -6816,8 +6878,9 @@ impl Toolkit for Gtk {
         let Some(app) = self.app.clone() else {
             return day_spec::WindowOpenReply::Unsupported;
         };
-        let (window, fixed, _header) =
-            build_day_window(&app, &options.title, options.size, Some(id));
+        let (window, fixed, _header) = build_day_window(&app, options, Some(id));
+        // An overlay title bar's height is the content's top inset, there before it builds.
+        shell::report_overlay_inset(window.upcast_ref(), Some(id));
         if kind == day_spec::WindowKind::Preferences {
             window.set_resizable(false);
         }
@@ -6897,6 +6960,51 @@ impl Toolkit for Gtk {
         {
             win.set_title(Some(title));
         }
+    }
+
+    fn apply_window(&mut self, host: &Handle, change: &day_spec::WindowChange) {
+        use day_spec::WindowChange as C;
+        let Some(window) = self.gtk_window_for(host) else {
+            return;
+        };
+        match change {
+            C::State(state) => set_gtk_window_state(&window, *state),
+            // No Linux display server (X11, Wayland) lets a client keep its surface out of
+            // screenshots or screen sharing, so `Cap::ContentProtection` is Unsupported and the
+            // request is ignored.
+            C::ContentProtected(_) => {}
+            other => shell::apply_property(&window, other),
+        }
+    }
+
+    fn set_drag_region(&mut self, h: &Handle, drag: bool) {
+        shell::set_drag_region(h, drag);
+    }
+
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]) {
+        shell::set_status_items(items);
+    }
+
+    fn set_keep_running(&mut self, keep: bool) {
+        shell::set_keep_running(self.app.as_ref(), keep);
+    }
+
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress) {
+        shell::set_progress(progress);
+    }
+
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+        shell::set_badge(badge);
+    }
+
+    fn quit_app(&mut self) {
+        if let Some(app) = &self.app {
+            app.quit();
+        }
+    }
+
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        shell::monitors()
     }
 
     fn prepare_snapshot(
@@ -7257,13 +7365,8 @@ const HEADER_H: f64 = 47.0;
 /// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
 /// `target`: `None` = the primary window (`WINDOW_NODE` + the cover follow-along);
 /// `Some(node)` = a secondary window's root (docs/windows.md).
-fn report_content_size(
-    w: &adw::ApplicationWindow,
-    header: &adw::HeaderBar,
-    target: Option<NodeId>,
-) {
-    let hb = header.height();
-    let hb = if hb > 0 { hb as f64 } else { HEADER_H };
+fn report_content_size(w: &adw::ApplicationWindow, target: Option<NodeId>) {
+    let hb = shell::bar_height(w.upcast_ref());
     let size = Size::new(
         w.default_width() as f64,
         (w.default_height() as f64 - hb).max(0.0),
@@ -7353,13 +7456,12 @@ fn window_background() -> gtk4::gdk::RGBA {
 /// Wires the resize notifies to `target` (`None` = primary).
 fn build_day_window(
     app: &adw::Application,
-    title: &str,
-    size: Size,
+    options: &WindowOptions,
     target: Option<NodeId>,
 ) -> (adw::ApplicationWindow, gtk4::Fixed, adw::HeaderBar) {
     let window = adw::ApplicationWindow::new(app);
-    window.set_title(Some(title));
-    window.set_default_size(size.width as i32, size.height as i32);
+    window.set_title(Some(&options.title));
+    window.set_default_size(options.size.width as i32, options.size.height as i32);
     let fixed = gtk4::Fixed::new();
     // A GtkFixed reports its children's bounding box as its MINIMUM size, which would pin the
     // window at the content size. A filling `DayCell` around it asks for nothing, so the window
@@ -7372,28 +7474,209 @@ fn build_day_window(
     // content — the standard Adwaita window structure, and the AdwDialog host that
     // AdwAlertDialog needs.
     let header = adw::HeaderBar::new();
-    // A day toolbar packs into this bar (docs/toolbars.md) — remember it, since AdwToolbarView
-    // does not enumerate its top bars and there is no other way back from a content handle.
-    crate::toolbar::register_header(&window, &header);
     let toolbar = adw::ToolbarView::new();
-    toolbar.add_top_bar(&header);
     toolbar.set_content(Some(&wrapper));
-    window.set_content(Some(&toolbar));
+    // The chrome (docs/window-chrome.md): the header bar for `Standard` (a day toolbar packs
+    // into it, docs/toolbars.md), window controls over the content for `Overlay`, nothing for
+    // `Frameless`; plus resizability, limits, background and shadow.
+    shell::dress(&window, &toolbar, &header, options);
     // GTK4 keeps default-width/height tracking the live size of a resizable window — the
     // only public resize signal it offers.
-    {
-        let header = header.clone();
-        window.connect_default_width_notify(move |w| {
-            ffi_guard::contain((), || report_content_size(w, &header, target))
-        });
-    }
-    {
-        let header = header.clone();
-        window.connect_default_height_notify(move |w| {
-            ffi_guard::contain((), || report_content_size(w, &header, target))
-        });
-    }
+    window.connect_default_width_notify(move |w| {
+        ffi_guard::contain((), || report_content_size(w, target))
+    });
+    window.connect_default_height_notify(move |w| {
+        ffi_guard::contain((), || report_content_size(w, target))
+    });
+    watch_window_state(window.upcast_ref(), target.unwrap_or(day_spec::WINDOW_NODE));
     (window, fixed, header)
+}
+
+/// One window's display-state bookkeeping (docs/windows.md "Window properties").
+///
+/// Wayland has no minimized state: `xdg_toplevel.set_minimized` is a one-way request, and the
+/// compositor never tells the client it was minimized or restored, so GDK's Wayland backend
+/// never sets `GDK_TOPLEVEL_STATE_MINIMIZED`. On X11 (`_NET_WM_STATE_HIDDEN`), macOS and Windows
+/// it does. So on Wayland a minimize THIS backend asked for is assumed to have landed
+/// (`assumed_minimized`), and the window's next activation clears it, since a minimized window
+/// cannot hold focus. A minimize the user makes through the compositor (a shortcut, the dock)
+/// is invisible there and leaves the reported state where it was.
+struct StateTrack {
+    /// Where reports go: the window's root node, or `WINDOW_NODE` for the primary.
+    target: NodeId,
+    /// The `WindowState::code()` last reported.
+    last: std::cell::Cell<i32>,
+    /// A minimize requested on a display that never reports one (Wayland).
+    assumed_minimized: std::cell::Cell<bool>,
+}
+
+thread_local! {
+    /// Every Day window's [`StateTrack`], by window. Entries go with their window.
+    static STATE_TRACKS: RefCell<Vec<(gtk4::glib::WeakRef<gtk4::Window>, Rc<StateTrack>)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// `window`'s [`StateTrack`], if it is a Day window.
+fn state_track(window: &gtk4::Window) -> Option<Rc<StateTrack>> {
+    STATE_TRACKS.with(|t| {
+        t.borrow()
+            .iter()
+            .find(|(w, _)| w.upgrade().as_ref() == Some(window))
+            .map(|(_, s)| s.clone())
+    })
+}
+
+/// Whether this window's display ever reports a minimized toplevel (every GDK backend but
+/// Wayland; see [`StateTrack`]). Read by type name, which needs no backend-specific crate.
+fn reports_minimized(window: &gtk4::Window) -> bool {
+    WidgetExt::display(window).type_().name() != "GdkWaylandDisplay"
+}
+
+/// What `window` is showing as: minimized wins (GTK keeps `maximized` set underneath it), then
+/// fullscreen (a fullscreen window may also be maximized), then maximized.
+fn gtk_window_state(window: &gtk4::Window, track: &StateTrack) -> day_spec::WindowState {
+    use day_spec::WindowState as S;
+    let minimized = track.assumed_minimized.get()
+        || window
+            .surface()
+            .and_then(|s| s.downcast::<gtk4::gdk::Toplevel>().ok())
+            .is_some_and(|t| t.state().contains(gtk4::gdk::ToplevelState::MINIMIZED));
+    if minimized {
+        S::Minimized
+    } else if window.is_fullscreen() {
+        S::Fullscreen
+    } else if window.is_maximized() {
+        S::Maximized
+    } else {
+        S::Normal
+    }
+}
+
+/// Report `window`'s display state if it changed since the last report, or regardless when
+/// `force` (a settle after a request, so a declined one reads back as the state the window
+/// kept; day-core drops a report that matches its signal).
+fn report_window_state(window: &gtk4::Window, force: bool) {
+    let Some(track) = state_track(window) else {
+        return;
+    };
+    let state = gtk_window_state(window, &track);
+    let changed = track.last.replace(state.code()) != state.code();
+    if changed || force {
+        let how = if changed { "now" } else { "settled at" };
+        log::debug!("gtk: window state {how} {state:?}");
+        emit(track.target, Event::WindowStateChanged(state));
+    }
+}
+
+/// Follow `window`'s display state and report each change to `target` (docs/windows.md): the
+/// `maximized` and `fullscreened` properties, the toplevel surface's state for minimized (the
+/// surface exists from realize on), and activation, which ends an assumed Wayland minimize.
+fn watch_window_state(window: &gtk4::Window, target: NodeId) {
+    STATE_TRACKS.with(|t| {
+        let mut t = t.borrow_mut();
+        t.retain(|(w, _)| w.upgrade().is_some());
+        t.push((
+            window.downgrade(),
+            Rc::new(StateTrack {
+                target,
+                last: std::cell::Cell::new(day_spec::WindowState::Normal.code()),
+                assumed_minimized: std::cell::Cell::new(false),
+            }),
+        ));
+    });
+    window.connect_maximized_notify(|w| ffi_guard::contain((), || report_window_state(w, false)));
+    window
+        .connect_fullscreened_notify(|w| ffi_guard::contain((), || report_window_state(w, false)));
+    window.connect_is_active_notify(|w| {
+        ffi_guard::contain((), || {
+            if w.is_active()
+                && let Some(track) = state_track(w)
+            {
+                track.assumed_minimized.set(false);
+            }
+            report_window_state(w, false);
+        })
+    });
+    window.connect_realize(|w| {
+        ffi_guard::contain((), || {
+            let Some(toplevel) = w
+                .surface()
+                .and_then(|s| s.downcast::<gtk4::gdk::Toplevel>().ok())
+            else {
+                return;
+            };
+            // Weak: the surface belongs to the window, so a strong ref here would be a cycle.
+            let weak = w.downgrade();
+            toplevel.connect_state_notify(move |_| {
+                ffi_guard::contain((), || {
+                    if let Some(w) = weak.upgrade() {
+                        report_window_state(&w, false);
+                    }
+                })
+            });
+        })
+    });
+}
+
+/// How long after a state request this backend re-reads the window and reports it whatever it
+/// is: long enough for a window manager's maximize or fullscreen round trip, so a request it
+/// declined settles day-core's optimistic signal on the state the window kept.
+const STATE_SETTLE: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// Ask GTK for `state` (docs/windows.md "Window properties"). Every call is a request to the
+/// window manager; the outcome arrives through `watch_window_state`, and a settle re-read
+/// covers the requests it ignores.
+fn set_gtk_window_state(window: &gtk4::Window, state: day_spec::WindowState) {
+    use day_spec::WindowState as S;
+    let Some(track) = state_track(window) else {
+        return;
+    };
+    let minimized = gtk_window_state(window, &track) == S::Minimized;
+    match state {
+        S::Normal => {
+            if window.is_fullscreen() {
+                window.unfullscreen();
+            }
+            if window.is_maximized() {
+                window.unmaximize();
+            }
+            // GTK has no unminimize; presenting the window is how it comes back. An assumed
+            // Wayland minimize stays assumed until the window actually takes focus.
+            if minimized {
+                window.present();
+            }
+        }
+        S::Minimized => {
+            window.minimize();
+            if !reports_minimized(window) {
+                track.assumed_minimized.set(true);
+                report_window_state(window, false);
+            }
+        }
+        S::Maximized => {
+            if window.is_fullscreen() {
+                window.unfullscreen();
+            }
+            if minimized {
+                window.present();
+            }
+            window.maximize();
+        }
+        S::Fullscreen => {
+            if minimized {
+                window.present();
+            }
+            window.fullscreen();
+        }
+    }
+    let weak = window.downgrade();
+    gtk4::glib::timeout_add_local_once(STATE_SETTLE, move || {
+        ffi_guard::contain((), || {
+            if let Some(w) = weak.upgrade() {
+                report_window_state(&w, true);
+            }
+        })
+    });
 }
 
 /// Recompute "is any Day window active" on an idle (letting a focus handoff between two
@@ -7451,7 +7734,11 @@ impl Platform for Gtk {
 
         app.connect_open(|app, files, _| {
             ffi_guard::contain((), || {
-                day_core::request_open_files(files.iter().map(|f| f.uri().to_string()).collect());
+                let uris: Vec<String> = files.iter().map(|f| f.uri().to_string()).collect();
+                // A second launch's arguments arrive here through GApplication when this
+                // process owns the app id (docs/deep-links.md "Single-instance forwarding").
+                log::debug!("gtk: open request {uris:?}");
+                day_core::request_open_files(uris);
                 app.activate();
             });
         });
@@ -7545,8 +7832,9 @@ impl Platform for Gtk {
                 let Some((mut backend, ready, options)) = state.borrow_mut().take() else {
                     return;
                 };
-                let (window, fixed, header) =
-                    build_day_window(app, &options.title, options.size, None);
+                let (window, fixed, header) = build_day_window(app, &options, None);
+                shell::report_overlay_inset(window.upcast_ref(), None);
+                let bar = shell::bar_height(window.upcast_ref());
                 // A run with a stated capture size (`DAY_CAPTURE_SCALE`, Day.toml
                 // `[screenshots]`) names the CONTENT it captures, and the capture is the content
                 // Fixed, below the header bar. Grow the window by the bar so the content is the
@@ -7554,7 +7842,7 @@ impl Platform for Gtk {
                 // off under some themes, and the first capture can come before any correction),
                 // and by its allocated height once it has one, should the two differ.
                 let capture_run = day_spec::capture_scale().is_some();
-                if capture_run {
+                if capture_run && bar > 0.0 {
                     let measured = header.measure(gtk4::Orientation::Vertical, -1).1;
                     let planned = if measured > 0 {
                         measured
@@ -7584,11 +7872,15 @@ impl Platform for Gtk {
                 // (docs/windows.md close policy) — GApplication would otherwise stay alive
                 // while a secondary exists. `quit()` routes through `shutdown` → WillTerminate
                 // like every other quit path.
+                // …unless day-core asked to keep running (`set_keep_running`), when the close is
+                // reported and day-core decides.
                 {
                     let app = app.clone();
                     window.connect_close_request(move |_| {
-                        app.quit();
-                        gtk4::glib::Propagation::Proceed
+                        ffi_guard::contain(gtk4::glib::Propagation::Proceed, || {
+                            shell::primary_close(&app);
+                            gtk4::glib::Propagation::Proceed
+                        })
                     });
                 }
                 // Day's content area is the window height minus the header bar; estimate it
@@ -7599,7 +7891,7 @@ impl Platform for Gtk {
                     fixed.upcast(),
                     Size::new(
                         options.size.width,
-                        if capture_run {
+                        if capture_run || bar == 0.0 {
                             options.size.height
                         } else {
                             (options.size.height - HEADER_H).max(0.0)

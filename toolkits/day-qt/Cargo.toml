@@ -20,3 +20,8 @@ linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+
+# The Linux launcher entry and single-instance forwarding (docs/status-item.md,
+# docs/deep-links.md): Unity LauncherEntry and a claimed bus name over the session bus, std-only.
+[target.'cfg(target_os = "linux")'.dependencies]
+day-dbus = { workspace = true }

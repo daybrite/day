@@ -40,6 +40,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // first frame.
 
         DayBridge.ctx = this;
+        DayBridge.primaryCreated(this);
         DayBridge.fastAnimations = "1".equals(getIntent().getStringExtra("day.env.DAY_TEST_FAST"));
         lastNightMode = DayBridge.isDarkMode();
         lastLocales = getResources().getConfiguration().getLocales().toLanguageTags();
@@ -166,6 +167,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                     DayNavHost.onStatusInset(statusInsetPx);
                     reportTopInset();
                 }
+                // The system bars may have hidden or shown (docs/windows.md, fullscreen).
+                DayBridge.windowInsetsChanged(self);
                 return androidx.core.view.WindowInsetsCompat.CONSUMED;
             }
         });

@@ -74,7 +74,7 @@ the architecture-level view and the rationale.
 | Piece-vocabulary coverage — which kinds each backend renders, which piece ships which arm, every `Cap` answer (generated, CI-gated) | [docs/coverage-matrix.md](docs/coverage-matrix.md) | [§8.2](#82-the-open-renderer-registry) |
 | Dayscript recorder coverage — the step the recorder writes for every `Event` (generated, CI-gated) | [docs/recorder-matrix.md](docs/recorder-matrix.md) | [§14.6](#146-recording) |
 | menus — app menu, context menus, roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
-| deep links — scheme registration, cold/warm delivery, per-platform intake, `[[shortcuts]]` launcher shortcuts (spec; ios/android/web/harmony shipped) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
+| deep links — scheme registration, cold/warm delivery, per-platform intake, desktop single-instance forwarding, `[[shortcuts]]` and run-time launcher shortcuts (iOS, Android, HarmonyOS, web, macOS Dock menu, Windows jump list, Linux `.desktop` actions) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
 | search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
 | cursor — `.cursor()`, the CSS vocabulary as `Cursor`, per-toolkit realization and `Cap::Cursor`, the `day::cursor::<toolkit>` extras | [docs/cursor.md](docs/cursor.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
@@ -117,7 +117,9 @@ the architecture-level view and the rationale.
 | day-lite — JS/TS miniapps, superapp embedding, a headless miniapp test runner (in its own repository since 2026-09); the dyn piece registry it drives stays in day-pieces | [daybrite/day-lite](https://github.com/daybrite/day-lite) (its `docs/lite.md`) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | logging — the `log` facade every day crate emits through, the auto-installed default logger, per-platform sinks (stderr / logcat / the browser console), `DAY_LOG` | [docs/logging.md](docs/logging.md) | [§8.5](#85-panics-and-crashes) |
 | day-piece-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
-| secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
+| secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag; window properties (`state()`, content protection, frame, level, monitors, remembered frames, macOS tab groups) | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
+| window chrome — `WindowChrome` (frameless, overlay title bar), transparent and material backgrounds, placement, `.window_drag_region()` | [docs/window-chrome.md](docs/window-chrome.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| status items — menu-bar / tray items, Dock and taskbar progress, menu-bar apps, `KeepRunning`, `day::quit` | [docs/status-item.md](docs/status-item.md) | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | [docs/environment.md](docs/environment.md) | [§16](#16-the-day-cli) |
 | API design conventions | [docs/api-style.md](docs/api-style.md) | [§5.1](#51-authoring-surface-functions-and-builders-no-macros) |
 
@@ -377,6 +379,7 @@ Day runtime dependencies), and `day-cli` (the `day` binary).
 | `day-mock` | headless toolkit for tests (records ops, deterministic measurement, synthetic events) | day-spec |
 | `day-async` | the std-only async support parts ([docs/async.md](docs/async.md)): a `oneshot` future any executor can await, the `TokenRegistry` a platform completion resolves through, and the process's one timer thread (`schedule`/`unschedule`) — no runtime, no reactor, no pool | — |
 | `day-bridge` | daybridge's runtime half ([§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api), [docs/bridge.md](docs/bridge.md)): the body-discarding `bridge!` macro, `Error`, the re-exported `Support`, the callback tier's `Done<T>`, `Registry<T>` and `Completion<T>`, and the stream tier's `Emit<T>`, `Streams<T>` and `Item<T>` | day-spec, day-async |
+| `day-dbus` | a std-only session-bus client for the freedesktop backends: the wire format, SASL `EXTERNAL` over a unix socket, one reader thread per `Connection` (calls with a timeout, signals, exported objects); `sni`, a `StatusNotifierItem` + `com.canonical.dbusmenu` server for the Linux status item; `launcher`, the Unity `LauncherEntry` badge/progress signal; `instance`, single-instance claim + argument forwarding for backends without `GApplication`. Compiles everywhere; off unix `Connection::session()` returns `Unsupported` | — |
 | `day-build` | `build.rs` codegen for apps: typed resource constants `res::{images,assets,fonts,str}` plus the `res::locales` catalog ([§18.5](#185-typed-resource-constants-docsresourcesmd)); the single source of the name-sanitization and Fluent-parsing rules the CLI stagers share | day-fonts, day-l10n |
 | `day-fonts` | sfnt name-table parsing ([§18.4](#184-bundled-custom-fonts-docsresourcesmd)), shared by the CLI stagers and the runtimes | — |
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
@@ -921,6 +924,8 @@ The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.
 `.selectable()` (make text user-selectable — routed to `Toolkit::set_selectable`, [docs/text.md](docs/text.md)),
 `.cursor()` (the pointer's shape over the piece, a constant or a reactive source — routed to
 `Toolkit::set_cursor` with `Cap::Cursor` saying how faithfully; [docs/cursor.md](docs/cursor.md)),
+`.window_drag_region()` (the piece moves its window when dragged, like a title bar — routed to
+`Toolkit::set_drag_region`, `Cap::DragRegion`; [docs/window-chrome.md](docs/window-chrome.md)),
 `.context_menu()`, `.toolbar()` (declare toolbar items on the chrome this piece sits under —
 one item, a list, or a closure that derives one, [docs/toolbars.md](docs/toolbars.md)),
 `.defers_system_gestures()` / `.interactive_dismiss_disabled()` / `.status_bar_hidden()` (a
@@ -1722,6 +1727,25 @@ through window creation.
 > mobile ones — iPad UIScenes (day-uikit runs the scene lifecycle), Android document-style
 > activity instances, OHOS multiton ability instances; iPhone, the Preferences kind on
 > mobile, and web present the content as a fullscreen cover in the primary window.
+
+> [!NOTE]
+> Revised 2026-10: **window properties, chrome and the app's presence outside its windows
+> shipped** (the Desktop Shell work) as defaulted duties: `apply_window(host, &WindowChange)`
+> (display state, content protection, frame, limits, level, workspaces, taskbar, title-bar
+> controls, visibility, per-window appearance, attention), `window_frame`, `monitors`,
+> `set_drag_region` (per node), `set_dock_menu`, `set_status_items`, `set_app_progress`,
+> `set_dock_visible`, `set_keep_running` and `set_launcher_shortcuts`, plus
+> `Event::WindowStateChanged` (bridge kind 34) and `WindowOptions::{tabbing, chrome,
+> background, shadow, resizable, placement, max_size, remember_frame}`. Caps: `WindowStates`,
+> `WindowFullscreen`, `ContentProtection`, `WindowTabbing`, `DockMenu`, `WindowGeometry`,
+> `WindowPosition`, `WindowLevel`, `WindowAppearance`, `RequestAttention`, `FramelessWindow`,
+> `OverlayTitleBar`, `TransparentWindow`, `WindowMaterial`, `DragRegion`, `StatusItem`,
+> `AppProgress`, `DockVisibility`, `Monitors`, `DynamicShortcuts`. A window's `state()` is a
+> two-way signal the platform settles; the primary window took the same per-window path as the
+> others. Linux talks to its tray host and launcher through the std-only `day-dbus` crate.
+> Normative docs: [docs/windows.md](docs/windows.md), [docs/window-chrome.md](docs/window-chrome.md),
+> [docs/status-item.md](docs/status-item.md), [docs/menus.md](docs/menus.md#dock-menu),
+> [docs/deep-links.md](docs/deep-links.md).
 
 **Evolution policy (held in practice):** every duty added after the freeze ships with a default
 no-op/`Unsupported` body — gestures, focus, lists, menus, presentation, lifecycle, `read_a11y`
@@ -3892,7 +3916,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
 | `day stop` / `day relaunch` | stop running launches / stop-rebuild-relaunch ("apply my code changes") |
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time ([docs/agent.md](docs/agent.md) — the agent inner loop) |
-| `day test -p <target>… [FILTER…] [--list] [--shots never\|on-failure\|always] [--skip-build] [--case-timeout SECS] [--locale …] [--env K=V]… [device flags]` | run the app's `#[day::test]` cases inside the built app on each target ([docs/testing.md](docs/testing.md)): a launch with one generated script whose `run_tests` step runs the registered cases in process, one line per test, `evidence.json` and the captures beside the run's screenshots; `--list` names the registry without running; a failed test exits 5 like a failed step |
+| `day test -p <target>… [FILTER…] [--list] [--shots never\|on-failure\|always] [--skip-build] [--case-timeout SECS] [--locale …] [--env K=V]… [device flags]` | run the app's `#[day::test]` cases inside the built app on each target ([docs/testing.md](docs/testing.md)): a launch with one generated script whose `run_tests` step runs the registered cases in process, one line per test, `conformance.json` and the captures beside the run's screenshots; `--list` names the registry without running; a failed test exits 5 like a failed step |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
 | `day devices list [-p <target>] [--format json]` | what each mobile target can be launched onto right now: booted simulators and attached iPhones, adb devices and emulators, reachable hdc targets — plus shut-down simulators and defined AVDs under `bootable`. Every device names the FLAG that selects it (`--ios-simulator` and `--ios-device` differ per device), so an editor fills a picker without hard-coding that mapping; a target whose toolchain is missing reports `available: false` with a `note` rather than an empty list, so one absent SDK never blanks out the other two. Needs no project; the JSON envelope is schema-versioned and grow-only like `day metadata`. `day devices boot -p <target> <id>` starts one of the `bootable` entries — `simctl boot` plus the simulator's UI app, which is `Simulator.app` up to Xcode 26 and **Device Hub** from Xcode 27, opened on the device through its URL scheme (`devices://manage/select?id=<udid>`) because it shows nothing without one and does not correct itself once the route is handled, which is why a boot that will open a window waits for the device first; a detached `emulator -avd`, or the Oniro emulator — which is what makes a picker's "nothing running" one action from a device rather than a dead end (iOS cannot install onto a shut-down simulator). Booting an AVD also turns its hardware keyboard on (`hw.keyboard=yes`, announced when it changes anything): `avdmanager` creates AVDs with it off, the emulator has no flag that overrides it, and an emulator with it off silently ignores every key typed on the host — which reads as the app under development swallowing input. `boot` takes `--device`/`--os` (resolved the same way for a simulator: name PREFIX, OS major version), `--wait` (blocks on `sys.boot_completed` for Android, `simctl bootstatus` for iOS — adbd answering is minutes too early), `--headless` (no window: Android gets swiftshader, iOS leaves the simulator's UI app closed, which is what a CI runner with no display wants), and `--orientation portrait\|landscape`. Booting is IDEMPOTENT for Android: an emulator already running that AVD is reused rather than a second one started beside it, and the serial is printed on stdout (status lines go to stderr) so a workflow can capture it. Turning the display asks the WINDOW MANAGER (`cmd window fixed-to-user-rotation` + `user-rotation lock`), not `settings put system user_rotation`, which is only a request the foreground app may refuse — a portrait-locked launcher was measured reverting it while the write reported success; the target rotation is derived from the device's NATURAL orientation, which is landscape on a tablet and portrait on a phone, so the same request means different quarter-turns per device. `day devices shutdown -p <target> <id>` is the other direction, so an editor that can start a device can also give the machine back the gigabytes one holds. iOS hands the id to `simctl shutdown`, which resolves a name as readily as a UDID; Android accepts EITHER spelling of an emulator (the adb serial a listing reports, or the AVD name `boot` takes) because a serial is a console port rather than an identity — it slides when one is taken, and names nothing once the emulator stops — then `adb -s <serial> emu kill` and waits for it to leave `adb devices`, so the next listing describes the machine rather than one on its way out. Stopping something already stopped succeeds, the way booting something already booted does. A physical phone is refused rather than acted on: `emu kill` reaches only an emulator console, and the plausible alternative for real hardware (`adb reboot -p`) powers off a device someone is holding. The OpenHarmony emulator has no stop — it is a detached `qemu-system-x86_64` this command line never recorded, and a by-name match could only kill every QEMU on the machine. A running emulator's listing entry also carries the `avd` it is running (from `adb emu avd name`) and drops out of `bootable`, which is what lets an editor tie a stopped row back to something startable |
 | `day devices setup -p android-mdc --device <profile> --os <api> [--arch] [--tag] [--name] [--orientation] [--ram <MB>]` | create (or refresh) one AVD from a device profile, so CI and a developer stand a device up with the same command instead of the workflow carrying Android SDK trivia. Installs the system image when it is absent (`sdkmanager`), creates the AVD (`avdmanager create avd -d <profile>`), then writes the config that makes it usable — `hw.keyboard=yes`, and `hw.initialOrientation` when an orientation is named. Idempotent: an existing AVD of that name is left alone and only its config is brought up to date, which is what lets CI cache the system image (the slow part, hundreds of megabytes) and rebuild the AVD from it in about a second. `--os` accepts `36`, `API 36` or `android-36`; `--arch` defaults to the host's ABI, since an emulator only runs an image its CPU can execute. Prints the AVD name on stdout, and ONLY that: the SDK tools write progress to stdout, so their output is forwarded to stderr — a CI run captured three minutes of download bars along with the name and passed the whole blob to `--device`. The SDK root is pinned too (`sdkmanager --sdk_root`), and the SDK's own `cmdline-tools` are installed when absent: `avdmanager` takes its root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`) with no flag to override it, so a copy on PATH outside the SDK creates AVDs referencing images the emulator cannot resolve. `ANDROID_AVD_HOME` is pinned for every AVD tool for the same class of reason: `avdmanager` and the `emulator` resolve that directory INDEPENDENTLY from an overlapping set of variables (`ANDROID_USER_HOME`, the older `ANDROID_SDK_HOME`, `$HOME`) and need not agree — a CI runner created an AVD successfully and then reported having none. Listing AVDs unions `avdmanager list avd -c` (authoritative: the tool that created them), `emulator -list-avds` and a scan of every candidate directory, and an EMPTY union is read as "could not be asked" rather than "there are none", so a boot proceeds and lets the emulator give its own diagnosis. `--wait` NARRATES: a line whenever adb\'s view or the boot properties change, a heartbeat every 15s, and every poll under `--verbose`. The emulator\'s own output goes to a log file rather than `/dev/null` (its path printed), the child handle is watched so an emulator that EXITS fails in seconds instead of sitting out the timeout, and both that failure and a timeout quote the log\'s tail — the silent version printed "Waiting …" and then nothing for ten minutes, which is what a hung CI boot looked like. `adb` itself is resolved from `$ANDROID_HOME/platform-tools` before PATH, and the wait refuses to start when it cannot be run at all: a GitHub Linux runner sets `ANDROID_HOME` but does NOT put platform-tools on PATH, so every `adb` call answered "not found" — indistinguishable, to code reading `adb devices`, from a device that has not booted, and a CI boot polled the full ten minutes reporting "adb sees it: no" against an emulator whose own log said `Boot completed in 51826 ms` |
@@ -4511,7 +4535,11 @@ and hermetic), never as the product path — this is the "no cheating" resolutio
 > id, resolved per locale at build and conveyed into each platform's native declaration —
 > [docs/deep-links.md](docs/deep-links.md)); and — added 2026-09 — a flavor layer, where a
 > `Day-<name>.toml` beside the manifest restates whatever `--flavor <name>` should change
-> ([§16.6](#166-build-flavors), [docs/flavors.md](docs/flavors.md)). Locales, images,
+> ([§16.6](#166-build-flavors), [docs/flavors.md](docs/flavors.md)); and — added 2026-10 —
+> `[app.macos] dock = false` for a menu-bar app (`LSUIElement`, [docs/status-item.md](docs/status-item.md)),
+> `[[file_types]]` `name`/`role`/`rank`/`exported`/`conforms_to`
+> ([docs/documents.md](docs/documents.md)), and `[[shortcuts]]` reaching the desktops (Dock
+> menu, jump lists, `.desktop` actions) and the web manifest. Locales, images,
 > assets, and fonts
 > are **convention, not configuration** — the `resource/` tree is scanned ([§18](#18-resources-icons-and-theming)). The extended
 > schema sketched below (`[localization]`, `[assets]`, `[icons]`, `[scripting]`, `[lint]`,
@@ -5027,6 +5055,19 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > expires. A version picker above the platform picker switches between them; a repo with no
 > release publishes the branch build at the root and draws no picker. The site therefore
 > redeploys on release tags as well as on pushes to the default branch.
+>
+> The daysite customization contract (API version 1) layers the original theme, an optional
+> `[theme]` repository/ref or local path in `site.toml`, then project `daysite.config.mjs`
+> overrides. Component overrides and slots retain app features without copying the renderer;
+> project CSS is applied last. A theme or project can own an Astro source tree and content
+> collections, replace routes, or use the publication data independently of the default UI.
+> The project Astro configuration takes precedence over the theme's, then daysite's default;
+> the configuration factory preserves asset staging, portable URLs, and build checks.
+> Actions installs customization dependencies from lockfiles and still stages assets in
+> `daysite/public` and uploads `daysite/dist`. Default apps require no changes, and pinned
+> older renderers retain their original default build. GitHub Actions Pages custom domains
+> are configured in repository Settings and DNS, independently of the generated `CNAME`.
+> [App websites](https://daybrite.dev/docs/websites) documents setup and customization.
 
 `ci.yml`, in order:
 
@@ -5091,8 +5132,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    (`setup-command`), built against this commit by path and driven with
    this run's CLI through `dayapp.yml` on all nine targets (one phone profile per mobile OS);
    each leg uploads its screenshots tree, evidence and captures included, as
-   `conformance-screenshots-<target>[-<slug>]`, and `conformance (evidence)` merges them into
-   the one `conformance-evidence` artifact the website will read, after holding each leg's
+   `conformance-screenshots-<target>[-<slug>]`, and `conformance (results)` merges them into
+   the one `conformance-results` artifact the website will read, after holding each leg's
    run-time capability answers against [coverage-matrix.md](docs/coverage-matrix.md) (a disagreement fails the
    job) and writing `verified-matrix.md` beside it (`scripts/ci/conformance-claims.py`). `dayapp.yml` prefixes its
    screenshot artifacts with the caller's `artifact-prefix` since 2026-10, which is what lets
@@ -6501,7 +6542,7 @@ well-written scripts; `pause` exists for demos and settle-time.
 | `assert_announced` | `text` | the app announced `text` to the screen reader during the run (`day::announce`); the announcement still reaches the toolkit ([docs/testing.md](docs/testing.md)) |
 | `assert_native` | `id`, `text?`, `number?`, `checked?`, `enabled?`, `visible?` | compare the NATIVE widget's own state (`Toolkit::read_native`) with the fields given; a field the toolkit cannot read passes and is listed as unread in the reply's `data`; `enabled` is checked against Day's tree too ([docs/testing.md](docs/testing.md)) |
 | `tests` | — | the registered `#[day::test]` cases (name, kind, what each proves) in the reply's `data` ([docs/testing.md](docs/testing.md)) |
-| `run_tests` | `filter?`, `shots?`, `timeout_secs?`, `case_timeout_secs?` | run the matching cases as one main-loop task, each drive op the dayscript step it names, each GUI case's page shown alone by the app's `test_host`, a panic or a case past its limit (30 s default, `0` none) failing that case only; retryable while running; the reply's `data` is the report the runner prints and writes as `evidence.json` ([docs/testing.md](docs/testing.md)) |
+| `run_tests` | `filter?`, `shots?`, `timeout_secs?`, `case_timeout_secs?` | run the matching cases as one main-loop task, each drive op the dayscript step it names, each GUI case's page shown alone by the app's `test_host`, a panic or a case past its limit (30 s default, `0` none) failing that case only; retryable while running; the reply's `data` is the report the runner prints and writes as `conformance.json` ([docs/testing.md](docs/testing.md)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
 | `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json; the retired `store` key is stripped with a warning |
 | `pause` | `secs` | demos only |
@@ -6776,8 +6817,17 @@ native captures validate real list layouts; other toolkit runtimes were not exer
 `[[file_types]]` in Day.toml declares extension/MIME groups and an optional existing Apple
 UTI. The CLI owns generated document entries (preserving unrelated Apple plist entries),
 Android VIEW filters, Harmony file-opening skills, desktop package associations and PWA
-`file_handlers`. It never selects itself as the user's default handler. The complete contract
-and platform limitations live in [docs/documents.md](docs/documents.md).
+`file_handlers`. The complete contract and platform limitations live in
+[docs/documents.md](docs/documents.md).
+
+> [!NOTE]
+> Revised 2026-10: `[[file_types]]` gained `name` (a Fluent id for the type's description),
+> `role` (`viewer`/`editor`/`none`), `rank` (`alternate`/`default`/`owner`/`none`), `exported`
+> and `conforms_to`. An exported type is declared as the app's own: an exported UTI on Apple
+> platforms and a shared-mime-info package on Linux. The original rule that registration never
+> makes the app a default handler was dropped: `rank = "owner"` makes the NSIS installer take the
+> extension's default (restoring the previous one on uninstall). Building still changes no
+> default anywhere.
 
 `day-core::documents` queues cold-start file batches independently of route navigation.
 `day::on_open_files` installs one scope-owned receiver; UI-thread draining invokes it outside

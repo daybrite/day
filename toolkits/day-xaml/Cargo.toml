@@ -24,6 +24,8 @@ day-spec = { workspace = true }
 # extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
 day-core = { workspace = true }
 day-pieces = { workspace = true }
+# The jump list's task titles: the app's `[[shortcuts]]` label keys, resolved in its catalog.
+day-l10n = { workspace = true }
 linkme = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

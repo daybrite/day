@@ -228,8 +228,15 @@ Known gaps, in rough order of interest:
   requested from inside a button action while the user gesture is still live.
 - **day-piece-break** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
-- **Window control** — the page can set `document.title`; size, minimum size, and multi-window
-  do not apply.
+- **Window control** — the page can set `document.title` and go fullscreen through the
+  Fullscreen API (`WindowHandle::state()`, [docs/windows.md](windows.md)), which browsers allow
+  only from a click or key press; a request outside one settles back to `Normal`. `day::monitors()`
+  reports `window.screen`, and a window's appearance override is the page's. Size, position,
+  stacking, content protection and multi-window do not apply.
+- **Window chrome** — in an installed Chromium app with the window-controls overlay switched on,
+  `WindowChrome::Overlay` runs the page under the title bar (the inset comes from
+  `navigator.windowControlsOverlay`) and `.window_drag_region()` marks `app-region: drag`
+  ([docs/window-chrome.md](window-chrome.md)). Elsewhere both are inert.
 
 ## Home screen and offline
 
@@ -239,7 +246,10 @@ name, opens without browser chrome, and launches with the network away. `day bui
 pieces beside `index.html`:
 
 - **`manifest.webmanifest`** — the name and short name, the description, the language, the
-  display mode, the theme and background colors, and the icons. Every URL in it is relative
+  display mode (a `standalone` app also offers `window-controls-overlay` through
+  `display_override`), the theme and background colors, the icons, the `[[shortcuts]]` as the
+  `shortcuts` member ([docs/deep-links.md](deep-links.md#launcher-shortcuts)), and the
+  `[[file_types]]` as `file_handlers`. Every URL in it is relative
   (`./`, `icons/…`), so the one file serves from a Pages root, a project subpath, or a project
   site's `webapp/` directory, and its `id` is the resolved start URL wherever it lands.
 - **`icons/icon-{64,192,512}.png`** — from the png family `day icon build` renders; 192 and 512 are

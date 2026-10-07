@@ -144,14 +144,21 @@ Choose what to deploy in the job's `with` block:
 | Output | Configuration |
 | --- | --- |
 | App website with listings, downloads and screenshots | Add `website/site.toml` and remove `deploy-website: "false"`; the workflow detects it automatically. |
-| An existing Astro website | Set `deploy-website: "true"` with a `website/` directory. |
+| Custom Astro pages or a reusable website theme | Keep `website/site.toml`, then add a daysite customization module or project Astro configuration. |
 | Web app only | Delete `website/site.toml`, keep `web-dom` in `targets`, and keep `deploy-web: true`. |
 
-The generated site uses the [daysite template](https://github.com/daybrite/daysite).
+The generated site uses the [daysite template](https://github.com/daybrite/daysite), with
+optional component overrides, reusable themes, and project-owned Astro pages.
+Follow [App websites](/docs/websites) for initial setup, customization, local previews,
+GitHub Pages publication, and an optional custom domain. Existing default sites keep their
+appearance without configuration changes.
+
 Deployment normally follows a successful default-branch push; the app website also deploys for
 release tags. A `github-pages` environment that excludes tags prevents release-tag deployment.
+`web-deploy-tag-pattern` can restrict automatic publication to matching tags.
 See the [website workflow reference](https://github.com/daybrite/actions#project-website-daysite)
-for `site.toml`, deployment filters and multiple workflow calls.
+for deployment filters and multiple workflow calls. Even a project-owned Astro configuration
+uses `website/site.toml` and the workflow's generated app data and output directories.
 
 ## Other workflow inputs
 

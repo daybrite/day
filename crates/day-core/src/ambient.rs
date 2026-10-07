@@ -77,6 +77,9 @@ fn ambient_of(root: RNode) -> WindowAmbient {
 /// live report lands, already sees the right top inset (the same lazy-env pattern as
 /// `layout_direction`/`DAY_LOCALE`). Points, not px.
 fn initial_safe_area() -> day_geometry::Insets {
+    if let Some(seed) = SEED.with(|s| s.take()) {
+        return seed;
+    }
     std::env::var("DAY_SAFE_AREA_TOP")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
@@ -85,6 +88,18 @@ fn initial_safe_area() -> day_geometry::Insets {
             ..Default::default()
         })
         .unwrap_or_default()
+}
+
+thread_local! {
+    static SEED: std::cell::Cell<Option<day_geometry::Insets>> = const { std::cell::Cell::new(None) };
+}
+
+/// Backend-facing: the first window's safe-area insets, known before its content builds and
+/// before the tree that owns them exists (an overlay title bar's height, docs/window-chrome.md).
+/// The first window's content reads them at build time; later changes go through
+/// [`set_safe_area`].
+pub fn seed_safe_area(insets: day_geometry::Insets) {
+    SEED.with(|s| s.set(Some(insets)));
 }
 
 /// The window a read or report targets: the one being built, else the primary root. Shared with

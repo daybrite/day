@@ -13,11 +13,14 @@
 # newest build of the default branch at /<locale>/main/, built from the last CI run and marked
 # as a development build. Before the first release, main is what /<locale>/ shows.
 # https://github.com/daybrite/daysite#build-channels
+# Setup, customization, GitHub Pages, and custom domains:
+# https://daybrite.dev/docs/websites
 #
 # Preview locally:
 #   cd website
 #   git clone https://github.com/daybrite/daysite .daysite   # gitignored
-#   npm --prefix .daysite install
+#   npm --prefix .daysite ci
+#   node .daysite/scripts/install-customization.mjs # optional theme/project dependencies
 #   node .daysite/scripts/preview.mjs           # this checkout, one channel
 #   node .daysite/scripts/preview.mjs --ci      # both channels, from GitHub (needs `gh`)
 
@@ -63,3 +66,12 @@ host = "https://{{org}}.github.io/{{repo}}"
 # Footer line, printed under the Day attribution; {year} interpolates. Absent by default: a
 # copyright notice is yours to write, not the scaffold's to guess.
 # footer = "© {year} {{title}}"
+
+# Reusable theme (optional; keep this table after the top-level site settings).
+# The repository must be published and the actions/daysite revisions must support customization.
+# [theme]
+# repository = "appfair/appsite"
+# ref = "main" # A tested tag or commit can pin the theme independently of the renderer.
+# Or use path = "./theme" for a theme committed under website/theme/.
+# Project component overrides live in website/daysite.config.mjs; custom Astro pages can
+# use their own source tree and configuration. See the guide linked above.

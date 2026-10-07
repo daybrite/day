@@ -87,6 +87,9 @@
 #include <QString>
 #include <QWidget>
 #include <QMenu>
+#include <QScreen>
+#include <QSystemTrayIcon>
+#include <QCursor>
 #include <QMenuBar>
 #include <QAction>
 #include <QKeySequence>
@@ -229,6 +232,19 @@ void day_qt_set_window_events_cb(void (*resized)(unsigned long long, int, int),
     g_win_focused = focused;
 }
 
+// Display-state reports (docs/windows.md "Window properties") for EVERY Day window, the primary
+// included: its node id (0 = the primary) and a day_spec::WindowState code (0 normal,
+// 1 minimized, 2 maximized, 3 fullscreen). Registered once at run().
+static void (*g_win_state)(unsigned long long, int) = nullptr;
+void day_qt_set_window_state_cb(void (*state)(unsigned long long, int)) { g_win_state = state; }
+
+// Keep the process when the primary window closes (docs/windows.md "Keeping the app running"):
+// day decides when to quit, and the primary's close is reported like a secondary's (node 0).
+static bool g_keep_running = false;
+void day_qt_set_keep_running(int on) { g_keep_running = on != 0; }
+// The platform's exit, the door day::quit() uses.
+void day_qt_quit(void) { QCoreApplication::quit(); }
+
 // Resizable top-level that reports size changes back to day (docs §7.7). Day's tree mounts
 // into the inner `content` widget, not the window itself: on platforms where the QMenuBar is
 // an in-window bar (Linux/Windows — macOS uses the global bar), the bar owns a strip at the
@@ -241,6 +257,22 @@ public:
     // Nonzero = a SECONDARY window's day root node id: events route to the g_win_*
     // callbacks and close hides (Rust owns destruction — docs/windows.md).
     unsigned long long node = 0;
+
+    // Window chrome and properties (docs/window-chrome.md, docs/windows.md "Window
+    // properties"): the flags Day asked for, combined into one setWindowFlags call by
+    // applyFlags(), since Qt re-creates the native window on every flag change.
+    bool frameless = false;
+    bool noShadow = false;
+    bool edgeResize = false;
+    bool onTop = false;
+    bool tool = false;
+    bool minButton = true;
+    bool maxButton = true;
+    bool closeButton = true;
+    bool resizable = true;
+    // The content-size limits Day asked for (-1 = none), kept to restore after a fixed size.
+    QSize minContent{-1, -1};
+    QSize maxContent{-1, -1};
 
     // The window toolbar (docs/toolbars.md), a strip under the menu bar. A plain QToolBar
     // parented to the window rather than a QMainWindow dock: the geometry here is already
@@ -281,6 +313,11 @@ protected:
             // child-widget release order stays sound.
             if (g_win_closed) g_win_closed(node);
             e->accept();
+        } else if (g_keep_running) {
+            // Keep running (docs/windows.md): the primary only hides, and day hears the close
+            // as node 0 and decides whether the app ends.
+            if (g_win_closed) g_win_closed(0);
+            e->accept();
         } else {
             // Primary close quits, taking secondary windows with it (docs/windows.md) —
             // explicit, because quitOnLastWindowClosed is off (a secondary outliving the
@@ -289,10 +326,79 @@ protected:
             QCoreApplication::quit();
         }
     }
+
+public:
+    // The strip above Day's content (menu bar + toolbar), which a content size adds back.
+    int chromeTop() const { return menuHeight() + toolbarHeight(); }
+
+    // Rebuild the window flags from the fields above. A flag change hides a shown window, so it
+    // is shown again; the geometry survives on X11, and Wayland places it anew.
+    void applyFlags() {
+        Qt::WindowFlags f = tool ? Qt::Tool : Qt::Window;
+        if (frameless) f |= Qt::FramelessWindowHint;
+        if (noShadow) f |= Qt::NoDropShadowWindowHint;
+        if (onTop) f |= Qt::WindowStaysOnTopHint;
+        if (!minButton || !maxButton || !closeButton) {
+            f |= Qt::CustomizeWindowHint | Qt::WindowTitleHint | Qt::WindowSystemMenuHint;
+            if (minButton) f |= Qt::WindowMinimizeButtonHint;
+            if (maxButton) f |= Qt::WindowMaximizeButtonHint;
+            if (closeButton) f |= Qt::WindowCloseButtonHint;
+        }
+        const bool shown = isVisible();
+        setWindowFlags(f);
+        if (shown) show();
+    }
+
+    // Apply the size limits (content sizes; the chrome strip is added) or pin the current size.
+    void applyLimits() {
+        const int top = chromeTop();
+        if (!resizable) {
+            setFixedSize(size());
+            return;
+        }
+        setMinimumSize(minContent.width() < 0 ? 0 : minContent.width(),
+                       minContent.height() < 0 ? 0 : minContent.height() + top);
+        setMaximumSize(maxContent.width() < 0 ? QWIDGETSIZE_MAX : maxContent.width(),
+                       maxContent.height() < 0 ? QWIDGETSIZE_MAX : maxContent.height() + top);
+    }
+
+    // Wayland has no minimized state: xdg_toplevel.set_minimized is a one-way request and the
+    // compositor never says whether the window was minimized or restored, so Qt's Wayland
+    // plugin drops the flag again right after showMinimized(). A minimize THIS window asked for
+    // there is assumed to have landed, and the next activation ends it (a minimized window
+    // cannot hold focus). A minimize the user makes through the compositor is invisible there.
+    // X11, macOS and Windows report minimized through windowState() and need none of this.
+    bool assumedMinimized = false;
+    // The day_spec::WindowState code last reported, so a report fires only on a real change.
+    int lastState = 0;
+
+    // Minimized wins (Qt keeps Maximized set underneath it), then fullscreen, then maximized.
+    int stateCode() const {
+        const Qt::WindowStates s = windowState();
+        if (assumedMinimized || (s & Qt::WindowMinimized)) return 1;
+        if (s & Qt::WindowFullScreen) return 3;
+        if (s & Qt::WindowMaximized) return 2;
+        return 0;
+    }
+    // Report the display state if it changed, or regardless when `force` (the settle after a
+    // request, so a declined one reads back as the state the window kept).
+    void reportState(bool force) {
+        const int code = stateCode();
+        if (code == lastState && !force) return;
+        lastState = code;
+        if (g_win_state) g_win_state(node, code);
+    }
+
+protected:
     void changeEvent(QEvent *e) override {
         QWidget::changeEvent(e);
-        if (node && e->type() == QEvent::ActivationChange && g_win_focused)
-            g_win_focused(node, isActiveWindow() ? 1 : 0);
+        if (e->type() == QEvent::ActivationChange) {
+            if (node && g_win_focused) g_win_focused(node, isActiveWindow() ? 1 : 0);
+            if (isActiveWindow()) assumedMinimized = false;
+            reportState(false);
+        } else if (e->type() == QEvent::WindowStateChange) {
+            reportState(false);
+        }
     }
 };
 
@@ -356,6 +462,285 @@ void day_qt_window_destroy(void *win) {
 int day_qt_window_is_active(void *win) {
     return static_cast<QWidget *>(win)->isActiveWindow() ? 1 : 0;
 }
+
+// Ask for a display state (docs/windows.md "Window properties"), by day_spec::WindowState code.
+// Each show* call is a request to the window manager; the outcome reaches day through
+// changeEvent, and a settle a second later re-reports whatever the window became, so a request
+// the window manager ignored settles day's optimistic signal on the truth.
+void day_qt_window_set_state(void *win, int code) {
+    auto *w = static_cast<DayWindow *>(win);
+    const bool wasMinimized = w->stateCode() == 1;
+    switch (code) {
+    case 1:
+        w->showMinimized();
+        if (QGuiApplication::platformName().startsWith(QLatin1String("wayland"))) {
+            w->assumedMinimized = true;
+            w->reportState(false);
+        }
+        break;
+    case 2: w->showMaximized(); break;
+    case 3: w->showFullScreen(); break;
+    default:
+        w->showNormal();
+        // Back from the taskbar: raise and activate as well, which is the only way a Wayland
+        // compositor can be asked to restore (the assumed minimize ends when focus arrives).
+        if (wasMinimized) {
+            w->raise();
+            w->activateWindow();
+        }
+        break;
+    }
+    QTimer::singleShot(1000, w, [w]() { w->reportState(true); });
+}
+
+// ---------------------------------------------------------------------------
+// The desktop shell (docs/window-chrome.md, docs/windows.md, docs/status-item.md)
+// ---------------------------------------------------------------------------
+
+static bool day_qt_wayland() {
+    return QGuiApplication::platformName().startsWith(QLatin1String("wayland"));
+}
+int day_qt_is_wayland(void) { return day_qt_wayland() ? 1 : 0; }
+
+// How close to a frameless window's edge a press resizes it, in pixels.
+static constexpr int kResizeBorder = 6;
+
+// Presses near a frameless, resizable window's edge start the window manager's interactive
+// resize (QWindow::startSystemResize, which works on X11 and Wayland). App-wide, because the
+// press lands on whatever Day widget fills that edge, never on the window itself.
+class DayEdgeResizer : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        if (ev->type() != QEvent::MouseButtonPress) return false;
+        auto *me = static_cast<QMouseEvent *>(ev);
+        if (me->button() != Qt::LeftButton) return false;
+        auto *widget = qobject_cast<QWidget *>(obj);
+        auto *win = widget ? dynamic_cast<DayWindow *>(widget->window()) : nullptr;
+        if (!win || !win->edgeResize || !win->resizable || win->isMaximized() || win->isFullScreen())
+            return false;
+        const QPoint p = win->mapFromGlobal(me->globalPosition().toPoint());
+        Qt::Edges edges;
+        if (p.x() < kResizeBorder) edges |= Qt::LeftEdge;
+        if (p.x() >= win->width() - kResizeBorder) edges |= Qt::RightEdge;
+        if (p.y() < kResizeBorder) edges |= Qt::TopEdge;
+        if (p.y() >= win->height() - kResizeBorder) edges |= Qt::BottomEdge;
+        if (!edges || !win->windowHandle()) return false;
+        return win->windowHandle()->startSystemResize(edges);
+    }
+};
+
+// Set the chrome a window opens with, before it is first shown: frameless (Qt has no overlay
+// title bar, so `Overlay` arrives here as standard), a transparent background, no shadow, and
+// whether the user may resize it.
+void day_qt_window_set_chrome(void *win, int frameless, int transparent, int shadow, int resizable) {
+    auto *w = static_cast<DayWindow *>(win);
+    w->frameless = frameless != 0;
+    w->resizable = resizable != 0;
+    if (transparent) {
+        // Needs a compositing window manager; on bare X11 the unpainted pixels show black.
+        w->setAttribute(Qt::WA_TranslucentBackground);
+        w->setAutoFillBackground(false);
+    }
+    w->noShadow = shadow == 0;
+    if (w->frameless || w->noShadow) w->applyFlags();
+    if (w->frameless) {
+        if (w->resizable) {
+            w->edgeResize = true;
+            static DayEdgeResizer *resizer = nullptr;
+            if (!resizer) {
+                resizer = new DayEdgeResizer(qApp);
+                qApp->installEventFilter(resizer);
+            }
+        }
+    }
+    if (!w->resizable) w->setFixedSize(w->size());
+}
+
+// Where a window opens: 1 centered on the screen with the active window, 2 at (x, y) (the
+// frame's top-left, desktop coordinates). Wayland lets no client place a window, so both are
+// requests the compositor ignores there.
+void day_qt_window_place(void *win, int mode, double x, double y) {
+    auto *w = static_cast<DayWindow *>(win);
+    if (mode == 1) {
+        QWidget *active = QApplication::activeWindow();
+        QScreen *screen = active ? active->screen() : QGuiApplication::primaryScreen();
+        if (!screen) return;
+        QRect area = screen->availableGeometry();
+        QSize frame = w->frameGeometry().size().expandedTo(w->size());
+        w->move(area.center() - QPoint(frame.width() / 2, frame.height() / 2));
+    } else if (mode == 2) {
+        w->move(QPoint(int(x), int(y)));
+    }
+}
+
+// Move and/or resize: the origin is the frame's top-left, the size is Day's content size (the
+// menu bar and toolbar strip go back on top).
+void day_qt_window_set_frame(void *win, int has_origin, double x, double y, int has_size, double w,
+                             double h) {
+    auto *dw = static_cast<DayWindow *>(win);
+    if (has_size) {
+        const QSize size(int(w), int(h) + dw->chromeTop());
+        if (!dw->resizable) dw->setFixedSize(size);
+        else dw->resize(size);
+    }
+    if (has_origin) dw->move(QPoint(int(x), int(y)));
+}
+
+// The window's frame on the desktop; 0 where the platform does not say (Wayland positions).
+int day_qt_window_frame(void *win, double *out) {
+    if (day_qt_wayland()) return 0;
+    const QRect r = static_cast<QWidget *>(win)->frameGeometry();
+    out[0] = r.x();
+    out[1] = r.y();
+    out[2] = r.width();
+    out[3] = r.height();
+    return 1;
+}
+
+// Content-size limits; a negative dimension lifts that bound.
+void day_qt_window_set_limits(void *win, double min_w, double min_h, double max_w, double max_h) {
+    auto *w = static_cast<DayWindow *>(win);
+    w->minContent = QSize(int(min_w), int(min_h));
+    w->maxContent = QSize(int(max_w), int(max_h));
+    w->applyLimits();
+}
+
+// One switch on a window: 0 stay on top, 1 tool window (no taskbar entry), 2 minimize button,
+// 3 maximize button, 4 close button, 5 resizable, 6 visible.
+void day_qt_window_set_switch(void *win, int which, int on) {
+    auto *w = static_cast<DayWindow *>(win);
+    const bool b = on != 0;
+    switch (which) {
+    case 0: w->onTop = b; w->applyFlags(); break;
+    case 1: w->tool = b; w->applyFlags(); break;
+    case 2: w->minButton = b; w->applyFlags(); break;
+    case 3: w->maxButton = b; w->applyFlags(); break;
+    case 4: w->closeButton = b; w->applyFlags(); break;
+    case 5:
+        w->resizable = b;
+        if (b) {
+            w->setMinimumSize(0, 0);
+            w->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
+        }
+        w->applyLimits();
+        break;
+    case 6:
+        if (b) {
+            w->show();
+            w->raise();
+            w->activateWindow();
+        } else {
+            w->hide();
+        }
+        break;
+    default: break;
+    }
+}
+
+// Flash the taskbar entry: until the window is activated (critical) or briefly.
+void day_qt_window_alert(void *win, int critical) {
+    QApplication::alert(static_cast<QWidget *>(win), critical ? 0 : 3000);
+}
+
+// Displays (docs/windows.md "Monitors"). `out` takes frame x, y, w, h, then work area x, y, w, h,
+// then the scale; `name`/`id` are NUL-terminated into the given buffers. Returns 1 for the
+// primary screen, 0 for another, -1 past the end.
+int day_qt_screen_count(void) { return int(QGuiApplication::screens().size()); }
+int day_qt_screen_info(int i, double *out, char *name, int name_len, char *id, int id_len) {
+    const QList<QScreen *> screens = QGuiApplication::screens();
+    if (i < 0 || i >= screens.size()) return -1;
+    QScreen *s = screens.at(i);
+    const QRect g = s->geometry();
+    const QRect a = s->availableGeometry();
+    const double v[9] = {double(g.x()), double(g.y()), double(g.width()), double(g.height()),
+                         double(a.x()), double(a.y()), double(a.width()), double(a.height()),
+                         s->devicePixelRatio()};
+    for (int k = 0; k < 9; ++k) out[k] = v[k];
+    QString label = s->model().isEmpty() ? s->name()
+                                         : (s->manufacturer() + QLatin1Char(' ') + s->model()).trimmed();
+    const QByteArray n = label.toUtf8();
+    const QByteArray d = s->name().toUtf8();
+    if (name_len > 0) {
+        qstrncpy(name, n.constData(), size_t(name_len));
+    }
+    if (id_len > 0) {
+        qstrncpy(id, d.constData(), size_t(id_len));
+    }
+    return s == QGuiApplication::primaryScreen() ? 1 : 0;
+}
+
+// A drag region (`.window_drag_region()`): a press on the region's own background, or on a
+// child that ignores presses (a label, a container), then a drag past the platform's drag
+// distance asks the window manager to move the window (QWindow::startSystemMove: its snapping,
+// X11 and Wayland alike); a control inside accepts its own press, so it never reaches here.
+// The move waits for the drag rather than starting on the press: once the window manager owns
+// the pointer, Qt never sees the release, and the next press could not count as a double click.
+// A double click toggles maximize, the Linux and Windows title-bar default (Qt does not expose
+// the desktop's setting).
+class DayDragRegion : public QObject {
+public:
+    using QObject::QObject;
+protected:
+    bool eventFilter(QObject *obj, QEvent *ev) override {
+        auto *widget = qobject_cast<QWidget *>(obj);
+        if (!widget) return false;
+        QWidget *win = widget->window();
+        switch (ev->type()) {
+        case QEvent::MouseButtonPress: {
+            auto *me = static_cast<QMouseEvent *>(ev);
+            if (me->button() != Qt::LeftButton) return false;
+            armed = true;
+            pressAt = me->globalPosition().toPoint();
+            return true;
+        }
+        case QEvent::MouseMove: {
+            auto *me = static_cast<QMouseEvent *>(ev);
+            if (!armed || !(me->buttons() & Qt::LeftButton)) return false;
+            if ((me->globalPosition().toPoint() - pressAt).manhattanLength() <
+                QApplication::startDragDistance())
+                return true;
+            armed = false;
+            if (win->windowHandle()) win->windowHandle()->startSystemMove();
+            return true;
+        }
+        case QEvent::MouseButtonRelease:
+            armed = false;
+            return false;
+        case QEvent::MouseButtonDblClick: {
+            auto *me = static_cast<QMouseEvent *>(ev);
+            if (me->button() != Qt::LeftButton) return false;
+            armed = false;
+            if (win->isMaximized()) win->showNormal();
+            else win->showMaximized();
+            return true;
+        }
+        default:
+            return false;
+        }
+    }
+
+private:
+    bool armed = false;
+    QPoint pressAt;
+};
+
+void day_qt_set_drag_region(void *widget, int on) {
+    auto *w = static_cast<QWidget *>(widget);
+    // Found by name: the shim has no moc, so the filter class carries no Q_OBJECT to cast by.
+    static const QString kName = QStringLiteral("dayDragRegion");
+    QObject *existing = w->findChild<QObject *>(kName, Qt::FindDirectChildrenOnly);
+    if (on && !existing) {
+        auto *filter = new DayDragRegion(w);
+        filter->setObjectName(kName);
+        w->installEventFilter(filter);
+    } else if (!on && existing) {
+        w->removeEventFilter(existing);
+        delete existing;
+    }
+}
+
 
 void *day_qt_container_new() { return new QWidget(); }
 
@@ -4234,6 +4619,52 @@ void day_qt_set_context_menu(void *w, void *menu) {
     widget->setContextMenuPolicy(Qt::CustomContextMenu);
     QObject::connect(widget, &QWidget::customContextMenuRequested,
                      [widget, m](const QPoint &pos) { m->popup(widget->mapToGlobal(pos)); });
+}
+
+// Status items (docs/status-item.md): a QSystemTrayIcon, which speaks StatusNotifierItem +
+// dbusmenu on Linux (and falls back to XEmbed), Shell_NotifyIcon on Windows, NSStatusItem on
+// macOS. Whether any host shows it is QSystemTrayIcon::isSystemTrayAvailable().
+int day_qt_tray_available(void) { return QSystemTrayIcon::isSystemTrayAvailable() ? 1 : 0; }
+
+void *day_qt_tray_new(void) {
+    auto *tray = new QSystemTrayIcon(qApp);
+    QObject::connect(tray, &QSystemTrayIcon::activated, tray,
+                     [tray](QSystemTrayIcon::ActivationReason reason) {
+        if (reason != QSystemTrayIcon::Trigger) return;
+        const uint64_t activate = tray->property("dayActivate").toULongLong();
+        if (activate) {
+            if (g_menu_cb) g_menu_cb(activate);
+        } else if (QMenu *menu = tray->contextMenu()) {
+            // No action of its own: any click opens the menu.
+            menu->popup(QCursor::pos());
+        }
+    });
+    return tray;
+}
+
+// Apply a spec: the icon (the toolbar's icon spec, drawn as a mask when `mask`), the hover text,
+// the menu (a QMenu built by the day_qt_menu_* builder; the tray takes it over and deletes the
+// previous one) and the click action (0 = a click opens the menu).
+void day_qt_tray_update(void *t, const char *icon, int fallback, int mask, const char *tooltip,
+                        void *menu, uint64_t activate) {
+    auto *tray = static_cast<QSystemTrayIcon *>(t);
+    QIcon qi = day_qt_toolbar_icon(icon, fallback, 22);
+    if (qi.isNull()) qi = QApplication::windowIcon();
+    qi.setIsMask(mask != 0);
+    tray->setIcon(qi);
+    tray->setToolTip(QString::fromUtf8(tooltip));
+    tray->setProperty("dayActivate", QVariant::fromValue<qulonglong>(activate));
+    QMenu *old = tray->contextMenu();
+    tray->setContextMenu(static_cast<QMenu *>(menu));
+    if (old && old != menu) old->deleteLater();
+    tray->show();
+}
+
+void day_qt_tray_delete(void *t) {
+    auto *tray = static_cast<QSystemTrayIcon *>(t);
+    if (QMenu *menu = tray->contextMenu()) menu->deleteLater();
+    tray->hide();
+    tray->deleteLater();
 }
 
 } // extern "C"

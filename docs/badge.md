@@ -1,6 +1,6 @@
 ---
-title: "App icon badge (proposed)"
-description: "A proposed piece for the app icon's numeric badge, with the per-platform conveyance it would need."
+title: "App icon badge"
+description: "A count, text or dot on the app icon in the Dock, taskbar, launcher or home screen, and how each platform shows it."
 ---
 
 <!--
@@ -8,14 +8,16 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# App icon badge (proposed)
+# App icon badge
 
 > [!NOTE]
-> **Status: phase 1 shipped.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`, the defaulted
-> `Toolkit::set_app_badge` duty, the `day::set_app_badge` facade, and the **AppKit, UIKit, and
-> web-dom** arms are implemented; [docs/duty-matrix.md](duty-matrix.md) and [docs/coverage-matrix.md](coverage-matrix.md) carry the rows.
-> Every other backend inherits the default no-op and answers `Unsupported`, which is correct for
-> Android (it has no API) and a to-do for Linux and Windows.
+> **Status: shipped on every platform with an API.** `AppBadge`, `Cap::AppBadge{Count,Text,Dot}`,
+> the defaulted `Toolkit::set_app_badge` duty and the `day::set_app_badge` facade, with arms on
+> AppKit, UIKit, web-dom, HarmonyOS, Linux GTK and Qt (the Unity launcher signal through the
+> `day-dbus` crate, `Emulated`), and Windows XAML (an overlay icon Day draws, compile-checked).
+> Android answers `Unsupported`: it has no API. [docs/duty-matrix.md](duty-matrix.md) and
+> [docs/coverage-matrix.md](coverage-matrix.md) carry the rows. Progress on the Dock or
+> taskbar icon shipped beside it as `day::set_app_progress` ([docs/status-item.md](status-item.md)).
 >
 > The Showcase's Notifications & badge page has an "App badge" group — a stepper, Set/Clear, and a
 > macOS-only "Set text" button that appears only where `Cap::AppBadgeText` is `Native`.
@@ -63,9 +65,9 @@ This is the part that decides the API, because the payload differs more than the
 |---|---|---|---|---|
 | macos-appkit | ✓ | **✓** | ✓ | `NSApp.dockTile.badgeLabel` — an arbitrary `String` |
 | ios-uikit | ✓ | – | – | `UNUserNotificationCenter.setBadgeCount` (iOS 16+); number only |
-| linux-gtk / linux-qt | ✓ | – | ✓ | `com.canonical.Unity.LauncherEntry` D-Bus signal (`count`, `count-visible`) |
+| linux-gtk / linux-qt | ~ | – | – | `com.canonical.Unity.LauncherEntry` D-Bus signal (`count`, `count-visible`) through the `day-dbus` crate; `Emulated`, because whether it shows depends on the dock |
 | web-dom | ✓ | – | ✓ | `navigator.setAppBadge(n?)` / `clearAppBadge()` |
-| windows-winui | ~ | – | ~ | `ITaskbarList3::SetOverlayIcon` — an **image**, not a number |
+| windows-winui | ✓ | – | ✓ | `ITaskbarList3::SetOverlayIcon` with a red disc Day draws holding the count (99+ past 99), or none for a dot |
 | android-mdc | – | – | ~ | none: the launcher derives a dot from posted notifications |
 | harmony-arkui | ✓ | – | – | `notificationManager.setBadgeNumber`, an ArkTS-only API reached through day-arkui's daybridge arm (`src/host.rs`) |
 
@@ -172,12 +174,12 @@ The recommendation is to name the new surface **`app_badge`** at every layer
 **Custom graphics.** macOS can host an arbitrary view on the Dock tile (`NSDockTile.contentView`)
 and Windows overlay icons are images by nature, so a `Badge::Image` is real on two targets. It needs
 a per-platform native image type and an encode path that Day does not have at this layer;
-`day-piece-remote-image` decodes bytes into a *widget*, which is a different thing. `Cap::BadgeImage`
-is reserved so the enum can grow without a breaking change.
+`day-piece-remote-image` decodes bytes into a *widget*, which is a different thing. A `Cap::BadgeImage`
+would join the enum with it.
 
-**Progress.** The same Unity D-Bus protocol carries a `progress` double, macOS can draw a progress
-bar on the Dock tile, and Windows has `ITaskbarList3::SetProgressValue`. That is a separate
-feature and does not belong in `Badge`.
+**Progress** shipped as its own feature, `day::set_app_progress`
+([docs/status-item.md](status-item.md)), over the same three mechanisms: the Unity `progress`
+property, a bar on the Dock tile, and `ITaskbarList3::SetProgressValue`.
 
 ## Phasing
 
@@ -185,12 +187,11 @@ feature and does not belong in `Badge`.
    AppKit, UIKit, and web-dom arms.** Those three are small and cover the platforms with a real API:
    `badgeLabel`, `setBadgeCount`, `setAppBadge`. Android answers `Unsupported` from the default and
    its doc points at `Notification::badge`.
-2. **Linux**, over the Unity D-Bus signal, reusing the std-only D-Bus approach [docs/notify.md](notify.md)
-   specifies for `org.freedesktop.Notifications` rather than adding a D-Bus crate. Reports
+2. **Linux** (done), over the Unity D-Bus signal through the std-only `day-dbus` crate. Reports
    `Emulated`, because whether it shows depends on the shell.
 3. **HarmonyOS** (done: `setBadgeNumber` is ArkTS-only, so day-arkui carries a daybridge arm for
-   it and reports `Cap::AppBadgeCount` as `Native` wherever that arm is staged), and **Windows**, which needs the
-   render-digits-to-an-icon path or a packaged-only implementation.
+   it and reports `Cap::AppBadgeCount` as `Native` wherever that arm is staged), and **Windows**
+   (done: Day draws the count into the overlay icon).
 
 Phase 1 stands on its own: it is three small arms, it needs no new crate, and one defaulted
 method makes every other backend report `Unsupported`.

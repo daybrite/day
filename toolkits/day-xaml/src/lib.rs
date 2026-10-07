@@ -76,6 +76,9 @@ day_core::tls_group! {
     /// Label ptr → node id, so a `LabelPatch::Runs` (which carries no id) can still tell a link
     /// run's Hyperlink which node to report against. Entries drop in `release`.
     static LABEL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+    /// Elements marked `.window_drag_region()` (docs/window-chrome.md), so `release` can drop the
+    /// shim's reference to one before the element goes.
+    static DRAG_REGIONS: RefCell<HashSet<usize>> = RefCell::new(HashSet::new());
     /// Text field ptr → node id. `set_input_traits` carries no id, and a field that turns secure
     /// is rebuilt as a `PasswordBox` whose callbacks must report against the same node. It is
     /// also what tells a text field's handle from any other. Entries drop in `release`.
@@ -1669,6 +1672,44 @@ impl Toolkit for Xaml {
             Cap::NavReorder | Cap::ListReorder => Support::Native,
             // A second Win32 host + its own XAML island per window (docs/windows.md).
             Cap::MultiWindow => Support::Native,
+            // Window properties (docs/windows.md): ShowWindow for minimize, maximize and restore,
+            // reported from WM_SIZE; borderless fullscreen over the monitor (WS_POPUP in place of
+            // the frame styles); SetWindowDisplayAffinity(WDA_EXCLUDEFROMCAPTURE).
+            Cap::WindowStates | Cap::WindowFullscreen | Cap::ContentProtection => Support::Native,
+            // Window chrome (docs/window-chrome.md). Frameless keeps the frame styles and answers
+            // WM_NCCALCSIZE with the whole window, so DWM keeps the shadow and Aero Snap; the
+            // overlay title bar is DWM's custom-frame method, its caption buttons cut out of the
+            // island; drag regions answer HTCAPTION from WM_NCHITTEST through the island's hooked
+            // windows.
+            Cap::FramelessWindow | Cap::OverlayTitleBar | Cap::DragRegion => Support::Native,
+            // Mica, Mica Alt and Acrylic through DWMWA_SYSTEMBACKDROP_TYPE, Windows 11 22621+.
+            Cap::WindowMaterial => {
+                if unsafe { ffi::day_xaml_materials_supported() } != 0 {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // The app outside its windows (docs/status-item.md): notification-area icons, and
+            // progress and an overlay badge on the first window's taskbar button.
+            Cap::StatusItem | Cap::AppProgress | Cap::AppBadgeCount | Cap::AppBadgeDot => {
+                Support::Native
+            }
+            // Window properties (docs/windows.md): SetWindowPos and WM_GETMINMAXINFO; topmost
+            // and the taskbar tab (a window on every virtual desktop has no API); the per-window
+            // dark title bar and root theme; FlashWindowEx; EnumDisplayMonitors.
+            // The jump list's Tasks (ICustomDestinationList); a task starts a second process,
+            // which forwards its route to this one (docs/deep-links.md).
+            Cap::DynamicShortcuts => Support::Native,
+            Cap::WindowGeometry
+            | Cap::WindowPosition
+            | Cap::WindowLevel
+            | Cap::WindowAppearance
+            | Cap::RequestAttention
+            | Cap::Monitors => Support::Native,
+            // `Cap::TransparentWindow` stays Unsupported: a desktop showing through needs a host
+            // with no redirection surface, and a XAML island's DirectComposition content inside
+            // such a host is not something this backend can promise. The window stays opaque.
             // A Fluent CommandBar under the menu bar (docs/toolbars.md).
             // The CommandBar holds an AutoSuggestBox (docs/search.md).
             Cap::AppMenu | Cap::Toolbar | Cap::ToolbarSearch => Support::Native,
@@ -2542,6 +2583,10 @@ impl Toolkit for Xaml {
         }
     }
     fn release(&mut self, h: WinHandle) {
+        // A drag region's element is held by the shim's hit test; let it go with the node.
+        if DRAG_REGIONS.with(|d| d.borrow_mut().remove(&(h.0 as usize))) {
+            unsafe { ffi::day_xaml_set_drag_region(h.0, 0) };
+        }
         // A released window content = that window is gone (docs/windows.md teardown): Now
         // destroy the whole secondary window, never before (child releases come first).
         self.secondary.retain(|w| {
@@ -3360,6 +3405,7 @@ impl Toolkit for Xaml {
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<WinHandle> {
         let fixed = (kind == day_spec::WindowKind::Preferences) as c_int;
+        let chrome = window_chrome(options);
         let win = unsafe {
             ffi::day_xaml_window_new2(
                 cstr(&options.title).as_ptr(),
@@ -3367,10 +3413,14 @@ impl Toolkit for Xaml {
                 options.size.height as c_int,
                 id.0,
                 fixed,
+                &chrome,
             )
         };
         if win.is_null() {
             return day_spec::WindowOpenReply::Unsupported;
+        }
+        if options.min_size.is_some() || options.max_size.is_some() {
+            set_limits(win, options.min_size, options.max_size);
         }
         let content = unsafe { ffi::day_xaml_window_content2(win) };
         // The app menu was installed before this window existed, and Windows draws one per
@@ -3404,8 +3454,9 @@ impl Toolkit for Xaml {
     }
 
     fn focus_window(&mut self, host: &WinHandle) {
-        if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
-            unsafe { ffi::day_xaml_window_raise2(w.win) };
+        // The primary too: a forwarded launch focuses whichever window is in front.
+        if let Some(win) = self.window_token(host) {
+            unsafe { ffi::day_xaml_window_raise2(win) };
         }
     }
 
@@ -3415,6 +3466,200 @@ impl Toolkit for Xaml {
         if let Some(win) = self.window_token(host) {
             unsafe { ffi::day_xaml_window_set_title2(win, cstr(title).as_ptr()) };
         }
+    }
+
+    /// `.window_drag_region()` (docs/window-chrome.md): the window's WM_NCHITTEST answers
+    /// HTCAPTION over the element's own background, so Windows runs its own title-bar move
+    /// (Aero Snap included), double-click maximize and window menu. Controls inside keep their
+    /// clicks: the hit test stops at the first Control above the region.
+    fn set_drag_region(&mut self, h: &WinHandle, drag: bool) {
+        DRAG_REGIONS.with(|d| {
+            let mut d = d.borrow_mut();
+            if drag {
+                d.insert(h.0 as usize);
+            } else {
+                d.remove(&(h.0 as usize));
+            }
+        });
+        unsafe { ffi::day_xaml_set_drag_region(h.0, drag as c_int) };
+    }
+
+    fn apply_window(&mut self, host: &WinHandle, change: &day_spec::WindowChange) {
+        use day_spec::WindowChange as C;
+        // `window_token` covers the primary too, as for the title.
+        let Some(win) = self.window_token(host) else {
+            return;
+        };
+        match change {
+            // ShowWindow for minimize, maximize and restore; fullscreen is borderless, over the
+            // window's whole monitor. The shim reports the outcome through `win_state`.
+            C::State(state) => unsafe { ffi::day_xaml_window_set_state(win, state.code()) },
+            // Captures, recordings and screen sharing leave the window out; the user still sees it.
+            C::ContentProtected(on) => unsafe {
+                ffi::day_xaml_window_set_protected(win, *on as c_int)
+            },
+            // SetWindowPos: the outer frame's origin, the content size around which the frame
+            // and the docked chrome are added.
+            C::Frame { origin, size } => unsafe {
+                let p = origin.unwrap_or(Point::ZERO);
+                let z = size.unwrap_or(Size::new(0.0, 0.0));
+                ffi::day_xaml_window_set_frame(
+                    win,
+                    origin.is_some() as c_int,
+                    p.x,
+                    p.y,
+                    size.is_some() as c_int,
+                    z.width,
+                    z.height,
+                )
+            },
+            // WM_GETMINMAXINFO's track sizes.
+            C::Limits { min, max } => set_limits(win, *min, *max),
+            C::Level(level) => unsafe {
+                ffi::day_xaml_window_set_flag(
+                    win,
+                    0,
+                    (*level == day_spec::WindowLevel::Floating) as c_int,
+                )
+            },
+            // ITaskbarList::DeleteTab / AddTab.
+            C::SkipTaskbar(skip) => unsafe {
+                ffi::day_xaml_window_set_flag(win, 1, *skip as c_int)
+            },
+            C::Resizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 2, *on as c_int) },
+            C::Minimizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 3, *on as c_int) },
+            C::Maximizable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 4, *on as c_int) },
+            C::Closable(on) => unsafe { ffi::day_xaml_window_set_flag(win, 5, *on as c_int) },
+            C::Visible(on) => unsafe { ffi::day_xaml_window_set_flag(win, 6, *on as c_int) },
+            // The title bar's DWM dark flag and the island root's RequestedTheme.
+            C::Appearance(dark) => unsafe {
+                ffi::day_xaml_window_set_appearance(win, dark.map_or(-1, c_int::from))
+            },
+            // FlashWindowEx.
+            C::RequestAttention(a) => unsafe {
+                ffi::day_xaml_window_attention(win, (*a == day_spec::Attention::Critical) as c_int)
+            },
+            // Windows has no API to put a window on every virtual desktop.
+            C::OnAllWorkspaces(_) => {}
+        }
+    }
+
+    fn window_frame(&self, host: &WinHandle) -> Option<day_spec::Rect> {
+        let win = self.window_token(host)?;
+        let mut r = [0.0f64; 4];
+        (unsafe { ffi::day_xaml_window_frame(win, r.as_mut_ptr()) } != 0)
+            .then(|| day_spec::Rect::new(r[0], r[1], r[2], r[3]))
+    }
+
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        let count = unsafe { ffi::day_xaml_monitors(std::ptr::null_mut(), 0) }.max(0);
+        let mut raw: Vec<ffi::DayXamlMonitor> = (0..count)
+            .map(|_| ffi::DayXamlMonitor {
+                frame: [0.0; 4],
+                work: [0.0; 4],
+                scale: 1.0,
+                primary: 0,
+                id: [0; 160],
+                name: [0; 128],
+            })
+            .collect();
+        let filled = unsafe { ffi::day_xaml_monitors(raw.as_mut_ptr(), count) }.clamp(0, count);
+        raw.truncate(filled as usize);
+        let text = |chars: &[c_char]| {
+            // SAFETY: the shim NUL-terminates both fields inside their arrays.
+            unsafe { CStr::from_ptr(chars.as_ptr()) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        let rect = |r: [f64; 4]| day_spec::Rect::new(r[0], r[1], r[2], r[3]);
+        raw.iter()
+            .map(|m| day_spec::Monitor {
+                id: text(&m.id),
+                name: text(&m.name),
+                frame: rect(m.frame),
+                work_area: rect(m.work),
+                scale: m.scale,
+                primary: m.primary != 0,
+            })
+            .collect()
+    }
+
+    /// Notification-area icons (docs/status-item.md): `Shell_NotifyIconW` on the shim's hidden
+    /// shell window; a left click runs `activate` (or opens the menu), a right click opens the
+    /// menu as a Win32 popup lowered from the app menu's spec.
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]) {
+        for item in items {
+            let (glyph, image) = match &item.icon {
+                Some(day_spec::Icon::Symbol(sym)) => {
+                    (toolbar::glyph_for(*sym).to_owned(), String::new())
+                }
+                // A raster file; a vector-only name has no file to load and shows the app icon.
+                Some(day_spec::Icon::Image(name)) => (String::new(), image_uri(name)),
+                None => (String::new(), String::new()),
+            };
+            let tip = if item.tooltip.is_empty() {
+                &item.title
+            } else {
+                &item.tooltip
+            };
+            let mut menu = String::new();
+            serialize_menu_xaml(&item.menu, &mut menu);
+            unsafe {
+                ffi::day_xaml_status_set(
+                    cstr(&item.id).as_ptr(),
+                    cstr(tip).as_ptr(),
+                    cstr(&glyph).as_ptr(),
+                    cstr(&image).as_ptr(),
+                    item.template as c_int,
+                    item.activate,
+                    cstr(&menu).as_ptr(),
+                )
+            };
+        }
+        let ids = items
+            .iter()
+            .map(|i| i.id.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        unsafe { ffi::day_xaml_status_retain(cstr(&ids).as_ptr()) };
+    }
+
+    /// The jump list's Tasks, rebuilt with the app's declared shortcuts after these.
+    fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]) {
+        set_jump_tasks(shortcuts);
+    }
+
+    /// `ITaskbarList3::SetProgressState` / `SetProgressValue` on the first window's button.
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress) {
+        use day_spec::AppProgress as P;
+        let (kind, value) = match progress {
+            P::None => (0, 0.0),
+            P::Indeterminate => (1, 0.0),
+            P::Value(v) => (2, v),
+            P::Paused(v) => (3, v),
+            P::Error(v) => (4, v),
+        };
+        unsafe { ffi::day_xaml_set_app_progress(kind, value) };
+    }
+
+    /// `ITaskbarList3::SetOverlayIcon` with a drawn disc: a count or a dot. Text has no overlay
+    /// that would read (`Cap::AppBadgeText` is Unsupported), so it is ignored, never substituted.
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+        use day_spec::AppBadge as B;
+        let (kind, count) = match badge {
+            B::None => (0, 0),
+            B::Count(n) => (1, *n),
+            B::Dot => (2, 0),
+            B::Text(_) => return,
+        };
+        unsafe { ffi::day_xaml_set_app_badge(kind, count) };
+    }
+
+    /// The primary's close is already reported, never acted on (`WM_CLOSE` → `WindowClosed`), so
+    /// day-core decides about quitting; what keeping the app alive needs here is somewhere for
+    /// Day's posts to go once that window is gone.
+    fn set_keep_running(&mut self, keep: bool) {
+        unsafe { ffi::day_xaml_set_keep_running(keep as c_int) };
     }
 
     /// A SECONDARY window's own pixels (docs/windows.md). Previously this kept the trait default,
@@ -3688,8 +3933,8 @@ fn image_uri(source: &str) -> String {
     }
 }
 
-// Secondary-window event trampolines (docs/windows.md); px == points (the v1 100%-scale
-// convention, same as `window_resized`).
+// Secondary-window event trampolines (docs/windows.md). Sizes arrive in points: the shim divides
+// the client pixels by the window's DPI scale, as for `window_resized`.
 extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
     ffi_guard::contain((), || {
         emit(
@@ -3722,6 +3967,143 @@ extern "C" fn win_focused(node: u64, active: c_int) {
         emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
     });
 }
+/// A window's display state changed, or a request for one did not land (docs/windows.md "Window
+/// properties"): `node` is the secondary window's root node, or `WINDOW_NODE` for the primary,
+/// which the shim reports as `u64::MAX`.
+extern "C" fn win_state(node: u64, state: c_int) {
+    ffi_guard::contain((), || {
+        let state = day_spec::WindowState::from_code(state);
+        log::debug!("xaml: window state now {state:?}");
+        emit(day_spec::NodeId(node), Event::WindowStateChanged(state));
+    });
+}
+/// An overlay window's title bar now covers `top` DIPs of its content (docs/window-chrome.md):
+/// the window's safe-area top inset. The content reads it while it builds, so the first report
+/// has to land before that: a secondary window's comes from inside `open_window` and is written
+/// straight away (only a signal write: safe inside the tree's borrow, its readers run at turn
+/// end); the primary's comes before `ready` and seeds the first window's ambient. A later
+/// primary change looks the root up in the tree, which the caller may hold, so it is posted.
+extern "C" fn chrome_inset(node: u64, top: c_double) {
+    ffi_guard::contain((), || {
+        log::debug!("xaml: overlay title bar inset {top}");
+        let insets = day_spec::Insets {
+            top,
+            ..Default::default()
+        };
+        if node != day_spec::WINDOW_NODE.0 {
+            day_core::set_window_safe_area(day_core::id_to_rnode(NodeId(node)), insets);
+        } else if !day_core::has_tree() {
+            day_core::seed_safe_area(insets);
+        } else {
+            Xaml::post(Box::new(move || day_core::set_safe_area(insets)));
+        }
+    });
+}
+
+/// The app's id (Day.toml `[app] id`): `DAY_APP_ID` from `day launch`, else the value `day build`
+/// baked into the binary, as day-core's remembered frames read it. Empty when neither has one.
+fn app_id() -> String {
+    std::env::var("DAY_APP_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| option_env!("DAY_APP_ID").map(str::to_owned))
+        .unwrap_or_default()
+}
+
+/// Launch arguments a second instance forwarded (docs/deep-links.md "Single-instance
+/// forwarding"). Posted: this runs inside a sent message, which a nested pump can deliver while
+/// day-core holds its tree.
+extern "C" fn forwarded_args(data: *const c_char, len: c_int) {
+    ffi_guard::contain((), || {
+        if data.is_null() || len <= 0 {
+            return;
+        }
+        // SAFETY: the shim passes `len` bytes it owns for the duration of this call.
+        let bytes = unsafe { std::slice::from_raw_parts(data.cast::<u8>(), len as usize) };
+        let args: Vec<String> = bytes
+            .split(|b| *b == 0)
+            .map(|a| String::from_utf8_lossy(a).into_owned())
+            .collect();
+        Xaml::post(Box::new(move || day_core::forward_launch_args(args)));
+    });
+}
+
+/// Put the jump list's Tasks up (docs/deep-links.md "Launcher shortcuts"): the shortcuts the app
+/// set while running first, then the ones Day.toml declares, each opening its route through
+/// `--day-open-url`.
+fn set_jump_tasks(dynamic: &[day_spec::LauncherShortcut]) {
+    let id = app_id();
+    let clean = |s: &str| s.replace(['\t', '\n'], " ");
+    let spec = dynamic
+        .iter()
+        .map(|s| (s.route.clone(), s.label.clone()))
+        .chain(
+            day_core::shortcuts::launcher_shortcuts()
+                .into_iter()
+                .map(|(route, key)| (route.to_owned(), day_l10n::t(key))),
+        )
+        .map(|(route, label)| {
+            format!(
+                "{}\t{}",
+                clean(&label),
+                clean(&day_core::launch_link(&route))
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    unsafe { ffi::day_xaml_set_jump_tasks(cstr(&id).as_ptr(), cstr(&spec).as_ptr()) };
+}
+
+/// Content-size limits for one window, in points; an absent bound is 0 (none) to the shim.
+fn set_limits(win: *mut c_void, min: Option<Size>, max: Option<Size>) {
+    let min = min.unwrap_or(Size::new(0.0, 0.0));
+    let max = max.unwrap_or(Size::new(0.0, 0.0));
+    unsafe { ffi::day_xaml_window_set_limits(win, min.width, min.height, max.width, max.height) };
+}
+
+/// A status item's click action or menu choice (docs/status-item.md): dispatched straight to
+/// day-core, which needs no window to be open; `kind` 1 is the menu's Quit role.
+extern "C" fn status_action(kind: c_int, id: u64) {
+    ffi_guard::contain((), || {
+        if kind == 1 {
+            day_core::quit();
+        } else {
+            day_core::dispatch_menu_action(id);
+        }
+    });
+}
+
+/// `WindowOptions`' chrome fields as the shim takes them (docs/window-chrome.md).
+fn window_chrome(options: &WindowOptions) -> ffi::DayXamlChrome {
+    use day_spec::WindowPlacement as P;
+    use day_spec::{WindowBackground as B, WindowChrome as C, WindowMaterial as M};
+    let (background, material) = match options.background {
+        B::Opaque => (0, 0),
+        B::Transparent => (1, 0),
+        B::Material(M::Window) => (2, 0),
+        B::Material(M::Sidebar) => (2, 1),
+        B::Material(M::Transient) => (2, 2),
+    };
+    let (placement, x, y) = match options.placement {
+        P::Automatic => (0, 0.0, 0.0),
+        P::Centered => (1, 0.0, 0.0),
+        P::At(p) => (2, p.x, p.y),
+    };
+    ffi::DayXamlChrome {
+        chrome: match options.chrome {
+            C::Standard => 0,
+            C::Overlay => 1,
+            C::Frameless => 2,
+        },
+        background,
+        material,
+        shadow: options.shadow as c_int,
+        resizable: options.resizable as c_int,
+        placement,
+        x,
+        y,
+    }
+}
 
 /// The area a presented cover has to fill: the whole client area, docked chrome included.
 ///
@@ -3740,8 +4122,10 @@ fn cover_extent(window: *mut c_void) -> Size {
 }
 
 extern "C" fn window_resized(w: c_int, h: c_int) {
-    // Client rect is reported in pixels; day-xaml's v1 assumes a 100% scale factor
-    // throughout (same convention as window creation).
+    // The content size in points (DIPs): the shim divides the client pixels by the window's
+    // DPI scale. Window creation still takes `WindowOptions::size` as pixels, so a window opens
+    // smaller than asked above 100% scale, but day's layout and the XAML elements it places
+    // agree at every scale.
     ffi_guard::contain((), || {
         let size = Size::new(w as f64, h as f64);
         LAST_WINDOW_SIZE.with(|c| c.set(size));
@@ -3885,12 +4269,22 @@ impl Platform for Xaml {
                 .min_size
                 .map(|s| (s.width as c_int, s.height as c_int))
                 .unwrap_or((0, 0));
+            // One process per app (docs/deep-links.md "Single-instance forwarding"): a second
+            // launch hands its arguments to the running one and ends here, before any window.
+            ffi::day_xaml_set_forward_cb(forwarded_args);
+            if ffi::day_xaml_claim_instance(cstr(&app_id()).as_ptr()) == 0 {
+                std::process::exit(0);
+            }
+            // Before the window exists: an overlay primary reports its inset as it lays out.
+            ffi::day_xaml_set_chrome_inset_cb(chrome_inset);
+            let chrome = window_chrome(&options);
             let win = ffi::day_xaml_window_new(
                 cstr(&options.title).as_ptr(),
                 options.size.width as c_int,
                 options.size.height as c_int,
                 min_w,
                 min_h,
+                &chrome,
             );
             if win.is_null() {
                 log::error!("day-xaml: could not create the XAML window (see error above)");
@@ -3906,11 +4300,20 @@ impl Platform for Xaml {
             if let Ok(icon) = std::env::var("DAY_APP_ICON") {
                 ffi::day_xaml_set_app_icon(win, cstr(&icon).as_ptr());
             }
+            // A maximum (the minimum alone keeps the shim's original WindowOptions path).
+            if options.max_size.is_some() {
+                set_limits(win, options.min_size, options.max_size);
+            }
+            ffi::day_xaml_set_status_cb(status_action);
+            // COM is up with the window; the catalog was installed before `run`.
+            set_jump_tasks(&[]);
             ffi::day_xaml_set_menu_cb(on_menu_action);
             ffi::day_xaml_label_link_cb(on_link);
             ffi::day_xaml_set_toolbar_cb(toolbar::on_toolbar_value);
             ffi::day_xaml_set_lifecycle_cb(on_lifecycle);
             ffi::day_xaml_set_present_cb(present_cb);
+            // Before `ready`: the app's first build may already ask for a window state.
+            ffi::day_xaml_set_window_state_cb(win_state);
             let root = ffi::day_xaml_window_root(win);
             self.primary_root = root;
             ready(self, WinHandle(root), options.size);

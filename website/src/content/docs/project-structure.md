@@ -57,6 +57,10 @@ my-app/
 - Generated files are written to `build/day/`: Cargo target directories (one per target and profile,
   so parallel builds never contend), staged resources, packed artifacts, and
   [dayscript](/docs/glossary#dayscript) screenshots all live under one ignorable directory.
+- `website/site.toml` enables a localized app website in the shared Actions workflow.
+  `website/theme.css` supplies optional style overrides. Add `daysite.config.mjs` for reusable
+  theme/component customization, or an Astro configuration and source tree for your own pages.
+  See [App websites](/docs/websites) for setup, customization, Pages, and custom domains.
 
 ## How a build works
 

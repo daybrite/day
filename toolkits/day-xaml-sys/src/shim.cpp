@@ -25,6 +25,17 @@
 #ifndef DWMSBT_MAINWINDOW
 #define DWMSBT_MAINWINDOW 2 // the Mica backdrop a document-shaped app asks for
 #endif
+#ifndef DWMSBT_TRANSIENTWINDOW
+#define DWMSBT_TRANSIENTWINDOW 3 // Acrylic: WindowMaterial::Transient (docs/window-chrome.md)
+#endif
+#ifndef DWMSBT_TABBEDWINDOW
+#define DWMSBT_TABBEDWINDOW 4 // Mica Alt: WindowMaterial::Sidebar
+#endif
+// Content protection (docs/windows.md "Window properties"). Absent from SDKs before 19041 (Windows
+// 10 2004); on an older Windows the call fails and the shim falls back to WDA_MONITOR.
+#ifndef WDA_EXCLUDEFROMCAPTURE
+#define WDA_EXCLUDEFROMCAPTURE 0x00000011
+#endif
 
 #include <string>
 #include <limits>
@@ -45,6 +56,8 @@
 #include <functional> // OEM menu-accelerator dispatch (see add_accel)
 #include <fstream> // read local image bytes for BitmapImage.SetSource (file:// URIs don't load)
 #include <shobjidl_core.h> // IInitializeWithWindow — parents WinRT file pickers to the host HWND
+#include <propsys.h>        // IPropertyStore: a jump-list task's title (docs/deep-links.md)
+#include <appmodel.h>       // GetCurrentPackageFullName: whether the process has an app identity
 
 #include <winrt/base.h>
 // DataPackage/RequestedOperation for list drag-to-reorder (docs/list.md): the projection's
@@ -759,6 +772,651 @@ static void (*g_primary_closed)() = nullptr;
 struct SecWindow;
 static std::map<HWND, SecWindow*> g_sec_windows;
 
+// --- window display state (docs/windows.md "Window properties") ----------------------------
+// Minimized and maximized are the window's own (IsIconic / IsZoomed); fullscreen is Day's
+// borderless kind, which Win32 has no state for: the window's frame styles come off, it covers
+// its monitor, and the placement and styles it had are kept here to come back to. Codes are
+// day_spec::WindowState's: 0 normal, 1 minimized, 2 maximized, 3 fullscreen.
+struct WinShowState {
+    int reported = 0;        // the last code sent to Day: reports go out on a change only
+    bool fullscreen = false; // in Day's borderless fullscreen
+    WINDOWPLACEMENT placement{ sizeof(WINDOWPLACEMENT) }; // where it was before fullscreen
+    LONG_PTR style = 0;      // its GWL_STYLE before fullscreen
+    LONG_PTR ex_style = 0;   // its GWL_EXSTYLE before fullscreen
+};
+static std::map<HWND, WinShowState> g_show_state;
+// Day's report: (node, code). The primary reports as kPrimaryNode, day_spec::WINDOW_NODE's id.
+static void (*g_win_state_cb)(unsigned long long, int) = nullptr;
+static const unsigned long long kPrimaryNode = ~0ull;
+// True while day_xaml_window_set_state works through a request: the restores it passes through on
+// the way (minimized → maximized → normal) are not states to report, only where it ends up is.
+static bool g_state_request = false;
+
+// What the window shows as now: minimized wins (a fullscreen window can be minimized and comes
+// back fullscreen), then Day's fullscreen, then zoomed.
+static int window_state_now(HWND hwnd) {
+    if (IsIconic(hwnd)) return 1;
+    auto it = g_show_state.find(hwnd);
+    if (it != g_show_state.end() && it->second.fullscreen) return 3;
+    if (IsZoomed(hwnd)) return 2;
+    return 0;
+}
+
+// Tell Day the window's state when it changed since the last report, or always with `force`:
+// a request that did not land is answered with the state the window really is in, so Day's
+// optimistic state signal settles back to it.
+static void report_window_state(HWND hwnd, unsigned long long node, int state, bool force) {
+    auto& st = g_show_state[hwnd];
+    if (st.reported == state && !force) return;
+    st.reported = state;
+    if (g_win_state_cb) g_win_state_cb(node, state);
+}
+
+// WM_SIZE's view of the state: its wParam says minimized, maximized or restored; Day's fullscreen
+// is restored as far as Win32 knows. The other two codes are about OTHER windows and say nothing.
+static void report_size_state(HWND hwnd, unsigned long long node, WPARAM wp) {
+    if (g_state_request) return;
+    int state;
+    switch (wp) {
+    case SIZE_MINIMIZED: state = 1; break;
+    case SIZE_MAXIMIZED: state = 2; break;
+    case SIZE_RESTORED: state = window_state_now(hwnd); break;
+    default: return;
+    }
+    report_window_state(hwnd, node, state, false);
+}
+
+// --- window chrome (docs/window-chrome.md) --------------------------------------------------
+// What a window wears, from Day's WindowOptions: day-xaml-sys's `DayXamlChrome`, field for field.
+struct DayXamlChrome {
+    int chrome;     // 0 standard, 1 overlay title bar, 2 frameless
+    int background; // 0 opaque, 1 transparent, 2 a system material
+    int material;   // with background 2: 0 window (Mica), 1 sidebar (Mica Alt), 2 transient (Acrylic)
+    int shadow;     // 0 = no drop shadow (honored on a frameless window)
+    int resizable;  // 0 = fixed size: no sizing border, no maximize
+    int placement;  // 0 automatic, 1 centered, 2 at (x, y)
+    double x, y;    // with placement 2: the outer frame's top-left, in points
+};
+
+// One window's chrome as the window procedures need it, by host HWND. Every Day window has an
+// entry, standard ones included: the drag-region hit test needs the window's root and node too.
+//
+// Frameless keeps WS_CAPTION and the sizing border and answers WM_NCCALCSIZE with the whole window
+// as client area, so DWM still draws the shadow and Aero Snap still works; the edges become
+// sizing borders again in WM_NCHITTEST. Overlay is the documented "custom window frame using DWM"
+// method: the client area starts at the window's top edge, the frame is extended down over the
+// caption band, DWM draws (and DwmDefWindowProc hit-tests) the caption buttons, and the island is
+// cut away around those buttons, because DWM draws them BEHIND client content.
+struct WinChrome {
+    int chrome = 0;
+    bool resizable = true;
+    bool shadow = true;
+    bool material = false; // an explicit Material background whose backdrop DWM accepted
+    bool hooked = false;   // the island's windows answer WM_NCHITTEST through chrome_hit_test
+    unsigned long long node = 0;
+    HWND island = nullptr;
+    WUXC::Canvas root{ nullptr };
+    double inset = -1; // the safe-area top last reported, DIPs; -1 = none yet
+    // Window properties (docs/windows.md "Window properties").
+    int docked_px = 0;      // the docked menu bar + toolbar above day's content, px
+    bool closable = true;   // false: the close button and Alt+F4 do nothing
+    bool skip_taskbar = false;
+    int appearance = -1;    // this window's own scheme: -1 the app's, 0 light, 1 dark
+    // Content-size limits in points; 0 = none.
+    double min_w = 0, min_h = 0, max_w = 0, max_h = 0;
+};
+static std::map<HWND, WinChrome> g_chrome;
+// Day's safe-area report for an overlay window: (node, top inset in DIPs); the primary as
+// kPrimaryNode.
+static void (*g_chrome_inset_cb)(unsigned long long, double) = nullptr;
+// The elements `.window_drag_region()` marked (Toolkit::set_drag_region), in every window.
+static std::vector<UIElement> g_drag_regions;
+// The island's own windows, subclassed so a press on a sizing border or a drag region falls
+// through to the host (HTTRANSPARENT), whose WM_NCHITTEST answers HTLEFT, HTCAPTION and the rest.
+struct IslandHook { WNDPROC orig; HWND host; };
+static std::map<HWND, IslandHook> g_island_hooks;
+
+static double dip_scale(HWND h) {
+    double s = GetDpiForWindow(h) / 96.0;
+    return s > 0 ? s : 1.0;
+}
+// The sizing border's thickness, px: the frame plus the padding Windows adds around it.
+static int frame_x(HWND h) {
+    UINT dpi = GetDpiForWindow(h);
+    return GetSystemMetricsForDpi(SM_CXFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+}
+static int frame_y(HWND h) {
+    UINT dpi = GetDpiForWindow(h);
+    return GetSystemMetricsForDpi(SM_CYFRAME, dpi) + GetSystemMetricsForDpi(SM_CXPADDEDBORDER, dpi);
+}
+// How far down an overlay window's title bar reaches into its client area, px: the caption plus
+// the top sizing border, whose band it also covers. A maximized window's border is off-screen
+// (WM_NCCALCSIZE already moved the client top below it), and a fullscreen one has no bar at all.
+static int overlay_band_px(HWND h) {
+    if (window_state_now(h) == 3) return 0;
+    int caption = GetSystemMetricsForDpi(SM_CYCAPTION, GetDpiForWindow(h));
+    return IsZoomed(h) ? caption : caption + frame_y(h);
+}
+static int chrome_of(HWND h) {
+    auto it = g_chrome.find(h);
+    return it == g_chrome.end() ? 0 : it->second.chrome;
+}
+// The overlay band in DIPs, 0 for any other window: what layout_window_chrome keeps the docked
+// strips below.
+static double overlay_band_dip(HWND h) {
+    return chrome_of(h) == 1 ? overlay_band_px(h) / dip_scale(h) : 0.0;
+}
+
+// Windows' build number, for the system backdrops (Windows 11 22621 and later).
+static DWORD windows_build() {
+    using Fn = LONG(WINAPI*)(OSVERSIONINFOW*);
+    static DWORD build = [] {
+        OSVERSIONINFOW v{};
+        v.dwOSVersionInfoSize = sizeof(v);
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        auto fn = nt ? reinterpret_cast<Fn>(GetProcAddress(nt, "RtlGetVersion")) : nullptr;
+        return (fn && fn(&v) == 0) ? v.dwBuildNumber : DWORD{ 0 };
+    }();
+    return build;
+}
+
+// Extend DWM's frame into the client area as far as the chrome needs: all of it under a material
+// (the backdrop shows through transparent content only there), the caption band of an overlay
+// window (where DWM draws the caption buttons), one pixel all round a frameless window that keeps
+// its shadow (DWM draws none for a window with no frame at all).
+static void chrome_extend_frame(HWND h, WinChrome const& c) {
+    MARGINS m{ 0, 0, 0, 0 };
+    if (c.material) {
+        m = MARGINS{ -1, -1, -1, -1 };
+    } else if (c.chrome == 1) {
+        m.cyTopHeight = overlay_band_px(h);
+    } else if (c.chrome == 2 && c.shadow) {
+        m = MARGINS{ 1, 1, 1, 1 };
+    } else if (c.chrome == 0) {
+        return; // a standard frame keeps DWM's defaults
+    }
+    DwmExtendFrameIntoClientArea(h, &m);
+}
+
+// Cut the caption buttons out of an overlay window's island, so the host's surface (painted
+// black, which DWM's extended frame shows through) and DWM's buttons drawn on it stay visible and
+// take their own clicks. The bounds come from DWM on Windows 11; before that, three standard
+// buttons at the top right.
+static void chrome_cut_caption_buttons(HWND h, WinChrome const& c) {
+    if (c.chrome != 1 || !c.island) return;
+    if (overlay_band_px(h) == 0) {
+        SetWindowRgn(c.island, nullptr, TRUE); // fullscreen: no title bar, nothing to cut
+        return;
+    }
+    RECT client; GetClientRect(h, &client);
+    RECT buttons{};
+    RECT win; GetWindowRect(h, &win);
+    POINT origin{ 0, 0 }; ClientToScreen(h, &origin);
+    if (SUCCEEDED(DwmGetWindowAttribute(h, DWMWA_CAPTION_BUTTON_BOUNDS, &buttons, sizeof(buttons)))) {
+        // Window coordinates → client coordinates.
+        OffsetRect(&buttons, win.left - origin.x, win.top - origin.y);
+    } else {
+        int bw = GetSystemMetricsForDpi(SM_CXSIZE, GetDpiForWindow(h));
+        buttons = RECT{ client.right - 3 * bw, 0, client.right, overlay_band_px(h) };
+    }
+    HRGN all = CreateRectRgn(0, 0, client.right, client.bottom);
+    HRGN cut = CreateRectRgn(buttons.left, buttons.top, buttons.right, buttons.bottom);
+    if (all && cut && CombineRgn(all, all, cut, RGN_DIFF) != ERROR) {
+        // The system owns the region from here on.
+        if (SetWindowRgn(c.island, all, TRUE)) all = nullptr;
+    }
+    if (all) DeleteObject(all);
+    if (cut) DeleteObject(cut);
+}
+
+// Tell Day how far the title bar reaches over an overlay window's content: its safe-area top.
+static void report_overlay_inset(HWND h, double top_dip) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end() || it->second.chrome != 1 || !g_chrome_inset_cb) return;
+    if (std::fabs(it->second.inset - top_dip) < 0.25) return;
+    it->second.inset = top_dip;
+    g_chrome_inset_cb(it->second.node, top_dip);
+}
+
+// What a press at `p` (DIPs on the window's root) reaches first: 1 a control, 2 a drag region's
+// own background, 0 neither. Buttons, fields and every other Control keep their own clicks, also
+// inside a region; text, images and empty background let the press through to what is below.
+static int press_target(WinChrome const& c, WF::Point p) {
+    // Topmost first; a region's descendants come before the region itself.
+    for (auto const& hit : WUXM::VisualTreeHelper::FindElementsInHostCoordinates(p, c.root, true)) {
+        for (auto const& e : g_drag_regions) {
+            if (hit == e) return 2;
+        }
+        if (auto ctl = hit.try_as<WUXC::Control>()) {
+            if (ctl.IsEnabled() && hit.IsHitTestVisible()) return 1;
+        }
+    }
+    return 0;
+}
+
+// Whether `p` (DIPs on the window's root) is on a drag region's own background. The regions'
+// bounds are checked first, so a window without one under the pointer never walks the tree.
+static bool in_drag_region(WinChrome const& c, WF::Point p) {
+    if (g_drag_regions.empty() || !c.root) return false;
+    auto xr = c.root.XamlRoot();
+    if (!xr) return false;
+    for (auto const& e : g_drag_regions) {
+        auto fe = e.try_as<FrameworkElement>();
+        if (!fe || fe.XamlRoot() != xr || fe.Visibility() != WUX::Visibility::Visible) continue;
+        WF::Rect r = fe.TransformToVisual(c.root).TransformBounds(
+            WF::Rect{ 0, 0, static_cast<float>(fe.ActualWidth()),
+                      static_cast<float>(fe.ActualHeight()) });
+        if (p.X >= r.X && p.Y >= r.Y && p.X < r.X + r.Width && p.Y < r.Y + r.Height)
+            return press_target(c, p) == 2;
+    }
+    return false;
+}
+
+// What a point is on a Day window, for WM_NCHITTEST: false leaves the answer to the window's
+// default handling. `lp` carries the screen point, as WM_NCHITTEST's does.
+static bool chrome_hit_test(HWND h, WPARAM wp, LPARAM lp, LRESULT* out) try {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end()) return false;
+    WinChrome const& c = it->second;
+    if (c.chrome == 0 && g_drag_regions.empty()) return false;
+    POINT pt{ static_cast<short>(LOWORD(lp)), static_cast<short>(HIWORD(lp)) };
+    if (c.chrome == 1) {
+        // DWM's caption buttons.
+        LRESULT dwm = 0;
+        if (DwmDefWindowProc(h, WM_NCHITTEST, wp, lp, &dwm)) {
+            *out = dwm;
+            return true;
+        }
+    }
+    if (c.chrome != 2) {
+        // The frame the window still has: all of it for a standard window, the sides and bottom
+        // of an overlay one.
+        LRESULT base = DefWindowProcW(h, WM_NCHITTEST, wp, lp);
+        if (base != HTCLIENT) {
+            *out = base;
+            return true;
+        }
+    }
+    RECT win; GetWindowRect(h, &win);
+    bool sizable = c.resizable && !IsZoomed(h) && window_state_now(h) != 3;
+    if (sizable && c.chrome != 0) {
+        // The sizing borders inside the client area: all four edges of a frameless window, the
+        // top edge of an overlay one (its others are still real frame, answered above).
+        int fx = frame_x(h), fy = frame_y(h);
+        bool top = pt.y < win.top + fy;
+        bool bottom = c.chrome == 2 && pt.y >= win.bottom - fy;
+        bool left = pt.x < win.left + fx;
+        bool right = pt.x >= win.right - fx;
+        if (c.chrome == 1 && !top) left = right = false;
+        if (top && left) { *out = HTTOPLEFT; return true; }
+        if (top && right) { *out = HTTOPRIGHT; return true; }
+        if (bottom && left) { *out = HTBOTTOMLEFT; return true; }
+        if (bottom && right) { *out = HTBOTTOMRIGHT; return true; }
+        if (top) { *out = HTTOP; return true; }
+        if (bottom) { *out = HTBOTTOM; return true; }
+        if (left) { *out = HTLEFT; return true; }
+        if (right) { *out = HTRIGHT; return true; }
+    }
+    POINT client = pt;
+    ScreenToClient(h, &client);
+    double s = dip_scale(h);
+    WF::Point at{ static_cast<float>(client.x / s), static_cast<float>(client.y / s) };
+    // An overlay window's title bar band still moves the window wherever the content puts no
+    // control under it, as a transparent title bar does on macOS; a drag region moves it anywhere.
+    bool caption = c.chrome == 1 && c.root && client.y < overlay_band_px(h) && press_target(c, at) != 1;
+    if (caption || in_drag_region(c, at)) {
+        // DefWindowProc's own title bar from here: the move loop with Aero Snap, double-click
+        // to maximize, the window menu on a right click.
+        *out = HTCAPTION;
+        return true;
+    }
+    *out = HTCLIENT;
+    return true;
+} catch (...) {
+    return false;
+}
+
+// WM_NCCALCSIZE for a frameless or overlay window: false leaves a standard one to the default.
+static bool chrome_nccalcsize(HWND h, WPARAM wp, LPARAM lp, LRESULT* out) {
+    int chrome = chrome_of(h);
+    if (!wp || chrome == 0) return false;
+    auto* p = reinterpret_cast<NCCALCSIZE_PARAMS*>(lp);
+    if (chrome == 2) {
+        // The whole window is client area. Maximized, Windows hangs the (now invisible) frame
+        // off the monitor's edges; clamp to the work area so no content is lost there.
+        if (IsZoomed(h)) {
+            MONITORINFO mi{};
+            mi.cbSize = sizeof(mi);
+            if (GetMonitorInfoW(MonitorFromWindow(h, MONITOR_DEFAULTTONULL), &mi)) p->rgrc[0] = mi.rcWork;
+        }
+        *out = 0;
+        return true;
+    }
+    // Overlay: the standard sides and bottom, and the client area up to the window's top edge.
+    LONG top = p->rgrc[0].top;
+    *out = DefWindowProcW(h, WM_NCCALCSIZE, wp, lp);
+    p->rgrc[0].top = top;
+    if (IsZoomed(h)) p->rgrc[0].top += frame_y(h);
+    return true;
+}
+
+// Overlay and material windows paint their host black: the color DWM's extended frame shows
+// through, which is what makes the caption buttons and the backdrop visible.
+static bool chrome_erase(HWND h, HDC dc) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end() || (it->second.chrome != 1 && !it->second.material)) return false;
+    RECT rc; GetClientRect(h, &rc);
+    FillRect(dc, &rc, static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+    return true;
+}
+
+static LRESULT CALLBACK island_hook_proc(HWND w, UINT msg, WPARAM wp, LPARAM lp) {
+    auto it = g_island_hooks.find(w);
+    if (it == g_island_hooks.end()) return DefWindowProcW(w, msg, wp, lp);
+    IslandHook hook = it->second;
+    if (msg == WM_NCHITTEST) {
+        LRESULT r = HTCLIENT;
+        if (chrome_hit_test(hook.host, wp, lp, &r) && r != HTCLIENT) return HTTRANSPARENT;
+    } else if (msg == WM_NCDESTROY) {
+        g_island_hooks.erase(it);
+        SetWindowLongPtrW(w, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(hook.orig));
+    }
+    return CallWindowProcW(hook.orig, w, msg, wp, lp);
+}
+
+static BOOL CALLBACK hook_island_window(HWND w, LPARAM host) {
+    if (g_island_hooks.count(w)) return TRUE;
+    auto orig = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(w, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(island_hook_proc)));
+    if (orig) g_island_hooks[w] = IslandHook{ orig, reinterpret_cast<HWND>(host) };
+    return TRUE;
+}
+
+// Hook the island's windows (the island and whatever input windows XAML put inside it) once the
+// window needs it: it has a custom frame, or some window has a drag region. Re-run on every
+// WM_SIZE, which catches a window XAML creates later; an already hooked window is skipped.
+static void chrome_hook_island(HWND h) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end()) return;
+    if (it->second.chrome == 0 && g_drag_regions.empty()) return;
+    it->second.hooked = true;
+    EnumChildWindows(h, hook_island_window, reinterpret_cast<LPARAM>(h));
+}
+
+// The window was resized or changed state: re-extend the frame (the overlay band changes with
+// maximize and DPI), re-cut the caption buttons, and catch any new island window.
+static void chrome_on_size(HWND h) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end()) return;
+    if (it->second.chrome != 0 || it->second.material) chrome_extend_frame(h, it->second);
+    chrome_cut_caption_buttons(h, it->second);
+    chrome_hook_island(h);
+}
+
+// The outer size for a client area of w×h under `style` and the chrome: a frameless window is all
+// client, an overlay one loses only its caption band, a standard one adds the whole frame.
+static void chrome_outer_size(DWORD style, int chrome, int w, int h, int* ow, int* oh) {
+    if (chrome == 2) { *ow = w; *oh = h; return; }
+    RECT r{ 0, 0, w, h };
+    AdjustWindowRect(&r, style, FALSE);
+    *ow = r.right - r.left;
+    *oh = chrome == 1 ? r.bottom : r.bottom - r.top;
+}
+
+// The window styles for the chrome: resizable keeps the sizing border and the maximize box.
+static DWORD chrome_style(DWORD style, DayXamlChrome const* opt) {
+    if (opt && !opt->resizable) style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX);
+    return style;
+}
+
+// Record a new window's chrome and apply what has to follow its creation: the frame
+// recalculation the custom WM_NCCALCSIZE needs, the shadow, the backdrop. Returns whether an
+// explicit material backdrop was accepted, which is when the window's root stays transparent.
+static bool chrome_init(HWND h, unsigned long long node, DayXamlChrome const* opt) {
+    WinChrome c;
+    c.node = node;
+    if (opt) {
+        c.chrome = (opt->chrome == 1 || opt->chrome == 2) ? opt->chrome : 0;
+        c.resizable = opt->resizable != 0;
+        c.shadow = opt->shadow != 0;
+    }
+    if (opt && opt->background == 2) {
+        DWORD backdrop = opt->material == 1   ? DWMSBT_TABBEDWINDOW
+                         : opt->material == 2 ? DWMSBT_TRANSIENTWINDOW
+                                              : DWMSBT_MAINWINDOW;
+        c.material = SUCCEEDED(
+            DwmSetWindowAttribute(h, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop, sizeof(backdrop)));
+    }
+    bool material = c.material;
+    g_chrome[h] = c;
+    if (c.chrome == 2 && !c.shadow) {
+        // No non-client rendering at all: no shadow, and no frame for DWM to round.
+        DWMNCRENDERINGPOLICY policy = DWMNCRP_DISABLED;
+        DwmSetWindowAttribute(h, DWMWA_NCRENDERING_POLICY, &policy, sizeof(policy));
+    }
+    if (c.chrome != 0 || c.material) {
+        chrome_extend_frame(h, c);
+        SetWindowPos(h, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
+    return material;
+}
+
+// The island exists and has loaded: remember it and its root for hit-testing.
+static void chrome_attach(HWND h, HWND island, WUXC::Canvas const& root) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end()) return;
+    it->second.island = island;
+    it->second.root = root;
+    chrome_on_size(h);
+}
+
+// Where the window opens. Centered goes on the work area of the monitor showing the active
+// window (the primary's when there is none); At is in points on the desktop, scaled by the
+// system DPI. Automatic leaves the window manager's choice.
+static void chrome_place(HWND h, DayXamlChrome const* opt) {
+    if (!opt || opt->placement == 0) return;
+    RECT r; GetWindowRect(h, &r);
+    int x = 0, y = 0;
+    if (opt->placement == 1) {
+        HWND ref = GetForegroundWindow();
+        if (!ref || ref == h) ref = g_app ? g_app->host : nullptr;
+        HMONITOR mon = ref ? MonitorFromWindow(ref, MONITOR_DEFAULTTOPRIMARY)
+                           : MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO mi{};
+        mi.cbSize = sizeof(mi);
+        if (!GetMonitorInfoW(mon, &mi)) return;
+        x = mi.rcWork.left + ((mi.rcWork.right - mi.rcWork.left) - (r.right - r.left)) / 2;
+        y = mi.rcWork.top + ((mi.rcWork.bottom - mi.rcWork.top) - (r.bottom - r.top)) / 2;
+    } else {
+        double s = GetDpiForSystem() / 96.0;
+        x = static_cast<int>(std::lround(opt->x * s));
+        y = static_cast<int>(std::lround(opt->y * s));
+    }
+    SetWindowPos(h, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+
+// --- window properties, taskbar (docs/windows.md "Window properties", docs/status-item.md) ----
+
+// Points on the desktop ↔ pixels: the system DPI, one scale for every position Day reads or sets,
+// so a frame read back and set again lands where it was.
+static double desktop_scale() {
+    double s = GetDpiForSystem() / 96.0;
+    return s > 0 ? s : 1.0;
+}
+
+// The taskbar's per-window interface (progress, overlay badge, tabs), created on first use.
+// Calls before the window's button exists fail, so the state is kept and re-applied when
+// Windows announces the button ("TaskbarButtonCreated").
+static ITaskbarList3* taskbar_list() {
+    static winrt::com_ptr<ITaskbarList3> list = [] {
+        winrt::com_ptr<ITaskbarList3> p;
+        if (FAILED(CoCreateInstance(__uuidof(TaskbarList), nullptr, CLSCTX_INPROC_SERVER,
+                                    __uuidof(ITaskbarList3), p.put_void())) ||
+            FAILED(p->HrInit()))
+            p = nullptr;
+        return p;
+    }();
+    return list.get();
+}
+static UINT taskbar_button_created_msg() {
+    static UINT msg = RegisterWindowMessageW(L"TaskbarButtonCreated");
+    return msg;
+}
+
+// The app's progress (Toolkit::set_app_progress) and badge (set_app_badge), on the primary's
+// taskbar button: kept so they survive the button being re-created.
+static int g_progress_kind = 0; // 0 none, 1 indeterminate, 2 value, 3 paused, 4 error
+static double g_progress_value = 0;
+static int g_badge_kind = 0;    // 0 none, 1 count, 2 dot
+static unsigned g_badge_count = 0;
+
+static void apply_progress() {
+    ITaskbarList3* tb = taskbar_list();
+    HWND h = g_app ? g_app->host : nullptr;
+    if (!tb || !h) return;
+    static const TBPFLAG states[] = { TBPF_NOPROGRESS, TBPF_INDETERMINATE, TBPF_NORMAL, TBPF_PAUSED,
+                                      TBPF_ERROR };
+    int k = g_progress_kind >= 0 && g_progress_kind <= 4 ? g_progress_kind : 0;
+    tb->SetProgressState(h, states[k]);
+    if (k >= 2) {
+        double v = g_progress_value < 0 ? 0 : g_progress_value > 1 ? 1 : g_progress_value;
+        tb->SetProgressValue(h, static_cast<ULONGLONG>(std::lround(v * 1000)), 1000);
+    }
+}
+
+// A red disc at the small-icon size, with the count in white (99+ above 99) or nothing (a dot):
+// the overlay Windows draws over the corner of the taskbar button.
+static HICON badge_icon(int kind, unsigned count) {
+    int size = GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem());
+    HICON icon = nullptr;
+    ULONG_PTR token = 0;
+    Gdiplus::GdiplusStartupInput si;
+    if (Gdiplus::GdiplusStartup(&token, &si, nullptr) != Gdiplus::Ok) return nullptr;
+    {
+        Gdiplus::Bitmap bmp(size, size, PixelFormat32bppARGB);
+        Gdiplus::Graphics g(&bmp);
+        g.SetSmoothingMode(Gdiplus::SmoothingModeAntiAlias);
+        g.SetTextRenderingHint(Gdiplus::TextRenderingHintAntiAliasGridFit);
+        g.Clear(Gdiplus::Color(0, 0, 0, 0));
+        Gdiplus::SolidBrush red(Gdiplus::Color(255, 196, 43, 28));
+        g.FillEllipse(&red, 0.0f, 0.0f, static_cast<Gdiplus::REAL>(size),
+                      static_cast<Gdiplus::REAL>(size));
+        if (kind == 1) {
+            std::wstring text = count > 99 ? L"99+" : std::to_wstring(count);
+            float em = size * (text.size() > 2 ? 0.45f : text.size() > 1 ? 0.55f : 0.7f);
+            Gdiplus::FontFamily family(L"Segoe UI");
+            Gdiplus::Font font(&family, em, Gdiplus::FontStyleBold, Gdiplus::UnitPixel);
+            Gdiplus::StringFormat fmt;
+            fmt.SetAlignment(Gdiplus::StringAlignmentCenter);
+            fmt.SetLineAlignment(Gdiplus::StringAlignmentCenter);
+            Gdiplus::SolidBrush white(Gdiplus::Color(255, 255, 255, 255));
+            Gdiplus::RectF box(0.0f, 0.0f, static_cast<Gdiplus::REAL>(size),
+                               static_cast<Gdiplus::REAL>(size));
+            g.DrawString(text.c_str(), static_cast<INT>(text.size()), &font, box, &fmt, &white);
+        }
+        bmp.GetHICON(&icon);
+    } // the bitmap goes before GdiplusShutdown
+    Gdiplus::GdiplusShutdown(token);
+    return icon;
+}
+
+static void apply_badge() {
+    ITaskbarList3* tb = taskbar_list();
+    HWND h = g_app ? g_app->host : nullptr;
+    if (!tb || !h) return;
+    if (g_badge_kind == 0) {
+        tb->SetOverlayIcon(h, nullptr, nullptr);
+        return;
+    }
+    HICON icon = badge_icon(g_badge_kind, g_badge_count);
+    if (!icon) return;
+    std::wstring what = g_badge_kind == 1 ? std::to_wstring(g_badge_count) : std::wstring(L"\u2022");
+    tb->SetOverlayIcon(h, icon, what.c_str());
+    DestroyIcon(icon); // the taskbar keeps its own copy
+}
+
+// A window's taskbar button (re)appeared: put back what Day had shown on it.
+static void taskbar_button_created(HWND h) {
+    if (g_app && h == g_app->host) {
+        apply_progress();
+        apply_badge();
+    }
+    auto it = g_chrome.find(h);
+    if (it != g_chrome.end() && it->second.skip_taskbar)
+        if (ITaskbarList3* tb = taskbar_list()) tb->DeleteTab(h);
+}
+
+// WM_GETMINMAXINFO for a window with Day limits: the content limits, in points, as outer track
+// sizes (the frame and the docked chrome added back). False leaves the message to the default.
+static bool window_minmax(HWND h, MINMAXINFO* mmi) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end()) return false;
+    WinChrome const& c = it->second;
+    if (c.min_w <= 0 && c.min_h <= 0 && c.max_w <= 0 && c.max_h <= 0) return false;
+    RECT wr, cr;
+    GetWindowRect(h, &wr);
+    GetClientRect(h, &cr);
+    int ex = (wr.right - wr.left) - cr.right;
+    int ey = (wr.bottom - wr.top) - cr.bottom + c.docked_px;
+    double s = dip_scale(h);
+    auto px = [s](double pt) { return static_cast<LONG>(std::lround(pt * s)); };
+    if (c.min_w > 0) mmi->ptMinTrackSize.x = px(c.min_w) + ex;
+    if (c.min_h > 0) mmi->ptMinTrackSize.y = px(c.min_h) + ey;
+    if (c.max_w > 0) mmi->ptMaxTrackSize.x = px(c.max_w) + ex;
+    if (c.max_h > 0) mmi->ptMaxTrackSize.y = px(c.max_h) + ey;
+    // Maximized too: Windows sizes a maximized window by ptMaxSize, not the track sizes, so a
+    // window with a maximum would otherwise still fill the screen when zoomed. It keeps the work
+    // area's top-left (ptMaxPosition).
+    if (c.max_w > 0) mmi->ptMaxSize.x = (std::min)(mmi->ptMaxSize.x, mmi->ptMaxTrackSize.x);
+    if (c.max_h > 0) mmi->ptMaxSize.y = (std::min)(mmi->ptMaxSize.y, mmi->ptMaxTrackSize.y);
+    return true;
+}
+
+// Whether a WM_SYSCOMMAND is a close this window refuses (WindowChange::Closable(false)): the
+// grayed close button already does nothing, and this stops Alt+F4 and the window menu too.
+static bool close_refused(HWND h, WPARAM wp) {
+    if ((wp & 0xFFF0) != SC_CLOSE) return false;
+    auto it = g_chrome.find(h);
+    return it != g_chrome.end() && !it->second.closable;
+}
+
+// The chrome's part of a Day window procedure, run first by both: DWM's caption buttons on an
+// overlay window, the custom client area and hit-testing, the black ground. True with `out` set
+// when the message is answered.
+static bool chrome_wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp, LRESULT* out) {
+    if (chrome_of(h) == 1 && DwmDefWindowProc(h, msg, wp, lp, out)) return true;
+    if (msg == taskbar_button_created_msg()) {
+        taskbar_button_created(h);
+        return false;
+    }
+    switch (msg) {
+    case WM_NCCALCSIZE: return chrome_nccalcsize(h, wp, lp, out);
+    case WM_NCHITTEST: return chrome_hit_test(h, wp, lp, out);
+    case WM_ERASEBKGND:
+        if (!chrome_erase(h, reinterpret_cast<HDC>(wp))) return false;
+        *out = 1;
+        return true;
+    case WM_GETMINMAXINFO:
+        if (!window_minmax(h, reinterpret_cast<MINMAXINFO*>(lp))) return false;
+        *out = 0;
+        return true;
+    case WM_SYSCOMMAND:
+        if (!close_refused(h, wp)) return false;
+        *out = 0;
+        return true;
+    case WM_NCACTIVATE:
+        // A frameless window has no non-client area to repaint for the active state, and
+        // repainting one anyway can flash a classic caption over the content. -1 asks
+        // DefWindowProc to update the state without painting.
+        if (chrome_of(h) != 2) return false;
+        *out = DefWindowProcW(h, WM_NCACTIVATE, wp, -1);
+        return true;
+    }
+    return false;
+}
+
 static const UINT WM_DAY_POST = WM_APP + 1;
 struct PostMsg { void (*cb)(void*); void* data; };
 // Posts made before the primary window exists. day_xaml_post runs on other threads (the dayscript
@@ -776,6 +1434,11 @@ static DWORD g_display_state = 1;
 static std::mutex g_post_mutex;
 static std::vector<PostMsg*> g_post_early;
 static bool g_post_open = false; // the primary window has been created (posts go straight to it)
+// The hidden shell window (docs/status-item.md, defined with the status items further down): it
+// takes Day's posts once the primary window is gone, which an app kept running needs.
+static HWND g_shell_hwnd = nullptr;
+// The app's small icon (day_xaml_set_app_icon), what a status item without a glyph shows.
+static HICON g_app_icon_small = nullptr;
 // Day's window-resize report (single window, v1 — like g_app). UNVERIFIED on a live
 // Windows host; mirrors the Qt shim's DayWindow::resizeEvent contract.
 static void (*g_resize_cb)(int, int) = nullptr;
@@ -802,12 +1465,18 @@ static void layout_window_chrome(HWND host, WUXC::Canvas const& content,
     RECT rc; GetClientRect(host, &rc);
     double scale = GetDpiForWindow(host) / 96.0;
     if (scale <= 0) scale = 1.0;
+    // An overlay title bar (docs/window-chrome.md) lies over the top of the client area: the
+    // docked strips go below it, and day's content runs up under all of it, told how far down
+    // through the safe-area top inset instead of being moved.
+    bool overlay = chrome_of(host) == 1;
+    double band_dip = overlay_band_dip(host);
     double mh_dip = 0;
     if (menubar) {
         menubar.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
                                   std::numeric_limits<float>::infinity() });
         mh_dip = menubar.DesiredSize().Height;
         menubar.Width(rc.right / scale);
+        WUXC::Canvas::SetTop(menubar, band_dip);
     }
     double th_dip = 0;
     if (toolbar) {
@@ -817,10 +1486,19 @@ static void layout_window_chrome(HWND host, WUXC::Canvas const& content,
                                   std::numeric_limits<float>::infinity() });
         th_dip = toolbar.DesiredSize().Height;
         toolbar.Width(rc.right / scale);
-        WUXC::Canvas::SetTop(toolbar, mh_dip);
+        WUXC::Canvas::SetTop(toolbar, band_dip + mh_dip);
+    }
+    if (overlay) {
+        if (auto it = g_chrome.find(host); it != g_chrome.end()) it->second.docked_px = 0;
+        if (content) WUXC::Canvas::SetTop(content, 0);
+        if (out_w) *out_w = rc.right;
+        if (out_h) *out_h = rc.bottom;
+        report_overlay_inset(host, band_dip + mh_dip + th_dip);
+        return;
     }
     if (content) WUXC::Canvas::SetTop(content, mh_dip + th_dip);
     int chrome_px = static_cast<int>(std::lround((mh_dip + th_dip) * scale));
+    if (auto it = g_chrome.find(host); it != g_chrome.end()) it->second.docked_px = chrome_px;
     if (out_w) *out_w = rc.right;
     if (out_h) *out_h = rc.bottom > chrome_px ? rc.bottom - chrome_px : 0;
 }
@@ -829,11 +1507,17 @@ static void layout_window_chrome(HWND host, WUXC::Canvas const& content,
 // to day-core (XAML works in DIPs; the resize report and client rect are physical px). Either
 // strip may be absent, and they are installed in either order, so both offsets are recomputed
 // here rather than where a bar is created.
+//
+// The size goes to day in points (DIPs), which is what `Event::WindowResized` carries and what
+// day's layout positions XAML elements in. It went out in pixels before, the same number at 100%
+// scale and a layout too large for the window at any other.
 static void day_xaml_relayout_chrome(AppWindow* app) {
     if (!app || !app->host) return;
     int w = 0, h = 0;
     layout_window_chrome(app->host, app->content, app->menubar, app->toolbar, &w, &h);
-    if (g_resize_cb) g_resize_cb(w, h);
+    double s = dip_scale(app->host);
+    if (g_resize_cb)
+        g_resize_cb(static_cast<int>(std::lround(w / s)), static_cast<int>(std::lround(h / s)));
 }
 
 /// Effective light/dark: a DAY_THEME force wins, else the system's current setting.
@@ -865,7 +1549,11 @@ static bool effective_dark() try {
 /// a dark app until this is set again, which is why WM_SETTINGCHANGE re-runs it. The XAML tree
 /// needs no such help — its brushes are theme resources and follow on their own.
 static void apply_dark_titlebar(HWND host) {
-    BOOL dark = effective_dark() ? TRUE : FALSE;
+    // A window with its own scheme (WindowChange::Appearance) keeps it over the app's.
+    auto own = g_chrome.find(host);
+    bool want = own != g_chrome.end() && own->second.appearance >= 0 ? own->second.appearance == 1
+                                                                      : effective_dark();
+    BOOL dark = want ? TRUE : FALSE;
     DwmSetWindowAttribute(host, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
 }
 
@@ -937,6 +1625,7 @@ static int cursor_code_over(UIElement const& e) {
 }
 
 static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (LRESULT r = 0; chrome_wndproc(hwnd, msg, wp, lp, &r)) return r;
     switch (msg) {
     case WM_SETCURSOR:
         if (g_cursor_current != 0 && LOWORD(lp) == HTCLIENT) {
@@ -952,8 +1641,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 #else
             SetWindowPos(g_app->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
 #endif
+            chrome_on_size(hwnd);
             day_xaml_relayout_chrome(g_app);
         }
+        report_size_state(hwnd, kPrimaryNode, wp);
         return 0;
     case WM_GETMINMAXINFO:
         // Enforce WindowOptions.min_size: convert the min CLIENT size to a window size (add the
@@ -1080,7 +1771,13 @@ extern "C" void day_xaml_watch_reduce_motion(void (*cb)()) try {
 extern "C" void day_xaml_destroy_primary() {
     if (g_app && g_app->host) {
         HWND h = g_app->host;
-        g_app->host = nullptr;
+        {
+            // day_xaml_post reads it from other threads, under this lock.
+            std::lock_guard<std::mutex> lock(g_post_mutex);
+            g_app->host = nullptr;
+        }
+        g_show_state.erase(h);
+        g_chrome.erase(h);
         DestroyWindow(h);
     }
 }
@@ -1139,7 +1836,8 @@ static void wrap_tab_focus(WUXH::DesktopWindowXamlSource const& source) {
     });
 }
 
-void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h) try {
+void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h,
+                          const DayXamlChrome* chrome) try {
     g_min_w = min_w;
     g_min_h = min_h;
     winrt::init_apartment(winrt::apartment_type::single_threaded);
@@ -1217,8 +1915,10 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
                                 : reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1);
     RegisterClassW(&wc);
 
-    DWORD style = WS_OVERLAPPEDWINDOW; // resizable; WM_SIZE reflows the island + day tree
-    RECT r{ 0, 0, w, h };
+    // Resizable (WM_SIZE reflows the island + day tree) unless WindowOptions says otherwise.
+    DWORD style = chrome_style(WS_OVERLAPPEDWINDOW, chrome);
+    int frame_kind = chrome ? chrome->chrome : 0;
+    int outer_w = w, outer_h = h;
     // A scripted run with a stated capture size (DAY_CAPTURE_SCALE, Day.toml [screenshots])
     // names the pixels it captures, and this backend captures the whole window, frame included
     // (snapshot_hwnd_png). There the stated size is the OUTER size; everywhere else it is the
@@ -1226,10 +1926,13 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     char capture_scale[16];
     bool capture_run =
         GetEnvironmentVariableA("DAY_CAPTURE_SCALE", capture_scale, sizeof(capture_scale)) > 0;
-    if (!capture_run) AdjustWindowRect(&r, style, FALSE);
+    if (!capture_run) chrome_outer_size(style, frame_kind, w, h, &outer_w, &outer_h);
     HWND host = CreateWindowExW(0, L"day_xaml_host", hs(title).c_str(), style,
-                                CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top,
+                                CW_USEDEFAULT, CW_USEDEFAULT, outer_w, outer_h,
                                 nullptr, nullptr, wc.hInstance, nullptr);
+    // The chrome (docs/window-chrome.md), and where the window opens, before it is first shown.
+    bool material = chrome_init(host, kPrimaryNode, chrome);
+    chrome_place(host, chrome);
 
     WUXH::DesktopWindowXamlSource source;
 #ifdef DAY_WINUI
@@ -1260,8 +1963,11 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     // shows through content that is transparent, so the grounding below is skipped when (and
     // only when) the backdrop was accepted; if it was refused, the opaque ground stays and the
     // window looks as it always has.
-    bool mica = false;
-    {
+    //
+    // A window that asked for a material (WindowOptions.background) already has its own backdrop
+    // from chrome_init, frame extension included; it is not replaced here.
+    bool mica = material;
+    if (!material) {
         DWORD backdrop = DWMSBT_MAINWINDOW;
         mica = SUCCEEDED(DwmSetWindowAttribute(host, DWMWA_SYSTEMBACKDROP_TYPE, &backdrop,
                                                sizeof(backdrop)));
@@ -1334,6 +2040,7 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
     }
     root.Loaded(token);
 
+    chrome_attach(host, island, root);
     auto aw = new AppWindow();
     aw->host = host;
     aw->island = island;
@@ -1369,6 +2076,8 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h)
             PostMessageW(aw->host, WM_DAY_POST, 0, reinterpret_cast<LPARAM>(m));
         g_post_early.clear();
     }
+    // An overlay primary's safe-area inset, before day builds the content that reads it.
+    report_overlay_inset(host, overlay_band_dip(host));
     return aw;
 } catch (winrt::hresult_error const& e) {
     std::string msg = u8(e.message());
@@ -1528,7 +2237,10 @@ static void relayout_sec_chrome(SecWindow* sw) {
     if (!sw || !sw->host) return;
     int w = 0, h = 0;
     layout_window_chrome(sw->host, sw->content, sw->menubar, sw->toolbar, &w, &h);
-    if (g_win_resized) g_win_resized(sw->node, w, h);
+    double s = dip_scale(sw->host); // points, as for the primary (day_xaml_relayout_chrome)
+    if (g_win_resized)
+        g_win_resized(sw->node, static_cast<int>(std::lround(w / s)),
+                      static_cast<int>(std::lround(h / s)));
 }
 
 /// A decoded path: plain numbers, built into a fresh XAML PathGeometry on every use. The geometry
@@ -1738,6 +2450,7 @@ static void bounds_of_payload(const std::string &payload, int shapeKind, double 
 static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     auto it = g_sec_windows.find(hwnd);
     SecWindow* sw = it == g_sec_windows.end() ? nullptr : it->second;
+    if (LRESULT r = 0; chrome_wndproc(hwnd, msg, wp, lp, &r)) return r;
     switch (msg) {
     case WM_SIZE:
         if (sw && sw->island) {
@@ -1747,10 +2460,12 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 #else
             SetWindowPos(sw->island, nullptr, 0, 0, rc.right, rc.bottom, SWP_SHOWWINDOW);
 #endif
+            chrome_on_size(hwnd);
             // Reports the size below the chrome, not the whole client, or day would lay its
             // tree out under the menu bar.
             relayout_sec_chrome(sw);
         }
+        if (sw) report_size_state(hwnd, sw->node, wp);
         return 0;
     case WM_ACTIVATE:
         if (sw && g_win_focused) g_win_focused(sw->node, LOWORD(wp) != WA_INACTIVE ? 1 : 0);
@@ -1777,7 +2492,7 @@ static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
 }
 
 void* day_xaml_window_new2(const char* title, int w, int h,
-                           unsigned long long node, int fixed) try {
+                           unsigned long long node, int fixed, const DayXamlChrome* chrome) try {
     bool app_dark = effective_dark();
     static bool registered = false;
     if (!registered) {
@@ -1796,19 +2511,24 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     // window they belong to, so they float above it and take no taskbar button of their own. An
     // owner is passed as hWndParent without WS_CHILD, which is what makes it owned rather than
     // parented. A Normal window gets none of this — it is an independent main window.
-    DWORD style = WS_OVERLAPPEDWINDOW;
+    DWORD style = chrome_style(WS_OVERLAPPEDWINDOW, chrome);
     HWND owner = nullptr;
     if (fixed) {
         style &= ~(WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX);
         owner = g_app ? g_app->host : nullptr;
     }
-    RECT r{ 0, 0, w, h };
-    AdjustWindowRect(&r, style, FALSE);
+    int outer_w = w, outer_h = h;
+    chrome_outer_size(style, chrome ? chrome->chrome : 0, w, h, &outer_w, &outer_h);
     HWND host = CreateWindowExW(0, L"day_xaml_win2", hs(title).c_str(), style,
-                                CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left,
-                                r.bottom - r.top, owner, nullptr,
+                                CW_USEDEFAULT, CW_USEDEFAULT, outer_w, outer_h, owner, nullptr,
                                 GetModuleHandleW(nullptr), nullptr);
     if (!host) return nullptr;
+    // The chrome (docs/window-chrome.md), and where the window opens, before it is first shown.
+    // A panel never takes a frameless resizable edge: `fixed` already took its sizing border.
+    DayXamlChrome opt = chrome ? *chrome : DayXamlChrome{ 0, 0, 0, 1, 1, 0, 0.0, 0.0 };
+    if (fixed) opt.resizable = 0;
+    bool material = chrome_init(host, node, &opt);
+    chrome_place(host, &opt);
 
     WUXH::DesktopWindowXamlSource source;
 #ifdef DAY_WINUI
@@ -1834,9 +2554,12 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     root.RequestedTheme(element_theme_now());
     source.Content(root);
     // Solid neutral ground matching the scheme (the primary's themed-brush path needs the
-    // unforced system lookup; a solid is correct in both cases and keeps this path simple).
-    root.Background(WUXM::SolidColorBrush(
-        color_argb(effective_dark() ? 0xFF'202020u : 0xFF'F3F3F3u)));
+    // unforced system lookup; a solid is correct in both cases and keeps this path simple) —
+    // except under an accepted material, which shows only through a transparent root, and only
+    // on the system's own scheme (see ground_root).
+    if (!material || theme_overridden())
+        root.Background(WUXM::SolidColorBrush(
+            color_argb(effective_dark() ? 0xFF'202020u : 0xFF'F3F3F3u)));
 
     // Load the island before day builds (see day_xaml_window_new: unloaded templated
     // controls measure to 0). Bounded pump.
@@ -1879,6 +2602,11 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     sw->content = content;
     sw->node = node;
     g_sec_windows[host] = sw;
+    chrome_attach(host, island, root);
+    // An overlay window's first safe-area report, from inside `open_window`, before day builds
+    // the content that reads it: nothing else lays its chrome out before the app installs a menu
+    // bar or the user resizes it.
+    report_overlay_inset(host, overlay_band_dip(host));
     return sw;
 } catch (...) {
     std::fprintf(stderr, "day-xaml: secondary window init failed\n");
@@ -1892,9 +2620,13 @@ void* day_xaml_window_content2(void* win) {
 void day_xaml_window_close2(void* win) {
     PostMessageW(static_cast<SecWindow*>(win)->host, WM_CLOSE, 0, 0);
 }
+// Bring a window to the front: the primary's AppWindow or a secondary's SecWindow. A minimized
+// window is restored; a maximized one stays maximized (SW_SHOWNORMAL would un-zoom it).
 void day_xaml_window_raise2(void* win) {
-    HWND h = static_cast<SecWindow*>(win)->host;
-    ShowWindow(h, SW_SHOWNORMAL);
+    if (!win) return;
+    HWND h = win == static_cast<void*>(g_app) ? g_app->host : static_cast<SecWindow*>(win)->host;
+    if (!h) return;
+    ShowWindow(h, IsIconic(h) ? SW_RESTORE : SW_SHOW);
     SetForegroundWindow(h);
 }
 void day_xaml_window_set_title2(void* win, const char* title) {
@@ -1918,8 +2650,142 @@ void day_xaml_window_destroy2(void* win) {
         } catch (...) {
         }
     }
+    g_show_state.erase(sw->host);
+    g_chrome.erase(sw->host);
     DestroyWindow(sw->host);
     delete sw;
+}
+
+// --- window properties (docs/windows.md "Window properties") --------------------------------
+// `win` is what Rust holds for a window: the primary's AppWindow or a secondary's SecWindow.
+
+static HWND host_of_window(void* win) {
+    if (!win) return nullptr;
+    if (win == static_cast<void*>(g_app)) return g_app->host;
+    return static_cast<SecWindow*>(win)->host;
+}
+
+static unsigned long long node_of_window(void* win) {
+    if (win == static_cast<void*>(g_app)) return kPrimaryNode;
+    return static_cast<SecWindow*>(win)->node;
+}
+
+// Borderless fullscreen, the standard Win32 way: keep the placement and styles, swap the frame
+// for WS_POPUP (no caption, no sizing border, no maximize box for Win+Up to act on), and cover the
+// whole monitor the window is on, taskbar included. WS_SYSMENU and WS_MINIMIZEBOX stay: they draw
+// nothing without a caption, and they are what lets the taskbar button minimize the window and
+// open its menu. A maximized or minimized window is restored first, with the placement read
+// before that, so leaving fullscreen goes back to its normal rect.
+static void enter_fullscreen(HWND hwnd, WinShowState& st) {
+    if (st.fullscreen) return;
+    MONITORINFO mi{ sizeof(MONITORINFO) };
+    if (!GetMonitorInfoW(MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST), &mi)) return;
+    st.placement.length = sizeof(WINDOWPLACEMENT);
+    if (!GetWindowPlacement(hwnd, &st.placement)) return;
+    // Twice for a window minimized from maximized: the first restore brings it back maximized.
+    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+    if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+    st.style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+    st.ex_style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    st.fullscreen = true; // before the resize below, whose WM_SIZE reads it
+    SetWindowLongPtrW(hwnd, GWL_STYLE,
+                      (st.style & ~(WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZEBOX)) | WS_POPUP);
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE,
+                      st.ex_style & ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE | WS_EX_CLIENTEDGE |
+                                      WS_EX_STATICEDGE));
+    RECT r = mi.rcMonitor;
+    SetWindowPos(hwnd, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                 SWP_NOOWNERZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
+// Back to the styles and the normal placement the window had before fullscreen.
+static void leave_fullscreen(HWND hwnd, WinShowState& st) {
+    if (!st.fullscreen) return;
+    if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+    st.fullscreen = false; // before the resize below, whose WM_SIZE reads it
+    SetWindowLongPtrW(hwnd, GWL_STYLE, st.style);
+    SetWindowLongPtrW(hwnd, GWL_EXSTYLE, st.ex_style);
+    WINDOWPLACEMENT wp = st.placement;
+    wp.showCmd = SW_SHOWNORMAL;
+    wp.flags &= ~static_cast<UINT>(WPF_RESTORETOMAXIMIZED);
+    SetWindowPlacement(hwnd, &wp);
+    SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+}
+
+void day_xaml_set_window_state_cb(void (*cb)(unsigned long long, int)) { g_win_state_cb = cb; }
+
+// Ask for `state` (a day_spec::WindowState code), leaving whatever the window is in first, then
+// report what it reads as. ShowWindow and SetWindowPos act before they return, so the answer is
+// already the platform's. The WM_SIZE messages on the way are held back (g_state_request) and one report
+// goes out at the end: on a change, or always when the window did not reach `state`, so a request
+// that could not land is answered with the state the window is still in.
+void day_xaml_window_set_state(void* win, int state) try {
+    HWND hwnd = host_of_window(win);
+    if (!hwnd || state < 0 || state > 3) return;
+    auto& st = g_show_state[hwnd];
+    g_state_request = true;
+    switch (state) {
+    case 0: // normal
+        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        leave_fullscreen(hwnd, st);
+        if (IsZoomed(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        break;
+    case 1: // minimized; a fullscreen window comes back fullscreen
+        if (!IsIconic(hwnd)) ShowWindow(hwnd, SW_MINIMIZE);
+        break;
+    case 2: // maximized
+        if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        leave_fullscreen(hwnd, st);
+        if (!IsZoomed(hwnd)) ShowWindow(hwnd, SW_MAXIMIZE);
+        break;
+    case 3: // fullscreen; a minimized fullscreen window only needs bringing back
+        if (st.fullscreen) {
+            if (IsIconic(hwnd)) ShowWindow(hwnd, SW_RESTORE);
+        } else {
+            enter_fullscreen(hwnd, st);
+        }
+        break;
+    }
+    g_state_request = false;
+    int now = window_state_now(hwnd);
+    report_window_state(hwnd, node_of_window(win), now, now != state);
+} catch (...) {
+    g_state_request = false;
+}
+
+// Keep the window out of screenshots, recordings and screen sharing. WDA_EXCLUDEFROMCAPTURE
+// (Windows 10 2004+) leaves the window out of a capture altogether; an older Windows refuses it,
+// and WDA_MONITOR, which shows the window black in a capture, is the closest it has.
+void day_xaml_window_set_protected(void* win, int on) try {
+    HWND hwnd = host_of_window(win);
+    if (!hwnd) return;
+    if (!on) {
+        SetWindowDisplayAffinity(hwnd, WDA_NONE);
+    } else if (!SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)) {
+        SetWindowDisplayAffinity(hwnd, WDA_MONITOR);
+    }
+} catch (...) {
+}
+
+// --- window chrome exports (docs/window-chrome.md) --------------------------------------------
+
+void day_xaml_set_chrome_inset_cb(void (*cb)(unsigned long long, double)) { g_chrome_inset_cb = cb; }
+
+// Whether this Windows draws the system backdrops (Mica, Mica Alt, Acrylic): Windows 11 22621+.
+int day_xaml_materials_supported() { return windows_build() >= 22621 ? 1 : 0; }
+
+// Mark (`on`) or unmark an element as a drag region (`.window_drag_region()`). Nothing is attached
+// to the element: the window's hit test finds it (chrome_hit_test → in_drag_region), and the
+// island's windows are hooked so that test gets to run.
+void day_xaml_set_drag_region(void* h, int on) try {
+    UIElement e = elem(h);
+    g_drag_regions.erase(std::remove(g_drag_regions.begin(), g_drag_regions.end(), e),
+                         g_drag_regions.end());
+    if (!on) return;
+    g_drag_regions.push_back(e);
+    for (auto const& entry : g_chrome) chrome_hook_island(entry.first);
+} catch (...) {
 }
 
 // App icon (§18.2): title-bar + taskbar icon for the unbundled Win32 host window, loaded from the
@@ -1935,6 +2801,7 @@ void day_xaml_set_app_icon(void* win, const char* ico_path) {
                                      LR_LOADFROMFILE);
     if (big) SendMessageW(app->host, WM_SETICON, ICON_BIG, (LPARAM)big);
     if (small_) SendMessageW(app->host, WM_SETICON, ICON_SMALL, (LPARAM)small_);
+    if (small_) g_app_icon_small = small_; // a status item without a glyph shows it
 }
 
 // Top-level host HWND, for a piece that needs the window handle behind the XAML island — the WebView2
@@ -1993,8 +2860,12 @@ void day_xaml_post(void (*cb)(void*), void* data) {
         PostMessageW(g_app->host, WM_DAY_POST, 0, reinterpret_cast<LPARAM>(new PostMsg{ cb, data }));
     } else if (!g_post_open) {
         g_post_early.push_back(new PostMsg{ cb, data }); // delivered once the window exists
+    } else if (g_shell_hwnd) {
+        // The primary window is gone but the app runs on (a status item, keep_running): the
+        // shell window takes the post.
+        PostMessageW(g_shell_hwnd, WM_DAY_POST, 0, reinterpret_cast<LPARAM>(new PostMsg{ cb, data }));
     }
-    // After the primary window is gone the app is ending; the post has nowhere to run.
+    // Otherwise the app is ending; the post has nowhere to run.
 }
 
 // One-shot CompositionTarget callbacks on the XAML UI thread. Revoke before entering Rust,
@@ -3034,6 +3905,26 @@ static void ground_root(WUXC::Canvas const& root, bool dark) {
     }
 }
 
+/// One window's scheme from its own override (WindowChange::Appearance, docs/windows.md), or the
+/// app's when it has none: the title bar, the root's RequestedTheme, and the ground, which goes
+/// opaque under an override for the same reason ground_root gives (DWM's material follows the
+/// system scheme only).
+static void apply_window_appearance(HWND h) {
+    auto it = g_chrome.find(h);
+    if (it == g_chrome.end()) return;
+    WinChrome& c = it->second;
+    apply_dark_titlebar(h);
+    if (!c.root) return;
+    if (c.appearance < 0) {
+        c.root.RequestedTheme(element_theme_now());
+        ground_root(c.root, effective_dark());
+        return;
+    }
+    bool dark = c.appearance == 1;
+    c.root.RequestedTheme(dark ? WUX::ElementTheme::Dark : WUX::ElementTheme::Light);
+    c.root.Background(WUXM::SolidColorBrush(color_argb(dark ? 0xFF'202020u : 0xFF'F3F3F3u)));
+}
+
 static void apply_appearance_everywhere() {
     auto theme = element_theme_now();
     bool dark = effective_dark();
@@ -3052,6 +3943,10 @@ static void apply_appearance_everywhere() {
         }
         if (sw->host) apply_dark_titlebar(sw->host);
         (void)hwnd;
+    }
+    // Windows with a scheme of their own keep it through the app-wide change.
+    for (auto const& entry : g_chrome) {
+        if (entry.second.appearance >= 0) apply_window_appearance(entry.first);
     }
 }
 
@@ -7240,6 +8135,802 @@ extern "C" void day_xaml_dismiss_present(uint64_t req) try {
     if (it->second.dialog) it->second.dialog.Hide();
     else if (it->second.op) it->second.op.Cancel();
 } catch (...) {
+}
+
+// ---- the app outside its windows (docs/status-item.md) ------------------------------------
+// One hidden window carries everything that must not depend on a Day window being open: the
+// notification-area icons' callbacks, the "TaskbarCreated" broadcast (Explorer restarted: every
+// icon has to be added again), and Day's posts once the primary window is gone, which is what
+// keeps an app with a status item (or `keep_running`) alive and responsive with no window open.
+// A tool window rather than a message-only one: message-only windows get no broadcasts, and
+// WS_EX_TOOLWINDOW keeps it off the taskbar should Explorer ever decide to show it.
+
+static const UINT WM_DAY_TRAY = WM_APP + 2;
+
+// One icon in the notification area.
+struct TrayItem {
+    std::string id;
+    UINT uid = 0;
+    HICON icon = nullptr;  // owned unless it is the app's icon (`own_icon`)
+    bool own_icon = false;
+    std::wstring tip;
+    std::string menu;      // the menu spec (same lines as the app menu's)
+    unsigned long long activate = 0;
+    std::string glyph, image; // what `icon` was drawn from, to redraw it only on a change
+    int templ = 0;
+};
+static std::vector<TrayItem> g_tray;
+static UINT g_tray_next_uid = 1;
+// Day's handler for a tray click or menu choice: (0, dispatch id) or (1, 0) for the Quit role.
+static void (*g_status_cb)(int, unsigned long long) = nullptr;
+
+static UINT taskbar_created_msg() {
+    static UINT msg = RegisterWindowMessageW(L"TaskbarCreated");
+    return msg;
+}
+
+// The taskbar's own scheme, which a template glyph is drawn for: white on a dark taskbar, black on
+// a light one. That is the SYSTEM setting, not the apps' one the windows follow.
+static COLORREF tray_template_color() {
+    DWORD light = 0, size = sizeof(light);
+    if (RegGetValueW(HKEY_CURRENT_USER,
+                     L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+                     L"SystemUsesLightTheme", RRF_RT_REG_DWORD, nullptr, &light, &size)
+        != ERROR_SUCCESS)
+        light = 0;
+    return light ? RGB(0, 0, 0) : RGB(255, 255, 255);
+}
+
+// A 32-bit icon from a top-down premultiplied BGRA DIB section (the color bitmap) and an empty
+// mask, which a 32-bit icon with alpha does not consult.
+static HICON icon_from_dib(HBITMAP dib, int size) {
+    std::vector<BYTE> zeros(static_cast<size_t>(((size + 15) / 16) * 2 * size), 0);
+    HBITMAP mask = CreateBitmap(size, size, 1, 1, zeros.data());
+    ICONINFO ii{};
+    ii.fIcon = TRUE;
+    ii.hbmMask = mask;
+    ii.hbmColor = dib;
+    HICON icon = CreateIconIndirect(&ii);
+    if (mask) DeleteObject(mask);
+    return icon;
+}
+
+// An icon-font glyph (the toolbar's Segoe Fluent / MDL2 code points) drawn in `color`: rendered
+// white on black with grayscale antialiasing, whose coverage becomes the alpha.
+static HICON glyph_icon(wchar_t code, COLORREF color, int size) {
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bi.bmiHeader.biWidth = size;
+    bi.bmiHeader.biHeight = -size; // top-down
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HDC dc = CreateCompatibleDC(nullptr);
+    HBITMAP dib = dc ? CreateDIBSection(dc, &bi, DIB_RGB_COLORS, &bits, nullptr, 0) : nullptr;
+    if (!dib || !bits) {
+        if (dib) DeleteObject(dib);
+        if (dc) DeleteDC(dc);
+        return nullptr;
+    }
+    HGDIOBJ old_bmp = SelectObject(dc, dib);
+    std::memset(bits, 0, static_cast<size_t>(size) * size * 4);
+    HFONT font = CreateFontW(-size, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, ANTIALIASED_QUALITY,
+                             DEFAULT_PITCH, toolbar_icon_font().c_str());
+    HGDIOBJ old_font = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, RGB(255, 255, 255));
+    RECT rc{ 0, 0, size, size };
+    wchar_t text[2] = { code, 0 };
+    DrawTextW(dc, text, 1, &rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    GdiFlush();
+    auto* px = static_cast<uint32_t*>(bits);
+    unsigned r = GetRValue(color), g = GetGValue(color), b = GetBValue(color);
+    for (int i = 0; i < size * size; ++i) {
+        unsigned a = px[i] & 0xFF; // white text: every channel is the coverage
+        px[i] = (a << 24) | ((r * a / 255) << 16) | ((g * a / 255) << 8) | (b * a / 255);
+    }
+    SelectObject(dc, old_font);
+    if (font) DeleteObject(font);
+    SelectObject(dc, old_bmp);
+    HICON icon = icon_from_dib(dib, size);
+    DeleteObject(dib);
+    DeleteDC(dc);
+    return icon;
+}
+
+// A bundled image file (PNG, ICO, …) scaled to the icon size; a template keeps only its alpha and
+// takes the taskbar's color.
+static HICON image_icon(const std::wstring& path, bool templ, COLORREF color, int size) {
+    HICON icon = nullptr;
+    ULONG_PTR token = 0;
+    Gdiplus::GdiplusStartupInput si;
+    if (Gdiplus::GdiplusStartup(&token, &si, nullptr) != Gdiplus::Ok) return nullptr;
+    {
+        Gdiplus::Bitmap src(path.c_str());
+        if (src.GetLastStatus() == Gdiplus::Ok) {
+            Gdiplus::Bitmap bmp(size, size, PixelFormat32bppARGB);
+            {
+                Gdiplus::Graphics g(&bmp);
+                g.SetInterpolationMode(Gdiplus::InterpolationModeHighQualityBicubic);
+                g.SetPixelOffsetMode(Gdiplus::PixelOffsetModeHighQuality);
+                g.Clear(Gdiplus::Color(0, 0, 0, 0));
+                g.DrawImage(&src, 0, 0, size, size);
+            }
+            if (templ) {
+                Gdiplus::BitmapData data{};
+                Gdiplus::Rect all(0, 0, size, size);
+                if (bmp.LockBits(&all, Gdiplus::ImageLockModeRead | Gdiplus::ImageLockModeWrite,
+                                 PixelFormat32bppARGB, &data) == Gdiplus::Ok) {
+                    for (int y = 0; y < size; ++y) {
+                        auto* row = reinterpret_cast<uint32_t*>(static_cast<BYTE*>(data.Scan0) +
+                                                                static_cast<ptrdiff_t>(y) * data.Stride);
+                        for (int x = 0; x < size; ++x) {
+                            uint32_t a = row[x] >> 24; // straight (not premultiplied) ARGB
+                            row[x] = (a << 24) | (GetRValue(color) << 16) | (GetGValue(color) << 8) |
+                                     GetBValue(color);
+                        }
+                    }
+                    bmp.UnlockBits(&data);
+                }
+            }
+            bmp.GetHICON(&icon);
+        }
+    } // every GDI+ object goes before GdiplusShutdown
+    Gdiplus::GdiplusShutdown(token);
+    return icon;
+}
+
+// (Re)draw an item's icon from its glyph or image, else show the app's icon.
+static void tray_draw_icon(TrayItem& t) {
+    if (t.own_icon && t.icon) DestroyIcon(t.icon);
+    t.icon = nullptr;
+    t.own_icon = false;
+    int size = GetSystemMetricsForDpi(SM_CXSMICON, GetDpiForSystem());
+    if (!t.glyph.empty()) {
+        wchar_t code = static_cast<wchar_t>(std::wcstol(
+            std::wstring(t.glyph.begin(), t.glyph.end()).c_str(), nullptr, 16));
+        // Symbols are always templates (StatusItemSpec::template).
+        if (code) t.icon = glyph_icon(code, tray_template_color(), size);
+    } else if (!t.image.empty()) {
+        t.icon = image_icon(std::wstring(hs(t.image.c_str())), t.templ != 0,
+                            tray_template_color(), size);
+    }
+    t.own_icon = t.icon != nullptr;
+    if (!t.icon) t.icon = g_app_icon_small ? g_app_icon_small : LoadIconW(nullptr, IDI_APPLICATION);
+}
+
+static HWND shell_window();
+
+// Add (or with `modify` update) the item's icon. NOTIFYICON_VERSION_4 gives the callback the
+// event in LOWORD(lParam), the icon in HIWORD and the anchor point in wParam.
+static bool tray_notify(TrayItem const& t, bool modify) {
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = shell_window();
+    nid.uID = t.uid;
+    nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP;
+    nid.uCallbackMessage = WM_DAY_TRAY;
+    nid.hIcon = t.icon;
+    wcsncpy_s(nid.szTip, t.tip.c_str(), _TRUNCATE); // 127 characters at most
+    if (!nid.hWnd || !Shell_NotifyIconW(modify ? NIM_MODIFY : NIM_ADD, &nid)) return false;
+    if (!modify) {
+        nid.uVersion = NOTIFYICON_VERSION_4;
+        Shell_NotifyIconW(NIM_SETVERSION, &nid);
+    }
+    return true;
+}
+
+static void tray_delete(TrayItem const& t) {
+    NOTIFYICONDATAW nid{};
+    nid.cbSize = sizeof(nid);
+    nid.hWnd = g_shell_hwnd;
+    nid.uID = t.uid;
+    if (nid.hWnd) Shell_NotifyIconW(NIM_DELETE, &nid);
+}
+
+// The tray menu as a Win32 popup menu, from the app menu's spec lines: `A` items dispatch their
+// id, the Quit role ends the app, the other roles have nothing to act on outside a window and are
+// left out. `cmds` maps each command id TrackPopupMenu can return to what it does.
+static HMENU build_tray_menu(const std::string& spec,
+                             std::map<UINT, std::pair<int, unsigned long long>>& cmds) {
+    HMENU root = CreatePopupMenu();
+    if (!root) return nullptr;
+    std::vector<std::pair<HMENU, std::wstring>> stack; // open submenus and their labels
+    UINT next = 1;
+    auto menu_text = [](const std::string& s) {
+        // `&` marks an access key in a Win32 menu; Day's labels mean a literal ampersand.
+        std::wstring w(hs(s.c_str()));
+        std::wstring out;
+        for (wchar_t c : w) {
+            out += c;
+            if (c == L'&') out += L'&';
+        }
+        return out;
+    };
+    for (auto const& line : split_lines(spec)) {
+        if (line.empty()) continue;
+        auto f = split_tabs(line);
+        std::string kind = f.size() > 0 ? f[0] : "";
+        std::string label = f.size() > 6 ? f[6] : "";
+        HMENU cur = stack.empty() ? root : stack.back().first;
+        if (kind == "-") {
+            AppendMenuW(cur, MF_SEPARATOR, 0, nullptr);
+        } else if (kind == "S") {
+            HMENU sub = CreatePopupMenu();
+            if (sub) stack.emplace_back(sub, menu_text(label));
+        } else if (kind == "E") {
+            if (stack.empty()) continue;
+            auto [sub, text] = stack.back();
+            stack.pop_back();
+            HMENU parent = stack.empty() ? root : stack.back().first;
+            AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(sub), text.c_str());
+        } else {
+            int role = f.size() > 2 ? std::atoi(f[2].c_str()) : -1;
+            std::pair<int, unsigned long long> what{ 0, 0 };
+            if (kind == "A") {
+                what.second = f.size() > 1 ? std::strtoull(f[1].c_str(), nullptr, 10) : 0;
+            } else if (role == 8) {
+                what.first = 1; // Quit
+            } else {
+                continue;
+            }
+            UINT flags = MF_STRING;
+            if (f.size() > 5 && f[5] == "0") flags |= MF_GRAYED;
+            if (f.size() > 8 && f[8] == "1") flags |= MF_CHECKED;
+            UINT cmd = next++;
+            cmds[cmd] = what;
+            AppendMenuW(cur, flags, cmd, menu_text(label).c_str());
+        }
+    }
+    // An unterminated submenu still belongs somewhere; DestroyMenu(root) then frees it.
+    while (!stack.empty()) {
+        auto [sub, text] = stack.back();
+        stack.pop_back();
+        HMENU parent = stack.empty() ? root : stack.back().first;
+        AppendMenuW(parent, MF_POPUP, reinterpret_cast<UINT_PTR>(sub), text.c_str());
+    }
+    return root;
+}
+
+// Open an item's menu at (x, y), the documented way for a notification icon: the owner window
+// to the foreground first (or the menu would not close on a click elsewhere), and a WM_NULL
+// after, so a second click works.
+static void tray_menu(std::string spec, int x, int y) {
+    std::map<UINT, std::pair<int, unsigned long long>> cmds;
+    HMENU menu = build_tray_menu(spec, cmds);
+    if (!menu) return;
+    HWND w = shell_window();
+    SetForegroundWindow(w);
+    UINT flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON |
+                 (GetSystemMetrics(SM_MENUDROPALIGNMENT) ? TPM_RIGHTALIGN : TPM_LEFTALIGN);
+    UINT cmd = static_cast<UINT>(TrackPopupMenuEx(menu, flags, x, y, w, nullptr));
+    PostMessageW(w, WM_NULL, 0, 0);
+    DestroyMenu(menu);
+    auto it = cmds.find(cmd);
+    if (cmd && it != cmds.end() && g_status_cb) g_status_cb(it->second.first, it->second.second);
+}
+
+static LRESULT CALLBACK ShellWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_DAY_POST) {
+        auto p = reinterpret_cast<PostMsg*>(lp);
+        if (p) { p->cb(p->data); delete p; }
+        return 0;
+    }
+    if (msg == WM_DAY_TRAY) {
+        UINT event = LOWORD(lp);
+        UINT uid = HIWORD(lp);
+        int x = static_cast<short>(LOWORD(wp)), y = static_cast<short>(HIWORD(wp));
+        auto it = std::find_if(g_tray.begin(), g_tray.end(),
+                               [uid](TrayItem const& t) { return t.uid == uid; });
+        if (it == g_tray.end()) return 0;
+        // Copies: the handler may replace the item list.
+        unsigned long long activate = it->activate;
+        std::string spec = it->menu;
+        if (event == NIN_SELECT || event == NIN_KEYSELECT) {
+            // A primary click: the item's action, or its menu when it has none.
+            if (activate) {
+                if (g_status_cb) g_status_cb(0, activate);
+            } else {
+                tray_menu(spec, x, y);
+            }
+        } else if (event == WM_CONTEXTMENU) {
+            tray_menu(spec, x, y);
+        }
+        return 0;
+    }
+    if (msg == taskbar_created_msg()) {
+        // Explorer restarted and forgot every icon.
+        for (auto const& t : g_tray) tray_notify(t, false);
+        return 0;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+static HWND shell_window() {
+    if (g_shell_hwnd) return g_shell_hwnd;
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = ShellWndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"day_xaml_shell";
+    RegisterClassW(&wc);
+    HWND h = CreateWindowExW(WS_EX_TOOLWINDOW, L"day_xaml_shell", L"", WS_POPUP, 0, 0, 0, 0,
+                             nullptr, nullptr, wc.hInstance, nullptr);
+    std::lock_guard<std::mutex> lock(g_post_mutex); // day_xaml_post reads it from other threads
+    g_shell_hwnd = h;
+    return h;
+}
+
+extern "C" void day_xaml_set_status_cb(void (*cb)(int, unsigned long long)) { g_status_cb = cb; }
+
+// Add or update the status item `id`: `glyph` an icon-font code point in hex, else `image` a file
+// path, else the app's icon; `templ` draws the image in the taskbar's color; `activate` the
+// dispatch id a primary click runs (0: a click opens the menu); `menu` the app menu's spec lines.
+extern "C" void day_xaml_status_set(const char* id, const char* tip, const char* glyph,
+                                    const char* image, int templ, unsigned long long activate,
+                                    const char* menu) try {
+    std::string key = id ? id : "";
+    auto it = std::find_if(g_tray.begin(), g_tray.end(),
+                           [&](TrayItem const& t) { return t.id == key; });
+    bool fresh = it == g_tray.end();
+    if (fresh) {
+        TrayItem t;
+        t.id = key;
+        t.uid = g_tray_next_uid++;
+        g_tray.push_back(t);
+        it = g_tray.end() - 1;
+    }
+    TrayItem& t = *it;
+    std::string g = glyph ? glyph : "", img = image ? image : "";
+    if (fresh || g != t.glyph || img != t.image || templ != t.templ) {
+        t.glyph = g;
+        t.image = img;
+        t.templ = templ;
+        tray_draw_icon(t);
+    }
+    t.tip = std::wstring(hs(tip));
+    if (t.tip.size() > 127) t.tip.resize(127);
+    t.activate = activate;
+    t.menu = menu ? menu : "";
+    tray_notify(t, !fresh);
+} catch (...) {
+}
+
+// Remove every item whose id is not in `ids` (newline-joined).
+extern "C" void day_xaml_status_retain(const char* ids) try {
+    std::set<std::string> keep;
+    for (auto const& line : split_lines(std::string(ids ? ids : ""))) {
+        if (!line.empty()) keep.insert(line);
+    }
+    for (auto it = g_tray.begin(); it != g_tray.end();) {
+        if (keep.count(it->id)) {
+            ++it;
+            continue;
+        }
+        tray_delete(*it);
+        if (it->own_icon && it->icon) DestroyIcon(it->icon);
+        it = g_tray.erase(it);
+    }
+} catch (...) {
+}
+
+// Keep Day's posts deliverable with no window open (docs/windows.md "Keeping the app running"):
+// the shell window takes them once the primary is gone.
+extern "C" void day_xaml_set_keep_running(int keep) try {
+    if (keep) shell_window();
+} catch (...) {
+}
+
+// The app's progress on the primary's taskbar button: 0 none, 1 indeterminate, 2 value,
+// 3 paused, 4 error; `value` 0..1.
+extern "C" void day_xaml_set_app_progress(int kind, double value) try {
+    g_progress_kind = kind;
+    g_progress_value = value;
+    apply_progress();
+} catch (...) {
+}
+
+// The app's badge as the taskbar button's overlay: 0 none, 1 a count (0 clears), 2 a dot.
+extern "C" void day_xaml_set_app_badge(int kind, unsigned count) try {
+    g_badge_kind = (kind == 1 && count == 0) ? 0 : kind;
+    g_badge_count = count;
+    apply_badge();
+} catch (...) {
+}
+
+// ---- single instance (docs/deep-links.md "Single-instance forwarding") ----------------------
+// One process per app id. The first takes a named mutex and a hidden message-only window titled
+// with the app id; a second one finds that window, hands it its command line in a WM_COPYDATA, and
+// exits before it creates a window of its own. The first then opens what the second was started
+// with (`day_core::forward_launch_args`) and comes to the front.
+//
+// The id is the app's, not the build's: two builds of one app (a `day launch` dev run beside an
+// installed copy) are one app here, and whichever started first receives the other's launches.
+
+static const ULONG_PTR kForwardMagic = 0x44415931; // "DAY1": the payload is NUL-separated UTF-16
+static HANDLE g_instance_mutex = nullptr;
+static HWND g_instance_hwnd = nullptr;
+// Day's handler for forwarded launch arguments: UTF-8, NUL-separated, `len` bytes in all.
+static void (*g_forward_cb)(const char*, int) = nullptr;
+
+static LRESULT CALLBACK InstanceWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == WM_COPYDATA) {
+        auto cds = reinterpret_cast<const COPYDATASTRUCT*>(lp);
+        if (!cds || cds->dwData != kForwardMagic) return FALSE;
+        // The data lives only for this message: turn it into UTF-8 now.
+        const wchar_t* w = static_cast<const wchar_t*>(cds->lpData);
+        size_t count = cds->lpData ? cds->cbData / sizeof(wchar_t) : 0;
+        std::string out;
+        size_t start = 0;
+        for (size_t i = 0; i <= count; ++i) {
+            if (i == count || w[i] == L'\0') {
+                if (i > start) out += u8(winrt::hstring(std::wstring_view(w + start, i - start)));
+                if (i < count) out.push_back('\0');
+                start = i + 1;
+            }
+        }
+        // The sender allowed it (AllowSetForegroundWindow): the first window comes forward now,
+        // and day-core focuses the app's front window once the arguments are delivered.
+        if (g_app && g_app->host) {
+            if (IsIconic(g_app->host)) ShowWindow(g_app->host, SW_RESTORE);
+            SetForegroundWindow(g_app->host);
+        }
+        if (g_forward_cb) g_forward_cb(out.data(), static_cast<int>(out.size()));
+        return TRUE;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+extern "C" void day_xaml_set_forward_cb(void (*cb)(const char*, int)) { g_forward_cb = cb; }
+
+// Whether this process runs unpackaged: a packaged app already has its AppUserModelID.
+static bool unpackaged() {
+    UINT32 len = 0;
+    return GetCurrentPackageFullName(&len, nullptr) == APPMODEL_ERROR_NO_PACKAGE;
+}
+
+// Claim the app id: 1 = this is the first instance (or the id is unusable), carry on; 0 = another
+// instance has this process's arguments now, and the caller ends the process without opening a
+// window. Also gives an unpackaged process the app id as its AppUserModelID, which the taskbar
+// groups by and the jump list belongs to; that has to happen before the first window.
+extern "C" int day_xaml_claim_instance(const char* app_id) try {
+    std::wstring id(hs(app_id));
+    if (id.empty()) return 1;
+    std::wstring name = L"Local\\day.instance.";
+    for (wchar_t c : id) name += (c == L'\\') ? L'_' : c; // a backslash would name a namespace
+    HANDLE m = CreateMutexW(nullptr, TRUE, name.c_str());
+    if (m && GetLastError() == ERROR_ALREADY_EXISTS) {
+        CloseHandle(m);
+        // The first instance may still be starting: give it a few seconds to put its window up.
+        HWND target = nullptr;
+        for (int i = 0; i < 50 && !target; ++i) {
+            target = FindWindowExW(HWND_MESSAGE, nullptr, L"day_xaml_instance", id.c_str());
+            if (!target) Sleep(100);
+        }
+        if (target) {
+            int argc = 0;
+            LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+            std::wstring payload;
+            for (int i = 1; argv && i < argc; ++i) {
+                if (i > 1) payload.push_back(L'\0');
+                payload += argv[i];
+            }
+            if (argv) LocalFree(argv);
+            COPYDATASTRUCT cds{};
+            cds.dwData = kForwardMagic;
+            cds.cbData = static_cast<DWORD>(payload.size() * sizeof(wchar_t));
+            cds.lpData = payload.empty() ? nullptr : const_cast<wchar_t*>(payload.data());
+            AllowSetForegroundWindow(ASFW_ANY);
+            DWORD_PTR result = 0;
+            if (SendMessageTimeoutW(target, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&cds),
+                                    SMTO_ABORTIFHUNG, 5000, &result) &&
+                result)
+                return 0;
+        }
+        // No answer: the first instance is hung or going away. Run rather than lose the launch.
+        std::fprintf(stderr, "day-xaml: another instance holds the app id but did not answer\n");
+        return 1;
+    }
+    g_instance_mutex = m; // held for the life of the process
+    if (unpackaged()) SetCurrentProcessExplicitAppUserModelID(id.c_str());
+    WNDCLASSW wc{};
+    wc.lpfnWndProc = InstanceWndProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.lpszClassName = L"day_xaml_instance";
+    RegisterClassW(&wc);
+    g_instance_hwnd = CreateWindowExW(0, L"day_xaml_instance", id.c_str(), 0, 0, 0, 0, 0,
+                                      HWND_MESSAGE, nullptr, wc.hInstance, nullptr);
+    return 1;
+} catch (...) {
+    return 1;
+}
+
+// ---- jump list (docs/deep-links.md "Launcher shortcuts") ------------------------------------
+// The taskbar button's and Start entry's Tasks: one shell link per shortcut, each starting this
+// exe with `--day-open-url <link>`. A second process started that way forwards the link to the
+// running one (above), so a task opens its route in the app already on screen.
+
+// PKEY_Title, spelled out rather than taken from propkey.h, which defines it only for INITGUID.
+static const PROPERTYKEY kTitleKey = {
+    { 0xF29F85E0, 0x4FF9, 0x1068, { 0xAB, 0x91, 0x08, 0x00, 0x2B, 0x27, 0xB3, 0xD9 } }, 2 };
+
+// One task: this exe with `args`, titled `title`.
+static winrt::com_ptr<IShellLinkW> jump_task(const std::wstring& exe, const std::wstring& args,
+                                             const std::wstring& title) {
+    winrt::com_ptr<IShellLinkW> link;
+    if (FAILED(CoCreateInstance(__uuidof(ShellLink), nullptr, CLSCTX_INPROC_SERVER,
+                                __uuidof(IShellLinkW), link.put_void())))
+        return nullptr;
+    link->SetPath(exe.c_str());
+    link->SetArguments(args.c_str());
+    link->SetIconLocation(exe.c_str(), 0);
+    auto store = link.try_as<IPropertyStore>();
+    if (!store) return nullptr;
+    PROPVARIANT pv;
+    PropVariantInit(&pv);
+    size_t bytes = (title.size() + 1) * sizeof(wchar_t);
+    pv.vt = VT_LPWSTR;
+    pv.pwszVal = static_cast<LPWSTR>(CoTaskMemAlloc(bytes));
+    if (!pv.pwszVal) return nullptr;
+    std::memcpy(pv.pwszVal, title.c_str(), bytes);
+    HRESULT hr = store->SetValue(kTitleKey, pv);
+    PropVariantClear(&pv);
+    if (FAILED(hr) || FAILED(store->Commit())) return nullptr;
+    return link;
+}
+
+// Replace the Tasks with `spec`: one "label \t link" line per shortcut. Empty clears the list.
+extern "C" void day_xaml_set_jump_tasks(const char* app_id, const char* spec) try {
+    winrt::com_ptr<ICustomDestinationList> list;
+    if (FAILED(CoCreateInstance(__uuidof(DestinationList), nullptr, CLSCTX_INPROC_SERVER,
+                                __uuidof(ICustomDestinationList), list.put_void())))
+        return;
+    std::wstring id(hs(app_id));
+    // The list belongs to the AppUserModelID set in day_xaml_claim_instance; a packaged app's
+    // own is the default.
+    if (!id.empty() && unpackaged()) list->SetAppID(id.c_str());
+    std::vector<std::pair<std::wstring, std::wstring>> tasks; // label, link
+    for (auto const& line : split_lines(std::string(spec ? spec : ""))) {
+        auto f = split_tabs(line);
+        if (f.size() < 2 || f[0].empty() || f[1].empty()) continue;
+        tasks.emplace_back(std::wstring(hs(f[0].c_str())), std::wstring(hs(f[1].c_str())));
+    }
+    if (tasks.empty()) {
+        list->DeleteList(id.empty() || !unpackaged() ? nullptr : id.c_str());
+        return;
+    }
+    wchar_t exe[MAX_PATH]{};
+    DWORD n = GetModuleFileNameW(nullptr, exe, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return;
+    UINT max_slots = 0;
+    winrt::com_ptr<IObjectArray> removed;
+    if (FAILED(list->BeginList(&max_slots, __uuidof(IObjectArray), removed.put_void()))) return;
+    winrt::com_ptr<IObjectCollection> items;
+    if (FAILED(CoCreateInstance(__uuidof(EnumerableObjectCollection), nullptr,
+                                CLSCTX_INPROC_SERVER, __uuidof(IObjectCollection),
+                                items.put_void()))) {
+        list->AbortList();
+        return;
+    }
+    for (auto const& [label, link] : tasks) {
+        // The link quoted as one argument; a quote inside it cannot survive the command line.
+        std::wstring safe;
+        for (wchar_t c : link) safe += c == L'"' ? L'\'' : c;
+        auto task = jump_task(exe, L"--day-open-url \"" + safe + L"\"", label);
+        if (task) items->AddObject(task.get());
+    }
+    auto array = items.try_as<IObjectArray>();
+    if (!array || FAILED(list->AddUserTasks(array.get()))) {
+        list->AbortList();
+        return;
+    }
+    list->CommitList();
+} catch (...) {
+}
+
+// ---- window properties (docs/windows.md "Window properties") ------------------------------
+
+// Move and/or resize: the outer frame's top-left in points on the desktop, the content size day
+// lays out in points (the docked menu bar and toolbar, and the frame, are added around it).
+extern "C" void day_xaml_window_set_frame(void* win, int has_origin, double x, double y,
+                                          int has_size, double w, double h) try {
+    HWND hwnd = host_of_window(win);
+    if (!hwnd) return;
+    RECT wr, cr;
+    GetWindowRect(hwnd, &wr);
+    GetClientRect(hwnd, &cr);
+    UINT flags = SWP_NOZORDER | SWP_NOACTIVATE;
+    int nx = 0, ny = 0, nw = 0, nh = 0;
+    if (has_origin) {
+        double s = desktop_scale();
+        nx = static_cast<int>(std::lround(x * s));
+        ny = static_cast<int>(std::lround(y * s));
+    } else {
+        flags |= SWP_NOMOVE;
+    }
+    if (has_size) {
+        auto it = g_chrome.find(hwnd);
+        int docked = it != g_chrome.end() ? it->second.docked_px : 0;
+        double s = dip_scale(hwnd);
+        int cw = static_cast<int>(std::lround(w * s));
+        int ch = static_cast<int>(std::lround(h * s)) + docked;
+        nw = (wr.right - wr.left) + (cw - cr.right);
+        nh = (wr.bottom - wr.top) + (ch - cr.bottom);
+    } else {
+        flags |= SWP_NOSIZE;
+    }
+    SetWindowPos(hwnd, nullptr, nx, ny, nw, nh, flags);
+} catch (...) {
+}
+
+// The content size the user can resize to, in points; 0 lifts that bound. WM_GETMINMAXINFO
+// applies them (window_minmax); the window is resized into them at once.
+extern "C" void day_xaml_window_set_limits(void* win, double min_w, double min_h, double max_w,
+                                           double max_h) try {
+    HWND hwnd = host_of_window(win);
+    auto it = g_chrome.find(hwnd);
+    if (!hwnd || it == g_chrome.end()) return;
+    it->second.min_w = min_w;
+    it->second.min_h = min_h;
+    it->second.max_w = max_w;
+    it->second.max_h = max_h;
+    RECT wr;
+    GetWindowRect(hwnd, &wr);
+    // The same size again: DefWindowProc clamps it to the new track sizes on the way.
+    SetWindowPos(hwnd, nullptr, 0, 0, wr.right - wr.left, wr.bottom - wr.top,
+                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+} catch (...) {
+}
+
+// One on/off window property: 0 floating (topmost), 1 left off the taskbar, 2 resizable,
+// 3 minimizable, 4 maximizable, 5 closable, 6 visible.
+extern "C" void day_xaml_window_set_flag(void* win, int which, int on) try {
+    HWND hwnd = host_of_window(win);
+    auto it = g_chrome.find(hwnd);
+    if (!hwnd || it == g_chrome.end()) return;
+    WinChrome& c = it->second;
+    auto style_bit = [hwnd](LONG_PTR bit, bool set) {
+        LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_STYLE);
+        SetWindowLongPtrW(hwnd, GWL_STYLE, set ? (style | bit) : (style & ~bit));
+        SetWindowPos(hwnd, nullptr, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    };
+    switch (which) {
+    case 0:
+        SetWindowPos(hwnd, on ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        break;
+    case 1:
+        c.skip_taskbar = on != 0;
+        if (ITaskbarList3* tb = taskbar_list()) {
+            if (on) tb->DeleteTab(hwnd);
+            else tb->AddTab(hwnd);
+        }
+        break;
+    case 2:
+        c.resizable = on != 0; // a frameless window's edges follow it (chrome_hit_test)
+        style_bit(WS_THICKFRAME, on != 0);
+        break;
+    case 3: style_bit(WS_MINIMIZEBOX, on != 0); break;
+    case 4: style_bit(WS_MAXIMIZEBOX, on != 0); break;
+    case 5:
+        c.closable = on != 0;
+        EnableMenuItem(GetSystemMenu(hwnd, FALSE), SC_CLOSE,
+                       MF_BYCOMMAND | (on ? MF_ENABLED : (MF_DISABLED | MF_GRAYED)));
+        break;
+    case 6: ShowWindow(hwnd, on ? SW_SHOW : SW_HIDE); break;
+    }
+} catch (...) {
+}
+
+// This window's own scheme: -1 the app's, 0 light, 1 dark.
+extern "C" void day_xaml_window_set_appearance(void* win, int mode) try {
+    HWND hwnd = host_of_window(win);
+    auto it = g_chrome.find(hwnd);
+    if (!hwnd || it == g_chrome.end()) return;
+    it->second.appearance = (mode == 0 || mode == 1) ? mode : -1;
+    apply_window_appearance(hwnd);
+} catch (...) {
+}
+
+// Flash the taskbar button: a few times (informational), or the caption and the button until the
+// window comes to the foreground (critical).
+extern "C" void day_xaml_window_attention(void* win, int critical) try {
+    HWND hwnd = host_of_window(win);
+    if (!hwnd) return;
+    FLASHWINFO fi{};
+    fi.cbSize = sizeof(fi);
+    fi.hwnd = hwnd;
+    fi.dwFlags = critical ? (FLASHW_ALL | FLASHW_TIMERNOFG) : FLASHW_TRAY;
+    fi.uCount = critical ? 0 : 3;
+    FlashWindowEx(&fi);
+} catch (...) {
+}
+
+// The outer frame in points on the desktop: x, y, width, height into `out`. 0 when unknown.
+extern "C" int day_xaml_window_frame(void* win, double* out) try {
+    HWND hwnd = host_of_window(win);
+    RECT r;
+    if (!hwnd || !out || !GetWindowRect(hwnd, &r)) return 0;
+    double s = desktop_scale();
+    out[0] = r.left / s;
+    out[1] = r.top / s;
+    out[2] = (r.right - r.left) / s;
+    out[3] = (r.bottom - r.top) / s;
+    return 1;
+} catch (...) {
+    return 0;
+}
+
+// ---- monitors (docs/windows.md "Monitors") --------------------------------------------------
+// day-xaml-sys's `DayXamlMonitor`, field for field: rectangles in points on the desktop.
+struct DayXamlMonitor {
+    double frame[4];
+    double work[4];
+    double scale;
+    int primary;
+    char id[160];
+    char name[128];
+};
+
+// UTF-8 into a fixed buffer, cut at a character boundary.
+static void copy_u8(char* dst, size_t cap, const wchar_t* src) {
+    std::string s = u8(winrt::hstring(src ? src : L""));
+    size_t n = (std::min)(s.size(), cap - 1);
+    while (n > 0 && n < s.size() && (static_cast<unsigned char>(s[n]) & 0xC0) == 0x80) --n;
+    std::memcpy(dst, s.data(), n);
+    dst[n] = '\0';
+}
+
+static BOOL CALLBACK collect_monitor(HMONITOR m, HDC, LPRECT, LPARAM lp) {
+    reinterpret_cast<std::vector<HMONITOR>*>(lp)->push_back(m);
+    return TRUE;
+}
+
+// Every attached display into `out` (up to `cap`); returns how many there are.
+extern "C" int day_xaml_monitors(DayXamlMonitor* out, int cap) try {
+    std::vector<HMONITOR> mons;
+    EnumDisplayMonitors(nullptr, nullptr, collect_monitor, reinterpret_cast<LPARAM>(&mons));
+    // Shcore's GetDpiForMonitor, loaded rather than linked (like CoreMessaging's export above).
+    using DpiFn = HRESULT(WINAPI*)(HMONITOR, int, UINT*, UINT*);
+    static DpiFn dpi_for = [] {
+        HMODULE m = LoadLibraryW(L"Shcore.dll");
+        return m ? reinterpret_cast<DpiFn>(GetProcAddress(m, "GetDpiForMonitor")) : nullptr;
+    }();
+    double s = desktop_scale();
+    int n = 0;
+    for (HMONITOR m : mons) {
+        if (out && n < cap) {
+            MONITORINFOEXW mi{};
+            mi.cbSize = sizeof(mi);
+            if (!GetMonitorInfoW(m, &mi)) continue;
+            DayXamlMonitor& d = out[n];
+            d.frame[0] = mi.rcMonitor.left / s;
+            d.frame[1] = mi.rcMonitor.top / s;
+            d.frame[2] = (mi.rcMonitor.right - mi.rcMonitor.left) / s;
+            d.frame[3] = (mi.rcMonitor.bottom - mi.rcMonitor.top) / s;
+            d.work[0] = mi.rcWork.left / s;
+            d.work[1] = mi.rcWork.top / s;
+            d.work[2] = (mi.rcWork.right - mi.rcWork.left) / s;
+            d.work[3] = (mi.rcWork.bottom - mi.rcWork.top) / s;
+            UINT dx = 96, dy = 96; // MDT_EFFECTIVE_DPI = 0
+            if (!dpi_for || FAILED(dpi_for(m, 0, &dx, &dy))) dx = GetDpiForSystem();
+            d.scale = dx / 96.0;
+            d.primary = (mi.dwFlags & MONITORINFOF_PRIMARY) ? 1 : 0;
+            // The monitor behind the adapter output: its device interface path is stable for
+            // the display across launches, its string the name Windows shows.
+            DISPLAY_DEVICEW dd{};
+            dd.cb = sizeof(dd);
+            bool have = EnumDisplayDevicesW(mi.szDevice, 0, &dd, EDD_GET_DEVICE_INTERFACE_NAME) != 0;
+            copy_u8(d.id, sizeof(d.id), have && dd.DeviceID[0] ? dd.DeviceID : mi.szDevice);
+            copy_u8(d.name, sizeof(d.name), have && dd.DeviceString[0] ? dd.DeviceString : mi.szDevice);
+        }
+        ++n;
+    }
+    return n;
+} catch (...) {
+    return 0;
 }
 
 // ---- picker (docs/pickers.md) ---------------------------------------------

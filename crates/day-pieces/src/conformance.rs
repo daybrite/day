@@ -78,9 +78,15 @@ pub fn roster() -> Vec<TestFn> {
 /// so a person can open any case on any toolkit and look at it. A run does not go through it:
 /// the app roots it in [`test_host`](crate::test_host), which shows each driven case's page
 /// alone while it runs. An app with its own tests can browse them the same way.
+///
+/// Split, never tabs: a split nav builds a case's page when it is first opened, where tabs
+/// (what a phone picks for a flat nav) keep every page resident and build them all at launch.
+/// Since cases hold navigation, covers and pieces of their own, that kept a CI phone's launch
+/// transitioning past the run's first `wait_idle`.
 pub fn test_pages() -> impl Piece {
     let selection = Signal::new(String::new());
     nav(selection)
+        .presentation(day_spec::props::NavPresentation::Split)
         .items(
             || {
                 day_core::conformance::cases()

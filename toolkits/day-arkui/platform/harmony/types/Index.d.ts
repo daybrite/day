@@ -117,6 +117,16 @@ export const windowStart: (content: Object, node: number, widthVp: number, heigh
 export const windowResized: (node: number, widthVp: number, heightVp: number) => void;
 export const windowFocused: (node: number, active: number) => void;
 export const windowClosed: (node: number) => void;
+// Window properties (docs/windows.md "Window properties"): the registered callback sets one
+// property on the primary window (node 0) or a secondary one (its day node id): op 0 fullscreen,
+// op 1 privacy mode. After a fullscreen request settles the host reports the window's state
+// as a WindowState code (0 normal, 3 fullscreen) through `windowStateChanged`. `privacy` says
+// whether the app holds ohos.permission.PRIVACY_WINDOW (Day.toml `screen-privacy`).
+export const registerWindowControl: (
+  callback: (node: number, op: number, on: boolean) => void,
+  privacy?: boolean
+) => void;
+export const windowStateChanged: (node: number, state: number) => void;
 
 // The app's lifecycle (docs/lifecycle.md), from the entry ability's callbacks and its window
 // stage's events, coded in day's phase order: 2 DidBecomeActive, 3 WillResignActive,

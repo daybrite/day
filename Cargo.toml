@@ -14,6 +14,7 @@ members = [
     "crates/day-spec",
     "crates/day-async",
     "crates/day-bridge",
+    "crates/day-dbus",
     "crates/day-mock",
     "crates/day-core",
     "crates/day-pieces",
@@ -169,6 +170,7 @@ day-toolchain = { path = "crates/day-toolchain", version = "0.5.0" }
 day-build = { path = "crates/day-build", version = "0.5.0" }
 day-async = { path = "crates/day-async" }
 day-bridge = { path = "crates/day-bridge" }
+day-dbus = { path = "crates/day-dbus" }
 day-appkit = { path = "toolkits/day-appkit" }
 day-gtk = { path = "toolkits/day-gtk" }
 day-qt = { path = "toolkits/day-qt" }

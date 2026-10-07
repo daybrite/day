@@ -825,6 +825,9 @@ pub trait TreeOps {
     /// Shape the pointer over `node` (the `.cursor()` modifier, docs/cursor.md). Idempotent;
     /// called again when a reactive cursor changes. No-op if the node has no handle.
     fn set_node_cursor(&mut self, node: RNode, cursor: day_spec::Cursor);
+    /// Make `node` move its window when dragged, like a title bar (`.window_drag_region()`,
+    /// docs/window-chrome.md).
+    fn set_node_drag_region(&mut self, node: RNode, drag: bool);
     /// Record that a `.tweak` closure ran against `node`'s current handle (docs/tweaks.md), so
     /// a later backing swap (`set_node_selectable` on a toolkit that rebuilds the widget) can
     /// warn about the discarded work instead of losing it silently.
@@ -959,6 +962,25 @@ pub trait TreeOps {
     fn focus_native_window(&mut self, root: RNode);
     /// Retitle the window whose root is `root`.
     fn set_native_window_title(&mut self, root: RNode, title: &str);
+    /// Apply a property change to the window whose root is `root` (docs/windows.md "Window
+    /// properties"). Ignored for a root with no native handle yet.
+    fn apply_window(&mut self, root: RNode, change: &day_spec::WindowChange);
+    /// Install the app's Dock menu (docs/menus.md).
+    fn set_dock_menu(&mut self, items: &[day_spec::MenuItem]);
+    /// Show the app's status items (docs/status-item.md).
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]);
+    /// Show progress on the app's Dock or taskbar icon.
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress);
+    /// Show or hide the macOS Dock icon.
+    fn set_dock_visible(&mut self, visible: bool);
+    /// Keep the process running when its last window closes (day-core decides when to quit).
+    fn set_keep_running(&mut self, keep: bool);
+    /// The outer frame of the window whose root is `root` (docs/windows.md).
+    fn native_window_frame(&self, root: RNode) -> Option<day_spec::Rect>;
+    /// The attached displays.
+    fn monitors(&self) -> Vec<day_spec::Monitor>;
+    /// Replace the app's run-time launcher shortcuts.
+    fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]);
     /// Snapshot the window whose root is `root` (the primary answers `snapshot`).
     fn snapshot_of(&mut self, root: RNode) -> Result<Vec<u8>, String>;
     /// Toolkit capability probe (pieces pick presentation with it, e.g. `Cap::NavSplit`).
@@ -1754,10 +1776,33 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn set_node_cursor(&mut self, node: RNode, cursor: day_spec::Cursor) {
-        let Some(h) = self.nodes.get(node).and_then(|n| n.handle.clone()) else {
+        // The wrapper descent `enable_gesture` makes: `.padding(…).cursor(…)` lands on a
+        // layout-only wrapper with no view of its own, and the cursor belongs on the view it
+        // wraps.
+        let Some(h) = self
+            .native_view_of(node)
+            .and_then(|n| self.nodes.get(n))
+            .and_then(|n| n.handle.clone())
+        else {
             return;
         };
         self.toolkit.set_cursor(&h, cursor);
+    }
+
+    fn set_node_drag_region(&mut self, node: RNode, drag: bool) {
+        // Same descent: `row(…).padding(8.0).window_drag_region()` marks the row.
+        let Some(h) = self
+            .native_view_of(node)
+            .and_then(|n| self.nodes.get(n))
+            .and_then(|n| n.handle.clone())
+        else {
+            log::warn!(
+                "window_drag_region found no native view under the target node; give the \
+                 region a piece with a native view (a background, a row)"
+            );
+            return;
+        };
+        self.toolkit.set_drag_region(&h, drag);
     }
 
     fn note_node_tweaked(&mut self, node: RNode) {
@@ -2092,6 +2137,45 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
             self.toolkit.set_window_title(&h, title);
         }
+    }
+
+    fn apply_window(&mut self, root: RNode, change: &day_spec::WindowChange) {
+        if let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) {
+            self.toolkit.apply_window(&h, change);
+        }
+    }
+
+    fn set_dock_menu(&mut self, items: &[day_spec::MenuItem]) {
+        self.toolkit.set_dock_menu(items);
+    }
+
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]) {
+        self.toolkit.set_status_items(items);
+    }
+
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress) {
+        self.toolkit.set_app_progress(progress);
+    }
+
+    fn set_dock_visible(&mut self, visible: bool) {
+        self.toolkit.set_dock_visible(visible);
+    }
+
+    fn set_keep_running(&mut self, keep: bool) {
+        self.toolkit.set_keep_running(keep);
+    }
+
+    fn native_window_frame(&self, root: RNode) -> Option<day_spec::Rect> {
+        let h = self.nodes.get(root).and_then(|n| n.handle.clone())?;
+        self.toolkit.window_frame(&h)
+    }
+
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        self.toolkit.monitors()
+    }
+
+    fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]) {
+        self.toolkit.set_launcher_shortcuts(shortcuts);
     }
 
     fn snapshot_of(&mut self, root: RNode) -> Result<Vec<u8>, String> {
@@ -2576,6 +2660,7 @@ pub fn uninstall_tree() {
     crate::image::reset();
     crate::nav::clear_controllers();
     crate::windows::reset_windows();
+    crate::status::reset_status();
     // Per-window signals are keyed by root node, and roots repeat across trees on this thread;
     // a stale entry would hand the next tree the previous one's size class.
     crate::reset_ambient();

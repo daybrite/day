@@ -209,6 +209,8 @@ pub struct MockWindow {
     pub size: Size,
     /// `"normal"` | `"preferences"`.
     pub kind: String,
+    /// The tabbing the window was opened with (docs/windows.md).
+    pub tabbing: day_spec::WindowTabbing,
     pub open: bool,
     pub focused: bool,
     /// The content size the window was fitted to (`WindowOptions::size_to_fit`), or `None` if it
@@ -250,6 +252,28 @@ pub struct MockState {
     pub tree_sources: HashMap<u64, day_spec::TreeSource>,
     /// The app menu as last applied (docs/menus.md): item titles, probe-visible.
     pub app_menu: Vec<String>,
+    /// The Dock menu as last applied (docs/menus.md "Dock menu"): item titles.
+    pub dock_menu: Vec<String>,
+    /// The widgets marked as window drag regions (docs/window-chrome.md), by handle.
+    pub drag_regions: std::collections::HashSet<u64>,
+    /// The status items as last applied (docs/status-item.md).
+    pub status_items: Vec<day_spec::StatusItemSpec>,
+    /// The Dock or taskbar progress as last applied.
+    pub app_progress: day_spec::AppProgress,
+    /// Whether the Dock icon is shown (`None` until the app asks).
+    pub dock_visible: Option<bool>,
+    /// Whether day-core asked the platform to keep running with no window.
+    pub keep_running: bool,
+    /// The run-time launcher shortcuts as last applied.
+    pub launcher_shortcuts: Vec<day_spec::LauncherShortcut>,
+    /// Every `apply_window` change, oldest first, keyed by content-container handle
+    /// (docs/windows.md "Window properties").
+    pub window_changes: Vec<(u64, day_spec::WindowChange)>,
+    /// Each window's display state as the mock platform holds it, keyed by handle.
+    pub window_states: HashMap<u64, day_spec::WindowState>,
+    /// Hold `WindowChange::State` requests instead of completing them, so a test can model a
+    /// platform that declines one (a browser refusing fullscreen outside a gesture).
+    pub decline_window_states: bool,
     /// Every window-toolbar edit, in order (docs/toolbars.md). A test reads these to hold
     /// day-core to touching only the items that changed.
     pub toolbar_edits: Vec<Vec<day_spec::ToolbarOp>>,
@@ -744,6 +768,36 @@ impl MockProbe {
         self.state.borrow().windows.clone()
     }
 
+    /// The Dock menu's item titles as last installed (docs/menus.md "Dock menu").
+    pub fn dock_menu(&self) -> Vec<String> {
+        self.state.borrow().dock_menu.clone()
+    }
+
+    /// Every `apply_window` change so far, oldest first, keyed by content-container handle.
+    pub fn window_changes(&self) -> Vec<(u64, day_spec::WindowChange)> {
+        self.state.borrow().window_changes.clone()
+    }
+
+    /// The status items as last applied.
+    pub fn status_items(&self) -> Vec<day_spec::StatusItemSpec> {
+        self.state.borrow().status_items.clone()
+    }
+
+    /// Whether day-core last asked the platform to keep running with no window.
+    pub fn keep_running(&self) -> bool {
+        self.state.borrow().keep_running
+    }
+
+    /// Whether the widget at `handle` is a window drag region.
+    pub fn is_drag_region(&self, handle: u64) -> bool {
+        self.state.borrow().drag_regions.contains(&handle)
+    }
+
+    /// Make the mock platform record `WindowChange::State` requests without completing them.
+    pub fn set_decline_window_states(&self, v: bool) {
+        self.state.borrow_mut().decline_window_states = v;
+    }
+
     /// Model the user flipping the system's reduce-motion setting (docs/accessibility.md). The
     /// test then calls `day_core::note_motion_changed()`, which is the backend observer's job.
     pub fn set_reduce_motion(&self, v: bool) {
@@ -824,6 +878,7 @@ impl MockProbe {
             title,
             size,
             kind,
+            tabbing: day_spec::WindowTabbing::Automatic,
             open: true,
             focused: false,
             fit_size: None,
@@ -959,6 +1014,25 @@ impl Toolkit for MockToolkit {
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
             // Records the shape per widget (probe-visible), so a test can assert it.
             Cap::Cursor => Support::Native,
+            // Records every window change and Dock menu and completes state requests the way a
+            // platform reports them (`apply_window` below), so the two-way state signal and the
+            // menu lowering are testable headless.
+            Cap::WindowStates
+            | Cap::WindowFullscreen
+            | Cap::ContentProtection
+            | Cap::WindowTabbing
+            | Cap::DockMenu
+            | Cap::DragRegion
+            | Cap::StatusItem
+            | Cap::AppProgress
+            | Cap::DockVisibility
+            | Cap::Monitors
+            | Cap::DynamicShortcuts
+            | Cap::WindowGeometry
+            | Cap::WindowPosition
+            | Cap::WindowLevel
+            | Cap::WindowAppearance
+            | Cap::RequestAttention => Support::Native,
             // A fixed two-family list (`font_families` below), composed, not read.
             Cap::FontList => Support::Emulated,
             Cap::Announce => Support::Native,
@@ -1987,6 +2061,7 @@ impl Toolkit for MockToolkit {
             title: options.title.clone(),
             size: options.size,
             kind: kind_s.into(),
+            tabbing: options.tabbing.clone(),
             open: true,
             focused: false,
             fit_size: None,
@@ -2120,6 +2195,107 @@ impl Toolkit for MockToolkit {
         let mut s = self.state.borrow_mut();
         s.app_menu = items.iter().map(menu_title).collect();
         s.log(format!("set_app_menu [{} items]", items.len()));
+    }
+
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]) {
+        let mut s = self.state.borrow_mut();
+        s.status_items = items.to_vec();
+        s.log(format!("set_status_items [{} items]", items.len()));
+    }
+
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress) {
+        let mut s = self.state.borrow_mut();
+        s.app_progress = progress;
+        s.log(format!("set_app_progress {progress:?}"));
+    }
+
+    fn set_dock_visible(&mut self, visible: bool) {
+        let mut s = self.state.borrow_mut();
+        s.dock_visible = Some(visible);
+        s.log(format!("set_dock_visible {visible}"));
+    }
+
+    fn set_keep_running(&mut self, keep: bool) {
+        let mut s = self.state.borrow_mut();
+        s.keep_running = keep;
+        s.log(format!("set_keep_running {keep}"));
+    }
+
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        // One fixed display, so placement arithmetic is testable headless.
+        let frame = day_spec::Rect::new(0.0, 0.0, 1440.0, 900.0);
+        vec![day_spec::Monitor {
+            id: "mock-0".into(),
+            name: "Mock Display".into(),
+            frame,
+            work_area: day_spec::Rect::new(0.0, 25.0, 1440.0, 875.0),
+            scale: 2.0,
+            primary: true,
+        }]
+    }
+
+    fn window_frame(&self, host: &MockHandle) -> Option<day_spec::Rect> {
+        // The last `Frame` change applied to this window, as a platform would report it back.
+        let s = self.state.borrow();
+        s.window_changes.iter().rev().find_map(|(h, c)| match c {
+            day_spec::WindowChange::Frame {
+                origin: Some(o),
+                size: Some(z),
+            } if *h == host.0 => Some(day_spec::Rect::new(o.x, o.y, z.width, z.height)),
+            _ => None,
+        })
+    }
+
+    fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]) {
+        let mut s = self.state.borrow_mut();
+        s.launcher_shortcuts = shortcuts.to_vec();
+        s.log(format!(
+            "set_launcher_shortcuts [{} items]",
+            shortcuts.len()
+        ));
+    }
+
+    fn set_drag_region(&mut self, h: &MockHandle, drag: bool) {
+        let mut s = self.state.borrow_mut();
+        if drag {
+            s.drag_regions.insert(h.0);
+        } else {
+            s.drag_regions.remove(&h.0);
+        }
+        s.log(format!("set_drag_region #{} {drag}", h.0));
+    }
+
+    fn set_dock_menu(&mut self, items: &[day_spec::MenuItem]) {
+        let mut s = self.state.borrow_mut();
+        s.dock_menu = items.iter().map(menu_title).collect();
+        s.log(format!("set_dock_menu [{} items]", items.len()));
+    }
+
+    fn apply_window(&mut self, host: &MockHandle, change: &day_spec::WindowChange) {
+        // Model the platform: record the request, and for a state change complete it and report
+        // the outcome the way a real window does, through `WindowStateChanged` on the window's
+        // own node (the primary's goes to `WINDOW_NODE`, as AppKit's does).
+        let mut s = self.state.borrow_mut();
+        s.log(format!("apply_window #{} {change:?}", host.0));
+        s.window_changes.push((host.0, change.clone()));
+        let day_spec::WindowChange::State(state) = change else {
+            return;
+        };
+        if s.decline_window_states {
+            return;
+        }
+        s.window_states.insert(host.0, *state);
+        let node = s
+            .windows
+            .iter()
+            .find(|w| w.handle == host.0)
+            .map(|w| w.node)
+            .unwrap_or(day_spec::WINDOW_NODE);
+        let sink = s.sink.clone();
+        drop(s);
+        if let Some(sink) = sink {
+            sink(node, Event::WindowStateChanged(*state));
+        }
     }
 
     fn set_context_menu(&mut self, h: &MockHandle, _node: NodeId, items: &[day_spec::MenuItem]) {

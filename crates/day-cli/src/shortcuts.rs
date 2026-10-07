@@ -97,7 +97,7 @@ pub fn resolved(project: &Project) -> Result<Vec<Resolved>, String> {
 /// Find a Fluent message's value in a locale dir's `*.ftl` files. Only simple single-line
 /// static messages qualify; a placeable or a continuation line is an error, not a skip,
 /// because the native carriers hold plain strings the OS renders with no formatter behind them.
-fn ftl_value(dir: &Path, key: &str) -> Result<Option<String>, String> {
+pub(crate) fn ftl_value(dir: &Path, key: &str) -> Result<Option<String>, String> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
         .flatten()
@@ -136,6 +136,58 @@ fn ftl_value(dir: &Path, key: &str) -> Result<Option<String>, String> {
         }
     }
     Ok(None)
+}
+
+/// The web app manifest's `shortcuts` member (docs/web.md "Home screen and offline"): the menu
+/// an installed web app shows on its Dock / taskbar / home-screen icon. Each opens the app at
+/// its route, the hash the web host already routes by. The manifest carries one language, the
+/// default locale's.
+pub fn web_manifest(mut manifest: serde_json::Value, shortcuts: &[Resolved]) -> serde_json::Value {
+    if !shortcuts.is_empty() {
+        manifest["shortcuts"] = shortcuts
+            .iter()
+            .map(|sc| serde_json::json!({ "name": sc.base, "url": format!("./#{}", sc.route) }))
+            .collect();
+    }
+    manifest
+}
+
+/// The `.desktop` launcher actions for `[[shortcuts]]` (docs/deep-links.md "Launcher
+/// shortcuts"): an `Actions=` key for the entry group, and one `[Desktop Action …]` group per
+/// shortcut, each running the app with `--day-open-url <scheme>://<route>`. A running app gets
+/// the link through single-instance forwarding (GApplication on GTK, the D-Bus instance claim on
+/// Qt); a cold one opens at the route. Names carry every locale.
+pub fn linux_actions(entry: String, shortcuts: &[Resolved], exec: &str, scheme: &str) -> String {
+    if shortcuts.is_empty() {
+        return entry;
+    }
+    // Desktop Entry `Exec` quoting: the argument goes in double quotes, with `"`, `` ` ``, `$` and
+    // `\` escaped by a backslash.
+    fn quote(s: &str) -> String {
+        let mut out = String::from("\"");
+        for c in s.chars() {
+            if matches!(c, '"' | '`' | '$' | '\\') {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out.push('"');
+        out
+    }
+    let ids: Vec<String> = shortcuts.iter().map(|sc| sc.id.replace('_', "-")).collect();
+    let mut s = entry.trim_end().to_string();
+    s.push_str(&format!("\nActions={};\n", ids.join(";")));
+    for (sc, id) in shortcuts.iter().zip(&ids) {
+        s.push_str(&format!("\n[Desktop Action {id}]\nName={}\n", sc.base));
+        for (locale, label) in &sc.labels {
+            if locale != DEFAULT_LOCALE {
+                s.push_str(&format!("Name[{}]={label}\n", locale.replace('-', "_")));
+            }
+        }
+        let link = format!("{scheme}://{}", sc.route);
+        s.push_str(&format!("Exec={exec} --day-open-url {}\n", quote(&link)));
+    }
+    s
 }
 
 fn xml_escape(s: &str) -> String {
@@ -197,6 +249,13 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
             manifest.display()
         )
     })?;
+    // The scaffold's manifest spells the scheme as the `${dayScheme}` placeholder the Gradle
+    // plugin fills from Day.toml; a shortcut's link needs the value itself, not the placeholder.
+    let scheme = if scheme.starts_with("${") {
+        project.manifest.resolve("android-mdc").scheme()
+    } else {
+        scheme
+    };
     let activity = android_launcher_activity(&text)
         .ok_or_else(|| format!("{}: no LAUNCHER activity found", manifest.display()))?;
     let app_id = project.manifest.resolve("android-mdc").id;
@@ -630,5 +689,58 @@ mod tests {
 }
 "#;
         assert_eq!(json, want);
+    }
+}
+
+#[cfg(test)]
+mod web_tests {
+    use super::*;
+
+    #[test]
+    fn web_shortcuts_open_their_route() {
+        let shortcuts = vec![Resolved {
+            route: "notes/new".into(),
+            id: "day_shortcut_0".into(),
+            labels: BTreeMap::new(),
+            base: "New Note".into(),
+        }];
+        let manifest = web_manifest(serde_json::json!({}), &shortcuts);
+        assert_eq!(manifest["shortcuts"][0]["name"], "New Note");
+        assert_eq!(manifest["shortcuts"][0]["url"], "./#notes/new");
+        assert!(
+            web_manifest(serde_json::json!({}), &[])
+                .get("shortcuts")
+                .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod linux_tests {
+    use super::*;
+
+    #[test]
+    fn desktop_actions_open_their_route_in_every_locale() {
+        let shortcuts = vec![Resolved {
+            route: "notes/new?pinned=1".into(),
+            id: "day_shortcut_0".into(),
+            labels: BTreeMap::from([
+                ("en".into(), "New Note".into()),
+                ("zh-CN".into(), "新笔记".into()),
+            ]),
+            base: "New Note".into(),
+        }];
+        let entry = linux_actions(
+            "[Desktop Entry]\nName=Notes\nExec=notes %U\n".into(),
+            &shortcuts,
+            "notes",
+            "notes",
+        );
+        assert!(entry.contains("\nActions=day-shortcut-0;\n"));
+        assert!(entry.contains("[Desktop Action day-shortcut-0]\nName=New Note\n"));
+        assert!(entry.contains("Name[zh_CN]=新笔记\n"));
+        assert!(entry.contains("Exec=notes --day-open-url \"notes://notes/new?pinned=1\"\n"));
+        // The Actions key sits in the entry group, before the first action group.
+        assert!(entry.find("Actions=").unwrap() < entry.find("[Desktop Action").unwrap());
     }
 }

@@ -651,7 +651,7 @@ jobs:
   # against THIS commit's crates (the app depends on them by path) with THIS run's CLI, on all
   # nine targets through the shared app workflow: its simulator, emulator, xvfb and web-driver
   # plumbing is what every app gets, and the conformance app is an app. Its one dayscript holds
-  # the `run_tests` step; the runner prints one line per test and writes `evidence.json` and the
+  # the `run_tests` step; the runner prints one line per test and writes `conformance.json` and the
   # tests' captures into the screenshots directory, which the workflow uploads per target (and
   # per device profile) as `conformance-screenshots-<target>[-<slug>]`. A failed test fails its
   # leg. One phone row per mobile OS, since the cases prove pieces, not layouts.
@@ -685,12 +685,12 @@ jobs:
       harmony-devices: |
         device=phone, orientation=portrait, slug=phone
 
-  # One artifact for every consumer of the run's evidence (docs/testing.md): the per-target
-  # `evidence.json` files merged under the path each was written at
+  # One artifact for every consumer of the run's results (docs/testing.md): the per-target
+  # `conformance.json` files merged under the path each was written at
   # (`<target>[/<device>]/<variant>`), and the captures beside them. The website reads this
   # from the latest green run on main; nothing here is committed.
-  conformance-evidence:
-    name: conformance (evidence)
+  conformance-results:
+    name: conformance (results)
     runs-on: ubuntu-24.04
     needs: [conformance]
     if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
@@ -701,34 +701,34 @@ jobs:
         with:
           pattern: conformance-screenshots-*
           path: in
-      - name: Merge the evidence
+      - name: Merge the results
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p out/shots
-          files="$(find in -name evidence.json | sort)"
-          [ -n "$files" ] || { echo "::error::no evidence.json in any conformance-screenshots-* artifact"; exit 1; }
-          # `in/<artifact>/<target>[/<device>]/<variant>/evidence.json` → one object keyed by
+          files="$(find in -name conformance.json | sort)"
+          [ -n "$files" ] || { echo "::error::no conformance.json in any conformance-screenshots-* artifact"; exit 1; }
+          # `in/<artifact>/<target>[/<device>]/<variant>/conformance.json` → one object keyed by
           # the path below the artifact, which is the path the run wrote it at.
           # shellcheck disable=SC2086
-          jq -n '[inputs | {(input_filename | sub("^in/[^/]*/"; "") | sub("/evidence.json$"; "")): .}] | add' $files > out/evidence.json
+          jq -n '[inputs | {(input_filename | sub("^in/[^/]*/"; "") | sub("/conformance.json$"; "")): .}] | add' $files > out/conformance.json
           for f in $files; do
             rel="$(dirname "${f#in/*/}")"
             if [ -d "$(dirname "$f")/tests" ]; then
               mkdir -p "out/shots/$rel" && cp -R "$(dirname "$f")/tests" "out/shots/$rel/"
             fi
           done
-          jq -r 'to_entries[] | "\(.key): \([.value.tests | to_entries[] | .value.verdict] | group_by(.) | map("\(length) \(.[0])") | join(", "))"' out/evidence.json
+          jq -r 'to_entries[] | "\(.key): \([.value.tests | to_entries[] | .value.verdict] | group_by(.) | map("\(length) \(.[0])") | join(", "))"' out/conformance.json
       # What each toolkit answered for every capability during its run, held against the
       # declared docs/coverage-matrix.md: a disagreement means the published matrix is wrong for
       # that target. Also writes the verified matrix (per kind and target, what the cases proved)
       # into the artifact. Runs before the upload's step, which still uploads on failure.
-      - name: Hold the evidence against the declared matrix
-        run: python3 scripts/ci/conformance-claims.py out/evidence.json --out out/verified-matrix.md
+      - name: Hold the results against the declared matrix
+        run: python3 scripts/ci/conformance-claims.py out/conformance.json --out out/verified-matrix.md
       - uses: actions/upload-artifact@v7
         if: ${{ !cancelled() }}
         with:
-          name: conformance-evidence
+          name: conformance-results
           path: out/
           if-no-files-found: error
 

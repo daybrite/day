@@ -64,9 +64,9 @@ However a link arrives, the behavior inside the app is the same:
 | android-mdc | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
 | web-dom | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
 | harmony-arkui | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
-| macos-appkit | `CFBundleURLTypes` (platform/macos scaffold) | — | — | Planned |
-| windows-winui | none | — | — | Planned |
-| linux-gtk / linux-qt | none | — | — | Planned |
+| macos-appkit | `CFBundleURLTypes` (platform/macos scaffold) | ✓ `application:openURLs:` | ✓ the same | Shipped |
+| windows-winui | Day.toml `url_schemes` (MSIX, NSIS); `--day-open-url <link>` on the command line | ✓ | ✓ single-instance forwarding | Compile-checked |
+| linux-gtk / linux-qt | Day.toml `url_schemes` (`.desktop` `x-scheme-handler`); `--day-open-url <link>` | ✓ | ✓ single-instance forwarding | Shipped |
 
 ### iOS — Shipped, two concerns
 
@@ -153,18 +153,26 @@ plus `DBusActivatable=true`), and both packers already generate that file. Deliv
    desktops' launchers use when `DBusActivatable` is set; a fallback single-instance socket
    would cover launchers that exec directly.
 
-## Single-instance forwarding — Planned
+## Single-instance forwarding
 
-Desktop platforms need a policy for a link arriving while the app runs, or arriving twice.
-macOS forwards through Launch Services automatically. Linux gets it from DBus activation.
-Windows must build it (above). The contract in all three cases is the same: the second
-invocation hands its URL to the running instance and exits; the running instance treats it as
-a warm link. day should own this in the platform layer so apps never see two processes.
+A second launch of a desktop app hands its command line (`--day-open-url`, `--day-open-file`,
+files, URLs) to the copy already running and exits; the running copy receives them as a warm
+link or file and brings its front window forward (`day_core::forward_launch_args`). Apps never
+see two processes.
 
-## Shortcuts are saved deep links — Shipped (ios / android / harmony)
+| Backend | Mechanism | Status |
+|---|---|---|
+| AppKit | Launch Services activates the running app and delivers URLs and files to its delegate | Shipped |
+| GTK | GApplication's own uniqueness: the second launch's files and URIs reach the first through its `open` signal | Shipped |
+| Qt (Linux) | `day_dbus::instance`: the first launch owns the app id on the session bus, a second calls its `Forward` method | Shipped |
+| Windows XAML | A named mutex per app id; a second launch sends its arguments to the first with `WM_COPYDATA` | Compile-checked; runtime pending |
+
+Two development builds of one app id forward to each other, whichever started first.
+
+## Launcher shortcuts
 
 The persistent icon-menu surfaces (home-screen quick actions, launcher shortcuts, jump lists,
-`.desktop` actions — [docs/menus.md](menus.md) "Future surfaces") each hold a label and a URL of exactly
+`.desktop` actions, the macOS Dock menu) each hold a label and a URL of exactly
 this form. They add no new delivery machinery; they are declarations that emit these URLs
 into the intake above.
 
@@ -209,9 +217,24 @@ string with no formatter behind it) and writes the platform's native declaration
   the exact want the profile declares (`aa start … --ps day.uri <url>`); the emulator's
   stock launcher renders no shortcut panel for any app, so the panel UI itself needs real
   hardware.
-- **macOS / Windows / Linux** — not yet: their surfaces (dock menu, jump list, `.desktop`
-  Actions) stay gated on the missing intake above. Declaring `[[shortcuts]]` today is safe
-  there and has no effect.
+- **macOS** — the Dock menu lists the shortcuts above the app's own `dock_menu` entries
+  ([docs/menus.md](menus.md#dock-menu)). `day-build` registers the `[[shortcuts]]` into the
+  binary at link time, so the menu is built while the app runs, in its current language, and
+  choosing an entry opens its route in the running app.
+- **Windows** — the jump list's Tasks: each entry runs the app with
+  `--day-open-url "<scheme>://<route>"`, which single-instance forwarding hands to the copy
+  already running. Built at startup and rebuilt on every `set_launcher_shortcuts`.
+- **Linux** — `Actions=` in the generated `.desktop` file, one `[Desktop Action …]` group per
+  shortcut with a `Name[<locale>]` for every locale and the same `--day-open-url` command line.
+- **Web** — the manifest's `shortcuts` member, opening `./#<route>`, in the default locale.
+
+### Shortcuts set while the app runs
+
+`day::set_launcher_shortcuts(vec![LauncherShortcut { route, label }])` replaces the app's
+run-time shortcuts: "Resume <last document>", the three most recent chats. They show beside the
+declared ones as iOS Home Screen quick actions, Android dynamic shortcuts (API 25+), Windows
+jump-list tasks and macOS Dock menu items (`Cap::DynamicShortcuts`). Pass labels already
+localized. Linux launchers and the web keep only the declared shortcuts.
 
 Launchers show at most about four entries (`day lint` warns past four), per-shortcut icons
 are not conveyed yet (the platforms render their default glyph), and on OpenHarmony

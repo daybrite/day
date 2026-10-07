@@ -1,6 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
-//! Finder/Open With document delivery, including events received before the root mounts.
+//! The app delegate: Finder/Open With document delivery (including events received before the
+//! root mounts) and the Dock menu.
 use super::*;
 use objc2_app_kit::NSApplicationDelegate;
 use objc2_foundation::NSURL;
@@ -25,6 +26,23 @@ define_class!(
                     .collect();
                 day_core::request_open_files(files);
             });
+        }
+
+        /// A click on the Dock icon with no window open (a status-item app, `KeepRunning::
+        /// Always`): open one through the app's New Window builder, as every Mac app does.
+        #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
+        fn should_handle_reopen(&self, _app: &NSApplication, visible: bool) -> bool {
+            ffi_guard::contain(true, || {
+                if !visible {
+                    let _ = day_core::windows::open_new_window();
+                }
+                true
+            })
+        }
+
+        #[unsafe(method_id(applicationDockMenu:))]
+        fn application_dock_menu(&self, _app: &NSApplication) -> Option<Retained<NSMenu>> {
+            ffi_guard::contain(None, super::dock::menu)
         }
     }
 );

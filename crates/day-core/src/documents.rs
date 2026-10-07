@@ -105,6 +105,32 @@ pub(crate) fn launch_files(args: impl Iterator<Item = String>) -> Vec<String> {
     files
 }
 
+/// Deliver the launch arguments a second copy of the app forwarded to this one
+/// (docs/deep-links.md "Single-instance forwarding"): the files, URLs and routes it was started
+/// with arrive as if this process had been launched with them, and the app's front window comes
+/// forward. Backend-facing; call on the UI thread.
+pub fn forward_launch_args(args: Vec<String>) {
+    request_open_files(launch_files(args.into_iter()));
+    if let Some(window) = crate::windows::focused_window().or_else(crate::windows::initial_window) {
+        window.focus();
+    }
+}
+
+/// The link a launcher shortcut for `route` passes on a desktop command line
+/// (`--day-open-url <link>`): `<scheme>://<route>` with the app's URL scheme, which `day build`
+/// hands the binary as `DAY_APP_SCHEME`, else the bare route. Either form reaches the route
+/// through the deep-link intake.
+pub fn launch_link(route: &str) -> String {
+    let scheme = std::env::var("DAY_APP_SCHEME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| option_env!("DAY_APP_SCHEME").map(str::to_owned));
+    match scheme {
+        Some(scheme) => format!("{scheme}://{route}"),
+        None => route.to_owned(),
+    }
+}
+
 /// Backend bootstrap hook: claim launch arguments once. GTK passes them to GApplication
 /// so it can forward an open request to an existing process; other backends let core deliver.
 #[doc(hidden)]

@@ -183,6 +183,140 @@ commands. An
 app that places `MenuRole::Minimize` in its own model owns window management and skips the
 auto menu.
 
+## Window properties
+
+Every window, the first one included, has a `WindowHandle`: `day::initial_window()`,
+`day::current_window()` (the window being built, else the focused one, else the first),
+`open_window`'s return value, or `day::window_by_key`.
+
+### Display state
+
+`state()` is the window's display state as a two-way signal:
+
+```rust
+use day::prelude::*;
+
+fn fullscreen_button() -> impl Piece {
+    let state = day::current_window()
+        .map(|w| w.state())
+        .unwrap_or_else(|| Signal::new(day::WindowState::Normal));
+    button(move || {
+        if state.get() == day::WindowState::Fullscreen {
+            "Exit Full Screen"
+        } else {
+            "Enter Full Screen"
+        }
+    })
+    .action(move || {
+        state.set(if state.get() == day::WindowState::Fullscreen {
+            day::WindowState::Normal
+        } else {
+            day::WindowState::Fullscreen
+        })
+    })
+}
+```
+
+Reading it follows what the user does: minimize, zoom, enter or leave fullscreen, from the title
+bar, the keyboard or a gesture. Writing it asks the platform for that state. The platform has the
+last word: the signal settles on the state the window actually reached, so a request the platform
+declines (a browser refusing fullscreen outside a click) reads back as the state the window kept.
+`set_state(s)` is the same write spelled as an action. Wayland compositors do not tell an app
+when the user minimizes it, so under Wayland GTK and Qt report `Minimized` only for a minimize the
+app asked for, until the window is next activated.
+
+| State | Desktops | iOS | Android | HarmonyOS | Web |
+|---|---|---|---|---|---|
+| `Minimized`, `Maximized` (`Cap::WindowStates`) | Native | Unsupported | Unsupported | Unsupported | Unsupported |
+| `Fullscreen` (`Cap::WindowFullscreen`) | Native | Emulated: status bar hidden, home indicator auto-hidden | Native: system bars hidden, shown again by a swipe | Native | Native during a click or key press |
+
+### Content protection
+
+`set_content_protected(true)` keeps a window out of screenshots, screen recordings and screen
+sharing, for passwords, payment details and private messages (`Cap::ContentProtection`). macOS
+(`NSWindowSharingNone`), Windows (`WDA_EXCLUDEFROMCAPTURE`), Android (`FLAG_SECURE`) and
+HarmonyOS (privacy mode) protect natively. HarmonyOS needs the app to opt in with
+`screen-privacy = true` in Day.toml's `[permissions]` ([docs/permissions.md](permissions.md));
+without it `Cap::ContentProtection` answers `Unsupported` there. iOS has no switch for it: Day
+covers the window while the screen is being recorded or mirrored, and a screenshot still
+captures it. Linux and the web cannot protect a window.
+
+### Size, position and stacking
+
+| Method | What it does | Cap |
+|---|---|---|
+| `set_frame(origin, size)` | Move the frame's top-left corner to `origin` (desktop points, top-left origin) and/or resize the content | `WindowPosition`, `WindowGeometry` |
+| `frame()` | The window's outer frame on the desktop, where the platform says | `WindowGeometry` |
+| `set_limits(min, max)` | The sizes the user can resize between | `WindowGeometry` |
+| `set_resizable(bool)` | Whether the user can resize at all | `WindowGeometry` |
+| `set_level(WindowLevel::Floating)` | Stay above other apps' windows | `WindowLevel` |
+| `set_on_all_workspaces(bool)` | Show on every Space or virtual desktop | `WindowLevel` |
+| `set_skip_taskbar(bool)` | Leave the window out of the taskbar and window switcher (the Window menu on macOS) | `WindowLevel` |
+| `set_minimizable`, `set_maximizable`, `set_closable` | Offer or withhold the title-bar controls | `WindowStates` |
+| `set_visible(bool)` | Hide the window without closing it, or show it again | `WindowStates` |
+| `set_appearance(Option<bool>)` | This window's own light or dark appearance, over the app-wide `set_appearance` | `WindowAppearance` |
+| `request_attention(Attention)` | A Dock bounce, a flashing taskbar button | `RequestAttention` |
+
+`WindowOptions` sets the same things at open: `min_size`, `max_size`, `resizable`, `placement`,
+and the frame options in [docs/window-chrome.md](window-chrome.md).
+
+| Backend | What it supports |
+|---|---|
+| AppKit | Everything above. Taskbar exclusion is the Window menu's, since macOS has no taskbar. |
+| Windows XAML | Everything except showing a window on every virtual desktop. Compile-checked; the Windows runtime pass is pending. |
+| Qt | Everything except per-window appearance and every-desktop windows. Under Wayland the compositor places windows, so `set_frame`'s origin and `WindowPosition` are unsupported there. |
+| GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and `frame()` answers `None`. On Linux the Qt backend covers those. |
+| iOS | Per-window appearance (`overrideUserInterfaceStyle`). |
+| Android, HarmonyOS, web | None: the platform sizes and places the app's window. The web follows the app-wide appearance per page. |
+
+`set_frame`'s size is the size Day lays the content out at, the size `WindowResized` reports;
+the backend adds the title bar, the frame and any menu bar around it. `frame()` reports the
+outer frame, chrome included.
+
+### Monitors
+
+`day::monitors()` lists the displays: an id, a name, the frame, the work area (the frame minus
+the menu bar, Dock, taskbar or panels), the scale, and which one is primary, all in desktop
+points (`Cap::Monitors`). A phone or the web reports its one screen. GTK 4 exposes no work area or
+primary display, so there the work area is the whole display and the first one is primary.
+
+### Remembered frames
+
+```rust
+day::WindowOptions {
+    remember_frame: Some("library".into()),
+    ..Default::default()
+}
+```
+
+A window with `remember_frame` reopens at the size, position and maximized state it had when it
+last closed. The frame is saved when the window closes and when the app quits, in
+`day-windows.txt` under the app's configuration directory (`$XDG_CONFIG_HOME/<app id>/` when that
+is set, else `~/.config`, `~/Library/Application Support` or `%APPDATA%`). A saved position that
+no attached display shows any more is dropped, so a window never reopens off-screen; the size is
+kept. A minimized or fullscreen window keeps the last ordinary frame it had.
+
+## Window tabs on macOS
+
+Ordinary windows group as native macOS tabs per the user's "Prefer tabs" setting. `WindowOptions::
+tabbing` puts a window in a tab group of its own:
+
+| `WindowTabbing` | Effect |
+|---|---|
+| `Automatic` | The default: the window tabs with the app's other ordinary windows; preferences windows never do. |
+| `Group(id)` | Tab only with windows of the same group, following the user's setting. |
+| `Preferred(id)` | Always open as a tab of a window in the group. |
+| `Disallowed` | Never become a tab. |
+
+`register_new_window_for(group, build)` is the builder behind the tab bar's "+" in that group's
+windows. A group without one falls back to the app's `register_new_window` builder. Other
+platforms have no system window tabs and ignore the option (`Cap::WindowTabbing`).
+
+## Keeping the app running
+
+A status item keeps an app running after its last window closes, and `day::set_keep_running`
+chooses that for any app: see [docs/status-item.md](status-item.md#keeping-the-app-running).
+
 ## The debug title tag
 
 A **debug** build appends `(<version>/<toolkit>[/<script>])` to every window title it sets
@@ -250,6 +384,13 @@ then calls `day_core::open_new_window()`, so the content is whatever the app reg
 desktop; an app that registered none has nothing to put in the window, and the backend hands the
 scene back. Until 2026-09 those scenes were destroyed on sight, which is what made the system's
 New Window flash a window and lose it.
+
+`apply_window(host, change)` carries every window property above, one `WindowChange` at a time,
+for any window including the first (its root container is its host). A state change the platform
+completes is reported back as `Event::WindowStateChanged`; a state the backend cannot reach is
+reported as the state the window is in, so the signal settles. `window_frame(host)` and
+`monitors()` answer queries, and `set_keep_running` tells a desktop backend to report its first
+window's close like any other instead of ending the app itself.
 
 `close_window`/`focus_window`/`set_window_title`/`snapshot_window_of` round out the duties;
 day-core releases the content handle after teardown, which is each backend's signal to

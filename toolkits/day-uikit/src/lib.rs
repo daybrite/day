@@ -313,6 +313,94 @@ mod imp {
         base_frame: Cell<CGRect>,
         /// `None` = the primary scene; `Some` = a secondary day window's root node.
         node: Option<NodeId>,
+        /// Whether the app asked for this window fullscreen (`WindowChange::State`): its root
+        /// and cover VCs then hide the status bar and let the home indicator fade.
+        fullscreen: Cell<bool>,
+        /// The last `WindowStateChanged` code reported for this window, so a report fires once
+        /// per real change.
+        reported: Cell<i32>,
+        /// Whether the app asked for this window's content to stay out of captures
+        /// (`WindowChange::ContentProtected`).
+        protected: Cell<bool>,
+        /// The opaque window covering this scene while protected content is being recorded or
+        /// mirrored; `None` the rest of the time.
+        shield: RefCell<Option<Retained<UIWindow>>>,
+        /// This window's own light/dark override (`WindowChange::Appearance`); `None` follows
+        /// the app-wide choice.
+        appearance: Cell<Option<bool>>,
+    }
+
+    impl SceneEntry {
+        fn new(
+            window: Retained<UIWindow>,
+            root_view: Retained<UIView>,
+            base_frame: CGRect,
+            node: Option<NodeId>,
+        ) -> Self {
+            SceneEntry {
+                window,
+                root_view,
+                base_frame: Cell::new(base_frame),
+                node,
+                fullscreen: Cell::new(false),
+                reported: Cell::new(day_spec::WindowState::Normal.code()),
+                protected: Cell::new(false),
+                shield: RefCell::new(None),
+                appearance: Cell::new(None),
+            }
+        }
+    }
+
+    thread_local! {
+        /// The app-wide interface style `Toolkit::set_appearance` asked for; `None` until it
+        /// is first called, when a `DAY_THEME` launch override stands in.
+        static APP_STYLE: Cell<Option<objc2_ui_kit::UIUserInterfaceStyle>> =
+            const { Cell::new(None) };
+    }
+
+    fn interface_style(dark: Option<bool>) -> objc2_ui_kit::UIUserInterfaceStyle {
+        use objc2_ui_kit::UIUserInterfaceStyle as Style;
+        match dark {
+            Some(true) => Style::Dark,
+            Some(false) => Style::Light,
+            None => Style::Unspecified,
+        }
+    }
+
+    /// The style every window wears unless it has its own: the app's `set_appearance`, else
+    /// `DAY_THEME=light|dark` (themed CI runs), else the system's.
+    fn app_style() -> objc2_ui_kit::UIUserInterfaceStyle {
+        APP_STYLE.with(|a| a.get()).unwrap_or_else(|| {
+            interface_style(match std::env::var("DAY_THEME").ok().as_deref() {
+                Some("dark") => Some(true),
+                Some("light") => Some(false),
+                _ => None,
+            })
+        })
+    }
+
+    /// Put each scene window in the style it should wear: its own override, else the app's.
+    /// Windows are collected first and styled outside the registry borrow, since a style
+    /// change runs `traitCollectionDidChange` synchronously, which reads the registry again.
+    fn refresh_scene_styles() {
+        let windows: Vec<(Retained<UIWindow>, objc2_ui_kit::UIUserInterfaceStyle)> =
+            SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .map(|e| {
+                        let style = match e.appearance.get() {
+                            Some(dark) => interface_style(Some(dark)),
+                            None => app_style(),
+                        };
+                        (e.window.clone(), style)
+                    })
+                    .collect()
+            });
+        for (window, style) in windows {
+            if unsafe { window.overrideUserInterfaceStyle() } != style {
+                unsafe { window.setOverrideUserInterfaceStyle(style) };
+            }
+        }
     }
 
     /// The KEY window's scene entry applied to `f` — keyboard avoidance and modal
@@ -361,6 +449,18 @@ mod imp {
             scenes
                 .iter()
                 .find(|e| Retained::as_ptr(&e.window) as usize == wp)
+                .map(f)
+        })
+    }
+
+    /// The scene entry whose Day root is `host` (a window's content container, as day-core
+    /// addresses windows), applied to `f`.
+    fn with_scene_of_host<R>(host: &UIView, f: impl FnOnce(&SceneEntry) -> R) -> Option<R> {
+        let hp = host as *const UIView as usize;
+        SCENES.with(|s| {
+            s.borrow()
+                .iter()
+                .find(|e| Retained::as_ptr(&e.root_view) as usize == hp)
                 .map(f)
         })
     }
@@ -417,6 +517,22 @@ mod imp {
             return;
         };
         unsafe { restrictions.setMinimumSize(CGSize::new(min.width, min.height)) };
+    }
+
+    /// The URL scheme the app registered (`CFBundleURLTypes`), the first one as `day build`
+    /// reads it for the Info.plist quick actions: dynamic shortcuts carry the same link form.
+    fn bundle_url_scheme() -> Option<String> {
+        let bundle = objc2_foundation::NSBundle::mainBundle();
+        let types =
+            unsafe { bundle.objectForInfoDictionaryKey(&NSString::from_str("CFBundleURLTypes")) }?;
+        let types = types.downcast::<objc2_foundation::NSArray>().ok()?;
+        types.iter().find_map(|t| {
+            let dict = t.downcast::<objc2_foundation::NSDictionary>().ok()?;
+            let schemes = dict.objectForKey(&*NSString::from_str("CFBundleURLSchemes"))?;
+            let schemes = schemes.downcast::<objc2_foundation::NSArray>().ok()?;
+            let first = schemes.firstObject()?.downcast::<NSString>().ok()?;
+            Some(first.to_string()).filter(|s| !s.is_empty())
+        })
     }
 
     /// `Day.toml [window] min_width/min_height`, carried into the bundle's `Info.plist` by
@@ -481,16 +597,11 @@ mod imp {
             holder.setSemanticContentAttribute(rtl);
             root_view.setSemanticContentAttribute(rtl);
         }
-        // DAY_THEME=light|dark forces the interface style window-wide (themed CI runs).
-        if let Ok(theme) = std::env::var("DAY_THEME") {
-            let style = match theme.as_str() {
-                "dark" => Some(objc2_ui_kit::UIUserInterfaceStyle::Dark),
-                "light" => Some(objc2_ui_kit::UIUserInterfaceStyle::Light),
-                _ => None,
-            };
-            if let Some(style) = style {
-                unsafe { window.setOverrideUserInterfaceStyle(style) };
-            }
+        // Every window starts in the app's style: its `set_appearance`, or DAY_THEME=light|dark
+        // (themed CI runs). A per-window override comes later, through `apply_window`.
+        let style = app_style();
+        if style != objc2_ui_kit::UIUserInterfaceStyle::Unspecified {
+            unsafe { window.setOverrideUserInterfaceStyle(style) };
         }
         unsafe {
             holder.setBackgroundColor(Some(&UIColor::systemGroupedBackgroundColor()));
@@ -4213,6 +4324,143 @@ mod imp {
         node: NodeId,
     }
 
+    // -------------------------------------------------------------------
+    // Window properties (docs/windows.md): fullscreen and content protection. iOS gives an
+    // app neither switch, so both are emulated per scene — fullscreen as a hidden status bar
+    // and an auto-hiding home indicator, protection as an opaque shield over the scene while
+    // its screen is recorded or mirrored.
+    // -------------------------------------------------------------------
+
+    /// Whether the window `vc`'s view is in has been asked for fullscreen. The root VC and the
+    /// cover VCs answer the status-bar and home-indicator questions with it; a VC whose view is
+    /// not in a Day window (a detached root under a cover) answers no.
+    fn vc_window_fullscreen(vc: &UIViewController) -> bool {
+        vc.viewIfLoaded()
+            .and_then(|view| with_scene_of(&view, |e| e.fullscreen.get()))
+            .unwrap_or(false)
+    }
+
+    /// The display state a scene reports: `Fullscreen` while the app holds it fullscreen,
+    /// `Normal` otherwise. An iOS window is never minimized or zoomed.
+    fn scene_state(entry: &SceneEntry) -> day_spec::WindowState {
+        if entry.fullscreen.get() {
+            day_spec::WindowState::Fullscreen
+        } else {
+            day_spec::WindowState::Normal
+        }
+    }
+
+    /// The report a scene owes for its display state, to its root node (`WINDOW_NODE` for the
+    /// primary): once per change, or every time with `always`, which a declined request uses
+    /// so day-core's optimistic `state()` signal settles back on the state the window kept.
+    /// Returned rather than emitted, so the caller emits with the registry released.
+    fn scene_state_report(entry: &SceneEntry, always: bool) -> Option<(NodeId, Event)> {
+        let state = scene_state(entry);
+        (entry.reported.replace(state.code()) != state.code() || always).then(|| {
+            log::debug!("uikit: window state now {state:?}");
+            (
+                entry.node.unwrap_or(WINDOW_NODE),
+                Event::WindowStateChanged(state),
+            )
+        })
+    }
+
+    /// Have every view controller in `window` that may own the status bar or the home
+    /// indicator ask again: the root, and whatever is presented over it (a cover takes both
+    /// over while it is up). In an animation block so the status bar fades.
+    fn refresh_window_chrome(window: &UIWindow) {
+        let mut vcs: Vec<Retained<UIViewController>> = Vec::new();
+        let mut next = window.rootViewController();
+        while let Some(vc) = next {
+            next = vc.presentedViewController();
+            vcs.push(vc);
+        }
+        let update = block2::RcBlock::new(move || {
+            for vc in &vcs {
+                vc.setNeedsStatusBarAppearanceUpdate();
+                vc.setNeedsUpdateOfHomeIndicatorAutoHidden();
+            }
+        });
+        unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
+    }
+
+    /// Whether the screen `window` shows on is being recorded, mirrored or AirPlayed. iOS 17
+    /// moved the answer onto the scene's trait collection and deprecated the screen's flag; the
+    /// older spelling stays for the earlier releases this backend supports.
+    fn window_captured(window: &UIWindow) -> bool {
+        if os_at_least(17) {
+            window.windowScene().is_some_and(|scene| {
+                let state = unsafe { scene.traitCollection().sceneCaptureState() };
+                state == objc2_ui_kit::UISceneCaptureState::Active
+            })
+        } else {
+            #[allow(deprecated)]
+            window.screen().isCaptured()
+        }
+    }
+
+    /// Put up or take down each scene's content-protection shield for the current capture
+    /// state. A shield is a window of its own above the alert level, so nothing the scene
+    /// presents later (an alert, a cover) can land on top of it. It hides the content from a
+    /// recording or a mirrored display; a screenshot still captures the app, because iOS tells
+    /// an app about one only after it is taken.
+    fn refresh_capture_shields() {
+        let mtm = mtm();
+        // Decide with the registry borrowed, act on UIKit without it: a new window joining the
+        // scene can re-enter Day through the root VC's trait callback.
+        let work: Vec<(Retained<UIWindow>, bool, Option<Retained<UIWindow>>)> = SCENES.with(|s| {
+            s.borrow()
+                .iter()
+                .map(|e| {
+                    let want = e.protected.get() && window_captured(&e.window);
+                    (e.window.clone(), want, e.shield.borrow().clone())
+                })
+                .collect()
+        });
+        for (window, want, shield) in work {
+            match (want, shield) {
+                (true, None) => {
+                    let Some(scene) = window.windowScene() else {
+                        continue;
+                    };
+                    log::debug!("uikit: screen captured, shielding protected window");
+                    let cover =
+                        unsafe { UIWindow::initWithWindowScene(UIWindow::alloc(mtm), &scene) };
+                    let vc = UIViewController::new(mtm);
+                    unsafe {
+                        if let Some(view) = vc.view() {
+                            view.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+                        }
+                        cover.setWindowLevel(objc2_ui_kit::UIWindowLevelAlert + 1.0);
+                        cover.setRootViewController(Some(&vc));
+                    }
+                    cover.setHidden(false);
+                    store_shield(&window, Some(cover));
+                }
+                (false, Some(cover)) => {
+                    log::debug!("uikit: capture ended or protection off, removing shield");
+                    cover.setHidden(true);
+                    store_shield(&window, None);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Record a scene's shield window (or its removal) against the scene that owns `window`.
+    fn store_shield(window: &UIWindow, shield: Option<Retained<UIWindow>>) {
+        let wp = window as *const UIWindow as usize;
+        SCENES.with(|s| {
+            if let Some(e) = s
+                .borrow()
+                .iter()
+                .find(|e| Retained::as_ptr(&e.window) as usize == wp)
+            {
+                *e.shield.borrow_mut() = shield;
+            }
+        });
+    }
+
     /// Day `Edges` bits → `UIRectEdge` (leading/trailing map to left/right).
     fn rect_edges() -> UIRectEdge {
         let bits = DEFER_EDGES.with(|e| e.get());
@@ -4248,10 +4496,17 @@ mod imp {
             }
 
             /// A fullscreen presentation takes over the status bar's appearance, so the cover
-            /// answers for it while it is up.
+            /// answers for it while it is up: hidden for a mounted `status_bar_hidden`, or
+            /// while its window is fullscreen (docs/windows.md).
             #[unsafe(method(prefersStatusBarHidden))]
             fn prefers_status_bar_hidden(&self) -> bool {
-                STATUS_BAR_HIDDEN.with(|h| h.get())
+                STATUS_BAR_HIDDEN.with(|h| h.get()) || vc_window_fullscreen(self)
+            }
+
+            /// And for the home indicator, which fades while the window is fullscreen.
+            #[unsafe(method(prefersHomeIndicatorAutoHidden))]
+            fn prefers_home_indicator_auto_hidden(&self) -> bool {
+                vc_window_fullscreen(self)
             }
 
             #[unsafe(method(preferredStatusBarUpdateAnimation))]
@@ -4354,12 +4609,32 @@ mod imp {
             /// stays nil, so one answer covers every page.
             #[unsafe(method(prefersStatusBarHidden))]
             fn prefers_status_bar_hidden(&self) -> bool {
-                STATUS_BAR_HIDDEN.with(|h| h.get())
+                STATUS_BAR_HIDDEN.with(|h| h.get()) || vc_window_fullscreen(self)
             }
 
             #[unsafe(method(preferredStatusBarUpdateAnimation))]
             fn status_bar_animation(&self) -> objc2_ui_kit::UIStatusBarAnimation {
                 objc2_ui_kit::UIStatusBarAnimation::Fade
+            }
+
+            /// Fullscreen on iOS (docs/windows.md): the home indicator fades after a few
+            /// seconds without a touch and returns on the next one, which is as far as an app
+            /// can take it.
+            #[unsafe(method(prefersHomeIndicatorAutoHidden))]
+            fn prefers_home_indicator_auto_hidden(&self) -> bool {
+                vc_window_fullscreen(self)
+            }
+
+            /// The scene's capture state is a trait (iOS 17+): a recording or mirroring that
+            /// starts or stops changes it, so the content-protection shield follows from here
+            /// as well as from `UIScreenCapturedDidChangeNotification`.
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), refresh_capture_shields);
             }
 
             /// The window is crossing a size class — the whole reason a split view collapses or
@@ -8007,6 +8282,21 @@ mod imp {
                 // because the pane MERGES into the stack when the host collapses, and the
                 // pieces layer interposes it there (docs/navigation.md).
                 Cap::NavContentList => Support::Emulated,
+                // Fullscreen hides the status bar and lets the home indicator fade
+                // (`prefersHomeIndicatorAutoHidden`); the app already fills the screen, so
+                // nothing else changes (docs/windows.md).
+                Cap::WindowFullscreen => Support::Emulated,
+                // No switch exists: an opaque shield covers a protected window while its screen
+                // is recorded or mirrored, and screenshots still capture it (docs/windows.md).
+                Cap::ContentProtection => Support::Emulated,
+                // Each scene's window takes its own `overrideUserInterfaceStyle`.
+                Cap::WindowAppearance => Support::Native,
+                // `UIApplication.shortcutItems`: Home Screen quick actions set at run time.
+                Cap::DynamicShortcuts => Support::Native,
+                // The one screen the app runs on, from its scene (docs/windows.md).
+                Cap::Monitors => Support::Emulated,
+                // `Cap::WindowStates` stays Unsupported: an iOS window is never minimized or
+                // zoomed, so those requests report the state the window kept.
                 // Real UIScenes on iPad (docs/windows.md); iPhone shows one scene, so the
                 // cover fallback is the honest answer there.
                 Cap::MultiWindow => {
@@ -10782,6 +11072,131 @@ mod imp {
             });
         }
 
+        /// Window properties (docs/windows.md). `host` is a scene's Day root: a secondary
+        /// window's, or the primary's. Fullscreen and content protection are emulated (see
+        /// `refresh_window_chrome` and `refresh_capture_shields`); minimize and zoom do not
+        /// exist on iOS, so those requests report the state the window kept.
+        fn apply_window(&mut self, host: &Handle, change: &day_spec::WindowChange) {
+            use day_spec::{WindowChange as C, WindowState as S};
+            match change {
+                C::State(S::Minimized | S::Maximized) => {
+                    if let Some((node, ev)) =
+                        with_scene_of_host(host, |e| scene_state_report(e, true)).flatten()
+                    {
+                        emit(node, ev);
+                    }
+                }
+                C::State(state) => {
+                    let on = *state == S::Fullscreen;
+                    // The registry stays borrowed only to flip the flag; UIKit asks the VCs
+                    // back through `with_scene_of` while the chrome updates.
+                    let window = with_scene_of_host(host, |e| {
+                        (e.fullscreen.replace(on) != on).then(|| e.window.clone())
+                    })
+                    .flatten();
+                    if let Some(window) = window {
+                        refresh_window_chrome(&window);
+                    }
+                    if let Some((node, ev)) =
+                        with_scene_of_host(host, |e| scene_state_report(e, false)).flatten()
+                    {
+                        emit(node, ev);
+                    }
+                }
+                C::ContentProtected(on) => {
+                    with_scene_of_host(host, |e| e.protected.set(*on));
+                    refresh_capture_shields();
+                }
+                // The scene window's own `overrideUserInterfaceStyle`; `None` hands it back to
+                // the app-wide style.
+                C::Appearance(dark) => {
+                    with_scene_of_host(host, |e| e.appearance.set(*dark));
+                    refresh_scene_styles();
+                }
+                // Size, position, stacking and window controls belong to the system on iOS
+                // (Cap::WindowGeometry, WindowPosition, WindowLevel, WindowStates and
+                // RequestAttention are Unsupported).
+                _ => {}
+            }
+        }
+
+        /// The one screen the app runs on (`Cap::Monitors` Emulated): the primary scene's
+        /// screen, in points, with the work area inside the window's safe area (the status bar,
+        /// the home indicator and any cutout taken off).
+        fn monitors(&self) -> Vec<day_spec::Monitor> {
+            let primary = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| e.node.is_none())
+                    .map(|e| e.window.clone())
+            });
+            let Some(window) = primary else {
+                return Vec::new();
+            };
+            let Some(scene) = window.windowScene() else {
+                return Vec::new();
+            };
+            let screen = scene.screen();
+            let b = screen.bounds();
+            let insets = unsafe { window.safeAreaInsets() };
+            let frame = day_spec::Rect::new(0.0, 0.0, b.size.width, b.size.height);
+            let work_area = day_spec::Rect::new(
+                insets.left,
+                insets.top,
+                (b.size.width - insets.left - insets.right).max(0.0),
+                (b.size.height - insets.top - insets.bottom).max(0.0),
+            );
+            let name = objc2_ui_kit::UIDevice::currentDevice(mtm())
+                .model()
+                .to_string();
+            vec![day_spec::Monitor {
+                id: "0".into(),
+                name,
+                frame,
+                work_area,
+                scale: screen.scale(),
+                primary: true,
+            }]
+        }
+
+        /// Home Screen quick actions the app sets while it runs, shown after the Info.plist
+        /// ones. Each type string is the same saved deep link the static ones carry
+        /// (`<scheme>://<route>`, docs/deep-links.md), so a press arrives through
+        /// `performActionForShortcutItem` or the scene's connection options like theirs do.
+        fn set_launcher_shortcuts(&mut self, shortcuts: &[day_spec::LauncherShortcut]) {
+            use objc2::AllocAnyThread as _;
+            let scheme = bundle_url_scheme();
+            let items: Vec<Retained<objc2_ui_kit::UIApplicationShortcutItem>> = shortcuts
+                .iter()
+                .map(|sc| {
+                    let link = match &scheme {
+                        Some(scheme) => format!("{scheme}://{}", sc.route),
+                        None => sc.route.clone(),
+                    };
+                    let title = if sc.label.is_empty() {
+                        &sc.route
+                    } else {
+                        &sc.label
+                    };
+                    objc2_ui_kit::UIApplicationShortcutItem::initWithType_localizedTitle(
+                        objc2_ui_kit::UIApplicationShortcutItem::alloc(),
+                        &NSString::from_str(&link),
+                        &NSString::from_str(title),
+                    )
+                })
+                .collect();
+            let array = objc2_foundation::NSArray::from_retained_slice(&items);
+            let app = UIApplication::sharedApplication(mtm());
+            app.setShortcutItems(Some(&array));
+            if log::log_enabled!(log::Level::Debug) {
+                let set: Vec<String> = app
+                    .shortcutItems()
+                    .map(|items| items.iter().map(|i| i.r#type().to_string()).collect())
+                    .unwrap_or_default();
+                log::debug!("uikit: launcher shortcuts now {set:?}");
+            }
+        }
+
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
             use day_spec::present::{ButtonRole, PresentResult, PresentSpec};
             use objc2_ui_kit::{
@@ -11081,17 +11496,20 @@ mod imp {
             unsafe { UIView::animateWithDuration_animations(0.25, &update, mtm()) };
         }
 
+        /// The app-wide style, on every window without one of its own: UIKit has no app-level
+        /// switch, so each scene's window takes it (a secondary window included, and one that
+        /// opens later through `build_scene_window`).
         fn set_appearance(&mut self, dark: Option<bool>) {
-            WINDOW.with(|w| {
-                if let Some(window) = w.borrow().as_ref() {
-                    let style = match dark {
-                        Some(true) => objc2_ui_kit::UIUserInterfaceStyle::Dark,
-                        Some(false) => objc2_ui_kit::UIUserInterfaceStyle::Light,
-                        None => objc2_ui_kit::UIUserInterfaceStyle::Unspecified,
-                    };
-                    unsafe { window.setOverrideUserInterfaceStyle(style) };
-                }
-            });
+            let style = interface_style(dark);
+            APP_STYLE.with(|a| a.set(Some(style)));
+            if SCENES.with(|s| s.borrow().is_empty()) {
+                WINDOW.with(|w| {
+                    if let Some(window) = w.borrow().as_ref() {
+                        unsafe { window.setOverrideUserInterfaceStyle(style) };
+                    }
+                });
+            }
+            refresh_scene_styles();
         }
 
         /// Settings › Accessibility › Motion › "Reduce Motion" (docs/accessibility.md). The
@@ -11116,14 +11534,25 @@ mod imp {
             // ambient one there answers with the old appearance, so `dark_mode()`'s signal never
             // flips: every native view around it recolors and every canvas keeps its stale
             // palette, which is dark text on a dark ground.
-            let override_style = WINDOW.with(|w| {
-                w.borrow()
-                    .as_ref()
-                    .map(|window| unsafe { window.overrideUserInterfaceStyle() })
-                    .unwrap_or(Style::Unspecified)
-            });
+            //
+            // The app-wide choice, not the primary window's own style: that window may carry a
+            // per-window override (`WindowChange::Appearance`), which is not the app's answer.
+            let override_style = APP_STYLE.with(|a| a.get()).unwrap_or(Style::Unspecified);
             if override_style != Style::Unspecified {
                 return override_style == Style::Dark;
+            }
+            // With the primary window overridden on its own, the ambient collection may carry
+            // that override; the screen's does not, and answers for the system.
+            let primary_own = SCENES.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|e| e.node.is_none() && e.appearance.get().is_some())
+                    .map(|e| e.window.clone())
+            });
+            if let Some(scene) = primary_own.and_then(|w| w.windowScene()) {
+                use objc2_ui_kit::UITraitEnvironment as _;
+                let screen = scene.screen();
+                return unsafe { screen.traitCollection().userInterfaceStyle() } == Style::Dark;
             }
             // No override in force, so the ambient collection IS the system appearance, and the
             // system's own changes arrive through `traitCollectionDidChange` after propagation.
@@ -11842,6 +12271,18 @@ mod imp {
                             None,
                         )
                 };
+                // Screen recording and mirroring starting or stopping (docs/windows.md): the
+                // content-protection shields follow it. Any screen will do: the handler
+                // re-reads every scene's own capture state.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(screenCaptureChanged:),
+                            Some(objc2_ui_kit::UIScreenCapturedDidChangeNotification),
+                            None,
+                        )
+                };
                 true
             }
 
@@ -11965,6 +12406,17 @@ mod imp {
             fn reduce_motion_changed(&self, _notification: &objc2_foundation::NSNotification) {
                 day_spec::ffi_guard::contain((), day_core::note_motion_changed);
             }
+
+            /// A recording or mirroring of some screen started or stopped. The scene trait the
+            /// shields read can settle a moment after the notification, so look again on the
+            /// next turn of the main queue as well.
+            #[unsafe(method(screenCaptureChanged:))]
+            fn screen_capture_changed(&self, _notification: &objc2_foundation::NSNotification) {
+                day_spec::ffi_guard::contain((), refresh_capture_shields);
+                dispatch2::DispatchQueue::main().exec_async(|| {
+                    day_spec::ffi_guard::contain((), refresh_capture_shields);
+                });
+            }
         }
     );
 
@@ -12016,12 +12468,12 @@ mod imp {
                         ROOT_VIEW.with(|r| *r.borrow_mut() = Some(root_view.clone()));
                         ROOT_BASE_FRAME.with(|f| f.set(inner));
                         SCENES.with(|s| {
-                            s.borrow_mut().push(SceneEntry {
+                            s.borrow_mut().push(SceneEntry::new(
                                 window,
-                                root_view: root_view.clone(),
-                                base_frame: Cell::new(inner),
-                                node: None,
-                            })
+                                root_view.clone(),
+                                inner,
+                                None,
+                            ))
                         });
                         // The take() cannot miss: the `is_some` gate above just read it, and
                         // both run on the main thread.
@@ -12057,12 +12509,12 @@ mod imp {
                     let raw = Retained::as_ptr(&root_view) as *mut std::ffi::c_void
                         as day_spec::RawHandle;
                     SCENES.with(|s| {
-                        s.borrow_mut().push(SceneEntry {
+                        s.borrow_mut().push(SceneEntry::new(
                             window,
-                            root_view: root_view.clone(),
-                            base_frame: Cell::new(inner),
-                            node: Some(node),
-                        })
+                            root_view.clone(),
+                            inner,
+                            Some(node),
+                        ))
                     });
                     // Keep the adopted root alive for the entry's lifetime; the tree holds the
                     // other retain through `Toolkit::adopt`.
@@ -12251,12 +12703,8 @@ mod imp {
             return;
         };
         SCENES.with(|s| {
-            s.borrow_mut().push(SceneEntry {
-                window,
-                root_view,
-                base_frame: Cell::new(inner),
-                node: Some(node),
-            })
+            s.borrow_mut()
+                .push(SceneEntry::new(window, root_view, inner, Some(node)))
         });
         if !day_core::finish_window_open(node, raw, size) {
             SCENES.with(|s| s.borrow_mut().retain(|e| e.node != Some(node)));

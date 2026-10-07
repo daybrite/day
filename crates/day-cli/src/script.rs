@@ -1066,9 +1066,9 @@ pub fn run_scripts(
                 // are per step (`steps_total` counts this one once), and the report above
                 // already names each failed test.
                 run.steps_failed += usize::from(failed > 0);
-                match write_evidence(&dir, target, variant.or(locale), device, &report) {
-                    Ok(path) => eprintln!("      {BOLD}Evidence{BOLD:#} {}", path.display()),
-                    Err(e) => eprintln!("  {WARN}▸{WARN:#} evidence not written: {e}"),
+                match write_conformance_report(&dir, target, variant.or(locale), device, &report) {
+                    Ok(path) => eprintln!("      {BOLD}Results{BOLD:#} {}", path.display()),
+                    Err(e) => eprintln!("  {WARN}▸{WARN:#} results not written: {e}"),
                 }
             }
             if op == "screenshot" && ok {
@@ -2144,10 +2144,10 @@ fn print_test_report(report: &serde_json::Value) -> usize {
     failed
 }
 
-/// Write `evidence.json` beside the captures and each test's shots under `tests/<test>/`
+/// Write `conformance.json` beside the captures and each test's shots under `tests/<test>/`
 /// (docs/testing.md). The file is the contract the website reads; its shape is documented
 /// there, and the shots' PNGs are stripped from it (they are the files).
-fn write_evidence(
+fn write_conformance_report(
     dir: &Path,
     target: &Target,
     variant: Option<&str>,
@@ -2212,7 +2212,7 @@ fn write_evidence(
         // holds against docs/coverage-matrix.md (scripts/ci/conformance-claims.py).
         "caps": report.get("caps").cloned().unwrap_or(serde_json::Value::Null),
     });
-    let path = dir.join("evidence.json");
+    let path = dir.join("conformance.json");
     let text = serde_json::to_string_pretty(&evidence).map_err(|e| e.to_string())?;
     std::fs::write(&path, text + "\n").map_err(|e| e.to_string())?;
     Ok(path)

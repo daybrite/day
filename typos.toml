@@ -37,6 +37,7 @@ ZINK = "ZINK"                  # Mesa's Zink driver (OpenGL on Vulkan), as its l
 unparented = "unparented"      # GTK widget state: detached from its parent
 unparseable = "unparseable"
 invokable = "invokable"
+NIN = "NIN"                    # Win32 notification-icon messages (NIN_SELECT, NIN_KEYSELECT)
 
 # --- identifiers whose short names look like misspellings -----------------------------------
 anc = "anc"                    # ancestor, in day-core's tree walks

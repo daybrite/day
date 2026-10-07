@@ -67,11 +67,26 @@ pub use day_spec::{KeyEvent, Modifiers};
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
 pub use day_core::{
-    WindowHandle, focused_window, open_new_window, open_preferences, open_window,
-    register_new_window, register_preferences, register_preferences_with, window_by_key,
-    window_title,
+    WindowHandle, current_window, focused_window, initial_window, open_new_window,
+    open_preferences, open_window, quit, register_new_window, register_new_window_for,
+    register_preferences, register_preferences_with, window_by_key, window_title,
 };
-pub use day_spec::WindowKind;
+// The app outside its windows (docs/status-item.md): progress on the Dock or taskbar icon, the
+// macOS Dock icon, and whether the app outlives its last window. Status items themselves are
+// `status_item(…)` in the prelude.
+pub use day_core::{KeepRunning, set_app_progress, set_dock_visible, set_keep_running};
+pub use day_spec::AppProgress;
+// Displays (docs/windows.md "Monitors") and launcher shortcuts set while the app runs
+// (docs/deep-links.md).
+pub use day_core::{monitors, set_launcher_shortcuts};
+pub use day_spec::{LauncherShortcut, Monitor};
+// Window properties (docs/windows.md) and chrome (docs/window-chrome.md): what a window's
+// `state()` signal holds, how it stacks, how it joins macOS window tabs, and the frame and
+// background it opens with.
+pub use day_spec::{
+    Attention, WindowBackground, WindowChrome, WindowKind, WindowLevel, WindowMaterial,
+    WindowPlacement, WindowState, WindowTabbing,
+};
 /// The reactive core, whole (docs/async.md): `day::reactive::{Resource, Load}` for async data
 /// loading. Namespaced because the prelude's `Resource` is the asset handle above, a different
 /// type that predates the async one.
@@ -422,6 +437,11 @@ pub use day_pieces::{Command, CommandHandle};
 pub use day_core::conformance;
 pub use day_core::conformance::{Case, Drive, Fail, TestResult};
 pub use day_core::linkme;
+/// The link-time registry `day-build`'s generated code adds the app's `[[shortcuts]]` to
+/// (docs/deep-links.md "Launcher shortcuts"); not for app code.
+#[doc(hidden)]
+#[cfg(not(target_arch = "wasm32"))]
+pub use day_core::shortcuts::LAUNCHER_SHORTCUTS;
 /// The roster of an app's tests for the targets with no link-time registry (docs/testing.md).
 pub use day_core::tests;
 pub use day_macros::test;

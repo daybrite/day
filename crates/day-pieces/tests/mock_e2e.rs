@@ -9204,3 +9204,291 @@ fn nav_reorder_unsupported_preserves_navigation_menu() {
     assert_eq!(probe.find_by_kind("day.nav_menu").len(), 1);
     assert!(probe.find_by_kind("day.list").is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Window properties (docs/windows.md "Window properties") and the Dock menu (docs/menus.md)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn window_state_signal_round_trips_through_the_platform() {
+    let probe = boot(|| label("main").any());
+    let handle = day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("two").any(),
+    );
+    flush_sync();
+    let state = handle.state();
+    assert_eq!(state.get(), day_spec::WindowState::Normal);
+
+    // An app write is a request: it reaches the toolkit once, and the platform's report settles
+    // the signal on the same value without a second request going back out.
+    handle.set_state(day_spec::WindowState::Fullscreen);
+    flush_sync();
+    flush_sync();
+    let changes = probe.window_changes();
+    assert_eq!(
+        changes
+            .iter()
+            .filter(|(_, c)| matches!(c, day_spec::WindowChange::State(_)))
+            .count(),
+        1,
+        "one request, no echo: {changes:?}"
+    );
+    assert_eq!(state.get(), day_spec::WindowState::Fullscreen);
+
+    // What the user does on the platform side lands in the signal and is not sent back.
+    let node = probe.windows()[0].node;
+    probe.emit(
+        node,
+        Event::WindowStateChanged(day_spec::WindowState::Minimized),
+    );
+    flush_sync();
+    flush_sync();
+    assert_eq!(state.get(), day_spec::WindowState::Minimized);
+    assert_eq!(
+        probe.window_changes().len(),
+        changes.len(),
+        "a platform report must not become a request"
+    );
+}
+
+#[test]
+fn a_declined_state_request_reads_back_what_the_window_kept() {
+    let probe = boot(|| label("main").any());
+    let window = day_core::initial_window().expect("the primary is registered");
+    let state = window.state();
+    probe.set_decline_window_states(true);
+    window.set_state(day_spec::WindowState::Fullscreen);
+    flush_sync();
+    // The request went out to the primary's container...
+    assert!(matches!(
+        probe.window_changes().last(),
+        Some((
+            _,
+            day_spec::WindowChange::State(day_spec::WindowState::Fullscreen)
+        ))
+    ));
+    // ...and the platform reporting the state it kept puts the signal back.
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        Event::WindowStateChanged(day_spec::WindowState::Normal),
+    );
+    flush_sync();
+    flush_sync();
+    assert_eq!(state.get(), day_spec::WindowState::Normal);
+}
+
+#[test]
+fn content_protection_reaches_the_window_that_asked() {
+    let probe = boot(|| label("main").any());
+    let handle = day_core::open_window(
+        None,
+        win_options("vault", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        || label("secret").any(),
+    );
+    flush_sync();
+    handle.set_content_protected(true);
+    let host = probe.windows()[0].handle;
+    assert_eq!(
+        probe.window_changes().last(),
+        Some(&(host, day_spec::WindowChange::ContentProtected(true)))
+    );
+}
+
+#[test]
+fn current_window_is_the_window_being_built() {
+    let _probe = boot(|| label("main").any());
+    let seen: Rc<RefCell<Option<day_core::WindowHandle>>> = Rc::default();
+    let s = seen.clone();
+    let handle = day_core::open_window(
+        None,
+        win_options("second", 300.0, 200.0),
+        day_spec::WindowKind::Normal,
+        move || {
+            *s.borrow_mut() = day_core::current_window();
+            label("two").any()
+        },
+    );
+    flush_sync();
+    let inner = seen
+        .borrow()
+        .clone()
+        .expect("current_window inside a build");
+    assert_eq!(
+        day_core::windows::window_node_id(&inner),
+        day_core::windows::window_node_id(&handle)
+    );
+}
+
+#[test]
+fn a_tab_group_opens_windows_through_its_own_builder() {
+    let probe = boot(|| label("main").any());
+    day_core::register_new_window_for("document", || label("doc").any());
+    let handle = day_core::open_new_window_for_group("document").expect("a group builder");
+    flush_sync();
+    assert!(handle.is_open());
+    let opened = probe.windows();
+    assert_eq!(
+        opened.last().map(|w| w.tabbing.clone()),
+        Some(day_spec::WindowTabbing::Group("document".into()))
+    );
+    // A group nobody registered falls back to the app's New Window builder: none here.
+    assert!(day_core::open_new_window_for_group("other").is_none());
+}
+
+#[test]
+fn dock_menu_installs_and_dispatches() {
+    let probe = boot(|| label("main").any());
+    let hits = Rc::new(std::cell::Cell::new(0));
+    let h = hits.clone();
+    dock_menu(vec![
+        menu_item("New Note").action(move || h.set(h.get() + 1)),
+        menu_separator(),
+        menu_item("Resume Timer").action(|| {}),
+    ]);
+    assert_eq!(probe.dock_menu(), ["New Note", "—", "Resume Timer"]);
+    let model = probe
+        .log()
+        .iter()
+        .any(|l| l.starts_with("set_dock_menu [3 items]"));
+    assert!(model, "{:?}", probe.log());
+    // Replacing the menu keeps working dispatch for the new closures.
+    let h2 = hits.clone();
+    dock_menu(vec![
+        menu_item("Only").action(move || h2.set(h2.get() + 10)),
+    ]);
+    assert_eq!(probe.dock_menu(), ["Only"]);
+}
+
+#[test]
+fn window_drag_region_marks_the_native_view() {
+    let probe = boot(|| {
+        row((label("Title").id("title-text"), spacer()))
+            .window_drag_region()
+            .id("title-bar")
+            .any()
+    });
+    flush_sync();
+    // The row is the region; the label inside it is not.
+    let rows = probe.find_by_kind("day.container");
+    assert!(
+        rows.iter().any(|(h, _)| probe.is_drag_region(h.0)),
+        "{:?}",
+        probe.log()
+    );
+    let labels = probe.find_by_kind("day.label");
+    assert!(labels.iter().all(|(h, _)| !probe.is_drag_region(h.0)));
+}
+
+#[test]
+fn status_item_lowers_rebuilds_and_dispatches() {
+    let probe = boot(|| label("main").any());
+    let paused = Signal::new(false);
+    let clicks = Rc::new(std::cell::Cell::new(0));
+    let c = clicks.clone();
+    let item = status_item("sync", move || {
+        let c = c.clone();
+        StatusItem::new()
+            .title(if paused.get() { "Paused" } else { "Syncing" })
+            .tooltip("Sync")
+            .menu(vec![menu_item("Pause").action(move || paused.set(true))])
+            .on_activate(move || c.set(c.get() + 1))
+    });
+    flush_sync();
+    let items = probe.status_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].title, "Syncing");
+    // The click runs the activate closure through the ordinary menu-action door.
+    day_core::dispatch_menu_action(items[0].activate);
+    assert_eq!(clicks.get(), 1);
+    // A menu choice that writes a signal the builder reads rebuilds the item in place.
+    let day_spec::MenuItem::Action { action, .. } = &items[0].menu[0] else {
+        panic!("a menu action");
+    };
+    day_core::dispatch_menu_action(*action);
+    flush_sync();
+    let items = probe.status_items();
+    assert_eq!(items.len(), 1, "same id, same item");
+    assert_eq!(items[0].title, "Paused");
+    item.remove();
+    assert!(probe.status_items().is_empty());
+}
+
+#[test]
+fn a_status_item_keeps_the_app_running_after_its_last_window() {
+    let probe = boot(|| label("main").any());
+    let item = status_item("tray", || StatusItem::new().title("T"));
+    flush_sync();
+    assert!(probe.keep_running(), "{:?}", probe.log());
+    // Removing the last item hands the decision back to the platform's rule.
+    item.remove();
+    assert!(!probe.keep_running());
+    // `Always` keeps the process up with nothing shown at all.
+    day_core::set_keep_running(day_core::KeepRunning::Always);
+    assert!(probe.keep_running());
+}
+
+#[test]
+fn window_drag_region_on_a_wrapper_reaches_the_view_it_wraps() {
+    let probe = boot(|| {
+        row((label("Title"), spacer()))
+            .padding(8.0)
+            .window_drag_region()
+            .any()
+    });
+    flush_sync();
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with("set_drag_region #")),
+        "{:?}",
+        probe.log()
+    );
+}
+
+#[test]
+fn window_property_setters_reach_the_toolkit() {
+    let probe = boot(|| label("main").any());
+    let w = day_core::initial_window().expect("primary");
+    w.set_frame(
+        Some(day_spec::Point::new(40.0, 60.0)),
+        Some(Size::new(500.0, 400.0)),
+    );
+    w.set_limits(Some(Size::new(300.0, 200.0)), None);
+    w.set_level(day_spec::WindowLevel::Floating);
+    w.set_visible(false);
+    w.request_attention(day_spec::Attention::Critical);
+    let changes: Vec<_> = probe.window_changes().into_iter().map(|(_, c)| c).collect();
+    assert!(changes.contains(&day_spec::WindowChange::Level(
+        day_spec::WindowLevel::Floating
+    )));
+    assert!(changes.contains(&day_spec::WindowChange::Visible(false)));
+    assert_eq!(
+        w.frame(),
+        Some(day_spec::Rect::new(40.0, 60.0, 500.0, 400.0)),
+        "the frame reads back through the toolkit"
+    );
+    assert_eq!(day_core::monitors()[0].name, "Mock Display");
+}
+
+#[test]
+fn run_time_launcher_shortcuts_reach_the_toolkit_and_the_dock_menu() {
+    let probe = boot(|| label("main").any());
+    day_core::set_launcher_shortcuts(vec![day_spec::LauncherShortcut {
+        route: "notes/42".into(),
+        label: "Resume Groceries".into(),
+    }]);
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l == "set_launcher_shortcuts [1 items]"),
+        "{:?}",
+        probe.log()
+    );
+    assert_eq!(probe.dock_menu(), ["Resume Groceries"]);
+}

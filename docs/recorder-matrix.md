@@ -11,7 +11,7 @@ ends in a catch-all, so an unmapped event is silent at runtime — the control r
 records. If a new variant should produce a step, map it in `event_to_step`; if it should not,
 the `dropped` row is the record of that decision.
 
-9 of 48 variants record.
+9 of 49 variants record.
 
 | `Event` | Step | Disposition |
 | --- | --- | --- |
@@ -55,6 +55,7 @@ the `dropped` row is the record of that decision.
 | `Lifecycle` | — | dropped |
 | `WindowClosed` | — | dropped |
 | `WindowFocused` | — | dropped |
+| `WindowStateChanged` | — | dropped |
 | `ListReorder` | — | dropped |
 | `ListDelete` | — | dropped |
 | `ListSwipe` | — | dropped |

@@ -26,13 +26,16 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [markdown](/docs/internal/markdown) | inline Markdown in labels |
 | [buttons](/docs/internal/buttons) | button styles per backend |
 | [navigation](/docs/internal/navigation) | nav host/stack mapping per platform, routes |
+| [android-adaptive-navigation-proposal](/docs/internal/android-adaptive-navigation-proposal) | proposed: compact predictive Back and fold-aware panes on Android |
 | [deep-links](/docs/internal/deep-links) | custom URL schemes, delivery, launcher shortcuts |
 | [manifest](/docs/internal/manifest) | additional URL schemes declared in Day.toml with `url_schemes` |
 | [dialogs](/docs/internal/dialogs) | alert/confirm/prompt, native presentation, results |
 | [commands](/docs/internal/commands) | reusable application operations across buttons, menus and toolbars |
-| [menus](/docs/internal/menus) | app menu bar, context menus, roles and shortcuts |
+| [menus](/docs/internal/menus) | app menu bar, context menus, the Dock menu, roles and shortcuts |
 | [toolbars](/docs/internal/toolbars) | window toolbars: the item vocabulary, symbol icons, per-desktop realization |
-| [windows](/docs/internal/windows) | secondary windows, the Preferences window, the cover fallback |
+| [windows](/docs/internal/windows) | secondary windows, the Preferences window, the cover fallback, window properties |
+| [window-chrome](/docs/internal/window-chrome) | frameless and overlay title bars, transparent and material backgrounds, drag regions |
+| [status-item](/docs/internal/status-item) | menu-bar and tray items, Dock and taskbar progress, keeping the app running |
 | [window-image](/docs/internal/window-image) | capturing the app's own window as a PNG |
 | [grid](/docs/internal/grid) | the eager grid: rows, spans, flexible columns |
 | [forms](/docs/internal/forms) | form/section/labeled groupings |
@@ -92,7 +95,7 @@ Standalone UI Pieces: native widgets that live in their own crates and plug in w
 | [datepicker](/docs/internal/datepicker) | `day-piece-datetime` — native date & time pickers |
 | [colorpicker](/docs/internal/colorpicker) | `day-piece-colorpicker` — a color well: the platform chooser, or one Day composes |
 | [stepper](/docs/internal/stepper) | `day-piece-stepper` — a numeric field with increment/decrement arrows |
-| [badge](/docs/internal/badge) | app-icon numeric badge (proposed) |
+| [badge](/docs/internal/badge) | app-icon badge: a count, text or dot |
 | [tweaks](/docs/internal/tweaks) | per-toolkit native configuration: accessors, packaged tweaks, recipes |
 
 ## Parts
@@ -138,6 +141,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [screenshot-archive](/docs/internal/screenshot-archive) | the screenshots.tar.xz bundle `day screenshot pack` writes, and normalized captures |
 | [flavors](/docs/internal/flavors) | `Day-<name>.toml` and `--flavor`: one source tree, several shipped apps |
 | [agent](/docs/internal/agent) | dayscript sessions, `day drive`, and the agent-facing tooling |
+| [testing](/docs/internal/testing) | `day test`: #[day::test] cases run inside the app, the conformance app, the evidence |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
 | [vscode](/docs/internal/vscode) | editor setup |
 | [environment](/docs/internal/environment) | toolchain/SDK discovery env vars (DAY_CPPWINRT, DAY_WINDOWS_KITS_ROOT, …) |

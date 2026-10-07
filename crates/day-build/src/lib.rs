@@ -181,7 +181,8 @@ pub fn generate_resources() -> Result<(), String> {
     };
     println!("cargo:rerun-if-env-changed=DAY_RESOURCE_ROOT");
     let plan = plan_resources_in(&resources)?;
-    let code = render(&plan);
+    let mut code = render(&plan);
+    code.push_str(&render_shortcuts(&launcher_shortcuts(&root)?));
     std::fs::write(out.join("day_resources.rs"), code)
         .map_err(|e| format!("day-build: writing day_resources.rs: {e}"))?;
     // Regenerate when a resource is added/removed/renamed (a proc-macro could not do this
@@ -207,6 +208,55 @@ pub fn generate_resources() -> Result<(), String> {
     swiftui::generate_bindings(&root, &out)?;
     println!("cargo:rerun-if-changed=Cargo.toml");
     Ok(())
+}
+
+/// The `[[shortcuts]]` Day.toml declares, as `(route, label key)` pairs in declaration order
+/// (docs/deep-links.md "Launcher shortcuts"). No Day.toml, or none declared, is an empty list.
+fn launcher_shortcuts(root: &Path) -> Result<Vec<(String, String)>, String> {
+    let Ok(source) = std::fs::read_to_string(root.join("Day.toml")) else {
+        return Ok(Vec::new());
+    };
+    println!("cargo:rerun-if-changed=Day.toml");
+    let manifest: toml::Value =
+        toml::from_str(&source).map_err(|e| format!("day-build: parsing Day.toml: {e}"))?;
+    let Some(list) = manifest.get("shortcuts").and_then(|v| v.as_array()) else {
+        return Ok(Vec::new());
+    };
+    list.iter()
+        .map(|entry| {
+            let field = |name: &str| {
+                entry
+                    .get(name)
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .ok_or_else(|| {
+                        format!("day-build: [[shortcuts]] entry needs a string `{name}`")
+                    })
+            };
+            Ok((field("route")?, field("label")?))
+        })
+        .collect()
+}
+
+/// Register the shortcuts into the binary for the menus built at run time (the macOS Dock menu):
+/// a link-time entry in `day::LAUNCHER_SHORTCUTS`, so no app code has to hand them over. Nothing
+/// is emitted for an app without shortcuts, nor on wasm, where `linkme` does not link.
+fn render_shortcuts(shortcuts: &[(String, String)]) -> String {
+    if shortcuts.is_empty() {
+        return String::new();
+    }
+    let mut s = String::from(
+        "\n/// The app's `[[shortcuts]]` from Day.toml, registered for the menus Day builds while \
+         the app runs.\n#[cfg(not(target_arch = \"wasm32\"))]\n\
+         #[::day::linkme::distributed_slice(::day::LAUNCHER_SHORTCUTS)]\n\
+         #[linkme(crate = ::day::linkme)]\n\
+         static __DAY_LAUNCHER_SHORTCUTS: &[(&str, &str)] = &[\n",
+    );
+    for (route, label) in shortcuts {
+        s.push_str(&format!("    ({route:?}, {label:?}),\n"));
+    }
+    s.push_str("];\n");
+    s
 }
 
 /// Register one resource tree for `cargo:rerun-if-changed`, by the path cargo should print.

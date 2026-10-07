@@ -7,7 +7,7 @@
 
 #![cfg(windows)]
 
-use std::os::raw::{c_char, c_double, c_int, c_void};
+use std::os::raw::{c_char, c_double, c_int, c_uint, c_void};
 
 /// What [`day_xaml_read_native`] reads back from an element: the shim's `DayXamlNative`,
 /// field for field. A member the element does not carry keeps its "not read" value: `0` in a
@@ -38,6 +38,44 @@ pub struct DayXamlNative {
     pub h: c_double,
 }
 
+/// What a window wears (docs/window-chrome.md): the shim's `DayXamlChrome`, field for field,
+/// passed to [`day_xaml_window_new`] and [`day_xaml_window_new2`].
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DayXamlChrome {
+    /// 0 standard, 1 overlay title bar, 2 frameless.
+    pub chrome: c_int,
+    /// 0 opaque, 1 transparent (not drawn: the window stays opaque), 2 a system material.
+    pub background: c_int,
+    /// With `background` 2: 0 window (Mica), 1 sidebar (Mica Alt), 2 transient (Acrylic).
+    pub material: c_int,
+    /// 0 drops a frameless window's shadow.
+    pub shadow: c_int,
+    /// 0 takes the sizing border and the maximize box away.
+    pub resizable: c_int,
+    /// 0 automatic, 1 centered on the active window's monitor, 2 at (`x`, `y`).
+    pub placement: c_int,
+    /// With `placement` 2: the outer frame's top-left corner, in points.
+    pub x: c_double,
+    pub y: c_double,
+}
+
+/// One display (docs/windows.md "Monitors"): the shim's `DayXamlMonitor`, field for field.
+/// Rectangles are `[x, y, width, height]` in points on the desktop.
+#[repr(C)]
+pub struct DayXamlMonitor {
+    pub frame: [c_double; 4],
+    /// The frame minus the taskbar and docked app bars.
+    pub work: [c_double; 4],
+    /// Device pixels per point.
+    pub scale: c_double,
+    pub primary: c_int,
+    /// NUL-terminated UTF-8: the monitor's device interface path, else its adapter output.
+    pub id: [c_char; 160],
+    /// NUL-terminated UTF-8: the name Windows shows for the monitor.
+    pub name: [c_char; 128],
+}
+
 unsafe extern "C" {
     // window / app lifecycle
     pub fn day_xaml_window_new(
@@ -46,6 +84,7 @@ unsafe extern "C" {
         h: c_int,
         min_w: c_int,
         min_h: c_int,
+        chrome: *const DayXamlChrome,
     ) -> *mut c_void;
     pub fn day_xaml_window_root(win: *mut c_void) -> *mut c_void;
     /// The ROOT canvas, above the docked chrome — unlike [`day_xaml_window_root`], which returns
@@ -67,12 +106,102 @@ unsafe extern "C" {
         h: c_int,
         node: u64,
         fixed: c_int,
+        chrome: *const DayXamlChrome,
     ) -> *mut c_void;
     pub fn day_xaml_window_content2(win: *mut c_void) -> *mut c_void;
     pub fn day_xaml_window_close2(win: *mut c_void);
     pub fn day_xaml_window_raise2(win: *mut c_void);
     pub fn day_xaml_window_set_title2(win: *mut c_void, title: *const c_char);
     pub fn day_xaml_window_destroy2(win: *mut c_void);
+    /// Window properties (docs/windows.md "Window properties"). `win` is either window token:
+    /// the primary's from [`day_xaml_window_new`] or a secondary's from [`day_xaml_window_new2`].
+    /// Ask for a `day_spec::WindowState` code (0 normal, 1 minimized, 2 maximized, 3 borderless
+    /// fullscreen); the outcome comes back through [`day_xaml_set_window_state_cb`].
+    pub fn day_xaml_window_set_state(win: *mut c_void, state: c_int);
+    /// Keep the window out of captures (`WDA_EXCLUDEFROMCAPTURE`, `WDA_MONITOR` before Windows
+    /// 10 2004) when `on` is non-zero; `WDA_NONE` otherwise.
+    pub fn day_xaml_window_set_protected(win: *mut c_void, on: c_int);
+    /// `cb(node, state)` on every change of a window's display state, and once for a request
+    /// that did not land: the secondary window's day node id, or `u64::MAX`
+    /// (`day_spec::WINDOW_NODE`) for the primary; `state` a `day_spec::WindowState` code.
+    pub fn day_xaml_set_window_state_cb(cb: extern "C" fn(u64, c_int));
+    /// `cb(node, top)` when an overlay window's title bar (plus any docked menu bar and toolbar
+    /// below it) covers a new height of its content, in DIPs: the window's safe-area top inset.
+    /// `node` as for [`day_xaml_set_window_state_cb`].
+    pub fn day_xaml_set_chrome_inset_cb(cb: extern "C" fn(u64, c_double));
+    /// 1 where Windows draws the system backdrops (Windows 11 22621 and later).
+    pub fn day_xaml_materials_supported() -> c_int;
+    /// Mark (`on` non-zero) or unmark the element as a drag region (`.window_drag_region()`):
+    /// a press on its own background moves the window like its title bar.
+    pub fn day_xaml_set_drag_region(h: *mut c_void, on: c_int);
+
+    // The app outside its windows (docs/status-item.md).
+    /// `cb(0, id)` runs a status item's click action or menu choice by dispatch id; `cb(1, 0)` is
+    /// its menu's Quit role.
+    pub fn day_xaml_set_status_cb(cb: extern "C" fn(c_int, u64));
+    /// Add or update the notification-area icon `id`: `glyph` an icon-font code point in hex, else
+    /// `image` an image file path, else the app's icon; `templ` draws the image in the taskbar's
+    /// color; `activate` the dispatch id a primary click runs (0: a click opens the menu);
+    /// `menu` the app menu's spec lines.
+    pub fn day_xaml_status_set(
+        id: *const c_char,
+        tip: *const c_char,
+        glyph: *const c_char,
+        image: *const c_char,
+        templ: c_int,
+        activate: u64,
+        menu: *const c_char,
+    );
+    /// Remove every status item whose id is not in `ids` (newline-joined).
+    pub fn day_xaml_status_retain(ids: *const c_char);
+    /// Non-zero: Day's posts stay deliverable once the primary window is gone.
+    pub fn day_xaml_set_keep_running(keep: c_int);
+    /// The primary's taskbar progress: 0 none, 1 indeterminate, 2 value, 3 paused, 4 error.
+    pub fn day_xaml_set_app_progress(kind: c_int, value: c_double);
+    /// The primary's taskbar overlay badge: 0 none, 1 `count` (0 clears), 2 a dot.
+    pub fn day_xaml_set_app_badge(kind: c_int, count: c_uint);
+
+    // Single instance and the jump list (docs/deep-links.md).
+    /// `cb(data, len)` with the arguments a second instance forwarded: UTF-8, NUL-separated.
+    /// Called on the UI thread from inside a sent message, so it must only post.
+    pub fn day_xaml_set_forward_cb(cb: extern "C" fn(*const c_char, c_int));
+    /// Claim `app_id` for this process before any window opens: 1 carry on (first instance, or
+    /// no usable id); 0 the running instance took this process's arguments, so end it now. The
+    /// first instance also gets `app_id` as its AppUserModelID when it runs unpackaged.
+    pub fn day_xaml_claim_instance(app_id: *const c_char) -> c_int;
+    /// Replace the jump list's Tasks with `spec`'s `label \t link` lines (empty clears it).
+    pub fn day_xaml_set_jump_tasks(app_id: *const c_char, spec: *const c_char);
+
+    // Window properties (docs/windows.md "Window properties"); `win` as for the state calls.
+    /// Move (outer top-left, points on the desktop) and/or resize (content size, points).
+    pub fn day_xaml_window_set_frame(
+        win: *mut c_void,
+        has_origin: c_int,
+        x: c_double,
+        y: c_double,
+        has_size: c_int,
+        w: c_double,
+        h: c_double,
+    );
+    /// Content-size limits in points; 0 lifts a bound.
+    pub fn day_xaml_window_set_limits(
+        win: *mut c_void,
+        min_w: c_double,
+        min_h: c_double,
+        max_w: c_double,
+        max_h: c_double,
+    );
+    /// One on/off property: 0 floating, 1 left off the taskbar, 2 resizable, 3 minimizable,
+    /// 4 maximizable, 5 closable, 6 visible.
+    pub fn day_xaml_window_set_flag(win: *mut c_void, which: c_int, on: c_int);
+    /// The window's own scheme: -1 the app's, 0 light, 1 dark.
+    pub fn day_xaml_window_set_appearance(win: *mut c_void, mode: c_int);
+    /// Flash the taskbar button (`critical` 0: three times; 1: until the window is in front).
+    pub fn day_xaml_window_attention(win: *mut c_void, critical: c_int);
+    /// The outer frame in points on the desktop into `out[0..4]`; 0 when unknown.
+    pub fn day_xaml_window_frame(win: *mut c_void, out: *mut c_double) -> c_int;
+    /// Every attached display into `out` (up to `cap`); returns how many there are.
+    pub fn day_xaml_monitors(out: *mut DayXamlMonitor, cap: c_int) -> c_int;
     /// Top-level host HWND of the (single, v1) app window — for a piece that needs the window handle
     /// behind the XAML island. The WebView2 web view passes it as the composition controller's
     /// parentWindow (DPI / IME / input association) while rendering windowless into the XAML tree.

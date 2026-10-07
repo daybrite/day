@@ -192,6 +192,12 @@ unbundled aborts the process.
 | `notifications` | `POST_NOTIFICATIONS` | none | none | none (a runtime call) |
 | `photos` | `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_EXTERNAL_STORAGE` capped at `maxSdkVersion=32` | `NSPhotoLibraryUsageDescription` | same | `READ_IMAGEVIDEO` ⚠ |
 | `motion` | `ACTIVITY_RECOGNITION` | `NSMotionUsageDescription` | none (CoreMotion is iOS-only) | `ACTIVITY_MOTION` |
+| `screen-privacy` | none | none | none | `PRIVACY_WINDOW` (granted at install, no reason) |
+
+`screen-privacy = true` is how a HarmonyOS app opts into content protection
+(`WindowHandle::set_content_protected`, [docs/windows.md](windows.md)): the window's privacy mode needs this
+permission, and `Cap::ContentProtection` answers `Native` there only when the app declared it. No
+other platform needs a permission for it, and nothing prompts, so it takes no reason.
 
 ⚠ `ohos.permission.READ_IMAGEVIDEO` is a `system_basic` permission, which an app signed at the
 default `normal` level cannot hold. Prefer `PhotoViewPicker`, which needs no permission at all.
@@ -200,7 +206,7 @@ The table lives in `day_build::permissions`, one source shared by the CLI's gene
 crate's runtime, with a parity test pinning the Rust variant names so `day lint` can map a source
 reference back to a declaration.
 
-For anything outside the portable seven, use the raw tables:
+For anything outside the portable eight, use the raw tables:
 
 ```toml
 [permissions.raw]

@@ -21,6 +21,13 @@ day_reactive::tls_slots! {
     /// re-lower on a locale change) can drop the stale closures without touching context
     /// menus, which share the `ACTIONS` map.
     static APP_MENU_IDS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    /// The dispatch ids the installed Dock menu holds, swept on the next install.
+    static DOCK_MENU_IDS: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    /// The app's own Dock menu entries, kept so a launch-time install can put them back after
+    /// the shortcuts.
+    static DOCK_MENU_MODEL: RefCell<Vec<day_spec::MenuItem>> = const { RefCell::new(Vec::new()) };
+    /// Whether the toolkit currently holds a non-empty Dock menu.
+    static DOCK_MENU_SHOWN: Cell<bool> = const { Cell::new(false) };
 }
 
 /// Forget every menu action and the last-installed app menu: a re-mount (docs/appearance.md).
@@ -210,6 +217,48 @@ pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
     crate::with_tree(|t| t.set_app_menu(items));
 }
 
+/// Install the app's Dock menu (docs/menus.md "Dock menu"): `items` go above the app's
+/// `[[shortcuts]]` and the system's own items when the user right-clicks the Dock icon
+/// (`Cap::DockMenu`, macOS). An empty vec leaves only the shortcuts. Replacing the menu drops the
+/// previous install's action closures.
+pub fn set_dock_menu(items: Vec<day_spec::MenuItem>) {
+    let new_ids = collect_action_ids(&items);
+    let stale: Vec<u64> = DOCK_MENU_IDS.with(|ids| {
+        ids.borrow()
+            .iter()
+            .copied()
+            .filter(|id| !new_ids.contains(id))
+            .collect()
+    });
+    ACTIONS.with(|m| {
+        let mut m = m.borrow_mut();
+        for id in stale {
+            m.remove(&id);
+        }
+    });
+    DOCK_MENU_IDS.with(|ids| *ids.borrow_mut() = new_ids);
+    DOCK_MENU_MODEL.with(|m| *m.borrow_mut() = items);
+    install_dock_menu();
+}
+
+/// Send the Dock menu to the toolkit: the app's launcher shortcuts first, as the platform's own
+/// apps list their quick actions, then the app's `dock_menu` entries. Called at launch, so the
+/// shortcuts are there before the app installs anything, and on every `set_dock_menu`.
+pub(crate) fn install_dock_menu() {
+    let mut items = crate::shortcuts::shortcut_menu_items();
+    let app = DOCK_MENU_MODEL.with(|m| m.borrow().clone());
+    if !items.is_empty() && !app.is_empty() {
+        items.push(day_spec::MenuItem::Separator);
+    }
+    items.extend(app);
+    // Nothing to show and nothing shown: leave the toolkit alone (most apps never have a menu).
+    if items.is_empty() && !DOCK_MENU_SHOWN.with(|c| c.get()) {
+        return;
+    }
+    DOCK_MENU_SHOWN.with(|c| c.set(!items.is_empty()));
+    crate::with_tree(|t| t.set_dock_menu(&items));
+}
+
 /// The app menu as last installed (post-injection). The dayscript `menu:` step walks it to
 /// resolve an item's dispatch id; backends re-read it on late preferences registration.
 pub fn app_menu_model() -> Vec<day_spec::MenuItem> {
@@ -296,6 +345,21 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
         items.push(item);
     }
     items
+}
+
+/// The dispatch ids a menu model holds (status items sweep theirs when replaced).
+pub(crate) fn collect_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
+    collect_action_ids(items)
+}
+
+/// Drop the closures behind `ids`: a menu that held them was replaced or removed.
+pub(crate) fn forget_actions(ids: &[u64]) {
+    ACTIONS.with(|m| {
+        let mut m = m.borrow_mut();
+        for id in ids {
+            m.remove(id);
+        }
+    });
 }
 
 fn collect_action_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {

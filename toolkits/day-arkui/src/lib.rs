@@ -248,6 +248,10 @@ mod imp {
         /// Secondary window roots (docs/windows.md): (day node, the window's Stack node
         /// pointer): the multiton DayWindowAbility instances' content.
         static SECONDARY: RefCell<Vec<(u64, usize)>> = const { RefCell::new(Vec::new()) };
+        /// Each window's display state as the ArkTS host last reported it, keyed by the node its
+        /// `WindowStateChanged` goes to (`WINDOW_NODE` for the primary): what a declined
+        /// request reports back (docs/windows.md "Window properties").
+        static WINDOW_STATES: RefCell<HashMap<u64, day_spec::WindowState>> = RefCell::new(HashMap::new());
     }
 
     /// Height of the composed bottom bar, in vp (HarmonyOS's tab-bar metric).
@@ -1301,6 +1305,7 @@ mod imp {
     pub fn window_closed(node_id: u64) {
         day_spec::ffi_guard::contain((), || {
             SECONDARY.with(|s| s.borrow_mut().retain(|(n, _)| *n != node_id));
+            WINDOW_STATES.with(|m| m.borrow_mut().remove(&node_id));
             emit(day_spec::NodeId(node_id), Event::WindowClosed);
         });
     }
@@ -1566,6 +1571,15 @@ mod imp {
                 num,
                 text: text.to_owned(),
             },
+            // A window's display state after a fullscreen request settled (the host's
+            // `windowStateChanged`): `num` is the `WindowState` code, `id` the window's root node
+            // or `WINDOW_NODE` for the primary (docs/windows.md "Window properties").
+            k if k == K::WindowStateChanged as i32 => {
+                let state = day_spec::WindowState::from_code(num as i32);
+                WINDOW_STATES.with(|m| m.borrow_mut().insert(id, state));
+                log::debug!("arkui: window state now {state:?}");
+                Event::WindowStateChanged(state)
+            }
             // File-picker answer (docs/files.md): `id` is the request id, `text` the chosen local
             // path (a cache copy for open, a docs URI for save); empty means the user cancelled.
             k if k == K::PresentFile as i32 => {
@@ -3920,6 +3934,31 @@ mod imp {
                         Support::Unsupported
                     }
                 }
+                // The window's own calls, made by the ArkTS host (docs/windows.md "Window
+                // properties"): `setWindowLayoutFullScreen` with the system bars hidden. Native
+                // once the host registered the control; an older host has none. Minimize and
+                // maximize stay Unsupported: the phone OS sizes the window.
+                Cap::WindowFullscreen => {
+                    if crate::host_api::has_window_control() {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
+                // `setWindowPrivacyMode`, which blanks the window in screenshots, recordings and
+                // casting. It needs `ohos.permission.PRIVACY_WINDOW`, which an app opts into with
+                // `screen-privacy` in Day.toml's `[permissions]` (docs/permissions.md); the host
+                // checks the grant when it registers.
+                Cap::ContentProtection => {
+                    if crate::host_api::can_protect_content() {
+                        Support::Native
+                    } else {
+                        Support::Unsupported
+                    }
+                }
+                // The default display from the NDK display manager, as the one monitor a phone or
+                // tablet has (docs/windows.md "Monitors"): no position and no work area of its own.
+                Cap::Monitors => Support::Emulated,
                 // Multiton DayWindowAbility instances (docs/windows.md): Native only when
                 // the ArkTS host registered the launchers; an older host degrades to the
                 // cover fallback.
@@ -3962,6 +4001,96 @@ mod imp {
             if let Some(node_id) = node_id {
                 crate::host_api::close_window(node_id);
             }
+        }
+
+        /// The default display (`OH_NativeDisplayManager_GetDefaultDisplay*`, API 12), in vp:
+        /// the whole screen as both frame and work area, since this API level reports no bars.
+        fn monitors(&self) -> Vec<day_spec::Monitor> {
+            display::default_monitor().into_iter().collect()
+        }
+
+        fn apply_window(&mut self, host: &AHandle, change: &day_spec::WindowChange) {
+            use crate::host_api::{WindowOp, window_control};
+            use day_spec::{WindowChange as C, WindowState as S};
+            // The host addresses a secondary window by its day node and the primary as 0; the
+            // state report goes to the secondary's node or to WINDOW_NODE.
+            let secondary = SECONDARY.with(|s| {
+                s.borrow()
+                    .iter()
+                    .find(|(_, ptr)| *ptr == host.0 as usize)
+                    .map(|(n, _)| *n)
+            });
+            let (node, target) = match secondary {
+                Some(n) => (n, NodeId(n)),
+                None => (0, day_spec::WINDOW_NODE),
+            };
+            match change {
+                C::State(state) => {
+                    // Sent: the host reports the outcome through `windowStateChanged` once its
+                    // calls settled, success or not.
+                    let sent = matches!(state, S::Fullscreen | S::Normal)
+                        && window_control(node, WindowOp::Fullscreen, *state == S::Fullscreen);
+                    if sent {
+                        return;
+                    }
+                    // Declined: a phone window cannot be minimized or zoomed, and a host without
+                    // the control cannot go fullscreen. Report the state the window is really
+                    // in, so day-core's optimistic `state()` settles back to it.
+                    let current = WINDOW_STATES
+                        .with(|m| m.borrow().get(&target.0).copied())
+                        .unwrap_or_default();
+                    log::debug!("arkui: window state request declined, still {current:?}");
+                    post_emit(target, Event::WindowStateChanged(current));
+                }
+                // Without the permission the call would only fail; the Cap already says no.
+                C::ContentProtected(on) if crate::host_api::can_protect_content() => {
+                    window_control(node, WindowOp::Privacy, *on);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The NDK's display manager (`window_manager/oh_display_manager.h`), for `Toolkit::monitors`.
+    mod display {
+        use std::ffi::c_int;
+
+        #[link(name = "native_display_manager")]
+        unsafe extern "C" {
+            // Each returns a `NativeDisplayManager_ErrorCode`, `DISPLAY_MANAGER_OK` (0) on success.
+            fn OH_NativeDisplayManager_GetDefaultDisplayId(id: *mut u64) -> c_int;
+            fn OH_NativeDisplayManager_GetDefaultDisplayWidth(width: *mut i32) -> c_int;
+            fn OH_NativeDisplayManager_GetDefaultDisplayHeight(height: *mut i32) -> c_int;
+            fn OH_NativeDisplayManager_GetDefaultDisplayDensityPixels(density: *mut f32) -> c_int;
+        }
+
+        /// The default display as a [`day_spec::Monitor`] in vp, or `None` if the service fails.
+        pub(super) fn default_monitor() -> Option<day_spec::Monitor> {
+            let (mut id, mut w, mut h, mut density) = (0u64, 0i32, 0i32, 0f32);
+            // SAFETY: each call writes one value through a pointer to a live local.
+            let ok = unsafe {
+                OH_NativeDisplayManager_GetDefaultDisplayId(&mut id) == 0
+                    && OH_NativeDisplayManager_GetDefaultDisplayWidth(&mut w) == 0
+                    && OH_NativeDisplayManager_GetDefaultDisplayHeight(&mut h) == 0
+                    && OH_NativeDisplayManager_GetDefaultDisplayDensityPixels(&mut density) == 0
+            };
+            if !ok || w <= 0 || h <= 0 {
+                return None;
+            }
+            let scale = if density > 0.0 {
+                f64::from(density)
+            } else {
+                1.0
+            };
+            let frame = day_spec::Rect::new(0.0, 0.0, f64::from(w) / scale, f64::from(h) / scale);
+            Some(day_spec::Monitor {
+                id: id.to_string(),
+                name: format!("Display {id}"),
+                frame,
+                work_area: frame,
+                scale,
+                primary: true,
+            })
         }
     }
 

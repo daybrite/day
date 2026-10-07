@@ -222,6 +222,7 @@ pub fn pack(
             crate::documents::windows_manifest(
                 appx_manifest(&project.manifest.app.id, &title, version, name, &publisher),
                 &project.manifest.file_types,
+                &crate::documents::descriptions(project).unwrap_or_default(),
             ),
             &project.manifest.url_schemes,
         ),

@@ -265,6 +265,11 @@ pub fn on_lifecycle(phase: Lifecycle, f: impl Fn() + 'static) {
 /// line (`exit_summary`), and any later one is dropped, since a backend may emit it at its last
 /// native moment and `launch_with` emits it again when the loop returns.
 pub fn dispatch_lifecycle(phase: Lifecycle) {
+    // The last moment the windows still answer for their frames (docs/windows.md
+    // "Remembered frames"); a platform that ends the app itself (AppKit's terminate) passes here.
+    if phase == Lifecycle::WillTerminate {
+        crate::windows::save_remembered_frames();
+    }
     if phase == Lifecycle::DidExit {
         if EXITED.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;

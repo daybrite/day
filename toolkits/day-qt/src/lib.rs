@@ -67,6 +67,8 @@ fn qt_input_purpose(purpose: InputPurpose) -> c_int {
 }
 
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
+#[cfg(target_os = "linux")]
+mod linux;
 mod picker;
 mod textarea;
 mod toolbar;
@@ -802,6 +804,8 @@ pub struct Qt {
     secondary: Vec<QtWin>,
     /// Each window's toolbar as the shim holds it (docs/toolbars.md), by window pointer.
     toolbars: std::collections::HashMap<usize, day_spec::ToolbarMirror>,
+    /// The status items shown (docs/status-item.md): each spec and its QSystemTrayIcon.
+    trays: Vec<(day_spec::StatusItemSpec, *mut c_void)>,
 }
 
 impl Qt {
@@ -816,6 +820,17 @@ impl Qt {
             window: std::ptr::null_mut(),
             secondary: Vec::new(),
             toolbars: std::collections::HashMap::new(),
+            trays: Vec::new(),
+        }
+    }
+
+    /// The DayWindow whose content container is `host`: a secondary window by its content, or
+    /// the primary, which `ready` handed out as the DayWindow itself.
+    fn qt_window_for(&self, host: &QtHandle) -> Option<*mut c_void> {
+        match self.secondary.iter().find(|w| w.content == host.0) {
+            Some(w) => Some(w.win),
+            None if !self.window.is_null() && host.0 == self.window => Some(self.window),
+            None => None,
         }
     }
 
@@ -1336,11 +1351,33 @@ extern "C" fn win_resized(node: u64, w: c_int, h: c_int) {
     });
 }
 extern "C" fn win_closed(node: u64) {
-    ffi_guard::contain((), || emit(day_spec::NodeId(node), Event::WindowClosed));
+    // Node 0 is the primary, which reports its close only while the app keeps running
+    // (docs/windows.md "Keeping the app running").
+    let target = if node == 0 {
+        day_spec::WINDOW_NODE
+    } else {
+        day_spec::NodeId(node)
+    };
+    ffi_guard::contain((), || emit(target, Event::WindowClosed));
 }
 extern "C" fn win_focused(node: u64, active: c_int) {
     ffi_guard::contain((), || {
         emit(day_spec::NodeId(node), Event::WindowFocused(active != 0))
+    });
+}
+
+/// A window's display state changed (docs/windows.md "Window properties"). The shim dedupes
+/// and keys it by node id, 0 standing for the primary window.
+extern "C" fn win_state(node: u64, code: c_int) {
+    ffi_guard::contain((), || {
+        let state = day_spec::WindowState::from_code(code);
+        log::debug!("qt: window state now {state:?}");
+        let target = if node == 0 {
+            day_spec::WINDOW_NODE
+        } else {
+            day_spec::NodeId(node)
+        };
+        emit(target, Event::WindowStateChanged(state));
     });
 }
 
@@ -1710,6 +1747,27 @@ impl Toolkit for Qt {
             | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
             // Real DayWindows on the shared QApplication (docs/windows.md).
             | Cap::MultiWindow
+            // showMinimized / showMaximized / showFullScreen / showNormal, reported back from
+            // the DayWindow's WindowStateChange events (docs/windows.md "Window properties").
+            // Wayland never reports minimized; the shim's `assumedMinimized` stands in for it.
+            // `Cap::ContentProtection` stays Unsupported: no Linux display server lets a client
+            // opt out of capture.
+            | Cap::WindowStates
+            | Cap::WindowFullscreen
+            // `Qt::FramelessWindowHint`, resizable from its edges through
+            // `QWindow::startSystemResize` (docs/window-chrome.md).
+            | Cap::FramelessWindow
+            // `QWindow::startSystemMove` on a press of the region's own background.
+            | Cap::DragRegion
+            // `resize`, `setMinimumSize`/`setMaximumSize`, `setFixedSize`.
+            | Cap::WindowGeometry
+            // `Qt::WindowStaysOnTopHint`, and `Qt::Tool` for no taskbar entry. Every workspace
+            // has no Qt API and is ignored.
+            | Cap::WindowLevel
+            // `QApplication::alert`.
+            | Cap::RequestAttention
+            // `QGuiApplication::screens()`, with each screen's available geometry.
+            | Cap::Monitors
             // A QTabWidget, which is Qt's own one-of-N container and already the shape Day
             // wants: it owns its pages and shows one at a time (docs/navigation.md).
             //
@@ -1750,6 +1808,41 @@ impl Toolkit for Qt {
             // `Toolkit::reduce_motion` keeps its default, and `DAY_REDUCE_MOTION=1` is the one
             // way on.
             Cap::ReduceMotion => Support::Unsupported,
+            // `move()` places a window on X11, Windows and macOS; Wayland lets no client place
+            // its windows (docs/windows.md).
+            Cap::WindowPosition => {
+                // SAFETY: a read of the platform name.
+                if unsafe { ffi::day_qt_is_wayland() } != 0 {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            }
+            // The Unity LauncherEntry signal, which docks may or may not read.
+            // Written as a plain arm so the coverage matrix reads it as decided per platform (a
+            // guard arm reads as unsupported).
+            Cap::AppProgress | Cap::AppBadgeCount => {
+                if cfg!(target_os = "linux") {
+                    Support::Emulated
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // `WA_TranslucentBackground`. On X11 it needs a compositing window manager.
+            Cap::TransparentWindow => Support::Native,
+            // A QSystemTrayIcon host: a StatusNotifierWatcher or an XEmbed tray on Linux.
+            Cap::StatusItem => {
+                // SAFETY: a query of the running QApplication.
+                if unsafe { ffi::day_qt_tray_available() } != 0 {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
+            // Deliberately Unsupported (the default arm): `OverlayTitleBar` (Qt draws no title
+            // bar of its own to run content under; the window keeps its standard frame),
+            // `WindowMaterial`, `WindowAppearance` (palette and scheme are app-wide),
+            // `ContentProtection`, `DynamicShortcuts` (a .desktop file's actions are fixed).
             _ => Support::Unsupported,
         }
     }
@@ -3499,6 +3592,7 @@ impl Toolkit for Qt {
                 fixed,
             )
         };
+        apply_open_options(win, options, fixed == 0);
         unsafe { ffi::day_qt_window_show(win) };
         let content = unsafe { ffi::day_qt_window_content(win) };
         self.secondary.push(QtWin { win, content });
@@ -3531,6 +3625,234 @@ impl Toolkit for Qt {
             unsafe { ffi::day_qt_window_set_title(win, cstr(title).as_ptr()) };
         }
     }
+
+    fn apply_window(&mut self, host: &QtHandle, change: &day_spec::WindowChange) {
+        use day_spec::WindowChange as C;
+        // A secondary window by its content, or the primary, which `ready` handed out as the
+        // DayWindow itself.
+        let Some(win) = self.qt_window_for(host) else {
+            return;
+        };
+        match change {
+            // SAFETY: `win` is a live DayWindow: the primary lives until the process exits, and
+            // a secondary stays in `self.secondary` until day-core releases its content.
+            C::State(state) => unsafe { ffi::day_qt_window_set_state(win, state.code()) },
+            // No Linux display server (X11, Wayland) lets a client keep its surface out of
+            // screenshots or screen sharing, so `Cap::ContentProtection` is Unsupported and the
+            // request is ignored. (Qt has no portable switch for it on macOS or Windows either.)
+            C::ContentProtected(_) => {}
+            other => apply_property(win, other),
+        }
+    }
+
+    fn window_frame(&self, host: &QtHandle) -> Option<day_spec::Rect> {
+        let win = self.qt_window_for(host)?;
+        let mut out = [0.0f64; 4];
+        // SAFETY: `win` is a live DayWindow (see `apply_window`); `out` holds the four doubles
+        // the shim writes.
+        let known = unsafe { ffi::day_qt_window_frame(win, out.as_mut_ptr()) } != 0;
+        known.then(|| day_spec::Rect::new(out[0], out[1], out[2], out[3]))
+    }
+
+    fn monitors(&self) -> Vec<day_spec::Monitor> {
+        qt_monitors()
+    }
+
+    fn set_drag_region(&mut self, h: &QtHandle, drag: bool) {
+        // SAFETY: `h` is a live widget Day realized.
+        unsafe { ffi::day_qt_set_drag_region(h.0, c_int::from(drag)) };
+    }
+
+    fn set_status_items(&mut self, items: &[day_spec::StatusItemSpec]) {
+        self.trays.retain(|(spec, tray)| {
+            let keep = items.iter().any(|i| i.id == spec.id);
+            if !keep {
+                // SAFETY: a tray this backend made and has not deleted.
+                unsafe { ffi::day_qt_tray_delete(*tray) };
+            }
+            keep
+        });
+        for spec in items {
+            let tray = match self.trays.iter_mut().find(|(s, _)| s.id == spec.id) {
+                Some((s, _)) if s == spec => continue,
+                Some((s, tray)) => {
+                    *s = spec.clone();
+                    *tray
+                }
+                None => {
+                    // SAFETY: a constructor; the QApplication exists by the time any duty runs.
+                    let tray = unsafe { ffi::day_qt_tray_new() };
+                    self.trays.push((spec.clone(), tray));
+                    tray
+                }
+            };
+            update_tray(tray, spec);
+        }
+    }
+
+    fn set_app_progress(&mut self, progress: day_spec::AppProgress) {
+        #[cfg(target_os = "linux")]
+        linux::set_progress(progress);
+        #[cfg(not(target_os = "linux"))]
+        let _ = progress;
+    }
+
+    fn set_app_badge(&mut self, badge: &day_spec::AppBadge) {
+        #[cfg(target_os = "linux")]
+        linux::set_badge(badge);
+        #[cfg(not(target_os = "linux"))]
+        let _ = badge;
+    }
+
+    fn set_keep_running(&mut self, keep: bool) {
+        // SAFETY: a flag write.
+        unsafe { ffi::day_qt_set_keep_running(c_int::from(keep)) };
+    }
+
+    fn quit_app(&mut self) {
+        // SAFETY: called on the UI thread with the QApplication running.
+        unsafe { ffi::day_qt_quit() };
+    }
+}
+
+/// The chrome, size limits and placement a window opens with, applied before it is first shown
+/// (docs/window-chrome.md). `resizable` is false for a Preferences window, which keeps its
+/// fixed size whatever the options say.
+fn apply_open_options(win: *mut c_void, options: &WindowOptions, resizable: bool) {
+    let frameless = options.chrome == day_spec::WindowChrome::Frameless;
+    let transparent = options.background == day_spec::WindowBackground::Transparent;
+    let resizable = resizable && options.resizable;
+    // SAFETY (every call below): `win` is the DayWindow just created, not yet shown.
+    unsafe {
+        if options.min_size.is_some() || options.max_size.is_some() {
+            let min = options.min_size.unwrap_or(Size::new(-1.0, -1.0));
+            let max = options.max_size.unwrap_or(Size::new(-1.0, -1.0));
+            ffi::day_qt_window_set_limits(win, min.width, min.height, max.width, max.height);
+        }
+        ffi::day_qt_window_set_chrome(
+            win,
+            c_int::from(frameless),
+            c_int::from(transparent),
+            c_int::from(options.shadow),
+            c_int::from(resizable),
+        );
+        match options.placement {
+            day_spec::WindowPlacement::Automatic => {}
+            day_spec::WindowPlacement::Centered => ffi::day_qt_window_place(win, 1, 0.0, 0.0),
+            day_spec::WindowPlacement::At(p) => ffi::day_qt_window_place(win, 2, p.x, p.y),
+        }
+    }
+}
+
+/// Every [`day_spec::WindowChange`] but the display state and content protection
+/// (docs/windows.md "Window properties"). Per-window appearance is not Qt's to give (its palette
+/// and color scheme are app-wide), and every workspace has no Qt API; both are ignored.
+fn apply_property(win: *mut c_void, change: &day_spec::WindowChange) {
+    use day_spec::WindowChange as C;
+    let switch = |which: c_int, on: bool| {
+        // SAFETY: `win` is a live DayWindow (see `apply_window`).
+        unsafe { ffi::day_qt_window_set_switch(win, which, c_int::from(on)) }
+    };
+    // SAFETY (the calls below): as above.
+    match change {
+        C::Frame { origin, size } => unsafe {
+            ffi::day_qt_window_set_frame(
+                win,
+                c_int::from(origin.is_some()),
+                origin.map_or(0.0, |p| p.x),
+                origin.map_or(0.0, |p| p.y),
+                c_int::from(size.is_some()),
+                size.map_or(0.0, |s| s.width),
+                size.map_or(0.0, |s| s.height),
+            )
+        },
+        C::Limits { min, max } => unsafe {
+            let min = min.unwrap_or(Size::new(-1.0, -1.0));
+            let max = max.unwrap_or(Size::new(-1.0, -1.0));
+            ffi::day_qt_window_set_limits(win, min.width, min.height, max.width, max.height)
+        },
+        C::Level(level) => switch(0, *level == day_spec::WindowLevel::Floating),
+        C::SkipTaskbar(skip) => switch(1, *skip),
+        C::Minimizable(on) => switch(2, *on),
+        C::Maximizable(on) => switch(3, *on),
+        C::Closable(on) => switch(4, *on),
+        C::Resizable(on) => switch(5, *on),
+        C::Visible(on) => switch(6, *on),
+        C::RequestAttention(a) => unsafe {
+            ffi::day_qt_window_alert(win, c_int::from(*a == day_spec::Attention::Critical))
+        },
+        _ => {}
+    }
+}
+
+/// Every attached display, from `QGuiApplication::screens()`: geometry and available geometry
+/// in device-independent pixels (Day's points), the device pixel ratio, Qt's primary screen.
+fn qt_monitors() -> Vec<day_spec::Monitor> {
+    // SAFETY: a read of the QGuiApplication's screen list on the UI thread.
+    let n = unsafe { ffi::day_qt_screen_count() };
+    (0..n)
+        .filter_map(|i| {
+            let mut out = [0.0f64; 9];
+            let mut name = [0 as std::os::raw::c_char; 256];
+            let mut id = [0 as std::os::raw::c_char; 128];
+            // SAFETY: the buffers are as long as the lengths passed, and the shim
+            // NUL-terminates within them.
+            let primary = unsafe {
+                ffi::day_qt_screen_info(
+                    i,
+                    out.as_mut_ptr(),
+                    name.as_mut_ptr(),
+                    name.len() as c_int,
+                    id.as_mut_ptr(),
+                    id.len() as c_int,
+                )
+            };
+            if primary < 0 {
+                return None;
+            }
+            // SAFETY: NUL-terminated by the shim (above).
+            let text = |b: &[std::os::raw::c_char]| unsafe {
+                std::ffi::CStr::from_ptr(b.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            };
+            Some(day_spec::Monitor {
+                id: text(&id),
+                name: text(&name),
+                frame: day_spec::Rect::new(out[0], out[1], out[2], out[3]),
+                work_area: day_spec::Rect::new(out[4], out[5], out[6], out[7]),
+                scale: out[8],
+                primary: primary == 1,
+            })
+        })
+        .collect()
+}
+
+/// Apply a status item's spec to its QSystemTrayIcon: icon, hover text, menu, click action.
+fn update_tray(tray: *mut c_void, spec: &day_spec::StatusItemSpec) {
+    let (icon, fallback) = crate::toolbar::icon_args(spec.icon.as_ref());
+    let tip = if spec.tooltip.is_empty() {
+        spec.title.as_str()
+    } else {
+        spec.tooltip.as_str()
+    };
+    // SAFETY: a fresh QMenu, filled by the same builder the app menu uses; the tray takes it.
+    let menu = unsafe { ffi::day_qt_menu_new() };
+    build_qt_menu(menu, &spec.menu);
+    let mask = spec.template || matches!(spec.icon, Some(day_spec::Icon::Symbol(_)));
+    // SAFETY: `tray` is live (see `set_status_items`); the strings outlive the call.
+    unsafe {
+        ffi::day_qt_tray_update(
+            tray,
+            cstr(&icon).as_ptr(),
+            fallback,
+            c_int::from(mask),
+            cstr(tip).as_ptr(),
+            menu,
+            spec.activate,
+        )
+    };
+    log::debug!("qt: status item {} shown", spec.id);
 }
 
 /// Grab any widget to PNG through the shim (the dayscript screenshot seam).
@@ -3571,6 +3893,10 @@ impl Platform for Qt {
     const TOOLKIT: &'static str = "qt";
 
     fn run(mut self, options: WindowOptions, ready: Box<dyn FnOnce(Self, QtHandle, Size)>) {
+        // One process per app id on Linux: a second launch forwards its arguments and exits
+        // before it opens anything. Held until `run` returns, which is the app's end.
+        #[cfg(target_os = "linux")]
+        let _instance = linux::claim_instance();
         unsafe {
             // The macOS app menu (Quit/Hide) takes its name from argv[0] at QApplication
             // construction, so pass the app's display name ("Showcase", falling back to the window
@@ -3606,6 +3932,8 @@ impl Platform for Qt {
             ready(self, QtHandle(window), options.size);
             ffi::day_qt_window_on_resize(window, window_resized);
             ffi::day_qt_set_window_events_cb(win_resized, win_closed, win_focused);
+            ffi::day_qt_set_window_state_cb(win_state);
+            apply_open_options(window, &options, true);
             ffi::day_qt_window_show(window);
             ffi::day_qt_app_run(app);
         }

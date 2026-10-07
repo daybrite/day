@@ -582,11 +582,16 @@ pub mod bridge {
         /// (`"ArrowLeft"`, `"5"`, …), `num` = the [`crate::KeyEvent`] modifier mask. Decodes to
         /// [`crate::Event::Key`].
         Key = 29,
+        /// A window's display state changed (docs/windows.md): `num` = the
+        /// [`crate::WindowState`] code (0 normal, 1 minimized, 2 maximized, 3 fullscreen), against
+        /// the window's root node, or [`crate::WINDOW_NODE`] for the primary. Decodes to
+        /// [`crate::Event::WindowStateChanged`] through [`crate::WindowState::from_code`].
+        WindowStateChanged = 34,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 34] = [
+        pub const ALL: [BridgeKind; 35] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -621,6 +626,7 @@ pub mod bridge {
             BridgeKind::ListActivated,
             BridgeKind::DocumentOpened,
             BridgeKind::ReduceMotionChanged,
+            BridgeKind::WindowStateChanged,
         ];
     }
 
@@ -855,6 +861,11 @@ pub enum Event {
     /// A secondary window's key/active state changed; emitted on the window's root node.
     /// day-core tracks the focused window with it (dialog parenting, dayscript targeting).
     WindowFocused(bool),
+    /// A window's display state changed (docs/windows.md): the user minimized, zoomed or took it
+    /// fullscreen, or a [`WindowChange::State`] request landed. Emitted on the window's root node
+    /// (the primary's may arrive on [`WINDOW_NODE`]); day-core feeds the window's `state()`
+    /// signal with it, so the app reads what the platform did rather than what it asked for.
+    WindowStateChanged(WindowState),
     /// A native list committed a drag-reorder (docs/list.md): row `from` landed at row `to`.
     /// Emitted on the `LIST` node by the list piece's commit hook: the reorder driver
     /// rotates its snapshot synchronously inside the platform's drop callback, then reports
@@ -2414,12 +2425,88 @@ pub enum Cap {
     /// `Unsupported` where reading it would mean shipping a parser or a new framework, which is
     /// most places. An app that wants orientation must handle `None`.
     ImageProperties,
+    /// The toolkit minimizes, zooms, hides and restores a window on request
+    /// ([`WindowChange::State`], [`WindowChange::Visible`], docs/windows.md) and reports what the
+    /// user does through [`Event::WindowStateChanged`]. `Native` on the desktop backends;
+    /// `Unsupported` on the phones and the web, whose windows the OS sizes.
+    WindowStates,
+    /// The toolkit takes a window fullscreen on request and reports when it enters and leaves
+    /// ([`WindowState::Fullscreen`]). `Native` on the desktops, on Android (system bars hidden
+    /// through `WindowInsetsController`), on HarmonyOS and on the web (the Fullscreen API, which
+    /// browsers allow only during a user gesture); `Emulated` on iOS, which hides the status bar
+    /// and lets the home indicator fade but always keeps the app full-screen anyway.
+    WindowFullscreen,
+    /// The toolkit keeps a window out of screenshots, recordings and screen sharing
+    /// ([`WindowChange::ContentProtected`]). `Native` on macOS (`NSWindowSharingNone`), Windows
+    /// (`WDA_EXCLUDEFROMCAPTURE`), Android (`FLAG_SECURE`) and HarmonyOS (privacy mode);
+    /// `Emulated` on iOS, which has no switch for it: Day covers the content while the screen is
+    /// being recorded or mirrored, but a screenshot still captures it. `Unsupported` on Linux
+    /// and the web.
+    ContentProtection,
+    /// The toolkit honors [`WindowOptions::tabbing`]: macOS window tabs. `Unsupported` everywhere
+    /// else, where no system window tabs exist.
+    WindowTabbing,
+    /// The toolkit shows a Dock menu ([`Toolkit::set_dock_menu`], docs/menus.md): the app's
+    /// shortcuts and `dock_menu(..)` entries above the system's own items. macOS only.
+    DockMenu,
+    /// The toolkit resizes a window and bounds its size on request ([`WindowChange::Frame`]'s
+    /// size, [`WindowChange::Limits`], [`WindowChange::Resizable`]).
+    WindowGeometry,
+    /// The toolkit moves a window to a requested position ([`WindowChange::Frame`]'s origin).
+    /// `Unsupported` on GTK 4, which removed window positioning, and wherever the compositor owns
+    /// placement (Wayland).
+    WindowPosition,
+    /// The toolkit changes how a window stacks ([`WindowChange::Level`],
+    /// [`WindowChange::OnAllWorkspaces`], [`WindowChange::SkipTaskbar`]).
+    WindowLevel,
+    /// The toolkit gives one window its own light/dark appearance ([`WindowChange::Appearance`]).
+    /// Where it cannot, the app-wide [`Toolkit::set_appearance`] still applies to every window.
+    WindowAppearance,
+    /// The toolkit asks for the user's attention on request ([`WindowChange::RequestAttention`]):
+    /// a Dock bounce, a flashing taskbar button.
+    RequestAttention,
+    /// The toolkit opens a window with no title bar or frame ([`WindowChrome::Frameless`],
+    /// docs/window-chrome.md). Desktop backends only.
+    FramelessWindow,
+    /// The toolkit runs a window's content under its title bar with the window controls kept
+    /// ([`WindowChrome::Overlay`]) and reports the bar's height as the safe-area top inset.
+    OverlayTitleBar,
+    /// The toolkit opens a window whose unpainted pixels show the desktop
+    /// ([`WindowBackground::Transparent`]).
+    TransparentWindow,
+    /// The toolkit puts a translucent system material behind a window
+    /// ([`WindowBackground::Material`]): macOS's visual-effect materials, Windows 11's Mica and
+    /// Acrylic. `Emulated` where an approximation stands in.
+    WindowMaterial,
+    /// The toolkit lets a piece move its window like a title bar does
+    /// ([`Toolkit::set_drag_region`], `.window_drag_region()`). `Emulated` on the web, where
+    /// only an installed app with a window-controls overlay honors it.
+    DragRegion,
+    /// The toolkit shows status items ([`Toolkit::set_status_items`], docs/status-item.md): the
+    /// macOS menu bar, the Windows notification area, a Linux tray. On Linux the answer depends
+    /// on the desktop: `Native` while a StatusNotifierItem host is running (KDE Plasma, most
+    /// panels, GNOME with the AppIndicator extension), `Unsupported` without one (stock GNOME),
+    /// so an app can keep a window instead of vanishing into a tray nobody shows.
+    StatusItem,
+    /// The toolkit shows progress on the app's Dock or taskbar icon
+    /// ([`Toolkit::set_app_progress`]). `Emulated` on Linux, where the Unity launcher protocol is
+    /// honored by KDE Plasma and Dash to Dock but not by every dock.
+    AppProgress,
+    /// The toolkit can hide the app's Dock icon while it runs ([`Toolkit::set_dock_visible`]).
+    /// macOS only.
+    DockVisibility,
+    /// The toolkit lists the displays and their work areas ([`Toolkit::monitors`]). `Emulated`
+    /// where the one screen the app runs on is reported (a phone, the web).
+    Monitors,
+    /// The toolkit shows launcher shortcuts the app sets while it runs
+    /// ([`Toolkit::set_launcher_shortcuts`]).
+    DynamicShortcuts,
 }
 
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 53] = [
+    pub const ALL: [Cap; 73] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2473,6 +2560,26 @@ impl Cap {
         Cap::ImageDecode,
         Cap::ImageEncode,
         Cap::ImageProperties,
+        Cap::WindowStates,
+        Cap::WindowFullscreen,
+        Cap::ContentProtection,
+        Cap::WindowTabbing,
+        Cap::DockMenu,
+        Cap::WindowGeometry,
+        Cap::WindowPosition,
+        Cap::WindowLevel,
+        Cap::WindowAppearance,
+        Cap::RequestAttention,
+        Cap::FramelessWindow,
+        Cap::OverlayTitleBar,
+        Cap::TransparentWindow,
+        Cap::WindowMaterial,
+        Cap::DragRegion,
+        Cap::StatusItem,
+        Cap::AppProgress,
+        Cap::DockVisibility,
+        Cap::Monitors,
+        Cap::DynamicShortcuts,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2532,6 +2639,26 @@ impl Cap {
             Cap::ImageDecode => 50,
             Cap::ImageEncode => 51,
             Cap::ImageProperties => 52,
+            Cap::WindowStates => 53,
+            Cap::WindowFullscreen => 54,
+            Cap::ContentProtection => 55,
+            Cap::WindowTabbing => 56,
+            Cap::DockMenu => 57,
+            Cap::WindowGeometry => 58,
+            Cap::WindowPosition => 59,
+            Cap::WindowLevel => 60,
+            Cap::WindowAppearance => 61,
+            Cap::RequestAttention => 62,
+            Cap::FramelessWindow => 63,
+            Cap::OverlayTitleBar => 64,
+            Cap::TransparentWindow => 65,
+            Cap::WindowMaterial => 66,
+            Cap::DragRegion => 67,
+            Cap::StatusItem => 68,
+            Cap::AppProgress => 69,
+            Cap::DockVisibility => 70,
+            Cap::Monitors => 71,
+            Cap::DynamicShortcuts => 72,
         }
     }
 }
@@ -6835,6 +6962,76 @@ pub trait Toolkit: Sized + 'static {
     fn snapshot_window_of(&mut self, _host: &Self::Handle) -> Result<Vec<u8>, String> {
         self.snapshot_window()
     }
+
+    /// Apply one property change to the window whose content container is `host`
+    /// (docs/windows.md "Window properties"). The primary window arrives with its root container,
+    /// like [`set_window_title`](Self::set_window_title).
+    ///
+    /// Fire-and-forget, like [`set_app_badge`](Self::set_app_badge): a change this toolkit cannot
+    /// make is ignored, and the app probes the matching `Cap` (named on each [`WindowChange`]
+    /// variant) before relying on it. A change the platform completes later (a fullscreen
+    /// transition, a zoom animation) reports its outcome through
+    /// [`Event::WindowStateChanged`], never by assuming the request took. The default ignores
+    /// every change.
+    fn apply_window(&mut self, _host: &Self::Handle, _change: &WindowChange) {}
+
+    /// Install the app's Dock menu (docs/menus.md "Dock menu"): the items macOS shows above
+    /// its own when the user right-clicks the app's Dock icon, built from the app's
+    /// `[[shortcuts]]` and its `dock_menu(..)` entries. Same item model and dispatch as
+    /// [`set_app_menu`](Self::set_app_menu); an empty slice removes the menu. `Cap::DockMenu`
+    /// reports support; the default ignores the call.
+    fn set_dock_menu(&mut self, _items: &[MenuItem]) {}
+
+    /// Make the node at `h` move its window when the user drags it, as a title bar does
+    /// (`.window_drag_region()`, docs/window-chrome.md): the region's own background starts a
+    /// native window drag (with the platform's snapping and edge tiling), a double click does
+    /// what the user's title-bar double-click setting says, and controls inside the region keep
+    /// receiving their own clicks. `false` releases it. `Cap::DragRegion`; the default ignores
+    /// the call, so on a phone the region is an ordinary view.
+    fn set_drag_region(&mut self, _h: &Self::Handle, _drag: bool) {}
+
+    /// Show these status items, replacing the previous set (docs/status-item.md): add the
+    /// ones whose `id` is new, update the ones that changed, remove the ones no longer listed.
+    /// A click on an item runs its `activate` action or opens its menu; menu choices dispatch
+    /// [`Event::MenuAction`] like the app menu's. `Cap::StatusItem`; the default ignores the
+    /// call, which is what a phone and the web do.
+    fn set_status_items(&mut self, _items: &[StatusItemSpec]) {}
+
+    /// Show `progress` on the app's Dock or taskbar icon (docs/status-item.md).
+    /// `Cap::AppProgress`; the default ignores it.
+    fn set_app_progress(&mut self, _progress: AppProgress) {}
+
+    /// Show or hide the app's Dock icon while it runs: a menu-bar app hides it and lives in its
+    /// status item (macOS activation policy). `Cap::DockVisibility`; the default ignores it.
+    fn set_dock_visible(&mut self, _visible: bool) {}
+
+    /// Keep the process running when its last window closes (docs/windows.md "Keeping the app
+    /// running"). When `true`, the backend must not end the app on its own as windows close: it
+    /// reports every close, the first window's included, as `Event::WindowClosed`, and day-core
+    /// decides whether to call [`quit_app`](Self::quit_app). When `false`, the backend keeps its
+    /// platform's own rule. A backend whose process lifetime is not its own (a phone, a browser
+    /// tab) ignores it, which is the default.
+    fn set_keep_running(&mut self, _keep: bool) {}
+
+    /// The displays attached now (docs/windows.md "Monitors"). `Cap::Monitors`; the default
+    /// answers none, and day-core then describes the primary window's own size as one display.
+    fn monitors(&self) -> Vec<Monitor> {
+        Vec::new()
+    }
+
+    /// The outer frame of the window whose content container is `host`, in points on the
+    /// desktop's coordinate space (top-left origin), or `None` where the platform does not say
+    /// (a phone, Wayland's positions). Read when the app asks for it and when day-core saves a
+    /// remembered frame (`WindowOptions::remember_frame`).
+    fn window_frame(&self, _host: &Self::Handle) -> Option<Rect> {
+        None
+    }
+
+    /// Replace the launcher shortcuts the app set while running (docs/deep-links.md "Launcher
+    /// shortcuts"), shown beside the ones Day.toml declares: iOS Home Screen quick actions,
+    /// Android dynamic shortcuts, the macOS Dock menu. Each opens its route through the deep-link
+    /// intake. `Cap::DynamicShortcuts`; the default ignores the call.
+    fn set_launcher_shortcuts(&mut self, _shortcuts: &[LauncherShortcut]) {}
 }
 
 /// What a secondary window is, so backends can apply platform conventions (docs/windows.md).
@@ -6892,6 +7089,258 @@ pub enum WindowOpenReply<H> {
     Unsupported,
 }
 
+/// How a window is shown (docs/windows.md "Window properties"): what the window's `state()`
+/// signal holds and what [`WindowChange::State`] asks for.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowState {
+    /// On screen at its own size: neither minimized, maximized nor fullscreen.
+    #[default]
+    Normal,
+    /// Minimized to the Dock, taskbar or shelf. `Cap::WindowStates`.
+    Minimized,
+    /// Zoomed to fill the screen's work area, keeping its chrome. `Cap::WindowStates`.
+    Maximized,
+    /// Covering the whole screen with no window chrome; on a phone, the system bars hidden.
+    /// `Cap::WindowFullscreen`.
+    Fullscreen,
+}
+
+impl WindowState {
+    /// The wire code of [`bridge::BridgeKind::WindowStateChanged`].
+    pub const fn code(self) -> i32 {
+        match self {
+            WindowState::Normal => 0,
+            WindowState::Minimized => 1,
+            WindowState::Maximized => 2,
+            WindowState::Fullscreen => 3,
+        }
+    }
+
+    /// The state a wire code names; an unknown code reads as `Normal`.
+    pub const fn from_code(code: i32) -> WindowState {
+        match code {
+            1 => WindowState::Minimized,
+            2 => WindowState::Maximized,
+            3 => WindowState::Fullscreen,
+            _ => WindowState::Normal,
+        }
+    }
+}
+
+/// How a window stacks against other apps' windows ([`WindowChange::Level`], `Cap::WindowLevel`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowLevel {
+    /// Ordinary stacking: the focused app's windows come forward.
+    #[default]
+    Normal,
+    /// Stays above other apps' ordinary windows: a palette, a timer, a video peek.
+    Floating,
+}
+
+/// How strongly a window asks for the user's attention ([`WindowChange::RequestAttention`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Attention {
+    /// Once: one Dock bounce, a taskbar button that flashes a few times.
+    #[default]
+    Informational,
+    /// Until the user switches to the app.
+    Critical,
+}
+
+/// One change to one window (docs/windows.md "Window properties"), carried by
+/// [`Toolkit::apply_window`]. Each variant names the `Cap` that reports whether the running
+/// toolkit makes it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum WindowChange {
+    /// Minimize, zoom, take fullscreen, or return to normal. `Cap::WindowStates` for the
+    /// first two, `Cap::WindowFullscreen` for fullscreen. The outcome comes back as
+    /// [`Event::WindowStateChanged`].
+    State(WindowState),
+    /// Keep the window's content out of screenshots, recordings and screen sharing.
+    /// `Cap::ContentProtection`.
+    ContentProtected(bool),
+    /// Move and/or resize. `origin` is the outer frame's top-left corner in points on the
+    /// desktop's coordinate space (top-left origin, `Cap::WindowPosition`); `size` is the size Day
+    /// lays the content out at, in points, the same size `WindowResized` reports
+    /// (`Cap::WindowGeometry`): the backend adds its own chrome around it.
+    Frame {
+        origin: Option<Point>,
+        size: Option<Size>,
+    },
+    /// The content size the user can resize the window to. `None` lifts that bound.
+    /// `Cap::WindowGeometry`.
+    Limits {
+        min: Option<Size>,
+        max: Option<Size>,
+    },
+    /// Stacking against other apps' windows. `Cap::WindowLevel`.
+    Level(WindowLevel),
+    /// Show the window on every virtual desktop / Space. `Cap::WindowLevel`.
+    OnAllWorkspaces(bool),
+    /// Leave the window out of the taskbar and the window switcher. `Cap::WindowLevel`.
+    SkipTaskbar(bool),
+    /// Whether the user can resize the window. `Cap::WindowGeometry`.
+    Resizable(bool),
+    /// Whether the window offers a minimize control. `Cap::WindowStates`.
+    Minimizable(bool),
+    /// Whether the window offers a maximize / zoom control. `Cap::WindowStates`.
+    Maximizable(bool),
+    /// Whether the window offers a close control. `Cap::WindowStates`.
+    Closable(bool),
+    /// Hide the window without closing it, or show it again. `Cap::WindowStates`.
+    Visible(bool),
+    /// This window's light/dark override over the app-wide [`Toolkit::set_appearance`].
+    /// `Cap::WindowAppearance`.
+    Appearance(Option<bool>),
+    /// Bounce the Dock icon, flash the taskbar button. `Cap::RequestAttention`.
+    RequestAttention(Attention),
+}
+
+/// The frame a window wears (docs/window-chrome.md), set once when it opens.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowChrome {
+    /// The platform's title bar and frame.
+    #[default]
+    Standard,
+    /// The content runs to the window's top edge, under the title bar, and the platform's own
+    /// window controls (close, minimize, zoom) stay where they are. For a custom title bar: the
+    /// backend reports the bar's height as the window's safe-area top inset (`day::safe_area()`),
+    /// so the app pads its content by it and paints its background under it. Mark the draggable
+    /// part with `.window_drag_region()`. `Cap::OverlayTitleBar`; where unsupported the window
+    /// keeps its standard bar.
+    Overlay,
+    /// No title bar and no frame: a splash screen, a heads-up panel, a borderless utility. The
+    /// window still resizes from its edges when resizable; mark the part that moves it with
+    /// `.window_drag_region()`. `Cap::FramelessWindow`; where unsupported the window keeps its
+    /// standard frame.
+    Frameless,
+}
+
+/// What shows behind a window's content (docs/window-chrome.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowBackground {
+    /// The platform's window background.
+    #[default]
+    Opaque,
+    /// Nothing: pixels the content leaves unpainted show the desktop through the window. For
+    /// rounded or shaped splash screens and overlays. `Cap::TransparentWindow`.
+    Transparent,
+    /// A translucent system material that blurs what is behind the window.
+    /// `Cap::WindowMaterial`; where unsupported the window stays opaque.
+    Material(WindowMaterial),
+}
+
+/// The system materials a window background can use ([`WindowBackground::Material`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum WindowMaterial {
+    /// The main-window material: macOS's window background, Windows 11's Mica.
+    Window,
+    /// A sidebar or source list: macOS's sidebar material, Windows 11's Mica Alt (tabbed).
+    Sidebar,
+    /// A transient surface (a popover, a menu-like panel, a heads-up display): macOS's popover
+    /// material, Windows 11's Acrylic.
+    Transient,
+}
+
+/// Where a window opens ([`WindowOptions::placement`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum WindowPlacement {
+    /// The platform's choice: macOS cascades, Windows and Linux let the window manager decide.
+    #[default]
+    Automatic,
+    /// Centered on the screen with the active window.
+    Centered,
+    /// The outer frame's top-left corner at this point, in points on the desktop's coordinate
+    /// space (top-left origin). Falls back to `Automatic` without `Cap::WindowPosition`.
+    At(Point),
+}
+
+/// One status item: an icon in the menu bar (macOS), the notification area (Windows) or a
+/// StatusNotifierItem host's tray (Linux), with a menu (docs/status-item.md).
+#[derive(Clone, Debug, PartialEq)]
+pub struct StatusItemSpec {
+    /// The app's name for the item, stable across updates: what a backend diffs by.
+    pub id: String,
+    /// The glyph. `None` shows the title alone (macOS) or the app's icon (elsewhere).
+    pub icon: Option<Icon>,
+    /// Draw the icon as a template: its shape only, in the menu bar's or panel's own color, so
+    /// it reads in light and dark. Symbols are always templates.
+    pub template: bool,
+    /// Text beside the icon where the platform shows one (the macOS menu bar). Empty: icon only.
+    pub title: String,
+    /// The hover text.
+    pub tooltip: String,
+    /// The menu the item opens. Same model and dispatch as the app menu.
+    pub menu: Vec<MenuItem>,
+    /// A dispatch id (the [`Event::MenuAction`] registry) run when the user clicks the item
+    /// itself, where the platform separates a click from opening the menu (a left click on macOS
+    /// and Windows, the host's "activate" on Linux). 0: a click opens the menu.
+    pub activate: u64,
+}
+
+/// One display (docs/windows.md "Monitors"), in points on the desktop's coordinate space:
+/// top-left origin at the primary display's top-left corner.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Monitor {
+    /// Stable for the display across launches where the platform offers it (a display UUID, a
+    /// connector name); an index otherwise.
+    pub id: String,
+    /// The display's name, for a picker ("Built-in Retina Display", "DELL U2720Q").
+    pub name: String,
+    /// The display's whole area.
+    pub frame: Rect,
+    /// The part windows should use: the frame minus the menu bar, Dock, taskbar or panels.
+    pub work_area: Rect,
+    /// Device pixels per point.
+    pub scale: f64,
+    /// The display the desktop's menu bar or primary taskbar is on.
+    pub primary: bool,
+}
+
+/// A launcher shortcut the app sets while it runs (docs/deep-links.md "Launcher shortcuts"): a
+/// route to open and the label the launcher shows, already localized.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LauncherShortcut {
+    /// The route the shortcut opens, through the deep-link intake.
+    pub route: String,
+    /// What the launcher shows.
+    pub label: String,
+}
+
+/// A progress indicator on the app's Dock or taskbar icon ([`Toolkit::set_app_progress`],
+/// docs/status-item.md).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum AppProgress {
+    /// No indicator.
+    #[default]
+    None,
+    /// Work of unknown length.
+    Indeterminate,
+    /// A fraction done, 0.0 to 1.0.
+    Value(f64),
+    /// A fraction done, paused. Platforms without a paused state show `Value`.
+    Paused(f64),
+    /// A fraction done when the work failed. Platforms without an error state show `Value`.
+    Error(f64),
+}
+
+/// Whether and how a window joins macOS window tabs ([`WindowOptions::tabbing`],
+/// `Cap::WindowTabbing`). Other platforms have no system window tabs and ignore it.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WindowTabbing {
+    /// The platform default for the window's kind: an ordinary window tabs with the app's other
+    /// ordinary windows when the user's "Prefer tabs" setting says so; preferences never tab.
+    #[default]
+    Automatic,
+    /// Tab only with windows of the same group, following the user's setting. The tab bar's
+    /// "+" opens the builder registered for this group (`register_new_window_for`).
+    Group(String),
+    /// Always open as a tab of an existing window of the same group, whatever the setting.
+    Preferred(String),
+    /// Never become a tab.
+    Disallowed,
+}
+
 /// An app's generated locale catalog: `(DEFAULT, CATALOG)`, exactly what `day-build` emits as
 /// `res::locales::{DEFAULT, CATALOG}` (§18.5). Carried in [`WindowOptions::locales`] so the
 /// framework can install it at the one moment that is correct.
@@ -6933,6 +7382,26 @@ pub struct WindowOptions {
     /// docs/lifecycle.md): `env!("CARGO_PKG_VERSION")` in the app crate, which the scaffold's
     /// `window()` sets. `None` falls back to the `DAY_APP_VERSION` the `day` CLI sets on a launch.
     pub version: Option<String>,
+    /// macOS window tabbing for this window (`Cap::WindowTabbing`); ignored elsewhere.
+    pub tabbing: WindowTabbing,
+    /// The window's frame: standard, a title bar the content runs under, or none
+    /// (docs/window-chrome.md). Desktop only; phones and the web ignore it.
+    pub chrome: WindowChrome,
+    /// What shows behind the content: the window background, nothing, or a system material.
+    pub background: WindowBackground,
+    /// Whether the window casts the platform's drop shadow. A transparent, shaped window often
+    /// wants none.
+    pub shadow: bool,
+    /// Whether the user can resize the window by its edges.
+    pub resizable: bool,
+    /// Where the window opens.
+    pub placement: WindowPlacement,
+    /// The largest content size the user can resize the window to (`Cap::WindowGeometry`).
+    pub max_size: Option<Size>,
+    /// Remember this window's size, position and maximized state under this key, and reopen it
+    /// that way next launch (docs/windows.md "Remembered frames"). A position that no attached
+    /// display shows any more is dropped, so a window never reopens off-screen.
+    pub remember_frame: Option<String>,
 }
 
 impl Default for WindowOptions {
@@ -6946,6 +7415,14 @@ impl Default for WindowOptions {
             locales: None,
             title_fn: None,
             version: None,
+            tabbing: WindowTabbing::Automatic,
+            chrome: WindowChrome::Standard,
+            background: WindowBackground::Opaque,
+            shadow: true,
+            resizable: true,
+            placement: WindowPlacement::Automatic,
+            max_size: None,
+            remember_frame: None,
         }
     }
 }

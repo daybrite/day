@@ -14,9 +14,12 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use day_reactive::Scope;
+use day_reactive::{Scope, Signal};
 use day_spec::props::{CoverPatch, CoverProps};
-use day_spec::{Event, NodeId, Size, WindowKind, WindowOptions, WindowRole, kinds};
+use day_spec::{
+    Attention, Event, NodeId, Point, Rect, Size, WindowChange, WindowKind, WindowLevel,
+    WindowOptions, WindowRole, WindowState, WindowTabbing, kinds,
+};
 
 use crate::AnyPiece;
 use crate::build::{Boundary, BuildCx, Piece};
@@ -54,6 +57,14 @@ struct WindowRecord {
     tier: Tier,
     focused: bool,
     on_close: OnCloseList,
+    /// What the window's `state()` signal holds: written by the app to ask, and by
+    /// `Event::WindowStateChanged` to report.
+    state: Signal<WindowState>,
+    /// The last state the platform reported, so a report written into `state` is not sent back
+    /// to the platform as a request.
+    reported: Rc<Cell<WindowState>>,
+    /// The `WindowOptions::remember_frame` key this window saves its frame under.
+    remember: Option<String>,
 }
 
 impl WindowRecord {
@@ -72,9 +83,16 @@ day_reactive::tls_slots! {
     /// like the ones opened after it.
     static INITIAL_WINDOW: Cell<Option<RNode>> = const { Cell::new(None) };
 
+    /// Set while [`quit`] disposes the windows, so the last one closing does not start a second
+    /// quit.
+    static QUITTING: Cell<bool> = const { Cell::new(false) };
+
     static PREFS: RefCell<Option<PrefsRegistration>> = const { RefCell::new(None) };
     static PREFS_ACTION: Cell<u64> = const { Cell::new(0) };
     static NEW_WINDOW: RefCell<Option<Rc<dyn Fn() -> AnyPiece>>> = const { RefCell::new(None) };
+    /// Builders behind the macOS tab bar's "+" for windows of one tab group
+    /// (`register_new_window_for`, docs/windows.md).
+    static GROUP_WINDOWS: RefCell<Vec<(String, Rc<dyn Fn() -> AnyPiece>)>> = const { RefCell::new(Vec::new()) };
     static NEW_WINDOW_ACTION: Cell<u64> = const { Cell::new(0) };
 
     /// What the app asked `launch` for, so a window opened later can describe itself the same
@@ -190,6 +208,140 @@ impl WindowHandle {
             }
         });
     }
+
+    /// The window's display state, two ways (docs/windows.md "Window properties"): read it to
+    /// follow what the user does (minimize, zoom, fullscreen), write it to ask for a state.
+    ///
+    /// The platform has the last word. A write is a request; the signal settles on whatever the
+    /// window actually became once the platform reports it, so a request the platform declines
+    /// (a fullscreen the browser refuses outside a user gesture) reads back as the state the
+    /// window kept. Probe `Cap::WindowStates` and `Cap::WindowFullscreen` before offering the
+    /// controls. A cover-tier window (`Cap::MultiWindow` = `Unsupported`) stays `Normal`.
+    pub fn state(&self) -> Signal<WindowState> {
+        let root = self.root;
+        WINDOWS
+            .with(|w| w.borrow().iter().find(|r| r.root == root).map(|r| r.state))
+            .unwrap_or_else(|| Signal::new(WindowState::Normal))
+    }
+
+    /// This window's safe-area insets, in points (tracked): what lies under the window's own
+    /// chrome. Nonzero for a [`WindowChrome::Overlay`] window, whose title bar sits over the
+    /// content (docs/window-chrome.md), and on a phone running edge-to-edge. Unlike
+    /// [`crate::safe_area`], which resolves the window being built and otherwise the primary,
+    /// this keeps answering for this window when a binding re-runs later.
+    ///
+    /// [`WindowChrome::Overlay`]: day_spec::WindowChrome::Overlay
+    pub fn safe_area(&self) -> day_geometry::Insets {
+        crate::ambient::window_safe_area(self.root)
+    }
+
+    /// Ask for a display state: `state().set(s)`, spelled as an action.
+    pub fn set_state(&self, state: WindowState) {
+        self.state().set(state);
+    }
+
+    /// Keep this window's content out of screenshots, screen recordings and screen sharing
+    /// (`Cap::ContentProtection`, docs/windows.md): for passwords, payment details, private
+    /// messages. On iOS the content is covered while the screen is recorded or mirrored, but a
+    /// screenshot still captures it.
+    pub fn set_content_protected(&self, protected: bool) {
+        self.apply(WindowChange::ContentProtected(protected));
+    }
+
+    /// Move and/or resize the window (docs/windows.md "Window properties"): `origin` is the outer
+    /// frame's top-left corner on the desktop (`Cap::WindowPosition`), `size` the content size
+    /// (`Cap::WindowGeometry`). `None` leaves that part alone.
+    pub fn set_frame(&self, origin: Option<Point>, size: Option<Size>) {
+        self.apply(WindowChange::Frame { origin, size });
+    }
+
+    /// The window's outer frame on the desktop, in points, where the platform says
+    /// (`None` on a phone, under Wayland, and for a cover-tier window).
+    pub fn frame(&self) -> Option<Rect> {
+        if !self.is_native() {
+            return None;
+        }
+        let root = self.root;
+        with_tree(|t| t.native_window_frame(root))
+    }
+
+    /// The content sizes the user can resize the window between (`Cap::WindowGeometry`).
+    pub fn set_limits(&self, min: Option<Size>, max: Option<Size>) {
+        self.apply(WindowChange::Limits { min, max });
+    }
+
+    /// Whether the user can resize the window (`Cap::WindowGeometry`).
+    pub fn set_resizable(&self, resizable: bool) {
+        self.apply(WindowChange::Resizable(resizable));
+    }
+
+    /// Keep the window above other apps' windows, or let it stack normally (`Cap::WindowLevel`).
+    pub fn set_level(&self, level: WindowLevel) {
+        self.apply(WindowChange::Level(level));
+    }
+
+    /// Show the window on every virtual desktop / Space (`Cap::WindowLevel`).
+    pub fn set_on_all_workspaces(&self, on: bool) {
+        self.apply(WindowChange::OnAllWorkspaces(on));
+    }
+
+    /// Leave the window out of the taskbar and the window switcher (`Cap::WindowLevel`).
+    pub fn set_skip_taskbar(&self, skip: bool) {
+        self.apply(WindowChange::SkipTaskbar(skip));
+    }
+
+    /// Offer or withhold the window's minimize control (`Cap::WindowStates`).
+    pub fn set_minimizable(&self, on: bool) {
+        self.apply(WindowChange::Minimizable(on));
+    }
+
+    /// Offer or withhold the window's maximize / zoom control (`Cap::WindowStates`).
+    pub fn set_maximizable(&self, on: bool) {
+        self.apply(WindowChange::Maximizable(on));
+    }
+
+    /// Offer or withhold the window's close control (`Cap::WindowStates`). The app can still
+    /// close it with [`close`](Self::close).
+    pub fn set_closable(&self, on: bool) {
+        self.apply(WindowChange::Closable(on));
+    }
+
+    /// Hide the window without closing it, or show it again (`Cap::WindowStates`): a palette
+    /// that comes and goes, a window a status item toggles.
+    pub fn set_visible(&self, visible: bool) {
+        self.apply(WindowChange::Visible(visible));
+    }
+
+    /// Give this window its own light (`Some(false)`) or dark (`Some(true)`) appearance, or
+    /// follow the app's again (`None`). `Cap::WindowAppearance`; where unsupported the app-wide
+    /// `day::set_appearance` still applies.
+    pub fn set_appearance(&self, dark: Option<bool>) {
+        self.apply(WindowChange::Appearance(dark));
+    }
+
+    /// Ask for the user's attention: a Dock bounce, a flashing taskbar button
+    /// (`Cap::RequestAttention`). The platform does nothing while the app is already in front.
+    pub fn request_attention(&self, attention: Attention) {
+        self.apply(WindowChange::RequestAttention(attention));
+    }
+
+    /// Hand one change to the toolkit, for a window that has a native side. A cover-tier window
+    /// lives inside the primary one and has nothing of its own to change.
+    fn apply(&self, change: WindowChange) {
+        if self.is_native() {
+            let root = self.root;
+            with_tree(|t| t.apply_window(root, &change));
+        }
+    }
+
+    fn is_native(&self) -> bool {
+        let root = self.root;
+        WINDOWS.with(|w| {
+            w.borrow()
+                .iter()
+                .any(|r| r.root == root && matches!(r.tier, Tier::Native))
+        })
+    }
 }
 
 enum CloseAction {
@@ -230,6 +382,9 @@ pub fn open_window<P: Piece>(
         WindowRootReply::Open(root) => {
             register(root, key, kind, scope, Tier::Native);
             wire_window_events(root);
+            if let Some(k) = &options.remember_frame {
+                remember_frame(root, k);
+            }
             scope.enter(|| {
                 // Name this window for the duration of its build, so a `toolbar(...)` inside a
                 // shared window builder installs on this window (docs/toolbars.md).
@@ -419,6 +574,7 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
         for r in windows.iter_mut() {
             r.focused = false;
         }
+        let (state, reported) = state_rail(root, scope);
         windows.push(WindowRecord {
             root,
             key: key.map(str::to_string),
@@ -428,8 +584,121 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
             tier,
             focused: true,
             on_close: Rc::default(),
+            state,
+            reported,
+            remember: None,
         })
     });
+}
+
+/// Start remembering `root`'s frame under `key`, and put the window where it was last time
+/// (docs/windows.md "Remembered frames"). A saved position no attached display shows any more is
+/// dropped; the size is kept.
+fn remember_frame(root: RNode, key: &str) {
+    WINDOWS.with(|w| {
+        if let Some(r) = w.borrow_mut().iter_mut().find(|r| r.root == root) {
+            r.remember = Some(key.to_owned());
+        }
+    });
+    let Some(saved) = crate::frames::load(key) else {
+        return;
+    };
+    let areas: Vec<Rect> = monitors().iter().map(|m| m.work_area).collect();
+    let origin = crate::frames::on_screen(saved.frame, &areas).then_some(saved.frame.origin);
+    let handle = WindowHandle { root };
+    handle.set_frame(origin, Some(saved.frame.size));
+    if saved.maximized {
+        handle.set_state(WindowState::Maximized);
+    }
+}
+
+/// [`save_frame`] for a window already out of the registry (its state signal is still alive:
+/// the scope is disposed after this).
+fn save_frame_of_record(root: RNode, key: &str, state: WindowState) {
+    if matches!(state, WindowState::Minimized | WindowState::Fullscreen) {
+        return;
+    }
+    if let Some(frame) = remembered_frame(root) {
+        crate::frames::save(
+            key,
+            crate::frames::Remembered {
+                frame,
+                maximized: state == WindowState::Maximized,
+            },
+        );
+    }
+}
+
+/// Save the frame of every window that remembers one (window close, app quit).
+pub(crate) fn save_remembered_frames() {
+    let keyed: Vec<(RNode, String)> = WINDOWS
+        .try_with(|w| {
+            w.borrow()
+                .iter()
+                .filter(|r| matches!(r.tier, Tier::Native))
+                .filter_map(|r| r.remember.clone().map(|k| (r.root, k)))
+                .collect()
+        })
+        .unwrap_or_default();
+    for (root, key) in keyed {
+        save_frame(root, &key);
+    }
+}
+
+fn save_frame(root: RNode, key: &str) {
+    let handle = WindowHandle { root };
+    let state = handle.state().get_untracked();
+    // A minimized or fullscreen window's frame is not one to reopen at; keep the last normal
+    // one and only note the zoom.
+    if matches!(state, WindowState::Minimized | WindowState::Fullscreen) {
+        return;
+    }
+    if let Some(frame) = remembered_frame(root) {
+        crate::frames::save(
+            key,
+            crate::frames::Remembered {
+                frame,
+                maximized: state == WindowState::Maximized,
+            },
+        );
+    }
+}
+
+/// What a remembered frame records: the outer frame's position, and the size Day lays the
+/// content out at, which is the size `WindowChange::Frame` restores. Recording the outer size
+/// would grow the window by its title bar on every launch.
+fn remembered_frame(root: RNode) -> Option<Rect> {
+    let outer = with_tree(|t| t.native_window_frame(root))?;
+    let laid_out = with_tree(|t| t.node_frame(root)).map_or(outer.size, |f| f.size);
+    Some(Rect::new(
+        outer.origin.x,
+        outer.origin.y,
+        laid_out.width,
+        laid_out.height,
+    ))
+}
+
+/// The window's two-way state signal: an app write becomes a [`WindowChange::State`] request,
+/// a platform report (`Event::WindowStateChanged`, handled in `wire_window_events`) is written
+/// into the signal without being sent back. Owned by the window's scope, so it goes with the
+/// window.
+fn state_rail(root: RNode, scope: Scope) -> (Signal<WindowState>, Rc<Cell<WindowState>>) {
+    let reported: Rc<Cell<WindowState>> = Rc::default();
+    let state = scope.enter(|| {
+        let state = Signal::new(WindowState::Normal);
+        let rep = reported.clone();
+        day_reactive::bind_seeded(
+            WindowState::Normal,
+            move || state.get(),
+            move |s| {
+                if *s != rep.get() {
+                    WindowHandle { root }.apply(WindowChange::State(*s));
+                }
+            },
+        );
+        state
+    });
+    (state, reported)
 }
 
 /// The per-window event rail (native + pending tiers): resize relayouts that window,
@@ -469,6 +738,18 @@ fn wire_window_events(root: RNode) {
                 Event::WindowClosed => {
                     day_reactive::on_main(move || teardown(root));
                 }
+                Event::WindowStateChanged(s) => {
+                    let s = *s;
+                    let signal = WINDOWS.with(|w| {
+                        w.borrow().iter().find(|r| r.root == root).map(|r| {
+                            r.reported.set(s);
+                            r.state
+                        })
+                    });
+                    if let Some(signal) = signal {
+                        signal.set_if_changed(s);
+                    }
+                }
                 _ => {}
             }),
         );
@@ -498,7 +779,32 @@ fn app_has_primary_window() -> bool {
 /// for exactly this. Quitting there would be the framework overriding a platform convention
 /// its users rely on. Every other desktop treats the last window as the app.
 fn last_primary_close_quits() -> bool {
-    !cfg!(target_os = "macos")
+    match crate::status::keep_running_policy() {
+        // A status item (Automatic) or the app's own choice keeps the process up.
+        _ if crate::status::keeps_running() => false,
+        crate::status::KeepRunning::Never => true,
+        _ => !cfg!(target_os = "macos"),
+    }
+}
+
+/// End the app now (docs/windows.md "Keeping the app running"): the Quit item of a status
+/// item's menu, a background helper's own decision. Every window is disposed and
+/// `Lifecycle::WillTerminate` delivered first, as when the last window closes.
+pub fn quit() {
+    let remaining: Vec<RNode> = WINDOWS.with(|w| w.borrow().iter().map(|r| r.root).collect());
+    for root in remaining {
+        teardown_quietly(root);
+    }
+    crate::lifecycle::dispatch_lifecycle(day_spec::Lifecycle::WillTerminate);
+    with_tree(|t| t.quit_app());
+}
+
+/// [`teardown`] without the "was that the last primary?" check: the caller is ending the app
+/// itself.
+fn teardown_quietly(root: RNode) {
+    QUITTING.with(|q| q.set(true));
+    teardown(root);
+    QUITTING.with(|q| q.set(false));
 }
 
 /// End the app because its last [`WindowRole::Primary`] window has closed.
@@ -535,6 +841,10 @@ fn teardown(root: RNode) {
     // The toolbar forgets the window FIRST: its contributions' cleanups run inside the
     // dispose below and would otherwise re-compose a bar through gates whose signals the same
     // dispose has already dropped (a contained panic that left the next New Window blank).
+    // The frame, while the native window still answers for it.
+    if let (Some(key), Tier::Native) = (&record.remember, &record.tier) {
+        save_frame_of_record(root, key, record.state.get_untracked());
+    }
     crate::frame::forget_window(root);
     crate::toolbar::forget_window(root);
     record.scope.dispose();
@@ -564,7 +874,10 @@ fn teardown(root: RNode) {
     }
     // The app's life is the life of its primary windows, not of the first one opened. Checked
     // after the callbacks so a handler that opens a replacement window is counted.
-    if record.role == WindowRole::Primary && !app_has_primary_window() {
+    if record.role == WindowRole::Primary
+        && !app_has_primary_window()
+        && !QUITTING.with(|q| q.get())
+    {
         quit_after_last_primary();
     }
 }
@@ -725,6 +1038,9 @@ pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
             // Secondary windows: the app-launch ceremony belongs to `launch` alone.
             locales: None,
             title_fn: None,
+            // A settings panel never becomes a tab; `WindowKind::Preferences` says so already.
+            tabbing: WindowTabbing::Automatic,
+            ..WindowOptions::default()
         },
         build,
     );
@@ -810,10 +1126,72 @@ pub fn open_new_window() -> Option<WindowHandle> {
             // Already resolved into `title` above; calling it again would re-run app code
             // outside the launch sequence it was written for.
             title_fn: None,
+            tabbing: WindowTabbing::Automatic,
+            ..WindowOptions::default()
         },
         WindowKind::Normal,
         move || build(),
     ))
+}
+
+/// Register the builder behind the macOS tab bar's "+" for windows whose
+/// [`WindowOptions::tabbing`] names `group` (docs/windows.md): each call opens another window of
+/// that group, as a tab of the window the user clicked "+" in. Groups without a registration
+/// fall back to [`register_new_window`]'s builder.
+pub fn register_new_window_for<P: Piece>(group: &str, build: impl Fn() -> P + 'static) {
+    let build: Rc<dyn Fn() -> AnyPiece> = Rc::new(move || AnyPiece::new(build()));
+    GROUP_WINDOWS.with(|g| {
+        let mut groups = g.borrow_mut();
+        groups.retain(|(name, _)| name != group);
+        groups.push((group.to_string(), build));
+    });
+}
+
+/// Open another window of tab group `group` (the backend's `newWindowForTab:` path for a window
+/// whose tabbing names a group). Uses the group's registered builder, else the app's New Window
+/// builder; `None` when neither exists.
+pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
+    let Some(build) = GROUP_WINDOWS.with(|g| {
+        g.borrow()
+            .iter()
+            .find(|(name, _)| name == group)
+            .map(|(_, b)| b.clone())
+    }) else {
+        return open_new_window();
+    };
+    let launch = LAUNCH_OPTIONS.with(|o| o.borrow().clone());
+    let size = with_tree(|t| {
+        let root = t.root_node();
+        t.node_frame(root).map(|f| f.size)
+    })
+    .unwrap_or(Size::new(800.0, 600.0));
+    Some(open_window(
+        None,
+        WindowOptions {
+            title: launch.as_ref().map(|o| o.title.clone()).unwrap_or_default(),
+            size,
+            min_size: launch.as_ref().and_then(|o| o.min_size),
+            app_name: launch.as_ref().and_then(|o| o.app_name.clone()),
+            version: launch.as_ref().and_then(|o| o.version.clone()),
+            tabbing: WindowTabbing::Group(group.to_string()),
+            ..WindowOptions::default()
+        },
+        WindowKind::Normal,
+        move || build(),
+    ))
+}
+
+/// The window the caller belongs to (docs/windows.md): the one whose content is being built
+/// right now, else the focused window, else the app's first window. What a piece uses to change
+/// "its" window (`current_window()?.set_content_protected(true)`) without threading a handle
+/// through. `None` before boot.
+pub fn current_window() -> Option<WindowHandle> {
+    let building = crate::toolbar::window_being_built();
+    let known = WINDOWS.with(|w| w.borrow().iter().any(|r| r.root == building));
+    if known {
+        return Some(WindowHandle { root: building });
+    }
+    focused_window().or_else(initial_window)
 }
 
 /// Bind the title of the window this piece is building into to a reactive closure
@@ -890,6 +1268,7 @@ pub fn reset_windows() {
     crate::toolbar::reset_toolbars();
     PREFS.with(|p| *p.borrow_mut() = None);
     NEW_WINDOW.with(|p| *p.borrow_mut() = None);
+    GROUP_WINDOWS.with(|g| g.borrow_mut().clear());
     // Action ids stay registered (the closures are inert without a builder); that is cheap, and
     // re-registration reuses them.
 }
@@ -906,6 +1285,34 @@ pub fn adopt_initial_window(root: RNode, scope: Scope) {
     register(root, None, WindowKind::Normal, scope, Tier::Native);
     wire_window_events(root);
     INITIAL_WINDOW.with(|c| c.set(Some(root)));
+    let key = LAUNCH_OPTIONS.with(|o| o.borrow().as_ref().and_then(|o| o.remember_frame.clone()));
+    if let Some(key) = key {
+        remember_frame(root, &key);
+    }
+}
+
+/// The displays attached now (docs/windows.md "Monitors"). A toolkit that cannot list them
+/// (`Cap::Monitors` unsupported) answers with one display the size of the primary window, so a
+/// placement computed from the answer stays on screen.
+pub fn monitors() -> Vec<day_spec::Monitor> {
+    let listed = with_tree(|t| t.monitors());
+    if !listed.is_empty() {
+        return listed;
+    }
+    let size = with_tree(|t| {
+        let root = t.root_node();
+        t.node_frame(root).map(|f| f.size)
+    })
+    .unwrap_or(Size::new(0.0, 0.0));
+    let frame = Rect::new(0.0, 0.0, size.width, size.height);
+    vec![day_spec::Monitor {
+        id: "0".into(),
+        name: String::new(),
+        frame,
+        work_area: frame,
+        scale: 1.0,
+        primary: true,
+    }]
 }
 
 /// A handle to the app's first window, once adopted. `None` before boot completes, and after

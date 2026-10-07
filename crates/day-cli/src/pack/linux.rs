@@ -163,15 +163,30 @@ pub(crate) fn stage_exports(
     std::fs::create_dir_all(&desktop_dir).map_err(|e| e.to_string())?;
     std::fs::write(
         desktop_dir.join(format!("{id}.desktop")),
-        crate::url_handlers::linux(
-            crate::documents::linux_entry(
-                desktop_entry(title, exec, id),
-                &project.manifest.file_types,
+        crate::shortcuts::linux_actions(
+            crate::url_handlers::linux(
+                crate::documents::linux_entry(
+                    desktop_entry(title, exec, id),
+                    &project.manifest.file_types,
+                ),
+                &project.manifest.url_schemes,
             ),
-            &project.manifest.url_schemes,
+            &crate::shortcuts::resolved(project)?,
+            exec,
+            &project.manifest.resolve("linux-gtk").scheme(),
         ),
     )
     .map_err(|e| e.to_string())?;
+    // The app's own file formats need a MIME type before the `.desktop` file's `MimeType=` can
+    // match any file (docs/documents.md).
+    if let Some(package) = crate::documents::linux_mime_package(
+        &project.manifest.file_types,
+        &crate::documents::descriptions(project)?,
+    ) {
+        let mime_dir = prefix.join("share/mime/packages");
+        std::fs::create_dir_all(&mime_dir).map_err(|e| e.to_string())?;
+        std::fs::write(mime_dir.join(format!("{id}.xml")), package).map_err(|e| e.to_string())?;
+    }
 
     let metainfo = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>

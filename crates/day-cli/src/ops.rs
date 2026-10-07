@@ -517,6 +517,17 @@ pub fn app_identity_env(project: &Project, target: &str) -> BTreeMap<String, OsS
         "DAY_APP_TITLE".to_string(),
         project.manifest.resolve(target).title.into(),
     );
+    // The URL scheme a desktop launcher shortcut's command line links through
+    // (`day_core::launch_link`, docs/deep-links.md): Windows jump lists are built at run time.
+    env.insert(
+        "DAY_APP_SCHEME".to_string(),
+        project.manifest.resolve(target).scheme().into(),
+    );
+    // A menu-bar app (`[app.macos] dock = false`): the bundle says so with LSUIElement, and an
+    // unbundled `day launch` binary, which has no Info.plist, hears it here (docs/status-item.md).
+    if !project.manifest.resolve(target).dock {
+        env.insert("DAY_MACOS_DOCK".to_string(), "0".into());
+    }
     env.extend(determinism_env());
     // The active flavor's build inputs (DESIGN.md §16.6): its `[env]`, and the merged resource
     // tree, which `day-build` reads in the app's build.rs so the generated constants and the
@@ -669,17 +680,36 @@ pub fn build_self_contained(
     outcome
 }
 
+/// `LSUIElement` in the macOS Info.plist, from `[app.macos] dock` (docs/status-item.md): present
+/// and true for a menu-bar app, absent otherwise. Day.toml is the source of truth for the key.
+fn sync_dock_visibility(plist: &std::path::Path, dock: bool) -> Result<(), String> {
+    if !plist.exists() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(plist).map_err(|e| format!("{}: {e}", plist.display()))?;
+    let value = plist::Value::from_reader_xml(text.as_bytes())
+        .map_err(|e| format!("{}: {e}", plist.display()))?;
+    let current = value
+        .as_dictionary()
+        .and_then(|d| d.get("LSUIElement"))
+        .cloned();
+    let wanted = (!dock).then_some(plist::Value::Boolean(true));
+    if current == wanted {
+        return Ok(());
+    }
+    let out = crate::plist::apply_value_key(&text, "LSUIElement", wanted.as_ref())?;
+    std::fs::write(plist, out).map_err(|e| format!("{}: {e}", plist.display()))
+}
+
 pub fn build(
     project: &Project,
     target: &'static Target,
     profile: Profile,
 ) -> Result<BuildOutcome, String> {
     if target.os == "macos" {
-        crate::documents::sync_apple(
-            project,
-            &project.root.join("platform/macos/Runner/Info.plist"),
-            false,
-        )?;
+        let plist = project.root.join("platform/macos/Runner/Info.plist");
+        crate::documents::sync_apple(project, &plist, false)?;
+        sync_dock_visibility(&plist, project.manifest.resolve(target.name).dock)?;
     }
     let host = crate::targets::host_os();
     if target.host != "any" && target.host != host {

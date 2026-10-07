@@ -165,6 +165,9 @@ public final class DayBridge {
     /** A key reached a focused canvas (docs/menus.md): the day key name, with the modifier mask. */
     public static final int K_KEY = 29;
     public static final int K_SAFE_AREA = 19;
+    /** A window's display state changed (docs/windows.md): num = the day WindowState code
+     *  (0 normal, 3 fullscreen here), against the window's day node or 0 for the primary. */
+    public static final int K_WINDOW_STATE_CHANGED = 34;
     /** Whether node `id` has an `.on_key` handler (docs/menus.md): a canvas asks before it
      *  claims a key or takes focus on a press. */
     public static native boolean nativeHandlesKeys(long id);
@@ -2055,6 +2058,285 @@ public final class DayBridge {
         }
     }
 
+    // --- launcher shortcuts and the display (docs/deep-links.md, docs/windows.md) ----------
+
+    /** Whether this device keeps shortcuts the app sets while it runs: ShortcutManager is
+     *  API 25, one above the minimum. */
+    public static boolean canSetLauncherShortcuts() {
+        return android.os.Build.VERSION.SDK_INT >= 25;
+    }
+
+    /** Rust's `set_launcher_shortcuts`: the app's dynamic shortcuts, replaced as a whole.
+     *  `packed` holds one record per shortcut, separated by U+001E, each a route and a label
+     *  separated by U+001F (control characters neither can contain). Each carries the same intent the
+     *  Day.toml [[shortcuts]] declare (`day build` writes those): VIEW of `<scheme>://<route>`
+     *  at the launcher activity, so a press reaches the deep-link intake (`DAY_OPEN_URL` on a
+     *  cold start, `onNewIntent` on a warm one) exactly as theirs does. The launcher shows the
+     *  static ones too, and the platform caps the two together per activity, so what does not
+     *  fit is left out rather than failing the whole call. */
+    public static void setLauncherShortcuts(String packed) {
+        if (!canSetLauncherShortcuts() || ctx == null) return;
+        try {
+            String[] records = packed.isEmpty() ? new String[0] : packed.split("\u001e", -1);
+            Context app = ctx.getApplicationContext();
+            android.content.pm.ShortcutManager sm =
+                    app.getSystemService(android.content.pm.ShortcutManager.class);
+            if (sm == null) return;
+            android.content.Intent launch =
+                    app.getPackageManager().getLaunchIntentForPackage(app.getPackageName());
+            android.content.ComponentName target = launch == null ? null : launch.getComponent();
+            if (target == null) return;
+            String scheme = deepLinkScheme(app);
+            int room = Math.max(0,
+                    sm.getMaxShortcutCountPerActivity() - sm.getManifestShortcuts().size());
+            int icon = app.getApplicationInfo().icon;
+            java.util.List<android.content.pm.ShortcutInfo> list =
+                    new java.util.ArrayList<android.content.pm.ShortcutInfo>();
+            for (int i = 0; i < records.length && list.size() < room; i++) {
+                String[] fields = records[i].split("\u001f", -1);
+                String route = fields[0];
+                String text = fields.length > 1 ? fields[1] : "";
+                String link = scheme == null ? route : scheme + "://" + route;
+                android.content.Intent intent = new android.content.Intent(
+                        android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link))
+                        .setComponent(target);
+                String label = text.isEmpty() ? route : text;
+                if (label.isEmpty()) continue;
+                android.content.pm.ShortcutInfo.Builder b =
+                        new android.content.pm.ShortcutInfo.Builder(app, "day_dynamic_" + i)
+                                .setShortLabel(label)
+                                .setLongLabel(label)
+                                .setIntent(intent)
+                                .setRank(i);
+                if (icon != 0) b.setIcon(android.graphics.drawable.Icon.createWithResource(app, icon));
+                list.add(b.build());
+            }
+            // False when the platform rate-limits a background app; the app is in front
+            // whenever its own code asks, so this is not expected to bite.
+            if (!sm.setDynamicShortcuts(list)) {
+                android.util.Log.w("Day", "setDynamicShortcuts was rate-limited");
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "setLauncherShortcuts failed", t);
+        }
+    }
+
+    private static boolean schemeRead;
+    private static String scheme;
+
+    /** The app's deep-link scheme, as `day build` picks it for the static shortcuts: the first
+     *  `<data android:scheme>` in the manifest. The scaffold fills it in from Day.toml at build
+     *  time, so the compiled manifest in the APK is where it can be read back. `null` when there
+     *  is none: the shortcut then carries the bare route, which the intake passes through. */
+    static String deepLinkScheme(Context app) {
+        if (schemeRead) return scheme;
+        schemeRead = true;
+        try (android.content.res.XmlResourceParser p =
+                     app.getAssets().openXmlResourceParser("AndroidManifest.xml")) {
+            for (int ev = p.next(); ev != org.xmlpull.v1.XmlPullParser.END_DOCUMENT; ev = p.next()) {
+                if (ev != org.xmlpull.v1.XmlPullParser.START_TAG || !"data".equals(p.getName())) {
+                    continue;
+                }
+                String s = p.getAttributeValue("http://schemas.android.com/apk/res/android", "scheme");
+                if (s != null && !s.isEmpty()) {
+                    scheme = s;
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("Day", "could not read the deep-link scheme", t);
+        }
+        return scheme;
+    }
+
+    /** The display the primary window is on, for Rust's `monitors()`, as one line of
+     *  tab-separated fields: id, name, scale, then the frame's width and height and the work
+     *  area's left, top, width and height, all in dp. The work area leaves out the system
+     *  bars and any display cutout. `null` before an activity exists. */
+    public static String displayInfo() {
+        try {
+            android.app.Activity a = primaryActivity.get();
+            Context c = a != null ? a : ctx;
+            if (c == null) return null;
+            android.view.WindowManager wm = (android.view.WindowManager)
+                    c.getSystemService(Context.WINDOW_SERVICE);
+            if (wm == null) return null;
+            @SuppressWarnings("deprecation")
+            android.view.Display display = wm.getDefaultDisplay();
+            float density = c.getResources().getDisplayMetrics().density;
+            int w, h, left, top, right, bottom;
+            if (android.os.Build.VERSION.SDK_INT >= 30) {
+                android.view.WindowMetrics m = wm.getMaximumWindowMetrics();
+                android.graphics.Rect b = m.getBounds();
+                android.graphics.Insets in = m.getWindowInsets().getInsetsIgnoringVisibility(
+                        android.view.WindowInsets.Type.systemBars()
+                                | android.view.WindowInsets.Type.displayCutout());
+                w = b.width(); h = b.height();
+                left = in.left; top = in.top; right = in.right; bottom = in.bottom;
+            } else {
+                // Before WindowMetrics: the real size is the display's, and the application
+                // size leaves out the navigation bar; the status bar comes off the top.
+                android.util.DisplayMetrics real = new android.util.DisplayMetrics();
+                android.util.DisplayMetrics usable = new android.util.DisplayMetrics();
+                display.getRealMetrics(real);
+                display.getMetrics(usable);
+                w = real.widthPixels; h = real.heightPixels;
+                int sb = c.getResources().getIdentifier("status_bar_height", "dimen", "android");
+                left = 0;
+                top = sb > 0 ? c.getResources().getDimensionPixelSize(sb) : 0;
+                right = w - usable.widthPixels;
+                bottom = h - usable.heightPixels;
+            }
+            String name = display.getName();
+            return display.getDisplayId() + "\t" + (name == null ? "" : name.replace('\t', ' '))
+                    + "\t" + density
+                    + "\t" + (w / density) + "\t" + (h / density)
+                    + "\t" + (left / density) + "\t" + (top / density)
+                    + "\t" + (Math.max(0, w - left - right) / density)
+                    + "\t" + (Math.max(0, h - top - bottom) / density);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "displayInfo failed", t);
+            return null;
+        }
+    }
+
+    // --- window properties (docs/windows.md) ----------------------------------------------
+    // Fullscreen hides the system bars through the window's insets controller; content
+    // protection is FLAG_SECURE. Both are per window: the primary activity (node 0) or a
+    // secondary DayWindowActivity (its day node).
+
+    /** The primary activity. `ctx` follows whichever activity was resumed last, so a request
+     *  addressed to the primary window needs its own reference. */
+    static java.lang.ref.WeakReference<android.app.Activity> primaryActivity =
+            new java.lang.ref.WeakReference<android.app.Activity>(null);
+    /** Windows the app asked fullscreen, by day node (0 = the primary). */
+    private static final java.util.Set<Long> fullscreenWindows = new java.util.HashSet<Long>();
+    /** Windows the app asked to keep out of captures, by day node (0 = the primary). */
+    private static final java.util.Set<Long> secureWindows = new java.util.HashSet<Long>();
+    /** The last state code reported per window, so an inset pass reports only a real change. */
+    private static final java.util.Map<Long, Integer> reportedWindowState =
+            new java.util.HashMap<Long, Integer>();
+
+    /** The activity showing day window `node`, or null once it is gone. */
+    static android.app.Activity windowActivity(long node) {
+        if (node == 0) return primaryActivity.get();
+        return DayWindowActivity.ACTIVE.get(node);
+    }
+
+    /** The day node an activity shows: its own for a secondary window, 0 for the primary. */
+    static long windowNodeOf(android.app.Activity a) {
+        return a instanceof DayWindowActivity ? ((DayWindowActivity) a).node : 0L;
+    }
+
+    /** A new primary activity: a fresh tree mounts in it, whose window starts normal and
+     *  unprotected, so the previous activity's requests are forgotten rather than reapplied. */
+    static void primaryCreated(android.app.Activity a) {
+        primaryActivity = new java.lang.ref.WeakReference<android.app.Activity>(a);
+        fullscreenWindows.remove(0L);
+        secureWindows.remove(0L);
+        reportedWindowState.remove(0L);
+    }
+
+    /** A secondary window's activity was (re)created: its day window carries on, so the
+     *  properties it was given come back with it. */
+    static void secondaryCreated(DayWindowActivity a) {
+        if (secureWindows.contains(a.node)) applySecure(a, true);
+        if (fullscreenWindows.contains(a.node)) applyBars(a);
+    }
+
+    /** A secondary window closed for good: drop what was recorded for it. */
+    static void secondaryClosed(long node) {
+        fullscreenWindows.remove(node);
+        secureWindows.remove(node);
+        reportedWindowState.remove(node);
+    }
+
+    /** Rust's `apply_window` for `WindowChange::State`: `code` is the day WindowState code.
+     *  Fullscreen hides the system bars, transiently revealed by a swipe from the edge, the
+     *  platform's immersive mode; normal shows them. Minimized and maximized are not states a
+     *  phone or tablet app can put itself in, so those report the state the window kept. */
+    public static void setWindowState(final long node, int code) {
+        try {
+            android.app.Activity a = windowActivity(node);
+            if (a == null) return;
+            if (code != 0 && code != 3) {
+                // Posted, like every report: this runs inside a call from Rust.
+                main.post(new Runnable() {
+                    public void run() { reportWindowState(node, true); }
+                });
+                return;
+            }
+            if (code == 3) fullscreenWindows.add(node); else fullscreenWindows.remove(node);
+            applyBars(a);
+            // The inset pass that follows the bars moving reports the outcome. This settles the
+            // request when they never move (already hidden, or a windowing mode that keeps
+            // them): a window that did not become what was asked reports even unchanged.
+            final int wanted = code;
+            main.postDelayed(new Runnable() {
+                public void run() {
+                    android.app.Activity w = windowActivity(node);
+                    if (w != null) reportWindowState(node, windowStateOf(w, node) != wanted);
+                }
+            }, 600);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "setWindowState failed", t);
+        }
+    }
+
+    /** Rust's `apply_window` for `WindowChange::ContentProtected`: FLAG_SECURE keeps the window
+     *  out of screenshots, screen recordings, casting and the recents thumbnail. */
+    public static void setWindowSecure(long node, boolean on) {
+        try {
+            if (on) secureWindows.add(node); else secureWindows.remove(node);
+            android.app.Activity a = windowActivity(node);
+            if (a != null) applySecure(a, on);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "setWindowSecure failed", t);
+        }
+    }
+
+    private static void applySecure(android.app.Activity a, boolean on) {
+        if (on) {
+            a.getWindow().addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        } else {
+            a.getWindow().clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE);
+        }
+    }
+
+    /** An activity's root saw new window insets (its insets listener): report its window's
+     *  state if the bars moved. Posted, since the listener runs inside a layout pass. */
+    static void windowInsetsChanged(android.app.Activity a) {
+        if (!started) return;
+        final long node = windowNodeOf(a);
+        main.post(new Runnable() {
+            public void run() { reportWindowState(node, false); }
+        });
+    }
+
+    /** What window `node` shows as: fullscreen while the app asked for it AND the status bar is
+     *  actually hidden (a mode that keeps the bars leaves the window normal). */
+    private static int windowStateOf(android.app.Activity a, long node) {
+        if (!fullscreenWindows.contains(node)) return 0;
+        androidx.core.view.WindowInsetsCompat in =
+                androidx.core.view.ViewCompat.getRootWindowInsets(a.getWindow().getDecorView());
+        if (in == null) return 0;
+        return in.isVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars()) ? 0 : 3;
+    }
+
+    /** Report window `node`'s state to day: on a change, or every time with `always` (a request
+     *  the platform declined still reports, so the app's state signal settles on the truth). */
+    static void reportWindowState(long node, boolean always) {
+        if (!started) return;
+        android.app.Activity a = windowActivity(node);
+        if (a == null) return;
+        int code = windowStateOf(a, node);
+        Integer last = reportedWindowState.put(node, code);
+        int previous = last == null ? 0 : last;
+        if (always || previous != code) {
+            nativeOnEvent(node, K_WINDOW_STATE_CHANGED, code, null);
+        }
+    }
+
     /** Deferred system gestures (docs/cover.md): while any `defers_system_gestures` subtree
      *  is mounted, enter swipe-to-reveal immersive mode, the platform's "first swipe shows
      *  the bars, second swipe acts" behavior, the closest analogue of iOS's screen-edge
@@ -2075,23 +2357,28 @@ public final class DayBridge {
     private static boolean deferSystemGestures;
     private static boolean statusBarHidden;
 
-    /** One insets-controller state for both requests, so neither undoes the other: deferral
-     *  hides every system bar, the status-bar request only the status bar. */
     private static void applySystemBars() {
-        android.app.Activity act = (android.app.Activity) ctx;
+        applyBars((android.app.Activity) ctx);
+    }
+
+    /** One insets-controller state for every request, so none undoes another: deferral and a
+     *  fullscreen window (docs/windows.md) hide every system bar, the status-bar request only
+     *  the status bar. */
+    private static void applyBars(android.app.Activity act) {
+        boolean fullscreen = fullscreenWindows.contains(windowNodeOf(act));
         androidx.core.view.WindowInsetsControllerCompat c =
                 androidx.core.view.WindowCompat.getInsetsController(
                         act.getWindow(), act.getWindow().getDecorView());
         int bars = androidx.core.view.WindowInsetsCompat.Type.systemBars();
         int status = androidx.core.view.WindowInsetsCompat.Type.statusBars();
-        if (deferSystemGestures || statusBarHidden) {
+        if (deferSystemGestures || statusBarHidden || fullscreen) {
             c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
                     .BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         } else {
             c.setSystemBarsBehavior(androidx.core.view.WindowInsetsControllerCompat
                     .BEHAVIOR_DEFAULT);
         }
-        if (deferSystemGestures) {
+        if (deferSystemGestures || fullscreen) {
             c.hide(bars);
         } else if (statusBarHidden) {
             c.show(androidx.core.view.WindowInsetsCompat.Type.navigationBars());

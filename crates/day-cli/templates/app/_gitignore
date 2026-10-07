@@ -62,8 +62,12 @@ platform/android/gradle/gradle-daemon-jvm.properties
 platform/android/.idea/
 
 # The website is generated from repo data: the daysite template clone (local preview) and the
-# synthesized data files. Only website/site.toml and website/theme.css are source.
+# synthesized data files. Keep site.toml, theme.css, optional customization modules, Astro
+# source/content, and theme dependency lockfiles tracked.
 website/.daysite/
+website/node_modules/
+website/.astro/
+website/dist/
 website/appindex.json
 website/channels.json
 website/gallery-manifest.json

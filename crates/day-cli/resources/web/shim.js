@@ -1455,6 +1455,38 @@ const env = {
   // App badge (docs/badge.md). The Badging API is Chromium + Safari-for-installed-PWAs; Firefox
   // has none, so every call is feature-guarded. `count < 0` clears. The promises are ignored:
   // a rejection here (not installed, insecure context) is not something the app can act on.
+  // Fullscreen (docs/windows.md "Window properties"), on the document element so the toolbar
+  // and dialogs come along. `on` 1 enters, 0 leaves. Returns -1 while the browser holds the
+  // request: `fullscreenchange` (start()) reports the outcome, and a refusal (no user gesture,
+  // a permissions policy) reports the state the page kept as a declined request. Otherwise
+  // nothing was asked and the answer is the current state code (0 Normal, 3 Fullscreen).
+  day_dom_set_fullscreen(on) {
+    const now = fullscreenCode();
+    if (!document.fullscreenEnabled || (on === 1) === (now === 3)) return now;
+    try {
+      const request = on === 1 ? document.documentElement.requestFullscreen() : document.exitFullscreen();
+      Promise.resolve(request).catch(() => wasm.day_dom_window_state(fullscreenCode(), 1));
+      return -1;
+    } catch (_) {
+      return fullscreenCode();
+    }
+  },
+  // The primary window's chrome (docs/window-chrome.md), once at boot. A browser draws its own
+  // frame; the one chrome a page can change is the title bar of an installed Chromium app whose
+  // manifest lists `window-controls-overlay` in `display_override`, and only after the user
+  // hides the title bar with its toggle. `overlay` 1: the content runs under the overlay; its
+  // height is the answer (Rust seeds the safe area with it before the root builds) and every
+  // `geometrychange` reports it again as the safe-area top inset. 0 (Standard): the body is
+  // pushed below the overlay, behind a draggable strip, so an app that never asked for an
+  // overlay still looks the same when the user turns it on.
+  day_dom_window_chrome(overlay) {
+    installChromeStyle();
+    document.documentElement.classList.add(overlay ? 'day-chrome-overlay' : 'day-chrome-standard');
+    const wco = navigator.windowControlsOverlay;
+    if (!overlay || !wco) return 0;
+    wco.addEventListener('geometrychange', () => wasm.day_dom_titlebar_inset(titlebarInset()));
+    return titlebarInset();
+  },
   day_dom_set_app_badge(count) {
     try {
       if (count < 0) { navigator.clearAppBadge?.(); }
@@ -1504,6 +1536,11 @@ const env = {
       case 'dark': v = (q.get('theme') ?? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')) === 'dark' ? '1' : '0'; break;
       // The user's reduce-motion setting, as the browser relays it (docs/accessibility.md).
       case 'reduce_motion': v = reduceMotion().matches ? '1' : ''; break;
+      // Whether the browser has the Window Controls Overlay API (Chromium on the desktop), the
+      // one place a title-bar overlay and `app-region` drag regions can take effect.
+      case 'wco': v = navigator.windowControlsOverlay ? '1' : ''; break;
+      // Whether the page may go fullscreen at all (Cap::WindowFullscreen).
+      case 'fullscreen': v = document.fullscreenEnabled ? '1' : ''; break;
       case 'locales': v = (q.get('locale') ? [q.get('locale')] : navigator.languages).join(','); break;
       case 'day_url': v = q.get('day_url') || ''; break;
       case 'route': v = location.hash.slice(1) || q.get('route') || ''; break;
@@ -1649,9 +1686,65 @@ const env = {
   day_dom_set_dark(mode) {
     const dark = mode === 2 ? matchMedia('(prefers-color-scheme: dark)').matches : mode === 1;
     document.documentElement.classList.toggle('dark', dark);
+    // The browser's own parts (scrollbars, form-control internals, the caret) follow too.
+    document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
     return dark ? 1 : 0;
   },
+  // Window frame and screen (docs/windows.md "Monitors"), in CSS px on the desktop.
+  day_dom_window_frame(out) {
+    if (!(outerWidth > 0 && outerHeight > 0)) return 0;
+    f64(out, 4).set([screenX, screenY, outerWidth, outerHeight]);
+    return 1;
+  },
+  day_dom_screen(out) {
+    const s = window.screen;
+    const x = s.left ?? 0, y = s.top ?? 0;
+    f64(out, 9).set([
+      x, y, s.width, s.height,
+      s.availLeft ?? x, s.availTop ?? y, s.availWidth, s.availHeight,
+      devicePixelRatio || 1,
+    ]);
+  },
 };
+
+/** How far the title-bar overlay reaches into the page, in CSS px; 0 while it is hidden. */
+function titlebarInset() {
+  const wco = navigator.windowControlsOverlay;
+  if (!wco?.visible) return 0;
+  const r = wco.getTitlebarAreaRect();
+  return r.y + r.height;
+}
+
+// Drag regions (`.window_drag_region()`, docs/window-chrome.md): `app-region: drag` on the
+// region, and `no-drag` on the controls inside it so they keep their clicks. Chromium honors it
+// only inside an installed app's window-controls overlay, where a press moves the window and a
+// double click maximizes it; everywhere else the region is an ordinary element. The Standard
+// rules keep an app that did not ask for an overlay below it (see day_dom_window_chrome).
+// `env(titlebar-area-*)` is undefined, so the fallbacks apply, while no overlay shows.
+let chromeStyle = null;
+function installChromeStyle() {
+  if (chromeStyle) return;
+  const drag = '-webkit-app-region: drag; app-region: drag;';
+  const noDrag = '-webkit-app-region: no-drag; app-region: no-drag;';
+  chromeStyle = document.createElement('style');
+  chromeStyle.textContent = `
+.day-drag-region { ${drag} }
+.day-drag-region :is(button, input, select, textarea, a, [contenteditable], [tabindex],
+  [role=button], [role=link], [role=checkbox], [role=switch], [role=slider], [role=option],
+  [role=tab], [role=menuitem], [role=listbox], [role=textbox]) { ${noDrag} }
+html.day-chrome-standard body { box-sizing: border-box; padding-top: env(titlebar-area-height, 0px); }
+html.day-chrome-standard body::before {
+  content: ""; position: fixed; z-index: 2147483647;
+  left: env(titlebar-area-x, 0px); top: env(titlebar-area-y, 0px);
+  width: env(titlebar-area-width, 0px); height: env(titlebar-area-height, 0px); ${drag}
+}`;
+  document.head.append(chromeStyle);
+}
+
+/** The page's display state as a `WindowState` code: 3 Fullscreen, else 0 Normal. */
+function fullscreenCode() {
+  return document.fullscreenElement ? 3 : 0;
+}
 
 function selectAmong(group, idx) {
   [...group.children].forEach((b, i) => b.classList.toggle('selected', i === idx));
@@ -2737,6 +2830,8 @@ async function boot(wasmUrl) {
   // The page's last moment (a navigation, a reload, a closed tab): DidExit, after which
   // nothing of the app runs.
   addEventListener('pagehide', () => wasm.day_dom_lifecycle(2));
+  // Fullscreen came or went, by the app's request or the user's (Esc, the browser's own UI).
+  document.addEventListener('fullscreenchange', () => wasm.day_dom_window_state(fullscreenCode(), 0));
   // The reduce-motion setting flipped under the app: day-core re-reads it through
   // `day_dom_env('reduce_motion')` and re-gates its transitions.
   reduceMotion().addEventListener('change', () => wasm.day_dom_motion_changed());

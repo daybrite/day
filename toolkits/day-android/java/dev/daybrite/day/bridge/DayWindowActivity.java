@@ -34,6 +34,8 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
         }
         if (title != null && !title.isEmpty()) setTitle(title);
         ACTIVE.put(node, this);
+        // A recreated window keeps its fullscreen and content protection (docs/windows.md).
+        DayBridge.secondaryCreated(this);
 
         final DayFixed root = new DayFixed(this);
         root.setFocusableInTouchMode(true);
@@ -70,6 +72,8 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
                     lp.bottomMargin = bottom;
                     root.setLayoutParams(lp);
                 }
+                // The system bars may have hidden or shown (docs/windows.md, fullscreen).
+                DayBridge.windowInsetsChanged(DayWindowActivity.this);
                 return androidx.core.view.WindowInsetsCompat.CONSUMED;
             }
         });
@@ -117,6 +121,7 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
             if (isFinishing() && DayBridge.started && !closeReported) {
                 DayBridge.nativeOnEvent(node, DayBridge.K_WINDOW_CLOSED, 0, null);
             }
+            if (isFinishing()) DayBridge.secondaryClosed(node);
         }
         super.onDestroy();
     }

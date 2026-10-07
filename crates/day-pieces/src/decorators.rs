@@ -278,6 +278,16 @@ fn op_cursor(cursor: Reactive<Cursor>) -> impl FnOnce(Build) -> Build {
     }
 }
 
+fn op_window_drag_region() -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let n = inner(cx);
+            with_tree(|t| t.set_node_drag_region(n, true));
+            n
+        })
+    }
+}
+
 fn op_native_ref(r: NativeRef) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -979,6 +989,9 @@ impl<P: Piece> Decorated<P> {
     pub fn native_ref(self, r: &NativeRef) -> Self {
         self.push(op_native_ref(r.clone()))
     }
+    pub fn window_drag_region(self) -> Self {
+        self.push(op_window_drag_region())
+    }
     pub fn padding(self, insets: impl IntoInsets) -> Self {
         self.push(op_padding(insets.into_insets()))
     }
@@ -1236,6 +1249,19 @@ pub trait Decorate: Piece + Sized {
     /// a touch-only host never shows one, which is correct rather than a failure.
     fn cursor<M>(self, cursor: impl IntoReactive<Cursor, M>) -> Decorated<Self> {
         Decorated::new(self).cursor(cursor)
+    }
+
+    /// Let the user move the window by dragging this piece, as a title bar does
+    /// (docs/window-chrome.md): what a custom title bar in a [`WindowChrome::Overlay`] or
+    /// [`WindowChrome::Frameless`] window needs. The piece's own background starts the drag,
+    /// with the platform's snapping and tiling; buttons and fields inside it keep their clicks;
+    /// a double click does what the user's title-bar setting says (zoom, minimize, nothing).
+    /// `capability(Cap::DragRegion)`; on a phone the piece is an ordinary view.
+    ///
+    /// [`WindowChrome::Overlay`]: day_spec::WindowChrome::Overlay
+    /// [`WindowChrome::Frameless`]: day_spec::WindowChrome::Frameless
+    fn window_drag_region(self) -> Decorated<Self> {
+        Decorated::new(self).window_drag_region()
     }
 
     /// Capture a [`NativeRef`] to this piece's realized node for later imperative access

@@ -51,7 +51,11 @@ fn every_table_variant_exists_in_the_part() {
         !variants.is_empty(),
         "could not parse the Permission enum — has its shape changed?"
     );
-    for spec in day_build::permissions::ALL {
+    // A declaration-only row (no variant: nothing to request at run time) has no part twin.
+    for spec in day_build::permissions::ALL
+        .iter()
+        .filter(|s| !s.variant.is_empty())
+    {
         assert!(
             variants.iter().any(|v| v == spec.variant),
             "day_build::permissions names variant {:?} for {:?}, but day-part-permissions has no \
