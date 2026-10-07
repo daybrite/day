@@ -100,8 +100,8 @@ shape whichever tool captured them. Set `DAY_SCREENSHOT_RAW=1` to keep the captu
 | Waiting | `wait_for` (an id appears; `timeout_secs` raises its budget), `wait_idle`, `pause` |
 | Acting | `tap` (`repeat`), `input`, `set_value`, `toggle`, `select`, `activate` (invoke a list row without changing selection), `submit`, `focus`, `scroll_to` (to an `edge`, an `x`/`y` offset, or an element to reveal), `reorder` (list row `from` → `to`) |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
-| Window chrome | `menu` (`item`/`key`/`path`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`) |
-| Asserting | `assert_visible`, `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
+| Window chrome | `menu` (`item`/`key`/`path`), `context_menu` (an element's menu: `id`, then `item_id`/`item`/`key`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`) |
+| Asserting | `assert_visible`, `assert_hidden` (missing, empty, or hidden natively), `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
 | Web views | `web_eval` (`id`, `script`, `text`/`contains`; `timeout_secs` raises its budget for cold engine startup or slow page loads) |
 | Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |
 | Evidence | `screenshot` (`window` captures a secondary window), `a11y_audit`, `assert_native` (the widget's own text, value, checked, enabled or visible state, as the platform reports it), `assert_frame` (size and relative position, in Day and natively), `sample_pixel` (the color at a point of a capture), `assert_opened_url` (a URL the app opened during a `run_tests` run) |

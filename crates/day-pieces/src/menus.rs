@@ -559,6 +559,77 @@ impl day_core::Piece for ComposedMenuHost {
     }
 }
 
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+
+    use crate::*;
+
+    /// Choosing a context-menu item runs that item's action, and only that one.
+    #[day_macros::test(day_core)]
+    fn context_menu_runs_action() -> Case {
+        Case::new()
+            .proves_modifier("context_menu")
+            .proves_duty("set_context_menu")
+            .page(|| {
+                let last = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("ran {}", last.get())).id("ran"),
+                    label("Target")
+                        .padding(8.0)
+                        .context_menu(vec![
+                            menu_item("Copy it").action(move || last.set("copy".into())),
+                            menu_item("Paste it").action(move || last.set("paste".into())),
+                        ])
+                        .id("target"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.context_menu("target", "Paste it").await?;
+                d.assert_text("ran", "ran paste").await?;
+                d.context_menu("target", "Copy it").await?;
+                d.assert_text("ran", "ran copy").await
+            })
+    }
+
+    /// A menu built on summon reflects the state at that moment.
+    #[day_macros::test(day_core)]
+    fn context_menu_fn_builds_on_summon() -> Case {
+        Case::new()
+            .proves_modifier("context_menu_fn")
+            .proves_duty("set_context_menu_fn")
+            .page(|| {
+                let count = Signal::new(0i64);
+                let chose = Signal::new(0i64);
+                column((
+                    label(move || format!("chose {}", chose.get())).id("chose"),
+                    button("Add")
+                        .action(move || count.update(|n| *n += 1))
+                        .id("add"),
+                    label("Target")
+                        .padding(8.0)
+                        .context_menu_fn(move |_| {
+                            let n = count.get_untracked();
+                            vec![menu_item(format!("Take {n}")).action(move || chose.set(n))]
+                        })
+                        .id("target"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("add").await?;
+                d.tap("add").await?;
+                d.context_menu("target", "Take 2").await?;
+                d.assert_text("chose", "chose 2").await
+            })
+    }
+
+    day_core::tests! {
+        context_menu_runs_action,
+        context_menu_fn_builds_on_summon,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

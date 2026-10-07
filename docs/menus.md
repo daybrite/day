@@ -63,7 +63,8 @@ menu_item(tr("view-grid")).id("view-grid").action(|| grid.set(!grid.get()))
 ```
 
 An id is what something outside the menu addresses the item by — a dayscript
-`menu: { id: "view-grid" }` step, or a `tap` on the row of the
+`menu: { id: "view-grid" }` step (`context_menu: { id: <element>, item_id: "view-grid" }` for an
+element's context menu), or a `tap` on the row of the
 [composed presentation](#the-composed-presentation-web-dom). A label cannot do that job: it is
 localized, so it changes with the run's language, and a [checked](#checked-items) item rewrites its
 own label whenever the state moves. Give an id to any item a script drives; leave it off the rest.

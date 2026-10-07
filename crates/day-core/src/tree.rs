@@ -152,6 +152,13 @@ struct WindowEntry {
     size: Size,
 }
 
+/// A node's context menu as the app gave it: fixed items, or a provider asked per summon.
+#[derive(Clone)]
+enum ContextMenuModel {
+    Items(Vec<day_spec::MenuItem>),
+    Provider(day_spec::ContextMenuFn),
+}
+
 pub struct Tree<B: Toolkit> {
     pub toolkit: B,
     nodes: SlotMap<RNode, NodeData<B::Handle>>,
@@ -164,6 +171,10 @@ pub struct Tree<B: Toolkit> {
     /// Recycling-list state keyed by list node (docs/list.md, §10).
     lists: HashMap<RNode, crate::list::ListState>,
     trees: HashMap<RNode, crate::tree_driver::TreeState>,
+    /// Each node's context menu as the app gave it, keyed by the node the modifier named (and
+    /// the native root it landed on, where that differs): what the dayscript `context_menu`
+    /// step reads, since the toolkit keeps its own copy in native form.
+    context_menus: HashMap<RNode, ContextMenuModel>,
     /// Count of nodes carrying an implicit `.animation` (§8.4). Gates the `resolve_anim` ancestor
     /// walk: zero ⇒ non-`with_animation` patches skip it entirely (the common, O(1) path).
     implicit_anim_count: usize,
@@ -239,6 +250,7 @@ impl<B: Toolkit> Tree<B> {
             release_queue: Vec::new(),
             lists: HashMap::new(),
             trees: HashMap::new(),
+            context_menus: HashMap::new(),
             implicit_anim_count: 0,
         }
     }
@@ -481,6 +493,7 @@ impl<B: Toolkit> Tree<B> {
             // (not the node tree): dispose them with the node, or their bindings (e.g. a
             // localized row label) outlive the list and patch freed native cells on the
             // next locale/theme change (a use-after-free on raw-pointer backends like Qt).
+            self.context_menus.remove(&n);
             if let Some(list) = self.lists.remove(&n) {
                 for (_, cell) in list.cells {
                     cell.scope.dispose();
@@ -1063,6 +1076,9 @@ pub trait TreeOps {
     fn set_drop_target(&mut self, node: RNode, target: day_spec::transfer::Target);
     /// Install a summon-time context-menu provider on `node` (docs/menus.md).
     fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn);
+    /// The context menu the app gave `node` (or its nearest ancestor that has one), a
+    /// provider's asked at the origin; what the dayscript `context_menu` step chooses from.
+    fn context_menu_of(&mut self, node: RNode) -> Option<Vec<day_spec::MenuItem>>;
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -1449,6 +1465,9 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             log::warn!("context_menu on a subtree with no native view — menu dropped");
             return;
         };
+        let model = ContextMenuModel::Items(items.clone());
+        self.context_menus.insert(node, model.clone());
+        self.context_menus.insert(t, model);
         if let Some(h) = self.nodes.get(t).and_then(|n| n.handle.clone()) {
             self.toolkit.set_context_menu(&h, rnode_to_id(t), &items);
         }
@@ -2394,9 +2413,33 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             log::warn!("context_menu_fn on a subtree with no native view — menu dropped");
             return;
         };
+        let model = ContextMenuModel::Provider(f.clone());
+        self.context_menus.insert(node, model.clone());
+        self.context_menus.insert(target, model);
         if let Some(handle) = self.nodes.get(target).and_then(|n| n.handle.clone()) {
             self.toolkit
                 .set_context_menu_fn(&handle, rnode_to_id(target), f);
+        }
+    }
+
+    fn context_menu_of(&mut self, node: RNode) -> Option<Vec<day_spec::MenuItem>> {
+        // The element a script names may sit above or below the node the menu landed on (an id
+        // on a wrapper, a menu on the label inside it): the node itself, then its ancestors.
+        let mut cur = node;
+        loop {
+            if let Some(model) = self.context_menus.get(&cur) {
+                return Some(match model {
+                    ContextMenuModel::Items(items) => items.clone(),
+                    ContextMenuModel::Provider(f) => f(Point::ZERO),
+                });
+            }
+            // The root (and a list cell's anchor) is its own parent, or has a null one,
+            // which the lookup misses.
+            let parent = self.nodes.get(cur)?.parent;
+            if parent == cur {
+                return None;
+            }
+            cur = parent;
         }
     }
 }

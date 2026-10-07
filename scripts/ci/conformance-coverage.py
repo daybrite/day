@@ -2,14 +2,16 @@
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
 #
-# conformance-coverage.py [--check]: how much of the built-in surface the `#[day::test]` cases
+# conformance-coverage.py [--check | --require FAMILY,…]: how much of the built-in surface the `#[day::test]` cases
 # prove (docs/testing.md). Lists every built-in kind, `Decorate` modifier, `Cap` and toolkit
 # duty, reads the `.proves*` calls out of the cases, and prints proven/total per family with
 # what is still unproven.
 #
 # Report mode (the default) always exits 0: it is how the coverage milestones measure
 # progress while the backlog is open. `--check` fails on anything unproven and not in
-# ALLOWED below; it becomes the gate once every family is covered.
+# ALLOWED below; it becomes the gate once every family is covered. `--require kinds` gates the
+# named families only (kinds, modifiers, caps, duties) and reports the rest: a family is gated
+# from the milestone that completes it, so a new piece cannot arrive without its case.
 
 import os
 import re
@@ -87,19 +89,37 @@ families = [
     ("duties", "duty", duties),
 ]
 
-check = "--check" in sys.argv[1:]
+args = sys.argv[1:]
+check = "--check" in args
+required = set()
+if "--require" in args:
+    required = set(args[args.index("--require") + 1].split(","))
+unknown = required - {title for title, _, _ in families}
+if unknown:
+    print(f"conformance coverage: no family {', '.join(sorted(unknown))}")
+    sys.exit(2)
 missing_total = 0
+missing_required = 0
 for title, prefix, items in families:
     keys = [f"{prefix}:{i}" for i in items]
     done = [k for k in keys if k in proven]
     allowed = [k for k in keys if k not in proven and k in ALLOWED]
     missing = [k for k in keys if k not in proven and k not in ALLOWED]
     missing_total += len(missing)
-    print(f"{title}: {len(done)}/{len(keys)} proven" + (f", {len(allowed)} allowed" if allowed else ""))
+    if title in required:
+        missing_required += len(missing)
+    gated = " (gated)" if title in required else ""
+    print(f"{title}{gated}: {len(done)}/{len(keys)} proven" + (f", {len(allowed)} allowed" if allowed else ""))
     if missing:
         print("  unproven: " + ", ".join(k.split(":", 1)[1] for k in missing))
 
 if check and missing_total:
     print(f"conformance coverage: {missing_total} item(s) have no proving case")
+    sys.exit(1)
+if missing_required:
+    print(
+        f"conformance coverage: {missing_required} gated item(s) have no proving case; add a "
+        "`#[day::test]` case that `.proves` it (docs/testing.md)"
+    )
     sys.exit(1)
 print("conformance coverage: report" + (" — complete" if missing_total == 0 else ""))

@@ -579,3 +579,58 @@ fn lower(
         })
         .collect()
 }
+
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+    use day_spec::Cap;
+
+    use crate::*;
+
+    /// A toolbar button declared by a page runs its action.
+    #[day_macros::test(day_core)]
+    fn toolbar_button_runs_action() -> Case {
+        Case::new()
+            .proves_modifier("toolbar")
+            .requires(Cap::Toolbar)
+            .page(|| {
+                let count = Signal::new(0i64);
+                label(move || format!("count {}", count.get()))
+                    .id("count")
+                    .toolbar([
+                        toolbar_button("bump", "Bump").action(move || count.update(|n| *n += 1))
+                    ])
+            })
+            .drive(|d: Drive| async move {
+                d.toolbar_press("bump").await?;
+                d.toolbar_press("bump").await?;
+                d.assert_text("count", "count 2").await
+            })
+    }
+
+    /// A toolbar toggle writes its signal.
+    #[day_macros::test(day_core)]
+    fn toolbar_toggle_writes_signal() -> Case {
+        Case::new()
+            .proves_modifier("toolbar")
+            .requires(Cap::Toolbar)
+            .page(|| {
+                let on = Signal::new(false);
+                label(move || format!("star {}", on.get()))
+                    .id("star")
+                    .toolbar([toolbar_toggle("star", "Star", on)])
+            })
+            .drive(|d: Drive| async move {
+                d.toolbar_toggle("star", true).await?;
+                d.assert_text("star", "star true").await?;
+                d.toolbar_toggle("star", false).await?;
+                d.assert_text("star", "star false").await
+            })
+    }
+
+    day_core::tests! {
+        toolbar_button_runs_action,
+        toolbar_toggle_writes_signal,
+    }
+}

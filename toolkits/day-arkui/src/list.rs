@@ -72,6 +72,9 @@ struct List {
     swipe_opts: HashMap<usize, *mut ArkUI_ListItemSwipeActionOption>,
     /// The per-cell swipe user data records, owned by the list and freed with it.
     swipe_cells: Vec<*mut SwipeCell>,
+    /// A row jump asked for before the adapter had rows (a list the page scrolls as it builds):
+    /// the next reload applies it.
+    pending_scroll: Option<u32>,
 }
 
 /// User data for a cell's swipe action. The row is not captured here: cells recycle, so the
@@ -274,6 +277,7 @@ pub fn init(
         row_h: (row_h_vp * node::density()) as f32,
         selectable,
         generation: 0,
+        pending_scroll: None,
         pool: Vec::new(),
         reorderable,
         node: n,
@@ -470,6 +474,15 @@ pub fn reload(n: Handle) {
         OH_ArkUI_NodeAdapter_SetTotalNodeCount(dl.adapter, count);
         OH_ArkUI_NodeAdapter_ReloadAllItems(dl.adapter);
     }
+    if count > 0
+        && let Some(index) = dl.pending_scroll.take()
+    {
+        node::set_i32(
+            n,
+            Attr::NODE_LIST_SCROLL_TO_INDEX,
+            (index as i32).min(count as i32 - 1),
+        );
+    }
 }
 
 /// Scroll the list so its last row is fully visible (docs/list.md, chat "stick to bottom").
@@ -499,5 +512,9 @@ pub fn scroll_to_row(n: Handle, index: u32) {
             Attr::NODE_LIST_SCROLL_TO_INDEX,
             (index as i32).min(count - 1),
         );
+    } else {
+        // No rows yet: the jump waits for the reload that brings them (`reload`).
+        // SAFETY: a live list (checked non-null above).
+        unsafe { (*dl).pending_scroll = Some(index) };
     }
 }

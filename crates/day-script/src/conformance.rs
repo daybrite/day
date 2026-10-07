@@ -509,6 +509,7 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::AssertText(id, _) => format!("assert_text {id}"),
         DriveOp::AssertVisible(id) => format!("assert_visible {id}"),
         DriveOp::AssertMissing(id) => format!("assert_missing {id}"),
+        DriveOp::AssertHidden(id) => format!("assert_hidden {id}"),
         DriveOp::AssertValue(id, _) | DriveOp::AssertOn(id, _) => format!("assert_value {id}"),
         DriveOp::AssertFocused(id, _) => format!("assert_focused {id}"),
         DriveOp::AssertRoute(route) => format!("assert_route {route}"),
@@ -525,6 +526,12 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::Expand(id, row, _) => format!("expand {id} {row}"),
         DriveOp::NavBack => "nav_back".into(),
         DriveOp::TreeMove(id, row, ..) => format!("tree_move {id} {row}"),
+        DriveOp::ContextMenu(id, item) => format!("context_menu {id} {item}"),
+        DriveOp::Menu(item) => format!("menu {item}"),
+        DriveOp::ToolbarPress(item) | DriveOp::ToolbarToggle(item, _) => format!("toolbar {item}"),
+        DriveOp::DialogScripted(_) => "dialog_mode".into(),
+        DriveOp::AssertPresented(_) => "assert_presented".into(),
+        DriveOp::Respond(_) => "respond".into(),
     }
 }
 
@@ -547,6 +554,7 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         DriveOp::AssertText(id, text) => json!({"op": "assert_text", "id": id, "text": text}),
         DriveOp::AssertVisible(id) => json!({"op": "assert_visible", "id": id}),
         DriveOp::AssertMissing(id) => json!({"op": "assert_missing", "id": id}),
+        DriveOp::AssertHidden(id) => json!({"op": "assert_hidden", "id": id}),
         DriveOp::AssertValue(id, value) => json!({"op": "assert_value", "id": id, "value": value}),
         DriveOp::AssertOn(id, on) => json!({"op": "assert_value", "id": id, "value": on}),
         DriveOp::AssertFocused(id, focused) => {
@@ -583,6 +591,16 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         DriveOp::TreeMove(id, row, parent, index) => json!({
             "op": "tree_move", "id": id, "row": row, "parent": parent, "index": index,
         }),
+        DriveOp::ContextMenu(id, item) => json!({"op": "context_menu", "id": id, "item": item}),
+        DriveOp::Menu(item) => json!({"op": "menu", "id": item}),
+        DriveOp::ToolbarPress(item) => json!({"op": "toolbar", "item": item}),
+        DriveOp::ToolbarToggle(item, on) => json!({"op": "toolbar", "item": item, "on": on}),
+        DriveOp::DialogScripted(scripted) => json!({
+            "op": "dialog_mode", "mode": if *scripted { "scripted" } else { "native" },
+        }),
+        DriveOp::AssertPresented(title) => json!({"op": "assert_presented", "title": title}),
+        DriveOp::Respond(Some(button)) => json!({"op": "respond", "button": button}),
+        DriveOp::Respond(None) => json!({"op": "respond", "dismiss": true}),
     };
     serde_json::from_value(v).map_err(|e| Fail(format!("{}: {e}", op_name(op))))
 }

@@ -64,6 +64,8 @@ pub enum DriveOp {
     AssertText(String, String),
     AssertVisible(String),
     AssertMissing(String),
+    /// That an element is not on screen: missing, empty, or natively hidden.
+    AssertHidden(String),
     AssertValue(String, f64),
     /// A toggle's state.
     AssertOn(String, bool),
@@ -95,6 +97,20 @@ pub enum DriveOp {
     NavBack,
     /// Move a tree's row (by row id) under a parent (`None` = the root) at a position.
     TreeMove(String, String, Option<String>, Option<usize>),
+    /// Choose an item, by label, from an element's context menu.
+    ContextMenu(String, String),
+    /// Choose an app-menu item by its id.
+    Menu(String),
+    /// Press a toolbar button, by item id.
+    ToolbarPress(String),
+    /// Set a toolbar toggle, by item id.
+    ToolbarToggle(String, bool),
+    /// Answer presentations natively (`false`) or hold them for `respond` (`true`).
+    DialogScripted(bool),
+    /// That a presentation is pending, with this title where one is given.
+    AssertPresented(Option<String>),
+    /// Answer the pending presentation: a button by position, or dismiss it (`None`).
+    Respond(Option<usize>),
 }
 
 /// What [`Drive::assert_frame`] expects of an element's frame, in points; only the fields set
@@ -198,6 +214,11 @@ impl Drive {
     }
     pub fn assert_missing(&self, id: &str) -> OpFuture {
         self.op(DriveOp::AssertMissing(id.into()))
+    }
+    /// That an element is not on screen: missing, with an empty frame, or hidden natively (a
+    /// collapsed pane a toolkit keeps built).
+    pub fn assert_hidden(&self, id: &str) -> OpFuture {
+        self.op(DriveOp::AssertHidden(id.into()))
     }
     pub fn assert_value(&self, id: &str, value: f64) -> OpFuture {
         self.op(DriveOp::AssertValue(id.into(), value))
@@ -304,6 +325,39 @@ impl Drive {
             parent.map(str::to_owned),
             index,
         ))
+    }
+
+    /// Choose the item labeled `item` from `id`'s context menu, as a right click (or long
+    /// press) and a choice would.
+    pub fn context_menu(&self, id: &str, item: &str) -> OpFuture {
+        self.op(DriveOp::ContextMenu(id.into(), item.into()))
+    }
+    /// Choose an app-menu item by the id the app gave it (`MenuEntry::id`).
+    pub fn menu(&self, item_id: &str) -> OpFuture {
+        self.op(DriveOp::Menu(item_id.into()))
+    }
+    /// Press the toolbar button `item`.
+    pub fn toolbar_press(&self, item: &str) -> OpFuture {
+        self.op(DriveOp::ToolbarPress(item.into()))
+    }
+    /// Turn the toolbar toggle `item` on or off.
+    pub fn toolbar_toggle(&self, item: &str, on: bool) -> OpFuture {
+        self.op(DriveOp::ToolbarToggle(item.into(), on))
+    }
+    /// Show presentations natively (`false`, the default) or hold them for
+    /// [`Drive::respond`] without any native dialog (`true`). In native mode `respond` still
+    /// answers, and the toolkit dismisses the dialog it showed.
+    pub fn dialogs_scripted(&self, scripted: bool) -> OpFuture {
+        self.op(DriveOp::DialogScripted(scripted))
+    }
+    /// That a dialog or picker is pending, titled `title` where one is given.
+    pub fn assert_presented(&self, title: Option<&str>) -> OpFuture {
+        self.op(DriveOp::AssertPresented(title.map(str::to_owned)))
+    }
+    /// Answer the pending dialog with the button at `button` (presentation order), or dismiss
+    /// it for `None`.
+    pub fn respond(&self, button: Option<usize>) -> OpFuture {
+        self.op(DriveOp::Respond(button))
     }
 
     /// A plain assertion for a headless test: fails with `what` when `ok` is false.

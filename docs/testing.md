@@ -13,8 +13,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: shipped (2026-10).** `#[day::test]`, `Case`, `Drive`, the `tests` and `run_tests`
 > engine steps, `day test`, the conformance app under `apps/conformance`, the mock harness in
 > `crates/day-script/tests/conformance.rs`, and the `conformance` CI jobs. Cases cover the
-> controls, layout and appearance, lists, trees, navigation stacks, sidebars, tabs and covers;
-> menus, toolbars, dialogs and the inspector follow.
+> controls, layout and appearance, lists, trees, navigation stacks, sidebars, tabs, covers,
+> context menus, toolbars, dialogs and the inspector.
 
 `day test` runs tests inside a built Day app on a chosen toolkit. A test is a plain function
 marked `#[day::test]` that returns a [`Case`]: either a page plus a drive against it (a GUI
@@ -80,7 +80,8 @@ fn store_round_trip() -> Case {
 `assert_native` (and `assert_enabled`, its `enabled` shorthand), `assert_frame` (and
 `assert_size`), `sample_pixel`, `assert_opened_url`, and for lists, trees and navigation
 `activate`, `reorder`, `delete_row`, `swipe_row`, `scroll_to`, `expand`, `tree_move`,
-`nav_back`.
+`nav_back`; for chrome and dialogs `context_menu`, `menu`, `toolbar_press`, `toolbar_toggle`,
+`dialogs_scripted`, `assert_presented`, `respond`; and `assert_hidden`.
 Each is the dayscript step of that name, run in process with the step's own retry window, so a
 drive and a script mean the same thing by the same words; a step dayscript lacks is added to the
 engine, where a script gets it as well. For a headless body, `check(ok, what)` and
@@ -161,8 +162,10 @@ pub(crate) mod conformance {
   that belong to no piece and the conformance app's browsing page.
 - **What a case proves** is declared with `.proves(kinds::X)`, `.proves_modifier("padding")`,
   `.proves_cap(Cap::X)` and `.proves_duty("x")`. `scripts/ci/conformance-coverage.py` reads
-  those and reports, per family, what is proven and what is not (a `lint.sh` leg, report-only
-  until every family is covered, when it gains `--check`).
+  those and reports, per family, what is proven and what is not. Its `lint.sh` leg gates the
+  families already complete (`--require kinds`: every built-in kind has a case, so a new kind
+  without one fails lint) and reports the rest; `--check` gates them all once every family is
+  covered.
 
 An app's own tests take the same shape in its own crate, with `#[day::test]`, behind a feature
 its test build turns on.
@@ -187,8 +190,9 @@ its drive runs, its assertions read the same probe a script reads.
 
 The harness turns on the mock's native behavior (`MockProbe::set_native_behavior`): what a
 native toolkit does unasked, which a unit test otherwise drives by hand. Lists and trees bind a
-window of rows (on attach, after a reload, around a scrolled-to row), and a cover reports its
-size when presented and that it is hidden once dismissed. Those binds and reports happen at
+window of rows (on attach, after a reload, around a scrolled-to row), a cover reports its
+size when presented and that it is hidden once dismissed, and the mock claims `Cap::Toolbar` and
+`Cap::Dialogs`, whose edits and presentations it records. Those binds and reports happen at
 the next `sleep`, where Day's tree is free, so an op that looks for a row too early finds it on
 its retry.
 
@@ -333,6 +337,13 @@ What a pass does not yet cover, so a skip or an unread field reads as recorded:
   in-app capture through `Toolkit::snapshot_origin`. Android answers it (its content capture
   runs under the status and navigation bars); elsewhere, rows beyond Day's content are taken to
   be above it, true of AppKit's title bar and the mobile status bar.
+- **Dialogs** are answered through `respond`, which resolves the request and has the toolkit
+  dismiss the dialog it showed: a pass proves `present` and `dismiss` ran on the toolkit and the
+  answer came back, not that the dialog drew. A system dialog is its own window, out of reach of
+  the in-app capture on several platforms.
+- **Context menus and toolbars** are driven through Day's own model of them, the dispatch a
+  native choice goes through; the native menu never opens, and on a phone a toolbar declared
+  without a navigation host has no native bar to appear on.
 - **Visibility** reads hidden flags and window membership; a view with opacity 0 or clipped
   away still reports visible.
 

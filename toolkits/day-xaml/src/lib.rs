@@ -445,6 +445,10 @@ struct ListEntry {
     /// A scroll-driven fill is already posted — ViewChanged fires many times through one flick,
     /// and they would each post a pass that does the same work.
     fill_pending: bool,
+    /// A row jump (`ListPatch::ScrollToRow`) for the next fill to repeat: one asked for before
+    /// the first fill (a list the page scrolls as it builds) meets content with no extent yet,
+    /// and the ScrollViewer clamps it to the top.
+    pending_scroll: Option<usize>,
     /// Drag-to-reorder (docs/list.md): whether new cells get the WinRT drag armed.
     reorderable: bool,
     node: u64,
@@ -642,6 +646,16 @@ fn schedule_list_scroll_end(host_key: usize) {
 /// Scroll the emulated list so row `row` sits at the top of the viewport (docs/list.md), on the
 /// next loop turn — the same deferral as `schedule_list_scroll_end`.
 fn schedule_list_scroll_row(host_key: usize, row: usize) {
+    LIST_STATE.with(|m| {
+        if let Some(st) = m.borrow_mut().get_mut(&host_key) {
+            st.pending_scroll = Some(row);
+        }
+    });
+    post_list_scroll_row(host_key, row);
+}
+
+/// Scroll a list host to `row` on the next loop turn.
+fn post_list_scroll_row(host_key: usize, row: usize) {
     let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
         let target = LIST_STATE.with(|m| {
             let m = m.borrow();
@@ -802,6 +816,16 @@ fn list_fill_window(host_key: usize) {
     // The extent is the whole source, built or not: the scrollbar is how the user reaches rows
     // that do not exist yet, so it cannot be sized to what happens to be realized.
     unsafe { ffi::day_xaml_list_set_content_size(content, width, (n as f64 * rowh) as c_int) };
+    // A row jump that arrived before this extent existed lands now, on the next turn so the
+    // ScrollViewer has measured the new extent; its ViewChanged builds the rows it reveals.
+    let pending = LIST_STATE.with(|m| {
+        m.borrow_mut()
+            .get_mut(&host_key)
+            .and_then(|st| st.pending_scroll.take())
+    });
+    if let Some(row) = pending {
+        post_list_scroll_row(host_key, row);
+    }
     // Cells just added to the pool start unpainted, and a reload can move which rows are selected
     // under a selection that hasn't changed — so repaint from the entry's set on every populate.
     LIST_STATE.with(|m| {
@@ -2023,6 +2047,7 @@ impl Toolkit for Xaml {
                                 frame_width: -1,
                                 frame_height: -1,
                                 fill_pending: false,
+                                pending_scroll: None,
                                 reorderable: p.reorderable,
                                 node: id.0,
                                 selectable: p.selectable,
@@ -3481,7 +3506,8 @@ impl Toolkit for Xaml {
     }
 
     /// The content's offset in the capture: the system-XAML capture is the whole window rect,
-    /// title bar and resize borders included (the shim's `day_xaml_snapshot_origin`).
+    /// title bar and resize borders included (the shim's `day_xaml_snapshot_origin`). WinUI
+    /// answers `None`, leaving the reader's rule (extra rows are above the content).
     fn snapshot_origin(&mut self, _root: &WinHandle) -> Option<Point> {
         if self.window.is_null() {
             return None;

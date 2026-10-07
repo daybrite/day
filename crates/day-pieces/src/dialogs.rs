@@ -664,3 +664,67 @@ mod document_read_tests {
         std::fs::remove_file(path).unwrap();
     }
 }
+
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+    use day_spec::Cap;
+
+    use crate::*;
+
+    /// A page whose button asks `confirm` and shows the answer.
+    fn asker() -> impl day_core::Piece {
+        let answer = Signal::new(String::from("none"));
+        column((
+            label(move || format!("answer {}", answer.get())).id("answer"),
+            button("Ask")
+                .action(move || {
+                    let set = answer.setter();
+                    day_core::task(async move {
+                        let yes = confirm("Delete it?").present().await;
+                        set.set(if yes { "yes" } else { "no" }.into());
+                    });
+                })
+                .id("ask"),
+        ))
+    }
+
+    /// A native confirmation presents with its title, and the button chosen comes back; the
+    /// toolkit dismisses the dialog it showed.
+    #[day_macros::test(day_core)]
+    fn confirm_native_answer() -> Case {
+        Case::new()
+            .proves_cap(Cap::Dialogs)
+            .proves_duty("present")
+            .proves_duty("dismiss")
+            .requires(Cap::Dialogs)
+            .page(asker)
+            .drive(|d: Drive| async move {
+                d.tap("ask").await?;
+                d.assert_presented(Some("Delete it?")).await?;
+                d.respond(Some(1)).await?;
+                d.assert_text("answer", "answer yes").await
+            })
+    }
+
+    /// Dismissing a native confirmation answers it as cancelled.
+    #[day_macros::test(day_core)]
+    fn confirm_native_dismiss() -> Case {
+        Case::new()
+            .proves_cap(Cap::Dialogs)
+            .requires(Cap::Dialogs)
+            .page(asker)
+            .drive(|d: Drive| async move {
+                d.tap("ask").await?;
+                d.assert_presented(None).await?;
+                d.respond(None).await?;
+                d.assert_text("answer", "answer no").await
+            })
+    }
+
+    day_core::tests! {
+        confirm_native_answer,
+        confirm_native_dismiss,
+    }
+}

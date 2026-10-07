@@ -937,6 +937,11 @@ impl Toolkit for MockToolkit {
     fn capability(&self, cap: Cap) -> Support {
         match cap {
             Cap::Snapshot => Support::Native,
+            // With native behavior on (the conformance harness), the mock stands in for a
+            // toolkit with a toolbar and dialogs: it records the toolbar edits and the
+            // presentations, and answers `dismiss`. Off, unit tests keep the toolbar-less
+            // placement they assert (an `Automatic` search stays inline).
+            Cap::Toolbar | Cap::Dialogs if VIEWPORT_ROWS.with(|r| r.get()) > 0 => Support::Native,
             // Records every toolbar edit and patch, search item included (probe-visible). The
             // mock still has no `Cap::Toolbar`, so an `Automatic` search stays inline.
             Cap::ToolbarSearch => {

@@ -431,6 +431,51 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
     .build(cx)
 }
 
+#[cfg(feature = "conformance")]
+pub(crate) mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_reactive::Signal;
+    use day_spec::kinds;
+
+    use crate::*;
+
+    /// The panel follows its signal: hidden, shown, hidden again.
+    #[day_macros::test(day_core)]
+    fn inspector_shows_panel() -> Case {
+        Case::new()
+            .proves(kinds::INSPECTOR)
+            .proves(kinds::INSPECTOR_PANE)
+            .page(|| {
+                let show = Signal::new(false);
+                inspector(
+                    show,
+                    column((
+                        label("Content").id("content"),
+                        button("Toggle")
+                            .action(move || show.update(|v| *v = !*v))
+                            .id("toggle"),
+                    )),
+                    || label("Properties").id("panel"),
+                )
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("content", "Content").await?;
+                // A native pane collapses rather than going away, so hidden, not missing.
+                d.assert_hidden("panel").await?;
+                d.tap("toggle").await?;
+                d.assert_text("panel", "Properties").await?;
+                d.assert_visible("panel").await?;
+                d.wait_idle().await?;
+                d.tap("toggle").await?;
+                d.assert_hidden("panel").await
+            })
+    }
+
+    day_core::tests! {
+        inspector_shows_panel,
+    }
+}
+
 #[cfg(test)]
 mod pane_width_tests {
     use super::pane_width;

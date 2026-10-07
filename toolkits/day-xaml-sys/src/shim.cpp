@@ -5944,14 +5944,13 @@ int day_xaml_snapshot_png(void* win, const char* path) try {
 // Where the content sits in the primary capture, in DIPs (`Toolkit::snapshot_origin`). The
 // system-XAML capture is the whole window rect: the title bar above and the invisible resize
 // borders on the left, right and bottom, so the client area's offset in that rect is what a
-// reader of the capture needs. WinUI's is the client area already.
+// reader of the capture needs. WinUI answers nothing (nonzero): its capture's only extra area
+// is above the content, which is the reader's own rule, and a (0, 0) here turned that off.
 int day_xaml_snapshot_origin(void* win, double* out) try {
     auto app = reinterpret_cast<AppWindow*>(win);
     if (!app || !out) return 1;
 #ifdef DAY_WINUI
-    out[0] = 0.0;
-    out[1] = 0.0;
-    return 0;
+    return 3;
 #else
     if (!app->host) return 1;
     RECT r{};

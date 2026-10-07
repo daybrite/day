@@ -272,6 +272,22 @@ pub enum Step {
     /// `key: day-preferences`). `path` disambiguates with ancestor submenu labels (suffix
     /// match). Items that run a native selector instead of a day action (role items with
     /// id 0) are not invokable this way.
+    /// Choose an item from an element's context menu (`.context_menu`, `.context_menu_fn`;
+    /// docs/menus.md), as a right click or long press followed by a choice would. `id` names the
+    /// element; the item is addressed as [`Step::Menu`] addresses one: `item_id:` (the name the
+    /// app gave it), `item:` (the literal label) or `key:`, with `path` for submenus. A
+    /// provider menu is asked at the element's origin.
+    ContextMenu {
+        id: String,
+        #[serde(default)]
+        item_id: Option<String>,
+        #[serde(default)]
+        item: Option<String>,
+        #[serde(default)]
+        key: Option<String>,
+        #[serde(default)]
+        path: Option<Vec<String>>,
+    },
     /// Choose an app-menu item. Address it by `id:` (the name the app gave it with
     /// `MenuEntry::id`) in preference to anything else: a label is localized, and an item that
     /// shows a check mark rewrites its label as the state moves, so neither is a stable
@@ -317,6 +333,12 @@ pub enum Step {
     /// (a property row that does not apply, a page's absent chrome). `assert_visible` cannot
     /// say this: a missing id is an error there, and an error is not a pass.
     AssertMissing {
+        id: String,
+    },
+    /// Fail if the element is on screen: pass when it is missing, has an empty frame, or its
+    /// native widget reports itself hidden. For what a toolkit hides rather than removes (a
+    /// collapsed pane, a closed popover), where `assert_missing` would see it present.
+    AssertHidden {
         id: String,
     },
     AssertText {
@@ -1500,6 +1522,81 @@ fn exec(step: Step, revision: u32) -> Reply {
                     }
                 }
             }
+            Step::ContextMenu {
+                id,
+                item_id,
+                item,
+                key,
+                path,
+            } => {
+                let node = find(&id)?;
+                let items = with_tree(|t| t.context_menu_of(node)).ok_or_else(|| {
+                    Reply::fail(
+                        format!("context_menu {id:?}: the element has no menu"),
+                        true,
+                    )
+                })?;
+                let target_label = match (&item_id, &item, &key) {
+                    (Some(_), _, _) => String::new(),
+                    (None, Some(l), _) => l.clone(),
+                    (None, None, Some(k)) => format_key(k, None),
+                    (None, None, None) => {
+                        return Err(Reply::fail(
+                            "context_menu: needs `item_id:`, `item:` or `key:`",
+                            false,
+                        ));
+                    }
+                };
+                let path: Vec<(String, String)> = path
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|p| {
+                        let resolved = format_key(&p, None);
+                        (p, resolved)
+                    })
+                    .collect();
+                let matches = find_menu_actions(
+                    &items,
+                    &target_label,
+                    key.as_deref(),
+                    item_id.as_deref(),
+                    &path,
+                );
+                let what = match &item_id {
+                    Some(want) => format!("id {want:?}"),
+                    None => format!("{target_label:?}"),
+                };
+                match matches.as_slice() {
+                    [] => Err(Reply::fail(
+                        format!("context_menu {id:?}: no item {what}"),
+                        true,
+                    )),
+                    [(action, enabled, _)] => {
+                        if *action == 0 {
+                            Err(Reply::fail(
+                                format!(
+                                    "context_menu {id:?}: {what} runs a native command (no day \
+                                     action)"
+                                ),
+                                false,
+                            ))
+                        } else if !enabled {
+                            Err(Reply::fail(
+                                format!("context_menu {id:?}: {what} is disabled"),
+                                false,
+                            ))
+                        } else {
+                            day_core::dispatch_menu_action(*action);
+                            day_reactive::flush_sync();
+                            Ok(Reply::ok())
+                        }
+                    }
+                    _ => Err(Reply::fail(
+                        format!("context_menu {id:?}: {what} is ambiguous; add a path"),
+                        false,
+                    )),
+                }
+            }
             Step::Menu {
                 id,
                 item,
@@ -1698,6 +1795,19 @@ fn exec(step: Step, revision: u32) -> Reply {
             Step::AssertVisible { id } => {
                 visible(&id)?;
                 Ok(Reply::ok())
+            }
+            Step::AssertHidden { id } => {
+                let Some(node) = with_tree(|t| t.find_by_id(&id)) else {
+                    return Ok(Reply::ok());
+                };
+                let empty = with_tree(|t| t.node_frame(node))
+                    .is_none_or(|f| f.size.width <= 0.0 || f.size.height <= 0.0);
+                let native = with_tree(|t| t.read_native(node)).unwrap_or_default();
+                if empty || (native.found && native.visible == Some(false)) {
+                    Ok(Reply::ok())
+                } else {
+                    Err(Reply::fail(format!("element {id:?} is shown"), true))
+                }
             }
             Step::AssertMissing { id } => match with_tree(|t| t.find_by_id(&id)) {
                 Some(_) => Err(Reply::fail(format!("element {id:?} is present"), true)),
