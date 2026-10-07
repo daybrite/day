@@ -362,6 +362,9 @@ mod imp {
             let placement = suite.placement;
             for old in std::mem::take(&mut suite.bar_items) {
                 node::remove_child(suite.bar.0, old.0);
+                // Removed alone, every refill (a retitled or re-badged row) left the old cells,
+                // their icons and their labels allocated.
+                node::dispose_tree(old.0);
             }
             suite.bar_inks.clear();
             forget_themed(host);
@@ -453,7 +456,7 @@ mod imp {
             suite.placement = placement;
             for old in std::mem::take(&mut suite.bar_items) {
                 node::remove_child(suite.bar.0, old.0);
-                node::dispose(old.0);
+                node::dispose_tree(old.0);
             }
             suite.bar_inks.clear();
             node::remove_child(host as Handle, suite.bar.0);
@@ -2757,7 +2760,8 @@ mod imp {
                         if let Some(old) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                             forget_themed(old);
                             node::remove_child(h.0, old as Handle);
-                            node::dispose(old as Handle);
+                            // The rows are this backend's own nodes: the whole column goes.
+                            node::dispose_tree(old as Handle);
                         }
                         let col = build_nav_menu_rows(
                             menu,
@@ -3111,7 +3115,23 @@ mod imp {
             });
             // A host that is gone takes its suite with it: a stale suite would route the next
             // host at that address's children into freed nodes.
-            if NAV_SUITES.with(|c| c.borrow_mut().remove(&key)).is_some() {
+            if let Some(suite) = NAV_SUITES.with(|c| c.borrow_mut().remove(&key)) {
+                // The pages area, the bar and its items are this backend's own nodes, which day
+                // never releases: dispose them here. Day's pages come out of the pages area
+                // first, so their own release frees them. Left attached under a container nobody
+                // disposes, each page's whole native subtree stayed resident, and every visit to
+                // a tabbed page (Showcase's grid, five demos deep) grew the process for good.
+                for (page, _) in &suite.items {
+                    node::remove_child(suite.pages.0, page.0);
+                }
+                for item in &suite.bar_items {
+                    node::remove_child(suite.bar.0, item.0);
+                    node::dispose_tree(item.0);
+                }
+                for part in [suite.bar, suite.pages] {
+                    node::remove_child(h.0, part.0);
+                    node::dispose(part.0);
+                }
                 MENU_SUITE.with(|m| m.borrow_mut().retain(|_, host| *host != key));
                 SUITE_AWAITING_MENU.with(|c| {
                     if c.get() == Some(key) {
@@ -3134,13 +3154,21 @@ mod imp {
             }
             // A released NAV_MENU retires its rows' synthetic click ids: without this every
             // menu rebuild leaked its row entries for the process lifetime.
+            let nav_menu = NAV_MENU_IDS.with(|m| m.borrow().contains_key(&key));
             if let Some(menu) = NAV_MENU_IDS.with(|m| m.borrow_mut().remove(&key)) {
                 MENU_ROWS.with(|m| m.borrow_mut().retain(|_, v| v.0 != menu));
             }
             // A scroll owns its content container (realize): dispose it with the scroll.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow_mut().remove(&key)) {
                 forget_themed(stack);
-                node::dispose(stack as Handle);
+                if nav_menu {
+                    // A nav menu's content is the rows column this backend built whole.
+                    node::remove_child(h.0, stack as Handle);
+                    node::dispose_tree(stack as Handle);
+                } else {
+                    // An ordinary scroll's content holds day's nodes, which day releases itself.
+                    node::dispose(stack as Handle);
+                }
             }
             // An ArkTS-built piece node belongs to its BuilderNode: detach it from the native
             // wrapper, ask ArkTS to release it, and dispose only the wrapper; a native dispose

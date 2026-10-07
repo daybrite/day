@@ -1613,6 +1613,9 @@ pub fn launch_ohos(
     }))
 }
 
+/// The bundle manager's "insufficient disk memory" install error: deterministic, not transient.
+const INSTALL_DISK_SPACE_CODE: &str = "9568288";
+
 /// Install (reinstall) + `aa start` the bundle on the target `key`, with the Oniro retry dances.
 fn install_and_start(
     bundle: &str,
@@ -1656,6 +1659,11 @@ fn install_and_start(
             installed = true;
             break;
         }
+        // The bundle manager's free-space check (9568288, MSG_ERR_INSTALL_DISK_MEM_INSUFFICIENT)
+        // answers the same on every try, so retrying only spends the timeouts.
+        if install_log.contains(INSTALL_DISK_SPACE_CODE) {
+            break;
+        }
         if attempt < 10 {
             let _ = hdc_for(key)
                 .args(["shell", "power-shell", "wakeup"])
@@ -1664,6 +1672,17 @@ fn install_and_start(
         }
     }
     if !installed {
+        if install_log.contains(INSTALL_DISK_SPACE_CODE) {
+            return Err(format!(
+                "hdc install: {bundle} not installed on {key}: the device refused it for disk \
+                 space (code {INSTALL_DISK_SPACE_CODE}).\n{}\n\
+                 The installer keeps a large reserve on /data, so this can happen with hundreds of \
+                 MB still free (`hdc shell df /data`). Free space on the device: uninstall apps \
+                 you no longer need (`hdc uninstall <bundle>`) or remove leftovers under \
+                 /data/local/tmp.",
+                install_log.trim()
+            ));
+        }
         return Err(format!(
             "hdc install: {bundle} not installed on {key} after 10 tries:\n{}",
             install_log.trim()

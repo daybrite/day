@@ -161,6 +161,25 @@ pub fn dispose(n: Handle) {
     api_call!(disposeNode(n));
 }
 
+/// Dispose `n` and everything under it, deepest first. Only for a subtree this backend built
+/// whole for its own chrome (a nav menu's rows, a tab-bar cell): [`dispose`] frees one node, and
+/// freeing just the root of such a subtree left every row, label and icon in it allocated. Never
+/// for a container holding day's nodes, which day releases one by one through `release`.
+pub fn dispose_tree(n: Handle) {
+    if n.is_null() {
+        return;
+    }
+    let children: Vec<Handle> = (0..child_count(n) as i32)
+        .map(|i| child_at(n, i))
+        .filter(|c| !c.is_null())
+        .collect();
+    for c in children {
+        remove_child(n, c);
+        dispose_tree(c);
+    }
+    dispose(n);
+}
+
 /// Dispose a node this backend built for its own chrome (a list cell, a probe): no side state
 /// to erase, unlike [`dispose`].
 pub fn dispose_raw(n: Handle) {
@@ -410,11 +429,12 @@ const TEXT_MEASURE_ATTRS: [Attr; 10] = [
     Attr::NODE_TEXT_BASELINE_OFFSET,
 ];
 
-/// Measure a label (a TEXT node) on a fresh copy. After a Text's content changes, `measureNode`
-/// on that node keeps answering the previous text's size until ArkUI's own layout pass has run
-/// (`markDirty` and a different constraint don't clear it), so a label whose text grows is laid
-/// out at its old width and wraps or clips. A throwaway TEXT node carrying the same text and
-/// font attributes has no such cache. A styled label (SPAN children) can't be copied this
+/// Measure a label (a TEXT node) on a detached copy. After a Text's content changes,
+/// `measureNode` on that node keeps answering the previous text's size until ArkUI's own layout
+/// pass has run (`markDirty` and a different constraint don't clear it), so a label whose text
+/// grows is laid out at its old width and wraps or clips. A TEXT node outside the tree carrying
+/// the same text and font attributes has no such cache once its attributes are reset and it is
+/// marked for measurement (see the probe below). A styled label (SPAN children) can't be copied this
 /// simply, so it keeps the direct measure, as does anything the copy sizes to nothing.
 pub fn measure_label(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
     if n.is_null() || api().is_none() {
@@ -423,15 +443,32 @@ pub fn measure_label(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
     if child_count(n) > 0 {
         return measure(n, max_w, max_h);
     }
-    let probe = create(TEXT);
+    // One probe for the thread's life, not a fresh node per measurement. Creating and disposing
+    // a Text leaks inside ArkUI (OpenHarmony 6.1): measured on the emulator, a Showcase grid
+    // visit (about 1,750 measurements) grew the process by 26 MB with a fresh probe each time
+    // and by 11 MB with this one, though every probe was disposed. The probe is never attached
+    // to a tree. Each use resets every attribute it copies, so nothing carries over from the
+    // previous label (`copy_attr` skips an attribute the source leaves unset), and marks it for
+    // measurement, which is what makes `measureNode` answer for the new attributes rather than
+    // the old ones, the reason this used a fresh copy.
+    thread_local! {
+        static PROBE: Cell<Handle> = const { Cell::new(ptr::null_mut()) };
+    }
+    let probe = PROBE.with(|p| {
+        if p.get().is_null() {
+            p.set(create(TEXT));
+        }
+        p.get()
+    });
     if probe.is_null() {
         return measure(n, max_w, max_h);
     }
     for attr in TEXT_MEASURE_ATTRS {
+        api_call!(resetAttribute(probe, attr));
         copy_attr(n, probe, attr);
     }
+    mark_dirty(probe, ArkUI_NodeDirtyFlag::NODE_NEED_MEASURE);
     let size = measure(probe, max_w, max_h);
-    api_call!(disposeNode(probe));
     // Nothing to size on the copy: a styled label keeps its text in SPAN children (which
     // getTotalChildCount doesn't count) and an empty content, so measure it directly.
     if size.0 <= 0.0 {

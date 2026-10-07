@@ -575,10 +575,24 @@ fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), St
             // `uitest screenCap` writes a real PNG; `snapshot_display` writes JPEG (so its bytes
             // in a .png file are wrong), so prefer uitest and fall back to snapshot_display. Then
             // `hdc file recv`.
+            //
+            // Every hdc call's output is captured, not inherited: hdc narrates each of these
+            // ("WakeupDevice is called", "ScreenCap saved to …", "FileTransfer finish …") on
+            // stdout, which is where `day drive` writes its one JSON object (docs/agent.md), so a
+            // drive with a screenshot step printed text a JSON reader could not parse. A failure
+            // quotes what hdc said instead.
+            let run = |args: &[&str]| crate::ohos::hdc().args(args).output();
+            let said = |o: &std::process::Output| {
+                let mut t = String::from_utf8_lossy(&o.stdout).trim().to_string();
+                let e = String::from_utf8_lossy(&o.stderr);
+                if !e.trim().is_empty() {
+                    t.push_str(" / ");
+                    t.push_str(e.trim());
+                }
+                t
+            };
             // Re-wake the display first (best-effort): a sleeping screen captures as a black frame.
-            let _ = crate::ohos::hdc()
-                .args(["shell", "power-shell", "wakeup"])
-                .status();
+            let _ = run(&["shell", "power-shell", "wakeup"]);
             if !ready {
                 let settle = std::env::var("DAY_OHOS_SHOT_SETTLE_MS")
                     .ok()
@@ -591,28 +605,33 @@ fn device_screenshot(target: &Target, path: &Path, ready: bool) -> Result<(), St
             // screenCap writes into an existing file without truncating it, so a smaller
             // capture would keep the previous shot's tail after its IEND (every shot of a
             // run came out the size of the first). Start each capture from no file.
-            let _ = crate::ohos::hdc().args(["shell", "rm", "-f", dev]).status();
-            let cap = crate::ohos::hdc()
-                .args(["shell", "uitest", "screenCap", "-p", dev])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-                || crate::ohos::hdc()
-                    .args(["shell", "snapshot_display", "-f", dev])
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false);
-            if !cap {
-                return Err("hdc screenshot failed (uitest screenCap / snapshot_display)".into());
+            let _ = run(&["shell", "rm", "-f", dev]);
+            let mut why = Vec::new();
+            let mut cap = false;
+            for args in [
+                ["shell", "uitest", "screenCap", "-p", dev].as_slice(),
+                ["shell", "snapshot_display", "-f", dev].as_slice(),
+            ] {
+                match run(args) {
+                    Ok(o) if o.status.success() => {
+                        cap = true;
+                        break;
+                    }
+                    Ok(o) => why.push(said(&o)),
+                    Err(e) => why.push(e.to_string()),
+                }
             }
-            let ok = crate::ohos::hdc()
-                .args(["file", "recv", dev])
-                .arg(path)
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if !ok {
-                return Err("hdc file recv failed".into());
+            if !cap {
+                return Err(format!(
+                    "hdc screenshot failed (uitest screenCap / snapshot_display): {}",
+                    why.join("; ")
+                ));
+            }
+            let path_str = path.to_string_lossy();
+            match run(&["file", "recv", dev, &path_str]) {
+                Ok(o) if o.status.success() => {}
+                Ok(o) => return Err(format!("hdc file recv failed: {}", said(&o))),
+                Err(e) => return Err(format!("hdc file recv failed: {e}")),
             }
             Ok(())
         }
