@@ -55,6 +55,12 @@ through day-core's `set_probe_value` hook, so `assert_text` sees the display for
 control. The composed idiom is a real text field and needs nothing special. One script drives
 both idioms by the same key.
 
+One scripted input commits once. The native event handler accepts `stepper:value` (and the
+legacy bridge's empty tag), but ignores unrelated custom events, including the
+`day:synthesized-text` paint notification that precedes `TextChanged`. Treating both as
+edits would create duplicate undo entries. `set_value:` still delivers one preview followed
+by one commit, so a binding can retain the value from before the gesture for undo.
+
 ## Verification status
 
 The AppKit, GTK and Qt arms plus the composed row are exercised by Day-Sketch's walkthrough

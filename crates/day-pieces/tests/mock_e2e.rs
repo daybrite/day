@@ -9803,3 +9803,37 @@ fn composed_sidebar_header_click_restores_the_leaf_highlight() {
         probe.log()
     );
 }
+
+#[test]
+fn sidebar_destination_centers_in_native_cell_height() {
+    // Synthetic sidebar fixtures exercise the actual destination builder, not a stand-in row.
+    let probe = boot(|| {
+        nav(Signal::new("repo".to_owned()))
+            .style(NavStyle::Sidebar)
+            .collapsed_sections(Signal::new(std::collections::HashSet::new()))
+            .section_id("owner", "Fixture owner")
+            .item("repo", "Fixture repository", || label("Fixture detail"))
+    });
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let header = probe.tree_children(host, None)[0];
+    let token = probe.tree_children(host, Some(header))[0];
+    let cell = MockHandle(9001);
+    let source = probe.state.borrow().tree_sources[&host.0].clone();
+    probe.tree_bind(host, token, cell);
+    for height in [32.0, 44.0] {
+        (source.layout_cell_size)(cell.0 as day_spec::RawHandle, Size::new(240.0, height));
+        // A native reload/rebind must preserve the alignment too.
+        probe.tree_bind(host, token, cell);
+        let frame = probe
+            .find_by_kind("day.label")
+            .into_iter()
+            .find(|(_, widget)| widget.text == "Fixture repository")
+            .unwrap()
+            .1
+            .frame;
+        assert!(
+            (frame.origin.y + frame.size.height / 2.0 - height / 2.0).abs() < 0.01,
+            "destination label is not centered in {height}-point native row: {frame:?}"
+        );
+    }
+}

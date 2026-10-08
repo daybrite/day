@@ -89,7 +89,7 @@ the architecture-level view and the rationale.
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | split — `split(first, second)`, two panes and a dragged divider, `.axis(..)` side by side or stacked, `.fraction(share)` two-way; the toolkit's splitter where `Cap::Split` is Native, Day's layout and a drawn divider elsewhere | [docs/split.md](docs/split.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | tree — `tree(source, row)` hierarchical rows: native tree views where `Cap::Tree` is Native, the composed list-backed tree elsewhere; token identity, app-owned expansion, drag-to-reparent | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
-| collapsible sidebar sections — stable `section_id`, app-owned `collapsed_sections`, expansion callbacks and `restore_sections`; native AppKit/UIKit/GTK/Qt/WinUI trees and Android two-level groups, composed DOM/ArkUI disclosure. Native group heights are fed back into cell layout; selection survives hiding its section | [section contract](docs/navigation.md#collapsible-sidebar-sections), [native adapters](docs/tree.md#collapsible-sections) | [§10.5](#105-navigation-and-presentation) |
+| collapsible sidebar sections — stable `section_id`, app-owned `collapsed_sections`, expansion callbacks and `restore_sections`; native AppKit/UIKit/GTK/Qt/WinUI trees and Android two-level groups, composed DOM/ArkUI disclosure. Native cell heights are fed back into layout; destination rows fill that height and center their content within the selection. Selection survives hiding its section | [section contract](docs/navigation.md#collapsible-sidebar-sections), [native adapters](docs/tree.md#collapsible-sections) | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -957,6 +957,13 @@ increment/decrement arrows, [docs/stepper.md](docs/stepper.md) —
 `swiftui` — hosted SwiftUI views, [docs/swiftui.md](docs/swiftui.md)) and headless services under
 `parts/` (battery, network, sensors,
 clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, fs) — [§15](#15-extensibility-pieces-parts-and-tweaks) has the extension model.
+
+The native stepper accepts committed values only from its `stepper:value` custom event
+(or the legacy bridge's empty tag) and `TextChanged`/`ValueCommitted`. Synthetic typing
+sends `day:synthesized-text` before `TextChanged`; the paint notification must not commit
+the binding a second time, or one inspector edit creates two undo units. The native and
+composed paths are covered by `day-piece-stepper`'s `scripted_typing_commits_once_in_both_idioms`
+regression test; see [docs/stepper.md](docs/stepper.md).
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):

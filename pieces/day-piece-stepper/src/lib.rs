@@ -225,7 +225,9 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
     // value; only `ValueChanged` stays a preview.
     cx.on(node, move |ev| {
         match ev {
-            Event::Custom { text, .. } => {
+            // Other custom events include SYNTHESIZED_TEXT, the paint half of scripted
+            // typing. TextChanged below owns that edit; accepting both commits it twice.
+            Event::Custom { tag, text, .. } if *tag == VALUE_TAG || tag.is_empty() => {
                 if let Ok(v) = text.trim().parse::<f64>() {
                     value.write_commit(clamp(v));
                 }
@@ -361,6 +363,112 @@ impl<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> Piece for Valued<P,
 }
 
 day_pieces::glue_modules!(appkit, gtk, qt);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use day_mock::MockToolkit;
+    use day_reactive::{Signal, flush_sync};
+    use day_spec::WindowOptions;
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// Records binding writes even when the value is unchanged: a duplicate commit creates
+    /// a second history unit in bindings such as Day-Sketch's inspector.
+    #[derive(Clone)]
+    struct Writes {
+        value: Signal<f64>,
+        events: Rc<RefCell<Vec<(&'static str, f64)>>>,
+    }
+
+    impl Binding<f64> for Writes {
+        fn read(&self) -> f64 {
+            self.value.get()
+        }
+        fn peek(&self) -> f64 {
+            self.value.get_untracked()
+        }
+        fn write(&self, value: f64) {
+            self.write_commit(value);
+        }
+        fn write_preview(&self, value: f64) {
+            self.events.borrow_mut().push(("preview", value));
+            self.value.set(value);
+        }
+        fn write_commit(&self, value: f64) {
+            self.events.borrow_mut().push(("commit", value));
+            self.value.set(value);
+        }
+    }
+
+    fn boot(native: bool) -> (Writes, RNode) {
+        day_core::uninstall_tree();
+        let writes = Writes {
+            value: Signal::new(3.0),
+            events: Rc::default(),
+        };
+        let binding = writes.clone();
+        let (mock, _) = MockToolkit::new();
+        day_core::launch_with(mock, WindowOptions::default(), move || {
+            let field = stepper(binding).range(0.0..=10.0).key("fixture-stepper");
+            if native {
+                field.native()
+            } else {
+                field.composed()
+            }
+            .any()
+        });
+        let node = with_tree(|t| t.find_by_id("fixture-stepper")).unwrap();
+        (writes, node)
+    }
+
+    fn emit(node: RNode, event: Event) {
+        day_core::enqueue_event(day_core::rnode_to_id(node), event);
+        flush_sync();
+    }
+
+    #[test]
+    fn scripted_typing_commits_once_in_both_idioms() {
+        for native in [true, false] {
+            let (writes, node) = boot(native);
+            // Use the actual dayscript input path: a native leaf receives SYNTHESIZED_TEXT
+            // to paint the characters, followed by TextChanged for the edit itself.
+            day_core::synthesize_text(node, "7".into());
+            flush_sync();
+            emit(node, Event::Submitted);
+            assert_eq!(writes.peek(), 7.0);
+            assert_eq!(
+                *writes.events.borrow(),
+                [("commit", 7.0)],
+                "native={native}"
+            );
+        }
+    }
+
+    #[test]
+    fn native_custom_events_accept_only_value_tags_and_the_legacy_bridge() {
+        let (writes, node) = boot(true);
+        emit(node, Event::custom(day_core::SYNTHESIZED_TEXT, "8"));
+        emit(node, Event::custom("fixture:unrelated", "9"));
+        assert_eq!(writes.peek(), 3.0);
+        assert!(writes.events.borrow().is_empty());
+        emit(node, Event::custom(VALUE_TAG, "6"));
+        emit(node, Event::custom("", "12"));
+        assert_eq!(*writes.events.borrow(), [("commit", 6.0), ("commit", 10.0)]);
+        assert_eq!(writes.peek(), 10.0);
+    }
+
+    #[test]
+    fn scripted_values_keep_the_preview_and_commit_boundary() {
+        let (writes, node) = boot(true);
+        emit(node, Event::ValueChanged(12.0));
+        emit(node, Event::ValueCommitted(12.0));
+        assert_eq!(
+            *writes.events.borrow(),
+            [("preview", 10.0), ("commit", 10.0)]
+        );
+    }
+}
 
 /// The stepper's conformance cases (docs/testing.md), in both idioms.
 #[cfg(feature = "conformance")]

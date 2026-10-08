@@ -956,7 +956,9 @@ fn section_sidebar<K: Route, S: Binding<K>>(
                     ))
                     .spacing(8.0)
                     .align(VAlign::Center)
-                    .grow_w()
+                    // The surrounding `when` fills the native cell. Its content must
+                    // fill the height too, so centering uses the entire selection row.
+                    .grow()
                     .any()
                 })
                 .grow()
