@@ -2001,6 +2001,8 @@ impl Toolkit for Dom {
             | Some(Builtin::Tree)
             | Some(Builtin::Inspector)
             | Some(Builtin::InspectorPane)
+            | Some(Builtin::Split)
+            | Some(Builtin::SplitPane)
             | None => {
                 // An external piece's own dom renderer, if one registered for this kind.
                 if let Some(make) = registered(kind, |r| r.make) {

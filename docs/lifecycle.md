@@ -29,6 +29,9 @@ fn main() {
 
 Handlers run in registration order, inside a reactive batch, so a lifecycle handler that writes a
 `Signal` updates the UI just like a button callback. Register as many as you like per phase.
+Before `WillTerminate` handlers run, Day cancels pending main-loop tasks while reactive state
+is still alive. Handlers must finish shutdown synchronously; newly submitted tasks are not
+polled. A returning loop does the same at `DidExit` if necessary. See [async shutdown](async.md).
 
 ## The phases
 
@@ -67,8 +70,10 @@ web). A handler registered for `DidExit` runs before the line, so it is the app'
 day::on_lifecycle(Lifecycle::DidExit, || log::info!("bye"));
 ```
 
-The line is written only on a clean exit: the quit command, the OS tearing the app down, the
-page going away. A killed or crashed process writes nothing.
+The line marks completion of Day's exit handlers: the quit command, an orderly OS shutdown,
+or the page going away. It precedes final native and thread-local destruction, so a later
+destructor failure can still crash the process after this line. A kill or earlier crash may
+prevent the line entirely. The memory figure covers this process, not separate WebKit helpers.
 
 ### When to register
 

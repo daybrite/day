@@ -1836,6 +1836,42 @@ impl Layout for InspectorLayout {
     }
 }
 
+/// Native split (docs/split.md): the two pane frames are native-owned (an `NSSplitView`'s, a
+/// `GtkPaned`'s, a `QSplitter`'s), so Day lays each pane's content within the size the toolkit
+/// last reported via `Event::FrameChanged`, the [`InspectorLayout`] contract. The fallback
+/// before the first report divides the host bounds by the bound fraction along the axis.
+pub struct SplitLayout {
+    pub sizes: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<RNode, Size>>>,
+    /// Stacked (`true`) or side by side, as last patched; shared with the piece.
+    pub stacked: std::rc::Rc<std::cell::Cell<bool>>,
+    /// The first pane's share, as last patched; shared with the piece.
+    pub fraction: std::rc::Rc<std::cell::Cell<f64>>,
+}
+
+impl Layout for SplitLayout {
+    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        // Greedy, like a nav host: the split owns whatever its parent proposes.
+        Size::new(p.width.unwrap_or(480.0), p.height.unwrap_or(640.0))
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        // Insertion order is the contract (day-spec `Builtin::Split`): 0 first, 1 second.
+        let f = self.fraction.get().clamp(0.0, 1.0);
+        let (w, h) = (bounds.size.width, bounds.size.height);
+        for (i, &pane) in children.iter().enumerate() {
+            let reported = self.sizes.borrow().get(&pane).copied();
+            let sz = reported.unwrap_or_else(|| {
+                let share = if i == 0 { f } else { 1.0 - f };
+                if self.stacked.get() {
+                    Size::new(w, (h * share).floor())
+                } else {
+                    Size::new((w * share).floor(), h)
+                }
+            });
+            cx.place_child_native(pane, Rect::from_size(sz));
+        }
+    }
+}
+
 /// Fullscreen cover (docs/cover.md): the cover node occupies no space where it sits in the
 /// tree (its native surface is presented over the window, outside the parent's bounds), and
 /// its content is laid out at the size the backend reported via `Event::FrameChanged`, the

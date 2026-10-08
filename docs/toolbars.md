@@ -485,3 +485,12 @@ composition is deferred until the delivered model has been recorded, then recomp
 that baseline. This prevents duplicate native insertion during the first article selection
 or a rapid change in toolbar contributors. Reconciliation also treats synthesized tracking
 separators as unique; only the system's fixed and flexible spaces can repeat.
+
+## Captures after an edit
+
+On AppKit, inserting or removing an item makes the bar lay out again and paint every item's
+image afresh, and the painting lands a frame or two after the edit: a capture taken straight
+after shows each bezel empty, including the items the edit never touched. The backend therefore
+reports `ui_idle` false for 120 ms after a toolbar edit, so a `wait_idle` or `screenshot` step
+right after one waits that long. Nothing observable marks the end of the painting, which is why
+the wait is a bounded settle rather than a signal.

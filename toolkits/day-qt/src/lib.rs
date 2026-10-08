@@ -114,6 +114,10 @@ day_core::tls_group! {
     /// sees only handles — the PAGE_PANE pattern.
     static INSPECTOR_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> =
         RefCell::new(HashMap::new());
+    /// Split host (the QSplitter, docs/split.md) → its state.
+    static SPLIT_STATE: RefCell<HashMap<usize, SplitState>> = RefCell::new(HashMap::new());
+    /// SPLIT_PANE widget → `(its NodeId, is-second)`, recorded at realize.
+    static SPLIT_PANE_IDS: RefCell<HashMap<usize, (NodeId, bool)>> = RefCell::new(HashMap::new());
 
     /// Each label's own resolved point size, so a RELATIVE-size run can be written as the
     /// absolute `pt` Qt's rich-text CSS understands (a percentage is silently ignored there).
@@ -1224,6 +1228,112 @@ extern "C" fn inspector_splitter_moved(host: *mut std::os::raw::c_void) {
 }
 
 // ---------------------------------------------------------------------------
+// Split (docs/split.md): a QSplitter of two plain panes, either orientation, the divider
+// placed by the bound share and a drag reported back as the new share.
+// ---------------------------------------------------------------------------
+
+struct SplitState {
+    first_pane: *mut std::os::raw::c_void,
+    second_pane: *mut std::os::raw::c_void,
+    node: NodeId,
+    /// `(pane NodeId, is-second)` in attach order, for frame reports.
+    panes: Vec<(NodeId, bool)>,
+    /// The first pane's share as last patched or reported.
+    share: f64,
+    min_pane: f64,
+    /// The divider has been placed once; before that the splitter has no size to place it in.
+    placed: bool,
+    /// Day is moving the divider itself: the move that follows is not a report.
+    suppress: bool,
+}
+
+/// Report both pane sizes so `SplitLayout` re-lays content (`inspector_sync_panes`'s
+/// counterpart).
+fn split_sync_panes(host: *mut std::os::raw::c_void) {
+    let reports: Vec<(NodeId, Size)> = SPLIT_STATE.with(|m| {
+        let m = m.borrow();
+        let Some(state) = m.get(&(host as usize)) else {
+            return Vec::new();
+        };
+        let (mut aw, mut ah, mut bw, mut bh) = (0.0, 0.0, 0.0, 0.0);
+        unsafe {
+            ffi::day_qt_widget_size(state.first_pane, &mut aw, &mut ah);
+            ffi::day_qt_widget_size(state.second_pane, &mut bw, &mut bh);
+        }
+        if aw <= 0.0 || ah <= 0.0 {
+            return Vec::new();
+        }
+        state
+            .panes
+            .iter()
+            .map(|(id, second)| {
+                let size = if *second {
+                    Size::new(bw, bh)
+                } else {
+                    Size::new(aw, ah)
+                };
+                (*id, size)
+            })
+            .collect()
+    });
+    for (id, size) in reports {
+        emit(id, Event::FrameChanged(size));
+    }
+}
+
+/// A layout pass on the splitter: the first one with a size places the divider by the share;
+/// every one re-lays the panes' content.
+extern "C" fn split_resized(host: *mut std::os::raw::c_void) {
+    ffi_guard::contain((), || {
+        let place = SPLIT_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(host as usize)) else {
+                return None;
+            };
+            let (mut w, mut h) = (0.0, 0.0);
+            unsafe { ffi::day_qt_widget_size(host, &mut w, &mut h) };
+            if state.placed || w <= 0.0 || h <= 0.0 {
+                return None;
+            }
+            state.placed = true;
+            state.suppress = true;
+            Some(state.share)
+        });
+        if let Some(share) = place {
+            unsafe { ffi::day_qt_split_set_fraction(host, share) };
+            SPLIT_STATE.with(|m| {
+                if let Some(state) = m.borrow_mut().get_mut(&(host as usize)) {
+                    state.suppress = false;
+                }
+            });
+        }
+        split_sync_panes(host);
+    });
+}
+
+/// The divider moved: a drag reports the new share; Day's own placement does not.
+extern "C" fn split_moved(host: *mut std::os::raw::c_void) {
+    ffi_guard::contain((), || {
+        let share = unsafe { ffi::day_qt_split_fraction(host) }.clamp(0.0, 1.0);
+        let report = SPLIT_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(host as usize)) else {
+                return None;
+            };
+            if state.suppress || !state.placed || (share - state.share).abs() <= 1e-4 {
+                return None;
+            }
+            state.share = share;
+            Some(state.node)
+        });
+        if let Some(node) = report {
+            emit(node, Event::ValueChanged(share));
+        }
+        split_sync_panes(host);
+    });
+}
+
+// ---------------------------------------------------------------------------
 // The navigation suite (docs/navigation.md): a QTabWidget host that owns its page widgets.
 // ---------------------------------------------------------------------------
 
@@ -1781,7 +1891,9 @@ impl Toolkit for Qt {
             | Cap::ToolbarSearch
             // The nav QSplitter mirrored: panel pane trailing, divider draggable
             // (docs/inspector.md — not a QDockWidget; DayWindow is no QMainWindow).
-            | Cap::Inspector => Support::Native,
+            | Cap::Inspector
+            // A QSplitter of two plain panes, either orientation (docs/split.md).
+            | Cap::Split => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             // The COMPOSED tree (docs/tree.md M2): the piece flattens onto this backend's
@@ -1886,6 +1998,43 @@ impl Toolkit for Qt {
                         )
                     });
                     QtHandle(host)
+                }
+                Some(Builtin::Split) => {
+                    let (axis, fraction, min_pane) = props
+                        .downcast_ref::<SplitProps>()
+                        .map(|p| (p.axis, p.fraction, p.min_pane))
+                        .unwrap_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0));
+                    let vertical = axis == day_spec::props::SplitAxis::Vertical;
+                    let host = ffi::day_qt_split_new(c_int::from(vertical), min_pane);
+                    let first_pane = ffi::day_qt_splitter_pane(host, 0);
+                    let second_pane = ffi::day_qt_splitter_pane(host, 1);
+                    ffi::day_qt_splitter_on_moved(host, split_moved);
+                    ffi::day_qt_splitter_on_resized(host, split_resized);
+                    SPLIT_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            host as usize,
+                            SplitState {
+                                first_pane,
+                                second_pane,
+                                node: id,
+                                panes: Vec::new(),
+                                share: fraction.clamp(0.0, 1.0),
+                                min_pane,
+                                placed: false,
+                                suppress: false,
+                            },
+                        )
+                    });
+                    QtHandle(host)
+                }
+                Some(Builtin::SplitPane) => {
+                    let w = ffi::day_qt_container_new();
+                    let second = props
+                        .downcast_ref::<SplitPaneProps>()
+                        .map(|p| p.second)
+                        .unwrap_or(false);
+                    SPLIT_PANE_IDS.with(|m| m.borrow_mut().insert(w as usize, (id, second)));
+                    QtHandle(w)
                 }
                 Some(Builtin::InspectorPane) => {
                     let w = ffi::day_qt_container_new();
@@ -2438,6 +2587,41 @@ impl Toolkit for Qt {
                         }
                     }
                 }
+                kinds::SPLIT => {
+                    if let Some(p) = patch.downcast_ref::<SplitPatch>() {
+                        let apply = SPLIT_STATE.with(|m| {
+                            let mut m = m.borrow_mut();
+                            let Some(state) = m.get_mut(&(h.0 as usize)) else {
+                                return None;
+                            };
+                            match p {
+                                SplitPatch::Fraction(f) => state.share = f.clamp(0.0, 1.0),
+                                SplitPatch::Axis(_) => {}
+                            }
+                            state.suppress = true;
+                            Some((state.placed, state.share, state.min_pane))
+                        });
+                        if let Some((placed, share, min_pane)) = apply {
+                            if let SplitPatch::Axis(axis) = p {
+                                let vertical = *axis == day_spec::props::SplitAxis::Vertical;
+                                ffi::day_qt_split_set_orientation(
+                                    h.0,
+                                    c_int::from(vertical),
+                                    min_pane,
+                                );
+                            }
+                            if placed {
+                                ffi::day_qt_split_set_fraction(h.0, share);
+                            }
+                            SPLIT_STATE.with(|m| {
+                                if let Some(state) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                                    state.suppress = false;
+                                }
+                            });
+                            split_sync_panes(h.0);
+                        }
+                    }
+                }
                 kinds::INSPECTOR => {
                     if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>()
                     {
@@ -2736,6 +2920,12 @@ impl Toolkit for Qt {
         NAV_MENU_ROWS.with(|m| {
             m.borrow_mut().remove(&key);
         });
+        SPLIT_STATE.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
+        SPLIT_PANE_IDS.with(|m| {
+            m.borrow_mut().remove(&key);
+        });
         // The same use-after-free rule for a disposed inspector split and its panes.
         INSPECTOR_STATE.with(|m| {
             m.borrow_mut().remove(&key);
@@ -2873,6 +3063,28 @@ impl Toolkit for Qt {
         });
         if handled {
             nav_sync_panes(parent.0);
+            return;
+        }
+        // Split host: the pane's own record says which pane it is (docs/split.md).
+        let split_pane = SPLIT_STATE.with(|m| {
+            let mut m = m.borrow_mut();
+            let Some(state) = m.get_mut(&(parent.0 as usize)) else {
+                return false;
+            };
+            let (pane_id, second) = SPLIT_PANE_IDS
+                .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
+                .unwrap_or((NodeId(0), index == 1));
+            let pane = if second {
+                state.second_pane
+            } else {
+                state.first_pane
+            };
+            unsafe { ffi::day_qt_add_child(pane, child.0) };
+            state.panes.push((pane_id, second));
+            true
+        });
+        if split_pane {
+            split_sync_panes(parent.0);
             return;
         }
         // Inspector host: the pane's own record says which side it is (docs/inspector.md).
@@ -3066,6 +3278,10 @@ impl Toolkit for Qt {
         }
         if NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
             nav_suite_sync(h.0);
+        }
+        // A split host framed: its pane frames are native-owned too (docs/split.md).
+        if SPLIT_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {
+            split_sync_panes(h.0);
         }
         // Same for an inspector split: its pane frames are native-owned too.
         if INSPECTOR_STATE.with(|m| m.borrow().contains_key(&(h.0 as usize))) {

@@ -453,6 +453,12 @@ unsafe extern "C" {
     /// `leading` nonzero puts the panel pane first (docs/inspector.md `.edge`).
     pub fn day_qt_inspector_new(panel_width: c_double, leading: c_int) -> *mut c_void;
     pub fn day_qt_splitter_pane(w: *mut c_void, index: c_int) -> *mut c_void;
+    /// A two-pane QSplitter (docs/split.md), stacked when `vertical`, each pane at least
+    /// `min_pane` along the axis.
+    pub fn day_qt_split_new(vertical: c_int, min_pane: c_double) -> *mut c_void;
+    pub fn day_qt_split_set_orientation(w: *mut c_void, vertical: c_int, min_pane: c_double);
+    pub fn day_qt_split_set_fraction(w: *mut c_void, fraction: c_double);
+    pub fn day_qt_split_fraction(w: *mut c_void) -> c_double;
     pub fn day_qt_splitter_on_moved(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     /// Report a splitter's pane geometry on every layout pass Qt runs on it — the first of
     /// which is what turns the constructor's placeholder sizes into real ones.

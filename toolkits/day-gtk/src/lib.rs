@@ -167,6 +167,10 @@ day_core::tls_group! {
     /// Inspector pane key → `(its NodeId, is-panel)`, recorded at realize and consumed when
     /// the pane is inserted into its split.
     static INSPECTOR_PANES: SideTable<(NodeId, bool)> = SideTable::new();
+    /// Split host key → its state (docs/split.md); a [`SideTable`], swept with the host.
+    static SPLIT_STATE: SideTable<Rc<RefCell<SplitState>>> = SideTable::new();
+    /// Split pane key → `(its NodeId, is-second)`, recorded at realize.
+    static SPLIT_PANES: SideTable<(NodeId, bool)> = SideTable::new();
 
     /// LIST scrolled-window key → its model + source holder.
     static LIST_STATE: RefCell<HashMap<usize, ListEntry>> = RefCell::new(HashMap::new());
@@ -2313,6 +2317,75 @@ impl InspectorState {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Split (docs/split.md): a GtkPaned of two filling cells, either orientation, both resizing
+// with the host (proportionally, which is what keeps a dragged share through a window
+// resize), the divider placed by the bound share and a drag reported back as the new share.
+// ---------------------------------------------------------------------------
+
+struct SplitState {
+    paned: gtk4::Paned,
+    first: DayCell,
+    second: DayCell,
+    node: NodeId,
+    /// The first pane's share as last patched or reported.
+    share: f64,
+    min_pane: f64,
+    /// The divider has been placed once; before that the paned has no size to place it in.
+    placed: bool,
+    /// Day is moving the divider itself: the position-notify that follows is not a report.
+    suppress: bool,
+    /// Each attached pane: `(pane NodeId, is-second, the pane's own GtkFixed)`.
+    panes: Vec<(NodeId, bool, Handle)>,
+}
+
+impl SplitState {
+    fn stacked(&self) -> bool {
+        self.paned.orientation() == gtk4::Orientation::Vertical
+    }
+    /// The length the two panes share: the paned's extent along its axis, minus the handle.
+    fn usable(&self) -> f64 {
+        let len = if self.stacked() {
+            self.paned.height()
+        } else {
+            self.paned.width()
+        };
+        f64::from(len - NavSplit::HANDLE).max(0.0)
+    }
+    /// Put the divider where the first pane takes the share, silently, from the paned's own
+    /// allocated length.
+    fn place(&mut self) {
+        let len = if self.stacked() {
+            self.paned.height()
+        } else {
+            self.paned.width()
+        };
+        self.place_along(len);
+    }
+    /// [`Self::place`] for a length the paned is about to be allocated: the host's hook runs
+    /// before the paned is allocated (`DayCell::size_allocate`), when the paned still measures
+    /// zero, so the first placement takes the host's length instead. GtkPaned keeps a
+    /// position set before its allocation and clamps it to the panes' minimums then.
+    fn place_along(&mut self, len: i32) {
+        let usable = f64::from(len - NavSplit::HANDLE).max(0.0);
+        if usable <= 0.0 {
+            return;
+        }
+        self.suppress = true;
+        self.paned
+            .set_position((self.share * usable).round() as i32);
+        self.suppress = false;
+        self.placed = true;
+    }
+    /// The minimum a pane may be dragged to, along the current axis only.
+    fn request_minimums(&self) {
+        let m = self.min_pane.round() as i32;
+        let (w, h) = if self.stacked() { (-1, m) } else { (m, -1) };
+        self.first.set_size_request(w, h);
+        self.second.set_size_request(w, h);
+    }
+}
+
 /// Emit each inspector pane's content size so `InspectorLayout` re-lays it (the nav_report
 /// counterpart). The panel reports its width even while hidden, so revealing it never re-lays
 /// the panel's content from zero.
@@ -3700,7 +3773,9 @@ impl Toolkit for Gtk {
             // every presentation, with a draggable divider on each side (docs/navigation.md).
             | Cap::NavContentList
             // A GtkPaned with the panel at the trailing (or leading) edge (docs/inspector.md).
-            | Cap::Inspector => Support::Native,
+            | Cap::Inspector
+            // A GtkPaned of two filling cells, either orientation (docs/split.md).
+            | Cap::Split => Support::Native,
             // A topmost child of the window's root Fixed — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
             // The library on the machine decides: `gtk_accessible_announce` arrived in 4.14,
@@ -3872,6 +3947,131 @@ impl Toolkit for Gtk {
                 }
                 INSPECTOR_STATE.with(|t| t.insert(key, state));
                 handle
+            }
+            Some(Builtin::Split) => {
+                let (axis, fraction, min_pane) = props
+                    .downcast_ref::<SplitProps>()
+                    .map(|p| (p.axis, p.fraction, p.min_pane))
+                    .unwrap_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0));
+                let stacked = axis == day_spec::props::SplitAxis::Vertical;
+                let first = DayCell::filling();
+                let second = DayCell::filling();
+                let paned = gtk4::Paned::new(if stacked {
+                    gtk4::Orientation::Vertical
+                } else {
+                    gtk4::Orientation::Horizontal
+                });
+                paned.set_start_child(Some(&first));
+                paned.set_end_child(Some(&second));
+                // Both panes resize with the host, proportionally, so a dragged share holds
+                // through a window resize; neither shrinks under its minimum.
+                paned.set_resize_start_child(true);
+                paned.set_resize_end_child(true);
+                paned.set_shrink_start_child(false);
+                paned.set_shrink_end_child(false);
+                let host = DayCell::filling();
+                host.add_child(paned.upcast_ref());
+                let handle: Handle = host.clone().upcast();
+                let key = widget_key(&handle);
+                let state = Rc::new(RefCell::new(SplitState {
+                    paned: paned.clone(),
+                    first,
+                    second,
+                    node: id,
+                    share: fraction.clamp(0.0, 1.0),
+                    min_pane,
+                    placed: false,
+                    suppress: false,
+                    panes: Vec::new(),
+                }));
+                state.borrow().request_minimums();
+                {
+                    // First allocation: place the divider by the share, once.
+                    let st = state.clone();
+                    host.on_allocate(move |width, height| {
+                        if let Ok(mut st) = st.try_borrow_mut()
+                            && !st.placed
+                        {
+                            let len = if st.stacked() { height } else { width };
+                            st.place_along(len);
+                        }
+                    });
+                }
+                // Each pane reports its page's size as it is allocated (the inspector's rule).
+                for is_second in [false, true] {
+                    let st = state.clone();
+                    let cell = {
+                        let s = st.borrow();
+                        if is_second {
+                            s.second.clone()
+                        } else {
+                            s.first.clone()
+                        }
+                    };
+                    let last = std::cell::Cell::new((0, 0));
+                    cell.on_allocate(move |width, height| {
+                        if width <= 0
+                            || height <= 0
+                            || last.replace((width, height)) == (width, height)
+                        {
+                            return;
+                        }
+                        let ids: Vec<NodeId> = st
+                            .borrow()
+                            .panes
+                            .iter()
+                            .filter(|(_, second, _)| *second == is_second)
+                            .map(|(id, ..)| *id)
+                            .collect();
+                        ffi_guard::contain((), || {
+                            for id in ids {
+                                emit(
+                                    id,
+                                    Event::FrameChanged(Size::new(
+                                        f64::from(width),
+                                        f64::from(height),
+                                    )),
+                                );
+                            }
+                        });
+                    });
+                }
+                {
+                    // A divider drag: report the new share (not Day's own placement).
+                    let st = state.clone();
+                    paned.connect_position_notify(move |p| {
+                        let report = {
+                            let Ok(mut st) = st.try_borrow_mut() else {
+                                return;
+                            };
+                            if st.suppress || !st.placed {
+                                return;
+                            }
+                            let usable = st.usable();
+                            if usable <= 0.0 {
+                                return;
+                            }
+                            let share = (f64::from(p.position()) / usable).clamp(0.0, 1.0);
+                            if (share - st.share).abs() <= 1e-4 {
+                                return;
+                            }
+                            st.share = share;
+                            (st.node, share)
+                        };
+                        ffi_guard::contain((), || emit(report.0, Event::ValueChanged(report.1)));
+                    });
+                }
+                SPLIT_STATE.with(|t| t.insert(key, state));
+                handle
+            }
+            Some(Builtin::SplitPane) => {
+                let w: Handle = gtk4::Fixed::new().upcast();
+                let second = props
+                    .downcast_ref::<SplitPaneProps>()
+                    .map(|p| p.second)
+                    .unwrap_or(false);
+                SPLIT_PANES.with(|t| t.insert(widget_key(&w), (id, second)));
+                w
             }
             Some(Builtin::InspectorPane) => {
                 let w: Handle = gtk4::Fixed::new().upcast();
@@ -4982,6 +5182,34 @@ impl Toolkit for Gtk {
         _anim: Option<&AnimSpec>,
     ) {
         match kind {
+            kinds::SPLIT => {
+                if let Some(p) = patch.downcast_ref::<SplitPatch>()
+                    && let Some(state) = SPLIT_STATE.with(|t| t.get(widget_key(h)))
+                {
+                    let mut st = state.borrow_mut();
+                    match p {
+                        SplitPatch::Fraction(f) => {
+                            st.share = f.clamp(0.0, 1.0);
+                            if st.placed {
+                                st.place();
+                            }
+                        }
+                        SplitPatch::Axis(axis) => {
+                            st.paned.set_orientation(
+                                if *axis == day_spec::props::SplitAxis::Vertical {
+                                    gtk4::Orientation::Vertical
+                                } else {
+                                    gtk4::Orientation::Horizontal
+                                },
+                            );
+                            st.request_minimums();
+                            if st.placed {
+                                st.place();
+                            }
+                        }
+                    }
+                }
+            }
             kinds::INSPECTOR => {
                 if let Some(InspectorPatch::Visible(v)) = patch.downcast_ref::<InspectorPatch>() {
                     let key = widget_key(h);
@@ -5660,6 +5888,22 @@ impl Toolkit for Gtk {
             });
             return;
         }
+        // A split pane landing in its paned (docs/split.md): into its pane's filling cell.
+        let split_pane = SPLIT_STATE.with(|t| t.get(host_key)).map(|state| {
+            let (pane_id, second) = SPLIT_PANES
+                .with(|t| t.get(widget_key(child)))
+                .unwrap_or((NodeId(0), index == 1));
+            let mut state = state.borrow_mut();
+            if second {
+                state.second.add_child(child);
+            } else {
+                state.first.add_child(child);
+            }
+            state.panes.push((pane_id, second, child.clone()));
+        });
+        if split_pane.is_some() {
+            return;
+        }
         // An inspector pane landing in its paned (docs/inspector.md): into its pane's filling
         // cell, which hands it the whole pane — so Day framing the content to the full width
         // while the panel is hidden never becomes a GTK minimum the reveal cannot push against.
@@ -5722,6 +5966,23 @@ impl Toolkit for Gtk {
             true
         });
         if handled {
+            return;
+        }
+        let split_pane = SPLIT_STATE
+            .with(|t| t.get(widget_key(parent)))
+            .map(|state| {
+                let (pane_id, second) = SPLIT_PANES
+                    .with(|t| t.get(widget_key(child)))
+                    .unwrap_or((NodeId(0), false));
+                let mut state = state.borrow_mut();
+                if second {
+                    state.second.remove_child(child);
+                } else {
+                    state.first.remove_child(child);
+                }
+                state.panes.retain(|(id, ..)| *id != pane_id);
+            });
+        if split_pane.is_some() {
             return;
         }
         let inspected = INSPECTOR_STATE

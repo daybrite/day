@@ -87,6 +87,7 @@ the architecture-level view and the rationale.
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled`, `status_bar_hidden` (`Cap::StatusBarHidden`) | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| split — `split(first, second)`, two panes and a dragged divider, `.axis(..)` side by side or stacked, `.fraction(share)` two-way; the toolkit's splitter where `Cap::Split` is Native, Day's layout and a drawn divider elsewhere | [docs/split.md](docs/split.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | tree — `tree(source, row)` hierarchical rows: native tree views where `Cap::Tree` is Native, the composed list-backed tree elsewhere; token identity, app-owned expansion, drag-to-reparent | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
@@ -638,6 +639,16 @@ aborts the same way. The source's value moves into the future, so no `!Send` `Si
 crosses a thread boundary *by construction* — exactly as designed, just with the thread
 boundary gone.
 
+Orderly exit stops the main-loop executor before app `WillTerminate` handlers close their
+dependencies (or at `DidExit` for a returning loop). Pending futures are detached and dropped
+outside the task-map borrow while reactive TLS is alive. Shutdown rejects new tasks, ignores
+late wakes, and contains destructor panics individually so remaining tasks still clean up.
+Task handles remain safe to abort/query after executor TLS destruction. This prevents pending
+futures with signal-writing destructors from surviving until TLS destruction; it does not
+join arbitrary background threads or replace database write draining. Abrupt OS kills have
+no cleanup guarantee. See [docs/async.md](docs/async.md) and the executor shutdown regressions
+in `crates/day-core/src/present.rs`.
+
 ---
 
 ## §5 The Piece model (`day-core`)
@@ -873,6 +884,11 @@ inspector(visible, content, panel) // trailing properties pane bound to a Bindin
                                    //   hidden composed panes and compact sheets leave content at full width;
                                    //   .edge(PaneEdge::Leading) makes it a leading utility
                                    //   pane (a layer panel, docs/tree.md)
+split(first, second)               // two panes and the divider the user drags (docs/split.md):
+    .axis(SplitAxis::Vertical)     //   side by side or stacked, live from a signal or closure;
+    .fraction(share)               //   the first pane's share two-way; the toolkit's own
+                                   //   splitter where Cap::Split is Native, Day's layout and
+                                   //   a drawn, dragged divider elsewhere
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
 alert(…)   confirm(…)   prompt(…)   open_file(…)   save_file(…)
 app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator()

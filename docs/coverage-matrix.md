@@ -34,6 +34,8 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.cover` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day.inspector` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
 | `day.inspector_pane` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
+| `day.split` | ✓ | · | ✓ | ✓ | · | · | · | · |
+| `day.split_pane` | ✓ | · | ✓ | ✓ | · | · | · | · |
 
 ## External pieces
 
@@ -113,6 +115,7 @@ An app branches on this rather than on the target name.
 | `Toolbar` | N | N | N | N | N | N | E | E |
 | `ToolbarSearch` | N | – | N | N | N | – | – | E |
 | `Inspector` | N | – | N | N | N | – | – | – |
+| `Split` | N | – | N | N | – | – | – | – |
 | `Cursor` | N | E | N | E | E | N | – | N |
 | `FontList` | N | N | N | N | N | N | N | E |
 | `ReduceMotion` | N | N | N | – | N | N | ? | N |

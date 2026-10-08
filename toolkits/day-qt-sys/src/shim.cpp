@@ -1845,6 +1845,62 @@ void *day_qt_inspector_new(double panel_width, int leading) {
     }
     return s;
 }
+// --- split (docs/split.md): a QSplitter of two plain panes, either orientation, both
+// stretching (proportionally, which keeps a dragged share through a resize), the first pane's
+// share settable and readable. Positions are the pane widgets' sizes, as `sizes()` reports.
+void day_qt_split_set_orientation(void *w, int vertical, double min_pane);
+
+void *day_qt_split_new(int vertical, double min_pane) {
+    auto *s = new QSplitter(vertical ? Qt::Vertical : Qt::Horizontal);
+    s->setChildrenCollapsible(false);
+    s->addWidget(new QWidget());
+    s->addWidget(new QWidget());
+    s->setStretchFactor(0, 1);
+    s->setStretchFactor(1, 1);
+    day_qt_split_set_orientation(s, vertical, min_pane);
+    return s;
+}
+
+// Turn the split, and move the pane minimum onto the new axis (off the old one).
+void day_qt_split_set_orientation(void *w, int vertical, double min_pane) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    if (!s)
+        return;
+    s->setOrientation(vertical ? Qt::Vertical : Qt::Horizontal);
+    const int m = static_cast<int>(min_pane);
+    for (int i = 0; i < s->count(); ++i) {
+        QWidget *pane = s->widget(i);
+        if (!pane)
+            continue;
+        pane->setMinimumSize(vertical ? 0 : m, vertical ? m : 0);
+    }
+}
+
+// Give the first pane `fraction` of the length the two share. `setSizes` divides what it is
+// handed in proportion, so the handle width need not be subtracted here.
+void day_qt_split_set_fraction(void *w, double fraction) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    if (!s)
+        return;
+    const int total = (s->orientation() == Qt::Vertical ? s->height() : s->width()) - s->handleWidth();
+    if (total <= 0)
+        return;
+    const int a = static_cast<int>(total * qBound(0.0, fraction, 1.0));
+    s->setSizes({a, total - a});
+}
+
+// The first pane's share as the splitter holds it now; 0.5 before it has any size.
+double day_qt_split_fraction(void *w) {
+    auto *s = qobject_cast<QSplitter *>(static_cast<QWidget *>(w));
+    if (!s)
+        return 0.5;
+    const QList<int> sizes = s->sizes();
+    if (sizes.size() < 2)
+        return 0.5;
+    const int total = sizes[0] + sizes[1];
+    return total > 0 ? static_cast<double>(sizes[0]) / total : 0.5;
+}
+
 /// Reports a splitter's pane geometry every time Qt lays the panes out. Day measures the panes
 /// the moment content is inserted, which is before the window has laid the splitter out at all —
 /// so what it reads then is the constructor's placeholder geometry (an unshown QWidget answers

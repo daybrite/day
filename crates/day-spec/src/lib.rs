@@ -158,6 +158,16 @@ builtin_kinds! {
     /// Its frame is native-owned (the splitter/dock sizes it), reported via
     /// `Event::FrameChanged` on this node; Day lays the pane's content out inside it.
     InspectorPane = INSPECTOR_PANE => "day.inspector_pane",
+    /// Two panes with a divider the user drags (docs/split.md): the toolkit's own splitter,
+    /// side by side or stacked (`SplitProps::axis`), the first pane's share bound to the app
+    /// (`SplitProps::fraction`, reported back as `Event::ValueChanged`). Exactly two
+    /// `SPLIT_PANE` children, first then second. Only realized where `Cap::Split` answers
+    /// `Native`; everywhere else the `split` piece composes the panes and draws the divider
+    /// itself, and this kind never reaches the backend.
+    Split = SPLIT => "day.split",
+    /// One pane's container inside a `SPLIT` host: native-owned frame (the splitter sizes it),
+    /// reported via `Event::FrameChanged` on this node, like an `INSPECTOR_PANE`.
+    SplitPane = SPLIT_PANE => "day.split_pane",
 }
 
 /// Whether a kind is worth asking [`Toolkit::first_baseline`] about (docs/baseline.md).
@@ -182,6 +192,8 @@ pub fn kind_has_baseline(kind: PieceKind) -> bool {
                 | Builtin::Nav
                 | Builtin::NavPage
                 | Builtin::NavMenu
+                | Builtin::Split
+                | Builtin::SplitPane
                 | Builtin::List
                 | Builtin::ListCell
                 | Builtin::Cover
@@ -2373,6 +2385,13 @@ pub enum Cap {
     /// signal, no native divider), so an unimplemented backend degrades to a drawn pane, not
     /// to a hole. Apps normally have no reason to probe this; the piece does.
     Inspector,
+    /// The toolkit realizes `kinds::SPLIT` as its own splitter (docs/split.md): an
+    /// `NSSplitView`, a `GtkPaned`, a `QSplitter`, each side by side or stacked and with the
+    /// divider the user drags. `Unsupported` ⇒ the `split` piece composes the two panes and
+    /// draws and drags the divider itself (the web, the mobile toolkits, XAML), so the piece
+    /// behaves the same everywhere and only the divider's look is the toolkit's. Apps have no
+    /// reason to probe this; the piece does.
+    Split,
     /// The toolkit shapes the pointer over a node from the `.cursor()` decorator
     /// ([`Toolkit::set_cursor`], docs/cursor.md). `Native` where the platform draws the requested
     /// shape from its own set (AppKit, GTK, the DOM, Android's `PointerIcon`), `Emulated` where
@@ -2506,7 +2525,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 73] = [
+    pub const ALL: [Cap; 74] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2580,6 +2599,7 @@ impl Cap {
         Cap::DockVisibility,
         Cap::Monitors,
         Cap::DynamicShortcuts,
+        Cap::Split,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2659,6 +2679,7 @@ impl Cap {
             Cap::DockVisibility => 70,
             Cap::Monitors => 71,
             Cap::DynamicShortcuts => 72,
+            Cap::Split => 73,
         }
     }
 }
@@ -5933,6 +5954,49 @@ pub mod props {
         pub panel: bool,
     }
 
+    /// How a `kinds::SPLIT` lays its two panes (docs/split.md): beside each other, the divider
+    /// standing, or stacked, the divider lying. Named by where the panes go, since that is
+    /// what an app's "layout" toggle means; the divider runs the other way.
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub enum SplitAxis {
+        /// The panes side by side (first leading), the divider vertical.
+        #[default]
+        Horizontal,
+        /// The panes stacked (first on top), the divider horizontal.
+        Vertical,
+    }
+
+    /// A `kinds::SPLIT` (docs/split.md): two panes with a divider the user drags. The first
+    /// pane's share is Day-owned state (the piece's bound signal): the props carry the value
+    /// to draw, [`SplitPatch::Fraction`] keeps it current, and a divider the user moved
+    /// reports back as [`crate::Event::ValueChanged`] with the new share, which applying the
+    /// patch must never re-emit (the from-native echo rule).
+    #[derive(Clone, Debug, PartialEq)]
+    pub struct SplitProps {
+        pub axis: SplitAxis,
+        /// The first pane's share of the split's length along `axis`, `0.0..=1.0`.
+        pub fraction: f64,
+        /// The least length either pane may be dragged to, in points.
+        pub min_pane: f64,
+    }
+
+    /// Applied to a `kinds::SPLIT` node as its bound signals change.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum SplitPatch {
+        /// Turn the split the other way, keeping the share.
+        Axis(SplitAxis),
+        /// Move the divider so the first pane takes this share. The programmatic-sync
+        /// direction: applying it must not re-emit [`crate::Event::ValueChanged`].
+        Fraction(f64),
+    }
+
+    /// One pane of a `kinds::SPLIT` (docs/split.md).
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct SplitPaneProps {
+        /// `false` for the first pane, `true` for the second.
+        pub second: bool,
+    }
+
     /// Native navigation item list. `items` are display titles in route order;
     /// `selected` highlights the active route (split presentation; None on mobile roots).
     /// `icons` (parallel to `items`, `None` = no icon) are bundled image names resolved by each
@@ -9104,7 +9168,7 @@ mod builtin_kind_tests {
         // 19 after `Tabs`/`TabsPage` retired (the tab bar is a NAV presentation, not a kind),
         // +2 for the inspector split and its panes (docs/inspector.md), +1 for the tree
         // (docs/tree.md).
-        assert_eq!(Builtin::ALL.len(), 22);
+        assert_eq!(Builtin::ALL.len(), 24);
     }
 
     /// An extension piece's kind is not a built-in.

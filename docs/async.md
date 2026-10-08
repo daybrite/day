@@ -44,6 +44,14 @@ completed-or-aborted. Task ids are never reused, so stale handles are harmless.
 A task is not owned by the scope that starts it. Leaving a page does not abort its tasks.
 Keep the handle and abort it explicitly, or use `Resource` for work that should end with a scope.
 
+On `WillTerminate`, Day stops accepting async work and drops pending tasks before calling app
+lifecycle handlers. Their destructors can still update signals; handlers can then synchronously
+close databases and other dependencies. `DidExit` performs the same cleanup for backends whose
+loop returns without `WillTerminate`. New tasks submitted during shutdown are dropped without
+polling, and late wakes are ignored. This does not wait for detached worker threads or cancel
+already accepted database writes; the owning service's shutdown must drain those writes.
+OS process kills without a lifecycle notification cannot run this cleanup.
+
 ## `Resource` and `Load` (day::reactive)
 
 `Resource` is the declarative layer: a tracked `source` whose value feeds an async `fetcher`,

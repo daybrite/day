@@ -2615,6 +2615,8 @@ mod imp {
                 | Some(Builtin::Tree)
                 | Some(Builtin::Inspector)
                 | Some(Builtin::InspectorPane)
+                | Some(Builtin::Split)
+                | Some(Builtin::SplitPane)
                 | None => {
                     if let Some(r) = self.registry.get(kind) {
                         let make = r.make;

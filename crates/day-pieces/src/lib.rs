@@ -47,6 +47,7 @@ mod menus;
 mod nav;
 mod shapes;
 mod sources;
+mod split;
 mod status;
 mod structure;
 mod toolbar;
@@ -64,6 +65,7 @@ pub use menus::*;
 pub use nav::*;
 pub use shapes::*;
 pub use sources::*;
+pub use split::*;
 pub use status::{StatusItem, StatusItemHandle, status_item};
 pub use structure::*;
 // The ambient environment and the `Ambient` state trait (docs/state.md) live in day-core, so an
@@ -93,7 +95,7 @@ pub mod prelude {
         nav_stack, navigate, navigate_to, open_file, open_link, picker, polygon, progress, prompt,
         rectangle, rounded_rectangle, route, route_param, route_params, row, save_file, scroll,
         section, secure_field, segment, shape, shape_group, shape_group_fn, slider, spacer,
-        spinner, status_item, sub_menu, swipe_action, text_area, text_field, toggle,
+        spinner, split, status_item, sub_menu, swipe_action, text_area, text_field, toggle,
         toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator,
         toolbar_toggle, vector, when, with_environment, zstack,
     };
@@ -109,8 +111,9 @@ pub mod prelude {
     pub use crate::{
         CoverBuilder, DividerBuilder, FormSectionBuilder, GridBuilder, GridRowBuilder,
         ImageBuilder, InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder, NavStackBuilder,
-        PickerBuilder, ScrollBuilder, ShapePieceBuilder, SliderBuilder, TextAreaBuilder,
-        TextFieldBuilder, ToggleBuilder, VectorBuilder, WhenBuilder, ZStackBuilder,
+        PickerBuilder, ScrollBuilder, ShapePieceBuilder, SliderBuilder, SplitBuilder,
+        TextAreaBuilder, TextFieldBuilder, ToggleBuilder, VectorBuilder, WhenBuilder,
+        ZStackBuilder,
     };
     #[cfg(feature = "model")]
     pub use crate::{ModelSlot, Rows, StoreRows, StoreTree, StoreTrees};
@@ -127,10 +130,10 @@ pub mod prelude {
     // `Nav::presentation` takes one (docs/size-classes.md); apps that leave the
     // presentation automatic never name it.
     pub use day_spec::props::NavPresentation;
-    pub use day_spec::props::PaneEdge;
     pub use day_spec::props::PickerStyle;
     pub use day_spec::props::RowHeight;
     pub use day_spec::props::TextAlign;
+    pub use day_spec::props::{PaneEdge, SplitAxis};
     pub use day_spec::{AnimSpec, AnimSpec as Animation, Curve};
     pub use day_spec::{AssetName, FontFamily, ImageName};
     pub use day_spec::{DragPhase, Edges, GestureKind};

@@ -9084,6 +9084,8 @@ mod imp {
                 Some(Builtin::ListCell)
                 | Some(Builtin::Inspector)
                 | Some(Builtin::InspectorPane)
+                | Some(Builtin::Split)
+                | Some(Builtin::SplitPane)
                 | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);

@@ -41,6 +41,7 @@ export const groups = [
       ['search', 'searchable() surfaces per platform'],
       ['cover', 'fullscreen covers and dismissal control'],
       ['inspector', 'the trailing properties pane: native splits, the compact sheet'],
+      ['split', 'two panes and a dragged divider: native splitters, the composed tier'],
       ['focus', 'keyboard focus as a signal: bindings, rules, per-backend map'],
       ['cursor', "the pointer's shape over a piece: one vocabulary, per-toolkit realization, toolkit-only extras"],
       ['list', 'the native recycling list: row protocol, heights, selection'],

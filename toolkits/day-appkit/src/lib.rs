@@ -28,6 +28,7 @@ use objc2::{
 use objc2_app_kit::NSAccessibility as _;
 use objc2_app_kit::NSAppearanceCustomization as _;
 use objc2_app_kit::NSDraggingInfo as _;
+use objc2_app_kit::NSSplitViewDelegate;
 use objc2_app_kit::NSTextContent as _;
 use objc2_app_kit::NSUserInterfaceItemIdentification as _;
 use objc2_app_kit::{
@@ -161,6 +162,11 @@ day_core::tls_group! {
     /// INSPECTOR_PANE ptr → is-panel, recorded at realize because `insert` sees only handles.
     /// A [`SideTable`]: the release sweep drops it with the view.
     static INSPECTOR_PANES: SideTable<bool> = SideTable::new();
+
+    /// Split host (the wrap around an `NSSplitView`, docs/split.md) ptr → its state.
+    static SPLIT_STATE: RefCell<HashMap<usize, SplitState>> = RefCell::new(HashMap::new());
+    /// SPLIT_PANE ptr → is-second, recorded at realize because `insert` sees only handles.
+    static SPLIT_PANES: SideTable<bool> = SideTable::new();
 
     /// Outline ptr → its data source, for [`DayNavOutlineView::menu_for_event`]'s row lookup.
     /// A [`SideTable`], reclaimed by the outline-keyed auxiliary sweep in `release`: the entry
@@ -2245,6 +2251,138 @@ struct InspectorState {
     /// Retained so the controller (the split's delegate) lives as long as its split.
     _split_vc: Retained<objc2_app_kit::NSSplitViewController>,
     panel_item: Retained<objc2_app_kit::NSSplitViewItem>,
+}
+
+// ---------------------------------------------------------------------------
+// Split (docs/split.md): a plain `NSSplitView` inside a flipped wrap (the wrap is the handle,
+// so `set_frame`'s nav-host treatment of split views never sees it), two arranged flipped
+// subviews as the panes, and a delegate that places the divider by the bound share, keeps
+// both panes above the minimum, and reports a drag back as the new share.
+// ---------------------------------------------------------------------------
+
+struct SplitState {
+    split: Retained<objc2_app_kit::NSSplitView>,
+    first_wrap: Handle,
+    second_wrap: Handle,
+    delegate: Retained<DaySplitDelegate>,
+}
+
+struct SplitDelegateIvars {
+    node: NodeId,
+    min_pane: f64,
+    /// The share as last patched or reported: what a report is compared against, and where
+    /// the divider goes when the split first has a size or turns.
+    share: Cell<f64>,
+    /// The divider has been placed once; before that the split has no size to place it in.
+    positioned: Cell<bool>,
+    /// Day is moving the divider itself: the resize that follows is not a report.
+    suppress: Cell<bool>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DaySplitDelegate"]
+    #[ivars = SplitDelegateIvars]
+    struct DaySplitDelegate;
+
+    unsafe impl NSObjectProtocol for DaySplitDelegate {}
+
+    unsafe impl NSSplitViewDelegate for DaySplitDelegate {
+        #[unsafe(method(splitViewDidResizeSubviews:))]
+        fn did_resize(&self, notification: &NSNotification) {
+            ffi_guard::contain((), || {
+                let Some(obj) = notification.object() else {
+                    return;
+                };
+                let Ok(sv) = obj.downcast::<objc2_app_kit::NSSplitView>() else {
+                    return;
+                };
+                let iv = self.ivars();
+                let usable = split_usable(&sv);
+                if usable <= 0.0 {
+                    return;
+                }
+                // The first resize with a size: place the divider by the share, once.
+                if !iv.positioned.replace(true) {
+                    split_place(&sv, iv);
+                    return;
+                }
+                if iv.suppress.get() {
+                    return;
+                }
+                let Some(first) = sv.subviews().iter().next() else {
+                    return;
+                };
+                let f = first.frame();
+                let a = if sv.isVertical() {
+                    f.size.width
+                } else {
+                    f.size.height
+                };
+                let share = (a / usable).clamp(0.0, 1.0);
+                if (share - iv.share.get()).abs() > 1e-4 {
+                    iv.share.set(share);
+                    emit(iv.node, Event::ValueChanged(share));
+                }
+            })
+        }
+
+        #[unsafe(method(splitView:constrainMinCoordinate:ofSubviewAt:))]
+        fn constrain_min(
+            &self,
+            _sv: &objc2_app_kit::NSSplitView,
+            proposed: f64,
+            _index: isize,
+        ) -> f64 {
+            proposed.max(self.ivars().min_pane)
+        }
+
+        #[unsafe(method(splitView:constrainMaxCoordinate:ofSubviewAt:))]
+        fn constrain_max(
+            &self,
+            sv: &objc2_app_kit::NSSplitView,
+            proposed: f64,
+            _index: isize,
+        ) -> f64 {
+            proposed.min((split_usable(sv) - self.ivars().min_pane).max(0.0))
+        }
+    }
+);
+
+impl DaySplitDelegate {
+    fn new(mtm: MainThreadMarker, node: NodeId, min_pane: f64, share: f64) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(SplitDelegateIvars {
+            node,
+            min_pane,
+            share: Cell::new(share.clamp(0.0, 1.0)),
+            positioned: Cell::new(false),
+            suppress: Cell::new(false),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// The length the two panes share along the split's axis: the frame minus the divider.
+fn split_usable(sv: &objc2_app_kit::NSSplitView) -> f64 {
+    let frame = sv.frame();
+    let len = if sv.isVertical() {
+        frame.size.width
+    } else {
+        frame.size.height
+    };
+    (len - sv.dividerThickness()).max(0.0)
+}
+
+/// Move the divider so the first pane takes the share, silently (Day's own write, not a drag).
+fn split_place(sv: &objc2_app_kit::NSSplitView, iv: &SplitDelegateIvars) {
+    let usable = split_usable(sv);
+    if usable <= 0.0 {
+        return;
+    }
+    iv.suppress.set(true);
+    unsafe { sv.setPosition_ofDividerAtIndex(iv.share.get() * usable, 0) };
+    iv.suppress.set(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -5852,6 +5990,12 @@ pub(crate) fn placeholder_view(mtm: MainThreadMarker, kind: PieceKind) -> Handle
 }
 
 impl Toolkit for AppKit {
+    /// Settled unless a toolbar edit is still painting (toolbar.rs `CHROME_SETTLE`); AppKit's
+    /// own transitions (sheets, nav pushes) complete within the turn that starts them.
+    fn ui_idle(&mut self) -> bool {
+        toolbar::chrome_settled()
+    }
+
     type Handle = Handle;
 
     fn dark_mode(&mut self) -> bool {
@@ -6016,6 +6160,8 @@ impl Toolkit for AppKit {
             // A REAL inspector NSSplitViewItem (`inspectorWithViewController:`): the system
             // trailing-pane material and full-height layout (docs/inspector.md).
             | Cap::Inspector
+            // A plain NSSplitView with two arranged panes (docs/split.md).
+            | Cap::Split
             | Cap::TextRuns
             | Cap::TextLinks => Support::Native,
             // A topmost autoresizing child of the content view — not a system modal
@@ -6305,6 +6451,55 @@ impl Toolkit for AppKit {
                     .map(|p| p.panel)
                     .unwrap_or(false);
                 INSPECTOR_PANES.with(|t| t.insert(ptr_of(&pane), panel));
+                pane
+            }
+            Some(Builtin::Split) => {
+                let (axis, fraction, min_pane) = props
+                    .downcast_ref::<SplitProps>()
+                    .map(|p| (p.axis, p.fraction, p.min_pane))
+                    .unwrap_or((day_spec::props::SplitAxis::Horizontal, 0.5, 80.0));
+                let wrap = view_of(DayFlipped::new(mtm));
+                let split = unsafe { objc2_app_kit::NSSplitView::new(mtm) };
+                let first_wrap = view_of(DayFlipped::new(mtm));
+                let second_wrap = view_of(DayFlipped::new(mtm));
+                unsafe {
+                    // AppKit's "vertical" is the divider's orientation: panes side by side.
+                    split.setVertical(axis == day_spec::props::SplitAxis::Horizontal);
+                    split.setDividerStyle(objc2_app_kit::NSSplitViewDividerStyle::Thin);
+                    split.addArrangedSubview(&first_wrap);
+                    split.addArrangedSubview(&second_wrap);
+                    split.setFrame(wrap.bounds());
+                    split.setAutoresizingMask(
+                        objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                            | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                    );
+                    wrap.addSubview(&split);
+                }
+                let delegate = DaySplitDelegate::new(mtm, id, min_pane, fraction);
+                split.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                SPLIT_STATE.with(|m| {
+                    m.borrow_mut().insert(
+                        ptr_of(&wrap),
+                        SplitState {
+                            split,
+                            first_wrap,
+                            second_wrap,
+                            delegate,
+                        },
+                    )
+                });
+                wrap
+            }
+            Some(Builtin::SplitPane) => {
+                // A DayNavPage, as an inspector pane: the splitter owns its frame, and its
+                // `setFrameSize:` reports `FrameChanged`.
+                let pane = view_of(DayNavPage::new(mtm, id));
+                NAV_PAGES.with(|set| set.borrow_mut().insert(ptr_of(&pane)));
+                let second = props
+                    .downcast_ref::<SplitPaneProps>()
+                    .map(|p| p.second)
+                    .unwrap_or(false);
+                SPLIT_PANES.with(|t| t.insert(ptr_of(&pane), second));
                 pane
             }
             Some(Builtin::Nav) => {
@@ -7134,6 +7329,34 @@ impl Toolkit for AppKit {
                     });
                 }
             }
+            kinds::SPLIT => {
+                if let Some(p) = patch.downcast_ref::<SplitPatch>() {
+                    SPLIT_STATE.with(|m| {
+                        let m = m.borrow();
+                        let Some(state) = m.get(&ptr_of(h)) else {
+                            return;
+                        };
+                        let iv = state.delegate.ivars();
+                        match p {
+                            SplitPatch::Fraction(f) => {
+                                iv.share.set(f.clamp(0.0, 1.0));
+                                if iv.positioned.get() {
+                                    split_place(&state.split, iv);
+                                }
+                            }
+                            SplitPatch::Axis(axis) => unsafe {
+                                state
+                                    .split
+                                    .setVertical(*axis == day_spec::props::SplitAxis::Horizontal);
+                                state.split.adjustSubviews();
+                                if iv.positioned.get() {
+                                    split_place(&state.split, iv);
+                                }
+                            },
+                        }
+                    });
+                }
+            }
             kinds::NAV => {
                 if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
                     nav_present(self.mtm(), h, *next);
@@ -7701,6 +7924,11 @@ impl Toolkit for AppKit {
         NAV_PAGES.with(|set| {
             set.borrow_mut().remove(&ptr_of(&h));
         });
+        SPLIT_STATE.with(|m| {
+            if let Some(state) = m.borrow_mut().remove(&ptr_of(&h)) {
+                state.split.setDelegate(None);
+            }
+        });
         INSPECTOR_STATE.with(|m| {
             if let Some(insp) = m.borrow_mut().remove(&ptr_of(&h)) {
                 // The same dealloc-splice guard as the nav host above: never let the
@@ -7821,6 +8049,32 @@ impl Toolkit for AppKit {
             true
         });
         if handled {
+            return;
+        }
+        // Split host (docs/split.md): each pane fills its wrap, an arranged subview the
+        // splitter sizes; the pane's own `setFrameSize:` reports the size to Day.
+        let split_pane = SPLIT_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(state) = m.get(&ptr_of(parent)) else {
+                return false;
+            };
+            let second = SPLIT_PANES.with(|t| t.get(ptr_of(child))).unwrap_or(false);
+            let wrap = if second {
+                &state.second_wrap
+            } else {
+                &state.first_wrap
+            };
+            unsafe {
+                child.setFrame(wrap.bounds());
+                child.setAutoresizingMask(
+                    objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
+                        | objc2_app_kit::NSAutoresizingMaskOptions::ViewHeightSizable,
+                );
+                wrap.addSubview(child);
+            }
+            true
+        });
+        if split_pane {
             return;
         }
         // Inspector host: each pane fills its wrap via autoresizing, the nav-page contract;

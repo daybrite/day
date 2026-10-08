@@ -11,6 +11,7 @@
 // ---------------------------------------------------------------------------
 
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use day_spec::ffi_guard;
 use day_spec::sidetable::SideTable;
@@ -245,6 +246,33 @@ struct WinToolbar {
     /// The window's whole bar, as Day's edits and patches left it (docs/toolbars.md).
     mirror: day_spec::ToolbarMirror,
     targets: HashMap<String, Retained<ItemTarget>>,
+}
+
+/// How long a toolbar edit holds `ui_idle` false (docs/toolbars.md "Captures after an edit").
+///
+/// After an item is inserted or removed AppKit lays the bar out again and paints every item's
+/// image afresh, and that painting completes a frame or two after `displayIfNeeded` and the
+/// layer flush return: a capture taken in between shows each bezel empty, the untouched items
+/// included. Nothing observable marks the end of it, so the settle is a bounded wait, long
+/// enough for two display frames at 60 Hz with room to spare.
+const CHROME_SETTLE: Duration = Duration::from_millis(120);
+
+thread_local! {
+    /// When the last toolbar edit's settle ends, or `None` when none is pending.
+    static CHROME_SETTLES_AT: std::cell::Cell<Option<Instant>> = const { std::cell::Cell::new(None) };
+}
+
+/// Whether the window chrome has settled since the last toolbar edit: `Toolkit::ui_idle`'s
+/// answer on this backend, polled by dayscript's `wait_idle` and `screenshot` steps.
+pub(crate) fn chrome_settled() -> bool {
+    CHROME_SETTLES_AT.with(|at| match at.get() {
+        Some(until) if Instant::now() < until => false,
+        Some(_) => {
+            at.set(None);
+            true
+        }
+        None => true,
+    })
 }
 
 day_core::tls_group! {
@@ -684,6 +712,7 @@ impl AppKit {
         }
         drop(retired);
         report_content_size(&window);
+        CHROME_SETTLES_AT.with(|at| at.set(Some(Instant::now() + CHROME_SETTLE)));
         true
     }
 

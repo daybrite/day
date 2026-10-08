@@ -2213,7 +2213,11 @@ impl Toolkit for Xaml {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell) | Some(Builtin::Tree) | None => {
+                Some(Builtin::ListCell)
+                | Some(Builtin::Tree)
+                | Some(Builtin::Split)
+                | Some(Builtin::SplitPane)
+                | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }

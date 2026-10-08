@@ -27,6 +27,7 @@ day_reactive::tls_slots! {
     /// Live async flows. `None` = currently being polled (taken out to avoid re-entrant borrow).
     static TASKS: RefCell<HashMap<u64, Option<LocalFuture>>> = RefCell::new(HashMap::new());
     static NEXT_TASK: Cell<u64> = const { Cell::new(1) };
+    static SHUTTING_DOWN: Cell<bool> = const { Cell::new(false) };
     /// Tasks woken while their own poll was running (their slot was `None`): the wake would
     /// otherwise land on a missing future and be lost, so `poll_task` polls them again.
     static REWAKE: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
@@ -126,13 +127,15 @@ impl TaskHandle {
         // otherwise hit a live borrow. If the task is mid-poll its slot was taken (`None`);
         // removing the entry then makes `poll_task`'s Pending put-back find nothing, and the
         // future drops there instead.
-        let fut = TASKS.with(|t| t.borrow_mut().remove(&self.id));
+        let fut = TASKS.try_with(|t| t.borrow_mut().remove(&self.id));
         drop(fut);
     }
 
     /// Whether the task no longer runs (completed or aborted).
     pub fn is_finished(self) -> bool {
-        !TASKS.with(|t| t.borrow().contains_key(&self.id))
+        !TASKS
+            .try_with(|t| t.borrow().contains_key(&self.id))
+            .unwrap_or(false)
     }
 }
 
@@ -140,7 +143,15 @@ impl TaskHandle {
 /// that open modals or pickers: `button.action(|| day::task(async move { … .await … }))`.
 /// The future is polled once before this returns; the returned handle can [`TaskHandle::abort`]
 /// it and is freely discardable.
+/// At app termination pending tasks are dropped while reactive state is still available.
+/// Tasks submitted after shutdown begins are dropped without being polled.
 pub fn task(fut: impl Future<Output = ()> + 'static) -> TaskHandle {
+    if SHUTTING_DOWN.try_with(Cell::get).unwrap_or(true) {
+        return TaskHandle {
+            id: 0,
+            _not_send: std::marker::PhantomData,
+        };
+    }
     let id = NEXT_TASK.with(|c| {
         let v = c.get();
         c.set(v + 1);
@@ -154,7 +165,30 @@ pub fn task(fut: impl Future<Output = ()> + 'static) -> TaskHandle {
     }
 }
 
+/// End async work before lifecycle handlers close its dependencies and before TLS teardown.
+/// Detach every task first: destructors may write signals, abort peers, or try to spawn work.
+pub(crate) fn shutdown_tasks() {
+    if SHUTTING_DOWN
+        .try_with(|closing| closing.replace(true))
+        .unwrap_or(true)
+    {
+        return;
+    }
+    let tasks = TASKS.with(|tasks| std::mem::take(&mut *tasks.borrow_mut()));
+    REWAKE.with(|wake| wake.borrow_mut().clear());
+    for future in tasks.into_values().flatten() {
+        if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(future))).is_err() {
+            log::warn!("an async task panicked during shutdown; continuing task cleanup");
+            day_reactive::recover_from_panic();
+            crate::notify_contained_panic();
+        }
+    }
+}
+
 fn poll_task(id: u64) {
+    if SHUTTING_DOWN.try_with(Cell::get).unwrap_or(true) {
+        return;
+    }
     let fut = TASKS.with(|t| t.borrow_mut().get_mut(&id).and_then(|s| s.take()));
     let Some(mut fut) = fut else {
         // Finished, or woken while its own poll runs: a synchronous poster (the mock) runs a
@@ -577,5 +611,109 @@ mod task_tests {
         }));
         h.abort();
         assert!(h.is_finished());
+    }
+
+    #[test]
+    fn termination_drops_tasks_before_reactive_tls_and_dependency_shutdown() {
+        // A subprocess makes a regression's fatal TLS-destructor panic a test failure.
+        const CHILD: &str = "DAY_TASK_SHUTDOWN_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            std::thread::spawn(|| {
+                init();
+                assert!(!crate::has_tree()); // Core TLS initializes before reactive TLS.
+                struct Updating(day_reactive::Signal<bool>);
+                impl Drop for Updating {
+                    fn drop(&mut self) {
+                        self.0.set(false);
+                    }
+                }
+                let active = day_reactive::Signal::new(true);
+                let guard = Updating(active);
+                let handle = task(std::future::poll_fn(move |_| {
+                    let _ = &guard;
+                    Poll::Pending
+                }));
+                crate::on_lifecycle(day_spec::Lifecycle::WillTerminate, move || {
+                    assert!(!active.get_untracked());
+                    assert!(handle.is_finished());
+                });
+                crate::dispatch_lifecycle(day_spec::Lifecycle::WillTerminate);
+                crate::dispatch_lifecycle(day_spec::Lifecycle::WillTerminate);
+                assert!(!active.get_untracked());
+            })
+            .join()
+            .unwrap();
+            return;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "present::task_tests::termination_drops_tasks_before_reactive_tls_and_dependency_shutdown",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+    }
+
+    #[test]
+    fn shutdown_rejects_reentrant_tasks_and_late_wakes() {
+        init();
+        struct SpawnOnDrop(Rc<Cell<bool>>);
+        impl Drop for SpawnOnDrop {
+            fn drop(&mut self) {
+                let polled = self.0.clone();
+                let h = task(async move { polled.set(true) });
+                assert!(h.is_finished());
+                h.abort();
+            }
+        }
+        let polled = Rc::new(Cell::new(false));
+        let guard = SpawnOnDrop(polled.clone());
+        let wake = Rc::new(RefCell::new(None));
+        let saved = wake.clone();
+        let polls = Rc::new(Cell::new(0));
+        let count = polls.clone();
+        let h = task(std::future::poll_fn(move |cx| {
+            let _ = &guard;
+            count.set(count.get() + 1);
+            *saved.borrow_mut() = Some(cx.waker().clone());
+            Poll::Pending
+        }));
+        shutdown_tasks();
+        wake.borrow_mut().take().unwrap().wake();
+        shutdown_tasks();
+        assert!(h.is_finished());
+        assert!(!polled.get());
+        assert_eq!(polls.get(), 1);
+        assert!(TASKS.with(|tasks| tasks.borrow().is_empty()));
+    }
+
+    #[test]
+    fn shutdown_continues_after_a_task_destructor_panics() {
+        init();
+        struct Panics;
+        impl Drop for Panics {
+            fn drop(&mut self) {
+                panic!("synthetic task destructor failure");
+            }
+        }
+        let guard = Panics;
+        task(std::future::poll_fn(move |_| {
+            let _ = &guard;
+            Poll::Pending
+        }));
+        let dropped = Rc::new(Cell::new(false));
+        let handle = task(pending_forever(dropped.clone()));
+        shutdown_tasks();
+        assert!(dropped.get());
+        assert!(handle.is_finished());
+        assert!(TASKS.with(|tasks| tasks.borrow().is_empty()));
     }
 }

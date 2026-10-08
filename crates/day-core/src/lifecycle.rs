@@ -269,6 +269,7 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
     // "Remembered frames"); a platform that ends the app itself (AppKit's terminate) passes here.
     if phase == Lifecycle::WillTerminate {
         crate::windows::save_remembered_frames();
+        crate::present::shutdown_tasks();
     }
     if phase == Lifecycle::DidExit {
         if EXITED.swap(true, std::sync::atomic::Ordering::SeqCst) {
@@ -277,6 +278,7 @@ pub fn dispatch_lifecycle(phase: Lifecycle) {
         // From `atexit` the thread-locals may already be gone (Rust tears them down at exit
         // too, in an order nobody controls); the handlers need them, the line does not.
         if HANDLERS.try_with(|_| ()).is_ok() {
+            crate::present::shutdown_tasks();
             dispatch_handlers(phase);
         }
         log::info!("{}", exit_summary());
@@ -388,7 +390,11 @@ mod tests {
         thread_local! {
             static N: Cell<u32> = const { Cell::new(0) };
         }
-        on_lifecycle(Lifecycle::DidExit, || N.with(|c| c.set(c.get() + 1)));
+        let task = crate::task(std::future::pending());
+        on_lifecycle(Lifecycle::DidExit, move || {
+            assert!(task.is_finished());
+            N.with(|c| c.set(c.get() + 1));
+        });
         dispatch_lifecycle(Lifecycle::DidExit);
         dispatch_lifecycle(Lifecycle::DidExit);
         assert_eq!(N.with(Cell::get), 1);
