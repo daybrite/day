@@ -13,7 +13,7 @@ fn catalog() -> Vec<Value> {
 #[test]
 fn operation_catalog_round_trips_requests_without_changing_wire_fields() {
     let catalog = catalog();
-    assert_eq!(catalog.len(), 53);
+    assert_eq!(catalog.len(), 55);
     let mut operations = std::collections::BTreeSet::new();
     for fixture in catalog {
         let step: Step = serde_json::from_value(fixture.clone()).unwrap();

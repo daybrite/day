@@ -104,6 +104,12 @@ Nothing about that is specific to Day Sketch. It is what every tree does.
 
 ## What each toolkit brings
 
+This table distinguishes platform capabilities from Day's implemented adapters. Native
+controls existing in a toolkit does not mean Day currently uses them. In particular, Qt,
+XAML, Android, ArkUI and web-dom currently use the composed tree. See the
+[section disclosure research](#native-collapsible-sections-research-2026-10) for the narrower
+two-level grouping used by navigation sidebars.
+
 The question that decides the design is whether each platform's tree widget can host a row
 that Day built. Day rows are real native subtrees bound into
 recycled cells ([docs/list.md](list.md)), so a tree that paints its rows through a delegate is
@@ -114,17 +120,16 @@ a worse fit than a flat list that hosts child views.
 | **AppKit** | `NSOutlineView` | yes — view-based rows, same `makeView`/`viewFor` path as `NSTableView` | **native**, and close to a drop-in over Day's existing table code |
 | **UIKit** | `UICollectionView` list, `.sidebar` appearance | yes — `UICollectionViewListCell` hosts a content view | **native**, but a different widget from Day's `UITableView` list: new realize, new data source |
 | **GTK 4** | `GtkListView` + `GtkTreeListModel` + `GtkTreeExpander` | yes — the list-item factory binds arbitrary widgets | **native**; `GtkTreeView` is deprecated at the 4.10 API level Day targets, so the model-based path is also the current one |
-| **XAML (WinUI)** | `TreeView` / `TreeViewNode` | yes — items are content controls | **native**; a better fit than `ListView` was, since content hosting is the thing WinUI's tree does well |
-| **Qt** | `QTreeView` | awkwardly; rows are painted by delegates, and arbitrary widgets need `setIndexWidget` per row, which defeats virtualization | **emulated** to start, but see the [note on Qt](#the-note-on-qt); Day's Qt list already declines to virtualize |
-| **Android** | none | — | **emulated**; Material has no tree, and the platform idiom is a flat `RecyclerView` with indentation and a chevron |
-| **ArkUI** | `TreeView` + `TreeController` (`@ohos.arkui.advanced`, API 10+) | yes — `NodeParam.container` is a builder slot, which can hold a `ContentSlot` Day mounts a row into | **native**, through Day's existing ArkTS bridge; see [below](#arkui-reaching-an-arkts-component-from-the-c-node-api) |
-| **web-dom** | none | — | **emulated**; the browser has no tree element, only `role="tree"` and the ARIA pattern |
+| **XAML (WinUI)** | `TreeView` / `TreeViewNode` | yes — content/templates can host UI elements | **composed today**; native adapter remains unimplemented |
+| **Qt** | `QTreeView` / `QTreeWidget` | delegates for painted rows; index widgets for hosted content, with ownership and scaling costs | **composed today**; native disclosure is available, see the [note on Qt](#the-note-on-qt) |
+| **Android** | `ExpandableListView` for two levels, not arbitrary-depth trees | group/child adapter views | **composed today** for the general tree; native control is a candidate for sectioned lists |
+| **ArkUI** | ArkTS `TreeView` + `TreeController` (API 10+) | documented title/icon fields; `NodeParam.container` is a context-menu builder, **not a row-content slot** | **composed today**; native adapter needs further API investigation |
+| **web-dom** | `details` / `summary` disclosure; no complete tree-view element | arbitrary DOM descendants | **composed today**; native disclosure can serve sections, but does not provide full tree keyboard semantics |
 | **mock** | simulated | yes | drives the tests, as it does for `list` |
 
-Five toolkits carry a real tree that will host Day's rows. Two have no tree at all, and one
-has a tree whose cell model does not host arbitrary widgets. That split decides the
-architecture. `TreeSource` is hierarchical, so the native trees drive it directly, and one
-flattener in `day-core` turns the same source into indented rows for the rest.
+`TreeSource` is hierarchical, so native adapters can drive it directly while the shared
+flattener serves the composed adapters. Choosing that fallback is an implementation decision,
+not evidence that a toolkit lacks native disclosure controls.
 
 An "emulated" verdict here means the tree *semantics* are Day's; it does not mean no native
 widget. Qt's emulated tree still scrolls a real Qt container of real Qt row widgets, Android's
@@ -147,6 +152,46 @@ The emulation has to provide each of these itself:
 - **Spring-loading**: hovering a collapsed group during a drag opens it. It is native on
   AppKit, a timer everywhere else, and a v2 item.
 
+### Native collapsible sections research (2026-10)
+
+Collapsible list sections need only a header and one level of children. They should not be
+ruled out because a toolkit lacks an arbitrary-depth, arbitrary-content tree. The official
+APIs provide these candidates:
+
+| Toolkit | Native path for sections | State and notifications |
+|---|---|---|
+| Qt Widgets | `QTreeView` with header parent indexes and leaf rows; `QTreeWidget` is the convenience alternative | `setExpanded` / `isExpanded`, `expanded` / `collapsed` signals; non-selectable parent flags |
+| WinUI | Hierarchical `NavigationViewItem` for sidebars; `TreeView` for general hierarchy; `Expander` for a header/content disclosure | `IsExpanded`, `Expanding` / `Collapsed`; `SelectsOnInvoked=false` prevents parent navigation selection |
+| Android | `ExpandableListView` with a group/child adapter | `expandGroup` / `collapseGroup` / `isGroupExpanded`, group expand/collapse listeners |
+| GTK 4 | `GtkTreeListModel` + `GtkTreeExpander` inside `GtkListView` | `GtkTreeListRow.expanded` property and change notification |
+| web-dom | `details` containing `summary` and section content | `open` property and `toggle` event |
+| ArkUI | ArkTS `TreeView` has built-in disclosure; `ListItemGroup` has group headers | Reviewed public TreeView API does not document expansion setters or expansion-change callbacks; do not promise restorable native sections yet |
+
+Sources: [Qt QTreeView](https://doc.qt.io/qt-6/qtreeview.html),
+[WinUI hierarchical navigation](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/navigationview#hierarchical-navigation),
+[WinUI Expander](https://learn.microsoft.com/en-us/windows/apps/develop/ui/controls/expander),
+[Android ExpandableListView](https://developer.android.com/reference/android/widget/ExpandableListView),
+[GTK TreeExpander](https://docs.gtk.org/gtk4/class.TreeExpander.html),
+[HTML disclosure elements](https://html.spec.whatwg.org/multipage/interactive-elements.html#the-details-element),
+[ArkUI TreeView](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ohos-arkui-advanced-TreeView.md),
+[ArkUI ListItemGroup](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-container-listitemgroup.md).
+
+WinUI's `NavigationViewItemHeader` itself is static. A hierarchical parent must be styled as
+a section heading, have no destination or folder icon, and avoid header selection. Its default
+ancestor selection indicator also needs checking when a selected child is collapsed. For Qt,
+the sidebar's text/icon/badge rows can use delegates; arbitrary Day widget hosting need not
+block a native sidebar implementation. Android's native expandable list meets the two-level
+section shape but cannot replace Day's general tree.
+
+The shared API should identify sections independently of localized titles, child order and
+the first visible row. Persist a set of collapsed section IDs; keep IDs for temporarily absent
+sections and default new sections to expanded. Expansion changes must carry the stable ID and
+new state, suppress callbacks caused by programmatic restoration, and leave the selected
+route intact when its section closes. Browser `toggle` events also fire for programmatic
+changes and may be coalesced, so they require explicit synchronization rather than assuming
+every event is user input. These are requirements for the forthcoming section adapter, not
+claims that the current `nav().section(...)` API already implements them.
+
 ### ArkUI: reaching an ArkTS component from the C node API
 
 Day's ArkUI backend speaks the **C node API** (`ARKUI_NODE_*`), whose list vocabulary has no
@@ -157,30 +202,24 @@ pushed navigation page its own per-page `NodeContent`, and answers up-calls from
 things the C API cannot do at all (the file picker runs on the ArkTS side and hands bytes
 back).
 
-A tree uses the same two mechanisms:
-
-- **Structure** comes from `TreeController` (`addNode(NodeParam { parentNodeId, currentNodeId,
-  isFolder, … })` per node, then `buildDone()`), driven from Rust over the existing bridge.
-- **Row content** comes from `NodeParam.container`, a builder slot ("set subcomponent binded on
-  tree item"). It holds a `ContentSlot` bound to a per-node `NodeContent`, keyed by node id
-  exactly as `navContents` keys pages today, and Day mounts the row's C-API subtree into it.
-- **Events** arrive through `TreeListener`: `NODE_CLICK` for selection and `NODE_MOVE` with
-  `CallbackParam { currentNodeId, parentNodeId, childIndex }`, which is the
-  `(node, parent, index)` commit `TreeMoves` is shaped around.
-
-There are two costs. `TreeController` builds nodes imperatively with no cell reuse, so ArkUI's
-tree does not recycle and `Cap::ListRecycling` should say so; a layer panel is fine, a
-hundred-thousand-row tree is not. And the listener fires *after* a move, so `move_guard`
-cannot run live there; that is the same drop-time verdict Day's ArkUI list reorder already
-documents. The component also ships its own add/delete/rename affordances (`NODE_ADD`,
-`NODE_DELETE`, `NODE_MODIFY`, `editIcon`), which Day either suppresses or maps onto its own
-options.
+The bridge can reach the component, but that alone does not establish a suitable adapter.
+The [official API](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ohos-arkui-advanced-TreeView.md)
+provides `TreeController.addNode`/`buildDone`, title and icon fields, and node click/edit/move
+listeners. Contrary to an earlier version of this plan, `NodeParam.container` builds the
+right-click menu; it is not a place to mount a Day row. The documented component accepts no
+child components, and the reviewed controller/listener surface does not expose expansion
+restoration or expansion-change notification. A native adapter therefore remains research,
+not a straightforward `ContentSlot` integration. Keep the composed path until a supported
+API meets row-content, selection and persistent expansion requirements.
 
 ### The note on Qt
 
-`QTreeView` renders through delegates, so hosting a Day-built row means `setIndexWidget` per
-row, which Qt documents as inappropriate for large models because it defeats virtualization.
-That would disqualify it, except that **Day's Qt list already declines to virtualize**: it
+`QTreeView` provides native expansion, keyboard navigation and model/view rendering. For
+arbitrary Day-built widgets, `setIndexWidget` transfers widget ownership to the viewport;
+Qt recommends it for static content and recommends `QStyledItemDelegate` for dynamic content
+or editors ([official documentation](https://doc.qt.io/qt-6/qabstractitemview.html#setIndexWidget)).
+This is a row-hosting/scaling concern, not a limitation of native expansion.
+For comparison, **Day's Qt list already declines to virtualize**: it
 builds a real widget per row into an emulated scroller. On that basis a `QTreeView` with
 per-row index widgets costs what Qt's list costs today and buys native expansion, indentation,
 keyboard handling and `QAccessible::Tree`. A spike is due before the emulated path is fixed as
@@ -647,6 +686,8 @@ tree(src, row)
 
 #### XAML (WinUI) — `TreeView` / `TreeViewNode`
 
+These are proposed native-adapter examples, not the current composed implementation.
+
 XAML tweaks are all raw tier: the accessor hands the borrowed ABI pointer and the class,
 and the app's own C++/WinRT does the work (compiled by the crate's `build.rs`, as
 `day-tweak-slider-tickmarks` does). Subcontrols: `Host` = the `TreeView`. Rows are
@@ -965,11 +1006,10 @@ build-time on this backend (`TreeProps` hints, per the customization note).
 XAML: WinUI `TreeView` with `TreeViewNode`s mirrored from `TreeSource`, `CanReorderItems` for
 the drag, native type-ahead, the raw subcontrol/row tweak channel from the examples above.
 
-ArkUI: the ArkTS `TreeView` driven through the bridge described
-[above](#arkui-reaching-an-arkts-component-from-the-c-node-api): `TreeController.addNode` per
-node with a per-node `NodeContent` in `NodeParam.container`, `TreeListener` for `NODE_CLICK`
-and `NODE_MOVE`, and `tree_ext::node_params` for the per-node extras. This lands last of the
-natives because it is the most unusual and needs `TreeSource` settled first.
+ArkUI: the proposed ArkTS `TreeView` integration needs revision after the API review
+[above](#arkui-reaching-an-arkts-component-from-the-c-node-api). The earlier plan incorrectly
+treated `NodeParam.container` as row content. Expansion state and arbitrary row hosting
+remain unresolved; the composed implementation below is still the supported path.
 
 **As built (2026-08, the XAML half — CI-pending).** XAML also joined through the composed
 tree: `Cap::Tree` answers `Emulated` over its emulated list (which already honored

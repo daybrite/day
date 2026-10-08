@@ -239,6 +239,9 @@ enum Cmd {
         /// Environment variable passed to the app as K=V (repeatable)
         #[arg(long = "env")]
         envs: Vec<String>,
+        /// Sample memory each second and summarize min/max/avg/end on normal app exit
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        memory_profile: bool,
         /// Physical iPhone or iPad name or UDID; requires a provisioning profile
         #[arg(long = "ios-device", value_name = "NAME|UDID")]
         ios_device: Option<String>,
@@ -1687,6 +1690,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     record: None,
                     scripts: vec![script],
                     fast: false,
+                    memory_profile: true,
                     dialogs: None,
                     variant: None,
                     device,
@@ -2087,6 +2091,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             themes,
             capture_size,
             day_src,
+            memory_profile,
         } => {
             // The existing workflow launch-env input can opt in without a new actions API.
             // --fast is the shorthand; otherwise the last explicit environment value wins.
@@ -2155,6 +2160,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     // script so that output stays visible while the app lives; see below.)
                     attached: !detach,
                 };
+                spec.envs.retain(|(key, _)| key != "DAY_MEMORY_PROFILE");
+                spec.envs.push((
+                    "DAY_MEMORY_PROFILE".into(),
+                    if memory_profile { "1" } else { "0" }.into(),
+                ));
                 // A named device that is not there fails the launch, and fails it now, before
                 // minutes of building for a run that has nowhere to go. Falling back to whatever
                 // else is connected installs the app on a device nobody asked for.
@@ -2383,6 +2393,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 keep_alive,
                                 spec.attached,
                                 fast,
+                                memory_profile,
                             ) {
                                 // A single retryable failure and nothing else: the shape a race
                                 // leaves behind (an element not realized yet, an assert that lost
@@ -2923,6 +2934,27 @@ mod error_tests {
         let other = CliError::from(crate::pack::PackError::Other("o".into()));
         assert_eq!(other.exit_code(), 4);
         assert_eq!(other.to_string(), "o");
+    }
+
+    #[test]
+    fn launch_memory_profile_defaults_on_and_can_be_disabled() {
+        let cli = Cli::try_parse_from(["day", "launch"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Launch {
+                memory_profile: true,
+                ..
+            }
+        ));
+        let cli = Cli::try_parse_from(["day", "launch", "--memory-profile=false"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Cmd::Launch {
+                memory_profile: false,
+                ..
+            }
+        ));
+        assert!(Cli::try_parse_from(["day", "launch", "--memory-profile=maybe"]).is_err());
     }
 
     #[test]

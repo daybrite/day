@@ -23,6 +23,8 @@ pub mod record;
 pub use record::play;
 /// The in-app test runner behind `day test` (docs/testing.md).
 pub mod conformance;
+mod memory;
+mod memory_watch;
 /// The PNG reader behind `sample_pixel` (docs/testing.md).
 pub mod png;
 
@@ -130,11 +132,13 @@ mod web {
     thread_local! {
         /// (token, reply sender) once [`web_init`] ran; requests before/without it are dropped.
         static WEB: RefCell<Option<(String, WebSender)>> = const { RefCell::new(None) };
+        static WATCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     }
 
     /// Arm the web transport: `token` authenticates each request (the query-parameter
     /// spelling of `DAYSCRIPT_TOKEN`), `send` carries one reply line back to the page.
     pub fn web_init(token: String, send: impl Fn(&str) + 'static) {
+        WATCH.with(|w| w.set(w.get() + 1));
         WEB.with(|w| *w.borrow_mut() = Some((token, Box::new(send))));
     }
 
@@ -152,6 +156,25 @@ mod web {
                         .unwrap_or(false)
                 });
                 if authed {
+                    if let Step::MemoryWatch { interval_ms } = req.step {
+                        if !memory_watch::valid_interval(interval_ms) {
+                            send_reply(Reply::fail(
+                                "memory_watch interval must be 0 or 100..60000 ms",
+                                false,
+                            ));
+                            return;
+                        }
+                        let generation = WATCH.with(|w| {
+                            w.set(w.get() + 1);
+                            w.get()
+                        });
+                        send_reply(memory_watch::sample());
+                        if interval_ms > 0 {
+                            watch_tick(generation, interval_ms as u32);
+                        }
+                        send_reply(Reply::ok());
+                        return;
+                    }
                     let budget_ms = (req.step.wait_budget_secs() * 1000.0) as u32;
                     attempt(req.step, budget_ms, next_capture_revision());
                     return;
@@ -172,6 +195,15 @@ mod web {
         let interval = if reply.capture_pending { 16 } else { RETRY_MS };
         let delay = interval.min(remaining_ms);
         day_reactive::on_main_delayed(delay, move || attempt(step, remaining_ms - delay, revision));
+    }
+
+    fn watch_tick(generation: u64, interval: u32) {
+        day_reactive::on_main_delayed(interval, move || {
+            if WATCH.with(|w| w.get()) == generation {
+                send_reply(memory_watch::sample());
+                watch_tick(generation, interval);
+            }
+        });
     }
 
     fn send_reply(reply: Reply) {
@@ -229,8 +261,10 @@ fn serve(port: u16, token: String) {
 
 fn handle_conn(stream: TcpStream, token: &str) {
     let _ = stream.set_nodelay(true);
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(15)));
     let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
-    let mut stream = stream;
+    let writer = Arc::new(std::sync::Mutex::new(stream));
+    let mut watch = None;
     let mut line = String::new();
     loop {
         line.clear();
@@ -239,13 +273,27 @@ fn handle_conn(stream: TcpStream, token: &str) {
             Ok(_) => {}
         }
         let reply = match serde_json::from_str::<Request>(line.trim()) {
-            Ok(req) if req.token == token => run_step_with_wait(req.step),
+            Ok(req) if req.token == token => {
+                if let Step::MemoryWatch { interval_ms } = req.step {
+                    if memory_watch::valid_interval(interval_ms) {
+                        drop(watch.take());
+                        if interval_ms > 0 {
+                            watch = Some(memory_watch::Watch::start(writer.clone(), interval_ms));
+                        }
+                        Reply::ok()
+                    } else {
+                        Reply::fail("memory_watch interval must be 0 or 100..60000 ms", false)
+                    }
+                } else {
+                    run_step_with_wait(req.step)
+                }
+            }
             Ok(_) => Reply::fail("bad token", false),
             Err(e) => Reply::fail(format!("bad request: {e}"), false),
         };
         let mut out = serde_json::to_string(&reply).unwrap_or_else(|_| "{\"ok\":false}".into());
         out.push('\n');
-        if stream.write_all(out.as_bytes()).is_err() {
+        if writer.lock().unwrap().write_all(out.as_bytes()).is_err() {
             return;
         }
     }
@@ -524,6 +572,11 @@ fn exec(step: Step, revision: u32) -> Reply {
                 }
                 Ok(Reply::ok())
             }
+            Step::MemoryUsage { fail_if_above } => Ok(memory::sample(fail_if_above)),
+            Step::MemoryWatch { .. } => Err(Reply::fail(
+                "memory_watch requires a transport connection",
+                false,
+            )),
             Step::Tap {
                 id,
                 if_present,

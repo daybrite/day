@@ -10,7 +10,9 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub mod format;
+mod memory;
 pub use format::{FailurePolicy, FormatError, Script, ScriptStep, steps_from_yaml, steps_to_yaml};
+pub use memory::MemorySize;
 
 /// Default implicit-wait budget, in seconds.
 pub const DEFAULT_TIMEOUT_SECS: f64 = 5.0;
@@ -51,6 +53,17 @@ pub enum Step {
         timeout_secs: Option<f64>,
     },
     WaitIdle,
+    /// Sample current process memory once. Exceeding the optional byte limit is a
+    /// non-retryable failure. Host `only_on`/`skip_on` gates allow per-target budgets.
+    MemoryUsage {
+        #[serde(default)]
+        fail_if_above: Option<MemorySize>,
+    },
+    /// Transport control for background reporting. Zero stops the stream; otherwise
+    /// sample every 100..=60000 ms. Samples are unsolicited replies, not script steps.
+    MemoryWatch {
+        interval_ms: u64,
+    },
     /// Programmatic scroll (docs/scroll.md §dayscript). With `edge`/`x`+`y`, `id` must name a
     /// `scroll` piece; with neither, `id` names any element and its nearest enclosing scroll
     /// reveals it. Unanimated, so the next step sees the settled position.
@@ -648,6 +661,8 @@ impl Step {
         match self {
             Self::WaitFor { .. } => "wait_for",
             Self::WaitIdle => "wait_idle",
+            Self::MemoryUsage { .. } => "memory_usage",
+            Self::MemoryWatch { .. } => "memory_watch",
             Self::ScrollTo { .. } => "scroll_to",
             Self::Tap { .. } => "tap",
             Self::Key { .. } => "key",
@@ -735,9 +750,18 @@ pub struct Reply {
     /// Internal retry cadence: frame checkpoints can complete on the next display tick.
     #[serde(skip)]
     pub capture_pending: bool,
-    /// A step's structured answer (`tests`, `run_tests`; docs/testing.md).
+    /// A step's structured answer (`tests`, `run_tests`, `memory_usage`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub data: Option<serde_json::Value>,
+    /// Unsolicited telemetry on a connection that explicitly enabled `memory_watch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_sample: Option<Box<MemorySample>>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct MemorySample {
+    pub bytes: Option<u64>,
+    pub metric: String,
 }
 
 impl Reply {

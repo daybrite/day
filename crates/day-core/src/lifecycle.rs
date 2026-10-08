@@ -47,6 +47,7 @@ struct Launched {
 /// Record the app's name and version for the exit line, and start its clock. Called by
 /// `launch_with` before `WillLaunch`.
 pub fn note_launch(name: String, version: Option<String>) {
+    crate::memory_profile::start();
     if let Ok(mut l) = LAUNCHED.lock() {
         *l = Some(Launched {
             name,
@@ -79,13 +80,19 @@ fn exit_summary() -> String {
         let elapsed = crate::frame::uptime_secs();
         (name, version, elapsed)
     };
-    format_exit_summary(
+    let memory = resident_memory();
+    let mut summary = format_exit_summary(
         &name,
         version.as_deref(),
         cfg!(debug_assertions),
         elapsed,
-        resident_memory(),
-    )
+        memory,
+    );
+    if let Some(profile) = crate::memory_profile::finish(memory) {
+        summary.push_str(". ");
+        summary.push_str(&profile);
+    }
+    summary
 }
 
 /// The exit line's text; see `exit_summary`. Factored for the test below.

@@ -6,7 +6,7 @@
 //! over TCP (adb-forwarded on Android), executes the YAML flow, saves screenshots, prints
 //! per-step results, and returns exit code 5 on assertion failure.
 
-use std::io::{BufRead, BufReader, Write};
+use std::io::Write;
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -696,6 +696,39 @@ pub fn run_scripts(
     keep_alive: bool,
     attached: bool,
     fast: bool,
+    memory_profile: bool,
+) -> Result<ScriptRun, ScriptError> {
+    let reports = crate::script_report::Reports::new(
+        project,
+        target,
+        scripts,
+        locale,
+        variant,
+        device,
+        memory_profile,
+    );
+    let result = run_scripts_inner(
+        project, target, port, token, scripts, locale, variant, device, keep_alive, attached, fast,
+        &reports,
+    );
+    reports.finish(result.as_ref().err().map(|e| e.to_string()).as_deref());
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_scripts_inner(
+    project: &Project,
+    target: &'static Target,
+    port: u16,
+    token: &str,
+    scripts: &[PathBuf],
+    locale: Option<&str>,
+    variant: Option<&str>,
+    device: Option<&str>,
+    keep_alive: bool,
+    attached: bool,
+    fast: bool,
+    reports: &crate::script_report::Reports,
 ) -> Result<ScriptRun, ScriptError> {
     forward_engine(target.kind, port);
     let default_locale = crate::store::default_locale(&crate::store::app_locales(project));
@@ -706,11 +739,13 @@ pub fn run_scripts(
         steps_failed: 0,
         detail,
     })?;
-    let mut reader = BufReader::new(
+    let mut reader = crate::script_report::Reader::new(
         stream
             .try_clone()
             .map_err(|e| ScriptError::Other(e.to_string()))?,
-    );
+        reports.active.clone(),
+    )
+    .map_err(|e| ScriptError::Other(e.to_string()))?;
 
     // adb-forwarded ports accept host connections before the device listener exists; a
     // request/reply that hits EOF reconnects and retries within a bounded window.
@@ -723,7 +758,7 @@ pub fn run_scripts(
     // Set once the engine has answered: until then a read also waits out the app's startup.
     let answered = std::cell::Cell::new(false);
     let roundtrip = |stream: &mut TcpStream,
-                     reader: &mut BufReader<TcpStream>,
+                     reader: &mut crate::script_report::Reader,
                      line: &str,
                      budget: f64|
      -> Result<String, String> {
@@ -733,7 +768,7 @@ pub fn run_scripts(
         } else {
             first_read_window(window)
         };
-        let _ = stream.set_read_timeout(Some(window));
+        reader.set_timeout(window);
         let deadline = std::time::Instant::now() + window;
         loop {
             let attempt = (|| -> Result<String, String> {
@@ -757,9 +792,16 @@ pub fn run_scripts(
                     std::thread::sleep(Duration::from_millis(500));
                     if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
                         let _ = s.set_nodelay(true);
-                        s.set_read_timeout(Some(window)).ok();
-                        *reader = BufReader::new(s.try_clone().map_err(|e| e.to_string())?);
+                        *reader = crate::script_report::Reader::new(
+                            s.try_clone().map_err(|e| e.to_string())?,
+                            reports.active.clone(),
+                        )
+                        .map_err(|e| e.to_string())?;
+                        reader.set_timeout(window);
                         *stream = s;
+                        reports.memory_error(
+                            "engine connection was re-established; sampling may be incomplete",
+                        );
                     }
                 }
                 Err(e) => return Err(e),
@@ -788,7 +830,39 @@ pub fn run_scripts(
     };
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
-    for script in scripts {
+    for (script_index, script) in scripts.iter().enumerate() {
+        reports.begin(script_index);
+        let mut expected_exit = false;
+        let mut watching = false;
+        if reports.enabled() {
+            let line = format!(
+                "{}\n",
+                serde_json::to_string(&Request {
+                    token: token.into(),
+                    step: Step::MemoryWatch {
+                        interval_ms: reports.interval_ms
+                    }
+                })
+                .unwrap()
+            );
+            let reply = roundtrip(&mut stream, &mut reader, &line, 0.0).map_err(|detail| {
+                ScriptError::EngineLost {
+                    steps_failed: run.steps_failed,
+                    detail,
+                }
+            })?;
+            let reply: Reply =
+                serde_json::from_str(&reply).map_err(|e| ScriptError::Other(e.to_string()))?;
+            watching = reply.ok;
+            if !watching {
+                reports.memory_error(
+                    reply
+                        .error
+                        .as_deref()
+                        .unwrap_or("engine does not support memory sampling"),
+                );
+            }
+        }
         let Script {
             steps, on_failure, ..
         } = parse_flow(script, &project.root).map_err(ScriptError::Other)?;
@@ -841,6 +915,8 @@ pub fn run_scripts(
                 );
                 break;
             }
+            let mut step_report = reports.step(index, &op);
+            let failures_before_step = run.steps_failed;
             run.steps_total += 1;
             // The target gates run before the runner-side steps below (`pause`, `expect_exit`):
             // those `continue` on their own, so evaluating them first made a gated `pause` sleep
@@ -874,6 +950,7 @@ pub fn run_scripts(
                 if hit {
                     eprintln!("  {WARN}–{WARN:#} {op} (skipped on {})", target.name);
                     run.steps_skipped += 1;
+                    step_report.result("skipped", None);
                     continue;
                 }
             }
@@ -900,6 +977,7 @@ pub fn run_scripts(
                     };
                     eprintln!("  {WARN}\u{2013}{WARN:#} {op} (not for {scope})");
                     run.steps_skipped += 1;
+                    step_report.result("skipped", None);
                     continue;
                 }
             }
@@ -932,6 +1010,7 @@ pub fn run_scripts(
                     });
                 }
                 eprintln!("  {SUCCESS}✓{SUCCESS:#} pause {secs}s");
+                step_report.result("passed", None);
                 continue;
             }
             // `resize` is runner-side first, then engine: a device's window belongs to the
@@ -942,6 +1021,7 @@ pub fn run_scripts(
             {
                 run.steps_failed += 1;
                 eprintln!("  {ERROR}✗{ERROR:#} resize — {why}");
+                step_report.result("failed", Some(why));
                 continue;
             }
             // `expect_exit` is runner-side: a prior step triggered an expected exit/crash, so
@@ -977,6 +1057,7 @@ pub fn run_scripts(
                     }
                 }
                 if exited {
+                    expected_exit = true;
                     eprintln!("  {SUCCESS}✓{SUCCESS:#} expect_exit (app terminated as expected)");
                 } else {
                     run.steps_failed += 1;
@@ -984,6 +1065,14 @@ pub fn run_scripts(
                         "  {ERROR}✗{ERROR:#} expect_exit — app still running after {within}s"
                     );
                 }
+                step_report.result(
+                    if exited { "passed" } else { "failed" },
+                    if exited {
+                        None
+                    } else {
+                        Some("app did not exit within the deadline".into())
+                    },
+                );
                 continue;
             }
             let mut shot_meta = crate::screenshot::ShotMeta::default();
@@ -1035,6 +1124,14 @@ pub fn run_scripts(
                 .map_err(|e| ScriptError::Other(e.to_string()))?;
             app_fast = reply.fast_animations == Some(true);
             let ok = reply.ok;
+            if op == "memory_usage"
+                && let Some(message) = reply
+                    .data
+                    .as_ref()
+                    .and_then(|data| data["message"].as_str())
+            {
+                eprintln!("      {message}");
+            }
             let detail = step
                 .get("id")
                 .and_then(|v| v.as_str())
@@ -1177,7 +1274,42 @@ pub fn run_scripts(
                     eprintln!("  {ERROR}✗{ERROR:#} screenshot {name} — no safe capture available");
                 }
             }
+            step_report.result(
+                if run.steps_failed > failures_before_step {
+                    "failed"
+                } else {
+                    "passed"
+                },
+                reply.error.clone(),
+            );
         }
+        if watching && !expected_exit {
+            let line = format!(
+                "{}\n",
+                serde_json::to_string(&Request {
+                    token: token.into(),
+                    step: Step::MemoryWatch { interval_ms: 0 }
+                })
+                .unwrap()
+            );
+            let reply = roundtrip(&mut stream, &mut reader, &line, 0.0).map_err(|detail| {
+                ScriptError::EngineLost {
+                    steps_failed: run.steps_failed,
+                    detail,
+                }
+            })?;
+            let reply: Reply =
+                serde_json::from_str(&reply).map_err(|e| ScriptError::Other(e.to_string()))?;
+            if !reply.ok {
+                reports.memory_error(
+                    reply
+                        .error
+                        .as_deref()
+                        .unwrap_or("could not stop memory sampling"),
+                );
+            }
+        }
+        reports.complete();
     }
     eprintln!(
         "  Script timing: {:.3}s; {} screenshots: engine/checkpoints {:.3}s, capture/save {:.3}s",
@@ -1595,6 +1727,73 @@ mod gate_tests {
     use super::{gate_is_known, gate_names};
 
     #[test]
+    fn memory_budgets_are_target_gated_and_count_as_non_retryable_failures() {
+        use day_script_proto::{MemorySize, Reply, Request, Step};
+        use std::io::{BufRead, Write};
+
+        let root = std::env::temp_dir().join(format!("day-memory-budget-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("flow.yaml");
+        // Synthetic process readings: desktop has no budget on the first step; the
+        // mobile-only budget is skipped; a final desktop budget fails exactly once.
+        std::fs::write(&script, "flow:\n- memory_usage:\n- memory_usage: {fail_if_above: 250MB, only_on: [ios, android]}\n- memory_usage: {fail_if_above: 500MB, only_on: [macos-appkit]}\n").unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+        };
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            for limit in [None, Some(MemorySize(500_000_000))] {
+                let mut line = String::new();
+                assert!(reader.read_line(&mut line).unwrap() > 0);
+                let request: Request = serde_json::from_str(&line).unwrap();
+                assert_eq!(
+                    request.step,
+                    Step::MemoryUsage {
+                        fail_if_above: limit
+                    }
+                );
+                let reply = Reply {
+                    ok: limit.is_none(),
+                    error: limit.map(|_| "fixture memory exceeds limit".into()),
+                    data: Some(
+                        serde_json::json!({"bytes":600_000_000,"message":"Memory usage: 600.00 MB"}),
+                    ),
+                    ..Reply::default()
+                };
+                writeln!(stream, "{}", serde_json::to_string(&reply).unwrap()).unwrap();
+            }
+        });
+        let run = super::run_scripts(
+            &project,
+            crate::targets::find("macos-appkit").unwrap(),
+            port,
+            "fixture-token",
+            &[script],
+            None,
+            None,
+            None,
+            true,
+            false,
+            true,
+            false,
+        )
+        .unwrap();
+        server.join().unwrap();
+        assert_eq!(run.steps_total, 3);
+        assert_eq!(run.steps_skipped, 1);
+        assert_eq!(run.steps_failed, 1);
+        assert_eq!(run.retryable_failed, 0);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn shared_format_preserves_host_annotations_and_expands_only_project_values() {
         // Synthetic author document: expansion belongs to the CLI, including annotations.
         let script = super::parse_flow_text(
@@ -1697,6 +1896,7 @@ mod gate_tests {
             true,
             false,
             true,
+            false,
         )
         .unwrap();
         let seen = server.join().unwrap();
@@ -1780,6 +1980,7 @@ mod gate_tests {
                 None,
                 None,
                 true,
+                false,
                 false,
                 false,
             )

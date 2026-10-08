@@ -1,6 +1,8 @@
 [
   {"op":"wait_for","id":"fixture","timeout_secs":12.0},
   {"op":"wait_idle"},
+  {"op":"memory_watch","interval_ms":1000},
+  {"op":"memory_usage","fail_if_above":500000000},
   {"op":"scroll_to","id":"fixture","edge":"bottom","x":3.0,"y":4.0},
   {"op":"tap","id":"fixture","if_present":true,"repeat":3,"at":[40.0,60.0],"modifiers":["shift"]},
   {"op":"key","key":"ArrowLeft","id":"fixture","modifiers":["primary"]},

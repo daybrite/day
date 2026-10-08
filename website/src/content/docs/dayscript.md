@@ -104,7 +104,7 @@ shape whichever tool captured them. Set `DAY_SCREENSHOT_RAW=1` to keep the captu
 | Asserting | `assert_visible`, `assert_hidden` (missing, empty, or hidden natively), `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
 | Web views | `web_eval` (`id`, `script`, `text`/`contains`; `timeout_secs` raises its budget for cold engine startup or slow page loads) |
 | Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |
-| Evidence | `screenshot` (`window` captures a secondary window), `a11y_audit`, `assert_native` (the widget's own text, value, checked, enabled or visible state, as the platform reports it), `assert_frame` (size and relative position, in Day and natively), `sample_pixel` (the color at a point of a capture), `assert_opened_url` (a URL the app opened during a `run_tests` run), `assert_announced` (text the app announced to the screen reader during the run) |
+| Evidence | `memory_usage` (log current app memory, optionally enforce `fail_if_above`), `screenshot` (`window` captures a secondary window), `a11y_audit`, `assert_native` (the widget's own text, value, checked, enabled or visible state, as the platform reports it), `assert_frame` (size and relative position, in Day and natively), `sample_pixel` (the color at a point of a capture), `assert_opened_url` (a URL the app opened during a `run_tests` run), `assert_announced` (text the app announced to the screen reader during the run) |
 | Exit | `expect_exit` (the app must terminate within `within` seconds; always the last step) |
 
 `input`, `assert_text`, and `toolbar` accept a Fluent `key` (with `args`) in place of literal
@@ -152,6 +152,73 @@ The same two gates match a [build flavor](/docs/flavors), written `flavor:<name>
 - assert_text: { id: welcome-title, text: "Welcome to Notes", skip_on: [flavor:paid] }
 - assert_text: { id: welcome-title, text: "Welcome to Notes Pro", only_on: [flavor:paid] }
 ```
+
+## Run reports and background memory sampling
+
+`day launch --script dayscript/walkthrough.yaml` profiles memory by default and saves a
+separate JSON report for each script invocation under `build/day/reports/dayscript/`.
+The report includes duration, passed/skipped/failed/aborted steps, individual step results,
+target/device/locale/variant, observed hardware and emulator details, and memory samples
+with min/max/average/end bytes. Retries receive separate report files.
+
+Sampling runs every second throughout the script, including pauses and long steps. Set
+`DAY_SCRIPT_MEMORY_INTERVAL_MS` on the **host CLI** to choose 100–60000 milliseconds.
+These are sampled values: the maximum can miss peaks between samples, and the average is
+the arithmetic mean of available samples. End is the last observation; unavailable readings
+are null. Web timers can be delayed while the browser is blocked or throttled.
+
+Reports are checkpointed as samples and step results arrive. If the app crashes, the last
+readings survive and the report is marked interrupted. If the CLI itself is killed, the
+last checkpoint remains marked running, which the CI summary treats as interrupted.
+Unstarted scripts remain explicitly marked `not_run`.
+
+`--memory-profile=false` disables the launch summary and automatic local reports. Set
+host `DAY_SCRIPT_REPORT=1` to retain script reports independently of that flag. Native apps
+also append launch-wide statistics to their normal exit log; an abrupt kill cannot emit
+that lifecycle log. Scripted launches print the host's last observations on connection loss.
+A browser tab has no reliable process-exit callback; its scripted reports still work.
+
+In `daybrite/actions`'s `dayapp.yml`, `dayscript_report_summary: true` (the default) downloads
+reports after all build jobs finish and writes a Markdown table grouped by script. Failed
+and interrupted runs remain visible. Reports are uploaded regardless of job success or
+this input; `false` only skips summary assembly. Older CLI/runtime versions that cannot
+report are shown as unavailable rather than reconstructed from console logs.
+
+## Memory budgets
+
+Log a snapshot of the app's current memory with `memory_usage`. Add `fail_if_above` to
+fail the step if the reading is strictly greater than a limit; equality passes.
+
+```yaml
+- memory_usage:
+- memory_usage: { fail_if_above: 500MB }
+```
+
+Limits accept integer bytes or case-insensitive size strings: `1G` and `1GB` mean
+1,000,000,000 bytes; `1GiB` means 1,073,741,824 bytes. `K`/`KB`, `M`/`MB`, `T`/`TB`
+and `KiB`/`MiB`/`TiB` work too. Decimal fractions such as `1.5GB` must resolve to whole
+bytes. Invalid, negative or overflowing limits are rejected before the flow starts.
+
+Use existing target gates for tighter mobile budgets and unrestricted desktop logging:
+
+```yaml
+- memory_usage: # Every target logs; no limit.
+- memory_usage: { fail_if_above: 250MB, only_on: [ios, android, harmony] }
+```
+
+Add another gated step for any target needing a different limit. The runner and app log
+print decimal MB, exact bytes and the measurement kind; `day drive` also returns them in
+reply `data` (`bytes`, `limit_bytes`, `metric`, `message`). The host YAML runner applies
+target gates; direct engine requests and in-process playback use the supplied limit.
+
+This measures the current process: physical footprint on Apple (resident size fallback),
+RSS on Linux/Android/HarmonyOS, working set on Windows. Separate WebView/helper processes
+are excluded. On web it measures **Wasm linear memory only**, excluding JS, DOM and browser
+memory, so budgets are not directly comparable across platforms.
+
+An exceeded budget or unavailable reading fails immediately without retry. This samples
+once, without forcing garbage collection or checking the peak between steps. Add
+`wait_idle` beforehand when you want the UI to settle before measuring.
 
 ## How it works
 

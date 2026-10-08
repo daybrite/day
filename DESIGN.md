@@ -89,6 +89,7 @@ the architecture-level view and the rationale.
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | split — `split(first, second)`, two panes and a dragged divider, `.axis(..)` side by side or stacked, `.fraction(share)` two-way; the toolkit's splitter where `Cap::Split` is Native, Day's layout and a drawn divider elsewhere | [docs/split.md](docs/split.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | tree — `tree(source, row)` hierarchical rows: native tree views where `Cap::Tree` is Native, the composed list-backed tree elsewhere; token identity, app-owned expansion, drag-to-reparent | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
+| collapsible section research — Qt and WinUI have native disclosure controls; Android has a native two-level expandable list. Existing composed adapters are not platform limitations. Proposed section state uses stable IDs, restoration without callback echo, and selection independent of visibility; ArkUI's documented tree API still has integration gaps | [native section API review](docs/tree.md#native-collapsible-sections-research-2026-10) | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -6549,10 +6550,84 @@ is a Day `.id()` ([§5.5](#55-node-identity-ids-and-the-element-index)). Steps w
 assertion pending) retry within a bounded implicit wait (5 s default) — no sleeps in
 well-written scripts; `pause` exists for demos and settle-time.
 
+`day launch` enables memory profiling by default (`--memory-profile=false` disables its
+summary). Native apps sample once per second into constant-space, process-global statistics,
+and append min/max/average/end MB to the normal lifecycle exit log. This never accesses TLS
+or reactive state from the sampling thread. Abrupt termination cannot deliver that exit log;
+a scripted launch also prints its host-collected statistics, marked as the last observation
+when the connection is lost. Browser tab closure cannot deliver a process-exit summary.
+
+Scripted launches with profiling, or with host `DAY_SCRIPT_REPORT=1`, save a version-1 JSON
+report for **each script invocation** under `build/day/reports/dayscript/` (respecting
+`DAY_BUILD_DIR`/flavors). Retries have unique run ids; scripts, device profiles and variants
+never overwrite one another. Reports include script/name, target, locale, variant, flavor,
+CI run/attempt, allowlisted host hardware and selected device facts, elapsed milliseconds,
+step results/counts, status/error, and timestamped memory samples plus min/max/arithmetic
+sample mean/end bytes. Failed hardware probes yield null, not an inferred device identity.
+The CI matrix's requested profile is retained separately from observed hardware facts.
+
+The authenticated `memory_watch {interval_ms}` transport control enables unsolicited
+`Reply.memory_sample` messages (100–60000 ms; zero stops); it is runner control, not a UI
+operation. Native sampling runs off the UI thread, sharing a locked socket writer with ordinary
+replies. Web sampling uses a main-loop timer and can be delayed by a blocked/throttled browser.
+A dedicated host reader demultiplexes samples from replies and checkpoints JSON immediately,
+including during pauses, long UI steps and device captures. Stop sends a final sample before
+acknowledgment. The host interval is `DAY_SCRIPT_MEMORY_INTERVAL_MS` (default 1000).
+
+Every checkpoint is written to a temporary file then atomically renamed. On a normal return,
+reports finish as passed/failed; transport errors finish as interrupted, and unstarted scripts
+remain not_run. A killed CLI leaves a running checkpoint and its current step; consumers must
+label it interrupted, never passed. End means the last observed reading, not a claim about
+memory at the instant of a crash; sampled maxima are not continuous peaks. Unsupported older
+engines still run scripts and report unavailable profiling explicitly.
+
+`daybrite/actions` uploads these reports with `always()` independently of its default-true
+`dayscript_report_summary` input. A dependent summary job also uses `always()` and downloads
+reports after all build matrix legs finish, including failures. Its tables group by script and
+keep each target/device/variant/retry separate, with sample statistics, duration, step counts,
+and hardware. Job manifests expose missing/unstarted runs; malformed/missing artifacts are
+reported rather than hidden. Disabling the summary does not disable collection or upload.
+No workflow can recover artifacts from a destroyed runner that cannot execute its upload.
+
+Regression coverage includes `day-script::memory_watch` socket tests, `day-cli::script_report`
+checkpoint/transport tests, core profile statistics and CLI option parsing, plus the actions
+summary/workflow tests. The engine only sends telemetry after explicit authenticated opt-in,
+so existing `day drive` and older clients retain their single-reply protocol.
+
+`memory_usage` samples `day_core::lifecycle::resident_memory()` once inside the app,
+logs decimal MB and exact bytes in both the app log and the runner output, and returns
+`data: {bytes, limit_bytes, metric, message}` (also available through `day drive`). Its
+threshold is checked against exact bytes: equality passes, exceeding it fails without retry.
+An unavailable reading fails explicitly, even for a report-only step. This is a snapshot,
+not a peak or a continuous monitor; precede it with `wait_idle` when settling is desired.
+Apple uses physical footprint (resident size fallback); Linux/Android/HarmonyOS use RSS;
+Windows uses working set; web uses Wasm linear memory only, excluding JS/DOM/browser memory.
+Native measurements cover the current process, excluding WebView/helper processes.
+
+Size strings are case-insensitive: `K`/`KB`, `M`/`MB`, `G`/`GB`, `T`/`TB` are decimal;
+`KiB`/`MiB`/`GiB`/`TiB` are binary. Fractions are accepted only when they resolve to whole
+bytes. Negative, invalid and overflowing sizes fail document validation before execution.
+A bare step has no limit. Existing host target gates support independent budgets without
+changing the wire protocol's target resolution:
+
+```yaml
+- memory_usage: # Log on every target, without a limit.
+- memory_usage: { fail_if_above: 250MB, only_on: [ios, android, harmony] }
+- memory_usage: { fail_if_above: 1G, only_on: [macos-appkit] }
+```
+
+Unlisted targets in the gated checks remain unconstrained. Gates belong to the YAML host
+runner; direct protocol/in-process playback supplies the already-selected limit.
+Regression coverage lives in `day-script-proto/tests/memory.rs`, `day-script/src/memory.rs`,
+and `day-cli`'s `memory_budgets_are_target_gated_and_count_as_non_retryable_failures`.
+The Showcase walkthrough samples after groups of screens and ends with a `1G` budget.
+
 | step | fields | notes |
 |---|---|---|
 | `wait_for` | `id`, `timeout_secs?` | until the element has a visible frame; `timeout_secs` raises the implicit wait for elements gated on slow work (a login round-trip, a first sync) |
 | `wait_idle` | — | flush the reactive drain and wait for native transitions |
+| `memory_watch` | `interval_ms` | transport reporting control; 100–60000 ms starts background samples, zero sends a final sample and stops; not an in-process playback operation |
+| `memory_usage` | `fail_if_above?` | log current app memory; optional limit accepts integer bytes or strings such as `500MB`, `1G`, `512MiB`; strictly above fails immediately (no retry); use `only_on`/`skip_on` for per-target budgets |
 | `tap` | `id`, `repeat?`, `at?`, `modifiers?`, `if_present?` | waits for native settling, a nonzero frame, and enabled state; then delivers `Pressed` AND a gesture `Tap` at `at` (default the node's center); `modifiers: [shift]`/`[primary]`/`[alt]` stand held keys in through `day::modifiers()` while dispatching; `if_present: true` skips an absent node after settling (for fixture cleanup; wait for its containing screen first) |
 | `drag` | `id`, `from`, `to`, `steps?`, `modifiers?` | a whole gesture in the element's own coordinates: `Began` at `from`, `steps` (default 4) `Changed` samples along the way, `Ended` at `to`. `modifiers` are held for every phase — a drag reads them once, when it starts |
 | `hover` | `id`, `at?` \| `leave?` | the pointer entering the element at `at` (its center when omitted), or leaving it (`.on_hover`) |

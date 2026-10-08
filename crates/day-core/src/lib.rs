@@ -43,6 +43,7 @@ pub mod image;
 mod layout;
 pub mod lifecycle;
 pub mod list;
+mod memory_profile;
 pub mod menu;
 mod nav;
 mod present;

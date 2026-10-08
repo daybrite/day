@@ -41,6 +41,7 @@ mod resources;
 mod sandbox;
 mod screenshot;
 mod script;
+mod script_report;
 mod sessions;
 mod shortcuts;
 mod sign;

@@ -167,3 +167,14 @@ tearing the app down (Android `onDestroy` while finishing; iOS `applicationWillT
 pump routes it to `dispatch_lifecycle`, which runs the phase's handlers in a reactive batch. Adding
 lifecycle support to a new backend is two things: implement `Toolkit::supports_lifecycle` (and the
 matching `const fn lifecycle_supported`), and emit `Event::Lifecycle(..)` at the right native moments.
+
+### Launch memory profiling
+
+`day launch` enables `DAY_MEMORY_PROFILE=1` for native apps by default. A process-global
+sampler reads current-process memory every second, keeps constant-space min/max/sum/count,
+and appends min/max/average/end MB to the normal exit line. `--memory-profile=false`
+disables it. The initial and final samples are included; the average is an arithmetic sample
+mean and the maximum is a sampled maximum. The sampler uses no UI state or TLS.
+Abrupt process termination cannot emit a lifecycle exit line. Scripted launches additionally
+checkpoint host reports and summarize the last observations when the connection is lost;
+see the DayScript contract in [DESIGN.md](../DESIGN.md#appendix-c--dayscript-reference-v1).
