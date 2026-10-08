@@ -42,7 +42,7 @@
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
 use day_pieces::{IntoText, TextSource};
-use day_reactive::{Signal, bind_seeded};
+use day_reactive::{Effect, Signal, bind_seeded, watch};
 use day_spec::{Event, Font, RunStyle, StyledText, Support};
 // Re-exported for the per-toolkit arms below, which build native attributes out of them.
 #[allow(unused_imports)]
@@ -50,7 +50,12 @@ use day_spec::{ParagraphRun, TextRun};
 use std::cell::RefCell;
 use std::rc::Rc;
 
+pub mod highlight;
+
 pub const KIND: &str = "day.piece.texteditor";
+
+/// What [`TextEditor::highlight`] takes: text in, runs over every byte of it out.
+pub type Highlighter = Rc<dyn Fn(&str) -> Vec<TextRun>>;
 
 /// The prefix a selection report carries in its payload. The tag cannot cross a JNI / C-ABI / JS
 /// boundary (§8.2), so the payload has to be self-describing: `"sel <start> <end>"`, in BYTE
@@ -61,6 +66,10 @@ pub const SEL_PREFIX: &str = "sel ";
 /// only send `Event::Custom` (HarmonyOS's ArkTS side is the one that has to): `"txt <the text>"`,
 /// the whole document, exactly as [`Event::TextChanged`] carries it.
 pub const TEXT_PREFIX: &str = "txt ";
+
+/// The prefix a claimed key rides on that same channel: `"key Enter"`, `"key Tab"`, the day key
+/// name an [`Event::Key`] would carry on a backend that can send one.
+pub const KEY_PREFIX: &str = "key ";
 
 /// Full props (realize). Only `doc`, `selection` and `editable` change after build.
 #[derive(Clone, Debug, PartialEq)]
@@ -74,6 +83,14 @@ pub struct EditorProps {
     pub max_lines: u32,
     /// Show the platform's spell-check squiggles. Prose wants them; a code editor does not.
     pub spellcheck: bool,
+    /// One line that scrolls sideways instead of wrapping: Enter reports [`Event::Key`] `"Enter"`
+    /// (the piece turns it into a submit) and inserts nothing, and a pasted newline is flattened
+    /// by the piece. `min_lines`/`max_lines` are both 1.
+    pub single_line: bool,
+    /// Code editing: Tab reports [`Event::Key`] `"Tab"` instead of moving focus (the piece
+    /// inserts the indentation through [`EditorPatch::Insert`]), and an arm whose view
+    /// auto-substitutes (smart quotes, capitalization) turns that off.
+    pub code: bool,
 }
 
 impl Default for EditorProps {
@@ -86,6 +103,8 @@ impl Default for EditorProps {
             min_lines: 3,
             max_lines: 0,
             spellcheck: true,
+            single_line: false,
+            code: false,
         }
     }
 }
@@ -111,6 +130,15 @@ pub enum EditorPatch {
     /// GTK and the web, which do not.
     SetTypingStyle(RunStyle),
     SetEditable(bool),
+    /// Insert `text` at byte offset `at` through the view's own insertion, so the platform's
+    /// undo stack records it like typing and the caret lands after it. The view reports the
+    /// result as a `TextChanged`, which is how the model learns of it; nothing is written to the
+    /// document here. What the piece's code mode sends for a Tab, an auto-indent and a closing
+    /// bracket.
+    Insert {
+        at: usize,
+        text: String,
+    },
 }
 
 /// Whether the compiled backend edits styled text natively.
@@ -147,7 +175,17 @@ pub struct TextEditor {
     min_lines: u32,
     max_lines: u32,
     spellcheck: bool,
+    highlight: Option<Highlighter>,
+    highlight_limit: usize,
+    single_line: bool,
+    on_submit: Option<Rc<dyn Fn()>>,
+    code: bool,
+    indent: u8,
 }
+
+/// The size past which a live highlighter leaves the text plain (512 KiB); see
+/// [`TextEditor::highlight_limit`].
+pub const HIGHLIGHT_LIMIT: usize = 512 * 1024;
 
 /// `text_editor(doc)`: the platform's rich-text view over a [`StyledText`] signal.
 pub fn text_editor(doc: Signal<StyledText>) -> TextEditor {
@@ -165,10 +203,92 @@ pub fn text_editor(doc: Signal<StyledText>) -> TextEditor {
         min_lines: 3,
         max_lines: 0,
         spellcheck: true,
+        highlight: None,
+        highlight_limit: HIGHLIGHT_LIMIT,
+        single_line: false,
+        on_submit: None,
+        code: false,
+        indent: 2,
     }
 }
 
+/// `text_editor_text(text)`: the same editor over a plain `String` signal, for an app whose model
+/// holds text rather than a document (a request body, a file). The piece keeps a [`StyledText`]
+/// of its own: edits write the string, a string the app writes replaces the document's text,
+/// and a [`TextEditor::highlight`] supplies whatever styling there is.
+pub fn text_editor_text(text: impl day_reactive::Binding<String>) -> TextEditor {
+    let doc = Signal::new(StyledText::plain(text.peek()));
+    // Editor → string: the text only, since the runs are the highlighter's and not the model's.
+    {
+        let text = text.clone();
+        watch(
+            move || doc.with(|d| d.text.clone()),
+            move |t: &String, _| {
+                if text.peek() != *t {
+                    text.write(t.clone());
+                }
+            },
+        );
+    }
+    // String → editor: a new text takes a fresh plain document (the highlighter restyles it on
+    // the next pass); the same text, which is the echo of the write above, changes nothing.
+    watch(
+        move || text.read(),
+        move |t: &String, _| {
+            if doc.with_untracked(|d| d.text != *t) {
+                doc.set(StyledText::plain(t.clone()));
+            }
+        },
+    );
+    text_editor(doc)
+}
+
 impl TextEditor {
+    /// Live syntax highlighting: `f` turns the text into runs, and runs again after every edit
+    /// (and whenever a signal it reads changes). The runs reach the native view as an attributes
+    /// patch, so the caret and the platform's undo stack stay put. [`highlight::highlighter`]
+    /// builds `f` for the languages the crate knows.
+    pub fn highlight(mut self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self {
+        self.highlight = Some(Rc::new(f));
+        self
+    }
+    /// The size, in bytes, past which [`TextEditor::highlight`] leaves the text plain (default
+    /// [`HIGHLIGHT_LIMIT`], 512 KiB). The tokenizers are linear, but every keystroke restyles
+    /// the whole document in the native view, and a body of hundreds of thousands of runs is
+    /// where that stops feeling like typing. A read-only body is styled once and can afford
+    /// more: raise it there.
+    pub fn highlight_limit(mut self, bytes: usize) -> Self {
+        self.highlight_limit = bytes;
+        self
+    }
+    /// One line, scrolling sideways instead of wrapping: a styled `text_field`. Enter submits
+    /// ([`TextEditor::on_submit`]) and inserts nothing; a pasted newline becomes a space. For a
+    /// URL bar or a header value that wants template tags or other runs drawn inline.
+    pub fn single_line(mut self) -> Self {
+        self.single_line = true;
+        self.min_lines = 1;
+        self.max_lines = 1;
+        self
+    }
+    /// What Enter does in a [`TextEditor::single_line`] editor (and what a dayscript `submit`
+    /// step delivers).
+    pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
+        self.on_submit = Some(Rc::new(f));
+        self
+    }
+    /// Code editing: Tab indents instead of moving focus, Enter keeps the previous line's
+    /// indentation (one level deeper after an opening bracket), and an opening bracket or quote
+    /// gets its closer typed after the caret. Spell-check is off.
+    pub fn code(mut self) -> Self {
+        self.code = true;
+        self.spellcheck = false;
+        self
+    }
+    /// The width of one indentation level in spaces (default 2), for [`TextEditor::code`].
+    pub fn indent(mut self, spaces: u8) -> Self {
+        self.indent = spaces.max(1);
+        self
+    }
     /// Bind the selection, in BYTE offsets into `doc.text`, two-way: the user moving the caret
     /// writes it, and writing it moves the caret. Collapsed when `start == end`.
     pub fn selection(mut self, sel: Signal<std::ops::Range<usize>>) -> Self {
@@ -227,7 +347,33 @@ impl Piece for TextEditor {
             min_lines,
             max_lines,
             spellcheck,
+            highlight,
+            highlight_limit,
+            single_line,
+            on_submit,
+            code,
+            indent,
         } = self;
+        // The highlighter runs before the first realize, so the view is seeded styled rather than
+        // restyled a frame later. Writing the runs back re-runs this reaction; the second pass
+        // produces the same runs and writes nothing, which is what ends it. Past the size limit
+        // the text stays plain: the tokenizers are linear, but every keystroke then rebuilds the
+        // view's attributes over the whole document, and a body of hundreds of thousands of runs
+        // is where that stops being a keystroke.
+        if let Some(f) = highlight {
+            Effect::new(move || {
+                let runs = doc.with(|d| {
+                    if d.text.len() > highlight_limit {
+                        Vec::new()
+                    } else {
+                        f(&d.text)
+                    }
+                });
+                if doc.with_untracked(|d| d.runs != runs) {
+                    doc.update(|d| d.runs = runs);
+                }
+            });
+        }
         let initial = doc.get_untracked();
         let node = cx.leaf(
             KIND,
@@ -239,6 +385,8 @@ impl Piece for TextEditor {
                 min_lines,
                 max_lines,
                 spellcheck,
+                single_line,
+                code,
             },
             Flex {
                 grow_w: true,
@@ -262,6 +410,9 @@ impl Piece for TextEditor {
                     let text_changed = *native_text.borrow() != d.text;
                     let patch = if text_changed {
                         *native_text.borrow_mut() = d.text.clone();
+                        // The dayscript probe (`assert_text`) reads the tree, not the view, and
+                        // the tree knows this piece's patches only through this line.
+                        with_tree(|t| t.set_probe_value(node, 0.0, d.text.clone()));
                         EditorPatch::SetDocument(d.clone())
                     } else {
                         // Same characters, different attributes: the syntax-highlighting path.
@@ -282,8 +433,15 @@ impl Piece for TextEditor {
         // (`removeAllRanges` + `addRange`) that visibly collapses the selection the user is in
         // the middle of making, so a drag cannot select anything at all.
         let native_sel: Rc<RefCell<Option<std::ops::Range<usize>>>> = Rc::new(RefCell::new(None));
+        // A selection Day wrote and has not yet heard echoed. The bridges deliver a view's
+        // reports on their own schedule, so the caret move an insertion caused can be reported
+        // AFTER the `SetSelection` that followed it was applied; until the write's echo arrives,
+        // such a report is stale and is ignored. A keystroke clears the wait, so an arm that
+        // never echoes a programmatic selection costs nothing past one report.
+        let pending_sel: Rc<RefCell<Option<std::ops::Range<usize>>>> = Rc::new(RefCell::new(None));
         if let Some(sel) = selection {
             let native_sel = native_sel.clone();
+            let pending_sel = pending_sel.clone();
             bind_seeded(
                 0..0,
                 move || sel.get(),
@@ -291,6 +449,7 @@ impl Piece for TextEditor {
                     if native_sel.borrow().as_ref() == Some(r) {
                         return; // the echo of the view's own report
                     }
+                    *pending_sel.borrow_mut() = Some(r.clone());
                     with_tree(|t| {
                         t.patch(node, Box::new(EditorPatch::SetSelection(r.clone())), false)
                     });
@@ -332,6 +491,14 @@ impl Piece for TextEditor {
         }
 
         // Native edits → the signal.
+        let synthesized_against = native_text.clone();
+        let caret_after_closer = native_sel.clone();
+        let pending_after_closer = pending_sel.clone();
+        let pending_on_edit = pending_sel.clone();
+        // The text the closer's insertion will report, so `edited` can tell it from a keystroke.
+        let closer_text: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        let closer_text_on_edit = closer_text.clone();
+        let closer_text_on_sel = closer_text.clone();
         let edited = move |new_text: &str| {
             let old = native_text.borrow().clone();
             if old == new_text {
@@ -339,8 +506,26 @@ impl Piece for TextEditor {
                 // is what keeps `SetDocument` from looping.
                 return;
             }
+            // The text moved on, so whatever selection write was outstanding is history,
+            // unless this is the closer's own insertion reporting back: the write that put the
+            // caret between the pair is still the one to wait for.
+            if closer_text_on_edit.borrow_mut().take().as_deref() != Some(new_text) {
+                *pending_on_edit.borrow_mut() = None;
+            }
             let (offset, removed, inserted) = diff_edit(&old, new_text);
+            // What the view holds is the raw text; the model may take a flattened one below, and
+            // the difference is what makes the bind above paint the view with it.
             *native_text.borrow_mut() = new_text.to_string();
+            // A single line: a newline that got in (a paste, a drop) becomes a space. Same byte
+            // length, so the edit's offsets hold.
+            let flattened;
+            let new_text = if single_line && new_text.contains(['\n', '\r']) {
+                flattened = flatten(new_text);
+                flattened.as_str()
+            } else {
+                new_text
+            };
+            with_tree(|t| t.set_probe_value(node, 0.0, new_text.to_string()));
             let pending = typing_now.borrow().clone();
             doc.update(|d| {
                 d.text = new_text.to_string();
@@ -354,14 +539,126 @@ impl Piece for TextEditor {
                     d.apply(offset..offset + inserted, base, |s| *s = style.clone());
                 }
             });
+            // Code mode, after one typed character: Enter keeps the indentation, an opener gets
+            // its closer. Both go through the view's own insertion (`Insert`), so undo sees them
+            // as typing, and the view reports them back through this same path.
+            if code && inserted == 1 && removed == 0 {
+                let typed = &new_text[offset..offset + 1];
+                if typed == "\n" {
+                    if let Some(ws) = auto_indent(new_text, offset, indent) {
+                        with_tree(|t| {
+                            t.patch(
+                                node,
+                                Box::new(EditorPatch::Insert {
+                                    at: offset + 1,
+                                    text: ws,
+                                }),
+                                true,
+                            )
+                        });
+                    }
+                } else if let Some(closer) = closer_after(new_text, offset) {
+                    with_tree(|t| {
+                        t.patch(
+                            node,
+                            Box::new(EditorPatch::Insert {
+                                at: offset + 1,
+                                text: closer.to_string(),
+                            }),
+                            true,
+                        );
+                        // Back between the pair: the insertion left the caret after the closer.
+                        t.patch(
+                            node,
+                            Box::new(EditorPatch::SetSelection(offset + 1..offset + 1)),
+                            false,
+                        );
+                    });
+                    // Recorded here as well, and marked as the write awaiting its echo, so a
+                    // report of the caret the insertion left after the closer cannot stand in
+                    // for it, whichever order the bridge delivers them in.
+                    *caret_after_closer.borrow_mut() = Some(offset + 1..offset + 1);
+                    *pending_after_closer.borrow_mut() = Some(offset + 1..offset + 1);
+                    *closer_text.borrow_mut() = Some(format!(
+                        "{}{}{}",
+                        &new_text[..offset + 1],
+                        closer,
+                        &new_text[offset + 1..]
+                    ));
+                }
+            }
+        };
+        // A key one of the modes claimed, as an arm reports it (an `Event::Key`, or `key <name>`
+        // on the custom channel for the arm that has only that) and as a dayscript `key` step
+        // delivers it: Enter in a single line submits; Tab in code indents, through the view's
+        // own insertion at the caret the arm last reported.
+        let key_submit = on_submit.clone();
+        let key_sel = native_sel.clone();
+        let handle_key = move |key: &str, modifiers: u8| {
+            if single_line && key == "Enter" {
+                if let Some(f) = &key_submit {
+                    f();
+                }
+            } else if modifiers == 0 {
+                // What goes in at the caret: Tab's indentation in code; and, from a dayscript
+                // `key` step only (no arm reports a printable key or an unclaimed Enter here),
+                // the character itself, or a newline in code, so a script can type one
+                // character through the view's own insertion and the editing rules above run
+                // on the view's report of it, as they do for a keystroke.
+                let text = doc.with_untracked(|d| d.text.clone());
+                let caret = key_sel
+                    .borrow()
+                    .as_ref()
+                    .map_or(text.len(), |r| r.start.min(text.len()));
+                let insert = if code && key == "Tab" {
+                    tab_indent(&text, caret, indent)
+                } else if code && key == "Enter" {
+                    "\n".to_string()
+                } else if key.chars().count() == 1 {
+                    key.to_string()
+                } else {
+                    return;
+                };
+                with_tree(|t| {
+                    t.patch(
+                        node,
+                        Box::new(EditorPatch::Insert {
+                            at: caret,
+                            text: insert,
+                        }),
+                        true,
+                    )
+                });
+            }
         };
         cx.on(node, move |ev| match ev {
             Event::TextChanged(new_text) => edited(new_text),
+            Event::Custom { tag, text, .. } if *tag == day_core::SYNTHESIZED_TEXT => {
+                // A dayscript `input` step: text the view has NOT seen, unlike a `TextChanged`.
+                // Written as the app would write it, so the bind above paints the view with a
+                // document patch; the `TextChanged` that follows is then the echo it ignores.
+                let new_text = if single_line {
+                    flatten(text)
+                } else {
+                    text.clone()
+                };
+                let old = synthesized_against.borrow().clone();
+                let (offset, removed, inserted) = diff_edit(&old, &new_text);
+                doc.update(|d| {
+                    d.text = new_text;
+                    d.reflow(offset, removed, inserted);
+                });
+            }
             Event::Custom { text, .. } => {
                 // A backend whose piece channel carries only `Event::Custom` reports its text
-                // here instead (HarmonyOS's ArkTS bridge is the one that must).
+                // and its claimed keys here instead (HarmonyOS's ArkTS bridge is the one that
+                // must).
                 if let Some(new_text) = text.strip_prefix(TEXT_PREFIX) {
                     edited(new_text);
+                    return;
+                }
+                if let Some(name) = text.strip_prefix(KEY_PREFIX) {
+                    handle_key(name, 0);
                     return;
                 }
                 let Some(range) = parse_selection(text) else {
@@ -376,13 +673,36 @@ impl Piece for TextEditor {
                 if let Some(style) = typing {
                     style.set_if_changed(doc.with_untracked(|d| d.style_of(range.clone(), base)));
                 }
+                // A report while a write of Day's own is outstanding: its echo ends the wait,
+                // anything else is the view's state from before the write and is dropped.
+                // Until the closer's own insertion has reported, every selection report is
+                // from before it (the bridges queue them), including one that happens to equal
+                // the write, as the caret after the opener does: dropped.
+                if closer_text_on_sel.borrow().is_some() {
+                    return;
+                }
+                let outstanding = pending_sel.borrow().clone();
+                if let Some(wanted) = outstanding {
+                    if wanted != range {
+                        return;
+                    }
+                    *pending_sel.borrow_mut() = None;
+                }
+                // Recorded before the write, so the bind above sees it as an echo and sends no
+                // patch back to the view the report came from; and recorded whether or not the
+                // app bound the selection, since a Tab needs the caret.
+                *native_sel.borrow_mut() = Some(range.clone());
                 if let Some(sel) = selection {
-                    // Recorded before the write, so the bind above sees it as an echo and sends
-                    // no patch back to the view the report came from.
-                    *native_sel.borrow_mut() = Some(range.clone());
                     sel.set_if_changed(range);
                 }
             }
+            // A `submit` step, or Enter as an arm with a direct channel reports it.
+            Event::Submitted => {
+                if let Some(f) = &on_submit {
+                    f();
+                }
+            }
+            Event::Key(k) => handle_key(&k.key, k.modifiers),
             _ => {}
         });
         node
@@ -424,6 +744,82 @@ pub fn diff_edit(old: &str, new: &str) -> (usize, usize, usize) {
         ob.len() - suffix - prefix,
         nb.len() - suffix - prefix,
     )
+}
+
+// ---------------------------------------------------------------------------
+// The editing rules of the two modes, as pure functions over the text, so the mock proves them
+// and every arm shares them.
+// ---------------------------------------------------------------------------
+
+/// A single-line editor's text: every line break a space, byte for byte, so the offsets of an
+/// edit computed against the raw text still hold.
+pub fn flatten(text: &str) -> String {
+    text.chars()
+        .map(|c| if c == '\n' || c == '\r' { ' ' } else { c })
+        .collect()
+}
+
+/// The spaces a Tab inserts at `caret`: to the next tab stop of width `indent`, counted in
+/// characters from the start of the caret's line.
+pub fn tab_indent(text: &str, caret: usize, indent: u8) -> String {
+    let caret = caret.min(text.len());
+    let line_start = text[..caret].rfind('\n').map_or(0, |i| i + 1);
+    let column = text[line_start..caret].chars().count();
+    let width = usize::from(indent.max(1));
+    " ".repeat(width - column % width)
+}
+
+/// The indentation a new line takes after Enter typed at `newline_at`: the previous line's
+/// leading whitespace, one level deeper when that line ends in an opening bracket. `None` when
+/// there is nothing to insert.
+pub fn auto_indent(text: &str, newline_at: usize, indent: u8) -> Option<String> {
+    let before = &text[..newline_at.min(text.len())];
+    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+    let line = &before[line_start..];
+    let mut ws: String = line
+        .chars()
+        .take_while(|c| *c == ' ' || *c == '\t')
+        .collect();
+    if matches!(line.trim_end().chars().last(), Some('{' | '[' | '(')) {
+        ws.push_str(&" ".repeat(usize::from(indent.max(1))));
+    }
+    (!ws.is_empty()).then_some(ws)
+}
+
+/// The closer to type after an opener typed at `at`, when the caret sits at the end of its line
+/// or before whitespace or another closer: `{` `[` `(` and the two quotes. `None` where a
+/// closer would land inside a word.
+pub fn closer_after(text: &str, at: usize) -> Option<&'static str> {
+    let opener = text[at..].chars().next()?;
+    let closer = match opener {
+        '{' => "}",
+        '[' => "]",
+        '(' => ")",
+        '"' => "\"",
+        '\'' => "'",
+        _ => return None,
+    };
+    let next = text[at + opener.len_utf8()..].chars().next();
+    let free = match next {
+        None => true,
+        Some(c) => c.is_whitespace() || matches!(c, '}' | ']' | ')' | ',' | ';'),
+    };
+    if !free {
+        return None;
+    }
+    // A quote closes an open quote rather than opening a new pair: an odd count before it on
+    // the line means this one is the closer.
+    if opener == '"' || opener == '\'' {
+        let line_start = text[..at].rfind('\n').map_or(0, |i| i + 1);
+        let open = text[line_start..at]
+            .chars()
+            .filter(|c| *c == opener)
+            .count();
+        if open % 2 == 1 {
+            return None;
+        }
+    }
+    Some(closer)
 }
 
 /// Decode a `"sel <start> <end>"` payload into a byte range.
@@ -503,9 +899,33 @@ pub trait TextEditorBuilder: Sized {
     fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
     fn min_lines(self, n: u32) -> Self;
     fn max_lines(self, n: u32) -> Self;
+    fn highlight(self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self;
+    fn highlight_limit(self, bytes: usize) -> Self;
+    fn single_line(self) -> Self;
+    fn on_submit(self, f: impl Fn() + 'static) -> Self;
+    fn code(self) -> Self;
+    fn indent(self, spaces: u8) -> Self;
 }
 
 impl TextEditorBuilder for TextEditor {
+    fn highlight(self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self {
+        TextEditor::highlight(self, f)
+    }
+    fn highlight_limit(self, bytes: usize) -> Self {
+        TextEditor::highlight_limit(self, bytes)
+    }
+    fn single_line(self) -> Self {
+        TextEditor::single_line(self)
+    }
+    fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        TextEditor::on_submit(self, f)
+    }
+    fn code(self) -> Self {
+        TextEditor::code(self)
+    }
+    fn indent(self, spaces: u8) -> Self {
+        TextEditor::indent(self, spaces)
+    }
     fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self {
         TextEditor::selection(self, sel)
     }
@@ -535,6 +955,24 @@ impl TextEditorBuilder for TextEditor {
 impl<Inner: TextEditorBuilder + day_pieces::prelude::Piece> TextEditorBuilder
     for day_pieces::Decorated<Inner>
 {
+    fn highlight(self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.highlight(f))
+    }
+    fn highlight_limit(self, bytes: usize) -> Self {
+        self.map_inner(|inner_piece| inner_piece.highlight_limit(bytes))
+    }
+    fn single_line(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.single_line())
+    }
+    fn on_submit(self, f: impl Fn() + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.on_submit(f))
+    }
+    fn code(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.code())
+    }
+    fn indent(self, spaces: u8) -> Self {
+        self.map_inner(|inner_piece| inner_piece.indent(spaces))
+    }
     fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self {
         self.map_inner(|inner_piece| inner_piece.selection(sel))
     }
@@ -603,7 +1041,133 @@ pub mod conformance {
             })
     }
 
-    day_core::tests! { texteditor_text_two_way }
+    /// A live highlighter restyles what was typed without replacing it: the runs are fresh
+    /// (one per token and gap) and the native view still holds the characters as typed.
+    #[day_macros::test(day_core)]
+    fn texteditor_highlight_restyles_in_place() -> Case {
+        use super::highlight::{Language, Palette, highlighter};
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let doc = Signal::new(StyledText::default());
+                column((
+                    label(move || format!("runs {}", doc.get().runs.len())).id("runs"),
+                    text_editor(doc)
+                        .highlight(highlighter(Language::Json, Palette::default(), false))
+                        .min_lines(3)
+                        .id("editor"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("editor", "{\"a\": 1}").await?;
+                // `{`, the key, `: `, the number, `}`: five runs over every byte.
+                d.assert_text("runs", "runs 5").await?;
+                d.assert_native(
+                    "editor",
+                    NativeExpect {
+                        text: Some("{\"a\": 1}".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// A single line: Enter submits and inserts nothing, and a newline that gets in becomes
+    /// a space in the model and in the view.
+    #[day_macros::test(day_core)]
+    fn texteditor_single_line_submits() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let text = Signal::new(String::new());
+                let submits = Signal::new(0u32);
+                column((
+                    label(move || format!("submits {}", submits.get())).id("submits"),
+                    super::text_editor_text(text)
+                        .single_line()
+                        .on_submit(move || submits.update(|n| *n += 1))
+                        .id("editor"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.key(Some("editor"), "Enter").await?;
+                d.assert_text("submits", "submits 1").await?;
+                d.input("editor", "a\nb").await?;
+                d.assert_text("editor", "a b").await?;
+                d.assert_native(
+                    "editor",
+                    NativeExpect {
+                        text: Some("a b".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// Code: Tab indents through the view's own insertion rather than leaving the editor.
+    #[day_macros::test(day_core)]
+    fn texteditor_code_tab_indents() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let text = Signal::new(String::new());
+                column((super::text_editor_text(text).code().indent(4).id("editor"),))
+            })
+            .drive(|d: Drive| async move {
+                d.key(Some("editor"), "Tab").await?;
+                d.assert_text("editor", "    ").await?;
+                d.assert_native(
+                    "editor",
+                    NativeExpect {
+                        text: Some("    ".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    /// Code: an opening bracket gets its closer after the caret, and Enter between the pair
+    /// keeps the line's indentation one level deeper. Each character goes in through the
+    /// view, so the rules run on the view's own report, as they do for a keystroke.
+    #[day_macros::test(day_core)]
+    fn texteditor_code_closes_and_indents() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let text = Signal::new(String::new());
+                column((super::text_editor_text(text).code().id("editor"),))
+            })
+            .drive(|d: Drive| async move {
+                // Each key is two round trips through the view (the character, then what the
+                // rule inserts), and on Android the view's report crosses JNI a turn later:
+                // settle before reading.
+                d.key(Some("editor"), "{").await?;
+                d.wait_idle().await?;
+                d.assert_text("editor", "{}").await?;
+                d.key(Some("editor"), "Enter").await?;
+                d.wait_idle().await?;
+                d.assert_text("editor", "{\n  }").await?;
+                d.assert_native(
+                    "editor",
+                    NativeExpect {
+                        text: Some("{\n  }".into()),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
+    day_core::tests! {
+        texteditor_text_two_way,
+        texteditor_highlight_restyles_in_place,
+        texteditor_single_line_submits,
+        texteditor_code_tab_indents,
+        texteditor_code_closes_and_indents,
+    }
 }
 
 #[cfg(test)]
@@ -640,6 +1204,47 @@ mod tests {
     #[test]
     fn an_unchanged_string_is_an_empty_edit() {
         assert_eq!(diff_edit("hello", "hello"), (5, 0, 0));
+    }
+
+    #[test]
+    fn a_tab_reaches_the_next_stop() {
+        assert_eq!(tab_indent("", 0, 2), "  ");
+        assert_eq!(tab_indent("a", 1, 2), " ");
+        assert_eq!(tab_indent("ab\ncd", 5, 4), "  ");
+        assert_eq!(
+            tab_indent("é", 2, 4),
+            "   ",
+            "columns are characters, not bytes"
+        );
+    }
+
+    #[test]
+    fn enter_keeps_the_indentation_and_deepens_after_an_opener() {
+        assert_eq!(auto_indent("  a\n", 3, 2), Some("  ".into()));
+        assert_eq!(auto_indent("{\n", 1, 2), Some("  ".into()));
+        assert_eq!(auto_indent("  [ \n", 4, 4), Some("      ".into()));
+        assert_eq!(auto_indent("a\n", 1, 2), None);
+        assert_eq!(
+            auto_indent("x\n  y\n", 5, 2),
+            Some("  ".into()),
+            "the caret's own line"
+        );
+    }
+
+    #[test]
+    fn an_opener_gets_a_closer_only_where_one_fits() {
+        assert_eq!(closer_after("{", 0), Some("}"));
+        assert_eq!(closer_after("a[ b", 1), Some("]"));
+        assert_eq!(closer_after("f(x", 1), None, "inside a word");
+        assert_eq!(closer_after("\"", 0), Some("\""));
+        assert_eq!(closer_after("\"a\"", 2), None, "the second quote closes");
+        assert_eq!(closer_after("x", 0), None);
+    }
+
+    #[test]
+    fn flattening_keeps_the_byte_length() {
+        assert_eq!(flatten("a\r\nb\nc"), "a  b c");
+        assert_eq!(flatten("é\n").len(), "é\n".len());
     }
 
     #[test]

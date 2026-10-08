@@ -214,8 +214,47 @@ fn set_document(st: &EdState, doc: &StyledText) {
 
 fn make(_backend: &mut Gtk, p: &EditorProps, id: NodeId) -> gtk4::Widget {
     let textview = gtk4::TextView::new();
-    textview.set_wrap_mode(gtk4::WrapMode::WordChar);
+    // A single line never wraps: it scrolls sideways under the caret, with no bar.
+    textview.set_wrap_mode(if p.single_line {
+        gtk4::WrapMode::None
+    } else {
+        gtk4::WrapMode::WordChar
+    });
     textview.set_editable(p.editable);
+    if p.single_line || p.code {
+        // The keys the two modes claim, in the capture phase so the view's own handling
+        // (a newline, a literal tab) never runs: Return in a single line and Tab in code are
+        // reported as the key events a dayscript `key` step delivers, and the piece acts on
+        // them. Shift+Return and every modified Tab stay the view's.
+        let (single_line, code) = (p.single_line, p.code);
+        let keys = gtk4::EventControllerKey::new();
+        keys.set_propagation_phase(gtk4::PropagationPhase::Capture);
+        keys.connect_key_pressed(move |_, keyval, _code, state| {
+            use gtk4::gdk::Key;
+            let plain = !state.intersects(
+                gtk4::gdk::ModifierType::SHIFT_MASK
+                    | gtk4::gdk::ModifierType::CONTROL_MASK
+                    | gtk4::gdk::ModifierType::ALT_MASK
+                    | gtk4::gdk::ModifierType::META_MASK,
+            );
+            let key = match keyval {
+                Key::Return | Key::KP_Enter if single_line && plain => "Enter",
+                Key::Tab if code && plain => "Tab",
+                _ => return gtk4::glib::Propagation::Proceed,
+            };
+            ffi_guard::contain((), || {
+                day_gtk::emit(
+                    id,
+                    Event::Key(day_spec::KeyEvent {
+                        key: key.into(),
+                        modifiers: 0,
+                    }),
+                );
+            });
+            gtk4::glib::Propagation::Stop
+        });
+        textview.add_controller(keys);
+    }
     textview.set_top_margin(MARGIN_V);
     textview.set_bottom_margin(MARGIN_V);
     textview.set_left_margin(MARGIN_H);
@@ -230,7 +269,12 @@ fn make(_backend: &mut Gtk, p: &EditorProps, id: NodeId) -> gtk4::Widget {
     let line_h = layout.pixel_size().1 as f64;
 
     let scroll = gtk4::ScrolledWindow::new();
-    scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    if p.single_line {
+        // Scrollable sideways with no bar (`External`), never vertically.
+        scroll.set_policy(gtk4::PolicyType::External, gtk4::PolicyType::Never);
+    } else {
+        scroll.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
+    }
     scroll.set_hexpand(true);
     scroll.set_vexpand(true);
     scroll.set_child(Some(&textview));
@@ -327,16 +371,29 @@ fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &EditorPatch) {
                     st.buffer.iter_at_offset(cs as i32),
                     st.buffer.iter_at_offset((cs + cl) as i32),
                 );
-                // Suppressed: this is the app's own write, and echoing it back would fight the
-                // signal that produced it.
-                st.suppress.set(true);
+                // Not suppressed: the "mark-set" report that follows is what tells the piece
+                // where the caret now is, after a report the view sent before this write (an
+                // insertion's own caret move) that would otherwise stand. The piece's echo
+                // guard keeps the report from being patched back.
                 st.buffer.select_range(&a, &z);
-                st.suppress.set(false);
             }
             // GTK has no typing attributes (see the header); the piece styles the inserted
             // characters in its model instead, and the next `SetAttributes` paints them.
             EditorPatch::SetTypingStyle(_) => {}
             EditorPatch::SetEditable(v) => st.textview.set_editable(*v),
+            EditorPatch::Insert { at, text } => {
+                // One user action, so the buffer's undo records it as typing; not suppressed,
+                // because the resulting "changed" is how the piece learns of the text.
+                let current = buffer_text(&st.buffer);
+                let Some((cs, _)) = char_range(&current, &(*at..*at)) else {
+                    return;
+                };
+                st.buffer.begin_user_action();
+                let mut iter = st.buffer.iter_at_offset(cs as i32);
+                st.buffer.insert(&mut iter, text);
+                st.buffer.place_cursor(&iter);
+                st.buffer.end_user_action();
+            }
         });
     });
 }

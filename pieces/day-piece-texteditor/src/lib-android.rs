@@ -192,7 +192,7 @@ fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
             env,
             EDITOR_CLASS,
             "makeEditor",
-            "(JLjava/lang/String;Ljava/lang/String;ZZIIF)Landroid/view/View;",
+            "(JLjava/lang/String;Ljava/lang/String;ZZIIFZZ)Landroid/view/View;",
             &[
                 JValue::Long(id.0 as i64),
                 JValue::Object(&text),
@@ -202,6 +202,8 @@ fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
                 JValue::Int(p.min_lines as i32),
                 JValue::Int(p.max_lines as i32),
                 JValue::Float(base_points as f32),
+                JValue::Bool(p.single_line),
+                JValue::Bool(p.code),
             ],
         );
         let view = match made {
@@ -299,6 +301,24 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &EditorPatch) {
                     "setEditable",
                     "(Landroid/view/View;Z)V",
                     &[JValue::Object(h.0.as_obj()), JValue::Bool(*v)],
+                );
+            });
+        }
+        EditorPatch::Insert { at, text } => {
+            // The BYTE offset crosses as is: this arm's text cache is current only as of the
+            // last patch, and an insert follows a keystroke the view reported since, so the
+            // Java side converts against the live buffer instead.
+            with_env(|env| {
+                let s = env.new_string(text).expect("inserted text");
+                let _ = env.dcall_static(
+                    EDITOR_CLASS,
+                    "insertText",
+                    "(Landroid/view/View;ILjava/lang/String;)V",
+                    &[
+                        JValue::Object(h.0.as_obj()),
+                        JValue::Int(*at as i32),
+                        JValue::Object(&s),
+                    ],
                 );
             });
         }

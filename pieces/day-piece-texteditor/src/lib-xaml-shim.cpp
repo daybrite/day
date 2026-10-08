@@ -174,12 +174,15 @@ std::string document_text(WUXC::RichEditBox const &box) {
 extern "C" {
 
 void *day_texteditor_xaml_new(uint64_t id, int editable, int spellcheck, double base_pt,
-                              const char *placeholder, const char *initial,
-                              void (*text_cb)(uint64_t, const char *),
-                              void (*sel_cb)(uint64_t, uint64_t, uint64_t)) {
+                              const char *placeholder, const char *initial, int single_line,
+                              int code, void (*text_cb)(uint64_t, const char *),
+                              void (*sel_cb)(uint64_t, uint64_t, uint64_t),
+                              void (*key_cb)(uint64_t, const char *)) {
     WUXC::RichEditBox box;
-    box.AcceptsReturn(true);
-    box.TextWrapping(WUX::TextWrapping::Wrap);
+    // A single line takes no Return (the key is reported instead) and never wraps: it scrolls
+    // sideways under the caret.
+    box.AcceptsReturn(single_line == 0);
+    box.TextWrapping(single_line ? WUX::TextWrapping::NoWrap : WUX::TextWrapping::Wrap);
     box.IsReadOnly(editable == 0);
     box.IsSpellCheckEnabled(spellcheck != 0);
     box.PlaceholderText(winrt::hstring(wide(placeholder)));
@@ -211,15 +214,33 @@ void *day_texteditor_xaml_new(uint64_t id, int editable, int spellcheck, double 
     });
     // RichEditBox's own Ctrl+B / Ctrl+I / Ctrl+U change the character format directly. Swallow
     // them: attributes are Day's, and a toolbar button goes through the bound signal.
-    box.KeyDown([](WF::IInspectable const &, WUXI::KeyRoutedEventArgs const &args) {
+    const bool singleLine = single_line != 0;
+    const bool isCode = code != 0;
+    box.KeyDown([id, key_cb, singleLine, isCode](WF::IInspectable const &,
+                                                 WUXI::KeyRoutedEventArgs const &args) {
         // Win32's key state, not CoreWindow's: this is a XAML island in a desktop window, where
         // `Window::Current()` is null (under system XAML and WinUI 3 alike), so asking it for the
         // CoreWindow threw inside this handler on every keystroke.
-        const bool down = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-        if (!down) return;
+        const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+        const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+        const bool alt = (GetKeyState(VK_MENU) & 0x8000) != 0;
         const auto k = args.Key();
-        if (k == WS::VirtualKey::B || k == WS::VirtualKey::I || k == WS::VirtualKey::U) {
+        if (ctrl) {
+            if (k == WS::VirtualKey::B || k == WS::VirtualKey::I || k == WS::VirtualKey::U) {
+                args.Handled(true);
+            }
+            return;
+        }
+        // The keys the two modes claim, reported by their day names and never inserted:
+        // Enter in a single line (the piece submits) and Tab in code (the piece indents through
+        // day_texteditor_xaml_insert). A modified one stays the control's.
+        if (shift || alt || !key_cb) return;
+        const char *name = nullptr;
+        if (singleLine && k == WS::VirtualKey::Enter) name = "Enter";
+        else if (isCode && k == WS::VirtualKey::Tab) name = "Tab";
+        if (name) {
             args.Handled(true);
+            key_cb(id, name);
         }
     });
 
@@ -327,13 +348,13 @@ void day_texteditor_xaml_end_attrs(void *handle) {
     st->suppress = false;
 }
 
+// Not suppressed: the SelectionChanged report that follows is what tells the piece where the
+// caret now is, after a report the control sent before this write (an insertion's own caret
+// move) that would otherwise stand; the piece's echo guard keeps it from being patched back.
 void day_texteditor_xaml_set_selection(void *handle, int start, int end) {
     auto box = box_of(handle);
-    auto st = state_of(handle);
-    if (!box || !st) return;
-    st->suppress = true;
+    if (!box) return;
     box.Document().Selection().SetRange(start, end);
-    st->suppress = false;
 }
 
 // The typing style: a collapsed selection's character format is what the next character takes;
@@ -364,6 +385,18 @@ void day_texteditor_xaml_set_typing(void *handle, double pt, int bold, int itali
 
 void day_texteditor_xaml_set_editable(void *handle, int on) {
     if (auto box = box_of(handle)) box.IsReadOnly(on == 0);
+}
+
+// Insert text at a position (UTF-16 units) through the document, which RichEdit's undo records,
+// with the caret after it. Not suppressed: the TextChanged report is how the piece learns of it.
+void day_texteditor_xaml_insert(void *handle, int at, const char *utf8) {
+    auto box = box_of(handle);
+    if (!box) return;
+    const winrt::hstring text{wide(utf8)};
+    auto range = box.Document().GetRange(at, at);
+    range.SetText(WUT::TextSetOptions::None, text);
+    const int end = at + static_cast<int>(text.size());
+    box.Document().Selection().SetRange(end, end);
 }
 
 void day_texteditor_xaml_release(void *handle) { g_state.erase(handle); }

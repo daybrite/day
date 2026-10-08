@@ -35,6 +35,7 @@ fn boot(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
         EditorPatch::SetSelection(r) => format!("SetSelection {r:?}"),
         EditorPatch::SetTypingStyle(s) => format!("SetTypingStyle bold={}", s.bold()),
         EditorPatch::SetEditable(e) => format!("SetEditable {e}"),
+        EditorPatch::Insert { at, text } => format!("Insert {at} {text:?}"),
     });
     let options = WindowOptions {
         title: "test".into(),
@@ -434,4 +435,198 @@ fn a_document_with_paragraph_attributes_realizes_and_stays_valid() {
         text_editor(Signal::new(d)).any()
     });
     assert_eq!(probe.find_by_kind(KIND).len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// Highlighting, the single-line mode and the code mode (docs/texteditor.md §9).
+// ---------------------------------------------------------------------------
+
+use day_piece_texteditor::highlight::{Language, Palette, highlighter};
+use day_piece_texteditor::text_editor_text;
+
+#[test]
+fn a_report_from_before_a_selection_write_is_dropped_until_the_echo() {
+    // The bridges deliver a view's reports on their own schedule: the caret move an insertion
+    // caused can arrive after the `SetSelection` that followed it was applied.
+    let f = boot_editor();
+    f.sel.set(3..3);
+    flush_sync();
+    f.probe
+        .emit(f.node, Event::custom("texteditor:sel", "sel 5 5"));
+    flush_sync();
+    assert_eq!(
+        f.sel.get_untracked(),
+        3..3,
+        "a stale report does not move the caret"
+    );
+    f.probe
+        .emit(f.node, Event::custom("texteditor:sel", "sel 3 3"));
+    f.probe
+        .emit(f.node, Event::custom("texteditor:sel", "sel 5 5"));
+    flush_sync();
+    assert_eq!(
+        f.sel.get_untracked(),
+        5..5,
+        "after the echo, reports count again"
+    );
+}
+
+#[test]
+fn a_body_past_the_highlight_limit_stays_plain() {
+    let (probe, _text, node) = boot_text(|text| {
+        text_editor_text(text)
+            .highlight(highlighter(Language::Json, Palette::default(), false))
+            .highlight_limit(8)
+            .any()
+    });
+    let mark = probe.log_len();
+    probe.emit(node, Event::TextChanged("{\"a\": 1, \"b\": 2}".into()));
+    flush_sync();
+    let log = probe.log_since(mark);
+    assert!(
+        !log.iter()
+            .any(|l| l.contains("SetAttributes") && !l.contains("runs=0")),
+        "no runs past the limit: {log:?}"
+    );
+}
+
+/// An editor over a plain string, built by `make`, with the string and the node handed back.
+fn boot_text(
+    make: impl FnOnce(Signal<String>) -> AnyPiece + 'static,
+) -> (MockProbe, Signal<String>, NodeId) {
+    let cell: Rc<Cell<Option<Signal<String>>>> = Rc::new(Cell::new(None));
+    let cell2 = cell.clone();
+    let probe = boot(move || {
+        let text = Signal::new(String::new());
+        cell2.set(Some(text));
+        make(text)
+    });
+    let text = cell.get().unwrap();
+    let node = NodeId(probe.find_by_kind(KIND)[0].1.node);
+    (probe, text, node)
+}
+
+#[test]
+fn a_highlighter_restyles_a_keystroke_without_replacing_the_document() {
+    let (probe, text, node) = boot_text(|text| {
+        text_editor_text(text)
+            .highlight(highlighter(Language::Json, Palette::default(), false))
+            .any()
+    });
+    let mark = probe.log_len();
+    probe.emit(node, Event::TextChanged("{\"a\": 1}".into()));
+    flush_sync();
+    assert_eq!(
+        text.get_untracked(),
+        "{\"a\": 1}",
+        "the string follows the view"
+    );
+    let log = probe.log_since(mark);
+    assert!(
+        log.iter()
+            .any(|l| l.contains("SetAttributes") && !l.contains("runs=0")),
+        "fresh runs went out as attributes: {log:?}"
+    );
+    assert!(
+        !log.iter().any(|l| l.contains("SetDocument")),
+        "and nothing replaced the text: {log:?}"
+    );
+}
+
+#[test]
+fn a_string_the_app_writes_reaches_the_view_styled() {
+    let (probe, text, _node) = boot_text(|text| {
+        text_editor_text(text)
+            .highlight(highlighter(Language::Json, Palette::default(), false))
+            .any()
+    });
+    let mark = probe.log_len();
+    text.set("[true]".into());
+    flush_sync();
+    let log = probe.log_since(mark);
+    assert!(
+        log.iter().any(|l| l.contains("SetDocument \"[true]\"")),
+        "{log:?}"
+    );
+}
+
+#[test]
+fn a_single_line_editor_flattens_a_pasted_newline_and_submits_on_enter() {
+    let submitted = Rc::new(Cell::new(0u32));
+    let count = submitted.clone();
+    let (probe, text, node) = boot_text(move |text| {
+        text_editor_text(text)
+            .single_line()
+            .on_submit(move || count.set(count.get() + 1))
+            .any()
+    });
+    let mark = probe.log_len();
+    probe.emit(node, Event::TextChanged("a\nb".into()));
+    flush_sync();
+    assert_eq!(text.get_untracked(), "a b");
+    let log = probe.log_since(mark);
+    assert!(
+        log.iter().any(|l| l.contains("SetDocument \"a b\"")),
+        "the view is painted with the flattened text: {log:?}"
+    );
+    probe.emit(
+        node,
+        Event::Key(day_spec::KeyEvent {
+            key: "Enter".into(),
+            modifiers: 0,
+        }),
+    );
+    probe.emit(node, Event::Submitted);
+    flush_sync();
+    assert_eq!(
+        submitted.get(),
+        2,
+        "the arm's Enter report and a scripted submit both count"
+    );
+}
+
+#[test]
+fn code_mode_indents_on_tab_through_the_view() {
+    let (probe, _text, node) = boot_text(|text| text_editor_text(text).code().indent(4).any());
+    probe.emit(node, Event::TextChanged("ab".into()));
+    probe.emit(node, Event::custom("texteditor:sel", "sel 2 2"));
+    flush_sync();
+    let mark = probe.log_len();
+    probe.emit(
+        node,
+        Event::Key(day_spec::KeyEvent {
+            key: "Tab".into(),
+            modifiers: 0,
+        }),
+    );
+    flush_sync();
+    let log = probe.log_since(mark);
+    assert!(
+        log.iter().any(|l| l.contains("Insert 2 \"  \"")),
+        "two spaces to the next stop of four, at the caret: {log:?}"
+    );
+}
+
+#[test]
+fn code_mode_keeps_the_indentation_after_enter_and_closes_a_bracket() {
+    let (probe, _text, node) = boot_text(|text| text_editor_text(text).code().any());
+    probe.emit(node, Event::TextChanged("  x".into()));
+    flush_sync();
+    let mark = probe.log_len();
+    probe.emit(node, Event::TextChanged("  x\n".into()));
+    flush_sync();
+    let log = probe.log_since(mark);
+    assert!(log.iter().any(|l| l.contains("Insert 4 \"  \"")), "{log:?}");
+    // The view reports the inserted indentation, then one typed brace.
+    probe.emit(node, Event::TextChanged("  x\n  ".into()));
+    flush_sync();
+    let mark = probe.log_len();
+    probe.emit(node, Event::TextChanged("  x\n  {".into()));
+    flush_sync();
+    let log = probe.log_since(mark);
+    assert!(log.iter().any(|l| l.contains("Insert 7 \"}\"")), "{log:?}");
+    assert!(
+        log.iter().any(|l| l.contains("SetSelection 7..7")),
+        "and the caret goes back between the pair: {log:?}"
+    );
 }

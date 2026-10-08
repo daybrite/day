@@ -47,6 +47,9 @@ class DayEditorParams {
   basePt: number = 17;
   editable: boolean = true;
   minLines: number = 3;
+  // The two modes whose keys the component claims: Enter in a single line, Tab in code.
+  singleLine: boolean = false;
+  code: boolean = false;
   controller: RichEditorController = new RichEditorController();
   // Set while Day itself writes, so its own edits never report back as user input.
   suppress: boolean = false;
@@ -78,6 +81,30 @@ function dayEditorBuilder(params: DayEditorParams) {
       const end: number = range.end === undefined ? start : range.end;
       nativeEntry.pieceEvent(params.id, 'sel ' + start + ' ' + end);
     })
+    // The keys the two modes claim, reported by their day names the way the other arms report
+    // them (the Rust side handles `key <name>` and a dayscript key alike): Enter in a single
+    // line (the keyboard's action key, and a hardware Return), Tab in code. Both consumed, so
+    // nothing is inserted and focus stays.
+    .enterKeyType(params.singleLine ? EnterKeyType.Done : EnterKeyType.NEW_LINE)
+    .onSubmit(() => {
+      if (params.singleLine) {
+        nativeEntry.pieceEvent(params.id, 'key Enter');
+      }
+    })
+    .onKeyEvent((event: KeyEvent) => {
+      if (event.type !== KeyType.Down) {
+        return;
+      }
+      if (params.singleLine && (event.keyCode === 2054 || event.keyCode === 2119)) {
+        // KEYCODE_ENTER, KEYCODE_NUMPAD_ENTER
+        event.stopPropagation();
+        nativeEntry.pieceEvent(params.id, 'key Enter');
+      } else if (params.code && event.keyCode === 2049) {
+        // KEYCODE_TAB
+        event.stopPropagation();
+        nativeEntry.pieceEvent(params.id, 'key Tab');
+      }
+    })
     .enabled(params.editable)
     .placeholder(params.placeholder, { font: { size: params.basePt } })
     // Fill the frame Day's layout hands the node (the Rust arm's line band), rather than the
@@ -106,9 +133,9 @@ function currentText(controller: RichEditorController): string {
 
 const instances: Map<number, DayEditorInstance> = new Map();
 
-// `props` is `basePt<US>editable<US>spellcheck<US>minLines<US>maxLines<US>placeholder<US>text`,
-// with the text last so a document containing the separator still arrives intact (everything
-// after the sixth separator is text).
+// `props` is `basePt<US>editable<US>spellcheck<US>minLines<US>maxLines<US>singleLine<US>code
+// <US>placeholder<US>text`, with the text last so a document containing the separator still
+// arrives intact (everything after the eighth separator is text).
 function make(ui: UIContext, id: number, props: string): FrameNode | undefined {
   const parts: string[] = props.split(SEP);
   const params: DayEditorParams = new DayEditorParams();
@@ -116,8 +143,10 @@ function make(ui: UIContext, id: number, props: string): FrameNode | undefined {
   params.basePt = parts.length > 0 ? Number(parts[0]) : 17;
   params.editable = parts.length > 1 && parts[1] === '1';
   params.minLines = parts.length > 3 ? Number(parts[3]) : 3;
-  params.placeholder = parts.length > 5 ? parts[5] : '';
-  params.text = parts.length > 6 ? parts.slice(6).join(SEP) : '';
+  params.singleLine = parts.length > 5 && parts[5] === '1';
+  params.code = parts.length > 6 && parts[6] === '1';
+  params.placeholder = parts.length > 7 ? parts[7] : '';
+  params.text = parts.length > 8 ? parts.slice(8).join(SEP) : '';
   const node: BuilderNode<[DayEditorParams]> = new BuilderNode(ui);
   node.build(wrapBuilder<[DayEditorParams]>(dayEditorBuilder), params);
   const frame: FrameNode | null = node.getFrameNode();
@@ -245,10 +274,12 @@ function update(id: number, cmd: string, arg: string): void {
   } else if (cmd === 'paragraphs') {
     applyParagraphs(live, arg);
   } else if (cmd === 'selection') {
+    // Not suppressed: the onSelectionChange report that follows tells the piece where the
+    // caret now is, after a report the component sent before this write (an insertion's own
+    // caret move) that would otherwise stand; the piece's echo guard keeps it from being
+    // patched back.
     const f: string[] = arg.split(',');
-    live.params.suppress = true;
     live.params.controller.setSelection(Number(f[0]), Number(f[1]));
-    live.params.suppress = false;
   } else if (cmd === 'typing') {
     // Native typing style: one of only three backends that has the concept.
     const f: string[] = arg.split(',');
@@ -273,7 +304,32 @@ function update(id: number, cmd: string, arg: string): void {
     live.params.controller.setTypingStyle(style);
   } else if (cmd === 'editable') {
     live.params.editable = arg === '1';
+  } else if (cmd === 'insert') {
+    // `at<US>text`: insert through the controller with the caret after it. Not suppressed, since
+    // the `onDidChange` report is how the piece learns of the text.
+    const sep: number = arg.indexOf(SEP);
+    if (sep < 0) {
+      return;
+    }
+    // A BYTE offset of the UTF-8 text, converted against the text held now (the Rust arm's copy
+    // is as old as the last patch, and an insertion follows a keystroke reported since).
+    const at: number = indexOfByte(live.params.text, Number(arg.substring(0, sep)));
+    const text: string = arg.substring(sep + 1);
+    live.params.controller.addTextSpan(text, { offset: at });
+    live.params.controller.setSelection(at + text.length, at + text.length);
   }
+}
+
+/// The string index at a UTF-8 byte offset, clamped to the string.
+function indexOfByte(s: string, atByte: number): number {
+  let bytes: number = 0;
+  let i: number = 0;
+  while (i < s.length && bytes < atByte) {
+    const cp: number = s.codePointAt(i) ?? 0;
+    bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+    i += cp >= 0x10000 ? 2 : 1;
+  }
+  return i;
 }
 
 function dispose(id: number): void {

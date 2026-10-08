@@ -1320,11 +1320,23 @@ pub fn synthesize_text(node: RNode, text: String) {
             Box::new(day_spec::props::TextAreaPatch::SetText(text.clone())),
             false,
         ),
-        // Other kinds (external pieces like the combobox) own their display.
-        _ => {}
+        // Other kinds (external pieces like the combobox) own their display, and hear about the
+        // text first through [`SYNTHESIZED_TEXT`]: a piece that treats `TextChanged` as the
+        // view's own report (the styled editor does) paints from that one instead, since the
+        // view has not seen this text.
+        _ => tree::enqueue_event(
+            tree::rnode_to_id(node),
+            day_spec::Event::custom(SYNTHESIZED_TEXT, text.clone()),
+        ),
     });
     tree::enqueue_event(tree::rnode_to_id(node), day_spec::Event::TextChanged(text));
 }
+
+/// The tag of the `Event::Custom` [`synthesize_text`] sends to a piece of a kind day-core does not
+/// paint itself, carrying the text, just before the `TextChanged` that follows it. A piece whose
+/// native view owns the characters shows the text on this event and then sees the `TextChanged`
+/// as the echo it already handles.
+pub const SYNTHESIZED_TEXT: &str = "day:synthesized-text";
 
 mod piece_ops;
 pub use piece_ops::{

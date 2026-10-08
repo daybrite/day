@@ -43,6 +43,9 @@ struct EdIvars {
     /// The empty-state prompt, held so the change delegate can show and hide it (UITextView has
     /// no placeholder of its own).
     placeholder: Retained<UILabel>,
+    /// The two modes whose keys the delegate claims: Return in a single line, Tab in code.
+    single_line: bool,
+    code: bool,
 }
 
 define_class!(
@@ -67,6 +70,37 @@ define_class!(
             })
         }
 
+        // The keys the two modes claim, reported as the key events a dayscript `key` step
+        // delivers so the piece handles both the same way: Return in a single line (a submit,
+        // nothing inserted), Tab in code (indentation, nothing inserted). Every other change
+        // is the view's.
+        #[unsafe(method(textView:shouldChangeTextInRange:replacementText:))]
+        fn should_change(
+            &self,
+            _tv: &UITextView,
+            _range: NSRange,
+            replacement: &NSString,
+        ) -> objc2::runtime::Bool {
+            ffi_guard::contain(objc2::runtime::Bool::YES, || {
+                let typed = replacement.to_string();
+                let key = if self.ivars().single_line && typed == "\n" {
+                    "Enter"
+                } else if self.ivars().code && typed == "\t" {
+                    "Tab"
+                } else {
+                    return objc2::runtime::Bool::YES;
+                };
+                day_uikit::emit(
+                    self.ivars().node,
+                    Event::Key(day_spec::KeyEvent {
+                        key: key.into(),
+                        modifiers: 0,
+                    }),
+                );
+                objc2::runtime::Bool::NO
+            })
+        }
+
         #[unsafe(method(textViewDidChangeSelection:))]
         fn selection_changed(&self, tv: &UITextView) {
             ffi_guard::contain((), || {
@@ -85,8 +119,18 @@ define_class!(
 );
 
 impl EdTarget {
-    fn new(mtm: MainThreadMarker, node: NodeId, placeholder: Retained<UILabel>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(EdIvars { node, placeholder });
+    fn new(
+        mtm: MainThreadMarker,
+        node: NodeId,
+        placeholder: Retained<UILabel>,
+        p: &EditorProps,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(EdIvars {
+            node,
+            placeholder,
+            single_line: p.single_line,
+            code: p.code,
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -338,6 +382,24 @@ fn make(backend: &mut Uikit, p: &EditorProps, id: NodeId) -> Retained<UIView> {
     day_uikit::set_text_input_trait(&tv, objc2::sel!(setAutocorrectionType:), no);
     day_uikit::set_text_input_trait(&tv, objc2::sel!(setSmartQuotesType:), 1);
     day_uikit::set_text_input_trait(&tv, objc2::sel!(setSmartDashesType:), 1);
+    if p.single_line {
+        // One line that scrolls sideways: the container is unbounded in width and does not
+        // track the view, so nothing wraps; the keyboard's return key reads Done, and the
+        // delegate turns it into the submit.
+        let tc = tv.textContainer();
+        tc.setWidthTracksTextView(false);
+        tc.setSize(CGSize::new(1.0e7, 1.0e7));
+        tc.setMaximumNumberOfLines(1);
+        tv.setScrollEnabled(true);
+        tv.setShowsHorizontalScrollIndicator(false);
+        tv.setShowsVerticalScrollIndicator(false);
+        day_uikit::set_text_input_trait(&tv, objc2::sel!(setReturnKeyType:), 9); // Done
+    }
+    if p.code {
+        // Code: no capitalization and no smart insert/delete; every character is the one typed.
+        day_uikit::set_text_input_trait(&tv, objc2::sel!(setAutocapitalizationType:), 0);
+        day_uikit::set_text_input_trait(&tv, objc2::sel!(setSmartInsertDeleteType:), 1);
+    }
 
     let base_font = run_font(day_spec::FontSpec::new(p.base));
     tv.setFont(Some(&base_font));
@@ -366,7 +428,7 @@ fn make(backend: &mut Uikit, p: &EditorProps, id: NodeId) -> Retained<UIView> {
     ph.setHidden(p.placeholder.is_empty() || !p.doc.is_empty());
     tv.addSubview(<UILabel as AsRef<UIView>>::as_ref(&ph));
 
-    let target = EdTarget::new(mtm, id, ph.clone());
+    let target = EdTarget::new(mtm, id, ph.clone(), p);
     unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*target))) };
 
     let ns: Retained<UIView> = Retained::from(<UITextView as AsRef<UIView>>::as_ref(&tv));
@@ -416,6 +478,19 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &EditorPatch) {
                 st.tv.setTypingAttributes(&typing_attributes(style))
             },
             EditorPatch::SetEditable(v) => st.tv.setEditable(*v),
+            EditorPatch::Insert { at, text } => {
+                // Through the key-input path, as a keystroke goes: the caret is placed, then
+                // `insertText:` records with undo and reports through `textViewDidChange:`.
+                let current = st.tv.text().to_string();
+                let Some((start, _)) = utf16_range(&current, &(*at..*at)) else {
+                    return;
+                };
+                set_sel_range(&st.tv, NSRange::new(start, 0));
+                let ns = NSString::from_str(text);
+                unsafe {
+                    let _: () = msg_send![&st.tv, insertText: &*ns];
+                }
+            }
         });
     });
 }

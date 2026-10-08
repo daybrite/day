@@ -40,6 +40,20 @@ document — no controller, no round trip into the toolkit, identical on every t
 testable on the headless one. `StyledText` also imports and exports Markdown, HTML and
 RTF, so "open", "save" and "paste as Markdown" are one call each.
 
+For code, the piece carries its own tokenizers (JSON, XML, GraphQL, Rust, and `${[ … ]}`
+template tags) as runs a live highlighter pushes back on every keystroke without moving the
+caret, a `.single_line()` mode that is a styled text field (Enter submits), and a `.code()`
+mode where Tab indents, Enter keeps the indentation and brackets close themselves — each
+insertion going through the platform's own editing path, so undo sees it as typing:
+
+```rust
+use day_piece_texteditor::highlight::{Language, Palette, highlighter};
+
+text_editor_text(body)      // over a `Signal<String>` or a day-model field
+    .code()
+    .highlight(highlighter(Language::Json, Palette::default(), true))
+```
+
 See `docs/texteditor.md` in the Day repository for the per-toolkit table, the attribute
 ownership rule the piece is built on, and what each platform cannot represent.
 

@@ -146,12 +146,15 @@ fn make(_backend: &mut ArkUi, p: &EditorProps, id: NodeId) -> AHandle {
     // The text goes last, so a document containing the separator still arrives intact: the ArkTS
     // side rejoins everything after the sixth field.
     let props = format!(
-        "{base}{SEP}{editable}{SEP}{spell}{SEP}{min}{SEP}{max}{SEP}{placeholder}{SEP}{text}",
+        "{base}{SEP}{editable}{SEP}{spell}{SEP}{min}{SEP}{max}{SEP}{single}{SEP}{code}{SEP}\
+         {placeholder}{SEP}{text}",
         base = day_arkui::font_vp(day_spec::FontSpec::new(p.base)),
         editable = u8::from(p.editable),
         spell = u8::from(p.spellcheck),
         min = p.min_lines,
         max = p.max_lines,
+        single = u8::from(p.single_line),
+        code = u8::from(p.code),
         placeholder = p.placeholder.replace(SEP, " "),
         text = p.doc.text,
     );
@@ -206,6 +209,10 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
             );
         }
         EditorPatch::SetEditable(v) => piece::update(h, "editable", if *v { "1" } else { "0" }),
+        // The BYTE offset crosses as is: this arm's text cache is current only as of the last
+        // patch, and an insert follows a keystroke the component reported since, so the ArkTS
+        // side converts against the text it holds now.
+        EditorPatch::Insert { at, text } => piece::update(h, "insert", &format!("{at}{SEP}{text}")),
     }
 }
 

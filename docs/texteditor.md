@@ -159,6 +159,15 @@ prefix / common suffix diff (`diff_edit`), pulled back to character boundaries:
 containing the edit grows or shrinks, and an emptied range is dropped. It is O(runs) rather than
 O(document), and needs no backend cooperation, which lets one code path serve all eight arms.
 
+### A scripted `input`
+
+A dayscript `input` step reaches a built-in field as a paint plus a `TextChanged`; this piece
+reads a `TextChanged` as the view's own report, which a synthesized one is not, so day-core
+sends `Event::Custom` tagged `day_core::SYNTHESIZED_TEXT` first and the piece writes that text
+as the app would, which paints the view through a document patch. The `TextChanged` that
+follows is the echo it already ignores. The probe behind `assert_text` is kept current on both
+paths, so a walkthrough can read an editor back the way it reads a field.
+
 ### Two patches, and why
 
 ```rust
@@ -192,7 +201,12 @@ pending state.
 It is bound two-way. Day writes it whenever the selection moves (so a toolbar shows the style of
 the text the caret sits in); an app writes it to make the *next* word bold. Both directions are
 guarded against echo: a selection the view reported is never patched back into it, and an
-unchanged typing style is not re-sent. A `selectionchange` fires on every mouse-move of a drag, so
+unchanged typing style is not re-sent. The selection has one more guard: after Day writes one,
+the view's reports are ignored until that write's echo arrives (a keystroke ends the wait too).
+The bridges deliver reports on their own schedule, and the caret move an insertion caused can
+be reported after the `SetSelection` that followed it was applied; with the guard, a closer's
+"back between the pair" holds on every arm, which is also why every arm reports a programmatic
+selection rather than suppressing it. A `selectionchange` fires on every mouse-move of a drag, so
 without those guards the web arm re-anchored the selection hundreds of times a second and a mouse
 drag could not select anything at all. Three toolkits have the concept natively (Qt's
 `setCurrentCharFormat`, TOM's collapsed-selection `CharacterFormat`, ArkUI's `setTypingStyle`),
@@ -371,3 +385,62 @@ below it, which remains the right control for a chat composer or a commit messag
 
 The walkthrough drives all of it: the toolbar, the document picker, the export buttons and the
 round trip, on every target in the matrix.
+
+## 9. Code: highlighting, a single line, and the editing keys
+
+An API client wants three things a prose editor does not, and they are built on the piece
+rather than beside it (Day-Yaak is the app that asked for them).
+
+**Highlighting** is a function from text to runs. `text_editor(doc).highlight(f)` runs `f` after
+every edit, and whenever a signal `f` reads changes, and pushes the runs back as the attributes
+patch (§3), so the caret and the undo stack stay put. `highlight::highlighter(language, palette,
+templates)` builds `f` for the languages the crate tokenizes itself, with no grammar engine
+behind them: JSON (with comments), XML and HTML, GraphQL, Rust, and `Plain`. `templates` paints
+every `${[ … ]}` tag over whatever token it sits in, the way a Yaak-style client renders a
+variable. `Language::for_mime` picks one for a response body. The `Palette` is a set of colors
+that read on a light and on a dark surface over a monospace base; an app's own palette (the
+Showcase's Rust sample uses its page colors) is a struct update away.
+
+`text_editor_text(text)` is the same editor over a `String` binding (a signal, or a day-model
+field), for a model that holds text rather than a document: the piece owns the `StyledText`,
+edits write the string, a string the app writes replaces the text, and the highlighter supplies
+the runs. The mock asserts that a keystroke under a highlighter goes out as `SetAttributes` and
+that an app's write goes out as `SetDocument`.
+
+**A single line** (`.single_line()`) is a styled `text_field`: it never wraps and scrolls
+sideways under the caret, Enter runs `.on_submit(f)` and inserts nothing, and a pasted newline
+becomes a space (same byte length, so the edit's offsets hold). Every arm turns the key off at
+the source and reports it: `insertNewline:` through `doCommandBySelector:` on AppKit,
+`shouldChangeTextInRange:` on UIKit, a capture-phase key controller on GTK, `keyPressEvent` in
+the Qt shim, the IME's Done action and a hardware Enter on Android, `KeyDown` on XAML
+(`AcceptsReturn` off), `onSubmit`/`onKeyEvent` on ArkUI, and a `keydown` on the web. The report
+is the `Event::Key` a dayscript `key` step delivers (`"key Enter"` on the custom channel for the
+ArkTS bridge and the web shim), so a scripted Enter and a typed one take the same path.
+
+**Code mode** (`.code()`) claims Tab the same way, and keeps spell-check, smart quotes,
+capitalization and smart insert/delete off wherever a toolkit has them. The editing rules are
+pure functions in `lib.rs`, tested on the mock: Tab inserts spaces to the next stop
+(`.indent(n)`, default 2); Enter keeps the previous line's indentation, one level deeper after an
+opening bracket; an opening bracket or quote gets its closer typed after the caret, which goes
+back between the pair. Each goes in through `EditorPatch::Insert`, the one new arm duty: insert
+text at a byte offset through the view's own insertion, so the platform's undo records it as
+typing and the view reports it back as a `TextChanged`. The arms spell it `insertText:replacementRange:`,
+UIKit's `insertText:`, a GTK user action around `TextBuffer::insert`, a `QTextCursor::insertText`,
+`Editable.insert`, a TOM range `SetText`, `addTextSpan` with an offset, and the shim's one
+`execCommand('insertText')`, the only insertion a browser records for undo (it inserts plain
+text, so the normalization problem the rest of the shim avoids `execCommand` for does not
+arise).
+
+A dayscript `key` step can also type one printable character, or Enter in code mode: no arm
+reports those as keys (they are text to the view), so the piece reads such a key as "insert
+this at the caret" and sends it through `Insert`, and the editing rules then run on the view's
+own report of it, exactly as for a keystroke. That is what lets a script prove the closer and
+the auto-indent natively.
+
+The piece's conformance cases (`day test 'texteditor-*'`, [docs/testing.md](testing.md)) cover all of it on
+every toolkit: the highlighter restyling typed JSON in place (five runs, the native text
+unchanged), the single line submitting on Enter and flattening a pasted newline in the view,
+Tab indenting, and `{` → `{}` → Enter → `{\n  }` read back from the native view. Day-Yaak's
+walkthrough drives the same Tab on the empty body on every target in its matrix, where the
+caret can only be at the start, and asserts the two spaces through `assert_text`, which the
+piece now keeps current for an editor the way a field does.

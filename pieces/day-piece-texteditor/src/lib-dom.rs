@@ -76,9 +76,23 @@ fn make(backend: &mut Dom, p: &EditorProps, _id: NodeId) -> DomHandle {
     // `role="textbox"` + `aria-multiline` is what makes a contenteditable div an editor to a
     // screen reader; without it the browser announces a group of paragraphs.
     backend.set_attr(&h, "role", "textbox");
-    backend.set_attr(&h, "aria-multiline", "true");
+    backend.set_attr(
+        &h,
+        "aria-multiline",
+        if p.single_line { "false" } else { "true" },
+    );
     // Marks the element for day.css's editor block rules (paragraph margins, list markers).
     backend.set_attr(&h, "data-day-editor", "-");
+    // The two modes the shim's keydown route reads: Enter submits in a single line, Tab indents
+    // in code (`dayEditorListen`).
+    if p.single_line {
+        backend.set_attr(&h, "data-day-single-line", "-");
+    }
+    if p.code {
+        backend.set_attr(&h, "data-day-code", "-");
+        backend.set_attr(&h, "autocapitalize", "off");
+        backend.set_attr(&h, "autocorrect", "off");
+    }
     if !p.placeholder.is_empty() {
         // The empty-state prompt is a CSS `::before` on the empty element, the web's idiom for
         // a contenteditable placeholder, since the element has no `placeholder` attribute.
@@ -86,12 +100,17 @@ fn make(backend: &mut Dom, p: &EditorProps, _id: NodeId) -> DomHandle {
     }
     // No `min-height`: Day sets this element's frame itself, and a CSS minimum would win over
     // that frame and push the element out from under the siblings laid out below it.
+    // A single line never wraps: it scrolls sideways under the caret, with no bar.
+    let flow = if p.single_line {
+        "white-space:pre;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;"
+    } else {
+        "white-space:pre-wrap;overflow-wrap:break-word;overflow-y:auto;"
+    };
     backend.set_attr(
         &h,
         "style",
         &format!(
-            "white-space:pre-wrap;overflow-wrap:break-word;overflow-y:auto;\
-             font-size:{FONT_SIZE}px;padding:{PAD}px;box-sizing:border-box;outline:none"
+            "{flow}font-size:{FONT_SIZE}px;padding:{PAD}px;box-sizing:border-box;outline:none"
         ),
     );
     set_document(backend, &h, &p.doc, p.base);
@@ -145,6 +164,9 @@ fn update(backend: &mut Dom, h: &DomHandle, patch: &EditorPatch) {
         EditorPatch::SetEditable(v) => {
             backend.set_attr(h, "contenteditable", if *v { "true" } else { "false" })
         }
+        // Through the browser's editing command (see `dayEditorInsert` in the shim), so the
+        // undo stack records it and the `input` event reports the text back.
+        EditorPatch::Insert { at, text } => backend.insert_editor_text(h, *at, text),
     }
 }
 

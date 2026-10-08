@@ -27,10 +27,14 @@ unsafe extern "C" {
         base_pt: f64,
         placeholder: *const c_char,
         initial: *const c_char,
+        single_line: c_int,
+        code: c_int,
         text_cb: extern "C" fn(u64, *const c_char),
         sel_cb: extern "C" fn(u64, u64, u64),
+        key_cb: extern "C" fn(u64, *const c_char),
     ) -> *mut c_void;
     fn day_texteditor_xaml_set_text(h: *mut c_void, utf8: *const c_char);
+    fn day_texteditor_xaml_insert(h: *mut c_void, at: c_int, utf8: *const c_char);
     fn day_texteditor_xaml_begin_attrs(h: *mut c_void);
     fn day_texteditor_xaml_apply_run(
         h: *mut c_void,
@@ -134,6 +138,22 @@ extern "C" fn on_sel(id: u64, start: u64, end: u64) {
     );
 }
 
+/// A key the editor's mode claimed (Enter in a single line, Tab in code), by its day name: the
+/// same event a dayscript `key` step delivers, so the piece handles both alike.
+extern "C" fn on_key(id: u64, name: *const c_char) {
+    if name.is_null() {
+        return;
+    }
+    // SAFETY: the shim passes a NUL-terminated literal that outlives the call.
+    let key = unsafe { std::ffi::CStr::from_ptr(name) }
+        .to_string_lossy()
+        .into_owned();
+    day_xaml::emit(
+        NodeId(id),
+        Event::Key(day_spec::KeyEvent { key, modifiers: 0 }),
+    );
+}
+
 fn pack(c: day_spec::Color) -> u32 {
     let q = |v: f64| ((v.clamp(0.0, 1.0) * 255.0).round() as u32) & 0xFF;
     (q(c.a) << 24) | (q(c.r) << 16) | (q(c.g) << 8) | q(c.b)
@@ -216,8 +236,11 @@ fn make(_backend: &mut Xaml, p: &EditorProps, id: NodeId) -> WinHandle {
             BASE_POINTS,
             placeholder.as_ptr(),
             initial.as_ptr(),
+            c_int::from(p.single_line),
+            c_int::from(p.code),
             on_text,
             on_sel,
+            on_key,
         )
     };
     remember_text(id.0, &p.doc.text);
@@ -286,6 +309,14 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &EditorPatch) {
         EditorPatch::SetEditable(v) => unsafe {
             day_texteditor_xaml_set_editable(h.0, c_int::from(*v))
         },
+        EditorPatch::Insert { at, text } => {
+            let current = text_of(node);
+            let Some((start, _)) = utf16_range(&current, &(*at..*at)) else {
+                return;
+            };
+            let s = CString::new(text.as_str()).unwrap_or_default();
+            unsafe { day_texteditor_xaml_insert(h.0, start as c_int, s.as_ptr()) };
+        }
     }
 }
 

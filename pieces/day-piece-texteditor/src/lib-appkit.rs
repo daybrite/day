@@ -48,6 +48,9 @@ struct EdIvars {
     /// The empty-state prompt, held so the change delegate can show and hide it (NSTextView has
     /// no placeholder of its own).
     placeholder: Retained<NSTextField>,
+    /// The two modes whose keys the delegate claims: Return in a single line, Tab in code.
+    single_line: bool,
+    code: bool,
 }
 
 define_class!(
@@ -77,6 +80,31 @@ define_class!(
     }
 
     impl EdTarget {
+        // The keys the two modes claim, reported as the key events a dayscript `key` step
+        // delivers so the piece handles both the same way: Return in a single line (a submit,
+        // no newline), Tab in code (indentation, no focus move). Everything else, including
+        // Shift+Return, is the view's.
+        #[unsafe(method(textView:doCommandBySelector:))]
+        fn do_command(&self, _tv: &NSTextView, sel: objc2::runtime::Sel) -> objc2::runtime::Bool {
+            ffi_guard::contain(objc2::runtime::Bool::NO, || {
+                let key = if self.ivars().single_line && sel == objc2::sel!(insertNewline:) {
+                    "Enter"
+                } else if self.ivars().code && sel == objc2::sel!(insertTab:) {
+                    "Tab"
+                } else {
+                    return objc2::runtime::Bool::NO;
+                };
+                day_appkit::emit(
+                    self.ivars().node,
+                    Event::Key(day_spec::KeyEvent {
+                        key: key.into(),
+                        modifiers: 0,
+                    }),
+                );
+                objc2::runtime::Bool::YES
+            })
+        }
+
         #[unsafe(method(textViewDidChangeSelection:))]
         fn selection_changed(&self, notification: &NSNotification) {
             ffi_guard::contain((), || {
@@ -98,8 +126,18 @@ define_class!(
 );
 
 impl EdTarget {
-    fn new(mtm: MainThreadMarker, node: NodeId, placeholder: Retained<NSTextField>) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(EdIvars { node, placeholder });
+    fn new(
+        mtm: MainThreadMarker,
+        node: NodeId,
+        placeholder: Retained<NSTextField>,
+        p: &EditorProps,
+    ) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(EdIvars {
+            node,
+            placeholder,
+            single_line: p.single_line,
+            code: p.code,
+        });
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -341,12 +379,34 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
     }
     tv.setTextContainerInset(NSSize::new(INSET, INSET));
     tv.setVerticallyResizable(true);
-    tv.setHorizontallyResizable(false);
-    tv.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
     tv.setMinSize(NSSize::new(0.0, 0.0));
     tv.setMaxSize(NSSize::new(1.0e7, 1.0e7));
-    if let Some(tc) = unsafe { tv.textContainer() } {
-        tc.setWidthTracksTextView(true);
+    if p.single_line {
+        // One line that scrolls sideways: the container is unbounded in width and does not
+        // track the view, so nothing wraps, and the view grows to its text; the scroll view
+        // follows the caret (`scrollRangeToVisible:` is what typing does) without a scroller.
+        tv.setHorizontallyResizable(true);
+        tv.setAutoresizingMask(NSAutoresizingMaskOptions::empty());
+        if let Some(tc) = unsafe { tv.textContainer() } {
+            tc.setWidthTracksTextView(false);
+            tc.setContainerSize(NSSize::new(1.0e7, 1.0e7));
+        }
+        scroll.setHasVerticalScroller(false);
+    } else {
+        tv.setHorizontallyResizable(false);
+        tv.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable);
+        if let Some(tc) = unsafe { tv.textContainer() } {
+            tc.setWidthTracksTextView(true);
+        }
+    }
+    if p.code {
+        // Code: no completion, no text replacement, no smart insert/delete; every character
+        // is the one that was typed.
+        unsafe {
+            let _: () = msg_send![&tv, setAutomaticTextCompletionEnabled: false];
+            let _: () = msg_send![&tv, setAutomaticTextReplacementEnabled: false];
+            let _: () = msg_send![&tv, setSmartInsertDeleteEnabled: false];
+        }
     }
     let base_font = run_font(day_spec::FontSpec::new(p.base), mtm);
     tv.setFont(Some(&base_font));
@@ -375,7 +435,7 @@ fn make(backend: &mut AppKit, p: &EditorProps, id: NodeId) -> Retained<NSView> {
     ph.setHidden(p.placeholder.is_empty() || !p.doc.is_empty());
     tv.addSubview(<NSTextField as AsRef<NSView>>::as_ref(&ph));
 
-    let target = EdTarget::new(mtm, id, ph.clone());
+    let target = EdTarget::new(mtm, id, ph.clone(), p);
     tv.setDelegate(Some(ProtocolObject::from_ref(&*target)));
     scroll.setDocumentView(Some(&tv));
 
@@ -427,6 +487,19 @@ fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &EditorPatch) {
                 unsafe { st.tv.setTypingAttributes(&typing_attributes(style, mtm)) };
             }
             EditorPatch::SetEditable(v) => st.tv.setEditable(*v),
+            EditorPatch::Insert { at, text } => {
+                // Through the text input path, not the storage: `insertText:replacementRange:`
+                // is what a keystroke goes through, so the undo manager records it as one and
+                // the caret ends after the inserted text.
+                let current = st.tv.string().to_string();
+                let Some((start, _)) = utf16_range(&current, &(*at..*at)) else {
+                    return;
+                };
+                let ns = NSString::from_str(text);
+                unsafe {
+                    let _: () = msg_send![&st.tv, insertText: &*ns, replacementRange: NSRange::new(start, 0)];
+                }
+            }
         });
     });
 }

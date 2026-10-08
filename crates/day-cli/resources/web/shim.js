@@ -617,6 +617,7 @@ const env = {
   // which escapes every character of app text, and the caret survives the swap.
   day_dom_set_html(id, p, l) { dayEditorSetHtml(V(id), str(p, l)); },
   day_dom_editor_select(id, a, b) { dayEditorSelect(V(id), a, b); },
+  day_dom_editor_insert(id, at, p, l) { dayEditorInsert(V(id), at, str(p, l)); },
   day_dom_call(id, m, ml) {
     const el = V(id); const name = str(m, ml);
     try { el[name]?.(); } catch (e) { console.error('day: ' + name + '()', e); }
@@ -1995,6 +1996,33 @@ function dayEditorSelect(el, startByte, endByte, force) {
   sel.addRange(range);
 }
 
+// Insert text at a byte offset of the flattened text, the way typing would: the caret is put
+// there and `insertText` goes through the browser's editing command, so the undo stack records
+// it and the `input` event reports the result. This is the one `execCommand` in the shim: it is
+// the only insertion a browser records for undo, and it inserts plain text, not markup, so the
+// reason the rest of this file avoids the API (normalizing away `<b>`/`<font>`) does not apply.
+// Where it is refused (a read-only element, a browser without it), the text goes in as a node
+// and the input event is raised by hand, which keeps the report but not the undo entry.
+function dayEditorInsert(el, atByte, text) {
+  if (!text) return;
+  dayEditorSelect(el, atByte, atByte, true);
+  el.focus({ preventScroll: true });
+  let done = false;
+  try { done = document.execCommand('insertText', false, text); } catch { done = false; }
+  if (done) return;
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return;
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const node = document.createTextNode(text);
+  range.insertNode(node);
+  range.setStartAfter(node);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 // Replace the markup, keeping the caret. Day sends fresh HTML on every attribute change (a
 // syntax highlighter does it per keystroke), so preserving the caret here is what makes the arm
 // usable at all. A rewrite during IME composition is skipped: replacing the nodes mid-composition
@@ -2019,6 +2047,18 @@ function dayEditorSetHtml(el, html) {
 // `selectionchange` reports the caret, filtered to selections that are actually inside this
 // element.
 function dayEditorListen(id, el) {
+  // The keys the editor's two modes claim (data-day-single-line: Enter submits; data-day-code:
+  // Tab indents), reported on the piece channel as `key <name>` and kept out of the element,
+  // so no line break and no focus move. A modified key stays the browser's.
+  el.addEventListener('keydown', (e) => {
+    if (e.isComposing || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+    const name = e.key === 'Enter' && el.hasAttribute('data-day-single-line') ? 'Enter'
+      : e.key === 'Tab' && el.hasAttribute('data-day-code') ? 'Tab' : null;
+    if (!name) return;
+    e.preventDefault();
+    const [p, l] = intoWasm('key ' + name);
+    wasm.day_dom_event_text(id, 17, p, l);
+  });
   el.addEventListener('compositionstart', () => { el.__dayComposing = true; });
   el.addEventListener('compositionend', () => {
     el.__dayComposing = false;

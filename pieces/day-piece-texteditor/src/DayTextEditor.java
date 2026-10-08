@@ -38,7 +38,9 @@ import android.text.style.TypefaceSpan;
 import android.text.style.UnderlineSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
 
 import dev.daybrite.day.bridge.DayBridge;
@@ -70,17 +72,58 @@ public final class DayTextEditor {
     }
 
     public static View makeEditor(final long id, String text, String placeholder, boolean editable,
-                                  boolean spellcheck, int minLines, int maxLines, float basePt) {
+                                  boolean spellcheck, int minLines, int maxLines, float basePt,
+                                  final boolean singleLine, final boolean code) {
         final DayEditText e = new DayEditText(DayBridge.ctx);
         e.node = id;
-        int type = InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE;
-        if (!spellcheck) {
+        int type = InputType.TYPE_CLASS_TEXT;
+        if (!singleLine) {
+            type |= InputType.TYPE_TEXT_FLAG_MULTI_LINE;
+        }
+        if (!spellcheck || code) {
+            // Code wants every character as typed: no suggestions, no auto-capitalization.
             type |= InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
         }
         e.setInputType(type);
         e.baseInputType = type;
-        e.setSingleLine(false);
-        e.setGravity(Gravity.TOP | Gravity.START);
+        if (singleLine) {
+            // One line that scrolls sideways; the IME's action key is Done, reported as Enter.
+            e.setSingleLine(true);
+            e.setHorizontallyScrolling(true);
+            e.setImeOptions(EditorInfo.IME_ACTION_DONE);
+            e.setOnEditorActionListener((v, actionId, event) -> {
+                if (actionId == EditorInfo.IME_ACTION_DONE
+                        || (event != null && event.getKeyCode() == KeyEvent.KEYCODE_ENTER
+                            && event.getAction() == KeyEvent.ACTION_DOWN)) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_KEY, 0, "Enter");
+                    return true;
+                }
+                return false;
+            });
+        } else {
+            e.setSingleLine(false);
+        }
+        if (singleLine || code) {
+            // The keys the two modes claim from a hardware keyboard: Enter in a single line and
+            // Tab in code, reported by their day names and consumed, so neither inserts nor
+            // moves focus. Modified ones stay the view's.
+            e.setOnKeyListener((v, keyCode, event) -> {
+                if (event.getAction() != KeyEvent.ACTION_DOWN || event.hasModifiers(KeyEvent.META_SHIFT_ON)
+                        || event.isCtrlPressed() || event.isAltPressed() || event.isMetaPressed()) {
+                    return false;
+                }
+                if (singleLine && (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER)) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_KEY, 0, "Enter");
+                    return true;
+                }
+                if (code && keyCode == KeyEvent.KEYCODE_TAB) {
+                    DayBridge.nativeOnEvent(id, DayBridge.K_KEY, 0, "Tab");
+                    return true;
+                }
+                return false;
+            });
+        }
+        e.setGravity((singleLine ? Gravity.CENTER_VERTICAL : Gravity.TOP) | Gravity.START);
         e.setHint(placeholder);
         e.setFocusable(editable);
         e.setFocusableInTouchMode(editable);
@@ -240,13 +283,38 @@ public final class DayTextEditor {
         }
     }
 
-    /** Move the caret / selection. Suppressed: this IS the app's own write. */
+    /** Insert text at a BYTE offset of the UTF-8 text into the live buffer, the caret after it.
+     *  Converted here, against the buffer as it is now: the Rust arm's copy of the text is as
+     *  old as the last patch, and an insertion follows a keystroke reported since. Not
+     *  suppressed: the watcher's report is how the piece learns of the inserted text. */
+    public static void insertText(View v, int atByte, String text) {
+        DayEditText e = (DayEditText) v;
+        Editable buf = e.getText();
+        int pos = charIndexOfByte(buf.toString(), atByte);
+        buf.insert(pos, text);
+        e.setSelection(Math.min(pos + text.length(), buf.length()));
+    }
+
+    /** The UTF-16 index at a UTF-8 byte offset, clamped to the string. */
+    private static int charIndexOfByte(String s, int atByte) {
+        int bytes = 0;
+        int i = 0;
+        while (i < s.length() && bytes < atByte) {
+            int cp = s.codePointAt(i);
+            bytes += cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+            i += Character.charCount(cp);
+        }
+        return i;
+    }
+
+    /** Move the caret / selection. Not suppressed: the `onSelectionChanged` report that follows
+     *  tells the piece where the caret now is, after a report the view sent before this write
+     *  (an insertion's own caret move) that would otherwise stand; the piece's echo guard keeps
+     *  it from being patched back. */
     public static void setSelectionRange(View v, int start, int end) {
         DayEditText e = (DayEditText) v;
         int len = e.getText().length();
-        e.suppress = true;
         e.setSelection(Math.max(0, Math.min(start, len)), Math.max(0, Math.min(end, len)));
-        e.suppress = false;
     }
 
     /**

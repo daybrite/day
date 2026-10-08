@@ -41,9 +41,14 @@ public:
     uint64_t node = 0;
     void (*textCb)(uint64_t, const char *) = nullptr;
     void (*selCb)(uint64_t, uint64_t, uint64_t) = nullptr;
+    // A key the editor's mode claims (see keyPressEvent), by its day name.
+    void (*keyCb)(uint64_t, const char *) = nullptr;
     // Set while Day itself writes the document, so a programmatic change never echoes back as if
     // the user had typed it.
     bool suppress = false;
+    // The two modes whose keys are claimed: Return in a single line, Tab in code.
+    bool singleLine = false;
+    bool code = false;
 
     void reportText() {
         if (suppress || !textCb)
@@ -68,6 +73,22 @@ protected:
             const int k = e->key();
             if (k == Qt::Key_B || k == Qt::Key_I || k == Qt::Key_U) {
                 e->accept();
+                return;
+            }
+        }
+        // The keys the two modes claim, reported by their day names and never inserted: Return
+        // in a single line (the piece submits) and Tab in code (the piece indents through
+        // day_texteditor_insert). A modified Return or Tab stays the view's.
+        if (keyCb && (e->modifiers() & ~Qt::KeypadModifier) == Qt::NoModifier) {
+            const int k = e->key();
+            const char *name = nullptr;
+            if (singleLine && (k == Qt::Key_Return || k == Qt::Key_Enter))
+                name = "Enter";
+            else if (code && k == Qt::Key_Tab)
+                name = "Tab";
+            if (name) {
+                e->accept();
+                keyCb(node, name);
                 return;
             }
         }
@@ -131,17 +152,28 @@ QTextCursor cursorOver(DayTextEditor *w, int start, int len) {
 extern "C" {
 
 void *day_texteditor_new(uint64_t id, int editable, double base_pt, const char *placeholder,
+                         int single_line, int code,
                          void (*text_cb)(uint64_t, const char *),
-                         void (*sel_cb)(uint64_t, uint64_t, uint64_t)) {
+                         void (*sel_cb)(uint64_t, uint64_t, uint64_t),
+                         void (*key_cb)(uint64_t, const char *)) {
     DayTextEditor *w = new DayTextEditor();
     w->node = id;
     w->textCb = text_cb;
     w->selCb = sel_cb;
+    w->keyCb = key_cb;
+    w->singleLine = single_line != 0;
+    w->code = code != 0;
     w->setAcceptRichText(false); // a paste keeps its characters and takes the surrounding style
     w->setReadOnly(editable == 0);
-    w->setLineWrapMode(QTextEdit::WidgetWidth);
+    if (single_line) {
+        // One line that scrolls sideways under the caret, with no bar either way.
+        w->setLineWrapMode(QTextEdit::NoWrap);
+        w->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    } else {
+        w->setLineWrapMode(QTextEdit::WidgetWidth);
+        w->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    }
     w->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    w->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     w->setPlaceholderText(QString::fromUtf8(placeholder ? placeholder : ""));
     QFont f = w->font();
     f.setPointSizeF(base_pt);
@@ -231,11 +263,12 @@ void day_texteditor_end_attrs(void *ptr) {
     static_cast<DayTextEditor *>(ptr)->suppress = false;
 }
 
+// Not suppressed: the selection report that follows is what tells the piece where the caret now
+// is, after a report the view sent before this write (an insertion's own caret move) that would
+// otherwise stand; the piece's echo guard keeps it from being patched back.
 void day_texteditor_set_selection(void *ptr, int start, int len) {
     DayTextEditor *w = static_cast<DayTextEditor *>(ptr);
-    w->suppress = true;
     w->setTextCursor(cursorOver(w, start, len));
-    w->suppress = false;
 }
 
 // Qt's typing style is the nicest of the eight: with a collapsed cursor, the current char format is
@@ -249,6 +282,17 @@ void day_texteditor_set_typing(void *ptr, double pt, int weight, int italic, int
 
 void day_texteditor_set_editable(void *ptr, int editable) {
     static_cast<DayTextEditor *>(ptr)->setReadOnly(editable == 0);
+}
+
+// Insert text at a position (QChar units) through a cursor, which is what typing goes through:
+// one undo step, the caret after the inserted text, and `textChanged` reporting the result (not
+// suppressed, since the report is how the piece learns of it).
+void day_texteditor_insert(void *ptr, int start, const char *utf8) {
+    DayTextEditor *w = static_cast<DayTextEditor *>(ptr);
+    QTextCursor c(w->document());
+    c.setPosition(qMin(start, w->document()->characterCount() - 1));
+    c.insertText(QString::fromUtf8(utf8 ? utf8 : ""));
+    w->setTextCursor(c);
 }
 
 // Content-driven height for the proposed width, clamped to the line band (`max_lines == 0` =

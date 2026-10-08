@@ -56,6 +56,9 @@ unsafe extern "C" {
     fn day_dom_set_html(el: u32, html: *const u8, html_len: usize);
     /// Put the selection at a BYTE range in a contenteditable element's flattened text.
     fn day_dom_editor_select(el: u32, start: u32, end: u32);
+    /// Insert text at a BYTE offset of a contenteditable element's flattened text through the
+    /// browser's editing command, so undo records it and the `input` event reports it.
+    fn day_dom_editor_insert(el: u32, at: u32, text: *const u8, text_len: usize);
     fn day_dom_set_app_badge(count: i32);
     /// Enter (`on` = 1) or leave (0) fullscreen through the Fullscreen API on the document
     /// element (docs/windows.md "Window properties"). Returns -1 when a request is in flight,
@@ -1374,6 +1377,13 @@ impl Dom {
     /// [`listen::EDITABLE`] reports.
     pub fn set_editor_selection(&mut self, h: &DomHandle, start: usize, end: usize) {
         unsafe { day_dom_editor_select(h.0, start as u32, end as u32) };
+    }
+
+    /// Insert `text` at a BYTE offset of a contenteditable element's flattened text, as typing
+    /// would: through the browser's editing command, so its undo stack records the insertion
+    /// and the element's `input` event reports the result (docs/texteditor.md).
+    pub fn insert_editor_text(&mut self, h: &DomHandle, at: usize, text: &str) {
+        unsafe { day_dom_editor_insert(h.0, at as u32, text.as_ptr(), text.len()) };
     }
 
     /// Attach the shim's DOM listeners to a piece's element, so it can report back.
