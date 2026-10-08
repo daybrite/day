@@ -877,8 +877,12 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
         // A scaffold generated before manifest-components existed gates the overlay on the
         // permission list being non-empty, so a crate contributing only components would have its
         // receivers silently dropped. Say so, with the one-line fix, rather than shipping an APK
-        // that installs and never delivers.
-        if entries.is_empty() {
+        // that installs and never delivers. Only such a scaffold hears it: one built on Day's
+        // Gradle plugin merges the overlay unconditionally.
+        let gradle = project.root.join("platform/android/app/build.gradle.kts");
+        let gates_on_permissions = std::fs::read_to_string(&gradle)
+            .is_ok_and(|s| s.contains("piecePermissions.isNotEmpty()"));
+        if entries.is_empty() && gates_on_permissions {
             eprintln!(
                 "day: a dependency or Day.toml [[shortcuts]] contributes Android manifest \
                  components but no permissions. \

@@ -991,6 +991,19 @@ jobs:
       - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-mdc
+      # The rebuild has intermittently produced a libdayapp.so that differs from the pack's (a few
+      # hundred bytes, never reproduced on macOS). A failed check leaves both trees in place, so
+      # keep the two libraries for comparison; `day rebuild` already names the differing sections.
+      - name: Keep both native libraries when the rebuild differs
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-rebuild-libraries
+          path: |
+            ${{ github.workspace }}/../Day Project Root/ci-sample/build/day/jniLibs/
+            /tmp/day-rebuild-ci-sample-android-mdc/src/ci-sample/build/day/jniLibs/
+          if-no-files-found: ignore
+          retention-days: 14
   harmony-arkui:
     # Experimental (continue-on-error at the job level): the whole HarmonyOS job runs on one
     # x86_64 Linux runner so the x86_64 Oniro guest can run KVM-accelerated (same-arch guest +

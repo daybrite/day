@@ -99,6 +99,7 @@ public class DayTabs extends LinearLayout {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
         pageViews.add(page);
         page.setVisibility(pageViews.size() - 1 == selected ? View.VISIBLE : View.GONE);
+        if (page.getVisibility() == View.VISIBLE) fitPage(page);
     }
 
     /**
@@ -240,6 +241,26 @@ public class DayTabs extends LinearLayout {
         for (int i = 0; i < pageViews.size(); i++) {
             pageViews.get(i).setVisibility(i == index ? View.VISIBLE : View.GONE);
         }
+        if (index >= 0 && index < pageViews.size()) fitPage(pageViews.get(index));
+    }
+
+    /**
+     * Make sure a page that just became visible gets laid out at the page area's size. A page
+     * shown during a layout pass, after the page area had already laid out its children, was
+     * otherwise never laid out at all: its request was dropped with the pass and it stayed
+     * visible at 0x0. A cold deep link to a tab hit this whenever a second inset pass resized the
+     * window as the link was applied (a blank Settings page).
+     *
+     * Posted, never done in place: selection arrives inside a Rust tree patch, and laying the
+     * page out there would bind its list rows while the tree is borrowed. day-core skips those
+     * binds (try_with_tree) and RecyclerView never asks again, so the rows stayed empty.
+     */
+    private void fitPage(final View page) {
+        pages.post(() -> {
+            if (page.getVisibility() != View.VISIBLE || page.getParent() != pages) return;
+            if (page.getWidth() == pages.getWidth() && page.getHeight() == pages.getHeight()) return;
+            page.requestLayout();
+        });
     }
 
     private static String[] split(String joined) {

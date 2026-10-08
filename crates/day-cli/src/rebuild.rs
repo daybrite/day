@@ -1462,6 +1462,15 @@ fn first_text_difference(a: &Path, b: &Path) -> Option<String> {
 fn first_binary_difference(a: &Path, b: &Path) -> Option<String> {
     let (ba, bb) = (std::fs::read(a).ok()?, std::fs::read(b).ok()?);
     let sizes = (ba.len() != bb.len()).then(|| format!("{} vs {} bytes", ba.len(), bb.len()));
+    // An ELF library (Android, Linux) is compared section by section: a length change moves the
+    // section header table, so the first differing byte is the header's `e_shoff` and says
+    // nothing about which part of the program changed.
+    if let Some(sections) = elf_section_differences(&ba, &bb) {
+        return Some(match sizes {
+            Some(s) => format!("{s}; differing sections: {sections}"),
+            None => format!("differing sections: {sections}"),
+        });
+    }
     let Some(at) = ba.iter().zip(&bb).position(|(x, y)| x != y) else {
         // Equal as far as the shorter one goes: there is no differing byte to point at.
         return sizes.map(|s| format!("one is a prefix of the other ({s})"));
@@ -1474,6 +1483,81 @@ fn first_binary_difference(a: &Path, b: &Path) -> Option<String> {
     Some(match macho_location(&ba, at) {
         Some(place) => format!("{head} 0x{at:x} ({place})"),
         None => format!("{head} 0x{at:x}"),
+    })
+}
+
+/// The sections of a 64-bit little-endian ELF file: name, file offset and size (`SHT_NOBITS`
+/// sections such as `.bss` occupy no file bytes and report a size of 0). `None` for anything
+/// else, including a truncated or malformed header.
+fn elf_sections(buf: &[u8]) -> Option<Vec<(String, usize, usize)>> {
+    let u16_at = |at: usize| Some(u16::from_le_bytes(buf.get(at..at + 2)?.try_into().ok()?));
+    let u32_at = |at: usize| Some(u32::from_le_bytes(buf.get(at..at + 4)?.try_into().ok()?));
+    let u64_at = |at: usize| {
+        let v = u64::from_le_bytes(buf.get(at..at + 8)?.try_into().ok()?);
+        usize::try_from(v).ok()
+    };
+    // \x7fELF, ELFCLASS64, ELFDATA2LSB: every Android ABI Day builds and every 64-bit Linux one.
+    if buf.get(..6)? != b"\x7fELF\x02\x01" {
+        return None;
+    }
+    let (shoff, shentsize) = (u64_at(0x28)?, usize::from(u16_at(0x3A)?));
+    let (shnum, shstrndx) = (usize::from(u16_at(0x3C)?), usize::from(u16_at(0x3E)?));
+    if shentsize < 0x40 {
+        return None;
+    }
+    let header = |i: usize| shoff.checked_add(i.checked_mul(shentsize)?);
+    let strtab = u64_at(header(shstrndx)? + 0x18)?;
+    let mut out = Vec::with_capacity(shnum);
+    for i in 0..shnum {
+        let h = header(i)?;
+        let name_at = strtab.checked_add(u32_at(h)? as usize)?;
+        let name = buf.get(name_at..)?.split(|&c| c == 0).next()?;
+        const SHT_NOBITS: u32 = 8;
+        let size = if u32_at(h + 4)? == SHT_NOBITS {
+            0
+        } else {
+            u64_at(h + 0x20)?
+        };
+        out.push((
+            String::from_utf8_lossy(name).into_owned(),
+            u64_at(h + 0x18)?,
+            size,
+        ));
+    }
+    Some(out)
+}
+
+/// One section's file bytes, or `None` when the header points past the end of the file.
+fn section_bytes(buf: &[u8], off: usize, len: usize) -> Option<&[u8]> {
+    buf.get(off..off.checked_add(len)?)
+}
+
+/// The sections whose bytes differ between two ELF files, matched by name, each with its two sizes
+/// when those differ too. `None` when either file is not ELF, so the caller falls back to a plain
+/// byte offset.
+fn elf_section_differences(a: &[u8], b: &[u8]) -> Option<String> {
+    let (sa, sb) = (elf_sections(a)?, elf_sections(b)?);
+    let mut out: Vec<String> = Vec::new();
+    for (name, off, len) in &sa {
+        let Some((_, boff, blen)) = sb.iter().find(|(n, _, _)| n == name) else {
+            out.push(format!("{name} (only in the first)"));
+            continue;
+        };
+        if len != blen {
+            out.push(format!("{name} ({len} vs {blen} bytes)"));
+        } else if section_bytes(a, *off, *len) != section_bytes(b, *boff, *blen) {
+            out.push(name.clone());
+        }
+    }
+    for (name, _, _) in &sb {
+        if !sa.iter().any(|(n, _, _)| n == name) {
+            out.push(format!("{name} (only in the second)"));
+        }
+    }
+    Some(if out.is_empty() {
+        "none (the section contents match; the headers or padding differ)".to_string()
+    } else {
+        out.join(", ")
     })
 }
 
@@ -1676,6 +1760,59 @@ mod tests {
     ///
     /// Not staged against a live attachment: that version manipulated global
     /// disk-image state and flaked in a parallel run. `day rebuild` exercises the recovery itself.
+    /// A minimal ELF64 LE image: a `.data` section of `data`, then `.shstrtab`, then the three
+    /// section headers (null, `.data`, `.shstrtab`).
+    fn tiny_elf(data: &[u8]) -> Vec<u8> {
+        let names = b"\0.data\0.shstrtab\0";
+        let mut buf = vec![0u8; 0x40];
+        buf[..6].copy_from_slice(b"\x7fELF\x02\x01");
+        let data_off = buf.len();
+        buf.extend_from_slice(data);
+        let names_off = buf.len();
+        buf.extend_from_slice(names);
+        let shoff = buf.len();
+        let mut header = |name: u32, kind: u32, off: usize, size: usize| {
+            let mut h = [0u8; 0x40];
+            h[..4].copy_from_slice(&name.to_le_bytes());
+            h[4..8].copy_from_slice(&kind.to_le_bytes());
+            h[0x18..0x20].copy_from_slice(&(off as u64).to_le_bytes());
+            h[0x20..0x28].copy_from_slice(&(size as u64).to_le_bytes());
+            buf.extend_from_slice(&h);
+        };
+        header(0, 0, 0, 0);
+        header(1, 1, data_off, data.len());
+        header(7, 3, names_off, names.len());
+        buf[0x28..0x30].copy_from_slice(&(shoff as u64).to_le_bytes());
+        buf[0x3A..0x3C].copy_from_slice(&0x40u16.to_le_bytes());
+        buf[0x3C..0x3E].copy_from_slice(&3u16.to_le_bytes());
+        buf[0x3E..0x40].copy_from_slice(&2u16.to_le_bytes());
+        buf
+    }
+
+    /// An ELF library is reported by section, so a length change names the section that grew
+    /// rather than the header field it moved.
+    #[test]
+    fn elf_differences_name_sections() {
+        let a = tiny_elf(b"abcd");
+        let names: Vec<String> = elf_sections(&a)
+            .expect("parses")
+            .into_iter()
+            .map(|s| s.0)
+            .collect();
+        assert_eq!(names, ["", ".data", ".shstrtab"]);
+        assert_eq!(
+            elf_section_differences(&a, &tiny_elf(b"abXd")).as_deref(),
+            Some(".data")
+        );
+        let d = elf_section_differences(&a, &tiny_elf(b"abcdef")).expect("both ELF");
+        assert!(d.contains(".data (4 vs 6 bytes)"), "{d}");
+        assert!(
+            !d.contains(".shstrtab"),
+            "an unchanged section is not listed: {d}"
+        );
+        assert_eq!(elf_section_differences(&a, b"not an elf"), None);
+    }
+
     #[test]
     fn the_attached_image_is_found_by_its_own_path() {
         let info = "\

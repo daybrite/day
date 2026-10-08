@@ -5314,8 +5314,12 @@ then reports them as a difference in the code.
 **When it fails.** The verdict names the first difference, not only the file holding it. A text
 member quotes the differing line. A compiled member reports how many bytes differ, the offset of
 the first, and the Mach-O region that offset falls in (`__TEXT,__text`, `__LINKEDIT symbol table`,
-a named load command, a slice of a fat binary), and answers a length mismatch as such. The runner
-is gone by the time anyone reads its log, so the verdict has to carry the evidence with it.
+a named load command, a slice of a fat binary), and answers a length mismatch as such. An ELF
+library (Android, Linux) is compared section by section instead and reports every section whose
+bytes differ, with both sizes where those changed: in ELF a length change moves the section header
+table, so the first differing byte is always the header's `e_shoff` and names nothing. ELF is not
+normalized; the Android leg also uploads both libraries when its check fails. The runner is gone by
+the time anyone reads its log, so the verdict has to carry the evidence with it.
 
 The debug map is the reason this has to be a normalized comparison rather than a byte one. Those
 paths reach into `SYMROOT`, into cargo's output, and into the build directory of any SwiftPM package
