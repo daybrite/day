@@ -47,6 +47,7 @@ pub fn register_tests() {
     crate::structure::conformance::register_tests();
     crate::nav::conformance::register_tests();
     crate::inspector::conformance::register_tests();
+    crate::split::conformance::register_tests();
     crate::dialogs::conformance::register_tests();
     crate::toolbar::conformance::register_tests();
     crate::menus::conformance::register_tests();
@@ -67,6 +68,7 @@ pub fn roster() -> Vec<TestFn> {
         crate::structure::conformance::roster(),
         crate::nav::conformance::roster(),
         crate::inspector::conformance::roster(),
+        crate::split::conformance::roster(),
         crate::dialogs::conformance::roster(),
         crate::toolbar::conformance::roster(),
         crate::menus::conformance::roster(),

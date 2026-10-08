@@ -309,21 +309,55 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
     // field made the composed stepper a 240 dp control that clipped in a 280 dp inspector.
     // The buttons carry ids derived from the key, so a script can press them as a person would.
     let (dec_id, inc_id) = (format!("{key}-dec"), format!("{key}-inc"));
-    row((
-        button("−").compact().action(dec).id(dec_id),
-        text_field(FieldBinding {
-            value,
+    // dayscript's `set_value:` lands `ValueChanged`/`ValueCommitted` on the id, which the
+    // field itself has no use for (it carries text); the composed idiom takes them the way
+    // the native leaf does, so a scripted value reaches the binding on every toolkit.
+    // The id goes on the field itself, before the width (which wraps it in a frame node), so
+    // the events land on the node the handler is on.
+    let field = Valued {
+        inner: text_field(FieldBinding {
+            value: value.clone(),
             min,
             max,
             decimals,
         })
-        .id(key)
-        .width(56.0),
+        .id(key),
+        value,
+        clamp,
+    }
+    .width(56.0);
+    row((
+        button("−").compact().action(dec).id(dec_id),
+        field,
         button("+").compact().action(inc).id(inc_id),
     ))
     .spacing(4.0)
     .align(VAlign::Center)
     .build(cx)
+}
+
+/// The composed field with the numeric value events the native leaf answers (`set_value:`).
+struct Valued<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> {
+    inner: P,
+    value: V,
+    clamp: C,
+}
+
+impl<P: Piece, V: Binding<f64>, C: Fn(f64) -> f64 + 'static> Piece for Valued<P, V, C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let Valued {
+            inner,
+            value,
+            clamp,
+        } = self;
+        let node = inner.build(cx);
+        cx.on(node, move |ev| match ev {
+            Event::ValueChanged(v) => value.write_preview(clamp(*v)),
+            Event::ValueCommitted(v) => value.write_commit(clamp(*v)),
+            _ => {}
+        });
+        node
+    }
 }
 
 day_pieces::glue_modules!(appkit, gtk, qt);
@@ -393,7 +427,11 @@ pub mod conformance {
                 d.assert_text("value", "value 5").await?;
                 d.tap("count-inc").await?;
                 d.assert_text("value", "value 6").await?;
-                d.assert_text("count", "6").await
+                d.assert_text("count", "6").await?;
+                // A scripted value lands on the field's id, as it does on the native leaf.
+                d.set_value("count", 9.0).await?;
+                d.assert_text("value", "value 9").await?;
+                d.assert_text("count", "9").await
             })
     }
 
