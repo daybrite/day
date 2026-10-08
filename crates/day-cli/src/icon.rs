@@ -13,7 +13,8 @@
 //! under [`HOST_DIR`] where the host projects reference it (docs/project-structure.md).
 //!
 //! An SVG master may mark top-level groups as semantic layers by id:
-//! `day:background`, `day:foreground` (any number), `day:monochrome`, `day:dark`.
+//! `day:background`, `day:foreground` (any number), `day:monochrome`, `day:dark`, and
+//! `day:composite` (any number: drawn in the composite only, never in an adaptive layer).
 //! The composite (background+foregrounds) feeds every full-bleed output; the split layers feed
 //! Android's adaptive icon, the motif fitted to the safe circle (not the square around it) so no
 //! launcher mask clips it. An unlayered SVG (or a PNG master) still produces the full legacy
@@ -1222,10 +1223,23 @@ impl Art {
             if !layers.background.is_empty() || !layers.foreground.is_empty() {
                 let fg = splice_out(
                     text,
-                    &[&layers.background, &layers.monochrome, &layers.dark],
+                    &[
+                        &layers.background,
+                        &layers.monochrome,
+                        &layers.dark,
+                        &layers.composite,
+                    ],
                 );
                 let bg_ranges: Vec<Range<usize>> = layers.foreground.clone();
-                let bg = splice_out(text, &[&bg_ranges, &layers.monochrome, &layers.dark]);
+                let bg = splice_out(
+                    text,
+                    &[
+                        &bg_ranges,
+                        &layers.monochrome,
+                        &layers.dark,
+                        &layers.composite,
+                    ],
+                );
                 (Some(fg), Some(bg))
             } else {
                 (None, None)
@@ -1233,7 +1247,12 @@ impl Art {
         let monochrome = if layers.monochrome.is_empty() {
             None
         } else {
-            let mut keep = vec![&layers.background, &layers.foreground, &layers.dark];
+            let mut keep = vec![
+                &layers.background,
+                &layers.foreground,
+                &layers.dark,
+                &layers.composite,
+            ];
             let bg_fg_dark: Vec<Range<usize>> =
                 keep.drain(..).flat_map(|v| v.iter().cloned()).collect();
             Some(unhide_layer(
@@ -1501,6 +1520,12 @@ struct Layers {
     foreground: Vec<Range<usize>>,
     monochrome: Vec<Range<usize>>,
     dark: Vec<Range<usize>>,
+    /// `day:composite` (any number): drawn in the full-bleed composite only, left out of the
+    /// adaptive layers. For a decoration that lives where launcher shapes cut anyway, a corner
+    /// ribbon say, which in a foreground layer would make the safe-circle fit shrink the whole
+    /// motif to keep that corner on the circle, and in the background layer would sit under
+    /// the motif on every output.
+    composite: Vec<Range<usize>>,
 }
 
 fn day_layers(xml: &str) -> Result<Layers, String> {
@@ -1510,6 +1535,7 @@ fn day_layers(xml: &str) -> Result<Layers, String> {
         foreground: Vec::new(),
         monochrome: Vec::new(),
         dark: Vec::new(),
+        composite: Vec::new(),
     };
     for child in doc.root_element().children() {
         let Some(id) = child.attribute("id") else {
@@ -1520,6 +1546,7 @@ fn day_layers(xml: &str) -> Result<Layers, String> {
             "day:monochrome" => layers.monochrome.push(child.range()),
             "day:dark" => layers.dark.push(child.range()),
             _ if id.starts_with("day:foreground") => layers.foreground.push(child.range()),
+            _ if id.starts_with("day:composite") => layers.composite.push(child.range()),
             _ => {}
         }
     }
@@ -1836,6 +1863,33 @@ mod tests {
         let fg = splice_out(LAYERED, &[&l.background, &l.monochrome, &l.dark]);
         assert!(!fg.contains("day:background"));
         assert!(fg.contains("day:foreground"));
+    }
+
+    /// A `day:composite` layer reaches the full-bleed composite and neither adaptive layer nor
+    /// the monochrome document: a corner ribbon that must not shrink the fitted motif.
+    #[test]
+    fn a_composite_layer_stays_out_of_the_adaptive_layers() {
+        const MASTER: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">\
+            <rect id=\"day:background\" width=\"100\" height=\"100\" fill=\"#123456\"/>\
+            <g id=\"day:foreground\"><circle cx=\"50\" cy=\"50\" r=\"20\" fill=\"#fff\"/></g>\
+            <g id=\"day:composite\"><rect x=\"80\" y=\"0\" width=\"20\" height=\"20\" fill=\"#f00\"/></g>\
+            <g id=\"day:monochrome\" display=\"none\"><circle cx=\"50\" cy=\"50\" r=\"20\"/></g>\
+            </svg>";
+        let art = Art::from_svg(MASTER).unwrap();
+        let Art::Svg {
+            composite,
+            foreground,
+            background,
+            monochrome,
+            ..
+        } = art
+        else {
+            panic!("an SVG master");
+        };
+        assert!(composite.contains("day:composite"));
+        assert!(!foreground.unwrap().contains("day:composite"));
+        assert!(!background.unwrap().contains("day:composite"));
+        assert!(!monochrome.unwrap().contains("day:composite"));
     }
 
     #[test]

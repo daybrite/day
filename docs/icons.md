@@ -27,7 +27,16 @@ An SVG master may mark **top-level** elements as semantic layers by id:
 <g id="day:foreground">…</g>           <!-- the motif; day:foreground-2 … for more layers -->
 <g id="day:monochrome">…</g>           <!-- reserved: themed/tinted modes (not yet consumed) -->
 <g id="day:dark">…</g>                 <!-- reserved: dark-mode variants (not yet consumed) -->
+<g id="day:composite">…</g>            <!-- the composite only; day:composite-2 … for more -->
 ```
+
+`day:composite` is for a decoration that lives where launcher shapes cut anyway, a corner
+ribbon say: it is drawn in every full-bleed output and left out of both adaptive layers and the
+monochrome document. In a foreground layer the same ribbon would make the safe-circle fit
+shrink the whole motif to keep the corner on the circle; in the background layer it would sit
+under the motif on every output. A ribbon that should also cross the motif on Android goes in
+a second foreground layer as well, clipped to a circle just outside the motif, so that
+layer's extent stays the motif's and the two copies join on the composite.
 
 The composite (background + foregrounds) feeds every full-bleed output; the split layers feed
 Android's adaptive icon (foreground centered on its content box and scaled so the farthest
