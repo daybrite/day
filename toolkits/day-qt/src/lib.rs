@@ -73,6 +73,7 @@ mod picker;
 mod textarea;
 mod toolbar;
 mod transfer;
+mod tree;
 
 pub type Handle = QtHandle;
 
@@ -1287,9 +1288,7 @@ extern "C" fn split_resized(host: *mut std::os::raw::c_void) {
     ffi_guard::contain((), || {
         let place = SPLIT_STATE.with(|m| {
             let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&(host as usize)) else {
-                return None;
-            };
+            let state = m.get_mut(&(host as usize))?;
             let (mut w, mut h) = (0.0, 0.0);
             unsafe { ffi::day_qt_widget_size(host, &mut w, &mut h) };
             if state.placed || w <= 0.0 || h <= 0.0 {
@@ -1317,9 +1316,7 @@ extern "C" fn split_moved(host: *mut std::os::raw::c_void) {
         let share = unsafe { ffi::day_qt_split_fraction(host) }.clamp(0.0, 1.0);
         let report = SPLIT_STATE.with(|m| {
             let mut m = m.borrow_mut();
-            let Some(state) = m.get_mut(&(host as usize)) else {
-                return None;
-            };
+            let state = m.get_mut(&(host as usize))?;
             if state.suppress || !state.placed || (share - state.share).abs() <= 1e-4 {
                 return None;
             }
@@ -1896,10 +1893,9 @@ impl Toolkit for Qt {
             | Cap::Split => Support::Native,
             // A topmost child of the window content — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
-            // The COMPOSED tree (docs/tree.md M2): the piece flattens onto this backend's
-            // emulated list; disclosure, indentation and row menus are day pieces. No native
-            // drag, so `Cap::TreeMove` stays Unsupported.
-            Cap::Tree => Support::Emulated,
+            // Native QTreeWidget disclosure and selection, with Day-owned row widgets.
+            // Native tree drag-to-move is not wired yet.
+            Cap::Tree | Cap::TreeSections => Support::Native,
             // Derived from QFontMetrics — Qt publishes no baseline of its own
             // (docs/baseline.md).
             Cap::BaselineAlignment => Support::Emulated,
@@ -2377,6 +2373,12 @@ impl Toolkit for Qt {
                         }
                     }
                 }
+                Some(Builtin::Tree) => {
+                    let Some(p) = props_of::<TreeProps>(kind, "qt", props) else {
+                        return placeholder_handle(kind);
+                    };
+                    QtHandle(tree::new(id, p))
+                }
                 Some(Builtin::List) => {
                     let Some(p) = props_of::<ListProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
@@ -2428,7 +2430,7 @@ impl Toolkit for Qt {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell) | Some(Builtin::Tree) | None => {
+                Some(Builtin::ListCell) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
@@ -2446,6 +2448,10 @@ impl Toolkit for Qt {
         patch: &dyn std::any::Any,
         _anim: Option<&AnimSpec>,
     ) {
+        if let Some(patch) = patch.downcast_ref::<TreePatch>() {
+            tree::patch(h.0 as usize, patch);
+            return;
+        }
         unsafe {
             match kind {
                 kinds::IMAGE => {
@@ -2591,9 +2597,7 @@ impl Toolkit for Qt {
                     if let Some(p) = patch.downcast_ref::<SplitPatch>() {
                         let apply = SPLIT_STATE.with(|m| {
                             let mut m = m.borrow_mut();
-                            let Some(state) = m.get_mut(&(h.0 as usize)) else {
-                                return None;
-                            };
+                            let state = m.get_mut(&(h.0 as usize))?;
                             match p {
                                 SplitPatch::Fraction(f) => state.share = f.clamp(0.0, 1.0),
                                 SplitPatch::Axis(_) => {}
@@ -2903,6 +2907,7 @@ impl Toolkit for Qt {
             }
         });
         let key = h.0 as usize;
+        tree::release(key);
         if let Some(entry) = LIST_STATE.with(|m| m.borrow_mut().remove(&key)) {
             LIST_BY_NODE.with(|m| {
                 m.borrow_mut().remove(&entry.node);
@@ -3521,6 +3526,10 @@ impl Toolkit for Qt {
         let menu = unsafe { ffi::day_qt_menu_new() };
         build_qt_menu(menu, items);
         unsafe { ffi::day_qt_set_context_menu(h.0, menu) };
+    }
+
+    fn attach_tree(&mut self, host: &QtHandle, source: day_spec::TreeSource) {
+        tree::attach(host.0 as usize, source);
     }
 
     fn attach_list(&mut self, host: &QtHandle, source: day_spec::ListSource) {

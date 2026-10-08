@@ -3740,6 +3740,7 @@ impl Toolkit for Gtk {
             // half lands after the seam parity — dayscript's `tree_move:` drives the seam
             // regardless.
             | Cap::Tree
+            | Cap::TreeSections
             // Real AdwApplicationWindows on the shared GtkApplication (docs/windows.md).
             | Cap::MultiWindow
             // `gtk_window_minimize` / `maximize` / `fullscreen` and their inverses, reported
@@ -4680,6 +4681,12 @@ impl Toolkit for Gtk {
                             let Some(tok) = tree_row_token(&row) else {
                                 return;
                             };
+                            let heading = source
+                                .borrow()
+                                .as_ref()
+                                .is_some_and(|s| (s.section_header)(tok));
+                            li.set_selectable(!heading);
+                            li.set_activatable(!heading);
                             // The user's disclosure click reports through the row's expanded
                             // property; a programmatic restore is suppressed. Held only
                             // while bound (see unbind).

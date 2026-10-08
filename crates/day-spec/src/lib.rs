@@ -1968,6 +1968,10 @@ pub struct TreeSource {
     pub child_token: std::rc::Rc<dyn Fn(Option<u64>, usize) -> u64>,
     /// Whether this token can hold children at all: what draws (or omits) the disclosure.
     pub expandable: std::rc::Rc<dyn Fn(u64) -> bool>,
+    /// Non-selectable section heading, separate from a navigation destination.
+    pub section_header: std::rc::Rc<dyn Fn(u64) -> bool>,
+    /// Current desired expansion, including restoration before the first native reload.
+    pub expanded: std::rc::Rc<dyn Fn(u64) -> bool>,
     /// Build (first use of this cell) or rebind (recycled cell) the row for `token` into the
     /// native cell.
     pub bind_row: std::rc::Rc<dyn Fn(u64, RawHandle)>,
@@ -1978,6 +1982,9 @@ pub struct TreeSource {
     /// content width per-row, so the host-width layout `bind_row` did is only a first
     /// approximation. Skips quietly when called inside a day-core borrow (a snapshot pass).
     pub layout_cell: std::rc::Rc<dyn Fn(RawHandle, f64)>,
+    /// Native bounds for controls whose group headers have a different height from leaves.
+    /// Overrides the initial row-height estimate and preserves the native height on rebind.
+    pub layout_cell_size: std::rc::Rc<dyn Fn(RawHandle, Size)>,
     /// The row's type-ahead string (docs/tree.md): what native type-select matches against.
     pub type_select_text: std::rc::Rc<dyn Fn(u64) -> String>,
     /// The row's context menu, built when the menu is summoned (docs/menus.md "Dynamic context
@@ -2202,6 +2209,8 @@ pub enum Cap {
     /// (docs/tree.md). A strictly smaller set than [`Cap::Tree`]: a backend can render a
     /// tree it cannot yet drag within.
     TreeMove,
+    /// Native two-level section headers; general trees may still be composed.
+    TreeSections,
     /// The toolkit answers [`Toolkit::first_baseline`], so rows can align text on its baseline
     /// rather than on the middle of its box (docs/baseline.md). `Native` where the platform
     /// reports the baseline itself (`NSView.firstBaselineOffsetFromTop`, `View.getBaseline`,
@@ -2525,7 +2534,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 74] = [
+    pub const ALL: [Cap; 75] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2600,6 +2609,7 @@ impl Cap {
         Cap::Monitors,
         Cap::DynamicShortcuts,
         Cap::Split,
+        Cap::TreeSections,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2680,6 +2690,7 @@ impl Cap {
             Cap::Monitors => 71,
             Cap::DynamicShortcuts => 72,
             Cap::Split => 73,
+            Cap::TreeSections => 74,
         }
     }
 }
@@ -6127,6 +6138,8 @@ pub mod props {
     /// changes after realize flows through [`TreePatch`] or the injected `TreeSource`.
     #[derive(Clone, Debug, PartialEq)]
     pub struct TreeProps {
+        /// Two-level sectioned list: root branches are non-selectable headings.
+        pub section_headers: bool,
         pub row_height: RowHeight,
         /// Rows highlight and report selection ([`crate::Event::TreeSelection`]).
         pub selectable: bool,

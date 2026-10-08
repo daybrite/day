@@ -6,6 +6,8 @@
 // posting. Only connects to existing Qt signals via lambdas — no moc required.
 
 #include <QApplication>
+#include <QTreeWidget>
+#include <QSignalBlocker>
 #include "shim-resize.h"
 #include <QFileOpenEvent>
 #include <QWindow>
@@ -4721,6 +4723,114 @@ void day_qt_tray_delete(void *t) {
     if (QMenu *menu = tray->contextMenu()) menu->deleteLater();
     tray->hide();
     tray->deleteLater();
+}
+
+// Native hierarchy, with independently owned viewport cells. Model rebuilds never own or
+// delete Day's row anchors; collapsed/offscreen cells are hidden and recycled on the Rust side.
+class DayTreeDelegate : public QStyledItemDelegate {
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem opt(option); initStyleOption(&opt,index); opt.text.clear();
+        const auto *w=option.widget;
+        (w ? w->style() : QApplication::style())->drawControl(QStyle::CE_ItemViewItem,&opt,p,w);
+    }
+};
+class DayTreeWidget : public QTreeWidget {
+public:
+    uint64_t node;
+    int rowHeight;
+    std::map<uint64_t, QTreeWidgetItem *> nodes;
+    std::map<uint64_t, QWidget *> cells;
+    void (*viewportChanged)(void *);
+    DayTreeWidget(uint64_t n, int h, void (*v)(void *)) : node(n), rowHeight(h), viewportChanged(v) {}
+    QRect cellRect(QTreeWidgetItem *it) const {
+        QRect r = visualItemRect(it);
+        if (r.isEmpty() || it->isHidden()) return {};
+        for (auto *p = it->parent(); p; p = p->parent()) if (!p->isExpanded()) return {};
+        int depth = 1;
+        for (auto *p = it->parent(); p; p = p->parent()) ++depth;
+        r.setLeft(depth * indentation());
+        r.setRight(viewport()->width());
+        return r;
+    }
+    void sync() {
+        for (auto const &entry : cells) {
+            auto found = nodes.find(entry.first);
+            const QRect r = found == nodes.end() ? QRect() : cellRect(found->second);
+            const bool visible = !r.isEmpty() && r.intersects(viewport()->rect());
+            entry.second->setVisible(visible);
+            if (visible) entry.second->setGeometry(r);
+        }
+        if (viewportChanged) viewportChanged(this);
+    }
+protected:
+    void resizeEvent(QResizeEvent *e) override { QTreeWidget::resizeEvent(e); sync(); }
+    void scrollContentsBy(int dx, int dy) override { QTreeWidget::scrollContentsBy(dx, dy); sync(); }
+};
+void *day_qt_tree_new(uint64_t id, double height, double indent, int selectable, int multi,
+    void (*expanded)(uint64_t,uint64_t,int), void (*selected)(uint64_t,const uint64_t *,int),
+    void (*viewport)(void *)) {
+    auto *t = new DayTreeWidget(id, std::max(1, int(height)), viewport);
+    t->setItemDelegate(new DayTreeDelegate(t));
+    t->setHeaderHidden(true); t->setFrameShape(QFrame::NoFrame);
+    t->setIndentation(std::max(0, int(indent))); t->setUniformRowHeights(true);
+    t->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    t->setSelectionMode(!selectable ? QAbstractItemView::NoSelection : multi ? QAbstractItemView::ExtendedSelection : QAbstractItemView::SingleSelection);
+    QObject::connect(t, &QTreeWidget::itemExpanded, t, [t,expanded](QTreeWidgetItem *i) { t->sync(); expanded(t->node, i->data(0,Qt::UserRole).toULongLong(),1); });
+    QObject::connect(t, &QTreeWidget::itemCollapsed, t, [t,expanded](QTreeWidgetItem *i) { t->sync(); expanded(t->node, i->data(0,Qt::UserRole).toULongLong(),0); });
+    QObject::connect(t, &QTreeWidget::itemSelectionChanged, t, [t,selected]() {
+        std::vector<uint64_t> tokens;
+        for (auto *i : t->selectedItems()) tokens.push_back(i->data(0,Qt::UserRole).toULongLong());
+        selected(t->node,tokens.data(),int(tokens.size()));
+    });
+    return t;
+}
+void day_qt_tree_begin(void *w) {
+    auto *t = static_cast<DayTreeWidget *>(w); t->blockSignals(true);
+    for (auto const &c : t->cells) c.second->hide();
+    t->clear(); t->nodes.clear();
+}
+void day_qt_tree_add(void *w, uint64_t token, uint64_t parent, int hasParent, const char *text, int expandable, int header, int open) {
+    auto *t = static_cast<DayTreeWidget *>(w);
+    auto *i = new QTreeWidgetItem();
+    i->setData(0,Qt::UserRole,QVariant::fromValue<qulonglong>(token));
+    i->setText(0,QString::fromUtf8(text));
+    // Text supplies native type-ahead/accessibility; Day paints its row above this.
+    i->setSizeHint(0,QSize(0,t->rowHeight));
+    i->setFlags(header ? Qt::ItemIsEnabled : Qt::ItemIsEnabled | Qt::ItemIsSelectable);
+    i->setChildIndicatorPolicy(expandable ? QTreeWidgetItem::ShowIndicator : QTreeWidgetItem::DontShowIndicator);
+    auto p = t->nodes.find(parent);
+    if (hasParent && p != t->nodes.end()) p->second->addChild(i); else t->addTopLevelItem(i);
+    i->setExpanded(open != 0); t->nodes[token] = i;
+}
+void day_qt_tree_end(void *w) {
+    auto *t = static_cast<DayTreeWidget *>(w); t->doItemsLayout(); t->blockSignals(false); t->sync();
+}
+void *day_qt_tree_cell(void *w, uint64_t token) {
+    auto *t = static_cast<DayTreeWidget *>(w);
+    auto &cell = t->cells[token];
+    if (!cell) { cell = new QWidget(t->viewport()); }
+    t->sync(); return cell;
+}
+int day_qt_tree_frame(void *w, uint64_t token, double *width) {
+    auto *t = static_cast<DayTreeWidget *>(w); auto i = t->nodes.find(token);
+    if (i == t->nodes.end()) return 0;
+    const QRect r = t->cellRect(i->second); *width = r.width();
+    return !r.isEmpty() && r.intersects(t->viewport()->rect());
+}
+void day_qt_tree_expand(void *w, uint64_t token, int open) {
+    auto *t = static_cast<DayTreeWidget *>(w); auto i = t->nodes.find(token);
+    if (i == t->nodes.end()) return;
+    const QSignalBlocker blocked(t); i->second->setExpanded(open != 0); t->sync();
+}
+void day_qt_tree_select(void *w, const uint64_t *tokens, int len) {
+    auto *t = static_cast<DayTreeWidget *>(w); const QSignalBlocker blocked(t); t->clearSelection();
+    for (int n=0; n<len; ++n) { auto i=t->nodes.find(tokens[n]); if(i!=t->nodes.end() && (i->second->flags() & Qt::ItemIsSelectable)) i->second->setSelected(true); }
+}
+void day_qt_tree_reveal(void *w, uint64_t token) {
+    auto *t = static_cast<DayTreeWidget *>(w); auto i=t->nodes.find(token);
+    if(i!=t->nodes.end()) t->scrollToItem(i->second); t->sync();
 }
 
 } // extern "C"

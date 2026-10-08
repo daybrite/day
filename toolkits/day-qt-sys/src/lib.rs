@@ -647,3 +647,33 @@ pub struct DayQtNative {
     pub w: c_double,
     pub h: c_double,
 }
+
+unsafe extern "C" {
+    pub fn day_qt_tree_new(
+        id: u64,
+        height: f64,
+        indent: f64,
+        selectable: c_int,
+        multi: c_int,
+        expanded: extern "C" fn(u64, u64, c_int),
+        selected: extern "C" fn(u64, *const u64, c_int),
+        viewport: extern "C" fn(*mut c_void),
+    ) -> *mut c_void;
+    pub fn day_qt_tree_begin(w: *mut c_void);
+    pub fn day_qt_tree_add(
+        w: *mut c_void,
+        token: u64,
+        parent: u64,
+        has_parent: c_int,
+        text: *const c_char,
+        expandable: c_int,
+        header: c_int,
+        open: c_int,
+    );
+    pub fn day_qt_tree_end(w: *mut c_void);
+    pub fn day_qt_tree_cell(w: *mut c_void, token: u64) -> *mut c_void;
+    pub fn day_qt_tree_frame(w: *mut c_void, token: u64, width: *mut f64) -> c_int;
+    pub fn day_qt_tree_expand(w: *mut c_void, token: u64, open: c_int);
+    pub fn day_qt_tree_select(w: *mut c_void, tokens: *const u64, len: c_int);
+    pub fn day_qt_tree_reveal(w: *mut c_void, token: u64);
+}

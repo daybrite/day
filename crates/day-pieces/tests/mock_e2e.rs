@@ -9613,3 +9613,193 @@ fn run_time_launcher_shortcuts_reach_the_toolkit_and_the_dock_menu() {
     );
     assert_eq!(probe.dock_menu(), ["Resume Groceries"]);
 }
+
+#[test]
+fn sidebar_sections_keep_identity_selection_and_absent_collapse_state() {
+    // Synthetic repository fixtures; titles deliberately change independently of IDs.
+    use std::collections::HashSet;
+    let selected = Signal::new("repo:b".to_string());
+    let rows = Signal::new(vec!["repo:a".to_string(), "repo:b".to_string()]);
+    let title = Signal::new("Fixture owner".to_string());
+    let closed = Signal::new(HashSet::from(["absent-owner".to_string()]));
+    let changes = Signal::new(Vec::<(String, bool)>::new());
+    let probe = boot(move || {
+        nav(selected)
+            .style(NavStyle::Sidebar)
+            .collapsed_sections(closed)
+            .on_section_expansion(move |id, open| changes.update(|v| v.push((id, open))))
+            .items(
+                move || rows.get().into_iter().enumerate().collect::<Vec<_>>(),
+                move |(i, key)| {
+                    let row = item(key.clone(), key.clone());
+                    if *i == 0 {
+                        row.section_id("owner", title.get())
+                    } else {
+                        row
+                    }
+                },
+            )
+            .destination(|_| label("Fixture selected repository"))
+    });
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let node = node_id(&probe, "day.tree", 0);
+    let source = probe.state.borrow().tree_sources[&host.0].clone();
+    let header = probe.tree_children(host, None)[0];
+    assert!((source.section_header)(header));
+    probe.emit(node, Event::TreeSelection(vec![header]));
+    flush_sync();
+    assert_eq!(
+        selected.get_untracked(),
+        "repo:b",
+        "headings are not destinations"
+    );
+    probe.emit(
+        node,
+        Event::TreeExpanded {
+            token: header,
+            expanded: false,
+        },
+    );
+    flush_sync();
+    assert_eq!(selected.get_untracked(), "repo:b");
+    assert_eq!(
+        closed.get_untracked(),
+        HashSet::from(["owner".to_string(), "absent-owner".to_string()])
+    );
+    assert_eq!(changes.get_untracked(), [("owner".to_string(), false)]);
+    rows.set(vec!["repo:b".to_string()]);
+    title.set("Renamed fixture owner".into());
+    flush_sync();
+    assert_eq!(
+        probe.tree_children(host, None),
+        [header],
+        "first-child and title changes preserve identity"
+    );
+    assert!(!(source.expanded)(header));
+    rows.set(Vec::new());
+    flush_sync();
+    assert!(closed.get_untracked().contains("owner"));
+    rows.set(vec!["repo:b".to_string()]);
+    flush_sync();
+    assert_eq!(probe.tree_children(host, None), [header]);
+    assert!(!(source.expanded)(header));
+    closed.update(|s| {
+        s.remove("owner");
+    });
+    flush_sync();
+    assert!((source.expanded)(header));
+    assert_eq!(
+        changes.get_untracked().len(),
+        1,
+        "programmatic restore has no callback echo"
+    );
+}
+
+#[test]
+fn tree_native_header_height_survives_rebinding() {
+    // Synthetic header: AppKit source-list groups are shorter than ordinary rows.
+    let title = Signal::new("Fixture header".to_owned());
+    let probe = boot(move || {
+        tree(
+            day_pieces::branches(|| vec![0], |i: &i32| *i, |_| None::<i32>),
+            move |_| {
+                row((label(move || title.get()).height(12.0),))
+                    .align(VAlign::Center)
+                    .grow()
+            },
+        )
+        .row_height(RowHeight::Uniform(48.0))
+    });
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let token = probe.tree_children(host, None)[0];
+    let cell = MockHandle(9001);
+    probe.tree_bind(host, token, cell);
+    let source = probe.state.borrow().tree_sources[&host.0].clone();
+    (source.layout_cell_size)(cell.0 as day_spec::RawHandle, Size::new(200.0, 20.0));
+    let frame = probe.find_by_kind("day.label")[0].1.frame;
+    assert!(
+        frame.origin.y >= 0.0 && frame.origin.y + frame.size.height <= 20.0,
+        "{frame:?}"
+    );
+    title.set("Renamed fixture header".into());
+    flush_sync();
+    probe.tree_bind(host, token, cell);
+    let rebound = probe.find_by_kind("day.label")[0].1.frame;
+    assert_eq!(rebound.origin.y, frame.origin.y);
+    assert_eq!(rebound.size.height, frame.size.height);
+}
+
+#[test]
+fn sidebar_sections_restore_and_persist_stable_ids_without_echo() {
+    // Synthetic persistence includes Unicode and separator characters in the stable ID.
+    let saved = "9:owner:日6:absent";
+    let store = install_store(&[("fixture.sections", saved)]);
+    let changes = Signal::new(0);
+    let build = move || {
+        nav(Signal::new("repo".to_owned()))
+            .style(NavStyle::Sidebar)
+            .restore_sections("fixture.sections")
+            .on_section_expansion(move |_, _| changes.update(|n| *n += 1))
+            .section_id("owner:日", "Fixture owner")
+            .item("repo", "Fixture repository", || label("Fixture detail"))
+    };
+    let probe = boot(build);
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let source = probe.state.borrow().tree_sources[&host.0].clone();
+    let header = probe.tree_children(host, None)[0];
+    assert!(!(source.expanded)(header));
+    assert_eq!(changes.get_untracked(), 0);
+    probe.emit(
+        node_id(&probe, "day.tree", 0),
+        Event::TreeExpanded {
+            token: header,
+            expanded: true,
+        },
+    );
+    flush_sync();
+    assert_eq!(store.0.borrow()["fixture.sections"], "6:absent");
+    assert_eq!(changes.get_untracked(), 1);
+    let probe = boot(build);
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let source = probe.state.borrow().tree_sources[&host.0].clone();
+    assert!((source.expanded)(probe.tree_children(host, None)[0]));
+    assert_eq!(
+        changes.get_untracked(),
+        1,
+        "relaunch must not echo an expansion event"
+    );
+}
+
+#[test]
+fn composed_sidebar_header_click_restores_the_leaf_highlight() {
+    let mounted = Signal::new(false);
+    let selected = Signal::new("repo".to_owned());
+    let probe = boot(move || {
+        when(
+            move || mounted.get(),
+            move || {
+                nav(selected)
+                    .style(NavStyle::Sidebar)
+                    .collapsed_sections(Signal::new(std::collections::HashSet::new()))
+                    .section_id("owner", "Fixture owner")
+                    .item("repo", "Fixture repo", || label("Fixture detail"))
+            },
+        )
+    });
+    probe.state.borrow_mut().emulated_trees = true;
+    mounted.set(true);
+    flush_sync();
+    let node = node_id(&probe, "day.list", 0);
+    probe.clear_log();
+    probe.emit(node, Event::SelectionChanged(0));
+    flush_sync();
+    assert_eq!(selected.get_untracked(), "repo");
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|line| line.contains("list selected [1]")),
+        "{:?}",
+        probe.log()
+    );
+}

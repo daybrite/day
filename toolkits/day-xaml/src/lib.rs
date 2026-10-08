@@ -15,6 +15,7 @@
 #[path = "../../share-windows.rs"]
 mod share_windows;
 mod transfer;
+mod tree;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -1740,11 +1741,9 @@ impl Toolkit for Xaml {
             Cap::Animation => Support::Native,
             // A topmost child of the content Canvas — not a system modal (docs/cover.md).
             Cap::Cover => Support::Emulated,
-            // The COMPOSED tree (docs/tree.md M2/M4): the piece flattens onto this backend's
-            // emulated list; disclosure, indentation and row content are day pieces. No
-            // native drag wiring, so `Cap::TreeMove` stays Unsupported (`tree_move:` drives
-            // the seam synthetically).
-            Cap::Tree => Support::Emulated,
+            // Native TreeView/TreeViewNode disclosure and selection with Day Canvas rows.
+            // Native tree drag-to-move is not wired yet.
+            Cap::Tree | Cap::TreeSections => Support::Native,
             // The NavigationView shows the current destination in its Header, so pages needn't
             // repeat their title in-content (docs/navigation.md).
             Cap::NavHeader => Support::Native,
@@ -2211,10 +2210,28 @@ impl Toolkit for Xaml {
                         }
                     }
                 }
+                Some(Builtin::Tree) => {
+                    let Some(p) = props_of::<TreeProps>(kind, "xaml", props) else {
+                        return placeholder_handle(kind);
+                    };
+                    let pending = PENDING_SPLIT_NAV.with(|v| v.replace(std::ptr::null_mut()));
+                    if !pending.is_null() {
+                        let page = NAV_STATE.with(|m| {
+                            m.borrow().values().find_map(|state| {
+                                let NavState::Split(s) = state;
+                                (s.nav_view == pending).then_some(s.sidebar_page).flatten()
+                            })
+                        });
+                        if let Some((page, _)) = page {
+                            SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(page as usize)));
+                            ffi::day_xaml_nav_custom_sidebar(pending, page);
+                        }
+                    }
+                    WinHandle(tree::new(id, p))
+                }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
-                | Some(Builtin::Tree)
                 | Some(Builtin::Split)
                 | Some(Builtin::SplitPane)
                 | None => {
@@ -2237,6 +2254,10 @@ impl Toolkit for Xaml {
         patch: &dyn std::any::Any,
         anim: Option<&AnimSpec>,
     ) {
+        if let Some(patch) = patch.downcast_ref::<TreePatch>() {
+            tree::patch(h.0 as usize, patch);
+            return;
+        }
         unsafe {
             match kind {
                 kinds::IMAGE => {
@@ -2591,6 +2612,7 @@ impl Toolkit for Xaml {
         }
     }
     fn release(&mut self, h: WinHandle) {
+        tree::release(h.0 as usize);
         // A drag region's element is held by the shim's hit test; let it go with the node.
         if DRAG_REGIONS.with(|d| d.borrow_mut().remove(&(h.0 as usize))) {
             unsafe { ffi::day_xaml_set_drag_region(h.0, 0) };
@@ -3247,6 +3269,10 @@ impl Toolkit for Xaml {
             visible: tri(raw.visible),
             frame: (raw.has_frame != 0).then(|| Rect::new(raw.x, raw.y, raw.w, raw.h)),
         }
+    }
+
+    fn attach_tree(&mut self, host: &WinHandle, source: day_spec::TreeSource) {
+        tree::attach(host.0 as usize, source);
     }
 
     fn attach_list(&mut self, host: &WinHandle, source: day_spec::ListSource) {

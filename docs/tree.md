@@ -13,18 +13,20 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > [!IMPORTANT]
 > **Status: M0 + M1 + M2 + M3 + M5 shipped (2026-08), M4's ArkUI half shipped
 > (2026-08), M6 shipped.** `TreeSource`, the driver, the flattener, the `tree()` piece, mock
-> probes, three native backends (AppKit `NSOutlineView`, GTK
-> `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, and UIKit's list-layout
-> `UICollectionView` over one diffable section snapshot), and the composed tree (M2, on
-> web-dom, the qt toolkit, Android and ArkUI) are implemented and exercised by the mock e2e
+> probes, native backends (AppKit `NSOutlineView`, GTK
+> `GtkListView`+`GtkTreeListModel`+`GtkTreeExpander`, UIKit's list-layout
+> `UICollectionView`, Qt `QTreeWidget`, and WinUI/system-XAML `TreeView`), and
+> the composed tree (web-dom, Android arbitrary-depth trees and ArkUI) are implemented.
+> Android's two-level section mode uses `ExpandableListView`. The original mock e2e
 > suite and Day Sketch's layer panel: one `dayscript/tree.yaml` passes verbatim on
 > macos-appkit, macos-gtk, ios-uikit, web-dom, macos-qt, android-mdc and harmony-arkui
 > (89/89), and the leading pane rides the `.edge(PaneEdge::Leading)` inspector on all
 > seven. The Showcase's `Section::Tree` demo + `day-tweak-tree-style` shipped as M5's
 > other half: its own `dayscript/tree.yaml` (53 steps) passes verbatim on the same seven
 > targets, with per-row context menus checked by real browser right-clicks on web-dom.
-> XAML's composed flip is code-complete but awaits CI (nothing on this development Mac
-> can compile or run it; see M4's as-built notes). M3's as-built notes:
+> The October native XAML adapter still requires Windows CI validation; it cannot be compiled
+> or run on this development Mac. The historical walkthrough results above predate the
+> Qt/XAML adapter change. M3's as-built notes:
 >
 > - **Native drag-to-move is still AppKit-only**: GTK and UIKit answer `Cap::Tree` Native
 >   but not yet `Cap::TreeMove`; the dayscript `tree_move:` step drives `TreeSource` on every
@@ -105,8 +107,8 @@ Nothing about that is specific to Day Sketch. It is what every tree does.
 ## What each toolkit brings
 
 This table distinguishes platform capabilities from Day's implemented adapters. Native
-controls existing in a toolkit does not mean Day currently uses them. In particular, Qt,
-XAML, Android, ArkUI and web-dom currently use the composed tree. See the
+controls existing in a toolkit does not mean Day currently uses them. Android's general tree,
+ArkUI and web-dom use the composed tree; Qt and XAML now use native tree controls. See the
 [section disclosure research](#native-collapsible-sections-research-2026-10) for the narrower
 two-level grouping used by navigation sidebars.
 
@@ -120,9 +122,9 @@ a worse fit than a flat list that hosts child views.
 | **AppKit** | `NSOutlineView` | yes — view-based rows, same `makeView`/`viewFor` path as `NSTableView` | **native**, and close to a drop-in over Day's existing table code |
 | **UIKit** | `UICollectionView` list, `.sidebar` appearance | yes — `UICollectionViewListCell` hosts a content view | **native**, but a different widget from Day's `UITableView` list: new realize, new data source |
 | **GTK 4** | `GtkListView` + `GtkTreeListModel` + `GtkTreeExpander` | yes — the list-item factory binds arbitrary widgets | **native**; `GtkTreeView` is deprecated at the 4.10 API level Day targets, so the model-based path is also the current one |
-| **XAML (WinUI)** | `TreeView` / `TreeViewNode` | yes — content/templates can host UI elements | **composed today**; native adapter remains unimplemented |
-| **Qt** | `QTreeView` / `QTreeWidget` | delegates for painted rows; index widgets for hosted content, with ownership and scaling costs | **composed today**; native disclosure is available, see the [note on Qt](#the-note-on-qt) |
-| **Android** | `ExpandableListView` for two levels, not arbitrary-depth trees | group/child adapter views | **composed today** for the general tree; native control is a candidate for sectioned lists |
+| **XAML (WinUI)** | `TreeView` / `TreeViewNode` | yes — content/templates can host UI elements | **native** `TreeViewNode` hierarchy with Day Canvas content (Windows CI validation required) |
+| **Qt** | `QTreeView` / `QTreeWidget` | delegates for painted rows; index widgets for hosted content, with ownership and scaling costs | **native** `QTreeWidget`; Day cells are independent viewport children so model rebuilds cannot delete their anchors |
+| **Android** | `ExpandableListView` for two levels, not arbitrary-depth trees | group/child adapter views | **composed** for arbitrary depth; **native** `ExpandableListView` for `TreeSections` |
 | **ArkUI** | ArkTS `TreeView` + `TreeController` (API 10+) | documented title/icon fields; `NodeParam.container` is a context-menu builder, **not a row-content slot** | **composed today**; native adapter needs further API investigation |
 | **web-dom** | `details` / `summary` disclosure; no complete tree-view element | arbitrary DOM descendants | **composed today**; native disclosure can serve sections, but does not provide full tree keyboard semantics |
 | **mock** | simulated | yes | drives the tests, as it does for `list` |
@@ -132,8 +134,8 @@ flattener serves the composed adapters. Choosing that fallback is an implementat
 not evidence that a toolkit lacks native disclosure controls.
 
 An "emulated" verdict here means the tree *semantics* are Day's; it does not mean no native
-widget. Qt's emulated tree still scrolls a real Qt container of real Qt row widgets, Android's
-rides the same native `RecyclerView` the `list` piece uses, and web-dom's rows are real DOM.
+widget. Android's arbitrary-depth tree rides the native `RecyclerView` the `list` piece
+uses, ArkUI hosts native row nodes, and web-dom's rows are real DOM.
 That matters for [customization](#deep-customization-per-toolkit): there is always something
 real to tweak.
 
@@ -183,14 +185,43 @@ the sidebar's text/icon/badge rows can use delegates; arbitrary Day widget hosti
 block a native sidebar implementation. Android's native expandable list meets the two-level
 section shape but cannot replace Day's general tree.
 
-The shared API should identify sections independently of localized titles, child order and
-the first visible row. Persist a set of collapsed section IDs; keep IDs for temporarily absent
-sections and default new sections to expanded. Expansion changes must carry the stable ID and
-new state, suppress callbacks caused by programmatic restoration, and leave the selected
-route intact when its section closes. Browser `toggle` events also fire for programmatic
-changes and may be coalesced, so they require explicit synchronization rather than assuming
-every event is user input. These are requirements for the forthcoming section adapter, not
-claims that the current `nav().section(...)` API already implements them.
+## Collapsible sections
+
+`tree(...).section_headers()` declares a two-level source: root branches are non-selectable
+section headings, root leaves remain ordinary rows, and section children must be leaves.
+This selects `Cap::TreeSections` independently of the arbitrary-depth `Cap::Tree`. Android
+therefore uses native groups without advertising an arbitrary-depth platform tree. DOM and
+ArkUI use the existing list flattener and Day disclosure controls for both modes.
+
+`.expanded(signal)` restores app-owned expansion. `.on_expansion(|key, expanded| ...)`
+reports actual user or script changes once, after updating that signal. Repeated events and
+programmatic restoration do not echo callbacks. Native model rebuilds consult
+`TreeSource.expanded`, suppress notifications, restore selection by token, and recycle hidden
+row IDs. `TreeSource.section_header` prevents headings from becoming destinations.
+
+AppKit section mode uses `NSTableViewStyle::SourceList`, `isGroupItem`, native table-row
+views, `NSTableCellView.textField`, and `floatsGroupRows`. AppKit supplies the trailing
+hover-revealed show/hide control, typography and floating group appearance. Generic trees
+retain their full-width style. `TreeSource.layout_cell_size` reports actual native cell bounds;
+this is essential because source-list group headers have different heights from leaf rows.
+The core remembers both dimensions through rebinding and reactive updates. UIKit uses sidebar
+list appearance and the header outline accessory style; GTK marks group list items unselectable.
+
+Qt owns native disclosure, selection and keyboard handling. Day row widgets remain children
+of its viewport, independent of model ownership, and bind only while visible. WinUI owns
+`TreeViewNode` disclosure and selection; Day Canvas content is detached before a model rebuild.
+System XAML observes its template's `ListViewBase` selection (it lacks the WinUI-specific
+`TreeView.SelectionChanged` event). Both adapters retain cell hosts until tree teardown.
+Native tree drag-to-move remains AppKit-only. Qt/XAML use uniform row-height estimates
+(36 points for Automatic); XAML currently binds all expanded rows rather than virtualizing
+Day content. Android's native section control supports single selection; multi-select section trees use
+the composed implementation.
+
+`tree_section_expansion_contract` runs in the component conformance suite on every toolkit,
+including explicit WASM registration. The Qt C++ `qt-tree` test also verifies native signal
+suppression, 64-bit identity, non-selectable headings and cell lifetime across model rebuilds.
+Mock tests cover stable sidebar identity, absent-section retention and native header height
+through rebinding. See [navigation persistence](navigation.md#collapsible-sidebar-sections).
 
 ### ArkUI: reaching an ArkTS component from the C node API
 
@@ -219,11 +250,11 @@ arbitrary Day-built widgets, `setIndexWidget` transfers widget ownership to the 
 Qt recommends it for static content and recommends `QStyledItemDelegate` for dynamic content
 or editors ([official documentation](https://doc.qt.io/qt-6/qabstractitemview.html#setIndexWidget)).
 This is a row-hosting/scaling concern, not a limitation of native expansion.
-For comparison, **Day's Qt list already declines to virtualize**: it
-builds a real widget per row into an emulated scroller. On that basis a `QTreeView` with
-per-row index widgets costs what Qt's list costs today and buys native expansion, indentation,
-keyboard handling and `QAccessible::Tree`. A spike is due before the emulated path is fixed as
-Qt's permanent answer; `TreeSource` does not change either way.
+Day now uses `QTreeWidget` for native expansion, indentation, keyboard handling and tree
+accessibility. Day-owned row widgets are independent viewport children, positioned from
+`visualItemRect`, rather than index widgets. This avoids native model rebuilds deleting
+adopted cell anchors. Visible rows bind lazily; previously created cell hosts remain until
+tree teardown. The Qt native test exercises this ownership boundary.
 
 ## Why the tree is a core built-in
 

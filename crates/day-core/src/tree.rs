@@ -624,6 +624,7 @@ impl<B: Toolkit> Tree<B> {
             None => return,
         };
         let row_height = state.driver.row_height;
+        let native_height = state.cells.get(&key).and_then(|b| b.native_height);
         if stale {
             self.invalidate_subtree(anchor);
             if let Some(b) = self
@@ -634,12 +635,12 @@ impl<B: Toolkit> Tree<B> {
                 b.laid_width = Some(width);
             }
         }
-        let height = match row_height {
+        let height = native_height.unwrap_or_else(|| match row_height {
             day_spec::props::RowHeight::Uniform(h) => h,
             day_spec::props::RowHeight::Automatic => {
                 crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
             }
-        };
+        });
         crate::layout::place_node(
             self,
             anchor,
@@ -1084,6 +1085,7 @@ pub trait TreeOps {
     fn tree_layout_cell(&mut self, node: RNode, key: usize);
     /// Re-lay the row at the cell's actual width (indentation makes tree cells per-row wide).
     fn tree_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
+    fn tree_layout_cell_size(&mut self, node: RNode, key: usize, size: Size);
     /// The cell went back to the host's reuse pool: clear the row subtree's element ids, so
     /// a collapsed-away row stops answering `find_by_id` (dayscript `assert_missing`) and a
     /// stale id can never hijack a lookup. The next bind re-sets the live row's id.
@@ -2419,6 +2421,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     scope: built.scope,
                     rebind: built.rebind,
                     native_width: None,
+                    native_height: None,
                     laid_width: None,
                 },
             );
@@ -2455,6 +2458,22 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             cell.native_width = Some(width);
         }
         self.layout_tree_cell_at(node, key, width);
+    }
+
+    fn tree_layout_cell_size(&mut self, node: RNode, key: usize, size: Size) {
+        let changed = self
+            .trees
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+            .and_then(|cell| {
+                let changed = cell.native_height != Some(size.height);
+                cell.native_height = Some(size.height);
+                changed.then_some(cell.anchor)
+            });
+        if let Some(anchor) = changed {
+            self.invalidate_subtree(anchor);
+        }
+        self.tree_layout_cell_width(node, key, size.width);
     }
 
     fn tree_recycle_cell(&mut self, node: RNode, key: usize) {

@@ -250,6 +250,8 @@ pub struct MockState {
     /// Hierarchical-tree row-pull sources, keyed by tree host handle (docs/tree.md). A test
     /// drives the "native tree" through the `MockProbe::tree_*` probes.
     pub tree_sources: HashMap<u64, day_spec::TreeSource>,
+    /// Exercise the shared composed tree/section implementation instead of native pulls.
+    pub emulated_trees: bool,
     /// The app menu as last applied (docs/menus.md): item titles, probe-visible.
     pub app_menu: Vec<String>,
     /// The Dock menu as last applied (docs/menus.md "Dock menu"): item titles.
@@ -1064,7 +1066,10 @@ impl Toolkit for MockToolkit {
                 }
             }
             // The probe drives every tree duty (`tree_children`/`tree_bind`/`tree_move`).
-            Cap::Tree | Cap::TreeMove => Support::Native,
+            Cap::Tree | Cap::TreeSections if self.state.borrow().emulated_trees => {
+                Support::Emulated
+            }
+            Cap::Tree | Cap::TreeSections | Cap::TreeMove => Support::Native,
             // Off by default: the mock models a phone, so a nav host stacks unless a test opts in.
             // A mock that can split can also re-present: it records the patch, which is exactly
             // what the morph tests assert against.

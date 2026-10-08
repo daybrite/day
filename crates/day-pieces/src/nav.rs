@@ -575,6 +575,12 @@ type DerivedRows<K> = (
     Vec<Option<day_spec::Color>>,
 );
 
+#[derive(Clone)]
+struct SectionHeader {
+    id: Option<String>,
+    title: TextSource,
+}
+
 struct SelItem<K> {
     key: K,
     title: TextSource,
@@ -593,7 +599,7 @@ struct SelItem<K> {
     /// Tint for `badge_icon`; `None` leaves it at the backend's neutral template tint.
     badge_tint: Option<day_spec::Color>,
     /// Header introducing the group this item opens (docs/navigation.md).
-    section: Option<TextSource>,
+    section: Option<SectionHeader>,
     /// Immersive-chrome page (docs/navigation.md): keeps the floating transparent bar on
     /// backends with an immersive nav mode; standard opaque bar otherwise.
     immersive: bool,
@@ -612,7 +618,7 @@ pub struct NavItem<K = String> {
     badge: Option<TextSource>,
     badge_icon: Option<String>,
     badge_tint: Option<day_spec::Color>,
-    section: Option<TextSource>,
+    section: Option<SectionHeader>,
     immersive: bool,
 }
 
@@ -684,7 +690,18 @@ impl<K> NavItem<K> {
     }
     /// Open a new section with this header, immediately before this row.
     pub fn section<M>(mut self, title: impl IntoText<M>) -> Self {
-        self.section = Some(title.into_text());
+        self.section = Some(SectionHeader {
+            id: None,
+            title: title.into_text(),
+        });
+        self
+    }
+    /// Open a section with an identity independent of its localized title or first row.
+    pub fn section_id<M>(mut self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
+        self.section = Some(SectionHeader {
+            id: Some(id.into()),
+            title: title.into_text(),
+        });
         self
     }
     /// Mark this item's pushed page immersive-chrome (docs/navigation.md), the data-driven
@@ -732,7 +749,7 @@ struct RowMeta {
     badge: Option<TextSource>,
     badge_icon: Option<String>,
     badge_tint: Option<day_spec::Color>,
-    section: Option<TextSource>,
+    section: Option<SectionHeader>,
 }
 
 #[derive(Clone)]
@@ -743,6 +760,7 @@ struct NavReorder<K> {
 #[derive(Clone, PartialEq)]
 struct SidebarRow<K> {
     id: String,
+    parent: Option<String>,
     key: Option<K>,
     title: String,
     icon: Option<String>,
@@ -754,10 +772,15 @@ struct SidebarRow<K> {
 }
 fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
     let mut result = Vec::new();
+    let mut parent = None;
     for (i, key) in rows.keys.into_iter().enumerate() {
         if let Some(title) = &rows.sections[i] {
+            let id = rows.section_ids[i].clone().unwrap_or_else(|| key.key());
+            let header = format!("header:{id}");
+            parent = Some(header.clone());
             result.push(SidebarRow {
-                id: format!("header:{}", key.key()),
+                id: header,
+                parent: None,
                 key: None,
                 title: title.clone(),
                 icon: None,
@@ -770,6 +793,7 @@ fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
         }
         result.push(SidebarRow {
             id: format!("item:{}", key.key()),
+            parent: parent.clone(),
             key: Some(key),
             title: rows.titles[i].clone(),
             icon: rows.icons[i].clone(),
@@ -861,6 +885,135 @@ fn sidebar_progress<K: Route>(
     )
     .any()
 }
+fn section_sidebar<K: Route, S: Binding<K>>(
+    rows: Rc<SelItems<K>>,
+    selection: S,
+    collapsed: Signal<std::collections::HashSet<String>>,
+    changed: Option<Rc<dyn Fn(String, bool)>>,
+    progress: Option<IconProgressSource<K>>,
+) -> AnyPiece {
+    use crate::structure::{branches, tree};
+    let snapshot = Signal::new(day_reactive::untrack(|| sidebar_rows(rows.derive())));
+    bind(
+        move || sidebar_rows(rows.derive()),
+        move |v| snapshot.set_if_changed(v.clone()),
+    );
+    let open = Signal::new(std::collections::HashSet::new());
+    bind(
+        move || {
+            let closed = collapsed.get();
+            snapshot
+                .get()
+                .iter()
+                .filter(|r| r.key.is_none())
+                .filter(|r| !closed.contains(r.id.strip_prefix("header:").unwrap_or(&r.id)))
+                .map(|r| r.id.clone())
+                .collect::<std::collections::HashSet<_>>()
+        },
+        move |v| open.set_if_changed(v.clone()),
+    );
+    let selected = selection.clone();
+    tree(
+        branches(
+            move || snapshot.get(),
+            |r: &SidebarRow<K>| r.id.clone(),
+            |r| r.parent.clone(),
+        ),
+        move |slot| {
+            let progress = progress.clone();
+            piece_fn(move |cx| {
+                let node = when(
+                    move || slot.field(|r| r.key.is_none()),
+                    move || {
+                        row((label(move || slot.field(|r| r.title.clone()))
+                            .font(day_spec::Font::Caption)
+                            .single_line()
+                            .grow_w(),))
+                        .align(VAlign::Center)
+                        .grow()
+                        .any()
+                    },
+                )
+                .otherwise(move || {
+                    let progress = progress.clone();
+                    row((
+                        when(
+                            move || slot.field(|r| r.icon.is_some()),
+                            move || {
+                                sidebar_image(slot, false)
+                                    .overlay(sidebar_progress(slot, progress.clone()))
+                            },
+                        ),
+                        label(move || slot.field(|r| r.title.clone()))
+                            .single_line()
+                            .grow_w(),
+                        label(move || slot.field(|r| r.badge.clone().unwrap_or_default()))
+                            .font(day_spec::Font::Caption),
+                        when(
+                            move || slot.field(|r| r.badge_icon.is_some()),
+                            move || sidebar_image(slot, true),
+                        ),
+                    ))
+                    .spacing(8.0)
+                    .align(VAlign::Center)
+                    .grow_w()
+                    .any()
+                })
+                .grow()
+                .build(cx);
+                with_tree(|t| {
+                    t.set_context_menu_fn(node, Rc::new(move |_| slot.field(|r| r.menu.clone())))
+                });
+                node
+            })
+        },
+    )
+    .section_headers()
+    .row_height(day_spec::props::RowHeight::Uniform(32.0))
+    .expanded(open)
+    .on_expansion(move |id, expanded| {
+        let Some(id) = id.strip_prefix("header:") else {
+            return;
+        };
+        collapsed.update(|s| {
+            if expanded {
+                s.remove(id);
+            } else {
+                s.insert(id.to_owned());
+            }
+        });
+        if let Some(f) = &changed {
+            f(id.to_owned(), expanded);
+        }
+    })
+    .selected(move || vec![format!("item:{}", selected.read().key())])
+    .on_selection(move |ids| {
+        let Some(row) = snapshot
+            .get()
+            .into_iter()
+            .find(|r| ids.contains(&r.id) && r.key.is_some())
+        else {
+            return;
+        };
+        if let Some(key) = row.key {
+            day_core::note_navigation(&key.key(), Some(&row.title));
+            selection.write(key);
+        }
+    })
+    .type_ahead(move |id| {
+        snapshot
+            .get()
+            .iter()
+            .find(|r| &r.id == id)
+            .map(|r| r.title.clone())
+            .unwrap_or_default()
+    })
+    .row_id(|id| format!("sidebar:{id}"))
+    .id("nav-sections")
+    .grow()
+    .any()
+}
+
 fn reorder_sidebar<K: Route, S: Binding<K>>(
     rows: Rc<SelItems<K>>,
     selection: S,
@@ -1000,6 +1153,7 @@ struct NavRows<K> {
     badge_icons: Vec<Option<String>>,
     badge_tints: Vec<Option<day_spec::Color>>,
     sections: Vec<Option<String>>,
+    section_ids: Vec<Option<String>>,
     tints: Vec<Option<day_spec::Color>>,
     menus: Vec<Vec<day_spec::MenuItem>>,
 }
@@ -1060,6 +1214,7 @@ impl<K: Route> SelItems<K> {
             badge_icons: Vec::new(),
             badge_tints: Vec::new(),
             sections: Vec::new(),
+            section_ids: Vec::new(),
             tints: Vec::new(),
             menus: Vec::new(),
         };
@@ -1070,7 +1225,10 @@ impl<K: Route> SelItems<K> {
             r.badges.push(m.badge.as_ref().map(|b| b.resolve()));
             r.badge_icons.push(m.badge_icon.clone());
             r.badge_tints.push(m.badge_tint);
-            r.sections.push(m.section.as_ref().map(|s| s.resolve()));
+            r.sections
+                .push(m.section.as_ref().map(|s| s.title.resolve()));
+            r.section_ids
+                .push(m.section.as_ref().and_then(|s| s.id.clone()));
             r.tints.push(m.tint);
             r.menus.push(m.menu.clone());
         };
@@ -1166,8 +1324,10 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     /// Keep a filtered-out selection while its underlying record still exists.
     retain_selection: Option<ListPred<K>>,
     reorder_items: Option<NavReorder<K>>,
+    collapsed_sections: Option<Signal<std::collections::HashSet<String>>>,
+    on_section_expansion: Option<Rc<dyn Fn(String, bool)>>,
     /// A header from [`Nav::section`] waiting to be attached to the next item added.
-    pending_section: Option<TextSource>,
+    pending_section: Option<SectionHeader>,
     /// Items declared on this host's own chrome ([`Nav::toolbar`]).
     toolbar: Vec<crate::ToolbarSource>,
     /// Draw the platform's own sidebar toggle ([`Nav::sidebar_toggle`]).
@@ -1412,6 +1572,8 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
         restore: None,
         retain_selection: None,
         reorder_items: None,
+        collapsed_sections: None,
+        on_section_expansion: None,
         toolbar: Vec::new(),
         search: None,
         presentation: None,
@@ -1424,6 +1586,60 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 }
 
 impl<K: Route, S: Binding<K>> Nav<S, K> {
+    /// Collapsible sidebar sections. The set contains COLLAPSED stable section IDs;
+    /// missing IDs default to expanded, and temporarily filtered-out IDs are retained.
+    /// Pair with `section_id`; unkeyed headings use their first route as a fallback identity.
+    /// Takes precedence over `reorder_items`; combined collapse/reordering is not supported.
+    pub fn collapsed_sections(mut self, state: Signal<std::collections::HashSet<String>>) -> Self {
+        self.collapsed_sections = Some(state);
+        self
+    }
+    /// Reports user/scripting disclosure after updating `collapsed_sections`.
+    /// Programmatic state writes and restoration do not call this callback.
+    pub fn on_section_expansion(mut self, f: impl Fn(String, bool) + 'static) -> Self {
+        self.on_section_expansion = Some(Rc::new(f));
+        self
+    }
+    /// Enable and persist section disclosure using the installed `NavStore`.
+    pub fn restore_sections(self, key: impl Into<String>) -> Self {
+        let key = key.into();
+        let saved = day_core::nav_store_load(&key).unwrap_or_default();
+        let mut rest = saved.as_str();
+        let mut ids = std::collections::HashSet::new();
+        while let Some((len, tail)) = rest.split_once(':') {
+            let Some(len) = len.parse::<usize>().ok() else {
+                break;
+            };
+            let Some(id) = tail.get(..len) else {
+                break;
+            };
+            ids.insert(id.to_owned());
+            rest = &tail[len..];
+        }
+        let state = Signal::new(ids);
+        bind(
+            move || state.get(),
+            move |ids| {
+                let mut ids: Vec<_> = ids.iter().collect();
+                ids.sort();
+                let saved = ids
+                    .iter()
+                    .map(|id| format!("{}:{id}", id.len()))
+                    .collect::<String>();
+                day_core::nav_store_save(&key, &saved);
+            },
+        );
+        self.collapsed_sections(state)
+    }
+    /// Open a statically declared section with a persistent identity.
+    pub fn section_id<M>(mut self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
+        self.pending_section = Some(SectionHeader {
+            id: Some(id.into()),
+            title: title.into_text(),
+        });
+        self
+    }
+
     /// Enable dragging within contiguous runs of eligible sidebar items. Fixed items and
     /// section headers cannot be crossed. The callback receives the moved key and the key
     /// whose position it takes (indices refer to the order before removal).
@@ -1482,7 +1698,10 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     ///     .items(move || st.feeds.get(), |f| item(f.id, f.name))
     /// ```
     pub fn section<M>(mut self, title: impl IntoText<M>) -> Self {
-        self.pending_section = Some(title.into_text());
+        self.pending_section = Some(SectionHeader {
+            id: None,
+            title: title.into_text(),
+        });
         self
     }
     /// Attach a trailing badge (an unread count, a status) to the item just added:
@@ -2616,7 +2835,15 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             (rows0.badge_icons.clone(), rows0.badge_tints.clone());
         let tints_init = rows0.tints.clone();
         let menus_init = rows0.menus.clone();
-        let menu_piece = if let Some(reorder) = sel.reorder_items.filter(|_| {
+        let menu_piece = if let Some(collapsed) = sel.collapsed_sections {
+            section_sidebar(
+                items.clone(),
+                selection.clone(),
+                collapsed,
+                sel.on_section_expansion,
+                icon_progress.clone(),
+            )
+        } else if let Some(reorder) = sel.reorder_items.filter(|_| {
             day_core::capability(day_spec::Cap::NavReorder) != day_spec::Support::Unsupported
         }) {
             reorder_sidebar(
@@ -3459,6 +3686,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     badges: b,
                     badge_icons: bi,
                     badge_tints: bt,
+                    section_ids: _,
                     sections: sc,
                     tints: tn,
                     menus: mn,
@@ -4616,6 +4844,11 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
 /// [`Nav`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait NavBuilder<K: Route>: Sized {
+    fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self;
+    fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self;
+    fn restore_sections(self, key: impl Into<String>) -> Self;
+    fn section_id<M>(self, id: impl Into<String>, title: impl IntoText<M>) -> Self;
+
     fn style(self, style: NavStyle) -> Self;
     fn title<M>(self, t: impl IntoText<M>) -> Self;
     fn section<M>(self, title: impl IntoText<M>) -> Self;
@@ -4658,6 +4891,19 @@ pub trait NavBuilder<K: Route>: Sized {
 }
 
 impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
+    fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self {
+        Nav::collapsed_sections(self, state)
+    }
+    fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self {
+        Nav::on_section_expansion(self, f)
+    }
+    fn restore_sections(self, key: impl Into<String>) -> Self {
+        Nav::restore_sections(self, key)
+    }
+    fn section_id<M>(self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
+        Nav::section_id(self, id, title)
+    }
+
     fn style(self, style: NavStyle) -> Self {
         Nav::style(self, style)
     }
@@ -4748,6 +4994,19 @@ impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
 }
 
 impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> {
+    fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self {
+        self.map_inner(|inner| inner.collapsed_sections(state))
+    }
+    fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self {
+        self.map_inner(|inner| inner.on_section_expansion(f))
+    }
+    fn restore_sections(self, key: impl Into<String>) -> Self {
+        self.map_inner(|inner| inner.restore_sections(key))
+    }
+    fn section_id<M>(self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
+        self.map_inner(|inner| inner.section_id(id, title))
+    }
+
     fn style(self, style: NavStyle) -> Self {
         self.map_inner(|inner_piece| inner_piece.style(style))
     }

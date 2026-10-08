@@ -3811,6 +3811,35 @@ define_class!(
     unsafe impl NSControlTextEditingDelegate for DayTreeData {}
 
     unsafe impl NSOutlineViewDelegate for DayTreeData {
+        #[unsafe(method(outlineView:isGroupItem:))]
+        fn is_group_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> bool {
+            Self::token_of_item(item).is_some_and(|t| {
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|s| (s.section_header)(t))
+            })
+        }
+        #[unsafe(method(outlineView:shouldSelectItem:))]
+        fn should_select_item(
+            &self,
+            _ov: &objc2_app_kit::NSOutlineView,
+            item: &objc2::runtime::AnyObject,
+        ) -> bool {
+            Self::token_of_item(item).is_some_and(|t| {
+                self.ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .is_some_and(|s| !(s.section_header)(t))
+            })
+        }
+
         #[unsafe(method_id(outlineView:viewForTableColumn:item:))]
         fn view_for_item(
             &self,
@@ -3828,13 +3857,40 @@ define_class!(
                 // every tree cell's width per-row).
                 let cell: Retained<NSView> =
                     unsafe { ov.makeViewWithIdentifier_owner(&ident, None) }.unwrap_or_else(|| {
-                        let v: Retained<NSView> = Retained::into_super(DayTreeCell::new(mtm));
+                        let v: Retained<NSView> =
+                            Retained::into_super(Retained::into_super(DayTreeCell::new(mtm)));
                         unsafe { v.setIdentifier(Some(&ident)) };
                         v
                     });
                 if let Some(source) = self.ivars().source.borrow().as_ref() {
                     let raw = Retained::as_ptr(&cell) as RawHandle;
+                    if let Some(cell) = cell.downcast_ref::<DayTreeCell>() {
+                        unsafe {
+                            cell.setTextField(None);
+                        }
+                    }
                     (source.bind_row)(token, raw);
+                    // Associate the actual Day label with NSTableCellView so AppKit can
+                    // apply group typography and source-list background styles normally.
+                    if (source.section_header)(token) {
+                        fn label_in(view: &NSView) -> Option<Retained<NSTextField>> {
+                            for child in unsafe { view.subviews() }.iter() {
+                                if let Ok(label) = child.clone().downcast::<NSTextField>() {
+                                    return Some(label);
+                                }
+                                if let Some(label) = label_in(&child) {
+                                    return Some(label);
+                                }
+                            }
+                            None
+                        }
+                        if let Some(label) = label_in(&cell) {
+                            let cell = cell.downcast_ref::<DayTreeCell>()?;
+                            unsafe {
+                                cell.setTextField(Some(&label));
+                            }
+                        }
+                    }
                 }
                 Some(cell)
             })
@@ -3864,13 +3920,18 @@ define_class!(
         #[unsafe(method_id(outlineView:rowViewForItem:))]
         fn row_view_for_item(
             &self,
-            _ov: &objc2_app_kit::NSOutlineView,
+            ov: &objc2_app_kit::NSOutlineView,
             _item: &objc2::runtime::AnyObject,
         ) -> Retained<objc2_app_kit::NSTableRowView> {
-            // The rounded-selection row (see DayTreeRowView).
-            let rv: Retained<DayTreeRowView> =
-                unsafe { msg_send![DayTreeRowView::alloc(self.mtm()), init] };
-            Retained::into_super(rv)
+            if unsafe { ov.style() } == objc2_app_kit::NSTableViewStyle::SourceList {
+                // AppKit owns source-list group backgrounds, floating headers and selection.
+                unsafe { objc2_app_kit::NSTableRowView::new(self.mtm()) }
+            } else {
+                // The rounded-selection row (see DayTreeRowView).
+                let rv: Retained<DayTreeRowView> =
+                    unsafe { msg_send![DayTreeRowView::alloc(self.mtm()), init] };
+                Retained::into_super(rv)
+            }
         }
 
         #[unsafe(method(outlineViewSelectionDidChange:))]
@@ -4151,7 +4212,7 @@ define_class!(
 // INDENTED position, so its width is per-row; every native layout pass re-lays the Day row
 // content inside it at that width through the seam's `layout_cell`.
 define_class!(
-    #[unsafe(super(NSView))]
+    #[unsafe(super(objc2_app_kit::NSTableCellView))]
     #[thread_kind = MainThreadOnly]
     #[name = "DayTreeCell"]
     struct DayTreeCell;
@@ -4192,10 +4253,10 @@ define_class!(
                             .source
                             .borrow()
                             .as_ref()
-                            .map(|s| s.layout_cell.clone())
+                            .map(|s| s.layout_cell_size.clone())
                     });
                 if let Some(f) = f {
-                    f(self as *const Self as RawHandle, width);
+                    f(self as *const Self as RawHandle, Size::new(width, self.bounds().size.height));
                 }
             })
         }
@@ -6102,6 +6163,7 @@ impl Toolkit for AppKit {
             // NSOutlineView hosts Day-built rows natively, drag-reparent included
             // (docs/tree.md).
             | Cap::Tree
+            | Cap::TreeSections
             | Cap::TreeMove
             // Real NSWindows with native tabbing + the Windows menu (docs/windows.md).
             | Cap::MultiWindow
@@ -6952,15 +7014,17 @@ impl Toolkit for AppKit {
                     outline.addTableColumn(&col);
                     outline.setOutlineTableColumn(Some(&col));
                     outline.setHeaderView(None);
-                    // Full-width CELLS, rounded SELECTION: the style stays FullWidth (the
-                    // Inset style pads by making the table wider than its clip, which
-                    // fights day's fixed-frame layout — the pill's insets land outside the
-                    // visible pane), and DayTreeRowView below draws the modern rounded
-                    // selection itself, deterministically — including in offscreen captures.
-                    // A sidebar treatment is still a tweak (`setStyle(SourceList)` on
-                    // `Subcontrol::Content`), not the default.
-                    outline.setStyle(objc2_app_kit::NSTableViewStyle::FullWidth);
-                    outline.setIntercellSpacing(NSSize::new(0.0, 0.0));
+                    if p.section_headers {
+                        // Real source-list groups use AppKit's trailing, hover-revealed
+                        // show/hide button and float over their children while scrolling.
+                        outline.setStyle(objc2_app_kit::NSTableViewStyle::SourceList);
+                        outline.setFloatsGroupRows(true);
+                    } else {
+                        // Generic trees keep their existing full-width cells and rounded
+                        // DayTreeRowView selection. Source lists use native row drawing.
+                        outline.setStyle(objc2_app_kit::NSTableViewStyle::FullWidth);
+                        outline.setIntercellSpacing(NSSize::new(0.0, 0.0));
+                    }
                     outline.setColumnAutoresizingStyle(
                         objc2_app_kit::NSTableViewColumnAutoresizingStyle::UniformColumnAutoresizingStyle,
                     );
@@ -6970,7 +7034,8 @@ impl Toolkit for AppKit {
                     }
                     match p.row_height {
                         RowHeight::Uniform(h) => outline.setRowHeight(h),
-                        RowHeight::Automatic => outline.setRowHeight(24.0),
+                        RowHeight::Automatic if !p.section_headers => outline.setRowHeight(24.0),
+                        RowHeight::Automatic => {}
                     }
                     if !p.selectable {
                         outline.setSelectionHighlightStyle(

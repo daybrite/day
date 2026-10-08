@@ -1813,6 +1813,8 @@ pub struct TreePiece<S: NodeSource> {
     build_row: Rc<dyn Fn(S::Slot) -> AnyPiece>,
     row_height: RowHeight,
     indent: Option<f64>,
+    section_headers: bool,
+    on_expansion: Option<ExpansionFn<S::Key>>,
     expanded: Option<Signal<HashSet<S::Key>>>,
     expandable: Option<KeyPredicate<S::Key>>,
     selected: Option<Rc<dyn Fn() -> Vec<S::Key>>>,
@@ -1828,6 +1830,7 @@ pub struct TreePiece<S: NodeSource> {
 }
 
 /// The committed-move callback, aliased for the field above.
+type ExpansionFn<K> = Rc<dyn Fn(K, bool)>;
 type TreeMoveFn<K> = Rc<dyn Fn(K, Option<K>, Option<usize>)>;
 /// The live move guard, aliased for the field above.
 type TreeGuardFn<K> = Rc<dyn Fn(&K, Option<&K>, Option<usize>) -> MoveVerdict>;
@@ -1853,6 +1856,8 @@ where
         build_row: Rc::new(move |slot| AnyPiece::new(build_row(slot))),
         row_height: RowHeight::Automatic,
         indent: None,
+        section_headers: false,
+        on_expansion: None,
         expanded: None,
         expandable: None,
         selected: None,
@@ -1877,6 +1882,19 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     /// Indentation per depth level, in points (unset = the platform's default step).
     pub fn indent(mut self, pts: f64) -> Self {
         self.indent = Some(pts);
+        self
+    }
+    /// Render a two-level source as sections. Root branches are headings and cannot be
+    /// selected; root leaves remain ordinary rows. Children must be leaves. This enables
+    /// native ExpandableListView on Android, where arbitrary-depth trees are composed.
+    pub fn section_headers(mut self) -> Self {
+        self.section_headers = true;
+        self
+    }
+    /// Reports an actual user/scripting disclosure change with the stable application key.
+    /// Programmatic writes to `expanded` do not echo this callback.
+    pub fn on_expansion(mut self, f: impl Fn(S::Key, bool) + 'static) -> Self {
+        self.on_expansion = Some(Rc::new(f));
         self
     }
     /// The app-owned expansion set (docs/tree.md): the user's disclosure clicks update it,
@@ -1996,20 +2014,24 @@ impl<S: NodeSource + 'static> TreePiece<S> {
             }
         };
         let set_open: Rc<dyn Fn(u64, bool)> = {
-            let conn = conn.clone();
-            match expanded_sig {
-                Some(sig) => Rc::new(move |t, on| {
-                    if let Some(k) = conn.key_of(t) {
-                        sig.update(|s| {
-                            if on {
-                                s.insert(k.clone());
-                            } else {
-                                s.remove(&k);
-                            }
-                        });
-                    }
-                }),
-                None => Rc::new(move |t, on| {
+            let (conn, is_open, changed) =
+                (conn.clone(), is_open.clone(), self.on_expansion.clone());
+            Rc::new(move |t, on| {
+                if day_reactive::untrack(|| is_open(t)) == on {
+                    return;
+                }
+                let Some(key) = conn.key_of(t) else {
+                    return;
+                };
+                if let Some(sig) = expanded_sig {
+                    sig.update(|s| {
+                        if on {
+                            s.insert(key.clone());
+                        } else {
+                            s.remove(&key);
+                        }
+                    });
+                } else {
                     open_sig.update(|s| {
                         if on {
                             s.insert(t);
@@ -2017,8 +2039,11 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                             s.remove(&t);
                         }
                     });
-                }),
-            }
+                }
+                if let Some(f) = &changed {
+                    f(key, on);
+                }
+            })
         };
 
         // "Can hold children": the app's branch/leaf rule, or "has children right now".
@@ -2145,6 +2170,11 @@ impl<S: NodeSource + 'static> TreePiece<S> {
             }
         };
 
+        let section_header: Rc<dyn Fn(u64) -> bool> = {
+            let (conn, expandable, sections) =
+                (conn.clone(), expandable_of.clone(), self.section_headers);
+            Rc::new(move |t| sections && conn.parent_of(t) == Some(None) && expandable(t))
+        };
         let scroll_sig: Signal<Option<usize>> = Signal::new(None);
         let mut lst = list(
             items(
@@ -2159,25 +2189,56 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         .row_height(self.row_height)
         .multi_select(self.multi_select)
         .scroll_to_row(scroll_sig);
-        if let Some(f) = self.on_selection.clone() {
+        // A composed list may report a heading click. Reapply the last destination
+        // selection even when the app's signal did not change, so headers never stay lit.
+        let selected_tokens = Signal::new(Vec::<u64>::new());
+        let selection_revision = Signal::new(0u64);
+        if self.on_selection.is_some() || (self.section_headers && self.selected.is_some()) {
             let conn = conn.clone();
+            let header = section_header.clone();
+            let callback = self.on_selection.clone();
             lst = lst.on_selection(move |toks: Vec<u64>| {
-                f(toks.iter().filter_map(|t| conn.key_of(*t)).collect());
+                if toks.iter().any(|t| header(*t)) {
+                    selection_revision.update(|r| *r += 1);
+                    return;
+                }
+                selected_tokens.set(toks.clone());
+                if let Some(f) = &callback {
+                    f(toks.iter().filter_map(|t| conn.key_of(*t)).collect());
+                }
             });
         }
-        if let Some(sel) = self.selected.clone() {
-            let (conn, flatten) = (conn.clone(), flatten.clone());
-            lst = lst.selected_rows(move || {
+        let mut repair_selection: Option<Rc<dyn Fn() -> Vec<usize>>> = None;
+        if self.selected.is_some() || (self.section_headers && self.on_selection.is_some()) {
+            let (conn, flatten, selected) = (conn.clone(), flatten.clone(), self.selected.clone());
+            let section_header = section_header.clone();
+            let rows: Rc<dyn Fn() -> Vec<usize>> = Rc::new(move || {
                 let rows = flatten();
-                let want: HashSet<u64> = sel().iter().map(|k| conn.token_of(k)).collect();
+                let want: HashSet<u64> = match &selected {
+                    Some(sel) => sel().iter().map(|k| conn.token_of(k)).collect(),
+                    None => selected_tokens.get().into_iter().collect(),
+                };
                 rows.iter()
                     .enumerate()
-                    .filter(|(_, r)| want.contains(&r.0))
+                    .filter(|(_, r)| want.contains(&r.0) && !section_header(r.0))
                     .map(|(i, _)| i)
                     .collect()
             });
+            repair_selection = Some(rows.clone());
+            lst = lst.selected_rows(move || rows());
         }
         let node = lst.build(cx);
+        if let Some(rows) = repair_selection {
+            day_reactive::bind(
+                move || selection_revision.get(),
+                move |revision| {
+                    if *revision != 0 {
+                        let rows = day_reactive::untrack(|| rows());
+                        day_reactive::on_main(move || day_core::list_set_selected(node, rows));
+                    }
+                },
+            );
+        }
 
         // Synthetic events (the dayscript `expand:` step, `tree_try_move`'s commit) land on
         // this node exactly as native ones land on a native tree.
@@ -2203,6 +2264,10 @@ impl<S: NodeSource + 'static> TreePiece<S> {
 
         // The driver: what `expand:`/`tree_move:` resolve rows and route moves through.
         let driver = TreeDriver {
+            section_header: {
+                let f = section_header.clone();
+                Box::new(move |t| f(t))
+            },
             row_height: self.row_height,
             children_len: {
                 let conn = conn.clone();
@@ -2390,10 +2455,18 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
         // No native tree widget → the composed tree: the same piece contract flattened onto
         // [`list`] (docs/tree.md M2). `Emulated` and `Unsupported` both take this path; the
         // composition needs nothing beyond the list machinery every backend carries.
-        if day_core::capability(day_spec::Cap::Tree) != day_spec::Support::Native {
+        // Two-level-only native controls (Android) provide single selection. A
+        // multi-select section source uses the full-tree path, composed where necessary.
+        let cap = if self.section_headers && !self.multi_select {
+            day_spec::Cap::TreeSections
+        } else {
+            day_spec::Cap::Tree
+        };
+        if day_core::capability(cap) != day_spec::Support::Native {
             return self.build_composed(cx);
         }
         let props = TreeProps {
+            section_headers: self.section_headers,
             row_height: self.row_height,
             selectable: self.selected.is_some() || self.on_selection.is_some(),
             multi_select: self.multi_select,
@@ -2417,18 +2490,47 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
         // right whether or not the app owns an expansion signal.
         let open_tokens: Rc<RefCell<HashSet<u64>>> = Rc::new(RefCell::new(HashSet::new()));
 
+        // "Can hold children": the app's branch/leaf rule, or "has children right now".
+        let expandable_of: Rc<dyn Fn(u64) -> bool> = {
+            let (conn, f) = (conn.clone(), self.expandable.clone());
+            Rc::new(move |tok| match &f {
+                Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or(false),
+                None => conn.children_len(Some(tok)) > 0,
+            })
+        };
+
+        let section_header: Rc<dyn Fn(u64) -> bool> = {
+            let (conn, expandable, sections) =
+                (conn.clone(), expandable_of.clone(), self.section_headers);
+            Rc::new(move |t| sections && conn.parent_of(t) == Some(None) && expandable(t))
+        };
         // Native events → app state.
         {
             let (on_selection, expanded_sig) = (self.on_selection.clone(), self.expanded);
             let (on_move, conn_ev, open) =
                 (self.on_move.clone(), conn.clone(), open_tokens.clone());
+            let changed = self.on_expansion.clone();
+            let header = section_header.clone();
             cx.on(node, move |ev| match ev {
                 Event::TreeSelection(tokens) => {
                     if let Some(f) = &on_selection {
-                        f(tokens.iter().filter_map(|t| conn_ev.key_of(*t)).collect());
+                        f(tokens
+                            .iter()
+                            .filter(|t| !header(**t))
+                            .filter_map(|t| conn_ev.key_of(*t))
+                            .collect());
                     }
                 }
                 Event::TreeExpanded { token, expanded } => {
+                    let Some(key) = conn_ev.key_of(*token) else {
+                        return;
+                    };
+                    let was = expanded_sig
+                        .map(|sig| day_reactive::untrack(|| sig.with(|s| s.contains(&key))))
+                        .unwrap_or_else(|| open.borrow().contains(token));
+                    if was == *expanded {
+                        return;
+                    }
                     match &expanded_sig {
                         // The app's set follows the disclosure, and the expansion watch
                         // derives the patch. The record does not move here: for a native
@@ -2459,6 +2561,9 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                             day_core::tree_set_expanded(node, *token, *expanded);
                         }
                     }
+                    if let Some(f) = &changed {
+                        f(key, *expanded);
+                    }
                 }
                 Event::TreeMove {
                     token,
@@ -2475,17 +2580,12 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
             });
         }
 
-        // "Can hold children": the app's branch/leaf rule, or "has children right now".
-        let expandable_of: Rc<dyn Fn(u64) -> bool> = {
-            let (conn, f) = (conn.clone(), self.expandable.clone());
-            Rc::new(move |tok| match &f {
-                Some(f) => conn.key_of(tok).map(|k| f(&k)).unwrap_or(false),
-                None => conn.children_len(Some(tok)) > 0,
-            })
-        };
-
         // The type-erased driver day-core drives on cell pulls (docs/tree.md).
         let driver = TreeDriver {
+            section_header: {
+                let f = section_header.clone();
+                Box::new(move |t| f(t))
+            },
             row_height: self.row_height,
             children_len: {
                 let conn = conn.clone();
@@ -2788,6 +2888,8 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
 
 /// [`TreePiece`]'s own builders, reachable through a decoration (§5.2), like [`ListBuilder`].
 pub trait TreeBuilder<S: NodeSource + 'static>: Sized {
+    fn section_headers(self) -> Self;
+    fn on_expansion(self, f: impl Fn(S::Key, bool) + 'static) -> Self;
     fn row_height(self, h: RowHeight) -> Self;
     fn indent(self, pts: f64) -> Self;
     fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self;
@@ -2808,6 +2910,12 @@ pub trait TreeBuilder<S: NodeSource + 'static>: Sized {
 }
 
 impl<S: NodeSource + 'static> TreeBuilder<S> for TreePiece<S> {
+    fn section_headers(self) -> Self {
+        TreePiece::section_headers(self)
+    }
+    fn on_expansion(self, f: impl Fn(S::Key, bool) + 'static) -> Self {
+        TreePiece::on_expansion(self, f)
+    }
     fn row_height(self, h: RowHeight) -> Self {
         TreePiece::row_height(self, h)
     }
@@ -2856,6 +2964,12 @@ impl<S: NodeSource + 'static> TreeBuilder<S> for TreePiece<S> {
 }
 
 impl<S: NodeSource + 'static, Inner: TreeBuilder<S> + Piece> TreeBuilder<S> for Decorated<Inner> {
+    fn section_headers(self) -> Self {
+        self.map_inner(|inner| inner.section_headers())
+    }
+    fn on_expansion(self, f: impl Fn(S::Key, bool) + 'static) -> Self {
+        self.map_inner(|inner| inner.on_expansion(f))
+    }
     fn row_height(self, h: RowHeight) -> Self {
         self.map_inner(|inner_piece| inner_piece.row_height(h))
     }
@@ -3230,6 +3344,54 @@ pub(crate) mod conformance {
             .drive(|d: Drive| async move { d.assert_text("row:Pear", "Pear").await })
     }
 
+    /// Synthetic fixture strings. Restoration has no callback echo; filtering preserves
+    /// key-based state. This case runs on native and composed section implementations.
+    #[day_macros::test(day_core)]
+    fn tree_section_expansion_contract() -> Case {
+        Case::new()
+            .proves_duty("attach_tree")
+            .proves_cap(Cap::TreeSections)
+            .proves(kinds::TREE)
+            .requires(Cap::TreeSections)
+            .page(|| {
+                let rows = fruit();
+                let open = Signal::new(std::collections::HashSet::from(["Fruit".to_owned()]));
+                let changes = Signal::new(0usize);
+                column((
+                    label(move || {
+                        format!("{}:{}", open.with(|s| s.contains("Fruit")), changes.get())
+                    })
+                    .id("state"),
+                    button("restore").id("restore").action(move || {
+                        open.set(std::collections::HashSet::from(["Fruit".to_owned()]))
+                    }),
+                    button("filter")
+                        .id("filter")
+                        .action(move || rows.update(|r| r.retain(|n| n.0 != "Apple"))),
+                    names_tree(rows)
+                        .section_headers()
+                        .expanded(open)
+                        .on_expansion(move |_, _| changes.update(|n| *n += 1))
+                        .id("tree")
+                        .height(240.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("state", "true:0").await?;
+                d.assert_text("row:Apple", "Apple").await?;
+                d.expand("tree", "Fruit", false).await?;
+                d.assert_text("state", "false:1").await?;
+                d.assert_missing("row:Apple").await?;
+                d.expand("tree", "Fruit", false).await?;
+                d.assert_text("state", "false:1").await?;
+                d.tap("filter").await?;
+                d.assert_missing("row:Pear").await?;
+                d.tap("restore").await?;
+                d.assert_text("row:Pear", "Pear").await?;
+                d.assert_text("state", "true:1").await
+            })
+    }
+
     /// A committed move reaches the app, which re-parents the row in its source.
     #[day_macros::test(day_core)]
     fn tree_move_reparents() -> Case {
@@ -3279,6 +3441,7 @@ pub(crate) mod conformance {
     day_core::tests! {
         tree_rows_disclose,
         tree_expanded_signal,
+        tree_section_expansion_contract,
         tree_move_reparents,
         list_rows_realize,
         list_follows_source,

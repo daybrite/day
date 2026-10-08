@@ -509,6 +509,119 @@ mod imp {
 
     }
 
+    type SectionTreeEntry = (day_spec::TreeSource, Vec<u64>, Vec<u64>);
+    thread_local! {
+        static TREE_SOURCES: RefCell<std::collections::HashMap<i64, SectionTreeEntry>> = RefCell::new(std::collections::HashMap::new());
+    }
+    fn tree_reload(host: &AHandle) {
+        let handle = host.clone();
+        let id = LIST_NODE.with(|m| {
+            m.borrow()
+                .get(&(host.0.as_obj().as_raw() as usize))
+                .copied()
+        });
+        let Some(id) = id else {
+            return;
+        };
+        Android::post(Box::new(move || {
+            let source = TREE_SOURCES.with(|m| m.borrow().get(&id).map(|e| e.0.clone()));
+            let Some(source) = source else {
+                return;
+            };
+            let mut tokens = Vec::new();
+            let mut data = String::new();
+            for g in 0..(source.children_len)(None) {
+                let token = (source.child_token)(None, g);
+                let index = tokens.len();
+                tokens.push(token);
+                data.push_str(&format!(
+                    "{token}:-1:{}:{}\n",
+                    u8::from((source.section_header)(token)),
+                    u8::from((source.expanded)(token))
+                ));
+                for c in 0..(source.children_len)(Some(token)) {
+                    let child = (source.child_token)(Some(token), c);
+                    tokens.push(child);
+                    data.push_str(&format!("{child}:{index}:0:0\n"));
+                }
+            }
+            TREE_SOURCES.with(|m| {
+                if let Some(e) = m.borrow_mut().get_mut(&id) {
+                    e.1 = tokens;
+                    let selected =
+                        e.1.iter()
+                            .enumerate()
+                            .filter(|(_, t)| e.2.contains(t))
+                            .map(|(i, _)| i)
+                            .collect();
+                    LIST_SELECTED.with(|m| m.borrow_mut().insert(id, selected));
+                }
+            });
+            with_env(|env| {
+                let data = jstr(env, &data);
+                let _ = env.dcall_static(
+                    BRIDGE,
+                    "treeReload",
+                    "(Landroid/view/View;Ljava/lang/String;)V",
+                    &[JValue::Object(handle.0.as_obj()), JValue::Object(&data)],
+                );
+            });
+        }));
+    }
+    fn tree_patch(host: &AHandle, patch: &TreePatch) {
+        match patch {
+            TreePatch::Reload => tree_reload(host),
+            TreePatch::Expand(token, open) => {
+                // ExpandableListView synchronously recycles children on collapse. Run
+                // outside the core update borrow so their Day IDs can actually be cleared.
+                let (host, token, open) = (host.clone(), *token, *open);
+                Android::post(Box::new(move || {
+                    call_void(
+                        "treeExpand",
+                        "(Landroid/view/View;JZ)V",
+                        &[
+                            JValue::Object(host.0.as_obj()),
+                            JValue::Long(token as i64),
+                            JValue::Bool(open),
+                        ],
+                    )
+                }));
+            }
+            TreePatch::Reveal(token) => call_void(
+                "treeReveal",
+                "(Landroid/view/View;J)V",
+                &[JValue::Object(host.0.as_obj()), JValue::Long(*token as i64)],
+            ),
+            TreePatch::Selected(tokens) => {
+                if let Some(id) = LIST_NODE.with(|m| {
+                    m.borrow()
+                        .get(&(host.0.as_obj().as_raw() as usize))
+                        .copied()
+                }) {
+                    let selected = TREE_SOURCES.with(|m| {
+                        m.borrow_mut()
+                            .get_mut(&id)
+                            .map(|e| {
+                                e.2 = tokens.clone();
+                                e.1.iter()
+                                    .enumerate()
+                                    .filter(|(_, t)| tokens.contains(t))
+                                    .map(|(i, _)| i)
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    });
+                    LIST_SELECTED.with(|m| m.borrow_mut().insert(id, selected));
+                }
+                call_void(
+                    "treeSelection",
+                    "(Landroid/view/View;)V",
+                    &[JValue::Object(host.0.as_obj())],
+                );
+            }
+        }
+    }
+
     /// Row count, pulled by the Java adapter's getCount (reads the snapshot only; no tree).
     /// A JNI up-call entry: the body is contained, since a panic unwinding the frame would abort.
     pub fn list_len(host_id: i64) -> usize {
@@ -553,6 +666,20 @@ mod imp {
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             if let Some(source) = source {
                 (source.bind_row)(position as usize, raw);
+            } else {
+                let entry = TREE_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+                if let Some((source, tokens, _)) = entry
+                    && let Some(token) = tokens.get(position as usize)
+                {
+                    (source.bind_row)(*token, raw);
+                    let width = env
+                        .dcall(&cell, "getWidth", "()I", &[])
+                        .and_then(|v| v.i())
+                        .unwrap_or(0);
+                    if width > 0 {
+                        (source.layout_cell)(raw, width as f64 / DENSITY.with(|d| d.get()));
+                    }
+                }
             }
         });
     }
@@ -575,6 +702,10 @@ mod imp {
             let Some(gref) = gref else { return };
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             if let Some(source) = source {
+                (source.recycle)(gref.as_obj().as_raw() as RawHandle);
+            } else if let Some(source) =
+                TREE_SOURCES.with(|m| m.borrow().get(&host_id).map(|e| e.0.clone()))
+            {
                 (source.recycle)(gref.as_obj().as_raw() as RawHandle);
             }
         });
@@ -1379,6 +1510,35 @@ mod imp {
     }
 
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
+        if kind == K_CUSTOM {
+            let text = env.dstr(jstr).ok().unwrap_or_default();
+            if let Some(token) = text
+                .strip_prefix("day-tree-expand:")
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                emit(
+                    NodeId(id as u64),
+                    Event::TreeExpanded {
+                        token,
+                        expanded: num != 0.0,
+                    },
+                );
+                return;
+            }
+            if let Some(token) = text
+                .strip_prefix("day-tree-select:")
+                .and_then(|s| s.parse::<u64>().ok())
+            {
+                TREE_SOURCES.with(|m| {
+                    if let Some(e) = m.borrow_mut().get_mut(&id) {
+                        e.2 = vec![token];
+                    }
+                });
+                emit(NodeId(id as u64), Event::TreeSelection(vec![token]));
+                return;
+            }
+        }
+
         if kind == K_CUSTOM && env.dstr(jstr).ok().as_deref() == Some("day-list-first-visible") {
             let source = LIST_SOURCES.with(|map| map.borrow().get(&id).cloned());
             if let Some(source) = source
@@ -2271,6 +2431,7 @@ mod imp {
                 // day pieces. No native drag wiring yet, so `Cap::TreeMove` stays
                 // Unsupported (`tree_move:` drives the move synthetically).
                 Cap::Tree => Support::Emulated,
+                Cap::TreeSections => Support::Native,
                 _ => Support::Unsupported,
             }
         }
@@ -2460,6 +2621,32 @@ mod imp {
                             &[JValue::Bool(horizontal)],
                         ))
                     })
+                }
+                Some(Builtin::Tree) => {
+                    let Some(p) = day_spec::props_of::<TreeProps>(kind, "android", props) else {
+                        return realize_placeholder(kind);
+                    };
+                    let height = match p.row_height {
+                        RowHeight::Uniform(h) => h,
+                        RowHeight::Automatic => 36.0,
+                    };
+                    let handle = with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeTree",
+                            "(JIZ)Landroid/view/View;",
+                            &[
+                                JValue::Long(id.0 as i64),
+                                JValue::Int((height * DENSITY.with(|d| d.get())).round() as i32),
+                                JValue::Bool(p.selectable),
+                            ],
+                        ))
+                    });
+                    LIST_NODE.with(|m| {
+                        m.borrow_mut()
+                            .insert(handle.0.as_obj().as_raw() as usize, id.0 as i64)
+                    });
+                    handle
                 }
                 Some(Builtin::List) => {
                     let Some(p) = day_spec::props_of::<ListProps>(kind, "android", props) else {
@@ -2943,7 +3130,6 @@ mod imp {
                 // A recycled list cell is adopted from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
-                | Some(Builtin::Tree)
                 | Some(Builtin::Inspector)
                 | Some(Builtin::InspectorPane)
                 | Some(Builtin::Split)
@@ -2973,6 +3159,10 @@ mod imp {
             patch: &dyn Any,
             _anim: Option<&AnimSpec>,
         ) {
+            if let Some(patch) = patch.downcast_ref::<TreePatch>() {
+                tree_patch(h, patch);
+                return;
+            }
             match kind {
                 kinds::IMAGE => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
@@ -3516,6 +3706,7 @@ mod imp {
             day_spec::sidetable::sweep(key);
             LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
+                TREE_SOURCES.with(|m| m.borrow_mut().remove(&nid));
                 LIST_SOURCES.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
@@ -4038,6 +4229,16 @@ mod imp {
             lifecycle_supported(phase)
         }
 
+        fn attach_tree(&mut self, host: &AHandle, source: day_spec::TreeSource) {
+            if let Some(id) = LIST_NODE.with(|m| {
+                m.borrow()
+                    .get(&(host.0.as_obj().as_raw() as usize))
+                    .copied()
+            }) {
+                TREE_SOURCES.with(|m| m.borrow_mut().insert(id, (source, Vec::new(), Vec::new())));
+                tree_reload(host);
+            }
+        }
         fn attach_list(&mut self, host: &AHandle, source: ListSource) {
             if let Some(report) = &source.first_visible {
                 report(0);

@@ -996,3 +996,27 @@ support. Android uses Material NavigationView so long-press feed menus do not co
 dragging. The internal list is addressable as `nav-reorder-list`
 for dayscript `reorder` steps; its indices include fixed section-header rows. Tabs and rails
 remain fixed. Without the option, the existing native sidebar widget is unchanged.
+
+## Collapsible sidebar sections
+
+Give each group a stable, unlocalized identity with `.section_id("owner:daybrite", title)`
+on a `Nav` or dynamic `NavItem`. `.collapsed_sections(Signal<HashSet<String>>)` enables
+collapsible sidebar headings. The set contains closed groups; absent IDs default to expanded.
+Retain IDs for temporarily filtered-out groups. Heading identity is independent of the title
+and first child; unkeyed `.section(title)` falls back to the first route and should not be used
+for persistent dynamic groups. A collapsed group never removes its destinations from route
+resolution or changes the selected detail page.
+
+`.on_section_expansion(|id, expanded| ...)` runs after a user/script disclosure changes state,
+with no callback echo when the app restores or writes the signal. Apps can persist the signal
+in their preference store, scoped to an account where appropriate. `.restore_sections(key)`
+provides the same behavior through the installed `NavStore`, encoding sorted IDs as
+length-prefixed records; it tolerates malformed saved data and uses a scope-owned binding.
+Day-Hub saves groups per GitHub account; Day-Showcase saves stable group IDs in preferences.
+
+The sidebar uses a two-level tree. AppKit retains genuine floating source-list group headers
+and system disclosure controls; UIKit, GTK, Qt, WinUI and Android use their native tree/group
+controls. DOM and ArkUI use composed disclosure. Tabs and rails do not gain disclosure.
+When both options are supplied, collapsible sections take precedence over `reorder_items`;
+reordering and collapsing in the same sidebar is not currently supported. Apps such as
+Day-News retain reordering until that combination is implemented.

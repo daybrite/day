@@ -29,6 +29,7 @@ pub struct TreeDriver {
     pub child_token: Box<dyn Fn(Option<u64>, usize) -> u64>,
     /// Whether this token can hold children at all (draws or omits the disclosure).
     pub expandable: Box<dyn Fn(u64) -> bool>,
+    pub section_header: Box<dyn Fn(u64) -> bool>,
     /// The piece's current desired expansion state for this token (untracked read of the
     /// app's expansion signal), which is what the flattener descends into.
     pub expanded: Box<dyn Fn(u64) -> bool>,
@@ -84,6 +85,7 @@ pub(crate) struct TreeBoundCell {
     /// indented width the native row granted. Every later layout of the row uses it;
     /// `None` until the backend has reported one, when the tree's width stands in.
     pub native_width: Option<f64>,
+    pub native_height: Option<f64>,
     /// The width this cell's row was last laid at, by either path; only a width that actually
     /// changed invalidates the row's measurement cache (see `BoundCell::laid_width`).
     pub laid_width: Option<f64>,
@@ -200,7 +202,11 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
         driver.clone(),
         driver,
     );
+    let d_header = d_exp.clone();
+    let d_open = d_exp.clone();
     TreeSource {
+        section_header: Rc::new(move |t| (d_header.section_header)(t)),
+        expanded: Rc::new(move |t| (d_open.expanded)(t)),
         children_len: Rc::new(move |p| (d_len.children_len)(p)),
         child_token: Rc::new(move |p, i| (d_tok.child_token)(p, i)),
         expandable: Rc::new(move |t| (d_exp.expandable)(t)),
@@ -239,6 +245,9 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
             // next real pass corrects it (same rule as bind_row).
             let _ = try_with_tree(|t| t.tree_layout_cell_width(node, cell as usize, width));
         }),
+        layout_cell_size: Rc::new(move |cell, size| {
+            let _ = try_with_tree(|t| t.tree_layout_cell_size(node, cell as usize, size));
+        }),
         moves: d_moves.moves.as_ref().map(|_| day_spec::TreeMoves {
             can_move: {
                 let d = d_moves.clone();
@@ -271,6 +280,7 @@ mod tests {
             }
         }
         TreeDriver {
+            section_header: Box::new(|_| false),
             row_height: RowHeight::Automatic,
             children_len: Box::new(|p| kids(p).len()),
             child_token: Box::new(|p, i| kids(p)[i]),

@@ -36,7 +36,7 @@ implement them, and this table proves it.
 | `focus` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `set_focusable` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | ✓ | · |
 | `attach_list` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `attach_tree` | · | ✓ | ✓ | ✓ | · | · | · | · | · | ✓ |
+| `attach_tree` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `set_route` | · | · | · | · | · | · | · | · | ✓ | · |
 | `set_undo_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |
 | `set_edit_state` | · | ✓ | ✓ | · | · | · | · | · | · | · |

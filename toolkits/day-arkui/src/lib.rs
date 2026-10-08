@@ -3913,7 +3913,7 @@ mod imp {
                 // backend's NodeAdapter list; disclosure, indentation and row content are
                 // day pieces. No native drag wiring, so `Cap::TreeMove` stays Unsupported
                 // (`tree_move:` drives the seam synthetically).
-                Cap::Tree => Support::Emulated,
+                Cap::Tree | Cap::TreeSections => Support::Emulated,
                 // Derived from NODE_FONT_SIZE: ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
                 Cap::TextRuns => Support::Native,

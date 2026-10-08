@@ -1638,7 +1638,7 @@ impl Toolkit for Dom {
             // The COMPOSED tree (docs/tree.md M2): the piece flattens onto the emulated
             // list; disclosure, indentation, and row menus are day pieces. No native drag,
             // so `Cap::TreeMove` stays Unsupported.
-            Cap::Tree => Support::Emulated,
+            Cap::Tree | Cap::TreeSections => Support::Emulated,
             // Pointer-tracked drag with a CSS gap — the browser has no native list reorder.
             Cap::NavReorder | Cap::ListReorder => Support::Emulated,
             // A topmost fixed-position child — not a system modal (docs/cover.md).

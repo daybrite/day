@@ -175,6 +175,119 @@ public final class DayBridge {
     public static native void nativeRunPosted(long token);
     /** Frame clock (§8.4): Choreographer's per-vsync callback forwards here with the frame time. */
     public static native void nativeDoFrame(long token, long frameTimeNanos);
+    /** Native two-level disclosure. The general n-level tree remains the composed piece. */
+    private static final class DaySectionTree extends android.widget.ExpandableListView {
+        final long host;
+        final int rowHeight;
+        final boolean selectable;
+        boolean restoring;
+        final java.util.ArrayList<Long> tokens = new java.util.ArrayList<>();
+        final java.util.ArrayList<Integer> roots = new java.util.ArrayList<>();
+        final java.util.HashMap<Integer, java.util.ArrayList<Integer>> children = new java.util.HashMap<>();
+        final java.util.HashSet<Integer> headers = new java.util.HashSet<>();
+        final java.util.HashMap<Integer, View> bound = new java.util.HashMap<>();
+        final android.widget.BaseExpandableListAdapter adapter;
+        DaySectionTree(long id, int height, boolean choose) {
+            super(ctx); host=id; rowHeight=height; selectable=choose;
+            setDividerHeight(0);
+            setOnGroupClickListener((parent, view, group, ignored) -> {
+                int row=roots.get(group);
+                if(headers.contains(row)) return false;
+                select(row); return true;
+            });
+            setOnChildClickListener((parent, view, group, child, ignored) -> { select(children.get(roots.get(group)).get(child)); return true; });
+            setOnGroupExpandListener(group -> disclosure(group,true));
+            setOnGroupCollapseListener(group -> {
+                for(int row: children.get(roots.get(group))) {
+                    View cell=bound.get(row); if(cell!=null) nativeListRecycle(host,cell);
+                }
+                disclosure(group,false);
+            });
+            adapter = new android.widget.BaseExpandableListAdapter() {
+                public int getGroupCount() { return roots.size(); }
+                public int getChildrenCount(int group) { return children.get(roots.get(group)).size(); }
+                public Object getGroup(int group) { return roots.get(group); }
+                public Object getChild(int group,int child) { return children.get(roots.get(group)).get(child); }
+                public long getGroupId(int group) { return tokens.get(roots.get(group)); }
+                public long getChildId(int group,int child) { return tokens.get((Integer)getChild(group,child)); }
+                public boolean hasStableIds() { return true; }
+                public boolean isChildSelectable(int group,int child) { return selectable; }
+                public View getGroupView(int group,boolean expanded,View reused,ViewGroup parent) { return bind(roots.get(group),reused); }
+                public View getChildView(int group,int child,boolean last,View reused,ViewGroup parent) { return bind((Integer)getChild(group,child),reused); }
+            };
+            setAdapter(adapter);
+        }
+        void select(int row) {
+            if(selectable) nativeOnEvent(host,K_CUSTOM,0,"day-tree-select:"+Long.toUnsignedString(tokens.get(row)));
+        }
+        void disclosure(int group,boolean open) {
+            if(!restoring) nativeOnEvent(host,K_CUSTOM,open?1:0,"day-tree-expand:"+Long.toUnsignedString(tokens.get(roots.get(group))));
+        }
+        View bind(int row, View reused) {
+            android.widget.FrameLayout wrap;
+            DayFixed cell;
+            if(reused instanceof android.widget.FrameLayout) {
+                wrap=(android.widget.FrameLayout)reused; cell=(DayFixed)wrap.getChildAt(0);
+                nativeListRecycle(host,cell);
+                bound.values().remove(cell);
+            } else {
+                wrap=new android.widget.FrameLayout(ctx);
+                cell=new DayFixed(ctx) {
+                    @Override protected void onDetachedFromWindow() { nativeListRecycle(host,this); super.onDetachedFromWindow(); }
+                };
+                android.widget.FrameLayout.LayoutParams lp=new android.widget.FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,rowHeight);
+                lp.leftMargin=Math.round(32*ctx.getResources().getDisplayMetrics().density);
+                wrap.addView(cell,lp);
+                wrap.setLayoutParams(new android.widget.AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,rowHeight));
+            }
+            bound.put(row,cell);
+            nativeListBind(host,row,cell);
+            paintSelected(wrap,!headers.contains(row) && nativeListIsSelected(host,row));
+            return wrap;
+        }
+        void reload(String data) {
+            restoring=true;
+            for(View cell:bound.values()) nativeListRecycle(host,cell);
+            bound.clear(); tokens.clear(); roots.clear(); children.clear(); headers.clear();
+            java.util.ArrayList<Boolean> open=new java.util.ArrayList<>();
+            if(!data.isEmpty()) for(String line:data.split("\n")) {
+                String[] fields=line.split(":"); int row=tokens.size();
+                tokens.add(Long.parseUnsignedLong(fields[0]));
+                int parent=Integer.parseInt(fields[1]);
+                children.put(row,new java.util.ArrayList<>());
+                if(parent<0) roots.add(row); else children.get(parent).add(row);
+                if(fields[2].equals("1")) headers.add(row);
+                open.add(fields[3].equals("1"));
+            }
+            adapter.notifyDataSetChanged();
+            for(int group=0;group<roots.size();++group) {
+                if(open.get(roots.get(group))) expandGroup(group); else collapseGroup(group);
+            }
+            restoring=false;
+        }
+        void expand(long token,boolean open) {
+            restoring=true;
+            for(int g=0;g<roots.size();++g) if(tokens.get(roots.get(g))==token) {
+                if(open) expandGroup(g); else collapseGroup(g);
+            }
+            restoring=false;
+        }
+    }
+    public static View makeTree(long id,int height,boolean selectable) { return new DaySectionTree(id,height,selectable); }
+    public static void treeReload(View view,String data) { if(view instanceof DaySectionTree) ((DaySectionTree)view).reload(data); }
+    public static void treeExpand(View view,long token,boolean open) { if(view instanceof DaySectionTree) ((DaySectionTree)view).expand(token,open); }
+    public static void treeSelection(View view) { if(view instanceof DaySectionTree) ((DaySectionTree)view).adapter.notifyDataSetChanged(); }
+    public static void treeReveal(View view,long token) {
+        if(!(view instanceof DaySectionTree)) return;
+        DaySectionTree t=(DaySectionTree)view;
+        for(int g=0;g<t.roots.size();++g) {
+            int root=t.roots.get(g);
+            if(t.tokens.get(root)==token) { t.setSelectedGroup(g); return; }
+            java.util.ArrayList<Integer> children=t.children.get(root);
+            for(int c=0;c<children.size();++c) if(t.tokens.get(children.get(c))==token) { t.setSelectedChild(g,c,true); return; }
+        }
+    }
+
     /** Recycling list (docs/list.md): the adapter pulls row count + fills recycled cells. */
     public static native int nativeListLen(long hostId);
     public static native void nativeListBind(long hostId, int position, View cell);

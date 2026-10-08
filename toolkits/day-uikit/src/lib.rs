@@ -5764,6 +5764,25 @@ mod imp {
         unsafe impl UIScrollViewDelegate for DayTreeData {}
 
         unsafe impl UICollectionViewDelegate for DayTreeData {
+            #[unsafe(method(collectionView:shouldSelectItemAtIndexPath:))]
+            fn should_select_item(
+                &self,
+                _cv: &objc2_ui_kit::UICollectionView,
+                ip: &objc2_foundation::NSIndexPath,
+            ) -> bool {
+                let ds = self.ivars().ds.borrow();
+                ds.as_ref()
+                    .and_then(|ds| ds.itemIdentifierForIndexPath(ip))
+                    .and_then(|it| Self::token_of_item(&it))
+                    .is_some_and(|t| {
+                        self.ivars()
+                            .source
+                            .borrow()
+                            .as_ref()
+                            .is_some_and(|s| !(s.section_header)(t))
+                    })
+            }
+
             #[unsafe(method(collectionView:didSelectItemAtIndexPath:))]
             fn did_select(
                 &self,
@@ -8245,6 +8264,7 @@ mod imp {
                 // not here yet: native finger-drag lands after seam parity — the dayscript
                 // `tree_move:` step drives the seam regardless.
                 | Cap::Tree
+            | Cap::TreeSections
                 // Trailing swipe actions: the row tracks the finger, the destructive action
                 // reveals behind it, and a full swipe commits (docs/list.md).
                 | Cap::ListDelete
@@ -8675,7 +8695,11 @@ mod imp {
                     let config = unsafe {
                         objc2_ui_kit::UICollectionLayoutListConfiguration::initWithAppearance(
                             objc2_ui_kit::UICollectionLayoutListConfiguration::alloc(mtm),
-                            objc2_ui_kit::UICollectionLayoutListAppearance::Plain,
+                            if p.section_headers {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::Sidebar
+                            } else {
+                                objc2_ui_kit::UICollectionLayoutListAppearance::Plain
+                            },
                         )
                     };
                     unsafe {
@@ -8737,11 +8761,15 @@ mod imp {
                                     return Retained::autorelease_return(cell)
                                         as *mut objc2_ui_kit::UICollectionViewCell;
                                 };
-                                let (expandable, bind) = {
+                                let (expandable, header, bind) = {
                                     let src = data.ivars().source.borrow();
                                     match src.as_ref() {
-                                        Some(s) => ((s.expandable)(tok), Some(s.bind_row.clone())),
-                                        None => (false, None),
+                                        Some(s) => (
+                                            (s.expandable)(tok),
+                                            (s.section_header)(tok),
+                                            Some(s.bind_row.clone()),
+                                        ),
+                                        None => (false, false, None),
                                     }
                                 };
                                 if expandable {
@@ -8758,6 +8786,11 @@ mod imp {
                                             init
                                         ]
                                     };
+                                    if header {
+                                        unsafe {
+                                            disc.setStyle(objc2_ui_kit::UICellAccessoryOutlineDisclosureStyle::Header)
+                                        };
+                                    }
                                     let cv_key = cv as *const _ as usize;
                                     let handler = block2::RcBlock::new(move || {
                                         day_spec::ffi_guard::contain((), || {
