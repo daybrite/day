@@ -1502,7 +1502,9 @@ pub fn bind_always<V: 'static>(compute: impl Fn() -> V + 'static, apply: impl Fn
 }
 
 /// Derive-state without effect-write loops (§4.2): `source` is tracked; `cb` runs untracked
-/// with (new, old). Does not fire for the initial value.
+/// with (new, old). Does not fire for the initial value: a "load whatever is selected"
+/// reaction has to run once by hand first, or use [`bind`], which applies the initial value
+/// and then every change.
 #[track_caller]
 pub fn watch<S: Clone + 'static>(
     source: impl Fn() -> S + 'static,

@@ -5618,6 +5618,17 @@ pub mod props {
         Value(Option<f64>),
     }
 
+    /// A rule between neighbors (`divider()`): a hairline across the width it is offered, or,
+    /// with `vertical`, down the height it is offered (`divider().vertical()`, between a
+    /// row's panes). A toolkit measures both the same way, as a horizontal rule, because the
+    /// pieces layer swaps the axes of a vertical one's proposal and answer; realization is
+    /// where the orientation matters, for the few widgets that draw a horizontal line
+    /// regardless of their frame.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DividerProps {
+        pub vertical: bool,
+    }
+
     /// How a navigation host lays its panes out (docs/navigation.md).
     ///
     /// This is the resolved presentation, what the toolkit must draw right now. The app asks for
@@ -7255,6 +7266,101 @@ pub enum WindowPlacement {
     At(Point),
 }
 
+/// A small runtime RGBA image for a status item: charts, meters, or a grid of results.
+///
+/// Rows run top to bottom; samples are tightly packed, non-premultiplied sRGB RGBA8.
+/// `scale` is pixels per logical point (2 for Retina). This owns its bytes, independent of
+/// any window or decoded-image registry. Currently rendered by AppKit; other backends use
+/// [`StatusItemSpec::icon`] as a fallback. See docs/status-item.md.
+#[derive(Clone, PartialEq)]
+pub struct StatusImage {
+    width: u32,
+    height: u32,
+    scale: f64,
+    rgba: std::sync::Arc<[u8]>,
+}
+
+impl StatusImage {
+    /// Validate a runtime image. Rejects empty/mismatched pixels, invalid scales, and images
+    /// exceeding 16 MiB or 4096 logical points on either axis. No platform allocation occurs.
+    pub fn rgba(
+        width: u32,
+        height: u32,
+        scale: f64,
+        pixels: impl Into<std::sync::Arc<[u8]>>,
+    ) -> Option<Self> {
+        let rgba = pixels.into();
+        let expected = (width as usize)
+            .checked_mul(height as usize)?
+            .checked_mul(4)?;
+        if width == 0
+            || height == 0
+            || expected > 16 * 1024 * 1024
+            || rgba.len() != expected
+            || !scale.is_finite()
+            || scale <= 0.0
+            || f64::from(width) / scale > 4096.0
+            || f64::from(height) / scale > 4096.0
+        {
+            return None;
+        }
+        Some(Self {
+            width,
+            height,
+            scale,
+            rgba,
+        })
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+    pub fn pixels(&self) -> &[u8] {
+        &self.rgba
+    }
+    pub fn size(&self) -> Size {
+        Size::new(
+            f64::from(self.width) / self.scale,
+            f64::from(self.height) / self.scale,
+        )
+    }
+}
+
+impl std::fmt::Debug for StatusImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StatusImage")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("scale", &self.scale)
+            .field("bytes", &self.rgba.len())
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod status_image_tests {
+    use super::*;
+
+    #[test]
+    fn validates_pixel_layout_and_logical_size() {
+        let image = StatusImage::rgba(120, 36, 2.0, vec![255; 120 * 36 * 4]).unwrap();
+        assert_eq!(image.size(), Size::new(60.0, 18.0));
+        assert_eq!(image.clone(), image);
+        assert!(StatusImage::rgba(0, 1, 1.0, vec![]).is_none());
+        assert!(StatusImage::rgba(1, 1, 1.0, vec![0; 3]).is_none());
+        assert!(StatusImage::rgba(u32::MAX, u32::MAX, 1.0, vec![]).is_none());
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY, 0.00001] {
+            assert!(StatusImage::rgba(1, 1, scale, vec![0; 4]).is_none());
+        }
+    }
+}
+
 /// One status item: an icon in the menu bar (macOS), the notification area (Windows) or a
 /// StatusNotifierItem host's tray (Linux), with a menu (docs/status-item.md).
 #[derive(Clone, Debug, PartialEq)]
@@ -7263,6 +7369,9 @@ pub struct StatusItemSpec {
     pub id: String,
     /// The glyph. `None` shows the title alone (macOS) or the app's icon (elsewhere).
     pub icon: Option<Icon>,
+    /// A runtime image. AppKit prefers this over `icon`, preserving aspect ratio and point
+    /// size up to 18pt high; other backends ignore it and show `icon`/`title` as before.
+    pub raster: Option<StatusImage>,
     /// Draw the icon as a template: its shape only, in the menu bar's or panel's own color, so
     /// it reads in light and dark. Symbols are always templates.
     pub template: bool,

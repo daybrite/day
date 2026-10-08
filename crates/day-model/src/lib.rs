@@ -1421,6 +1421,14 @@ impl<T: Identified> Keyed<T> {
         self.reindex();
     }
 
+    /// Remove every row. What a reload wants before pushing the new set, in one call rather
+    /// than a [`Keyed::remove`] (and a reindex) per key.
+    pub fn clear(&mut self) {
+        self.items.clear();
+        self.index.clear();
+        self.stale = false;
+    }
+
     /// The raw list, for a structural edit inside [`Store::restructure`] that the helpers above
     /// do not cover. Taking it marks the key map stale, so the store rebuilds it after the
     /// caller's closure returns; the helpers above stay index-correct on their own and pay

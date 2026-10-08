@@ -2076,7 +2076,11 @@ impl Toolkit for Xaml {
                     TEXT_FIELD_NODE.with(|m| m.borrow_mut().insert(h as usize, id.0));
                     WinHandle(h)
                 }
-                Some(Builtin::Divider) => WinHandle(ffi::day_xaml_divider_new()),
+                Some(Builtin::Divider) => {
+                    let vertical = day_spec::props_of::<DividerProps>(kind, "xaml", props)
+                        .is_some_and(|p| p.vertical);
+                    WinHandle(ffi::day_xaml_divider_new(c_int::from(vertical)))
+                }
                 Some(Builtin::List) => {
                     let Some(p) = props_of::<ListProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);

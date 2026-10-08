@@ -75,7 +75,7 @@ pub use day_core::{
 // macOS Dock icon, and whether the app outlives its last window. Status items themselves are
 // `status_item(…)` in the prelude.
 pub use day_core::{KeepRunning, set_app_progress, set_dock_visible, set_keep_running};
-pub use day_spec::AppProgress;
+pub use day_spec::{AppProgress, StatusImage};
 // Displays (docs/windows.md "Monitors") and launcher shortcuts set while the app runs
 // (docs/deep-links.md).
 pub use day_core::{monitors, set_launcher_shortcuts};

@@ -1134,6 +1134,9 @@ pub fn app(
     // Computed here rather than taken from the template context: this is advice for the person
     // standing at this terminal, and nothing rendered into the project may depend on the host.
     let run_target = targets::suggested(&targets).to_string();
+    // Asked before the directory exists, from where it will be created: a `true` answer comes
+    // from a repository above it.
+    let nested = github && inside_repository(dir.parent().filter(|p| !p.as_os_str().is_empty()));
     let spec = AppSpec {
         repl,
         title,
@@ -1142,11 +1145,22 @@ pub fn app(
         template,
         no_website,
         github,
+        nested,
         locales: wanted_locales,
         icon_seed,
     };
     write_app(&dir, &name, &spec, None)?;
-    if github {
+    if nested {
+        ops::status(
+            "Git",
+            &format!(
+                "inside an existing repository, so none was initialized and no workflow was \
+                 written; one at that repository's root builds this project with \
+                 `project-path: {}` (https://github.com/daybrite/actions)",
+                dir.display()
+            ),
+        );
+    } else if github {
         init_repository(&dir);
     }
     // The suggested target is what this machine can run, not the first one declared; see
@@ -1171,9 +1185,29 @@ struct AppSpec<'a> {
     /// Whether the scaffold is a repository: `.gitignore` and `.github/` ship, and `day new app`
     /// runs `git init`. Declined, every git-facing file stays out of the tree.
     github: bool,
+    /// The directory sits inside a repository already (a Day project added to an existing
+    /// one): `.gitignore` still ships, since the enclosing repository's knows nothing of
+    /// `build/` or `target/` here, but the workflow does not, because GitHub reads `.github/`
+    /// at the repository root only. No `git init` either; the enclosing repository is the one.
+    nested: bool,
     /// Locales beyond the template's own `en`.
     locales: Vec<String>,
     icon_seed: Option<&'a str>,
+}
+
+/// Whether `dir` (the current directory when `None`, which is where `day new app Name` run in
+/// place creates its directory) lies inside a git work tree. `false` without git on PATH.
+fn inside_repository(dir: Option<&Path>) -> bool {
+    use std::process::{Command, Stdio};
+    let mut cmd = Command::new("git");
+    cmd.args(["rev-parse", "--is-inside-work-tree"]);
+    if let Some(dir) = dir {
+        cmd.current_dir(dir);
+    }
+    cmd.stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 /// `git init` in the scaffolded directory, unless it already sits inside a repository (a demo
@@ -1182,16 +1216,8 @@ struct AppSpec<'a> {
 fn init_repository(dir: &Path) {
     use std::process::{Command, Stdio};
     // Asked from the new directory itself, which is not a repository yet: a `true` answer
-    // comes from a repository above it. (`dir.parent()` is "" for `day new app Name` run in
-    // place, which no process can start in.)
-    let inside = Command::new("git")
-        .args(["rev-parse", "--is-inside-work-tree"])
-        .current_dir(dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success());
-    if inside {
+    // comes from a repository above it.
+    if inside_repository(Some(dir)) {
         ops::status(
             "Git",
             "inside an existing repository, so none was initialized",
@@ -1314,6 +1340,15 @@ fn render_app(
                 *bytes = without_workflow_bullet(bytes);
             }
         }
+    } else if app.nested {
+        // Inside a repository already: `.gitignore` stays (see `AppSpec::nested`), the workflow
+        // goes, and the README stops describing it.
+        rendered.retain(|(path, _)| !path.split('/').any(|segment| segment == ".github"));
+        for (path, bytes) in &mut rendered {
+            if path == "README.md" {
+                *bytes = without_workflow_bullet(bytes);
+            }
+        }
     }
     Ok(match demo {
         Some(demo) => demo.cut(rendered, app),
@@ -1372,6 +1407,7 @@ impl PieceDemo<'_> {
             // The demo keeps its .gitignore (the piece's repository holds it); `cut` drops
             // `.github/`, and no `git init` runs for a demo.
             github: true,
+            nested: false,
             locales: Vec::new(),
             icon_seed: None,
         }
@@ -3857,6 +3893,7 @@ mod scaffold_tests {
             template: None,
             no_website: false,
             github,
+            nested: false,
             locales: Vec::new(),
             icon_seed: None,
         };
@@ -3896,6 +3933,40 @@ mod scaffold_tests {
         assert!(trimmed.contains("- `Day.toml`"), "{trimmed}");
         assert!(is_git_facing(".git/config") && is_git_facing("a/.gitignore"));
         assert!(!is_git_facing("src/github.rs") && !is_git_facing("gitignore.txt"));
+    }
+
+    /// A scaffold inside an existing repository keeps its `.gitignore` (the enclosing one knows
+    /// nothing of `build/` here) and leaves the workflow out: GitHub reads `.github/` at the
+    /// repository root only, so the README stops listing it too.
+    #[test]
+    fn a_nested_scaffold_keeps_gitignore_without_a_workflow() {
+        let deps = Deps::Git(None);
+        let spec = AppSpec {
+            repl: Repl::new("demo-app", Some("dev.example.demoapp")),
+            title: "Demo App".to_string(),
+            deps: &deps,
+            targets: vec!["macos-appkit".to_string(), "harmony-arkui".to_string()],
+            template: None,
+            no_website: false,
+            github: true,
+            nested: true,
+            locales: Vec::new(),
+            icon_seed: None,
+        };
+        let rendered = render_app(&spec, None).expect("renders");
+        let paths: Vec<&str> = rendered.iter().map(|(p, _)| p.as_str()).collect();
+        assert!(paths.contains(&".gitignore"), "{paths:?}");
+        assert!(paths.contains(&"platform/harmony/.gitignore"), "{paths:?}");
+        assert!(
+            !paths.iter().any(|p| p.starts_with(".github/")),
+            "{paths:?}"
+        );
+        let (_, readme) = rendered
+            .iter()
+            .find(|(p, _)| p == "README.md")
+            .expect("README");
+        let readme = String::from_utf8_lossy(readme);
+        assert!(!readme.contains(".github/workflows/ci.yml"), "{readme}");
     }
 
     /// The scaffolded workflow follows the app's dependency source and target list: a release

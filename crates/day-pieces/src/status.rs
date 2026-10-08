@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use day_reactive::Scope;
-use day_spec::{Icon, StatusItemSpec, Symbol};
+use day_spec::{Icon, StatusImage, StatusItemSpec, Symbol};
 
 use crate::MenuEntry;
 use crate::menus::lower_menu;
@@ -17,6 +17,7 @@ use crate::menus::lower_menu;
 #[derive(Default)]
 pub struct StatusItem {
     icon: Option<Icon>,
+    raster: Option<StatusImage>,
     template: bool,
     title: String,
     tooltip: String,
@@ -51,6 +52,16 @@ impl StatusItem {
     /// [`template`]: StatusItem::template
     pub fn image(mut self, name: impl Into<day_spec::ImageName>) -> StatusItem {
         self.icon = Some(Icon::Image(name.into().as_str().to_owned()));
+        self
+    }
+
+    /// A runtime RGBA image, preserving its logical width (a chart or compact status grid).
+    /// AppKit renders this in color; `.template(true)` opts into a monochrome template.
+    /// Other backends keep using the `icon`/`vector`/`image` fallback, if supplied. The image
+    /// owns its pixels and survives closing the window that produced it.
+    pub fn raster(mut self, image: StatusImage) -> Self {
+        self.raster = Some(image);
+        self.template = false;
         self
     }
 
@@ -94,6 +105,7 @@ impl StatusItem {
         StatusItemSpec {
             id: id.to_owned(),
             icon: self.icon,
+            raster: self.raster,
             template: self.template,
             title: self.title,
             tooltip: self.tooltip,

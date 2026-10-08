@@ -68,8 +68,11 @@ EntryAbility in day-arkui's staged ArkTS host), and tests set it to a scratch di
 
 `day_part_fs::data_dir()` returns that directory without the `day-fs/` leaf on native targets,
 for code that keeps files of its own beside the part's: a download manager's journal and partial
-files, for instance ([docs/downloads.md](downloads.md)). The web has no such directory, so the
-function exists only off wasm32.
+files, for instance ([docs/downloads.md](downloads.md)). `day_part_fs::platform_data_dir()`
+returns the platform directory above it, the one every application's data sits under, for an
+app that opens a store another application keeps there (a Day client over a desktop app's own
+database); `DAY_DATA_DIR` does not redirect that one. The web has no such directory, so both
+functions exist only off wasm32.
 
 ## Error taxonomy
 

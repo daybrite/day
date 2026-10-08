@@ -4354,7 +4354,16 @@ impl Toolkit for Gtk {
                 wire_focus(&entry, id);
                 entry.upcast()
             }
-            Some(Builtin::Divider) => gtk4::Separator::new(gtk4::Orientation::Horizontal).upcast(),
+            Some(Builtin::Divider) => {
+                let vertical =
+                    props_of::<DividerProps>(kind, "gtk", props).is_some_and(|p| p.vertical);
+                let orientation = if vertical {
+                    gtk4::Orientation::Vertical
+                } else {
+                    gtk4::Orientation::Horizontal
+                };
+                gtk4::Separator::new(orientation).upcast()
+            }
             Some(Builtin::Progress) => {
                 let Some(p) = props_of::<ProgressProps>(kind, "gtk", props) else {
                     return placeholder_label(kind);

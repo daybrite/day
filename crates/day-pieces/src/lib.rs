@@ -107,10 +107,10 @@ pub mod prelude {
     // become ambiguous at a call site. (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder` and
     // `RowBuilder` sit in the list above, in alphabetical company.)
     pub use crate::{
-        CoverBuilder, FormSectionBuilder, GridBuilder, GridRowBuilder, ImageBuilder,
-        InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder, NavStackBuilder, PickerBuilder,
-        ScrollBuilder, ShapePieceBuilder, SliderBuilder, TextAreaBuilder, TextFieldBuilder,
-        ToggleBuilder, VectorBuilder, WhenBuilder, ZStackBuilder,
+        CoverBuilder, DividerBuilder, FormSectionBuilder, GridBuilder, GridRowBuilder,
+        ImageBuilder, InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder, NavStackBuilder,
+        PickerBuilder, ScrollBuilder, ShapePieceBuilder, SliderBuilder, TextAreaBuilder,
+        TextFieldBuilder, ToggleBuilder, VectorBuilder, WhenBuilder, ZStackBuilder,
     };
     #[cfg(feature = "model")]
     pub use crate::{ModelSlot, Rows, StoreRows, StoreTree, StoreTrees};

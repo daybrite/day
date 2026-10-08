@@ -257,6 +257,17 @@ pub fn data_dir() -> Result<std::path::PathBuf, FsError> {
     imp::data_dir()
 }
 
+/// The platform's application-data directory itself, the parent [`data_dir`] is the `day/`
+/// child of: `~/Library/Application Support` on Apple, `%APPDATA%` on Windows, `$XDG_DATA_HOME`
+/// (else `~/.local/share`) elsewhere. For an app that opens a store another application keeps
+/// there, the way a CLI companion of a desktop app reads that app's database. `DAY_DATA_DIR`
+/// does not redirect it: a host that names the app's own directory says nothing about where
+/// other applications keep theirs.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn platform_data_dir() -> Result<std::path::PathBuf, FsError> {
+    imp::platform_data_dir()
+}
+
 // ---------------------------------------------------------------------------
 // Per-target implementations. Native targets share one std::fs backend rooted at the
 // per-platform app-data directory; web-dom rides the day-dom shim into OPFS.

@@ -23,16 +23,21 @@ pub(crate) fn data_dir() -> Result<PathBuf, FsError> {
     {
         return Ok(PathBuf::from(dir));
     }
+    platform_data_dir().map(|root| root.join("day"))
+}
+
+/// The platform's application-data directory, the parent every app's data sits under.
+pub(crate) fn platform_data_dir() -> Result<PathBuf, FsError> {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         if let Some(home) = std::env::var_os("HOME") {
-            return Ok(PathBuf::from(home).join("Library/Application Support/day"));
+            return Ok(PathBuf::from(home).join("Library/Application Support"));
         }
     }
     #[cfg(target_os = "windows")]
     {
         if let Some(app) = std::env::var_os("APPDATA") {
-            return Ok(PathBuf::from(app).join("day"));
+            return Ok(PathBuf::from(app));
         }
     }
     #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
@@ -41,10 +46,10 @@ pub(crate) fn data_dir() -> Result<PathBuf, FsError> {
         if let Some(dir) = std::env::var_os("XDG_DATA_HOME")
             && !dir.is_empty()
         {
-            return Ok(PathBuf::from(dir).join("day"));
+            return Ok(PathBuf::from(dir));
         }
         if let Some(home) = std::env::var_os("HOME") {
-            return Ok(PathBuf::from(home).join(".local/share/day"));
+            return Ok(PathBuf::from(home).join(".local/share"));
         }
     }
     Err(FsError::Unsupported)

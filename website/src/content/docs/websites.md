@@ -42,6 +42,7 @@ Common optional settings are:
 
 ```toml
 host = "https://YOUR-OWNER.github.io/YOUR-REPOSITORY"
+about = "README.md" # A Markdown file for the About section, relative to the project root.
 accent-color = "#3B82F6"
 default-theme = "system" # light, dark, or system
 default-platform = "web"
@@ -53,6 +54,10 @@ footer = "© {year} Your organization"
 
 Use a platform your app actually builds. A visitor's device, saved choice, or bookmarked
 platform can override `default-platform`. The footer is publication text you supply.
+`about` replaces the store description on the landing page with a Markdown file's content,
+rendered at build time; the leading heading is dropped, relative links point at the file on
+GitHub, and images become links. Without `about`, a listing with no description shows the
+project's `README.md`.
 See the [daysite configuration reference](https://github.com/daybrite/daysite#sitetoml)
 for all settings, including search, icon effects, and release-channel choices.
 

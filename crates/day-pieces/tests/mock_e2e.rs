@@ -9418,6 +9418,36 @@ fn status_item_lowers_rebuilds_and_dispatches() {
 }
 
 #[test]
+fn status_raster_updates_preserve_fallback_and_outlive_the_source_buffer() {
+    let probe = boot(|| label("fixture host").any());
+    let pixels = Signal::new([255u8, 0, 0, 255].repeat(120 * 36));
+    let item = status_item("fixture-grid", move || {
+        StatusItem::new()
+            .icon(Symbol::Refresh)
+            .raster(day_spec::StatusImage::rgba(120, 36, 2.0, pixels.get()).unwrap())
+            .tooltip("fixture grid")
+    });
+    flush_sync();
+    let before = probe.status_items().remove(0);
+    assert_eq!(
+        before.raster.as_ref().unwrap().size(),
+        Size::new(60.0, 18.0)
+    );
+    assert!(
+        before.icon.is_some(),
+        "other backends retain the fallback glyph"
+    );
+    assert!(!before.template, "runtime pixels keep their colors");
+    pixels.set([0u8, 255, 0, 255].repeat(120 * 36));
+    flush_sync();
+    let after = probe.status_items().remove(0);
+    assert_eq!(&after.raster.unwrap().pixels()[..4], &[0, 255, 0, 255]);
+    assert_eq!(&before.raster.unwrap().pixels()[..4], &[255, 0, 0, 255]);
+    item.remove();
+    assert!(probe.status_items().is_empty());
+}
+
+#[test]
 fn a_status_item_keeps_the_app_running_after_its_last_window() {
     let probe = boot(|| label("main").any());
     let item = status_item("tray", || StatusItem::new().title("T"));

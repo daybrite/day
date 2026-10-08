@@ -97,27 +97,69 @@ fn new_target(mtm: MainThreadMarker, id: &str) -> Retained<StatusTarget> {
     unsafe { msg_send![super(this), init] }
 }
 
+/// Own the native pixels in a representation, so no borrowed app buffer reaches AppKit.
+fn raster_image(raster: &day_spec::StatusImage) -> Option<Retained<objc2_app_kit::NSImage>> {
+    use objc2::AllocAnyThread as _;
+    use objc2_app_kit::{NSBitmapFormat, NSBitmapImageRep, NSImage};
+    let rep = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bitmapFormat_bytesPerRow_bitsPerPixel(
+            NSBitmapImageRep::alloc(), std::ptr::null_mut(), raster.width() as isize,
+            raster.height() as isize, 8, 4, true, false,
+            objc2_app_kit::NSCalibratedRGBColorSpace, NSBitmapFormat::AlphaNonpremultiplied,
+            raster.width() as isize * 4, 32,
+        )
+    }?;
+    let data = rep.bitmapData();
+    if data.is_null() {
+        return None;
+    }
+    // StatusImage validated exact dimensions/length; explicit bytesPerRow means no padding.
+    unsafe { std::ptr::copy_nonoverlapping(raster.pixels().as_ptr(), data, raster.pixels().len()) };
+    let rep = rep
+        .bitmapImageRepByRetaggingWithColorSpace(&objc2_app_kit::NSColorSpace::sRGBColorSpace())?;
+    let size = raster.size();
+    let fit = (18.0 / size.height).min(1.0);
+    let size = NSSize::new(size.width * fit, size.height * fit);
+    unsafe { rep.setSize(size) };
+    let image = NSImage::initWithSize(NSImage::alloc(), size);
+    unsafe { image.addRepresentation(&rep) };
+    Some(image)
+}
+
 /// Apply `spec` to an existing item.
 fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusItemSpec) {
     let Some(button) = (unsafe { shown.item.button(mtm) }) else {
         return;
     };
-    let image = spec
-        .icon
-        .as_ref()
-        .and_then(|icon| crate::toolbar::image_for(icon, &spec.tooltip, mtm));
-    if let Some(image) = &image {
-        // The menu bar is 22pt tall; a glyph much taller than 18pt crowds it.
-        unsafe { image.setSize(NSSize::new(18.0, 18.0)) };
-        unsafe { image.setTemplate(spec.template) };
+    // Menu-only or tooltip updates do not reallocate the pixels. The image belongs to the
+    // button, and `shown.spec` retains the app's owned source until replacement/removal.
+    if shown.spec.raster != spec.raster
+        || shown.spec.icon != spec.icon
+        || shown.spec.template != spec.template
+        || unsafe { button.image() }.is_none()
+    {
+        let image = spec.raster.as_ref().and_then(raster_image).or_else(|| {
+            let image = spec
+                .icon
+                .as_ref()
+                .and_then(|icon| crate::toolbar::image_for(icon, &spec.tooltip, mtm));
+            if let Some(image) = &image {
+                unsafe { image.setSize(NSSize::new(18.0, 18.0)) };
+            }
+            image
+        });
+        if let Some(image) = &image {
+            unsafe { image.setTemplate(spec.template) };
+        }
+        unsafe { button.setImage(image.as_deref()) };
     }
     unsafe {
-        button.setImage(image.as_deref());
         button.setImagePosition(objc2_app_kit::NSCellImagePosition::ImageLeft);
     }
     button.setTitle(&NSString::from_str(&spec.title));
     let tip = (!spec.tooltip.is_empty()).then(|| NSString::from_str(&spec.tooltip));
     button.setToolTip(tip.as_deref());
+    button.setAccessibilityLabel(tip.as_deref());
     shown.menu = build_ns_menu(mtm, "", &spec.menu);
     // Without a click action the item IS its menu: attach it for good, so a click, the keyboard
     // and VoiceOver's "show menu" all open it natively. With one, the menu is attached only for
@@ -232,4 +274,36 @@ pub(super) fn set_dock_visible(mtm: MainThreadMarker, visible: bool) {
         objc2_app_kit::NSApplicationActivationPolicy::Accessory
     };
     app.setActivationPolicy(policy);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runtime_raster_keeps_wide_retina_size_and_straight_alpha_pixels() {
+        objc2::rc::autoreleasepool(|_| {
+            let mut pixels = vec![0; 120 * 36 * 4];
+            pixels[..4].copy_from_slice(&[255, 0, 0, 128]);
+            let source = day_spec::StatusImage::rgba(120, 36, 2.0, pixels.clone()).unwrap();
+            let image = raster_image(&source).unwrap();
+            assert_eq!(unsafe { image.size() }, NSSize::new(60.0, 18.0));
+            let reps = unsafe { image.representations() };
+            let rep = reps
+                .objectAtIndex(0)
+                .downcast::<objc2_app_kit::NSBitmapImageRep>()
+                .unwrap();
+            assert_eq!(unsafe { rep.pixelsWide() }, 120);
+            assert_eq!(unsafe { rep.pixelsHigh() }, 36);
+            assert_eq!(
+                unsafe { std::slice::from_raw_parts(rep.bitmapData(), pixels.len()) },
+                pixels
+            );
+            let taller = day_spec::StatusImage::rgba(120, 72, 2.0, vec![0; 120 * 72 * 4]).unwrap();
+            assert_eq!(
+                unsafe { raster_image(&taller).unwrap().size() },
+                NSSize::new(30.0, 18.0)
+            );
+        });
+    }
 }

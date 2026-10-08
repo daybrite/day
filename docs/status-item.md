@@ -64,6 +64,29 @@ LXQt panels have one, and GNOME has one only with the AppIndicator extension (Ub
 Without a host the answer is `Unsupported`, so an app can keep a window instead of disappearing
 into a tray nobody shows.
 
+## Runtime status images on macOS
+
+`StatusItem::raster(day::StatusImage)` displays pixels computed by the app, for a status grid,
+meter or sparkline. `StatusImage::rgba(width, height, scale, pixels)` returns `Some` for a valid
+image: top-to-bottom, tightly packed, **straight-alpha sRGB RGBA8**, with `scale` pixels per
+logical point. For example, a 240×36 image at scale 2 occupies 120×18 points. Empty images,
+mismatched byte counts, nonpositive/nonfinite scales, buffers over 16 MiB and logical dimensions
+over 4096 points are rejected with `None`.
+
+A raster is drawn in color by default; `.template(true)` uses only its alpha silhouette.
+AppKit preserves its aspect ratio and logical width, scaling down proportionally only when it
+is taller than 18 points. Unlike bundled glyphs, a wide raster is **not squeezed into 18×18**.
+The status item owns the shared source bytes, and the native image owns a copy of the pixels;
+it survives closing the producing window and is released on replacement or item removal.
+Unchanged images are reused when only menu entries, title or tooltip change. The tooltip is
+also the native button's accessibility label, so a grid needs a localized textual description.
+
+This extension currently renders on **AppKit only**. Keep an `.icon(...)`, `.vector(...)` or
+`.image(...)` fallback for other desktop backends, which ignore `raster`. Set the fallback
+before `.raster(...)` so that the latter selects full-color rendering. `Cap::StatusItem` still
+reports ordinary status-item support; it does not promise runtime-raster support. The mock
+backend retains the raster in its probe for tests.
+
 ## Keeping the app running
 
 An app with a status item keeps running when its last window closes, so its menu stays usable.

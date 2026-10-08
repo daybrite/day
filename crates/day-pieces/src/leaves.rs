@@ -10,7 +10,7 @@ use std::rc::Rc;
 use day_core::*;
 use day_reactive::{bind, bind_seeded};
 use day_spec::props::*;
-use day_spec::{Event, Font, Role, kinds};
+use day_spec::{Event, Font, Proposal, Rect, Role, Size, kinds};
 
 use crate::*;
 
@@ -1371,22 +1371,83 @@ impl Piece for Progress {
     }
 }
 
-pub struct Divider;
+/// A hairline between neighbors: across a column's width by default, down a row's height
+/// with [`Divider::vertical`].
+pub struct Divider {
+    vertical: bool,
+}
 
 pub fn divider() -> Divider {
-    Divider
+    Divider { vertical: false }
+}
+
+impl Divider {
+    /// Turn the rule on its side: a thin vertical line that fills the row's height, the way the
+    /// horizontal one fills a column's width. Between a row's panes, where a horizontal rule
+    /// would draw a stray line across one of them.
+    pub fn vertical(mut self) -> Self {
+        self.vertical = true;
+        self
+    }
 }
 
 impl Piece for Divider {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        cx.leaf(
-            kinds::DIVIDER,
-            &(),
-            Flex {
-                grow_w: true,
-                ..Default::default()
-            },
-        )
+        let props = DividerProps {
+            vertical: self.vertical,
+        };
+        if self.vertical {
+            cx.native(
+                kinds::DIVIDER,
+                &props,
+                Rc::new(VerticalLeaf),
+                Flex {
+                    grow_h: true,
+                    ..Default::default()
+                },
+                Boundary::No,
+            )
+        } else {
+            cx.leaf(
+                kinds::DIVIDER,
+                &props,
+                Flex {
+                    grow_w: true,
+                    ..Default::default()
+                },
+            )
+        }
+    }
+}
+
+/// A native leaf measured with its axes swapped: the toolkit answers as it does for a
+/// horizontal rule (the offered width, by its hairline thickness), and the vertical rule is that
+/// answer turned on its side. One measurement arm per toolkit, whichever way the line runs.
+struct VerticalLeaf;
+
+impl Layout for VerticalLeaf {
+    fn measure(&self, cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        let s = cx.measure_leaf(Proposal::new(p.height, p.width));
+        Size::new(s.height, s.width)
+    }
+    fn place(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], _bounds: Rect) {}
+}
+
+/// [`Divider`]'s own builder, reachable through a decoration (§5.2): `Decorated` forwards it
+/// to the piece it wraps, so `.id(..)` and `.vertical()` chain in either order.
+pub trait DividerBuilder: Sized {
+    fn vertical(self) -> Self;
+}
+
+impl DividerBuilder for Divider {
+    fn vertical(self) -> Self {
+        Divider::vertical(self)
+    }
+}
+
+impl<Inner: DividerBuilder + Piece> DividerBuilder for Decorated<Inner> {
+    fn vertical(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.vertical())
     }
 }
 
@@ -2152,6 +2213,36 @@ pub(crate) mod conformance {
             })
     }
 
+    /// A vertical divider takes the height it is given, with a width of its own: a hairline
+    /// down a row, not across it.
+    #[day_macros::test(day_core)]
+    fn vertical_divider_fills_height() -> Case {
+        Case::new()
+            .proves(kinds::DIVIDER)
+            .page(|| {
+                row((
+                    label("Left"),
+                    divider().vertical().id("rule"),
+                    label("Right"),
+                ))
+                .spacing(8.0)
+                .height(120.0)
+                .id("row")
+            })
+            .drive(|d: Drive| async move {
+                d.assert_visible("rule").await?;
+                // The thickness is the toolkit's (a point or a few); the height is the row's.
+                d.assert_frame(
+                    "rule",
+                    FrameExpect {
+                        height: Some(120.0),
+                        ..Default::default()
+                    },
+                )
+                .await
+            })
+    }
+
     /// A spacer takes the room between its neighbors.
     #[day_macros::test(day_core)]
     fn spacer_fills() -> Case {
@@ -2221,6 +2312,7 @@ pub(crate) mod conformance {
         progress_value,
         spinner_renders,
         divider_renders,
+        vertical_divider_fills_height,
         spacer_fills,
         link_opens_url,
     }

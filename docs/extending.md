@@ -346,7 +346,13 @@ frameworks = ["WebKit"]                                      # system frameworks
 `frameworks` links system frameworks via the generated package's `linkerSettings`. A piece that
 drives a class from an unlinked framework (e.g. a hand-rolled `WKWebView`) declares it here instead of
 `dlopen`ing or hand-`#[link]`ing (which doesn't survive the cargo-staticlib → xcode link). `day-piece-webview`
-uses `frameworks = ["WebKit"]`.
+uses `frameworks = ["WebKit"]`. The same loss applies to a *dependency's* `#[link]`: a crate that
+reads the system proxy settings (reqwest's default client, through `system-configuration`) needs
+`frameworks = ["SystemConfiguration"]` on both `[package.metadata.day.macos]` and `.ios`, or the
+link fails with undefined `_SCDynamicStoreCopyProxies` symbols. On Android the counterpart is a
+dependency on `native-tls`/`openssl-sys`: no Android image carries OpenSSL, so the app adds
+`openssl = { version = "0.10", features = ["vendored"] }` under
+`[target.'cfg(target_os = "android")'.dependencies]` and builds it from source.
 
 `{from, exact, branch, revision}` map to the matching SwiftPM version requirement; `products` are the
 library products to link. Xcode is not script-driven like Gradle, so `day build` (ios-uikit) instead

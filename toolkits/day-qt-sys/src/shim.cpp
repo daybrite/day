@@ -1274,9 +1274,9 @@ void day_qt_lineedit_set_traits(void *w, int secure, int read_only, int purpose)
 }
 
 // --- divider ---
-void *day_qt_separator_new() {
+void *day_qt_separator_new(int vertical) {
     QFrame *f = new QFrame();
-    f->setFrameShape(QFrame::HLine);
+    f->setFrameShape(vertical ? QFrame::VLine : QFrame::HLine);
     f->setFrameShadow(QFrame::Sunken);
     return f;
 }

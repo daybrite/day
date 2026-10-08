@@ -34,6 +34,7 @@ import android.widget.TextView;
 
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.color.MaterialColors;
 import com.google.android.material.divider.MaterialDivider;
 import com.google.android.material.loadingindicator.LoadingIndicator;
 import com.google.android.material.materialswitch.MaterialSwitch;
@@ -1456,8 +1457,15 @@ public final class DayBridge {
         if (s.getValue() != f) s.setValue(f); // programmatic: listener sees fromUser=false, no echo
     }
 
-    public static View makeDivider() {
-        return new MaterialDivider(ctx); // themed hairline (colorOutlineVariant)
+    public static View makeDivider(boolean vertical) {
+        if (!vertical) return new MaterialDivider(ctx); // themed hairline (colorOutlineVariant)
+        // MaterialDivider draws a horizontal line at the top of its bounds whatever its shape,
+        // so a vertical rule is a plain view filled with the same theme color; layout gives it
+        // its 1dp-wide frame.
+        View v = new View(ctx);
+        v.setBackgroundColor(MaterialColors.getColor(
+                ctx, com.google.android.material.R.attr.colorOutlineVariant, 0x33808080));
+        return v;
     }
 
     // Progress: an M3 linear determinate indicator (0..1000), or the M3 Expressive

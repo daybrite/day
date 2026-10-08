@@ -5433,9 +5433,10 @@ void* day_xaml_field_set_secure(void* h, int secure, unsigned long long id,
 
 // ---- divider / image ----
 
-void* day_xaml_divider_new() {
+void* day_xaml_divider_new(int vertical) {
     WUXC::Border b;
-    b.Height(1);
+    // The thin axis is fixed; layout's frame supplies the long one.
+    if (vertical) b.Width(1); else b.Height(1);
     // The app-resource hairline brush resolves per the SYSTEM theme; only trust it when no
     // DAY_THEME force is active. Translucent-neutral fallback — alpha over the page ground reads
     // correctly in either scheme.

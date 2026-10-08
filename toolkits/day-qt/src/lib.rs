@@ -2160,7 +2160,11 @@ impl Toolkit for Qt {
                     ffi::day_qt_enable_focus(w, id.0, on_focus);
                     QtHandle(w)
                 }
-                Some(Builtin::Divider) => QtHandle(ffi::day_qt_separator_new()),
+                Some(Builtin::Divider) => {
+                    let vertical = day_spec::props_of::<DividerProps>(kind, "qt", props)
+                        .is_some_and(|p| p.vertical);
+                    QtHandle(ffi::day_qt_separator_new(c_int::from(vertical)))
+                }
                 Some(Builtin::Progress) => {
                     let Some(p) = props_of::<ProgressProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);

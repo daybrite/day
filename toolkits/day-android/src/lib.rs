@@ -2851,9 +2851,18 @@ mod imp {
                         ))
                     })
                 }
-                Some(Builtin::Divider) => with_env(|env| {
-                    AHandle(make_view(env, "makeDivider", "()Landroid/view/View;", &[]))
-                }),
+                Some(Builtin::Divider) => {
+                    let vertical = day_spec::props_of::<DividerProps>(kind, "android", props)
+                        .is_some_and(|p| p.vertical);
+                    with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeDivider",
+                            "(Z)Landroid/view/View;",
+                            &[JValue::Bool(vertical)],
+                        ))
+                    })
+                }
                 Some(Builtin::Progress) => {
                     let Some(p) = day_spec::props_of::<ProgressProps>(kind, "android", props)
                     else {

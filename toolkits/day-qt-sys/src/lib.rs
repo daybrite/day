@@ -215,7 +215,8 @@ unsafe extern "C" {
         purpose: c_int,
     );
 
-    pub fn day_qt_separator_new() -> *mut c_void;
+    /// `vertical`: 1 for a rule down a row (`QFrame::VLine`), 0 for one across a column.
+    pub fn day_qt_separator_new(vertical: c_int) -> *mut c_void;
 
     pub fn day_qt_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
     pub fn day_qt_progress_set(w: *mut c_void, value: c_int);

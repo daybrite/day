@@ -37,6 +37,10 @@ host = "https://{{org}}.github.io/{{repo}}"
 # title = "{{title}}"
 # tagline = ""
 
+# A Markdown file for the About section, relative to this project's root, shown instead of the
+# store description. Without it, a listing with no description shows README.md.
+# about = "README.md"
+
 # Brand accent (any CSS color) and starting theme: light | dark | system.
 # accent-color = "#3B82F6"
 # default-theme = "system"

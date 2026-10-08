@@ -53,6 +53,33 @@ fn target_for(platform: &str) -> &'static str {
     }
 }
 
+/// The deployment target the committed `platform/<platform>/DayApp.xcconfig` declares
+/// (`MACOSX_DEPLOYMENT_TARGET = 13.0`, `IPHONEOS_DEPLOYMENT_TARGET = 16.0`), or `None` when
+/// the file or the line is absent (a pre-split scaffold, a hand-restructured project). What
+/// the cargo half of an Apple build hands its C compilers, so every object targets the same
+/// floor the Xcode link does.
+pub fn deployment_target(project: &Project, platform: &str) -> Option<String> {
+    let key = if platform == "macos" {
+        "MACOSX_DEPLOYMENT_TARGET"
+    } else {
+        "IPHONEOS_DEPLOYMENT_TARGET"
+    };
+    let path = project
+        .root
+        .join("platform")
+        .join(platform)
+        .join("DayApp.xcconfig");
+    let text = std::fs::read_to_string(path).ok()?;
+    text.lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with("//"))
+        .find_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            (k.trim() == key).then(|| v.trim().to_string())
+        })
+        .filter(|v| !v.is_empty())
+}
+
 /// Write `build/day/xcconfig/<platform>.xcconfig`, the Day-managed values the committed
 /// `DayApp.xcconfig` includes last. Rewritten (when changed) on every build so the bundle
 /// id, version, and build number always track Day.toml.

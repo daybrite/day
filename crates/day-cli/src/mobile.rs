@@ -193,6 +193,25 @@ pub(crate) fn cargo_apple_staticlibs(
         ] {
             cmd.env_remove(var);
         }
+        // Then the deployment target the project declares, for the C and C++ objects the
+        // dependency graph compiles (`cc`-driven crates: a bundled SQLite, a TLS library's
+        // sources): without it they take the SDK's own version, and the Xcode link prints
+        // "object file … was built for newer macOS version than being linked" per object,
+        // one flood per build. Outside Xcode the porcelain's run had no value at all; inside,
+        // Xcode's value was the right one but left with the rest of the phase env above.
+        let platform = if triple.contains("-apple-ios") {
+            "ios"
+        } else {
+            "macos"
+        };
+        if let Some(floor) = crate::xcconfig::deployment_target(project, platform) {
+            let var = if platform == "macos" {
+                "MACOSX_DEPLOYMENT_TARGET"
+            } else {
+                "IPHONEOS_DEPLOYMENT_TARGET"
+            };
+            cmd.env(var, floor);
+        }
         let home = std::env::var("HOME").unwrap_or_default();
         cmd.current_dir(&project.root)
             .env(

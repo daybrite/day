@@ -473,7 +473,8 @@ unsafe extern "C" {
     /// 5 number. `plain` turns spell checking and prediction off.
     pub fn day_xaml_field_set_traits(w: *mut c_void, read_only: c_int, scope: c_int, plain: c_int);
 
-    pub fn day_xaml_divider_new() -> *mut c_void;
+    /// `vertical`: 1 for a rule down a row (a 1px-wide Border), 0 for one across a column.
+    pub fn day_xaml_divider_new(vertical: c_int) -> *mut c_void;
     pub fn day_xaml_image_new(uri: *const c_char, mode: c_int) -> *mut c_void;
     // Raster images from bytes (docs/images.md): the shim holds the ENCODED buffer per id, since
     // a `BitmapImage` is UI-thread-bound and decodes lazily.
