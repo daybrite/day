@@ -62,6 +62,27 @@ public class DayAndroidPlugin implements Plugin<Project> {
         ApplicationExtension android = project.getExtensions().getByType(ApplicationExtension.class);
         android.setNamespace(required(app, "namespace"));
         android.setCompileSdk(COMPILE_SDK);
+        // Use the same installed NDK as cargo-ndk, including custom ANDROID_NDK_HOME locations.
+        // AGP's default can be absent: stripReleaseDebugSymbols then only warns and ships the
+        // unstripped library, whose local LLVM symbol names can vary across build directories.
+        // The generated file is a configuration-cache input and also survives IDE sync. Optional
+        // for older CLIs; the app's subsequent android {} block can still override this choice.
+        String ndkPath = app.getProperty("ndkPath");
+        if (ndkPath != null) {
+            android.setNdkPath(ndkPath);
+            // AGP also checks ndkPath against ndkVersion, including its implicit default. Set
+            // both from the selected installation; a path alone still fails when versions differ.
+            // Track source.properties as a cache input, just like Day's generated configuration.
+            Properties ndk = DayGenerated.properties(providers.fileContents(
+                    project.getLayout().getProjectDirectory().file(ndkPath + "/source.properties"))
+                    .getAsText().get());
+            String revision = ndk.getProperty("Pkg.Revision");
+            if (revision == null || revision.isBlank()) {
+                throw new GradleException(
+                        "day: selected NDK " + ndkPath + " has no Pkg.Revision in source.properties");
+            }
+            android.setNdkVersion(revision.trim());
+        }
 
         ApplicationDefaultConfig config = android.getDefaultConfig();
         config.setApplicationId(required(app, "applicationId"));

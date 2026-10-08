@@ -5381,6 +5381,23 @@ table, so the first differing byte is always the header's `e_shoff` and names no
 normalized; the Android leg also uploads both libraries when its check fails. The runner is gone by
 the time anyone reads its log, so the verdict has to carry the evidence with it.
 
+Android's generated `day-app.properties` carries the absolute, Java-properties-escaped `ndkPath`
+selected by Day (including `ANDROID_NDK_HOME` overrides). The shared Gradle plugin sets AGP's
+`ndkPath` from it and `ndkVersion` from that installation's `source.properties` (also a tracked
+configuration input), so cargo-ndk and packaging use the same installed toolchain; Android Studio
+reads the same generated file, and changing it invalidates Gradle's configuration cache. Older
+CLIs without that property keep AGP's default; an app's later `android {}` block can override it.
+Without this handoff AGP can choose an absent default NDK and merely warn that it cannot strip
+the library. The APK then contains local LLVM symbol names that can vary between directories,
+producing `.symtab` / `.strtab` differences despite identical runtime sections. Release packaging
+uses AGP's normal stripping, while the staged Rust `.so` retains its symbols. Rebuild comparison
+still checks every ELF byte. `scripts/ci/check-android-symbols.py`, run by the scaffold check,
+requires both APK and AAB libraries to omit `.symtab` and retain the runtime `.dynsym`, even when
+two unstripped builds would happen to match.
+This was exposed by GitHub's Ubuntu 24.04 image update from `20260927.320` to `20261004.327`:
+the latter removed NDK `28.2.13676358`, AGP 9.4's default, while Day followed the runner's
+`ANDROID_NDK_LATEST_HOME` to NDK 30. Runs on the older image continued to strip successfully.
+
 The debug map is the reason this has to be a normalized comparison rather than a byte one. Those
 paths reach into `SYMROOT`, into cargo's output, and into the build directory of any SwiftPM package
 the app links, so the same commit built from two directories differs in both content and *length*.
@@ -6580,6 +6597,18 @@ replies. Web sampling uses a main-loop timer and can be delayed by a blocked/thr
 A dedicated host reader demultiplexes samples from replies and checkpoints JSON immediately,
 including during pauses, long UI steps and device captures. Stop sends a final sample before
 acknowledgment. The host interval is `DAY_SCRIPT_MEMORY_INTERVAL_MS` (default 1000).
+
+Reader teardown cancels the worker and shuts down both socket directions before joining it,
+so the engine sees EOF even while the runner retains a writer clone. A 250 ms socket poll
+bounds idle-worker cancellation on Windows; the channel's separate reply deadline still
+honors the step/startup budgets above. Partial replies remain byte buffers across polls,
+including split UTF-8 characters. `script_report` tests cover idle-peer teardown, fragmented
+replies, and telemetry checkpointing; the stop/continue flow test also exercises cleanup.
+
+CI merges partial conformance results after failed test legs, but skips aggregation when
+the conformance workflow itself never ran because a prerequisite failed. Android rebuild
+failures retain both native libraries for comparison; upload paths are canonicalized before
+passing them to the artifact action, including when the scaffold path contains spaces.
 
 Every checkpoint is written to a temporary file then atomically renamed. On a normal return,
 reports finish as passed/failed; transport errors finish as interrupted, and unstarted scripts

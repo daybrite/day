@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -325,37 +326,56 @@ impl Drop for StepGuard {
     }
 }
 
+const READER_POLL: Duration = Duration::from_millis(250);
+
 /// A single socket reader demultiplexes telemetry and ordinary responses. Each sample is
 /// checkpointed immediately, including during host-side pauses and long-running UI steps.
 pub(crate) struct Reader {
     replies: mpsc::Receiver<std::io::Result<String>>,
     stream: TcpStream,
     timeout: Duration,
+    stopping: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 impl Reader {
     pub fn new(stream: TcpStream, active: Active) -> std::io::Result<Self> {
         let input = stream.try_clone()?;
+        // A socket shutdown does not reliably interrupt an already pending Winsock read.
+        // Poll cancellation independently of the (potentially minutes-long) reply budget.
+        input.set_read_timeout(Some(READER_POLL))?;
         let (tx, replies) = mpsc::channel();
+        let stopping = Arc::new(AtomicBool::new(false));
+        let worker_stopping = stopping.clone();
         let thread = std::thread::spawn(move || {
             let mut reader = BufReader::new(input);
-            let mut line = String::new();
-            loop {
-                match reader.read_line(&mut line) {
+            // Keep raw bytes across poll timeouts, including a timeout halfway through a
+            // UTF-8 character. Decode only once the complete reply has arrived.
+            let mut line = Vec::new();
+            while !worker_stopping.load(Ordering::Acquire) {
+                match reader.read_until(b'\n', &mut line) {
                     Ok(0) => {
                         let _ = tx.send(Ok(String::new()));
                         break;
                     }
                     Ok(_) => {
+                        let line = match String::from_utf8(std::mem::take(&mut line)) {
+                            Ok(line) => line,
+                            Err(error) => {
+                                let _ = tx.send(Err(std::io::Error::new(
+                                    std::io::ErrorKind::InvalidData,
+                                    error,
+                                )));
+                                break;
+                            }
+                        };
                         if line.contains("\"memory_sample\"")
                             && let Ok(reply) = serde_json::from_str::<Reply>(&line)
                             && let Some(sample) = reply.memory_sample
                         {
                             active.sample(*sample);
-                        } else if tx.send(Ok(std::mem::take(&mut line))).is_err() {
+                        } else if tx.send(Ok(line)).is_err() {
                             break;
                         }
-                        line.clear();
                     }
                     Err(error)
                         if matches!(
@@ -378,6 +398,7 @@ impl Reader {
             replies,
             stream,
             timeout: Duration::from_secs(60),
+            stopping,
             thread: Some(thread),
         })
     }
@@ -402,7 +423,10 @@ impl Reader {
 }
 impl Drop for Reader {
     fn drop(&mut self) {
-        let _ = self.stream.shutdown(Shutdown::Read);
+        self.stopping.store(true, Ordering::Release);
+        // Close both directions before joining: the peer must see EOF even while the runner
+        // retains its writer clone. Receive-only shutdown leaves the peer waiting for input.
+        let _ = self.stream.shutdown(Shutdown::Both);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
@@ -707,6 +731,56 @@ mod tests {
         drop(reader);
         reports.finish(Some("fixture connection closed"));
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn dropping_reader_disconnects_an_idle_peer_even_with_a_writer_clone() {
+        use std::io::Read;
+
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let writer = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let mut reader = Reader::new(writer.try_clone().unwrap(), Active::default()).unwrap();
+        // Confirm the worker has started before dropping it with the peer still connected.
+        writeln!(peer, "{{\"ok\":true}}").unwrap();
+        reader.read_line(&mut String::new()).unwrap();
+        let (finished, completion) = mpsc::channel();
+        let dropper = std::thread::spawn(move || {
+            drop(reader);
+            finished.send(()).unwrap();
+        });
+        // Neither completion nor peer EOF may depend on the peer closing first. The runner
+        // also retains a separate writer until after its Reader has been dropped.
+        completion
+            .recv_timeout(Duration::from_secs(3))
+            .expect("reader teardown must not wait for an idle peer or a step timeout");
+        let mut byte = [0];
+        assert_eq!(peer.read(&mut byte).unwrap(), 0, "the peer must see EOF");
+        drop(writer);
+        dropper.join().unwrap();
+    }
+
+    #[test]
+    fn reader_preserves_fragmented_utf8_across_poll_and_reply_timeouts() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let socket = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut peer, _) = listener.accept().unwrap();
+        let mut reader = Reader::new(socket, Active::default()).unwrap();
+        let expected = "{\"ok\":false,\"error\":\"fixture café\"}\n";
+        let split = expected.find('é').unwrap() + 1;
+        peer.write_all(&expected.as_bytes()[..split]).unwrap();
+        reader.set_timeout(READER_POLL * 3);
+        let mut line = String::new();
+        assert_eq!(
+            reader.read_line(&mut line).unwrap_err().kind(),
+            std::io::ErrorKind::TimedOut
+        );
+        assert!(line.is_empty(), "partial replies stay inside the worker");
+        peer.write_all(&expected.as_bytes()[split..]).unwrap();
+        reader.set_timeout(Duration::from_secs(3));
+        assert_eq!(reader.read_line(&mut line).unwrap(), expected.len());
+        assert_eq!(line, expected);
     }
 
     #[test]

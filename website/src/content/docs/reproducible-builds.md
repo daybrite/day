@@ -148,10 +148,17 @@ runtime bump.
 
 ### android-mdc
 
-The compiled `.so` files are reproducible. The `.apk` and `.aab` are close but not yet identical.
+The packaged `.so` files are compared byte for byte. Day passes its selected NDK (including an
+`ANDROID_NDK_HOME` override) to its Gradle plugin through generated build configuration, so
+Gradle uses the installed toolchain to strip release libraries. The unstripped Rust outputs stay
+in `build/day/jniLibs` for debugging; their local symbol names can differ across build directories.
+If Gradle reports that it cannot strip a library, investigate the NDK selection before trusting
+the package's reproducibility. See [Android's NDK configuration guide](https://developer.android.com/studio/projects/configure-agp-ndk).
+
+The `.apk` and `.aab` containers are close but not yet identical.
 
 Gradle stamps each ZIP entry with the file's modification time and walks the tree in filesystem
-order. Day's app template sets `isPreserveFileTimestamps = false` and `isReproducibleFileOrder =
+order. Day's shared Gradle plugin sets `isPreserveFileTimestamps = false` and `isReproducibleFileOrder =
 true` on every archive task, which is the documented fix. See [Gradle's reproducible archives
 guidance](https://docs.gradle.org/current/userguide/working_with_files.html) and
 [reproducible-builds.org on the JVM](https://reproducible-builds.org/docs/jvm/).

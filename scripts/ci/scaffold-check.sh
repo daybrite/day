@@ -221,6 +221,14 @@ SWIFT
 
     "$DAY" pack -p "$COMBO" --profile release --no-version-in-name
 
+    if [ "$COMBO" = android-mdc ]; then
+        # AGP only warns when its strip tool is missing. A rebuild can coincidentally match even
+        # then, so explicitly check both published formats using the CI runner's selected NDK.
+        for PACKAGE in build/day/dist/*.apk build/day/dist/*.aab; do
+            python3 "$ROOT/scripts/ci/check-android-symbols.py" "$PACKAGE" "$ANDROID_NDK_HOME"
+        done
+    fi
+
     # The installable containers, not the SBOM/buildinfo sidecars beside them (which are named
     # `<artifact>.sbom-cdx.json` / `.buildinfo.json` / `.buildinfo.deb822`, so matching the
     # container's extension is what separates them). One per target, except Linux: a .flatpak and

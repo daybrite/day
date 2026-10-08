@@ -693,7 +693,9 @@ jobs:
     name: conformance (results)
     runs-on: ubuntu-24.04
     needs: [conformance]
-    if: ${{ !cancelled() && !startsWith(github.ref, 'refs/tags/') }}
+    # Keep partial results after failed tests, but there are no artifacts when the entire
+    # conformance workflow was skipped because a CLI prerequisite failed.
+    if: ${{ !cancelled() && needs.conformance.result != 'skipped' && !startsWith(github.ref, 'refs/tags/') }}
     steps:
       # The claims check reads docs/coverage-matrix.md and its own script from the checkout.
       - uses: actions/checkout@v7
@@ -991,16 +993,23 @@ jobs:
       - name: Scaffold check (new + lint + build + pack + rebuild)
         shell: bash
         run: scripts/ci/scaffold-check.sh "$DAY_BIN" android-mdc
-      # The rebuild has intermittently produced a libdayapp.so that differs from the pack's (a few
-      # hundred bytes, never reproduced on macOS). A failed check leaves both trees in place, so
-      # keep the two libraries for comparison; `day rebuild` already names the differing sections.
+      # Keep native inputs for any future stripping or reproducibility regression. A failed check
+      # leaves both trees in place; `day rebuild` already names the differing ELF sections.
+      - name: Resolve the scaffold diagnostic path
+        if: failure()
+        id: scaffold-diagnostics
+        shell: bash
+        run: |
+          # upload-artifact rejects '..' even in absolute paths. -m also handles a failure
+          # before the scaffold was created; the upload's missing-file policy covers that case.
+          echo "root=$(realpath -m "$GITHUB_WORKSPACE/../Day Project Root/ci-sample")" >> "$GITHUB_OUTPUT"
       - name: Keep both native libraries when the rebuild differs
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: android-rebuild-libraries
           path: |
-            ${{ github.workspace }}/../Day Project Root/ci-sample/build/day/jniLibs/
+            ${{ steps.scaffold-diagnostics.outputs.root }}/build/day/jniLibs/
             /tmp/day-rebuild-ci-sample-android-mdc/src/ci-sample/build/day/jniLibs/
           if-no-files-found: ignore
           retention-days: 14

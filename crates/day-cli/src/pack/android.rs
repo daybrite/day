@@ -63,9 +63,13 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let resolved = project.manifest.resolve("android-mdc");
     let win = &project.manifest.window;
+    // AGP otherwise chooses its own default NDK, which need not be installed even when
+    // cargo-ndk just built successfully. In that case it only warns and packages unstripped .so files.
+    // Keep this machine-local path in generated configuration, also read by Android Studio.
+    let ndk = std::path::absolute(crate::mobile::find_ndk()?).map_err(|e| e.to_string())?;
     let content = format!(
         "applicationId={}\nnamespace={}\nversionCode={}\nversionName={}\ntitle={}\nscheme={}\n\
-         windowWidth={}\nwindowHeight={}\nwindowMinWidth={}\nwindowMinHeight={}\n",
+         windowWidth={}\nwindowHeight={}\nwindowMinWidth={}\nwindowMinHeight={}\nndkPath={}\n",
         resolved.id,
         resolved.id,
         resolved.build.min(i32::MAX as u64),
@@ -76,6 +80,7 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
         win.height.round() as i64,
         win.min_width.round() as i64,
         win.min_height.round() as i64,
+        properties_value(&ndk.to_string_lossy()),
     );
     let path = dir.join("day-app.properties");
     // Content-hashed write: only touch the file when it changed (keeps Gradle up-to-date checks warm).
@@ -83,6 +88,22 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
         std::fs::write(&path, content).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+/// A value consumed by Java's Properties.load(Reader), including Windows paths and whitespace.
+fn properties_value(value: &str) -> String {
+    value
+        .chars()
+        .map(|c| match c {
+            '\\' => "\\\\".into(),
+            '\n' => "\\n".into(),
+            '\r' => "\\r".into(),
+            '\t' => "\\t".into(),
+            '\u{c}' => "\\f".into(),
+            ' ' => "\\ ".into(),
+            _ => c.to_string(),
+        })
+        .collect()
 }
 
 pub fn pack(
@@ -379,6 +400,18 @@ mod gradle_tests {
     use super::gradle_program;
     use std::path::{Path, PathBuf};
 
+    #[test]
+    fn ndk_properties_preserve_paths_and_cannot_inject_a_property() {
+        // Synthetic paths: Java Properties consumes backslashes, leading spaces and line breaks.
+        assert_eq!(
+            super::properties_value(r"C:\Android SDK\ndk\28.2"),
+            r"C:\\Android\ SDK\\ndk\\28.2"
+        );
+        assert_eq!(
+            super::properties_value(" /tmp/工具/ndk\nnamespace=injected\r\t\u{c}"),
+            "\\ /tmp/工具/ndk\\nnamespace=injected\\r\\t\\f"
+        );
+    }
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("day-gradlew-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
