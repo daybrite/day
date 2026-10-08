@@ -6,6 +6,7 @@
 //! last window closes.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 
 use day_spec::{AppProgress, StatusItemSpec};
 
@@ -32,6 +33,47 @@ thread_local! {
     static ITEMS: RefCell<Vec<(StatusItemSpec, Vec<u64>)>> = const { RefCell::new(Vec::new()) };
     /// What the toolkit was last told about keeping the process alive.
     static TOLD_KEEP: Cell<Option<bool>> = const { Cell::new(None) };
+    static TRACKING: RefCell<HashMap<String, Tracking>> = RefCell::new(HashMap::new());
+    static NEXT_TRACKING: Cell<u64> = const { Cell::new(1) };
+}
+
+struct Tracking {
+    token: u64,
+    pending: Option<StatusItemSpec>,
+}
+
+/// Backend hook: freeze a status item's installed model and handlers during native menu
+/// tracking. Updates are coalesced until [`end_menu_tracking`]. The token prevents a delayed
+/// close callback from ending a later session (including removal and recreation of the id).
+pub fn begin_menu_tracking(id: &str) -> u64 {
+    let token = NEXT_TRACKING.with(|next| {
+        let token = next.get();
+        next.set(token.wrapping_add(1).max(1));
+        token
+    });
+    TRACKING.with(|tracking| {
+        let mut tracking = tracking.borrow_mut();
+        let pending = tracking.remove(id).and_then(|old| old.pending);
+        tracking.insert(id.to_owned(), Tracking { token, pending });
+    });
+    token
+}
+
+/// Backend hook: finish tracking *after* the native selection has dispatched, then install
+/// the most recent pending update. AppKit calls this on the next main-loop turn because
+/// `menuDidClose:` precedes the selected item's action.
+pub fn end_menu_tracking(id: &str, token: u64) {
+    let pending = TRACKING.with(|tracking| {
+        let mut tracking = tracking.borrow_mut();
+        if tracking.get(id).is_some_and(|t| t.token == token) {
+            tracking.remove(id).and_then(|t| t.pending)
+        } else {
+            None
+        }
+    });
+    if let Some(spec) = pending {
+        set_status_item(spec);
+    }
 }
 
 /// Choose whether the app keeps running when its last window closes (docs/windows.md).
@@ -80,8 +122,45 @@ fn action_ids(spec: &StatusItemSpec) -> Vec<u64> {
 }
 
 /// Show `spec`, or update the shown item with the same id (docs/status-item.md). Replacing an
-/// item drops the closures its previous menu and click held.
+/// item drops the closures its previous menu and click held. While a backend is tracking the
+/// menu, keep the installed snapshot and coalesce updates until selection has finished.
 pub fn set_status_item(spec: StatusItemSpec) {
+    let mut spec = Some(spec);
+    let superseded = TRACKING.with(|tracking| {
+        let mut tracking = tracking.borrow_mut();
+        let active = tracking.get_mut(&spec.as_ref().unwrap().id)?;
+        active.pending.replace(spec.take().unwrap())
+    });
+    if spec.is_none() {
+        if let Some(old) = superseded {
+            // A discarded intermediate update is never shown. Release only its own actions;
+            // installed and latest-pending specs may explicitly reuse the same ids.
+            let mut keep = ITEMS.with(|items| {
+                items
+                    .borrow()
+                    .iter()
+                    .find(|(s, _)| s.id == old.id)
+                    .map(|(_, ids)| ids.clone())
+                    .unwrap_or_default()
+            });
+            TRACKING.with(|tracking| {
+                if let Some(next) = tracking
+                    .borrow()
+                    .get(&old.id)
+                    .and_then(|t| t.pending.as_ref())
+                {
+                    keep.extend(action_ids(next));
+                }
+            });
+            let stale: Vec<_> = action_ids(&old)
+                .into_iter()
+                .filter(|id| !keep.contains(id))
+                .collect();
+            crate::menu::forget_actions(&stale);
+        }
+        return;
+    }
+    let spec = spec.unwrap();
     let ids = action_ids(&spec);
     let stale = ITEMS.with(|items| {
         let mut items = items.borrow_mut();
@@ -104,6 +183,11 @@ pub fn set_status_item(spec: StatusItemSpec) {
 
 /// Remove the status item `id`, if shown.
 pub fn remove_status_item(id: &str) {
+    let pending =
+        TRACKING.with(|tracking| tracking.borrow_mut().remove(id).and_then(|t| t.pending));
+    if let Some(pending) = pending {
+        crate::menu::forget_actions(&action_ids(&pending));
+    }
     let stale = ITEMS.with(|items| {
         let mut items = items.borrow_mut();
         let i = items.iter().position(|(s, _)| s.id == id)?;
@@ -140,6 +224,7 @@ pub fn set_dock_visible(visible: bool) {
 
 /// Forget everything (tests; pairs with `uninstall_tree`).
 pub fn reset_status() {
+    TRACKING.with(|tracking| tracking.borrow_mut().clear());
     ITEMS.with(|i| i.borrow_mut().clear());
     POLICY.with(|p| p.set(KeepRunning::Automatic));
     TOLD_KEEP.with(|t| t.set(None));

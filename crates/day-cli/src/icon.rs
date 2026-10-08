@@ -1567,12 +1567,9 @@ fn unhide_layer(doc: String, id: &str) -> String {
 /// heart's shoulders for one. A round motif comes out exactly as a square fit would place it;
 /// anything reaching into its box's corners is drawn just small enough to keep them.
 fn safe_fit(doc: &str, tree: &day_vector::usvg::Tree) -> Result<Option<(f32, f32, f32)>, String> {
-    let Some(b) = day_vector::content_bbox(tree) else {
+    if day_vector::content_bbox(tree).is_none() {
         return Ok(None);
-    };
-    let (bx, by, bw, bh) = bbox_in_viewbox_units(doc, tree, b)?;
-    // Measured in tree units (see bbox_in_viewbox_units), from the box's center.
-    let (cx, cy) = (b.x() + b.width() / 2.0, b.y() + b.height() / 2.0);
+    }
     let size = tree.size();
     let probe = tiny_skia::Pixmap::decode_png(&day_vector::render_png(tree, PROBE_PX)?)
         .map_err(|e| e.to_string())?;
@@ -1580,14 +1577,35 @@ fn safe_fit(doc: &str, tree: &day_vector::usvg::Tree) -> Result<Option<(f32, f32
     let scale = PROBE_PX as f32 / size.width().max(size.height());
     let ox = (PROBE_PX as f32 - size.width() * scale) / 2.0;
     let oy = (PROBE_PX as f32 - size.height() * scale) / 2.0;
-    let mut far = 0f32;
+    // The box of what the layer DRAWS, from the same probe, rather than usvg's geometric box:
+    // that one ignores a clip-path (and anything off the canvas), so a motif with a clipped
+    // flourish was centered on geometry nobody sees and shrunk to keep it on the circle.
+    let mut drawn: Vec<(f32, f32)> = Vec::new();
+    let (mut l, mut t, mut r, mut btm) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
     for (i, px) in probe.pixels().iter().enumerate() {
         if px.alpha() <= 8 {
             continue;
         }
-        let x = (i as u32 % PROBE_PX) as f32 + 0.5;
-        let y = (i as u32 / PROBE_PX) as f32 + 0.5;
-        far = far.max(((x - ox) / scale - cx).hypot((y - oy) / scale - cy));
+        let x = ((i as u32 % PROBE_PX) as f32 + 0.5 - ox) / scale;
+        let y = ((i as u32 / PROBE_PX) as f32 + 0.5 - oy) / scale;
+        l = l.min(x);
+        t = t.min(y);
+        r = r.max(x);
+        btm = btm.max(y);
+        drawn.push((x, y));
+    }
+    // Out to the pixels' edges, not their centers.
+    let half = 0.5 / scale;
+    let Some(b) = day_vector::usvg::Rect::from_ltrb(l - half, t - half, r + half, btm + half)
+    else {
+        return Ok(None);
+    };
+    let (bx, by, bw, bh) = bbox_in_viewbox_units(doc, tree, b)?;
+    // Measured in tree units (see bbox_in_viewbox_units), from the box's center.
+    let (cx, cy) = (b.x() + b.width() / 2.0, b.y() + b.height() / 2.0);
+    let mut far = 0f32;
+    for (x, y) in drawn {
+        far = far.max((x - cx).hypot(y - cy));
     }
     if far <= 0.0 {
         return Ok(None);

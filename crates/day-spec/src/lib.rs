@@ -7460,6 +7460,13 @@ pub struct WindowOptions {
     pub title: String,
     pub size: Size,
     pub min_size: Option<Size>,
+    /// Create and mount the window without showing it or activating the app. Supported on
+    /// AppKit; other backends currently ignore this option. Defaults to false.
+    ///
+    /// Menu-bar apps can keep their initial host hidden and open Preferences on demand.
+    /// The window still exists and can be shown with `WindowHandle::set_visible(true)`;
+    /// this does not change the app's keep-running policy.
+    pub start_hidden: bool,
     /// Ask the backend to size this window to its content once it has been built and laid out,
     /// rather than keeping [`Self::size`] (docs/windows.md). `size` still decides the width and
     /// acts as the height ceiling, so a panel with more content than fits the screen scrolls
@@ -7519,6 +7526,7 @@ impl Default for WindowOptions {
             title: "Day".into(),
             size: Size::new(480.0, 640.0),
             min_size: None,
+            start_hidden: false,
             size_to_fit: false,
             app_name: None,
             locales: None,

@@ -3,7 +3,7 @@
 //! The app outside its windows (docs/status-item.md): menu-bar status items, progress on the
 //! Dock tile, the Dock icon itself, and staying alive with no window open.
 use super::*;
-use objc2_app_kit::{NSStatusBar, NSStatusItem};
+use objc2_app_kit::{NSMenuDelegate, NSStatusBar, NSStatusItem};
 
 /// One shown item: the AppKit object, the spec it was built from, and its click target.
 struct Shown {
@@ -35,6 +35,7 @@ pub(super) fn set_keep_running(keep: bool) {
 
 struct TargetIvars {
     id: RefCell<String>,
+    tracking: Cell<u64>,
 }
 
 define_class!(
@@ -47,6 +48,27 @@ define_class!(
     struct StatusTarget;
 
     unsafe impl NSObjectProtocol for StatusTarget {}
+
+    unsafe impl NSMenuDelegate for StatusTarget {
+        #[unsafe(method(menuWillOpen:))]
+        fn menu_will_open(&self, _menu: &NSMenu) {
+            ffi_guard::contain((), || {
+                let token = day_core::status::begin_menu_tracking(&self.ivars().id.borrow());
+                self.ivars().tracking.set(token);
+            })
+        }
+
+        #[unsafe(method(menuDidClose:))]
+        fn menu_did_close(&self, _menu: &NSMenu) {
+            ffi_guard::contain((), || {
+                let id = self.ivars().id.borrow().clone();
+                let token = self.ivars().tracking.replace(0);
+                // AppKit closes the menu before firing its selection. Keep that snapshot's
+                // action ids alive until the action has reached Day's event pump.
+                AppKit::post(Box::new(move || day_core::status::end_menu_tracking(&id, token)));
+            })
+        }
+    }
 
     impl StatusTarget {
         #[unsafe(method(clicked:))]
@@ -93,6 +115,7 @@ define_class!(
 fn new_target(mtm: MainThreadMarker, id: &str) -> Retained<StatusTarget> {
     let this = StatusTarget::alloc(mtm).set_ivars(TargetIvars {
         id: RefCell::new(id.to_owned()),
+        tracking: Cell::new(0),
     });
     unsafe { msg_send![super(this), init] }
 }
@@ -161,6 +184,9 @@ fn configure(mtm: MainThreadMarker, shown: &mut Shown, spec: &day_spec::StatusIt
     button.setToolTip(tip.as_deref());
     button.setAccessibilityLabel(tip.as_deref());
     shown.menu = build_ns_menu(mtm, "", &spec.menu);
+    shown
+        .menu
+        .setDelegate(Some(ProtocolObject::from_ref(&*shown._target)));
     // Without a click action the item IS its menu: attach it for good, so a click, the keyboard
     // and VoiceOver's "show menu" all open it natively. With one, the menu is attached only for
     // the duration of a right click (`clicked:`), or every left click would open it too.

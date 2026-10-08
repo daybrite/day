@@ -9040,7 +9040,9 @@ impl Toolkit for AppKit {
             // The first report of the title bar's height, before any resize sends one.
             let _ = pin_below_title_bar(&window);
         }
-        window.makeKeyAndOrderFront(None);
+        if !options.start_hidden {
+            window.makeKeyAndOrderFront(None);
+        }
         // Same macOS 26 quirk as the primary (`run`): a window ordered front before its
         // first turn drops pre-run layer displays — nudge every layer once.
         mark_tree_needs_display(&content);
@@ -9627,8 +9629,10 @@ impl Platform for AppKit {
         if !deterministic {
             unsafe { window.setFrameAutosaveName(&autosave) };
         }
-        window.makeKeyAndOrderFront(None);
-        app.activate();
+        if !options.start_hidden {
+            window.makeKeyAndOrderFront(None);
+            app.activate();
+        }
         // The root was mounted before the window was shown (ready() runs first), and on
         // macOS 26 layer displays requested pre-run are dropped for a window ordered front
         // before the app finishes launching — the window stays blank until the next real

@@ -47,6 +47,12 @@ fn tray() {
 a check mark or a timer title follows the app's state. Showing a second item with the same `id`
 replaces the first; `StatusItemHandle::remove()` takes it down.
 
+On macOS, an open status menu keeps the entries and action handlers the user saw when opening
+it. Reactive updates to that status item are coalesced while the menu is open, including its
+title and image. After the selection dispatches (or the menu is dismissed), the latest update
+is installed. This keeps polling apps from moving entries or invalidating a selected run while
+the user navigates a submenu. Removing the status item explicitly cancels its pending update.
+
 - **Icon.** `.vector(res::vectors::…)` draws a bundled glyph as a template: the shape alone, in
   the menu bar's or panel's own color, so one glyph reads in light and dark. `.icon(Symbol::…)`
   uses a platform symbol the same way. `.image(res::images::…)` draws a picture as it is; add
@@ -115,6 +121,17 @@ dock = false
 `day build` writes `LSUIElement` into the app's Info.plist, and a `day launch` run hears it too.
 `day::set_dock_visible(bool)` shows or hides the Dock icon while the app runs, for an app with a
 "Show in Dock" setting (`Cap::DockVisibility`).
+
+To launch without showing a window, also pass `WindowOptions { start_hidden: true,
+..Default::default() }` to `day::launch` (or the `options:` argument of `day_start!`). On AppKit,
+the initial window is created and its root mounted, but it is never ordered front and launch
+does not activate the app. Timers and status-item updates run normally. Register Preferences
+with separate, default-visible options so the status menu can open Settings on demand. There
+is no need to show and then close the initial host; it remains available through
+`initial_window()` and can be shown explicitly with `set_visible(true)`.
+
+`start_hidden` also applies to secondary AppKit windows. It defaults to `false`, is currently
+ignored by other backends, and does not change `KeepRunning` or the window's lifetime.
 
 ## Progress on the Dock or taskbar icon
 

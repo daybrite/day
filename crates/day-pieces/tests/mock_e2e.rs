@@ -9418,6 +9418,97 @@ fn status_item_lowers_rebuilds_and_dispatches() {
 }
 
 #[test]
+fn status_menu_tracking_preserves_selection_and_reclaims_superseded_handlers() {
+    // Synthetic repository/run labels: simulate polling while a nested menu is open.
+    let probe = boot(|| label("fixture host").any());
+    let generation = Signal::new(0);
+    let selected = Rc::new(std::cell::Cell::new(usize::MAX));
+    let lifetimes = Rc::new(std::cell::RefCell::new(Vec::new()));
+    let captured = (selected.clone(), lifetimes.clone());
+    let item = status_item("fixture-tracking", move || {
+        let run = generation.get();
+        let lifetime = Rc::new(());
+        captured.1.borrow_mut().push(Rc::downgrade(&lifetime));
+        let selected = captured.0.clone();
+        StatusItem::new().title(run.to_string()).menu(vec![sub_menu(
+            "fixture/repository",
+            vec![menu_item(format!("fixture run {run}")).action(move || {
+                let _keep_alive = &lifetime;
+                selected.set(run);
+            })],
+        )])
+    });
+    flush_sync();
+    let original = probe.status_items().remove(0);
+    fn action(spec: &day_spec::StatusItemSpec) -> u64 {
+        let day_spec::MenuItem::Submenu { items, .. } = &spec.menu[0] else {
+            panic!()
+        };
+        let day_spec::MenuItem::Action { action, .. } = items[0] else {
+            panic!()
+        };
+        action
+    }
+    let token = day_core::status::begin_menu_tracking(&original.id);
+    for run in 1..=3 {
+        generation.set(run);
+        flush_sync();
+        assert_eq!(
+            probe.status_items()[0],
+            original,
+            "open menu must stay still"
+        );
+    }
+    assert!(lifetimes.borrow()[0].upgrade().is_some());
+    assert!(lifetimes.borrow()[1].upgrade().is_none());
+    assert!(lifetimes.borrow()[2].upgrade().is_none());
+    // AppKit's close notification comes before selection. The backend defers end_tracking
+    // until after dispatch, so this action still names exactly the run the user saw.
+    day_core::dispatch_menu_action(action(&original));
+    assert_eq!(selected.get(), 0);
+    day_core::status::end_menu_tracking(&original.id, token);
+    let latest = probe.status_items().remove(0);
+    assert_eq!(latest.title, "3");
+    assert!(lifetimes.borrow()[0].upgrade().is_none());
+    day_core::dispatch_menu_action(action(&latest));
+    assert_eq!(selected.get(), 3);
+    item.remove();
+    assert!(
+        lifetimes
+            .borrow()
+            .iter()
+            .all(|weak| weak.upgrade().is_none())
+    );
+}
+
+#[test]
+fn status_menu_delayed_close_cannot_end_a_new_tracking_session() {
+    let probe = boot(|| label("fixture host").any());
+    let title = Signal::new("initial");
+    let item = status_item("fixture-reopen", move || {
+        StatusItem::new().title(title.get())
+    });
+    flush_sync();
+    let first = day_core::status::begin_menu_tracking("fixture-reopen");
+    title.set("updated");
+    flush_sync();
+    let second = day_core::status::begin_menu_tracking("fixture-reopen");
+    day_core::status::end_menu_tracking("fixture-reopen", first);
+    assert_eq!(probe.status_items()[0].title, "initial");
+    day_core::status::end_menu_tracking("fixture-reopen", second);
+    assert_eq!(probe.status_items()[0].title, "updated");
+    let removed = day_core::status::begin_menu_tracking("fixture-reopen");
+    title.set("discarded");
+    flush_sync();
+    item.remove();
+    let replacement = status_item("fixture-reopen", || StatusItem::new().title("replacement"));
+    flush_sync();
+    day_core::status::end_menu_tracking("fixture-reopen", removed);
+    assert_eq!(probe.status_items()[0].title, "replacement");
+    replacement.remove();
+}
+
+#[test]
 fn status_raster_updates_preserve_fallback_and_outlive_the_source_buffer() {
     let probe = boot(|| label("fixture host").any());
     let pixels = Signal::new([255u8, 0, 0, 255].repeat(120 * 36));

@@ -765,11 +765,24 @@ pub fn build_macos_xcode(
     let products = symroot.join(configuration);
     let app = product_bundle(&products, &apple_app_id(project, target.name))?;
     crate::sandbox::verify(project, &app, profile)?;
+    refresh_bundle_date(&app);
     Ok(BuildOutcome {
         target: target.name,
         artifact: app,
         seconds: start.elapsed().as_secs_f64(),
     })
+}
+
+/// Bump a rebuilt bundle directory's modification date. Finder and the Dock cache a bundle's
+/// icon against that date, and xcodebuild rewrites the bundle's contents (a recompiled asset
+/// catalog among them) without touching the directory itself, so a new icon kept showing as
+/// the old one until something else touched the `.app`. Best effort: a failure here changes
+/// nothing about the build. A Dock tile of an app that is already running still shows the
+/// icon it launched with until the app is relaunched.
+fn refresh_bundle_date(app: &Path) {
+    if let Ok(dir) = std::fs::File::open(app) {
+        let _ = dir.set_modified(std::time::SystemTime::now());
+    }
 }
 
 // ---------------------------------------------------------------------------

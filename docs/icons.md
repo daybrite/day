@@ -89,6 +89,11 @@ icons there, and hvigor — whose resource roots are fixed — gets gitignored s
 | `windows/` | multi-size `day.ico` (16/32/48/256, PNG-compressed) + `day-icon-256.png` |
 
 `-p <target>` limits a run to that target's family. Everything renders in memory first, so
+A macOS build bumps the rebuilt `.app` directory's modification date: Finder and the Dock
+cache a bundle's icon against it, and xcodebuild rewrites the bundle's contents without
+touching the directory, so a new icon kept showing as the old one otherwise. A Dock tile of an
+app that is already running keeps the icon it launched with until the app is relaunched.
+
 `day icon check` compares bytes without touching the tree. Unchanged outputs are not rewritten, so
 actool and aapt2 see no new mtimes.
 

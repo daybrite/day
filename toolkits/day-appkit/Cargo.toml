@@ -68,3 +68,7 @@ objc2-app-kit = { version = "0.3", features = [
 [[test]]
 name = "native_applications"
 harness = false
+
+[[test]]
+name = "native_window_visibility"
+harness = false

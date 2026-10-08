@@ -1747,6 +1747,27 @@ through window creation.
 > [docs/status-item.md](docs/status-item.md), [docs/menus.md](docs/menus.md#dock-menu),
 > [docs/deep-links.md](docs/deep-links.md).
 
+`WindowOptions::start_hidden` defaults to false. AppKit honors it for both the initial host and
+secondary windows: native creation and root mounting still happen, but the window is not
+ordered front and a hidden initial launch does not activate the app. The root, timers and
+status items remain live, and `initial_window().set_visible(true)` can reveal the host later.
+Keep-running policy and window ownership are unchanged; this is hidden startup, not a
+window-free tree. Preferences should use separate default-visible options. Other backends
+currently ignore the flag. See [docs/status-item.md](docs/status-item.md#menu-bar-apps-on-macos)
+and the AppKit `native_window_visibility` regression for native launch/show behavior.
+
+AppKit status menus bracket native tracking with day-core's `begin_menu_tracking` and
+`end_menu_tracking`. Core retains the installed spec and action ids while tracking, coalesces
+rebuilds to the latest pending spec, and reclaims superseded pending handlers. The native
+delegate defers the end hook to the next main-loop turn: `menuDidClose:` precedes the selected
+item's action, so releasing handlers in that callback would lose the click. The entire status
+item (including its raster/title) waits until tracking ends; other status items keep updating.
+Generation tokens reject delayed close callbacks from an earlier session or a removed item.
+Removal discards pending work. Other backends retain their existing update behavior. The pieces'
+mock regressions `status_menu_tracking_preserves_selection_and_reclaims_superseded_handlers`
+and `status_menu_delayed_close_cannot_end_a_new_tracking_session` cover selection, coalescing,
+closure lifetime, reopening and removal; see [docs/status-item.md](docs/status-item.md).
+
 Status items also accept an owned runtime raster through `StatusItem::raster(StatusImage)`.
 `StatusImage::rgba` validates tightly packed top-down straight-alpha sRGB RGBA8 bytes and a
 positive finite pixels-per-point scale, rejecting inconsistent dimensions, buffers over 16 MiB
