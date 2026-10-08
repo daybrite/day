@@ -413,7 +413,10 @@ export const dayPiece: DayPieceModule = {
 checkpoint ([docs/window-image.md](window-image.md)) cannot see: a web view's renderer paints on its own thread and
 can trail the DOM a script just changed. The capture waits for every module's `settle` before its
 ArkUI render checkpoint, so the hook resolves once the pending rendering has committed, and caps
-its own wait (a hidden page paints nothing): a capture may be late, never stuck. The web view
+its own wait (a hidden page paints nothing): a capture may be late, never stuck. The cap must be
+a timer, not a deadline checked between replies, because an engine stuck in page script never
+replies at all; the capture also caps the whole settle at three seconds, so a module that misses
+this still cannot hold every later screenshot. The web view
 piece arms four animation frames in the page (enough to put the commit through the
 compositor's pipeline), lets any CSS transition run out, and polls for the result.
 
