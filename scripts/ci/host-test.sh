@@ -49,10 +49,11 @@ fi
 # hardware surfaced failures one round-trip at a time without it (exit is nonzero either way).
 # --features day-pieces/dyn-registry: no member turns the dynamic piece registry on now that its
 # consumer, day-lite, lives in its own repository, so without the flag its tests never run.
+# Exercise the optional HTTP provider as well as the default native transport.
 # Enable persistence's list adapter explicitly too: the workspace has no app enabling it,
 # and live-query/list regression tests must run on every native CI host.
 exec cargo test --locked --workspace --no-fail-fast \
-    --features day-pieces/dyn-registry,day-persistence/pieces \
+    --features day-pieces/dyn-registry,day-persistence/pieces,day-part-http/reqwest \
     $windows_excludes \
     --exclude day-appkit \
     --exclude day-gtk \

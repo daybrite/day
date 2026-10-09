@@ -397,6 +397,7 @@ pub struct ClientBuilder {
     wait_for_connectivity: bool,
     question_timeout: Duration,
     transport: Option<Arc<dyn Transport>>,
+    session: Option<crate::Session>,
 }
 
 impl Default for ClientBuilder {
@@ -417,6 +418,7 @@ impl Default for ClientBuilder {
             wait_for_connectivity: false,
             question_timeout: DEFAULT_QUESTION_TIMEOUT,
             transport: None,
+            session: None,
         }
     }
 }
@@ -539,6 +541,13 @@ impl ClientBuilder {
         self
     }
 
+    /// Route through an isolated session. By default clients follow Session::global().
+    /// An explicit `transport` overrides provider/interception selection for this client.
+    pub fn session(mut self, session: crate::Session) -> Self {
+        self.session = Some(session);
+        self
+    }
+
     /// Perform exchanges through this transport instead of the platform's: a test double, or
     /// an app's own stack.
     pub fn transport(mut self, transport: impl Transport) -> Self {
@@ -571,12 +580,22 @@ impl ClientBuilder {
             max_per_host: self.max_per_host,
             wait_for_connectivity: self.wait_for_connectivity,
         };
+        let session = if self.transport.is_some() {
+            None
+        } else {
+            Some(self.session.unwrap_or_else(crate::Session::global))
+        };
         let transport = match self.transport {
             Some(t) => t,
             None => crate::platform_transport(&config),
         };
         Client {
             inner: Arc::new(ClientInner {
+                session,
+                config,
+                clock: None,
+                provider_cache: Arc::new(Mutex::new(None)),
+                fallback_cookies: Cookies::jar(),
                 caps: transport.capabilities(),
                 transport,
                 timeout_idle: self.timeout_idle,
@@ -589,7 +608,7 @@ impl ClientBuilder {
                 cookies,
                 headers: self.headers,
                 question_timeout: self.question_timeout,
-                credentials: Mutex::new(Vec::new()),
+                credentials: Arc::new(Mutex::new(Vec::new())),
             }),
         }
     }
@@ -602,7 +621,16 @@ pub struct Client {
     inner: Arc<ClientInner>,
 }
 
+type ProviderCache = Arc<Mutex<Option<(u64, Arc<dyn Transport>)>>>;
+type Credentials = Arc<Mutex<Vec<(String, Option<String>, Resolution)>>>;
+
+#[derive(Clone)]
 struct ClientInner {
+    session: Option<crate::Session>,
+    config: TransportConfig,
+    clock: Option<Arc<dyn crate::simulation::Clock>>,
+    provider_cache: ProviderCache,
+    fallback_cookies: Cookies,
     transport: Arc<dyn Transport>,
     caps: Capabilities,
     timeout_idle: Duration,
@@ -616,7 +644,7 @@ struct ClientInner {
     headers: Vec<(String, String)>,
     question_timeout: Duration,
     /// Credentials that worked, by origin and realm, offered again without asking.
-    credentials: Mutex<Vec<(String, Option<String>, Resolution)>>,
+    credentials: Credentials,
 }
 
 impl std::fmt::Debug for Client {
@@ -648,7 +676,7 @@ impl Client {
 
     /// What this client's transport can do.
     pub fn capabilities(&self) -> Capabilities {
-        self.inner.caps
+        self.inner.current_transport().capabilities()
     }
 
     /// Send `request`; `on_head` receives the response head with its unread [`Body`], or the
@@ -810,7 +838,16 @@ impl Client {
     pub fn cookies(&self) -> Vec<Cookie> {
         match &self.inner.cookies {
             Cookies::Jar(jar) => jar.cookies(),
-            Cookies::Platform => self.inner.transport.cookies(),
+            Cookies::Platform => {
+                let transport = self.inner.current_transport();
+                if transport.capabilities().platform_cookies {
+                    transport.cookies()
+                } else if let Cookies::Jar(jar) = &self.inner.fallback_cookies {
+                    jar.cookies()
+                } else {
+                    Vec::new()
+                }
+            }
             Cookies::Off => Vec::new(),
         }
     }
@@ -819,18 +856,51 @@ impl Client {
     pub fn clear_cookies(&self) {
         match &self.inner.cookies {
             Cookies::Jar(jar) => jar.clear(),
-            Cookies::Platform => self.inner.transport.clear_cookies(),
+            Cookies::Platform => {
+                self.inner.current_transport().clear_cookies();
+                if let Cookies::Jar(jar) = &self.inner.fallback_cookies {
+                    jar.clear();
+                }
+            }
             Cookies::Off => {}
         }
     }
 
     /// Empty the platform cache this client uses.
     pub fn clear_cache(&self) {
-        self.inner.transport.clear_cache();
+        self.inner.current_transport().clear_cache();
     }
 }
 
 impl ClientInner {
+    fn current_transport(&self) -> Arc<dyn Transport> {
+        self.session
+            .as_ref()
+            .map(|s| s.provider_transport(&self.config, &self.provider_cache))
+            .unwrap_or_else(|| self.transport.clone())
+    }
+
+    fn snapshot(&self, request: &Request) -> Arc<Self> {
+        let mut inner = self.clone();
+        match &self.session {
+            Some(session) => {
+                let selected = session.resolve(
+                    &self.config,
+                    &self.provider_cache,
+                    &request.url,
+                    request.method.as_str(),
+                );
+                inner.transport = selected.transport;
+                inner.clock = selected.clock;
+            }
+            None => inner.transport = crate::Session::global().observe(self.transport.clone()),
+        }
+        inner.caps = inner.transport.capabilities();
+        if matches!(inner.cookies, Cookies::Platform) && !inner.caps.platform_cookies {
+            inner.cookies = self.fallback_cookies.clone();
+        }
+        Arc::new(inner)
+    }
     fn prepare(&self, request: &Request, websocket: bool) -> Result<Prepared, HttpError> {
         let bad = || HttpError::BadUrl(request.url.clone());
         let written = request.url.trim();
@@ -1124,13 +1194,16 @@ struct FlightState {
 
 impl Flight {
     fn start(client: &Arc<ClientInner>, request: Request, on_head: HeadCallback) -> Arc<Flight> {
+        let client = client.snapshot(&request);
         let total = request.timeout_total.or(client.timeout_total);
         // A handler the stack cannot consult, or pins it cannot check, must not be silently
         // skipped: such a request fails instead.
         let unsupported = (client.on_redirect.is_some()
             && !client.caps.manual_redirects
             && client.redirects != Redirects::Never)
-            || (!client.trust.is_empty() && !client.caps.server_trust);
+            || ((!client.trust.is_empty() || client.on_server_trust.is_some())
+                && !client.caps.server_trust)
+            || (client.config.identity.is_some() && !client.caps.client_identity);
         let flight = Arc::new(Flight {
             client: client.clone(),
             state: Mutex::new(FlightState {
@@ -1160,12 +1233,17 @@ impl Flight {
         }
         if let Some(total) = total {
             let weak = Arc::downgrade(&flight);
-            let timer = day_async::schedule(total, move || {
+            let job = move || {
                 if let Some(flight) = weak.upgrade() {
                     flight.fail_now(HttpError::Timeout);
                 }
-            });
-            lock(&flight.state).total_timer = Some(timer);
+            };
+            if let Some(clock) = &client.clock {
+                clock.schedule(total, Box::new(job));
+            } else {
+                let timer = day_async::schedule(total, job);
+                lock(&flight.state).total_timer = Some(timer);
+            }
         }
         flight.start_exchange();
         flight
@@ -2137,6 +2215,7 @@ struct WsState {
 
 impl WsShared {
     fn open(client: &Arc<ClientInner>, request: Request, on_open: OpenCallback) -> Arc<WsShared> {
+        let client = client.snapshot(&request);
         let shared = Arc::new(WsShared {
             state: Mutex::new(WsState {
                 socket: None,
@@ -2153,7 +2232,10 @@ impl WsShared {
         // Pins are checked through a transport's trust questions, which a WebSocket handshake
         // does not raise: a pinned client fails closed rather than connecting unpinned.
         let prepared = match client.prepare(&request, true).and_then(|p| {
-            if client.trust.is_empty() {
+            if client.trust.is_empty()
+                && client.config.identity.is_none()
+                && client.on_server_trust.is_none()
+            {
                 Ok(p)
             } else {
                 Err(HttpError::Unsupported)

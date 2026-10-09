@@ -703,6 +703,16 @@ mod imp {
     /// Named is the staged-rawfile path: a vector's SVG first (docs/vectors.md), then the PNG,
     /// and `tint` recolors an SVG's paths. Bytes and Decoded need no file at all, and take no
     /// tint: there is no SVG to repaint.
+    /// Whether a named source resolves to a staged SVG — the only form a fill color recolors.
+    fn arkui_image_is_svg(source: &day_spec::ImageSource) -> bool {
+        match source {
+            day_spec::ImageSource::Named(named) => {
+                crate::resources::rawfile_exists(&format!("day/{named}.svg"))
+            }
+            _ => false,
+        }
+    }
+
     fn arkui_apply_image_source(
         n: Handle,
         source: &day_spec::ImageSource,
@@ -2279,12 +2289,18 @@ mod imp {
                     // normalized to PNG, so a bare `source` (no extension) maps to `day/<source>.png`.
                     // A vector name resolves to its staged SVG instead (docs/vectors.md): ArkUI
                     // renders it natively at display size, and `.tint(…)` recolors it via
-                    // NODE_IMAGE_FILL_COLOR (untinted = as authored, matching every backend).
+                    // NODE_IMAGE_FILL_COLOR (untinted = as authored, matching every backend). A
+                    // TEMPLATE glyph with no tint takes the mode's primary text color instead,
+                    // repainted on a switch like an un-colored label (docs/vectors.md
+                    // "Template"); fill color is SVG-only, so a raster template draws as authored.
                     // Bytes and Decoded arrive from `day::decode_image` (docs/images.md), so an
                     // `image()` piece can show a download or a pasted PNG with no staged resource
                     // behind it. Only a named source takes a tint: the recolor repaints an SVG's
                     // paths, and bytes have no SVG to repaint.
                     arkui_apply_image_source(n.0, &p.source, p.tint);
+                    if p.template && p.tint.is_none() && arkui_image_is_svg(&p.source) {
+                        themed(n.0 as usize, n.0, Paint::ImageFill, TEXT_LIGHT, TEXT_DARK);
+                    }
                     // Scaling (§18.3): ArkUI_ObjectFit CONTAIN=0 (fit) / COVER=1 (fill) / FILL=3.
                     let fit = match p.content_mode {
                         ContentMode::Fit => 0,
@@ -2857,8 +2873,10 @@ mod imp {
                         match p {
                             // SVG-only recolor, as at realize (docs/vectors.md). Only a tint to
                             // apply: ArkUI keeps no "authored" fill to go back to, so a `None`
-                            // leaves the last recolor in place.
+                            // leaves the last recolor in place — a template's themed fill
+                            // included. An app color replaces the themed one for good.
                             day_spec::props::ImagePatch::Tint(Some(c)) => {
+                                forget_paint(h.0 as usize, h.0, Paint::ImageFill);
                                 node::set_image_fill(h.0, argb(*c))
                             }
                             day_spec::props::ImagePatch::Tint(None) => {}

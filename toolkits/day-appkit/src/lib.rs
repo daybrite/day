@@ -117,6 +117,12 @@ day_core::tls_group! {
     /// Views the app gave an accessibility label (`set_a11y`): a button's title change must then
     /// leave the label alone (`apply_button_content`). Swept on release like the other tables.
     static APP_LABELED: SideTable<()> = SideTable::new();
+    /// How each image view renders its glyph (docs/vectors.md "Tint", "Template"): whether it
+    /// was realized as a template, and whether a tint is on it now. Template rendering is a
+    /// property of the NSImage, so a source swap has to re-apply it, and a tint patch of `None`
+    /// keeps a template in the neutral tint rather than returning to the authored art. Swept
+    /// on release.
+    static IMAGE_MODES: SideTable<ImageMode> = SideTable::new();
     /// Each transformed view's `Transform` (`set_transform`). AppKit owns a layer-backed view's
     /// layer geometry and re-syncs it from the view, so a transform written into the layer
     /// never showed. It is expressed in the view's own geometry instead (`apply_geometry`).
@@ -224,6 +230,21 @@ pub fn emit(id: NodeId, ev: Event) {
 
 fn ptr_of(v: &NSView) -> usize {
     (v as *const NSView).cast::<()>() as usize
+}
+
+/// An image view's rendering (`IMAGE_MODES`).
+#[derive(Clone, Copy)]
+struct ImageMode {
+    template: bool,
+    tinted: bool,
+}
+
+impl ImageMode {
+    /// Template rendering: the glyph's alpha as a mask, filled with the tint or the neutral
+    /// template color.
+    fn renders_template(self) -> bool {
+        self.template || self.tinted
+    }
 }
 
 /// A decoded bitmap (docs/images.md), held until day-core drops its last handle.
@@ -7094,8 +7115,10 @@ impl Toolkit for AppKit {
                 unsafe { iv.setImageScaling(scaling) };
                 if let Some(img) = appkit_image_for(&p.source) {
                     // Vector-glyph tint (docs/vectors.md): template rendering + the view's
-                    // content tint — AppKit recolors the alpha mask natively.
-                    if p.tint.is_some() {
+                    // content tint — AppKit recolors the alpha mask natively. A template with
+                    // no tint keeps the view's nil tint: the neutral template color the nav
+                    // menu's own rows draw with, light in dark mode, dark in light.
+                    if p.tint.is_some() || p.template {
                         unsafe { img.setTemplate(true) };
                     }
                     unsafe { iv.setImage(Some(&img)) };
@@ -7103,6 +7126,15 @@ impl Toolkit for AppKit {
                 if let Some(t) = p.tint {
                     unsafe { iv.setContentTintColor(Some(&nscolor(t))) };
                 }
+                IMAGE_MODES.with(|t| {
+                    t.insert(
+                        ptr_of(&iv),
+                        ImageMode {
+                            template: p.template,
+                            tinted: p.tint.is_some(),
+                        },
+                    )
+                });
                 view_of(iv)
             }
             // A recycled list cell is ADOPTED from the native list, never realized
@@ -7128,10 +7160,19 @@ impl Toolkit for AppKit {
                         day_spec::props::ImagePatch::Tint(c) => {
                             // Template rendering + the view's content tint, exactly as at realize
                             // — the glyph repaints in place rather than being rebuilt
-                            // (docs/vectors.md).
+                            // (docs/vectors.md). A template glyph stays one when the tint goes.
                             if let Ok(iv) = h.clone().downcast::<objc2_app_kit::NSImageView>() {
+                                let key = ptr_of(&iv);
+                                let template = IMAGE_MODES
+                                    .with(|t| {
+                                        t.with(key, |m| {
+                                            m.tinted = c.is_some();
+                                            m.renders_template()
+                                        })
+                                    })
+                                    .unwrap_or(c.is_some());
                                 if let Some(img) = unsafe { iv.image() } {
-                                    unsafe { img.setTemplate(c.is_some()) };
+                                    unsafe { img.setTemplate(template) };
                                 }
                                 unsafe { iv.setContentTintColor(c.map(nscolor).as_deref()) };
                             }
@@ -7143,8 +7184,17 @@ impl Toolkit for AppKit {
                             if let Ok(iv) = h.clone().downcast::<objc2_app_kit::NSImageView>() {
                                 // A source that will not load leaves the view showing what it
                                 // was — the patch's contract, and what GTK, Qt and Android do.
+                                // The new image renders the way the view does: a tinted or
+                                // template glyph stays one, so a recycled sidebar row shows the
+                                // icon it was rebound to in the same color.
                                 if let Some(img) = appkit_image_for(source) {
-                                    unsafe { iv.setImage(Some(&img)) };
+                                    let template = IMAGE_MODES
+                                        .with(|t| t.get(ptr_of(&iv)))
+                                        .is_some_and(|m| m.renders_template());
+                                    unsafe {
+                                        img.setTemplate(template);
+                                        iv.setImage(Some(&img));
+                                    }
                                 }
                             }
                         }

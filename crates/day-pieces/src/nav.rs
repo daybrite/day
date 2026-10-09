@@ -808,6 +808,9 @@ fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
 }
 fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool) -> AnyPiece {
     piece_fn(move |cx| {
+        // A template glyph (docs/vectors.md): untinted, it draws in the row's own foreground
+        // and follows the theme, as the native nav-menu rows draw theirs. As authored, the
+        // bundled art is black on transparent — invisible on a dark sidebar.
         let node = image(move || {
             day_spec::ImageSource::Named(slot.field(|r| {
                 if trailing {
@@ -818,6 +821,7 @@ fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool
                 .unwrap_or_default()
             }))
         })
+        .template()
         .build(cx);
         bind(
             move || slot.field(|r| if trailing { r.badge_tint } else { r.tint }),

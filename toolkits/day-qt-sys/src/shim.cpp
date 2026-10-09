@@ -3007,13 +3007,39 @@ void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts
 
 // Aspect-aware image widget (§18.3): paints the pixmap scaled per content mode
 // (0 = fit / KeepAspectRatio, 1 = fill / KeepAspectRatioByExpanding + crop, 2 = stretch).
+//
+// A glyph's tint rides the "dayGlyphTint" property: "#rrggbb" recolors it, "currentColor" marks
+// a TEMPLATE glyph painted in the palette's text color (docs/vectors.md "Template") — re-rendered
+// when the palette changes, so a theme switch recolors it — and "" keeps the authored art. A
+// template stays one across tint patches: the realize-time flag is kept in "dayGlyphTemplate",
+// and an empty patch lands back on the palette color rather than on the authored art.
 class DayImageLabel : public QLabel {
 public:
     QPixmap orig;
     int mode;
     explicit DayImageLabel(int m) : mode(m) {}
     void setImage(const QPixmap &p) { orig = p; update(); }
+    // Re-render the glyph from its recorded source, through whatever tint it carries.
+    void repaintGlyph() {
+        const QString file = property("dayGlyphPath").toString();
+        if (file.isEmpty()) return;
+        QPixmap pm = day_qt_load_glyph(file, 512);
+        const QString tint = property("dayGlyphTint").toString();
+        if (tint == QLatin1String("currentColor")) {
+            pm = day_qt_tint_glyph(pm, palette().color(QPalette::WindowText));
+        } else if (!tint.isEmpty()) {
+            const QColor c(tint);
+            if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
+        }
+        if (!pm.isNull()) setImage(pm);
+    }
 protected:
+    void changeEvent(QEvent *e) override {
+        QLabel::changeEvent(e);
+        if (e->type() == QEvent::PaletteChange
+            && property("dayGlyphTint").toString() == QLatin1String("currentColor"))
+            repaintGlyph();
+    }
     void paintEvent(QPaintEvent *) override {
         if (orig.isNull()) return;
         QPainter painter(this);
@@ -3033,44 +3059,39 @@ protected:
 void *day_qt_image_new(const char *path, int mode, const char *tint) {
     DayImageLabel *l = new DayImageLabel(mode);
     const QString file = QString::fromUtf8(path); // ":/day/images/<name>" or a file path
+    const QString tintSpec = tint ? QString::fromUtf8(tint) : QString();
     // 512 px so an upscaled glyph still has pixels to spare; an SVG renders at that size rather
     // than being blown up from the 256 px cache.
-    QPixmap pm = day_qt_load_glyph(file, 512);
-    if (tint != nullptr && *tint != '\0') {
-        const QColor c(QString::fromUtf8(tint));
-        if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
-    }
-    if (!pm.isNull()) l->setImage(pm);
     l->setProperty("dayGlyphPath", file);
+    l->setProperty("dayGlyphTint", tintSpec);
+    l->setProperty("dayGlyphTemplate", tintSpec == QLatin1String("currentColor"));
+    l->repaintGlyph();
     return l;
 }
 
 // `ImagePatch::Tint`: repaint the realized glyph from its source, so a tint that follows a signal
-// never rebuilds the view. An empty tint restores the authored colors.
+// never rebuilds the view. An empty tint restores the authored colors — or, on a template glyph,
+// the palette's text color.
 void day_qt_image_set_tint(void *w, const char *tint) {
     auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
     if (!l) return;
-    const QString file = l->property("dayGlyphPath").toString();
-    if (file.isEmpty()) return;
-    QPixmap pm = day_qt_load_glyph(file, 512);
-    if (tint != nullptr && *tint != '\0') {
-        const QColor c(QString::fromUtf8(tint));
-        if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
-    }
-    if (!pm.isNull()) l->setImage(pm);
+    QString tintSpec = tint ? QString::fromUtf8(tint) : QString();
+    if (tintSpec.isEmpty() && l->property("dayGlyphTemplate").toBool())
+        tintSpec = QStringLiteral("currentColor");
+    l->setProperty("dayGlyphTint", tintSpec);
+    l->repaintGlyph();
 }
 
 /// Point a realized image widget at a different staged file (an `ImageSource::Named` swap).
 ///
 /// The path is recorded the way realize records it, so a later tint still re-renders from the
-/// right source.
+/// right source — and the tint it carries now applies to the new glyph, so a recycled row
+/// shows the icon it was rebound to in the same color.
 void day_qt_image_set_path(void *w, const char *path) {
     auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
     if (!l) return;
-    const QString file = QString::fromUtf8(path);
-    l->setProperty("dayGlyphPath", file);
-    QPixmap pm = day_qt_load_glyph(file, 512);
-    if (!pm.isNull()) l->setImage(pm);
+    l->setProperty("dayGlyphPath", QString::fromUtf8(path));
+    l->repaintGlyph();
 }
 
 /// Decode `bytes` into the bitmap registry under `id` (docs/images.md). Returns 1 and fills `out`

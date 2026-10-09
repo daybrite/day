@@ -1583,6 +1583,16 @@ fn hex_rgb(c: day_spec::Color) -> String {
     )
 }
 
+/// The image shim's tint channel (docs/vectors.md): a `#rrggbb`, `currentColor` for a template
+/// glyph that follows the palette, or empty for the authored colors.
+fn image_tint(tint: Option<day_spec::Color>, template: bool) -> String {
+    match tint {
+        Some(c) => hex_rgb(c),
+        None if template => "currentColor".to_owned(),
+        None => String::new(),
+    }
+}
+
 fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
     tints
         .iter()
@@ -2354,8 +2364,10 @@ impl Toolkit for Qt {
                                 icon_file_path(named)
                             };
                             // Vector-glyph tint (docs/vectors.md): the same SourceIn recolor the
-                            // nav rows use, over a glyph the SVG engine renders at size.
-                            let tint = p.tint.map(hex_rgb).unwrap_or_default();
+                            // nav rows use, over a glyph the SVG engine renders at size. A
+                            // template with no tint asks for the palette's text color
+                            // (`currentColor`), which the shim re-applies on a palette change.
+                            let tint = image_tint(p.tint, p.template);
                             QtHandle(ffi::day_qt_image_new(
                                 cstr(&path).as_ptr(),
                                 mode,
@@ -2458,7 +2470,10 @@ impl Toolkit for Qt {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
                         match p {
                             day_spec::props::ImagePatch::Tint(c) => {
-                                let tint = c.map(hex_rgb).unwrap_or_default();
+                                // The shim remembers whether the glyph is a template, so a
+                                // cleared tint lands back on the palette color rather than the
+                                // authored art.
+                                let tint = image_tint(*c, false);
                                 ffi::day_qt_image_set_tint(h.0, cstr(&tint).as_ptr());
                             }
                             // A source swap repaints the same widget (docs/images.md), so an

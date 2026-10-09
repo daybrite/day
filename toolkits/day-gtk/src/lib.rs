@@ -130,10 +130,11 @@ day_core::tls_group! {
     // composed (see apply_gtk_transform) rather than overwrite each other.
     static NODE_ORIGIN: RefCell<HashMap<usize, (f32, f32)>> = RefCell::new(HashMap::new());
 
-    /// Each realized image's bundled source NAME, so a tint patch can re-render it. The widget
-    /// holds a texture, not a path, and re-reading the file is what a recolor needs. A
-    /// [`SideTable`], so the entry goes with the widget in `release`'s sweep.
-    static IMAGE_SOURCE: SideTable<String> = SideTable::new();
+    /// Each realized image's bundled source NAME and how it is painted, so a tint patch or a
+    /// source swap can re-render it. The widget holds a texture, not a path, and re-reading the
+    /// file is what a recolor needs. A [`SideTable`], so the entry goes with the widget in
+    /// `release`'s sweep.
+    static IMAGE_SOURCE: SideTable<ImageEntry> = SideTable::new();
 
     /// `BitmapId` → the decoded image (docs/images.md). Keyed by the id day-core minted rather
     /// than by a widget, because one bitmap outlives any view and may be drawn by several at
@@ -1933,6 +1934,60 @@ fn tinted_image_texture(source: &str, t: day_spec::Color) -> Option<gtk4::gdk::T
         (t.b * 255.0) as u8,
     );
     Some(gtk4::gdk::Texture::for_pixbuf(&pixbuf))
+}
+
+/// A realized image's source and paint (`IMAGE_SOURCE`): the bundled NAME (empty for bytes or
+/// a decode, which cannot be recolored), the tint on it now, whether it is a template glyph
+/// (docs/vectors.md "Template"), and the picture itself — weakly, so a theme switch can
+/// recolor every untinted template to the new foreground without keeping any alive.
+#[derive(Clone)]
+struct ImageEntry {
+    name: String,
+    tint: Option<day_spec::Color>,
+    template: bool,
+    picture: gtk4::glib::WeakRef<gtk4::Picture>,
+}
+
+/// The theme foreground a template glyph with no tint of its own draws in (docs/vectors.md
+/// "Template"): the same near-white / near-black the sidebar's template icons use.
+fn template_foreground() -> day_spec::Color {
+    if adw::StyleManager::default().is_dark() {
+        day_spec::Color::hex(0xFFFFFF)
+    } else {
+        day_spec::Color::hex(0x1A1A1A)
+    }
+}
+
+/// Paint a picture from its recorded source with `tint`, or — for a template — with the theme
+/// foreground; a plain image with no tint reloads the file as authored.
+fn repaint_image(pic: &gtk4::Picture, source: &str, tint: Option<day_spec::Color>, template: bool) {
+    let tint = tint.or_else(|| template.then(template_foreground));
+    match tint.and_then(|t| tinted_image_texture(source, t)) {
+        Some(texture) => pic.set_paintable(Some(&texture)),
+        None => {
+            if let Some(path) = day_spec::resource::resolve_image_file(source) {
+                pic.set_filename(Some(&path));
+            }
+        }
+    }
+}
+
+/// A theme switch: every untinted template glyph takes the new foreground. The recolor is
+/// baked into the texture, so nothing else would repaint it.
+fn retint_template_images() {
+    let mut live = Vec::new();
+    IMAGE_SOURCE.with(|t| {
+        t.for_each(|_, entry| {
+            if entry.template && entry.tint.is_none() {
+                if let Some(pic) = entry.picture.upgrade() {
+                    live.push((pic, entry.name.clone()));
+                }
+            }
+        })
+    });
+    for (pic, name) in live {
+        repaint_image(&pic, &name, None, true);
+    }
 }
 
 /// Release this listbox's row popovers, and do it before the rows themselves go.
@@ -5160,8 +5215,21 @@ impl Toolkit for Gtk {
                     day_spec::ImageSource::Named(name) => name.clone(),
                     _ => String::new(),
                 };
-                IMAGE_SOURCE.with(|t| t.insert(widget_key(pic.upcast_ref()), named.clone()));
-                let tinted = p.tint.and_then(|t| tinted_image_texture(&named, t));
+                IMAGE_SOURCE.with(|t| {
+                    t.insert(
+                        widget_key(pic.upcast_ref()),
+                        ImageEntry {
+                            name: named.clone(),
+                            tint: p.tint,
+                            template: p.template,
+                            picture: pic.downgrade(),
+                        },
+                    )
+                });
+                // A template with no tint (docs/vectors.md "Template") recolors to the theme
+                // foreground, as the sidebar's own icons do, and is re-painted on a switch.
+                let tint = p.tint.or_else(|| p.template.then(template_foreground));
+                let tinted = tint.and_then(|t| tinted_image_texture(&named, t));
                 if let Some(texture) = tinted {
                     pic.set_paintable(Some(&texture));
                 } else {
@@ -5314,30 +5382,41 @@ impl Toolkit for Gtk {
                 ) {
                     match p {
                         day_spec::props::ImagePatch::Tint(c) => {
-                            let source = IMAGE_SOURCE.with(|t| t.get(widget_key(h)));
-                            if let Some(source) = source {
-                                match c.and_then(|t| tinted_image_texture(&source, t)) {
-                                    Some(texture) => pic.set_paintable(Some(&texture)),
-                                    // Back to the authored colors: reload the file untinted.
-                                    None => {
-                                        if let Some(path) =
-                                            day_spec::resource::resolve_image_file(&source)
-                                        {
-                                            pic.set_filename(Some(&path));
-                                        }
-                                    }
-                                }
+                            // Back to the authored colors when the tint goes — or, for a
+                            // template glyph, to the theme foreground.
+                            let entry = IMAGE_SOURCE.with(|t| {
+                                t.with(widget_key(h), |e| {
+                                    e.tint = *c;
+                                    e.clone()
+                                })
+                            });
+                            if let Some(entry) = entry {
+                                repaint_image(pic, &entry.name, *c, entry.template);
                             }
                         }
                         // A source swap repaints the same widget (docs/images.md), so an `image()`
-                        // bound to a signal shows new pixels without rebuilding its subtree.
+                        // bound to a signal shows new pixels without rebuilding its subtree. A
+                        // tinted or template glyph is re-rendered from the new name in the same
+                        // paint, so a recycled sidebar row shows the icon it was rebound to.
                         day_spec::props::ImagePatch::Source(source) => {
                             let named = match source {
                                 day_spec::ImageSource::Named(name) => name.clone(),
                                 _ => String::new(),
                             };
-                            IMAGE_SOURCE.with(|t| t.insert(widget_key(h), named));
-                            set_picture_source(pic, source);
+                            let entry = IMAGE_SOURCE.with(|t| {
+                                t.with(widget_key(h), |e| {
+                                    e.name = named.clone();
+                                    e.clone()
+                                })
+                            });
+                            match entry {
+                                Some(e)
+                                    if !named.is_empty() && (e.tint.is_some() || e.template) =>
+                                {
+                                    repaint_image(pic, &named, e.tint, e.template)
+                                }
+                                _ => set_picture_source(pic, source),
+                            }
                         }
                     }
                 }
@@ -8034,7 +8113,10 @@ impl Platform for Gtk {
             // `dark` on desktop theme switches — refresh day-core's reactive dark-mode
             // signal so palette closures recolor live.
             adw::StyleManager::default().connect_dark_notify(|_| {
-                ffi_guard::contain((), day_core::note_appearance_changed);
+                ffi_guard::contain((), || {
+                    day_core::note_appearance_changed();
+                    retint_template_images();
+                });
             });
             // Likewise the reduce-motion setting: the desktop's "Animations" switch lands on
             // GtkSettings as `gtk-enable-animations`, and its notify arrives on the main

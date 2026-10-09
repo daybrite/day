@@ -495,8 +495,10 @@ unsafe extern "C" {
     pub fn day_xaml_image_set_bytes(w: *mut c_void, bytes: *const u8, len: c_int);
     pub fn day_xaml_image_set_bitmap(w: *mut c_void, id: u64);
     /// A vector glyph as real XAML `Path` geometry inside a scaling `Viewbox` (docs/vectors.md):
-    /// resolution-independent, and `tinted` composes `argb` over the shapes as a brush. Null
-    /// when the spec carried no drawable geometry, so the caller falls back to the raster.
+    /// resolution-independent. `tinted` 1 composes `argb` over the shapes as a brush; 2 draws
+    /// them in the theme foreground brush (a template glyph, re-resolved on a theme change); 0
+    /// keeps the authored paints. Null when the spec carried no drawable geometry, so the
+    /// caller falls back to the raster.
     pub fn day_xaml_vector_new(
         spec: *const c_char,
         mode: c_int,
@@ -504,11 +506,13 @@ unsafe extern "C" {
         tinted: c_int,
     ) -> *mut c_void;
     /// A tinted vector glyph as a monochrome `BitmapIcon` — the raster fallback for art that
-    /// could not be converted to geometry; null when unresolved or the tint is transparent.
+    /// could not be converted to geometry. `tinted` as above (1 = `argb`, 2 = the theme
+    /// foreground); null when unresolved or `tinted` is 0.
     pub fn day_xaml_image_tinted_new(
         icon_file: *const c_char,
         mode: c_int,
         argb: u32,
+        tinted: c_int,
     ) -> *mut c_void;
 
     // External-piece / tweaks handle seam (docs/tweaks.md): box a WinRT ABI pointer into a day

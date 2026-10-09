@@ -130,6 +130,13 @@ mod imp {
         /// Views the app gave an accessibility label (`set_a11y`): a button's title change must
         /// then leave the label alone (`apply_button_content`). Swept on release.
         static APP_LABELED: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
+        /// How each image view renders its glyph (docs/vectors.md "Tint", "Template"): whether
+        /// it was realized as a template, and whether a tint is on it now. Rendering mode is a
+        /// property of the UIImage, so a source swap has to re-apply it, and a tint patch of
+        /// `None` keeps a template in the inherited tint rather than returning to the authored
+        /// art. Swept on release.
+        static IMAGE_MODES: day_spec::sidetable::SideTable<ImageMode> =
+            day_spec::sidetable::SideTable::new();
 
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         static TARGETS: RefCell<HashMap<usize, Retained<DayTarget>>> = RefCell::new(HashMap::new());
@@ -716,6 +723,21 @@ mod imp {
 
     fn ptr_of(v: &UIView) -> usize {
         (v as *const UIView).cast::<()>() as usize
+    }
+
+    /// An image view's rendering (`IMAGE_MODES`).
+    #[derive(Clone, Copy)]
+    struct ImageMode {
+        template: bool,
+        tinted: bool,
+    }
+
+    impl ImageMode {
+        /// `AlwaysTemplate`: the glyph's alpha as a mask, filled with the tint or the inherited
+        /// one.
+        fn renders_template(self) -> bool {
+            self.template || self.tinted
+        }
     }
 
     /// The day name for a hardware-keyboard key, or `None` for every key the route does not
@@ -9098,8 +9120,10 @@ mod imp {
                         unsafe { iv.setImage(Some(&img)) };
                     }
                     // Vector-glyph tint (docs/vectors.md): template rendering + the view's tint —
-                    // UIKit recolors the alpha mask natively.
-                    if let Some(t) = p.tint {
+                    // UIKit recolors the alpha mask natively. A template with no tint of its own
+                    // inherits the tint around it (a cell's, a bar's): the iOS idiom, and what
+                    // the nav menu's own rows do.
+                    if p.tint.is_some() || p.template {
                         if let Some(img) = unsafe { iv.image() } {
                             let templ = unsafe {
                                 img.imageWithRenderingMode(
@@ -9108,8 +9132,19 @@ mod imp {
                             };
                             unsafe { iv.setImage(Some(&templ)) };
                         }
+                    }
+                    if let Some(t) = p.tint {
                         unsafe { iv.setTintColor(Some(&uicolor(t))) };
                     }
+                    IMAGE_MODES.with(|t| {
+                        t.insert(
+                            ptr_of(&iv),
+                            ImageMode {
+                                template: p.template,
+                                tinted: p.tint.is_some(),
+                            },
+                        )
+                    });
                     view_of(iv)
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
@@ -9145,13 +9180,21 @@ mod imp {
                         match p {
                             day_spec::props::ImagePatch::Tint(c) => {
                                 // Template rendering + the view's tint, as at realize
-                                // (docs/vectors.md).
+                                // (docs/vectors.md). A template glyph stays one when the tint
+                                // goes; it falls back to the inherited tint.
+                                let template = IMAGE_MODES
+                                    .with(|t| {
+                                        t.with(ptr_of(iv), |m| {
+                                            m.tinted = c.is_some();
+                                            m.renders_template()
+                                        })
+                                    })
+                                    .unwrap_or(c.is_some());
                                 if let Some(img) = unsafe { iv.image() } {
-                                    let mode = match c {
-                                        Some(_) => {
-                                            objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
-                                        }
-                                        None => objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal,
+                                    let mode = if template {
+                                        objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate
+                                    } else {
+                                        objc2_ui_kit::UIImageRenderingMode::AlwaysOriginal
                                     };
                                     let next = unsafe { img.imageWithRenderingMode(mode) };
                                     unsafe { iv.setImage(Some(&next)) };
@@ -9169,7 +9212,22 @@ mod imp {
                                 }
                                 // A source that will not load leaves the view showing what it
                                 // was — the patch's contract, and what GTK, Qt and Android do.
+                                // The new image renders the way the view does: a tinted or
+                                // template glyph stays one, so a recycled sidebar row shows
+                                // the icon it was rebound to in the same color.
                                 if let Some(img) = uikit_image_for(source) {
+                                    let template = IMAGE_MODES
+                                        .with(|t| t.get(ptr_of(iv)))
+                                        .is_some_and(|m| m.renders_template());
+                                    let img = if template {
+                                        unsafe {
+                                            img.imageWithRenderingMode(
+                                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                                            )
+                                        }
+                                    } else {
+                                        img
+                                    };
                                     unsafe { iv.setImage(Some(&img)) };
                                 }
                             }

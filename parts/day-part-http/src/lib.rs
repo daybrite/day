@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-http: headless cross-platform HTTP(S) through each platform's native networking
+//! day-part-http: headless cross-platform HTTP(S), by default through native networking
 //! stack (docs/http.md). No UI; any Rust code can depend on this crate.
 //!
 //! ```no_run
@@ -55,7 +55,18 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 mod client;
+#[cfg(all(
+    feature = "reqwest",
+    not(target_arch = "wasm32"),
+    not(target_env = "ohos")
+))]
+mod reqwest_provider;
+mod session;
+pub mod simulation;
+mod statistics;
 mod validators;
+pub use session::{Provider, Session};
+pub use statistics::{Statistics, TransferStatistics};
 pub use validators::CacheValidators;
 
 #[cfg(not(target_arch = "wasm32"))]

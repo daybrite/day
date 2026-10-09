@@ -835,7 +835,7 @@ progress(fraction)   spinner()     // docs/progress.md
 image(res::images::logo)           // typed resource constants (§18.5)
 image(bytes)   image(&bitmap)      // encoded bytes / a `day::decode_image` handle (docs/images.md);
                                    // a canvas draws the handle with `d.image(&bitmap, rect)`
-vector(res::vectors::home)         // resource/vectors/ glyph + .tint(color) (docs/vectors.md)
+vector(res::vectors::home)         // resource/vectors/ glyph + .tint(color) / .template() (docs/vectors.md)
 divider()   divider().vertical()   spacer()   // a rule across a column, or down a row
 
 // layout containers
@@ -6605,6 +6605,13 @@ honors the step/startup budgets above. Partial replies remain byte buffers acros
 including split UTF-8 characters. `script_report` tests cover idle-peer teardown, fragmented
 replies, and telemetry checkpointing; the stop/continue flow test also exercises cleanup.
 
+The CLI's dayscript port selection probes up to 100 ports in a PID-based range below Linux's
+default ephemeral floor (32768), choosing the first successful bind or falling back to the base
+when all probes fail. The probe closes its listener: it observes availability without reserving
+the port until the engine starts, and it cannot observe listeners inside a separate device.
+`script::port_tests` injects synthetic occupancy to verify first-free selection, the bounded
+search and fallback without racing other tests or processes for a socket after releasing it.
+
 CI merges partial conformance results after failed test legs, but skips aggregation when
 the conformance workflow itself never ran because a prerequisite failed. Android rebuild
 failures retain both native libraries for comparison; upload paths are canonicalized before
@@ -7277,3 +7284,32 @@ FragmentManager history and predictive Back, and a native pop's acknowledgement 
 page it removed. Real-touch coverage lives in Day-News `tests/android-navigation.py`. A
 proposed follow-up for compact predictive Back and fold-aware pane placement, not implemented,
 is [docs/android-adaptive-navigation-proposal.md](docs/android-adaptive-navigation-proposal.md).
+
+### HTTP session routing and deterministic interception
+
+`day-part-http` now places a `Session` boundary between the public `Client` and its transport.
+Default clients (including the cached crate-root stateless client) resolve `Session::global()`
+at operation start; explicitly supplied sessions isolate test state. A snapshot pins a provider
+and its capabilities for each logical request/socket. Per-client generation caches preserve
+provider connection pools without mutating active transfers. Custom `ClientBuilder::transport`
+remains an explicit fixed override. Cookie jars fall back portably when a selected provider has
+no platform cookie store; unsupported pin/identity policies fail closed.
+
+The portable `simulation` module implements the existing `Transport`/`Transfer`/`Socket`
+contracts, including reader demand, cancellation and bounded WebSocket buffering. Handlers and
+predicates run outside locks. Strict initial routing prevents accidental live traffic; an opted-in
+passthrough rule selects the real provider only for unmatched initial requests. Simulated redirect
+chains stay intercepted. Seeded faults use method/URL occurrence streams, and an injectable clock
+supports deterministic delivery plus HTTP idle/total timeouts. Pause/offline/rate conditions model
+application-visible behavior rather than OS background scheduling or physical packet loss.
+
+The optional `reqwest` feature supplies async HTTP and tungstenite WebSockets on one process-wide
+Tokio runtime; native remains the default. wasm and HarmonyOS exclude these dependencies and keep
+native transport plus portable simulation. It uses explicit rustls/WebPKI trust, reports only
+implemented capabilities, and does not promise system PAC/caches/native-auth equivalence.
+
+Transport observation maintains constant-size aggregate payload counters and the latest 256
+transfer records per session/global scope. HTTP exchanges and WebSocket lifetimes are distinct
+from physical sockets; rates include idle time and simulated bytes are labeled separately. Only
+traffic through this part is observable. Details and examples live in `docs/http.md` and
+`parts/day-part-http/README.md`; regression tests are in `parts/day-part-http/tests/simulation.rs`.

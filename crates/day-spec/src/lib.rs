@@ -5612,6 +5612,14 @@ pub mod props {
         /// recolor on GTK); backends that can't yet ignore it and draw the source colors.
         /// `None` (the default, and every raster `image(…)`) means "as authored".
         pub tint: Option<Color>,
+        /// A monochrome template glyph (docs/vectors.md "Template"): with no `tint`, it draws
+        /// in the foreground of the surface it sits on — the theme's label color on the
+        /// desktops, the cell's tint on UIKit, `currentColor` on the web — and follows a
+        /// theme switch. What a sidebar row's untinted icon is: a tinted glyph recolors the
+        /// same way with or without this, and `false` (the default) draws an untinted glyph as
+        /// authored. [`ImagePatch::Tint`]`(None)` on a template returns to that foreground,
+        /// not to the authored colors.
+        pub template: bool,
     }
 
     /// A live change to a realized image or vector glyph.

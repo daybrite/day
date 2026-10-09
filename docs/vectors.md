@@ -136,6 +136,28 @@ web (the mask painted with the tint instead of `currentColor`). Untinted rows ke
 backend's template default (theme foreground / secondary label); ArkUI's untinted raster rows
 draw as authored (fill color is SVG-only).
 
+## Template
+
+`.template()` on `vector(…)` or `image(…)` gives a glyph of your own that same template default:
+untinted, it draws in the foreground of the surface it sits on and follows a theme switch, instead
+of in its authored colors. A bundled glyph is black on transparent, so an untinted `image()` of one
+disappears on a dark surface; a template is what a row icon in a list of your own wants, and what
+the data-driven sidebars (`collapsed_sections`, `reorder_items`) use for theirs.
+
+```rust
+row((vector(res::vectors::folder).template().frame(20.0, 20.0), label(name)))
+```
+
+Per backend the foreground is AppKit's neutral template tint (`isTemplate` with no
+`contentTintColor`), the inherited `tintColor` on UIKit (a cell's, a bar's — the iOS idiom), the
+theme's primary text color on Android (`textColorPrimary`) and ArkUI (SVG only; a raster template
+draws as authored), the palette text color on Qt and the theme foreground on GTK (both re-rendered
+on a palette change), the island's `TextFillColorPrimaryBrush` on XAML (re-resolved when the
+theme changes), and `currentColor` on the web, so it also turns white on a selected row. A
+`.tint(…)` still wins while it is set, and clearing it (`ImagePatch::Tint(None)`) returns a
+template to the foreground, not to the authored art. A source swap on a template or tinted glyph
+re-cuts the mask from the new name, so a recycled row shows the icon it was rebound to.
+
 ## Lint
 
 `day lint` validates every vector source: unreadable/unparseable art, glyph-embedded `<text>`

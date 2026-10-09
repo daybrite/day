@@ -481,11 +481,28 @@ thread_local! {
     static APP_NAMED: day_spec::sidetable::SideTable<()> = day_spec::sidetable::SideTable::new();
 }
 
+/// What a realized image was given, so a patch can rebuild its mask from the same URL and
+/// scaling (`apply_image_tint`). The DOM bridge writes attributes but does not read them back,
+/// and keeping this here is cheaper than adding a getter to the shim for one caller.
+#[derive(Clone)]
+struct ImageState {
+    src: String,
+    /// The `object-fit` keyword the content mode mapped to, which the mask scales by.
+    fit: &'static str,
+    tint: Option<day_spec::Color>,
+    template: bool,
+}
+
+impl ImageState {
+    /// A masked element rather than an `<img>`: a tint or a template paints the mask.
+    fn masked(&self) -> bool {
+        self.tint.is_some() || self.template
+    }
+}
+
 thread_local! {
-    /// Each realized image's `src`, so a tint patch can rebuild the mask from the same URL. The
-    /// DOM bridge writes attributes but does not read them back, and keeping the string here is
-    /// cheaper than adding a getter to the shim for one caller.
-    static IMAGE_SRC: RefCell<HashMap<u32, String>> = RefCell::new(HashMap::new());
+    /// Each realized image's [`ImageState`].
+    static IMAGE_SRC: RefCell<HashMap<u32, ImageState>> = RefCell::new(HashMap::new());
 
     /// `BitmapId` → what the decode reported (docs/images.md). Seeded when the decode is
     /// REQUESTED, not when it answers: the container format comes from the bytes on this side and
@@ -494,55 +511,54 @@ thread_local! {
     static BITMAP_INFO: RefCell<HashMap<u64, day_spec::BitmapInfo>> = RefCell::new(HashMap::new());
 }
 
-/// Recolor a template glyph (docs/vectors.md "Tint").
+/// Recolor a template glyph (docs/vectors.md "Tint", "Template").
 ///
 /// The browser cannot recolor the pixels of an `<img>`, so a tinted glyph becomes a MASK painted
-/// with the tint — the same technique the nav rows use for their icons. The element keeps its
-/// `src` so the untinted path, the alt text and the layout are unchanged; a `None` tint puts the
-/// image back exactly as it was.
-fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>) {
-    match tint {
-        Some(c) => {
-            let mask = format!("url(\"{src}\")");
-            s(el, "mask-image", &mask);
-            s(el, "-webkit-mask-image", &mask);
-            // The mask scales the way the untinted image would: `object-fit` and `mask-size`
-            // share contain/cover, and Stretch's `fill` is `100% 100%`.
-            let size = if fit == "fill" { "100% 100%" } else { fit };
-            for prop in ["mask-size", "-webkit-mask-size"] {
-                s(el, prop, size);
-            }
-            for prop in ["mask-repeat", "-webkit-mask-repeat"] {
-                s(el, prop, "no-repeat");
-            }
-            for prop in ["mask-position", "-webkit-mask-position"] {
-                s(el, prop, "center");
-            }
-            s(
-                el,
-                "background-color",
-                &format!(
-                    "#{:02x}{:02x}{:02x}",
-                    (c.r * 255.0) as u8,
-                    (c.g * 255.0) as u8,
-                    (c.b * 255.0) as u8
-                ),
-            );
+/// with the tint — the same technique the nav rows use for their icons. A template with no tint
+/// paints the mask with `currentColor`, so it follows the text color around it (light on a dark
+/// sidebar, white on a selected row) the way those rows do. The element keeps its `src` so the
+/// untinted path, the alt text and the layout are unchanged; a `None` tint on a plain image puts
+/// it back exactly as it was.
+fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>, template: bool) {
+    if tint.is_some() || template {
+        let mask = format!("url(\"{src}\")");
+        s(el, "mask-image", &mask);
+        s(el, "-webkit-mask-image", &mask);
+        // The mask scales the way the untinted image would: `object-fit` and `mask-size`
+        // share contain/cover, and Stretch's `fill` is `100% 100%`.
+        let size = if fit == "fill" { "100% 100%" } else { fit };
+        for prop in ["mask-size", "-webkit-mask-size"] {
+            s(el, prop, size);
         }
-        None => {
-            for prop in [
-                "mask-image",
-                "-webkit-mask-image",
-                "mask-size",
-                "-webkit-mask-size",
-                "mask-repeat",
-                "-webkit-mask-repeat",
-                "mask-position",
-                "-webkit-mask-position",
-                "background-color",
-            ] {
-                s(el, prop, "");
-            }
+        for prop in ["mask-repeat", "-webkit-mask-repeat"] {
+            s(el, prop, "no-repeat");
+        }
+        for prop in ["mask-position", "-webkit-mask-position"] {
+            s(el, prop, "center");
+        }
+        let paint = match tint {
+            Some(c) => format!(
+                "#{:02x}{:02x}{:02x}",
+                (c.r * 255.0) as u8,
+                (c.g * 255.0) as u8,
+                (c.b * 255.0) as u8
+            ),
+            None => "currentColor".to_owned(),
+        };
+        s(el, "background-color", &paint);
+    } else {
+        for prop in [
+            "mask-image",
+            "-webkit-mask-image",
+            "mask-size",
+            "-webkit-mask-size",
+            "mask-repeat",
+            "-webkit-mask-repeat",
+            "mask-position",
+            "-webkit-mask-position",
+            "background-color",
+        ] {
+            s(el, prop, "");
         }
     }
 }
@@ -1822,14 +1838,20 @@ impl Toolkit for Dom {
                     ContentMode::Fill => "cover",
                     ContentMode::Stretch => "fill",
                 };
-                // A TINTED glyph is a masked div, not an `<img>`: the browser cannot recolor an
-                // image's pixels, and an `<img>` paints its own art over whatever sits behind it,
-                // so masking one only clips it — the tint shows through as a faint edge. Painting
-                // the mask with the tint is what the nav rows do, and it is the only technique
-                // here that actually recolors (docs/vectors.md "Tint").
-                let el =
-                    unsafe { day_dom_create(if p.tint.is_some() { EL_DIV } else { EL_IMAGE }) };
-                if p.tint.is_some() {
+                // A TINTED or TEMPLATE glyph is a masked div, not an `<img>`: the browser
+                // cannot recolor an image's pixels, and an `<img>` paints its own art over
+                // whatever sits behind it, so masking one only clips it — the tint shows through
+                // as a faint edge. Painting the mask with the tint (or `currentColor` for a
+                // template) is what the nav rows do, and it is the only technique here that
+                // actually recolors (docs/vectors.md "Tint").
+                let state = ImageState {
+                    src: src.clone(),
+                    fit,
+                    tint: p.tint,
+                    template: p.template,
+                };
+                let el = unsafe { day_dom_create(if state.masked() { EL_DIV } else { EL_IMAGE }) };
+                if state.masked() {
                     if !p.decorative {
                         attr(el, "role", "img");
                     }
@@ -1854,8 +1876,8 @@ impl Toolkit for Dom {
                 if p.decorative {
                     attr(el, "aria-hidden", "true");
                 }
-                IMAGE_SRC.with(|m| m.borrow_mut().insert(el, src.clone()));
-                apply_image_tint(el, &src, fit, p.tint);
+                apply_image_tint(el, &src, fit, p.tint, p.template);
+                IMAGE_SRC.with(|m| m.borrow_mut().insert(el, state));
                 el
             }
             Some(Builtin::Canvas) => {
@@ -2040,17 +2062,26 @@ impl Toolkit for Dom {
                     match p {
                         day_spec::props::ImagePatch::Tint(c) => {
                             // The mask needs the same URL the element already loads.
-                            let src = IMAGE_SRC.with(|m| m.borrow().get(&el).cloned());
-                            if let Some(src) = src {
-                                // Only the color changes here: an element realized with a tint is
-                                // already the masked div, so this repaints the mask's fill.
-                                apply_image_tint(el, &src, "contain", *c);
+                            let state = IMAGE_SRC.with(|m| {
+                                let mut m = m.borrow_mut();
+                                let state = m.get_mut(&el)?;
+                                state.tint = *c;
+                                Some(state.clone())
+                            });
+                            if let Some(state) = state {
+                                // Only the color changes here: an element realized with a tint
+                                // or as a template is already the masked div, so this repaints
+                                // the mask's fill (a template with no tint goes back to
+                                // `currentColor`).
+                                apply_image_tint(el, &state.src, state.fit, *c, state.template);
                             }
                         }
                         // A source swap repaints the same element (docs/images.md), so an
                         // `image()` bound to a signal shows new pixels without rebuilding its
-                        // subtree. A tinted glyph keeps the mask it was realized with: recoloring
-                        // bytes would need a URL this side never sees.
+                        // subtree. A masked glyph (tinted or a template) re-cuts its mask from the
+                        // new name — a recycled sidebar row shows the glyph it was rebound to —
+                        // while bytes keep the mask they were realized with: recoloring them
+                        // would need a URL this side never sees.
                         day_spec::props::ImagePatch::Source(source) => match source {
                             day_spec::ImageSource::Named(name) => {
                                 let src = if name.contains('/') {
@@ -2058,8 +2089,22 @@ impl Toolkit for Dom {
                                 } else {
                                     format!("assets/images/{}.{}", name, image_ext(name))
                                 };
-                                attr(el, "src", &src);
-                                IMAGE_SRC.with(|m| m.borrow_mut().insert(el, src));
+                                let state = IMAGE_SRC.with(|m| {
+                                    let mut m = m.borrow_mut();
+                                    let state = m.get_mut(&el)?;
+                                    state.src = src.clone();
+                                    Some(state.clone())
+                                });
+                                match state {
+                                    Some(state) if state.masked() => apply_image_tint(
+                                        el,
+                                        &state.src,
+                                        state.fit,
+                                        state.tint,
+                                        state.template,
+                                    ),
+                                    _ => attr(el, "src", &src),
+                                }
                             }
                             day_spec::ImageSource::Bytes(b) => unsafe {
                                 day_dom_image_set_bytes(el, b.as_ptr(), b.len())

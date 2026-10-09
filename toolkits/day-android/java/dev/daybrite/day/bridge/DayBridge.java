@@ -3248,22 +3248,56 @@ public final class DayBridge {
         return iv;
     }
 
-    /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colors. */
+    /** The tint channel's "template" value (docs/vectors.md "Template"): alpha 0, which no real
+     *  tint carries. The glyph takes the theme's primary text color — light on a dark surface,
+     *  dark on a light one — and keeps it across tint patches that clear the tint. */
+    private static final int TEMPLATE_TINT = 1;
+
+    /** The image views realized as templates, so a cleared tint returns them to the theme color.
+     *  Weak: a view leaves the set when the layout drops it. */
+    private static final java.util.Set<View> templateImages =
+            java.util.Collections.newSetFromMap(new java.util.WeakHashMap<View, Boolean>());
+
+    /** The theme's primary text color, what an untinted template glyph draws in. */
+    private static int templateTint() {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        if (ctx.getTheme().resolveAttribute(android.R.attr.textColorPrimary, tv, true)) {
+            if (tv.resourceId != 0) return ctx.getColor(tv.resourceId);
+            return tv.data;
+        }
+        return 0xFF000000;
+    }
+
+    /** Apply the tint channel to an image view: a packed ARGB, {@link #TEMPLATE_TINT} for the
+     *  theme text color, or 0 for the authored colors — unless the view was realized as a
+     *  template, which 0 returns to the theme color rather than to the art. */
+    private static void applyImageTint(android.widget.ImageView iv, int tint) {
+        if (tint == 0 && templateImages.contains(iv)) {
+            tint = TEMPLATE_TINT;
+        }
+        int color = tint == TEMPLATE_TINT ? templateTint() : tint;
+        iv.setImageTintList(
+                tint == 0 ? null : android.content.res.ColorStateList.valueOf(color));
+    }
+
+    /** `ImagePatch::Tint`: repaint a realized glyph. 0 restores the authored colors (the theme
+     *  text color on a template glyph). */
     public static void setImageTint(View v, int tint) {
         if (!(v instanceof android.widget.ImageView)) {
             return;
         }
-        ((android.widget.ImageView) v).setImageTintList(
-                tint == 0 ? null : android.content.res.ColorStateList.valueOf(tint));
+        applyImageTint((android.widget.ImageView) v, tint);
     }
 
     public static View makeImage(String name, int mode, int tint) {
         View v = makeImageInner(name, mode);
         // Vector-glyph tint (docs/vectors.md): drawable tint keeps a VectorDrawable/PNG's alpha
-        // as the mask. 0 = untinted (a real tint always carries alpha 0xFF).
+        // as the mask. 0 = untinted (a real tint always carries alpha 0xFF); TEMPLATE_TINT =
+        // the theme text color, remembered so a cleared tint lands back on it.
         if (tint != 0 && v instanceof android.widget.ImageView) {
-            ((android.widget.ImageView) v).setImageTintList(
-                    android.content.res.ColorStateList.valueOf(tint));
+            android.widget.ImageView iv = (android.widget.ImageView) v;
+            if (tint == TEMPLATE_TINT) templateImages.add(iv);
+            applyImageTint(iv, tint);
         }
         return v;
     }

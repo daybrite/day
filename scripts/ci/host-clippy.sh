@@ -15,3 +15,5 @@ cargo clippy --locked -p day-cli -p day-script -p day-pieces \
 # worker regression tests, which an app dependency's backend lint does not compile.
 cargo clippy --locked -p day-model -p day-persistence \
     --features day-persistence/pieces --all-targets "$@"
+# Validate both native/default routing and the opt-in HTTP/WebSocket provider.
+cargo clippy --locked -p day-part-http --features reqwest --all-targets "$@"

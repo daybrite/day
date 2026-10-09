@@ -13,6 +13,8 @@
 day_bridge::bridge! {
     #[day_bridge::declare]
     extern "day" {
+        fn simulation_now_native() -> Result<f64, day_bridge::Error>;
+        fn simulation_delay_native(ms: f64, done: day_bridge::Done<bool>) -> Result<(), day_bridge::Error>;
         /// Android: an OkHttp client for one `Client`, sharing the process's connection pool.
         /// Zero means "not set" for the limits and the cache; an empty `identity` means none.
         fn client_native(
@@ -386,6 +388,10 @@ day_bridge::bridge! {
                 return sharedCache;
             }
 
+            public static double simulation_now_native() { return System.nanoTime() / 1000000.0; }
+            public static void simulation_delay_native(double ms, long done) {
+                throw new UnsupportedOperationException("Browser-only timer");
+            }
             public static long client_native(int idleMs, int totalMs, long cacheBytes, int maxPerHost,
                                              boolean askTrust, byte[] identity, String password) throws Exception {
                 OkHttpClient.Builder builder = DayHttp.client(idleMs).newBuilder()
@@ -902,6 +908,10 @@ day_bridge::bridge! {
               }
             }
 
+            export function simulation_now_native(): number { return Date.now(); }
+            export function simulation_delay_native(ms: number): Promise<boolean> {
+                return new Promise<boolean>(resolve => { setTimeout(() => resolve(true), ms); });
+            }
             export function client_native(idleMs: number, totalMs: number, cacheBytes: number,
                                           maxPerHost: number, askTrust: boolean, identity: Uint8Array,
                                           password: string): number {
@@ -1109,6 +1119,10 @@ day_bridge::bridge! {
             }
         }
 
+        export function simulation_now_native() { return performance.now(); }
+        export function simulation_delay_native(ms) {
+            return new Promise(resolve => setTimeout(() => resolve(true), ms));
+        }
         export function client_native(idleMs, totalMs, cacheBytes, maxPerHost, askTrust, identity, password) {
             const id = dayNextClient++;
             dayClients.set(id, { idleMs });
@@ -1262,6 +1276,14 @@ day_bridge::bridge! {
 
     // Apple, Linux and Windows reach their stacks from Rust, so these answer only where an arm lives;
     // elsewhere they are never reached.
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn simulation_now_native() -> Result<f64, day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn simulation_delay_native(_ms: f64, _done: day_bridge::Done<bool>) -> Result<(), day_bridge::Error> {
+        Err(day_bridge::Error::Unsupported)
+    }
     #[day_bridge::impl(rust, platforms = [other])]
     fn client_native(
         _idle_ms: i32,
@@ -1457,4 +1479,18 @@ pub(crate) fn bridge_error(e: day_bridge::Error) -> super::HttpError {
         day_bridge::Error::Unsupported => super::HttpError::Unsupported,
         other => super::HttpError::Io(other.to_string()),
     }
+}
+
+// Browser timers use Day's ABI, which does not load wasm-bindgen glue.
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn simulation_now() -> f64 {
+    simulation_now_native().unwrap_or(0.0)
+}
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn simulation_delay(ms: f64, job: Box<dyn FnOnce() + Send>) {
+    let _ = simulation_delay_native_async(ms, move |result| {
+        if result.is_ok() {
+            job();
+        }
+    });
 }

@@ -565,3 +565,32 @@ length must not be compared with decoded delivered bytes. A body exceeding its a
 length also reverts to unknown. Consumers should throttle rendering; the HTTP collector does
 not delay delivery. Cancellation, errors and byte limits retain the same behavior on every
 backend. `bounded_progress_distinguishes_known_unknown_and_encoded_bodies` covers accounting.
+
+## Runtime sessions, interception and statistics
+
+`Session` adds an explicit scope around HTTP/WebSocket provider selection and accounting.
+Clients follow the global session unless built with `.session(Session::new())`; isolated sessions
+are the recommended unit-test boundary. Selection is captured when an operation starts, so a
+provider change cannot move an active transfer to another stack. Provider factories are cached
+per client and generation. The optional `reqwest` feature adds a reqwest/tungstenite provider on
+native targets other than HarmonyOS; compiling it does not change the native default.
+
+`simulation::Simulation` supplies programmable request handlers, strict URL/method matching,
+stateful responses, WebSocket handlers and adjustable seeded link conditions. Responses enter
+the same portable client state machine as native responses. Its manual clock drives deterministic
+network events and HTTP timeout tests. Use the existing loopback server when testing the platform
+stack itself: interception bypasses native TLS, DNS and OS network policy.
+
+See [the part README](../parts/day-part-http/README.md#sessions-and-runtime-providers) for runnable
+API examples, provider capabilities, request matching, fault schedules, and statistics contracts.
+`Session::statistics()` / `transfers()` describe a session; `Statistics::global()` aggregates all
+sessions. Counts represent HTTP exchanges and WebSocket lifetimes, not physical TCP connections.
+**Only traffic through day-part-http is included**, not networking performed by WebViews, media,
+maps or other libraries. Rates count application payload, with simulated bytes separately labeled.
+
+Showcase's redesigned Network page uses one isolated session, exposes native/reqwest selection,
+and runs the same HTTP and WebSocket controls against real or simulated transport. Simulation
+has speed/failure sliders and pause/offline controls; an animated chart uses snapshot deltas.
+Its `network.yaml` is selected by Showcase CI. Trader's deterministic CI quotes now traverse HTTP
+interception and the live JSON parser; News has conditional-refresh interception tests and an
+explicit `DAY_NEWS_HTTP_TEST=1` dayscript startup fixture.

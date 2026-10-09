@@ -1654,6 +1654,8 @@ pub(crate) fn device_alive(target: &Target) -> bool {
 /// `day` invocations in different ranges; the bind probe then takes the first port that is
 /// free; the arithmetic alone handed out ports something else already held. Falls back to the
 /// base when the whole range is busy (the old behavior: let the launch report it).
+/// This is a best-effort probe, not a reservation: another socket can take the selected port
+/// before the launched engine binds it.
 ///
 /// The constant exists to keep the range below 32768. Linux's default ephemeral range is
 /// 32768–60999 (`net.ipv4.ip_local_port_range`), which Android inherits, so a port picked from
@@ -1670,8 +1672,14 @@ const ENGINE_PORT_BASE: u16 = 20000;
 
 pub fn pick_port(index: usize) -> u16 {
     let base = ENGINE_PORT_BASE + (std::process::id() % 9000) as u16 + index as u16;
+    probe_port_range(base, |port| {
+        std::net::TcpListener::bind(("127.0.0.1", port)).is_ok()
+    })
+}
+
+fn probe_port_range(base: u16, mut available: impl FnMut(u16) -> bool) -> u16 {
     for port in base..base.saturating_add(100) {
-        if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+        if available(port) {
             return port;
         }
     }
@@ -2111,20 +2119,35 @@ mod terminate_tests {
 
 #[cfg(test)]
 mod port_tests {
-    use super::pick_port;
+    use super::probe_port_range;
 
-    /// The port handed to a launch must be bindable right now, which is what the probe checks.
-    /// Holding the first pick open proves the next pick walks past it instead of colliding.
+    /// A probe observes availability; it does not reserve the port until the engine binds it.
+    /// Use synthetic occupancy so another test/process cannot steal a just-probed port. Two
+    /// tests used to probe the same range concurrently, racing the subsequent test-only bind.
     #[test]
-    fn pick_port_returns_a_bindable_port_and_walks_past_a_taken_one() {
-        let port = pick_port(0);
-        let held = std::net::TcpListener::bind(("127.0.0.1", port))
-            .expect("pick_port said this port was free");
-        let next = pick_port(0);
-        assert_ne!(next, port, "the probe must skip the port we hold");
-        let _also_free = std::net::TcpListener::bind(("127.0.0.1", next))
-            .expect("the second pick must be free too");
-        drop(held);
+    fn pick_uses_the_first_available_port_and_stops_probing() {
+        for busy in [0, 1, 99] {
+            let mut probed = Vec::new();
+            let selected = probe_port_range(20000, |port| {
+                probed.push(port);
+                port >= 20000 + busy
+            });
+            assert_eq!(selected, 20000 + busy);
+            assert_eq!(probed, (20000..=selected).collect::<Vec<_>>());
+        }
+    }
+
+    #[test]
+    fn an_exhausted_range_falls_back_after_one_hundred_probes() {
+        let mut probed = Vec::new();
+        assert_eq!(
+            probe_port_range(20000, |port| {
+                probed.push(port);
+                false
+            }),
+            20000
+        );
+        assert_eq!(probed, (20000..20100).collect::<Vec<_>>());
     }
 
     /// Every port this can hand out must sit below Linux's ephemeral floor (32768). Inside that
@@ -2141,7 +2164,6 @@ mod port_tests {
             worst < EPHEMERAL_FLOOR,
             "pick_port can reach {worst}, which is inside the ephemeral range ({EPHEMERAL_FLOOR}+)"
         );
-        assert!(pick_port(0) < EPHEMERAL_FLOOR);
     }
 }
 

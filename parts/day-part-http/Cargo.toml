@@ -11,8 +11,8 @@ license.workspace = true
 # A headless day-ecosystem crate (no UI Piece): HTTP(S) requests through each platform's native
 # networking stack, so apps inherit the system's configuration (proxies + PAC, per-network VPN
 # routing, Low Data Mode, enterprise/MDM certificate stores) and carry no TLS library of their own.
-# Platform selection is by `#[cfg(target_os)]` / `#[cfg(target_arch)]`, so there are no backend
-# features:
+# Platform selection is by `#[cfg(target_os)]` / `#[cfg(target_arch)]`, so there are no
+# backend-selection features. The optional `reqwest` feature adds a runtime-selectable provider:
 #   macOS/iOS: URLSession with a session delegate per client (src/apple.rs)
 #   Android:   OkHttp through a Java bridge arm (src/bridge.rs, read by src/bridged.rs)
 #   Windows:   WinHTTP in asynchronous mode (src/windows.rs)
@@ -114,3 +114,15 @@ gradle-dependencies = ["com.squareup.okhttp3:okhttp:4.12.0"]
 [dev-dependencies]
 # The libcurl transport's tests also run on macOS, against the system's libcurl.
 libc = "0.2"
+
+[features]
+default = []
+reqwest = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:tokio-tungstenite", "dep:rustls", "dep:webpki-roots"]
+
+[target.'cfg(all(not(target_arch = "wasm32"), not(target_env = "ohos")))'.dependencies]
+reqwest = { version = "0.13", optional = true, default-features = false, features = ["rustls-no-provider", "stream"] }
+tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+futures-util = { version = "0.3", optional = true, features = ["sink"] }
+rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = { version = "1", optional = true }
+tokio-tungstenite = { version = "0.30", optional = true, features = ["rustls-tls-webpki-roots"] }

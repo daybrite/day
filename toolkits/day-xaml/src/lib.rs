@@ -2179,30 +2179,41 @@ impl Toolkit for Xaml {
                             WinHandle(ffi::day_xaml_image_bitmap_new(id.0, mode))
                         }
                         day_spec::ImageSource::Named(_) => {
+                            // The shim's tint mode: 0 draws the art as authored, 1 composes
+                            // `argb`, 2 is a template glyph in the theme foreground
+                            // (docs/vectors.md "Template"), which follows a theme switch.
+                            let tinted = match p.tint {
+                                Some(_) => 1,
+                                None if p.template => 2,
+                                None => 0,
+                            };
                             let geometry = vector_geometry(&named).and_then(|spec| {
                                 let h = ffi::day_xaml_vector_new(
                                     cstr(&spec).as_ptr(),
                                     mode,
                                     p.tint.map(argb).unwrap_or(0),
-                                    c_int::from(p.tint.is_some()),
+                                    tinted,
                                 );
                                 (!h.is_null()).then_some(h)
                             });
-                            // Raster fallbacks: a monochrome BitmapIcon still honors a tint, and
-                            // a plain Image carries the art as authored.
+                            // Raster fallbacks: a monochrome BitmapIcon still honors a tint (or
+                            // the theme foreground), and a plain Image carries the art as
+                            // authored.
                             let tinted = || {
-                                p.tint.and_then(|c| {
-                                    let file = icon_file_name(&named);
-                                    if file.is_empty() {
-                                        return None;
-                                    }
-                                    let h = ffi::day_xaml_image_tinted_new(
-                                        cstr(&file).as_ptr(),
-                                        mode,
-                                        argb(c),
-                                    );
-                                    (!h.is_null()).then_some(h)
-                                })
+                                if tinted == 0 {
+                                    return None;
+                                }
+                                let file = icon_file_name(&named);
+                                if file.is_empty() {
+                                    return None;
+                                }
+                                let h = ffi::day_xaml_image_tinted_new(
+                                    cstr(&file).as_ptr(),
+                                    mode,
+                                    p.tint.map(argb).unwrap_or(0),
+                                    tinted,
+                                );
+                                (!h.is_null()).then_some(h)
                             };
                             WinHandle(geometry.or_else(tinted).unwrap_or_else(|| {
                                 ffi::day_xaml_image_new(cstr(&image_uri(&named)).as_ptr(), mode)

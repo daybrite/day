@@ -5606,9 +5606,36 @@ static WUXM::Geometry geometry_from_data(const std::string& data, bool even_odd)
     }
 }
 
+// The theme foreground an untinted TEMPLATE glyph draws in (docs/vectors.md "Template"): the
+// island's text brush, looked up as an application resource — a snapshot, not a ThemeResource
+// binding, so callers re-resolve it on `ActualThemeChanged` (the card fill does the same).
+static WUXM::Brush template_foreground_brush() {
+    try {
+        auto res = WUX::Application::Current().Resources();
+        auto key = winrt::box_value(L"TextFillColorPrimaryBrush");
+        if (res.HasKey(key)) return res.Lookup(key).as<WUXM::Brush>();
+        key = winrt::box_value(L"ApplicationForegroundThemeBrush");
+        if (res.HasKey(key)) return res.Lookup(key).as<WUXM::Brush>();
+    } catch (...) {
+    }
+    return WUXM::SolidColorBrush(color_argb(0xFF000000u));
+}
+
+// Paint every Path in a template glyph's canvas with the current theme foreground.
+static void paint_template_paths(WUXC::Canvas const& canvas) {
+    auto brush = template_foreground_brush();
+    for (auto const& child : canvas.Children()) {
+        if (auto p = child.try_as<WUXSh::Path>()) {
+            if (p.Fill()) p.Fill(brush);
+            if (p.Stroke()) p.Stroke(brush);
+        }
+    }
+}
+
 // A glyph sized by the layout: the shapes go in a Canvas the size of the source viewport, and a
 // Viewbox scales that to whatever frame day assigns — so one geometry serves every size.
-// `tinted` replaces every authored paint with `argb`; otherwise the art keeps its own colors.
+// `tinted` 1 replaces every authored paint with `argb`; 2 paints them with the theme foreground
+// (a template glyph, repainted when the island's theme changes); 0 keeps the art's own colors.
 void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tinted) {
     Geom g = parse_geom(spec);
     if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
@@ -5625,8 +5652,10 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
             if (tinted) {
                 // The tint composes over the geometry: fill where the art filled, stroke where
                 // it stroked, so a glyph drawn as an outline stays an outline.
-                if (sh.fill) p.Fill(WUXM::SolidColorBrush(color_argb(argb)));
-                if (sh.stroke) p.Stroke(WUXM::SolidColorBrush(color_argb(argb)));
+                auto brush = tinted == 2 ? template_foreground_brush()
+                                         : WUXM::Brush(WUXM::SolidColorBrush(color_argb(argb)));
+                if (sh.fill) p.Fill(brush);
+                if (sh.stroke) p.Stroke(brush);
             } else {
                 if (sh.fill) p.Fill(WUXM::SolidColorBrush(color_argb(sh.fill)));
                 if (sh.stroke) p.Stroke(WUXM::SolidColorBrush(color_argb(sh.stroke)));
@@ -5643,6 +5672,11 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
             any = true;
         }
         if (!any) return nullptr;
+        if (tinted == 2) {
+            canvas.ActualThemeChanged([](FrameworkElement const& sender, WF::IInspectable const&) {
+                paint_template_paths(sender.as<WUXC::Canvas>());
+            });
+        }
         WUXC::Viewbox vb;
         vb.Child(canvas);
         // Matches the image content modes: 0=fit, 1=fill (crop), 2=stretch.
@@ -5689,13 +5723,15 @@ void* day_xaml_vector_icon_new(const char* spec, unsigned int argb, int tinted, 
 // Lossier than the geometry path above — it tints a 256 px cache, not the glyph — which is why
 // it is reached only when there is no geometry to draw. `icon_file` is the staged file NAME
 // (BitmapIcon takes only a Uri, and unpackaged islands resolve `ms-appx:///images/<file>`
-// against the exe directory); an empty name or transparent tint falls through to a plain Image.
-void* day_xaml_image_tinted_new(const char* icon_file, int mode, unsigned int argb) {
-    if (icon_file && *icon_file && (argb >> 24) != 0) {
+// against the exe directory); an empty name or `tinted` 0 falls through to a plain Image. A
+// template (`tinted` 2) leaves Foreground alone: the icon inherits the theme foreground, as the
+// nav pane's untinted rows do.
+void* day_xaml_image_tinted_new(const char* icon_file, int mode, unsigned int argb, int tinted) {
+    if (icon_file && *icon_file && tinted != 0) {
         WUXC::BitmapIcon bicon;
         bicon.UriSource(WF::Uri{ hs((std::string("ms-appx:///images/") + icon_file).c_str()) });
         bicon.ShowAsMonochrome(true);
-        bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+        if (tinted == 1) bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
         return boxh(bicon);
     }
     return nullptr;

@@ -25,6 +25,7 @@ pub struct Image {
     content_mode: ContentMode,
     aspect_ratio: Option<f64>,
     decorative: bool,
+    template: bool,
 }
 
 /// Draw an image from any [`ImageSource`](day_spec::ImageSource): a staged asset name, encoded
@@ -46,6 +47,7 @@ pub fn image<M>(source: impl IntoImageSource<M>) -> Image {
         content_mode: ContentMode::default(),
         aspect_ratio: None,
         decorative: false,
+        template: false,
     }
 }
 
@@ -148,6 +150,13 @@ impl Image {
         self.decorative = true;
         self
     }
+    /// Draw a monochrome glyph as a template (docs/vectors.md "Template"): in the foreground
+    /// of the surface it sits on, following the theme, rather than in its authored colors.
+    /// What a row icon in a sidebar wants; a photo does not.
+    pub fn template(mut self) -> Self {
+        self.template = true;
+        self
+    }
 }
 
 impl Piece for Image {
@@ -160,6 +169,7 @@ impl Piece for Image {
             content_mode: self.content_mode,
             aspect_ratio: self.aspect_ratio,
             tint: None,
+            template: self.template,
         };
         let node = match self.aspect_ratio {
             Some(ratio) => cx.native(
@@ -203,6 +213,7 @@ pub struct Vector {
     tint: Option<crate::Reactive<day_spec::Color>>,
     weight: VectorWeight,
     decorative: bool,
+    template: bool,
 }
 
 /// A vector glyph's stroke weight (docs/vectors.md). Template-form sources (SF template SVGs,
@@ -222,6 +233,7 @@ pub fn vector(name: impl Into<day_spec::VectorName>) -> Vector {
         tint: None,
         weight: VectorWeight::Regular,
         decorative: false,
+        template: false,
     }
 }
 
@@ -246,6 +258,13 @@ impl Vector {
         self.decorative = true;
         self
     }
+    /// Draw the glyph as a template (docs/vectors.md "Template"): untinted, it takes the
+    /// foreground of the surface it sits on and follows the theme, instead of its authored
+    /// colors. A `.tint(…)` still wins while it is set.
+    pub fn template(mut self) -> Self {
+        self.template = true;
+        self
+    }
 }
 
 impl Piece for Vector {
@@ -264,6 +283,7 @@ impl Piece for Vector {
             content_mode: ContentMode::Fit,
             aspect_ratio: None,
             tint: seed,
+            template: self.template,
         };
         let node = cx.leaf(kinds::IMAGE, &props, Flex::default());
         // A constant tint reads the same value forever, so this seeds once and never patches; a
@@ -299,6 +319,7 @@ pub trait ImageBuilder: Sized {
     fn fill(self) -> Self;
     fn stretch(self) -> Self;
     fn decorative(self) -> Self;
+    fn template(self) -> Self;
 }
 
 impl ImageBuilder for Image {
@@ -316,6 +337,9 @@ impl ImageBuilder for Image {
     }
     fn decorative(self) -> Self {
         Image::decorative(self)
+    }
+    fn template(self) -> Self {
+        Image::template(self)
     }
 }
 
@@ -335,6 +359,9 @@ impl<Inner: ImageBuilder + Piece> ImageBuilder for Decorated<Inner> {
     fn decorative(self) -> Self {
         self.map_inner(|inner_piece| inner_piece.decorative())
     }
+    fn template(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.template())
+    }
 }
 
 /// [`Vector`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
@@ -343,6 +370,7 @@ pub trait VectorBuilder: Sized {
     fn tint<M>(self, color: impl crate::IntoReactive<day_spec::Color, M>) -> Self;
     fn weight(self, w: VectorWeight) -> Self;
     fn decorative(self) -> Self;
+    fn template(self) -> Self;
 }
 
 impl VectorBuilder for Vector {
@@ -355,6 +383,9 @@ impl VectorBuilder for Vector {
     fn decorative(self) -> Self {
         Vector::decorative(self)
     }
+    fn template(self) -> Self {
+        Vector::template(self)
+    }
 }
 
 impl<Inner: VectorBuilder + Piece> VectorBuilder for Decorated<Inner> {
@@ -366,6 +397,9 @@ impl<Inner: VectorBuilder + Piece> VectorBuilder for Decorated<Inner> {
     }
     fn decorative(self) -> Self {
         self.map_inner(|inner_piece| inner_piece.decorative())
+    }
+    fn template(self) -> Self {
+        self.map_inner(|inner_piece| inner_piece.template())
     }
 }
 

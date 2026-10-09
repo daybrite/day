@@ -2191,6 +2191,20 @@ mod imp {
         ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
     }
 
+    /// `makeImage`/`setImageTint`'s "theme text color" value (docs/vectors.md "Template"):
+    /// alpha 0, which no real tint has. The bridge's `TEMPLATE_TINT`.
+    const TEMPLATE_TINT: i32 = 1;
+
+    /// The bridge's image-tint channel: a packed ARGB, `0` for the authored colors, or
+    /// [`TEMPLATE_TINT`] for a template glyph that takes the theme's text color.
+    fn image_tint(tint: Option<day_spec::Color>, template: bool) -> i32 {
+        match tint {
+            Some(c) => argb_i32(c),
+            None if template => TEMPLATE_TINT,
+            None => 0,
+        }
+    }
+
     /// Warn once per kind that this backend has no registered renderer for `kind`, before falling
     /// back to a visible placeholder. A missing renderer usually means the piece's `mdc` feature
     /// wasn't enabled (Tier A.2 derives it automatically under `day build`). The message goes to
@@ -3086,8 +3100,9 @@ mod imp {
                         ContentMode::Stretch => 2,
                     };
                     // Vector-glyph tint (docs/vectors.md) as ARGB; 0 = none (a real tint always
-                    // has alpha 0xFF, so 0 is unambiguous).
-                    let tint = p.tint.map(argb_i32).unwrap_or(0);
+                    // has alpha 0xFF, so 0 is unambiguous), and `TEMPLATE_TINT` asks for the
+                    // theme's primary text color — a template glyph with no tint of its own.
+                    let tint = image_tint(p.tint, p.template);
                     // Named is the staged-drawable path; Bytes and Decoded arrive from
                     // `day::decode_image` (docs/images.md), so an `image()` piece can show a
                     // download or a pasted PNG with no staged resource behind it. Only a named
@@ -3169,8 +3184,9 @@ mod imp {
                         match p {
                             day_spec::props::ImagePatch::Tint(c) => {
                                 // Drawable tint, as at realize (docs/vectors.md); 0 = authored
-                                // colors.
-                                let tint = c.map(argb_i32).unwrap_or(0);
+                                // colors, or the theme text color again on a template glyph —
+                                // the bridge remembers which views were realized as one.
+                                let tint = image_tint(*c, false);
                                 with_env(|env| {
                                     let _ = env.dcall_static(
                                         BRIDGE,
