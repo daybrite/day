@@ -956,6 +956,9 @@ pub struct LaunchSpec {
     /// OpenHarmony connect key (`hdc -t`). Without it every reachable target gets the app, the
     /// same rule the other two runtimes follow.
     pub ohos_device: Option<String>,
+    /// Portable permissions to mark granted on the device after the install and before the
+    /// start (`--grant`, crate::grant), so a scripted run never meets the OS consent prompt.
+    pub grants: Vec<&'static day_build::permissions::PermissionSpec>,
 }
 
 impl LaunchSpec {
@@ -1384,6 +1387,9 @@ pub fn launch(
             cmd.current_dir(&plan.cwd);
             for (k, v) in &plan.env {
                 cmd.env(k, v);
+            }
+            if let Some(note) = crate::grant::ungated_note(target, &spec.grants) {
+                status("Granting", &note);
             }
             if spec.attached {
                 cmd.stdout(Stdio::piped()).stderr(Stdio::piped());

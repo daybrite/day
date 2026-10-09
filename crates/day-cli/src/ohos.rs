@@ -1562,6 +1562,15 @@ pub fn launch_ohos(
     spec: &LaunchSpec,
 ) -> Result<std::thread::JoinHandle<i32>, String> {
     let bundle = project.manifest.app.id.clone();
+    // Refused before the build by crate::grant::check_target; repeated here so a caller that
+    // builds a spec by hand gets the same answer rather than a prompt the script never passes.
+    if let Some(g) = spec.grants.first() {
+        return Err(format!(
+            "--grant {}: HarmonyOS ships no tool that marks a user_grant permission from \
+             outside the app",
+            g.name
+        ));
+    }
     // Recorded before enumerating: `ohos_devices` narrows to it, and so do the dayscript forward
     // and capture steps that run later with no spec in hand.
     if let Some(key) = spec.ohos_device.as_deref() {

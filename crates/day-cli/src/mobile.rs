@@ -1944,6 +1944,24 @@ pub fn launch_ios(
                 &format!("already on {udid} from this run — relaunching without a reinstall"),
             );
         }
+        // `--grant`: the simulator's TCC record for this bundle, set while the app is down
+        // (`simctl privacy` kills a running app whose record it changes). Checked against the
+        // service table before the build, so every grant here has a service.
+        for g in &spec.grants {
+            let Some(service) = crate::grant::simctl_service(g) else {
+                continue;
+            };
+            status(
+                "Granting",
+                &format!("{} ({service}) to {bundle_id} on simulator {udid}", g.name),
+            );
+            run_quiet(
+                Command::new("xcrun")
+                    .args(["simctl", "privacy", udid, "grant", service, &bundle_id]),
+                &format!("simctl privacy grant {service} ({udid})"),
+                LAUNCH_TIMEOUT,
+            )?;
+        }
         let _ = Command::new("xcrun")
             .args(["simctl", "terminate", udid, &bundle_id])
             .status();
@@ -2065,6 +2083,16 @@ fn adb(serial: Option<&str>) -> Command {
         c.args(["-s", s]);
     }
     c
+}
+
+/// The device's API level (`ro.build.version.sdk`), or `None` when it cannot be read, which
+/// the grant filter treats as "assume every entry applies".
+fn android_sdk_level(serial: &str) -> Option<u32> {
+    let out = adb(Some(serial))
+        .args(["shell", "getprop", "ro.build.version.sdk"])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
 }
 
 /// Window titles AOSP gives the system dialogs a capture must never show: the ANR dialog
@@ -2679,6 +2707,26 @@ pub fn launch_android(
             &format!("adb install ({})", dev.serial),
             INSTALL_TIMEOUT,
         )?;
+        // `--grant`: mark the runtime permissions on the freshly installed package. After the
+        // install, since `pm grant` wants the package present, and before the start, so the
+        // app's first `status` already reads granted. `-r` installs keep the marks, so a later
+        // relaunch of the same build does not prompt either.
+        if !spec.grants.is_empty() {
+            let sdk = android_sdk_level(&dev.serial);
+            for g in &spec.grants {
+                for name in crate::grant::android_permissions(g, sdk) {
+                    status(
+                        "Granting",
+                        &format!("{} ({name}) to {app_id} on {}", g.name, dev.serial),
+                    );
+                    run_quiet(
+                        adb(Some(&dev.serial)).args(["shell", "pm", "grant", &app_id, name]),
+                        &format!("pm grant {name} ({})", dev.serial),
+                        LAUNCH_TIMEOUT,
+                    )?;
+                }
+            }
+        }
         // A still-running instance would just be foregrounded by `am start`, keeping the old
         // run's engine port, theme, and locale (its views were created under the previous
         // configuration). Force-stop first so every launch is a fresh process reading this run's
@@ -2908,6 +2956,7 @@ id = "org.example.Legacy-Mac"
             ios_simulator: None,
             android_device: None,
             ohos_device: None,
+            grants: Vec::new(),
         };
         let ios = super::apple_app_id(&project, "ios-uikit");
         assert_eq!(ios, "org.example.Legacy-iOS");
@@ -2939,6 +2988,7 @@ id = "org.example.Legacy-Mac"
             ios_simulator: None,
             android_device: None,
             ohos_device: None,
+            grants: Vec::new(),
         };
         let args = devicectl_launch_args("UDID-1", "dev.daybrite.app", &spec);
 
@@ -2992,6 +3042,7 @@ id = "org.example.Legacy-Mac"
             ios_simulator: None,
             android_device: None,
             ohos_device: None,
+            grants: Vec::new(),
         };
         let args = devicectl_launch_args("UDID-1", "dev.daybrite.app", &spec);
         assert!(!args.iter().any(|a| a == "--console"), "{args:?}");

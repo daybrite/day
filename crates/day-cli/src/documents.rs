@@ -623,6 +623,7 @@ pub fn desktop_artifact(
         ios_simulator: None,
         android_device: None,
         ohos_device: None,
+        grants: Vec::new(),
     };
     let plan = crate::ops::desktop_launch_plan(project, target, &outcome, &spec)?;
     let app = crate::ops::staged_root(project)

@@ -18,6 +18,7 @@ mod drive;
 mod external;
 mod flavor;
 mod git;
+mod grant;
 mod icon;
 mod interactive;
 mod json5;

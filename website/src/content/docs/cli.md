@@ -279,7 +279,18 @@ day launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml --varia
 # --record captures what you do into a replayable dayscript: drive the app by hand, and the file
 # is rewritten continuously (see the dayscript "Recording" guide)
 day launch -p macos-appkit --record recording.yaml
+
+# --grant marks a permission allowed on the device before the app starts, so a script that uses
+# the camera never meets the OS prompt it cannot dismiss (Android and the iOS Simulator)
+day launch -p android-mdc --grant camera --script dayscript/capture.yaml
 ```
+
+`--grant` takes the portable names from `[permissions]` in `Day.toml` (`camera`, `microphone`,
+`photos`, `location-when-in-use`, …) and sets the device's own consent record between the
+install and the start: `pm grant` on Android, `simctl privacy grant` on the iOS Simulator. A
+target with no tool for it refuses the flag before building: HarmonyOS, a physical iPhone, macOS,
+the web, and the camera on the simulator, which has no camera at all. The
+[permissions guide](/docs/guide-permissions#testing-past-the-prompt) has the details.
 
 CI runs each showcase walkthrough once per theme × locale (`light`/`dark` × en/fr/ar/zh-CN) with
 one command: `day launch --themes light,dark --locales en,fr,ar,zh-CN --script …` builds once and

@@ -130,6 +130,24 @@ Windows resolve immediately as `Granted`.
   permission dialog off the screen. Dropping stops you listening; the user's answer is still
   recorded, and the next `status()` reflects it.
 
+## Testing past the prompt
+
+A dayscript drives Day's own views; the consent dialog is the system's window, out of its
+reach. Avoid it rather than drive it: `--grant` marks the permission allowed on the device
+between the install and the start, with the platform's own tool (`pm grant` on Android, `simctl
+privacy grant` on the iOS Simulator), so the app's first `status` already reads `Granted`.
+
+```sh
+day launch -p android-mdc --grant camera --script dayscript/capture.yaml
+```
+
+Where no tool exists the flag is refused before the build: HarmonyOS, a physical iPhone,
+macOS, the web, and the camera on the simulator, which has no camera at all. In the
+[shared CI workflow](/docs/cli#continuous-integration) the `grant-permissions` input names
+grants per target, so the Android emulator's leg can take a real photo while the other legs
+still assert the undecided state. [permissions](/docs/internal/permissions#testing-past-the-prompt)
+lists what each target supports.
+
 ## Reference
 
 [permissions](/docs/internal/permissions) — the portable-to-native mapping table,

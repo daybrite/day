@@ -244,6 +244,40 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   unchanged, so adding a locale requires no generated native files in git. `day prepare`
   prepares these files too, and `day open -p harmony-arkui` opens the staged project.
 
+## Testing past the prompt
+
+A dayscript drives Day's own views and nothing else; the consent dialog is the system's window,
+out of its reach ([docs/testing.md](testing.md)), so a walkthrough that needs the camera or the
+microphone stops at the first `request`. Rather than drive the prompt, avoid it:
+
+```sh
+day launch -p android-mdc --grant camera --script dayscript/capture.yaml
+```
+
+`--grant` takes a portable name (repeatable, or a comma-separated list) and marks it granted on
+the device between the install and the start, with the platform's own tool: `pm grant` for
+each Android runtime permission the name maps to (minus any whose `maxSdkVersion` the device
+has passed, which the installed app never requested), and `simctl privacy grant` for the iOS
+Simulator's service. The app's first `status` then reads `Granted`, and a reinstall of the same
+build keeps the marks.
+
+Where no tool exists the flag is refused before anything is built, since a grant that quietly
+did not happen would surface minutes later as a failed assertion with nothing to say about why:
+
+| target | `--grant` |
+|---|---|
+| `android-mdc` | `pm grant`, every runtime permission in the table row |
+| `ios-uikit` on the simulator | `simctl privacy grant`: `location-when-in-use`, `location-always`, `microphone`, `photos`, `motion`. The simulator has no camera, so no camera service, and no service for notifications |
+| `ios-uikit` on a device (`--ios-device`) | refused: the consent record is the device's own |
+| `harmony-arkui` | refused: HarmonyOS ships no tool that marks a `user_grant` permission from outside the app |
+| `macos-*` | refused: `tccutil` resets TCC, it never grants (see above) |
+| `web-dom` | refused: the driver's own grants stand ([docs/web.md](web.md)) |
+| `linux-*`, `windows-*` | nothing gates the capability, so the launch notes that and carries on |
+
+The shared CI workflow's `grant-permissions` input names the grants per target, so one call can
+pre-grant the camera on the Android emulator and still assert the undecided state everywhere
+else.
+
 ## `day lint`
 
 | code | fires when |

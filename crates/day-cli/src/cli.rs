@@ -271,6 +271,11 @@ enum Cmd {
         /// Run a dayscript file after launch (repeatable)
         #[arg(long = "script")]
         scripts: Vec<PathBuf>,
+        /// Mark a portable permission (camera, microphone, photos, …) granted on the device
+        /// before the app starts, so a script never meets the OS prompt (repeatable, or a
+        /// comma-separated list). Android and the iOS Simulator; refused where no tool can
+        #[arg(long = "grant", value_name = "PERMISSION", value_delimiter = ',')]
+        grants: Vec<String>,
         /// Skip decorative animations for functional tests; preserve real timers and pauses
         #[arg(long, requires = "scripts")]
         fast: bool,
@@ -1587,6 +1592,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 ios_simulator: None,
                 android_device: None,
                 ohos_device: None,
+                grants: Vec::new(),
             };
             for (ti, name) in names.iter().enumerate() {
                 let target =
@@ -1689,6 +1695,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     keep_alive,
                     record: None,
                     scripts: vec![script],
+                    grants: Vec::new(),
                     fast: false,
                     memory_profile: true,
                     dialogs: None,
@@ -2082,6 +2089,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             keep_alive,
             record,
             scripts,
+            grants,
             fast,
             dialogs,
             variant,
@@ -2159,6 +2167,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     // `--keep-alive` scripted run additionally keeps `day` in the foreground after the
                     // script so that output stays visible while the app lives; see below.)
                     attached: !detach,
+                    grants: crate::grant::parse(&grants).map_err(CliError::usage)?,
                 };
                 spec.envs.retain(|(key, _)| key != "DAY_MEMORY_PROFILE");
                 spec.envs.push((
@@ -2174,6 +2183,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         crate::external::find_target(project, p).map_err(CliError::usage)?;
                     device_platform |= ops::runs_on_devices(target);
                     ops::check_requested_device(target, &spec).map_err(CliError::failure)?;
+                    // Same reasoning: a grant this target cannot carry out fails now, before
+                    // the build, rather than as a stalled prompt after it.
+                    crate::grant::check_target(target, &spec.grants, spec.wants_ios_device())
+                        .map_err(CliError::usage)?;
                 }
                 if let Some(d) = any_device.as_deref()
                     && !device_platform
@@ -2657,6 +2670,7 @@ fn print_result_json(
                     ios_simulator: None,
                     android_device: None,
                     ohos_device: None,
+                    grants: Vec::new(),
                 };
                 if let Ok(plan) = ops::desktop_launch_plan(project, target, o, &spec) {
                     let env: serde_json::Map<String, serde_json::Value> = plan
@@ -2955,6 +2969,23 @@ mod error_tests {
             }
         ));
         assert!(Cli::try_parse_from(["day", "launch", "--memory-profile=maybe"]).is_err());
+    }
+
+    #[test]
+    fn launch_grants_repeat_and_split_on_commas() {
+        let cli = Cli::try_parse_from([
+            "day",
+            "launch",
+            "--grant",
+            "camera",
+            "--grant",
+            "microphone,photos",
+        ])
+        .unwrap();
+        let Cmd::Launch { grants, .. } = cli.command else {
+            panic!("not a launch");
+        };
+        assert_eq!(grants, ["camera", "microphone", "photos"]);
     }
 
     #[test]

@@ -349,5 +349,8 @@ action still prints once, with the prefix naming the mode (`day record ▸`).
 dayscript can only see what Day owns. It cannot type through the native IME, verify the software
 keyboard, drive OS permission prompts or file dialogs, or assert native animations. The project's
 practice is scripted coverage for everything Day-side plus a short manual pass per platform for
-those native surfaces. Unit-level testing below the UI has a separate tool: the [mock
+those native surfaces. A permission prompt can be avoided rather than driven: `day launch --grant
+camera` marks the permission allowed on the device before the app starts, on Android and the iOS
+Simulator ([the CLI guide](/docs/cli#the-commands)), so a script that takes a photo or records
+audio runs the real path. Unit-level testing below the UI has a separate tool: the [mock
 toolkit](/docs/rendering#the-mock-toolkit) runs your Pieces headlessly in `cargo test`.
