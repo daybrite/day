@@ -112,18 +112,33 @@ class ReadinessTests(unittest.TestCase):
         cargo.write_text(
             '#!/bin/sh\nprintf "%s\\n" "$*" >> "$DAY_TEST_CARGO_LOG"\n'
             'if [ "$1" = "$DAY_TEST_FAIL" ]; then exit 1; fi\n'
+            'if [ "$(wc -l < "$DAY_TEST_CARGO_LOG")" -eq "$DAY_TEST_FAIL_AT" ]; then exit 1; fi\n'
         )
         cargo.chmod(0o755)
         log = self.root / "cargo.log"
         self.env["PATH"] = str(bindir) + os.pathsep + self.env["PATH"]
         self.env["DAY_TEST_CARGO_LOG"] = str(log)
-        for fail in ("fmt", "clippy", ""):
-            self.env["DAY_TEST_FAIL"] = fail
-            log.write_text("")
-            self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=not fail)
-            calls = log.read_text().splitlines()
-            self.assertEqual(calls[0], "fmt --all -- --check")
-            self.assertEqual(len(calls), {"fmt": 1, "clippy": 2, "": 4}[fail])
+        self.env["DAY_TEST_FAIL"] = ""
+        self.env["DAY_TEST_FAIL_AT"] = "0"
+        # The shared script owns the host lint combinations. Observe it independently so a new
+        # combination automatically participates, without a stale count or a duplicated command
+        # list. Comparing the full sequence still detects a readiness gate that skips host lint.
+        log.write_text("")
+        self.run_cmd("bash", "scripts/ci/host-clippy.sh")
+        host_calls = log.read_text().splitlines()
+        self.assertTrue(host_calls, "host-clippy.sh must run Clippy")
+        self.assertTrue(all(call.startswith("clippy ") for call in host_calls), host_calls)
+        expected = ["fmt --all -- --check", *host_calls]
+        # Fail each individual invocation, including later Clippy combinations, and require the
+        # gate to stop there. A command-name failure only tested the first Clippy invocation.
+        for fail_at in range(len(expected) + 1):
+            with self.subTest(fail_at=fail_at):
+                self.env["DAY_TEST_FAIL_AT"] = str(fail_at)
+                log.write_text("")
+                self.run_cmd("bash", "scripts/ci/check-ready.sh", ok=fail_at == 0)
+                calls = log.read_text().splitlines()
+                self.assertEqual(calls, expected[:fail_at] if fail_at else expected)
+        self.env["DAY_TEST_FAIL_AT"] = "0"
         # The hook formats but leaves host Clippy to check-ready.sh and CI: it was most of the
         # commit time.
         for fail in ("fmt", "clippy", ""):

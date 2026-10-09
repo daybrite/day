@@ -35,7 +35,7 @@ labeled(
         .range(0.0..=64.0)     // typed and stepped values both clamp (default 0..=100)
         .step(1.0)             // one arrow click (default 1)
         .decimals(0)           // fraction digits shown (default 0)
-        .key("insp-stroke-w"), // the field's dayscript id, both idioms
+        .id("insp-stroke-w"),  // the field's dayscript id, both idioms
 )
 ```
 
@@ -43,8 +43,9 @@ labeled(
   native where an arm exists (`support()` answers `Native` on appkit, gtk, qt), composed
   everywhere else. `Native` is literal: pinned on a toolkit with no renderer it draws Day's
   visible placeholder.
-- **`.key(…)`** names the field for dayscript on both idioms (the composed row's wrapper is a
-  layout node no toolkit realizes, so `Decorate::id` on the piece would tag nothing).
+- **`.id(…)`** names the interactive field for dayscript on both idioms, before adding other
+  decorators. This inherent method avoids tagging only the composed row's layout node.
+  **`.key(…)`** remains an alias for existing callers.
 
 ## Driving and asserting from dayscript
 

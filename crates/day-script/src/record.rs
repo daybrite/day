@@ -716,27 +716,51 @@ pub fn play_with_delay(yaml: &str, step_delay_secs: f64) -> Result<(), String> {
     set_playing(true);
     set_paused(false);
     std::thread::spawn(move || {
-        for (i, step) in steps.into_iter().enumerate() {
-            // Hold here while paused. Polling rather than parking on a condvar: the flag is also
-            // how a stop arrives, and a 50 ms granularity is invisible next to a step that drives
-            // the UI and waits for the main thread to answer.
-            while is_paused() && is_playing() {
-                std::thread::sleep(std::time::Duration::from_millis(PAUSE_POLL_MS));
-            }
-            if !is_playing() {
-                break; // stopped, by `stop_playback` or a second Play
-            }
-            if i > 0 && !delay.is_zero() {
-                std::thread::sleep(delay);
-            }
-            // Best-effort: driven over a socket a failed step reports through the reply path, but
-            // here there is no runner to read it, so carry on to the next step.
-            let _ = crate::run_step_with_wait(step);
-        }
+        replay_steps(
+            steps,
+            delay,
+            is_playing,
+            is_paused,
+            std::thread::sleep,
+            |step| {
+                // Best-effort: driven over a socket a failed step reports through the reply path, but
+                // here there is no runner to read it, so carry on to the next step.
+                let _ = crate::run_step_with_wait(step);
+            },
+        );
         set_playing(false);
         set_paused(false);
     });
     Ok(())
+}
+
+/// Keep the scheduling boundary testable without real timers or the process-wide UI dispatcher.
+#[cfg(not(target_arch = "wasm32"))]
+fn replay_steps(
+    steps: Vec<Step>,
+    delay: std::time::Duration,
+    playing: impl Fn() -> bool,
+    paused: impl Fn() -> bool,
+    mut sleep: impl FnMut(std::time::Duration),
+    mut dispatch: impl FnMut(Step),
+) {
+    for (i, step) in steps.into_iter().enumerate() {
+        if !playing() {
+            break;
+        }
+        if i > 0 && !delay.is_zero() {
+            sleep(delay);
+        }
+        // A pause or stop can arrive during the inter-step delay. Check AFTER that wait,
+        // before dispatching; otherwise the final step runs while paused and clears Resume.
+        while paused() && playing() {
+            sleep(std::time::Duration::from_millis(PAUSE_POLL_MS));
+        }
+        if !playing() {
+            break;
+        }
+        dispatch(step);
+    }
 }
 
 /// How often a paused run checks whether it has been resumed or stopped.
@@ -1086,6 +1110,50 @@ mod tests {
         assert!(!is_playable("flow: []\n"));
         assert!(!is_playable("not: a script"));
         assert!(is_playable("flow:\n- tap: { id: go }\n"));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn playback_honors_pause_and_stop_during_the_step_delay() {
+        use std::cell::Cell;
+        use std::time::Duration;
+
+        for stop in [false, true] {
+            let playing = Cell::new(true);
+            let paused = Cell::new(false);
+            let dispatched = Cell::new(0);
+            let delay = Duration::from_millis(250);
+            let mut waits = Vec::new();
+            replay_steps(
+                steps_from_yaml("flow:\n- tap: { id: fixture-one }\n- tap: { id: fixture-two }\n")
+                    .unwrap(),
+                delay,
+                || playing.get(),
+                || paused.get(),
+                |duration| {
+                    waits.push(duration);
+                    assert_eq!(dispatched.get(), 1, "only the first step has run");
+                    if duration == delay {
+                        paused.set(true);
+                        playing.set(!stop);
+                    } else {
+                        assert!(paused.replace(false), "resume a paused replay");
+                    }
+                },
+                |_| {
+                    assert!(playing.get());
+                    assert!(!paused.get(), "never dispatch a new step while paused");
+                    dispatched.set(dispatched.get() + 1);
+                },
+            );
+            if stop {
+                assert_eq!(dispatched.get(), 1);
+                assert_eq!(waits, [delay]);
+            } else {
+                assert_eq!(dispatched.get(), 2);
+                assert_eq!(waits, [delay, Duration::from_millis(PAUSE_POLL_MS)]);
+            }
+        }
     }
 
     #[test]

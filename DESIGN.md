@@ -964,6 +964,10 @@ sends `day:synthesized-text` before `TextChanged`; the paint notification must n
 the binding a second time, or one inspector edit creates two undo units. The native and
 composed paths are covered by `day-piece-stepper`'s `scripted_typing_commits_once_in_both_idioms`
 regression test; see [docs/stepper.md](docs/stepper.md).
+The stepper's inherent `.id()` names its interactive field in both idioms (`.key()` is an alias).
+The generic decoration previously tagged only the composed row, so scripted input/value events
+worked on native steppers but never reached the composed binding. Both idioms are tested using
+the public `.id()` API, including range clamping and the preview/commit boundary.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -1514,6 +1518,10 @@ mask a stale commit. The hook checks matrices and formatting only; host Clippy r
 `check-ready.sh` and CI, not at commit time. Backend Clippy remains a separate platform check;
 unavailable SDKs must be reported.
 `scripts/ci/test-readiness.py` exercises drift, staged/unstaged mismatches, and lint failures.
+Its synthetic Cargo records the shared host-Clippy script's command sequence independently,
+then checks that readiness runs formatting followed by that entire sequence and stops at each
+injected failure. New host lint combinations automatically join this test; it does not assume
+a fixed invocation count or duplicate the script's feature combinations.
 
 > [!NOTE]
 > **Status: shipped and grown, exactly as the evolution policy intended.** The original v1
@@ -5146,7 +5154,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    Native `.inc` fragments are excluded because platform identifiers trigger false positives.
    Local validation and CI share `bash scripts/ci/host-clippy.sh`, which denies warnings and
    lints all targets (including tests) in the default members, CLI/dayscript, dynamic piece
-   registry, and model/persistence with the live-list adapter enabled. Model/persistence are
+   registry, model/persistence with the live-list adapter enabled, and the HTTP part with its
+   opt-in reqwest provider. Model/persistence are
    explicitly selected because they are outside `default-members`; app dependency checks
    do not lint their regression tests. Platform-specific lint commands remain in the backend
    jobs. Run the host script before declaring Rust changes complete; builds and tests alone
@@ -6604,6 +6613,18 @@ bounds idle-worker cancellation on Windows; the channel's separate reply deadlin
 honors the step/startup budgets above. Partial replies remain byte buffers across polls,
 including split UTF-8 characters. `script_report` tests cover idle-peer teardown, fragmented
 replies, and telemetry checkpointing; the stop/continue flow test also exercises cleanup.
+
+The Showcase network page ties its statistics sampler, HTTP operations and WebSocket tasks to
+their reactive scope with task-handle cleanup. Leaving the page or replacing an operation cancels
+pending futures so they cannot resume against disposed signals; a detached sampler must not keep
+reading a page-owned session after navigation. The network page's scope-disposal regression
+verifies that cleanup drops pending work and marks its task finished.
+
+In-process dayscript playback checks pause and stop after its inter-step delay, immediately
+before dispatch. A pause arriving during that delay must hold the next step; otherwise a final
+step could execute while paused, clear the transport state and remove the Resume command.
+`record::tests::playback_honors_pause_and_stop_during_the_step_delay` uses a controlled sleeper
+to cover both transitions without timing races or a live UI dispatcher.
 
 The CLI's dayscript port selection probes up to 100 ports in a PID-based range below Linux's
 default ephemeral floor (32768), choosing the first successful bind or falling back to the base

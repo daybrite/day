@@ -149,14 +149,17 @@ impl<V: Binding<f64>> Stepper<V> {
     pub fn composed(self) -> Self {
         self.idiom(StepperIdiom::Composed)
     }
-    /// The composed field's dayscript id (default `"stepper"`; its − and + buttons are
-    /// `<key>-dec` and `<key>-inc`). It goes here rather than on
-    /// `Decorate::id` for the same reason the color well's does: what the app can reach from
-    /// outside is the row wrapper, and an id on that tags a node no toolkit realizes. The
-    /// native leaf takes this as its id too, so one name drives both idioms.
-    pub fn key(mut self, key: impl Into<String>) -> Self {
-        self.key = key.into();
+    /// The field's dayscript id (default `"stepper"`; its − and + buttons are
+    /// `<id>-dec` and `<id>-inc`). Names the interactive field in both idioms, rather than
+    /// the composed layout row that a generic `Decorate::id` would tag.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.key = id.into();
         self
+    }
+
+    /// Alias for [`Self::id`], retained for existing callers.
+    pub fn key(self, key: impl Into<String>) -> Self {
+        self.id(key)
     }
 }
 
@@ -410,12 +413,13 @@ mod tests {
         let binding = writes.clone();
         let (mock, _) = MockToolkit::new();
         day_core::launch_with(mock, WindowOptions::default(), move || {
-            let field = stepper(binding).range(0.0..=10.0).key("fixture-stepper");
+            let field = stepper(binding).range(0.0..=10.0);
             if native {
                 field.native()
             } else {
                 field.composed()
             }
+            .id("fixture-stepper")
             .any()
         });
         let node = with_tree(|t| t.find_by_id("fixture-stepper")).unwrap();
@@ -460,13 +464,17 @@ mod tests {
 
     #[test]
     fn scripted_values_keep_the_preview_and_commit_boundary() {
-        let (writes, node) = boot(true);
-        emit(node, Event::ValueChanged(12.0));
-        emit(node, Event::ValueCommitted(12.0));
-        assert_eq!(
-            *writes.events.borrow(),
-            [("preview", 10.0), ("commit", 10.0)]
-        );
+        for native in [true, false] {
+            let (writes, node) = boot(native);
+            emit(node, Event::ValueChanged(12.0));
+            emit(node, Event::ValueCommitted(12.0));
+            assert_eq!(
+                *writes.events.borrow(),
+                [("preview", 10.0), ("commit", 10.0)],
+                "native={native}"
+            );
+            assert_eq!(writes.peek(), 10.0);
+        }
     }
 }
 
