@@ -331,8 +331,15 @@ accidental duplicate), but it is a safety net, not the contract. Tag the menu.
 
 Where each backend puts the bar:
 
-- **AppKit**: the system menu bar. Day prepends the standard **App menu** (About/Quit) automatically,
-  so your `sub_menu`s start at *File*.
+- **AppKit**: the system menu bar. Day prepends the standard **App menu** automatically,
+  so your `sub_menu`s start at *File*, not at a second app-name menu. Both the default bar and
+  custom/reactive bars include About, Settings… (when provided), a registered system Services
+  submenu, Hide App (⌘H), Hide Others (⌥⌘H), Show All, and Quit (⌘Q). Hide commands target
+  `NSApplication`; Close (⌘W) targets the key window. About/Preferences/Quit roles are hoisted
+  recursively into the application menu, preserving callbacks and shortcuts; the first role
+  declaration wins and duplicate roles, empty submenus, and dangling separators are removed.
+  Settings uses the native macOS label. Application-menu chrome uses generated private catalog
+  accessors in `day-appkit/resource/locales`; app-authored menu labels remain app resources.
 - **GTK**: a `GtkPopoverMenuBar` at the top of the window; accelerators registered on the
   `GtkApplication`. On macOS the model goes to `gtk_application_set_menubar` instead; GTK's quartz
   backend renders it in the system menu bar, and the stock GTK app menu's *Settings…* item enables

@@ -1012,6 +1012,16 @@ toolkit without changing existing event routing. The button gesture diagnostic r
 in `crates/day-pieces/tests/button_gesture_warning.rs` covers direct and wrapped buttons,
 ordinary label gestures, and the native action path.
 
+AppKit shares one application-menu builder between startup defaults and reactive custom bars.
+It supplies About, optional Settings, native Services, Hide App (⌘H), Hide Others (⌥⌘H),
+Show All, and Quit. Hide targets `NSApplication`, so it hides the app without closing windows
+or stopping a status monitor. About/Preferences/Quit roles move recursively from the model
+into the leading application menu; first declaration wins, callbacks and shortcuts survive,
+and empty submenus and dangling separators disappear. App menus start at File rather than
+repeating the app name. Generated private catalog accessors localize this AppKit-only chrome.
+See [menus](docs/menus.md) and `toolkits/day-appkit/tests/native_main_menu.rs` for native
+startup/replacement, selector, shortcut, Services, and role-relocation coverage.
+
 AppKit installs a process-local Escape event monitor with the app menu. An enabled, explicitly
 registered menu key equivalent is offered Escape before the text field editor's cancellation
 handling; native modal windows and sheets keep their own cancellation behavior. The monitor

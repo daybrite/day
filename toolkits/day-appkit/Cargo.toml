@@ -16,7 +16,15 @@ harness = false # AppKit must be exercised on the process's main thread.
 name = "native_list_menus"
 harness = false
 
+[[test]]
+name = "native_main_menu"
+harness = false
+
+[build-dependencies]
+day-build = { workspace = true }
+
 [dependencies]
+day-fluent = { workspace = true }
 log = { workspace = true }
 day-spec = { workspace = true }
 # Tweaks (docs/tweaks.md): the ext module reads the realized tree (day-core) and

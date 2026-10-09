@@ -8785,44 +8785,13 @@ impl Toolkit for AppKit {
         }
         let app = NSApplication::sharedApplication(mtm);
         let menubar = NSMenu::new(mtm);
-        // The Preferences item's standard macOS home is the App menu, under About, so hoist
-        // it out of wherever the model carries it (day-core injects it into File for the
-        // other desktops, docs/windows.md).
+        // macOS owns the application menu; relocate app-level roles while preserving
+        // their callbacks, shortcuts, and enabled state.
         let mut items = items.to_vec();
-        let prefs = extract_preferences(&mut items);
-        // macOS mandates a leading app menu (shown as the app name); provide the standard one so the
-        // app's `app_menu(...)` supplies only the rest (File/Edit/View/…), staying convention-native.
-        let app_item = NSMenuItem::new(mtm);
-        let mut app_menu_items = vec![
-            day_spec::MenuItem::Action {
-                id: None,
-                action: 0,
-                label: about_label(&self.app_name),
-                shortcut: None,
-                enabled: true,
-                checked: None,
-                role: Some(day_spec::MenuRole::About),
-                icon: None,
-            },
-            day_spec::MenuItem::Separator,
-        ];
-        if let Some(p) = prefs {
-            app_menu_items.push(p);
-            app_menu_items.push(day_spec::MenuItem::Separator);
-        }
-        app_menu_items.push(day_spec::MenuItem::Action {
-            id: None,
-            action: 0,
-            label: quit_label(&self.app_name),
-            shortcut: None,
-            enabled: true,
-            checked: None,
-            role: Some(day_spec::MenuRole::Quit),
-            icon: None,
-        });
-        let app_menu = build_ns_menu(mtm, &self.app_name, &app_menu_items);
-        app_item.setSubmenu(Some(&app_menu));
-        menubar.addItem(&app_item);
+        let about = extract_app_role(&mut items, day_spec::MenuRole::About);
+        let prefs = extract_app_role(&mut items, day_spec::MenuRole::Preferences);
+        let quit = extract_app_role(&mut items, day_spec::MenuRole::Quit);
+        let services = install_application_menu(mtm, &menubar, &self.app_name, about, prefs, quit);
         // Fill the standard slots the app did not claim, in the platform's bar order
         // (day-core owns that policy so every backend arranges its bar the same way).
         // Fill the standard slots the app left open, in macOS's bar order. The Window menu is
@@ -8873,6 +8842,7 @@ impl Toolkit for AppKit {
             unsafe { app.setHelpMenu(Some(&help)) };
         }
         app.setMainMenu(Some(&menubar));
+        unsafe { app.setServicesMenu(Some(&services)) };
     }
 
     fn set_context_menu(&mut self, h: &Handle, _node: NodeId, items: &[day_spec::MenuItem]) {
@@ -10379,60 +10349,126 @@ fn install_lifecycle_observers() {
     }
 }
 
-/// Localized "About <App>" / "Quit <App>" for the standard App menu, with correct per-language word
-/// order via the core catalog's `{$app}` interpolation (docs/localization.md).
-fn about_label(app: &str) -> String {
-    day_l10n::format_in(
-        &day_l10n::locale().get(),
-        "day-about-app",
-        &[("app".to_string(), day_l10n::FArg::Str(app.to_string()))],
-    )
-}
-fn quit_label(app: &str) -> String {
-    day_l10n::format_in(
-        &day_l10n::locale().get(),
-        "day-quit-app",
-        &[("app".to_string(), day_l10n::FArg::Str(app.to_string()))],
-    )
+day_fluent::locales!();
+
+/// Shared by the initial menu and every reactive replacement. AppKit owns Services
+/// and the hide actions; these commands must not depend on a window or app callback.
+fn install_application_menu(
+    mtm: MainThreadMarker,
+    menubar: &NSMenu,
+    title: &str,
+    about: Option<day_spec::MenuItem>,
+    prefs: Option<day_spec::MenuItem>,
+    quit: Option<day_spec::MenuItem>,
+) -> Retained<NSMenu> {
+    let app = NSApplication::sharedApplication(mtm);
+    use day_spec::{MenuItem as M, MenuRole as R};
+    let standard = |role, label| M::Action {
+        id: None,
+        action: 0,
+        label,
+        shortcut: None,
+        enabled: true,
+        checked: None,
+        role: Some(role),
+        icon: None,
+    };
+    let mut about =
+        about.unwrap_or_else(|| standard(R::About, res::str::about_app(title).format()));
+    let mut quit = quit.unwrap_or_else(|| standard(R::Quit, res::str::quit_app(title).format()));
+    for (item, title) in [
+        (&mut about, res::str::about_app(title).format()),
+        (&mut quit, res::str::quit_app(title).format()),
+    ] {
+        if let M::Action { label, .. } = item {
+            *label = title;
+        }
+    }
+    let menu = build_ns_menu(mtm, title, &[about, M::Separator]);
+    if let Some(mut prefs) = prefs {
+        if let M::Action { label, .. } = &mut prefs {
+            *label = res::str::settings().format();
+        }
+        let section = build_ns_menu(mtm, title, &[prefs, M::Separator]);
+        for item in section.itemArray() {
+            section.removeItem(&item);
+            menu.addItem(&item);
+        }
+    }
+    // AppKit keeps the registered Services menu across main-menu replacements.
+    // Move that same menu to the new bar rather than abandoning its system-populated items.
+    let services = app.servicesMenu().unwrap_or_else(|| NSMenu::new(mtm));
+    if let Some(parent) = unsafe { services.supermenu() } {
+        let index = parent.indexOfItemWithSubmenu(Some(&services));
+        if index >= 0 {
+            parent.itemAtIndex(index).unwrap().setSubmenu(None);
+        }
+    }
+    let services_item = NSMenuItem::new(mtm);
+    services_item.setTitle(&NSString::from_str(&res::str::services().format()));
+    services_item.setSubmenu(Some(&services));
+    menu.addItem(&services_item);
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    for (label, selector, shortcut) in [
+        (
+            res::str::hide_app(title).format(),
+            sel!(hide:),
+            Some(day_spec::Shortcut::new("h")),
+        ),
+        (
+            res::str::hide_others().format(),
+            sel!(hideOtherApplications:),
+            Some(day_spec::Shortcut::new("h").alt()),
+        ),
+        (
+            res::str::show_all().format(),
+            sel!(unhideAllApplications:),
+            None,
+        ),
+    ] {
+        let item = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                NSMenuItem::alloc(mtm),
+                &NSString::from_str(&label),
+                Some(selector),
+                &NSString::from_str(shortcut.as_ref().map_or("", |s| s.key.as_str())),
+            )
+        };
+        if let Some(shortcut) = shortcut {
+            item.setKeyEquivalentModifierMask(ns_modifiers(&shortcut));
+        }
+        // Explicitly target the application so window responders cannot override Hide.
+        unsafe { item.setTarget(Some(&app)) };
+        menu.addItem(&item);
+    }
+    menu.addItem(&NSMenuItem::separatorItem(mtm));
+    let section = build_ns_menu(mtm, title, &[quit]);
+    let quit = section.itemAtIndex(0).unwrap();
+    section.removeItem(&quit);
+    menu.addItem(&quit);
+    let item = NSMenuItem::new(mtm);
+    item.setSubmenu(Some(&menu));
+    menubar.addItem(&item);
+    services
 }
 
-/// The default main menu (§21.2 M2): App menu with Quit; Edit menu wired to the responder
+/// The default main menu (§21.2 M2): standard application menu; Edit menu wired to the responder
 /// chain so Cmd+C/V/X/A work in NSTextFields; Window menu basics.
 fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     let menubar = NSMenu::new(mtm);
 
-    let app_item = NSMenuItem::new(mtm);
-    let app_menu = NSMenu::new(mtm);
-    // Settings…/⌘, when the app registered a preferences piece (docs/windows.md) — this is
-    // the no-`app_menu` path, so apps get the standard item with zero menu code.
     let prefs_id = day_core::windows::preferences_action_id();
-    if prefs_id != 0 {
-        let settings = unsafe {
-            NSMenuItem::initWithTitle_action_keyEquivalent(
-                NSMenuItem::alloc(mtm),
-                &NSString::from_str(&format!("{}…", day_l10n::t("day-preferences"))),
-                Some(sel!(fire:)),
-                &NSString::from_str(","),
-            )
-        };
-        let target = menu_target(mtm);
-        let tobj: &objc2::runtime::AnyObject = target.as_ref();
-        unsafe { settings.setTarget(Some(tobj)) };
-        settings.setTag(prefs_id as isize);
-        app_menu.addItem(&settings);
-        app_menu.addItem(&NSMenuItem::separatorItem(mtm));
-    }
-    let quit = unsafe {
-        NSMenuItem::initWithTitle_action_keyEquivalent(
-            NSMenuItem::alloc(mtm),
-            &NSString::from_str(&quit_label(title)),
-            Some(sel!(terminate:)),
-            &NSString::from_str("q"),
-        )
-    };
-    app_menu.addItem(&quit);
-    app_item.setSubmenu(Some(&app_menu));
-    menubar.addItem(&app_item);
+    let prefs = (prefs_id != 0).then(|| day_spec::MenuItem::Action {
+        id: None,
+        action: prefs_id,
+        label: res::str::settings().format(),
+        shortcut: None,
+        enabled: true,
+        checked: None,
+        role: Some(day_spec::MenuRole::Preferences),
+        icon: None,
+    });
+    let services = install_application_menu(mtm, &menubar, title, None, prefs, None);
 
     // File ▸ New Window / Close, when the app registered a new-window builder — the same
     // zero-menu-code rule as Settings…/⌘, above (docs/windows.md). Without this an app that
@@ -10506,6 +10542,7 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     install_windows_menu(mtm, app, &menubar);
 
     app.setMainMenu(Some(&menubar));
+    unsafe { app.setServicesMenu(Some(&services)) };
 }
 
 /// The standard Window menu (docs/windows.md): Minimize ⌘M / Zoom / Bring All to Front,
@@ -10541,29 +10578,44 @@ fn install_windows_menu(mtm: MainThreadMarker, app: &NSApplication, menubar: &NS
     unsafe { app.setWindowsMenu(Some(&menu)) };
 }
 
-/// Remove and return the first `role(Preferences)` action from the model (searching
-/// top-level submenus), trimming a separator left dangling at the submenu tail.
-fn extract_preferences(items: &mut [day_spec::MenuItem]) -> Option<day_spec::MenuItem> {
-    for it in items.iter_mut() {
-        if let day_spec::MenuItem::Submenu { items, .. } = it
-            && let Some(i) = items.iter().position(|m| {
-                matches!(
-                    m,
-                    day_spec::MenuItem::Action {
-                        role: Some(day_spec::MenuRole::Preferences),
-                        ..
-                    }
-                )
-            })
-        {
-            let item = items.remove(i);
-            while matches!(items.last(), Some(day_spec::MenuItem::Separator)) {
-                items.pop();
+/// Hoist application roles even from nested menus. First declaration wins; remove
+/// duplicates and empty containers, then normalize separators left by the move.
+fn extract_app_role(
+    items: &mut Vec<day_spec::MenuItem>,
+    role: day_spec::MenuRole,
+) -> Option<day_spec::MenuItem> {
+    use day_spec::MenuItem as M;
+    let mut found = None;
+    let mut remaining = Vec::new();
+    for mut item in items.drain(..) {
+        match &mut item {
+            M::Action { role: Some(r), .. } if *r == role => {
+                found.get_or_insert(item);
+                continue;
             }
-            return Some(item);
+            M::Submenu { items, .. } => {
+                let nested = extract_app_role(items, role);
+                if found.is_none() {
+                    found = nested;
+                }
+                if items.is_empty() {
+                    continue;
+                }
+            }
+            M::Separator
+                if remaining.is_empty() || matches!(remaining.last(), Some(M::Separator)) =>
+            {
+                continue;
+            }
+            _ => {}
         }
+        remaining.push(item);
     }
-    None
+    while matches!(remaining.last(), Some(M::Separator)) {
+        remaining.pop();
+    }
+    *items = remaining;
+    found
 }
 
 /// Whether any action in the model (recursively) carries `role`.
