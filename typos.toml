@@ -113,6 +113,13 @@ extend-exclude = [
   "crates/day-l10n/catalog/fr.ftl",
   "crates/day-l10n/catalog/ja.ftl",
   "crates/day-l10n/catalog/zh.ftl",
+  # The same translations, as a toolkit's own resource bundle (its `en/` stays checked).
+  "toolkits/*/resource/locales/ar/",
+  "toolkits/*/resource/locales/de/",
+  "toolkits/*/resource/locales/es/",
+  "toolkits/*/resource/locales/fr/",
+  "toolkits/*/resource/locales/ja/",
+  "toolkits/*/resource/locales/zh/",
   # Build output and dependency trees.
   "target/",
   "build/",

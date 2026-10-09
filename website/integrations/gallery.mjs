@@ -69,7 +69,7 @@ export default function gallery() {
         // live, with nothing failing. So a build that is going to be PUBLISHED refuses to finish
         // without them, which keeps the last good deploy up until the Showcase's site answers.
         //
-        // website.yml sets DAY_REQUIRE_SHOWCASE on every run that deploys. `astro dev`, a local
+        // ci.yml's `website` job sets DAY_REQUIRE_SHOWCASE on every run that deploys. `astro dev`, a local
         // build and a pull request's build go on rendering without the network, as they always
         // have: none of them publishes anything.
         if (process.env.DAY_REQUIRE_SHOWCASE) {

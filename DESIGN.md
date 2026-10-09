@@ -5111,8 +5111,9 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
 > `day doctor verify -p <combo> --day-version <v> --strict --dir "<runner temp>/Day Project Root"` per
 > cell of an 11-combo × 2-version matrix, scaffolding under a directory whose name contains a space,
 > `main` and `latest`, [§16.5](#165-subcommands); it was `install.yml` until 2026-08, when the
-> doctor/new/build steps moved into the CLI and packaging and the version axis joined them) and
-> `website.yml` (2026-09, step 6 below) in this repo.
+> doctor/new/build steps moved into the CLI and packaging and the version axis joined them) in
+> this repo. The website is a lane of `ci.yml` again (step 6 below; it was its own `website.yml`
+> from 2026-09 to 2026-10).
 > External Day apps are served by the **`daybrite/actions`** companion repo: one reusable
 > `dayapp.yml` matrix workflow that builds, packs, attaches release assets on a `vX.Y.Z`
 > tag — including two generated launcher scripts, `launch.sh` (macOS `.dmg`, Linux `.appimage`)
@@ -5268,10 +5269,12 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    therefore links the release assets of `daybrite/Day-Showcase` over the API
    (`website/scripts/assemble-downloads.mjs`) rather than serving anything this run built.
 
-6. **The website is its own workflow** (`website.yml`, 2026-09) — daybrite.dev builds and deploys
-   independently of everything above. It was the last two jobs of `ci.yml`, gated on nine platform
-   legs so it could download their `screenshots-<combo>` artifacts; a docs typo cost an hour behind
-   an Android emulator. The gallery is now assembled from the machine-readable index each Day app's
+6. **The website is its own lane** (the `website` and `website-deploy` jobs of `ci.yml`, 2026-10) —
+   daybrite.dev builds and deploys beside everything above and depends on none of it. It was the
+   last two jobs of `ci.yml` gated on nine platform legs so it could download their
+   `screenshots-<combo>` artifacts (a docs typo cost an hour behind an Android emulator), then its
+   own `website.yml` (2026-09), then folded back as ungated jobs so one workflow carries every
+   check. The gallery is now assembled from the machine-readable index each Day app's
    OWN site publishes (`day screenshot index`, [§14.7](#147-screenshot-metadata-and-the-gallery-index)),
    which carries every capture's absolute URL, shot id, localized title and caption, source path,
    platform-toolkit, device, theme, locale and pixel size. A site publishes two, one per build
@@ -5289,12 +5292,14 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    the Showcase's gallery or a front-page carousel screenshot (2026-09-14). The 2026-09-13 deploy
    rendered both empty while the Showcase's site served no usable index; the last good deploy now
    stays live instead.
-   Triggers: pushes touching `website/` or `docs/`, a daily schedule, `workflow_dispatch`, and a
-   `gallery-published` `repository_dispatch` an app's CI can send. It builds its own rustdoc bundle
-   into `dist/api` — Pages deploys one artifact, so the workflow that deploys assembles all of it;
-   `ci.yml`'s `api-docs` job stays as the does-rustdoc-still-build check on crate changes. The
-   `screenshots-<combo>` artifacts the platform legs upload stay too, as each run's evidence of what
-   its walkthrough rendered.
+   The lane runs on every push and pull request with the rest of `ci.yml`, and alone on the
+   website-only triggers: a daily schedule, a `gallery-published` `repository_dispatch` an app's CI
+   can send, and a `workflow_dispatch` with `website-only` checked (each root framework job carries
+   the gate; Actions has no workflow-level `if`). The `website` job builds the rustdoc bundle into
+   `dist/api` — Pages deploys one artifact, so the job that feeds the deploy assembles all of it —
+   which makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
+   job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
+   each run's evidence of what its walkthrough rendered.
 
 CI knowledge banked in the workflows from day one: JDK pinning, rustup toolchains for
 cross-std, `--locked` everywhere, emulator boot polling, screenshot content validation

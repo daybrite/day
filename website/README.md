@@ -124,10 +124,11 @@ build says so beside its publication date.
 
 A build that is going to be published fails when it cannot produce the Showcase's screenshots:
 Day-Showcase left out of the gallery, shown only from a cached index, or a front-page carousel with
-no verified screenshot (the carousel is built from the Showcase alone). `website.yml` sets
-`DAY_REQUIRE_SHOWCASE` on every run that deploys, so the last good deploy stays live until the
-Showcase's site serves its gallery again. Without it — `npm run dev`, a local `npm run build`, a
-pull request's build — the site still renders offline, and the missing app is a warning.
+no verified screenshot (the carousel is built from the Showcase alone). The `website` job of
+`.github/workflows/ci.yml` sets `DAY_REQUIRE_SHOWCASE` on every run that deploys, so the last good
+deploy stays live until the Showcase's site serves its gallery again. Without it — `npm run dev`, a
+local `npm run build`, a pull request's build — the site still renders offline, and the missing app
+is a warning.
 
 The index describes itself, so a row's heading, its caption, the source file it links, the columns,
 the themes and the languages all come from the app — an app that captures a new screen shows it

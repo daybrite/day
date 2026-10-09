@@ -4,6 +4,10 @@
 # the old "pin 21, never newer" rule was an AGP-8-era jdk-image-transform quirk that no longer
 # holds), rustup toolchains for cross-std, GSK_RENDERER=cairo for headless GTK (set by `day
 # launch` itself), `--locked` everywhere, emulator boot handled by the runner action's polling.
+#
+# daybrite.dev rides along as two jobs of its own lane (`website`, `website-deploy`, at the end):
+# they depend on none of the framework legs, and the website-only triggers (the daily schedule,
+# the `gallery-published` dispatch, a `website-only` manual run) run nothing else.
 name: ci
 
 on:
@@ -27,6 +31,21 @@ on:
           logs. On by default; un-check to get the quiet status-line output back.
         type: boolean
         default: true
+      website-only:
+        description: >-
+          Run only the website jobs: rebuild and redeploy daybrite.dev (after an app republished
+          its gallery, say) without the framework's build matrix.
+        type: boolean
+        default: false
+  # The two triggers below run the website lane alone (see the gate at `jobs:`).
+  schedule:
+    # 06:00 UTC daily. The apps' own pipelines run on pushes to their repositories, so this is
+    # what carries a newly published screenshot set onto daybrite.dev without anyone asking.
+    - cron: "0 6 * * *"
+  # An app's CI can POST this to refresh daybrite.dev the moment its gallery goes live:
+  #   gh api repos/daybrite/day/dispatches -f event_type=gallery-published
+  repository_dispatch:
+    types: [gallery-published]
 
 permissions:
   contents: read
@@ -56,8 +75,14 @@ env:
   DAY_SHOWCASE_REF: ${{ vars.DAY_SHOWCASE_REF }}
 
 jobs:
+  # The framework lane is gated on not being a website-only run (the daily schedule, a
+  # `gallery-published` dispatch, or a manual run with `website-only` checked). Actions has no
+  # workflow-level `if`, so the condition sits on each job with no `needs` and on `release`, the
+  # one job that runs on `!cancelled()`; everything else chains off those through `needs` and is
+  # skipped with them. A new root job needs the same line.
   fmt:
     name: rustfmt
+    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -67,6 +92,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
+    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -87,6 +113,7 @@ jobs:
   # reads as decisions rather than as noise someone silenced. Run `typos` locally to reproduce
   # this job exactly; `typos --write-changes` applies what it can fix on its own.
   spelling:
+    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -96,6 +123,7 @@ jobs:
       - uses: crate-ci/typos@v1.50.1
 
   duty-matrix-drift:
+    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -270,7 +298,8 @@ jobs:
   # toolkit crates that can't share a runner are all publish=false and are never packaged.
   release:
     name: release
-    if: ${{ !cancelled() }}
+    # `!cancelled()` would also run this on a website-only run, whose CLI builds never happened.
+    if: ${{ !cancelled() && !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     needs: [toolkit, day-cli-macos, day-cli-linux, day-cli-windows]
     runs-on: ubuntu-24.04
     permissions:
@@ -1276,7 +1305,8 @@ jobs:
   # builds are the windows-qt / windows-gtk targets' own concern.
   windows-gnu:
     name: host-test (windows-gnu)
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # experimental + packs no release artifact; skip on tags
+    # Experimental + packs no release artifact: skip on tags, and on website-only runs like every root job.
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: windows-2025
     continue-on-error: true
     defaults:
@@ -1313,6 +1343,7 @@ jobs:
       - name: Test host-portable crates
         run: scripts/ci/host-test.sh
   msrv:
+    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -1331,34 +1362,13 @@ jobs:
   # either to each combo's `needs:` to make it a hard gate.
   # ---------------------------------------------------------------------------
   deny:
+    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories bans
-
-  # ---------------------------------------------------------------------------
-  # api-docs: generate the Rust API reference (rustdoc) for the public-facing Day crates. This is the
-  # does-rustdoc-still-build check on every change to the crates: a broken doc link or an intra-doc
-  # path that stopped resolving fails here, on the change that caused it. The published bundle is
-  # built again by website.yml, which is the workflow that deploys (Pages takes one artifact), and
-  # that workflow does not run on a crates-only change. The build is portable (the core crates need
-  # no features and the `day` umbrella uses its headless `mock` backend), so no native toolkit is
-  # installed and it runs on a stock runner. Crate list + `cargo doc` invocations live in
-  # scripts/build-api-docs.sh, driven by website/src/data/api-crates.json (the same file /docs/api
-  # reads).
-  # ---------------------------------------------------------------------------
-  api-docs:
-    name: rustdoc
-    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # a validation leg; the tag lane skips it
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Generate rustdoc for the public crates
-        run: scripts/build-api-docs.sh
 
   # ---------------------------------------------------------------------------
   # web-dom: build the showcase for the web-dom backend (docs/web.md), a wasm32 cdylib plus
@@ -1429,3 +1439,102 @@ jobs:
         env:
           RUSTFLAGS: -D warnings --cfg getrandom_backend="custom"
         run: cargo clippy --target wasm32-unknown-unknown --lib --no-default-features --features dom
+
+  # ---------------------------------------------------------------------------
+  # website: daybrite.dev (DESIGN.md §20.1, step 6). Its own lane: it needs none of the framework
+  # legs, and the website-only triggers (the daily schedule, `gallery-published`, a `website-only`
+  # dispatch) run nothing but these two jobs.
+  #
+  # It used to be gated on nine platform legs finishing so it could collect their screenshot
+  # artifacts, then (2026-09) its own workflow. It needs neither: the gallery is assembled from
+  # the machine-readable index each Day app's site publishes at `<host>/gallery/gallery.json`
+  # (website/gallery.config.mjs), so the images come from the apps that captured them and this
+  # lane depends on no other repository's CI. A docs typo is a few minutes to deploy, not an hour
+  # behind an Android emulator.
+  #
+  # This job is also the does-rustdoc-still-build check on every crate change: a broken doc link
+  # or an intra-doc path that stopped resolving fails here, on the change that caused it. The
+  # build is portable (the core crates need no features and the `day` umbrella uses its headless
+  # `mock` backend), so no native toolkit is installed and it runs on a stock runner. Crate list
+  # + `cargo doc` invocations live in scripts/build-api-docs.sh, driven by
+  # website/src/data/api-crates.json (the same file /docs/api reads).
+  # ---------------------------------------------------------------------------
+  website:
+    name: website
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }} # a tagged commit was already built and deployed from main
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Check every internal doc is published
+        # The same script scripts/ci/lint.sh runs, so this drift is caught in the pre-flight on
+        # the machine that caused it rather than ten minutes later here. `--fix` repairs it.
+        run: scripts/ci/docs-symlinks.sh
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Keyed apart from the build legs: this job only ever runs `cargo doc`, and a cache
+          # shared with the matrix's would evict on every framework change for no benefit.
+          shared-key: website-rustdoc
+
+      - name: Build the Rust API reference (dist/api)
+        # /docs/api bridges into this bundle. GitHub Pages deploys one artifact, so the job that
+        # feeds the deploy has to assemble all of it.
+        run: scripts/build-api-docs.sh --out website/dist/api
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Build the site (indexes each app's published screenshots)
+        working-directory: website
+        env:
+          # Raises the API rate limit for the /showcase/ release lookup above the shared-IP
+          # anonymous one.
+          GITHUB_TOKEN: ${{ github.token }}
+          # /showcase/ offers the app's own releases: it is its own repository, and only that
+          # release lane's macOS build is signed and notarized.
+          DAY_RELEASE_REPO: daybrite/Day-Showcase
+          # Fail rather than publish a front page without the Showcase's screenshots: its gallery
+          # and the hero carousel built from it (website/integrations/gallery.mjs). Only on runs
+          # that deploy (the same condition as `website-deploy` below), so a pull request still
+          # builds and linkchecks while an app's site is down, since it publishes nothing.
+          DAY_REQUIRE_SHOWCASE: ${{ github.event_name != 'pull_request' && '1' || '' }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Check for broken links
+        working-directory: website
+        run: npm run linkcheck
+
+      - name: Upload the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: website/dist
+
+  website-deploy:
+    name: website (deploy)
+    needs: website
+    # Pull requests build and linkcheck; only main and the scheduled/dispatched runs publish.
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    # One deploy at a time, and never cancel one in flight: a half-uploaded Pages artifact is
+    # worse than a stale page. Queued deploys collapse to the newest, which is the one worth
+    # publishing.
+    concurrency:
+      group: website-deploy
+      cancel-in-progress: false
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v5
