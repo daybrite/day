@@ -26,6 +26,10 @@ pub struct Image {
     aspect_ratio: Option<f64>,
     decorative: bool,
     template: bool,
+    /// The tint the view is REALIZED with (`sidebar_image`'s rows): a patch sent before the node
+    /// has a native view is dropped, so a row built in a not-yet-realized cell would otherwise
+    /// come up in the template default until its tint next changed.
+    tint: Option<day_spec::Color>,
 }
 
 /// Draw an image from any [`ImageSource`](day_spec::ImageSource): a staged asset name, encoded
@@ -48,6 +52,7 @@ pub fn image<M>(source: impl IntoImageSource<M>) -> Image {
         aspect_ratio: None,
         decorative: false,
         template: false,
+        tint: None,
     }
 }
 
@@ -157,6 +162,11 @@ impl Image {
         self.template = true;
         self
     }
+    /// The tint to realize with; later changes go through `ImagePatch::Tint` (docs/vectors.md).
+    pub(crate) fn initial_tint(mut self, tint: Option<day_spec::Color>) -> Self {
+        self.tint = tint;
+        self
+    }
 }
 
 impl Piece for Image {
@@ -168,7 +178,7 @@ impl Piece for Image {
             decorative: self.decorative,
             content_mode: self.content_mode,
             aspect_ratio: self.aspect_ratio,
-            tint: None,
+            tint: self.tint,
             template: self.template,
         };
         let node = match self.aspect_ratio {

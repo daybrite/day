@@ -810,7 +810,11 @@ fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool
     piece_fn(move |cx| {
         // A template glyph (docs/vectors.md): untinted, it draws in the row's own foreground
         // and follows the theme, as the native nav-menu rows draw theirs. As authored, the
-        // bundled art is black on transparent — invisible on a dark sidebar.
+        // bundled art is black on transparent — invisible on a dark sidebar. The row's tint
+        // is realized with the view, not only patched in: a patch lands nowhere while the
+        // cell holding this row has no native view yet.
+        let tint_of = move || slot.field(|r| if trailing { r.badge_tint } else { r.tint });
+        let seed = day_reactive::untrack(tint_of);
         let node = image(move || {
             day_spec::ImageSource::Named(slot.field(|r| {
                 if trailing {
@@ -822,19 +826,17 @@ fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool
             }))
         })
         .template()
+        .initial_tint(seed)
         .build(cx);
-        bind(
-            move || slot.field(|r| if trailing { r.badge_tint } else { r.tint }),
-            move |tint| {
-                with_tree(|t| {
-                    t.patch(
-                        node,
-                        Box::new(day_spec::props::ImagePatch::Tint(*tint)),
-                        false,
-                    )
-                });
-            },
-        );
+        bind(tint_of, move |tint| {
+            with_tree(|t| {
+                t.patch(
+                    node,
+                    Box::new(day_spec::props::ImagePatch::Tint(*tint)),
+                    false,
+                )
+            });
+        });
         node
     })
     .frame(20.0, 20.0)
