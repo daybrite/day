@@ -9439,7 +9439,7 @@ int day_xaml_tree_frame(void *w, uint64_t token, double *width) {
         auto s=day_native_trees.at(w); auto found=s->nodes.find(token); if(found==s->nodes.end()) return;
         auto n=found->second; int depth=1;
         for(auto p=n.Parent(); p; p=p.Parent()) { if(!p.IsExpanded()) return; ++depth; }
-        *width=std::max(1.0,s->view.ActualWidth()-24.0*depth-16.0);
+        *width=(std::max)(1.0,s->view.ActualWidth()-24.0*depth-16.0);
         s->cells.at(token).Width(*width); visible=1;
     }); return visible;
 }
