@@ -459,6 +459,12 @@ pub(crate) fn timeout_message(what: &str, limit: Duration) -> String {
     )
 }
 
+/// Whether an error came from [`timeout_message`]: the command was killed at its deadline rather
+/// than failing, which is the one case a caller may sensibly retry.
+pub(crate) fn is_timeout_message(error: &str) -> bool {
+    error.contains("did not finish within")
+}
+
 /// The exit code to report for a finished child, with a signal death made visible.
 ///
 /// `ExitStatus::code()` is `None` when a process was killed by a signal, and mapping that to 0

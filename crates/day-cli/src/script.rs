@@ -1592,6 +1592,10 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
                 ]),
                 DEVICE_CMD,
             );
+            // The app's logcat pump has no end of its own (crate::mobile::LOGCAT_PUMPS): left
+            // running, it reads across the next variant's install until that launch's
+            // `logcat -c` kicks it, which is the `read: unexpected EOF!` in every matrix log.
+            crate::mobile::stop_logcat_pumps();
         }
         TargetKind::HarmonyOs => {
             let key = crate::ops::selected_ohos_key()

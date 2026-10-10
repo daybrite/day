@@ -70,6 +70,12 @@ pub(crate) fn forget_child(pid: u32) {
     }
 }
 
+/// End one tracked helper now, ahead of exit: a device log pump whose app is gone.
+pub(crate) fn kill_child(pid: u32) {
+    forget_child(pid);
+    kill_one(pid);
+}
+
 /// Track the app itself, spawned as a child by a desktop launch. Killed like any other child on
 /// interrupt and on the normal-exit path, unless [`forget_app_children`] spares it first.
 pub fn register_app_child(pid: u32) {

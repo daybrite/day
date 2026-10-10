@@ -2696,17 +2696,12 @@ pub fn launch_android(
     for dev in &devices {
         // Before the install, the heaviest step a loaded emulator sees (quiet_system_dialogs).
         quiet_system_dialogs(&dev.serial);
+        ensure_device_answers(&dev.serial)?;
         status(
             "Installing",
             &format!("{} on {}", outcome.target, dev.serial),
         );
-        run_quiet(
-            adb(Some(&dev.serial))
-                .args(["install", "-r"])
-                .arg(&outcome.artifact),
-            &format!("adb install ({})", dev.serial),
-            INSTALL_TIMEOUT,
-        )?;
+        install_apk(&dev.serial, &outcome.artifact)?;
         // `--grant`: mark the runtime permissions on the freshly installed package. After the
         // install, since `pm grant` wants the package present, and before the start, so the
         // app's first `status` already reads granted. `-r` installs keep the marks, so a later
@@ -2851,6 +2846,107 @@ pub fn launch_android(
     }))
 }
 
+/// The `adb logcat` clients streaming an app's output.
+///
+/// A pump never ends on its own: `logcat --pid` keeps reading after the pid it filters has
+/// died, and the interrupt path was the only thing that killed it. So a matrix run
+/// (`--locales`/`--themes`) carried the previous variant's reader across the next variant's
+/// install and launch, until that launch's `logcat -c` kicked it off logd: the kicked reader
+/// prints `read: unexpected EOF!`, the clear reports `failed to clear the 'main' log`, and the
+/// first lines of the new run can be lost. Whoever ends the app ends its pump
+/// ([`stop_logcat_pumps`]), which is what the runner's between-variant terminate does, so the
+/// next install meets adbd with no stale session of ours open.
+static LOGCAT_PUMPS: std::sync::Mutex<Vec<u32>> = std::sync::Mutex::new(Vec::new());
+
+/// End every running logcat pump: the apps they followed are being stopped, and the next
+/// launch starts its own.
+pub(crate) fn stop_logcat_pumps() {
+    let pumps = LOGCAT_PUMPS
+        .lock()
+        .map(|mut p| std::mem::take(&mut *p))
+        .unwrap_or_default();
+    for pid in pumps {
+        crate::signals::kill_child(pid);
+    }
+}
+
+/// A device that answers a trivial shell command within a few seconds, after one reconnect if
+/// it must. An `adb install` against an adbd that has stopped answering blocks for its whole
+/// budget and prints nothing; minutes of silence in CI are a worse failure than one sentence
+/// now, and a reconnect is the fix the sentence would suggest anyway.
+fn ensure_device_answers(serial: &str) -> Result<(), String> {
+    const PROBE: Duration = Duration::from_secs(20);
+    let probe = || {
+        run_quiet(
+            adb(Some(serial)).args(["shell", "echo", "day"]),
+            &format!("adb probe ({serial})"),
+            PROBE,
+        )
+    };
+    if probe().is_ok() {
+        return Ok(());
+    }
+    status(
+        "Warning",
+        &format!("{serial} is not answering adb; reconnecting before the install"),
+    );
+    let _ = run_quiet(
+        adb(Some(serial)).args(["reconnect"]),
+        "adb reconnect",
+        PROBE,
+    );
+    let _ = run_quiet(
+        adb(Some(serial)).args(["wait-for-device"]),
+        "adb wait-for-device",
+        Duration::from_secs(60),
+    );
+    probe().map_err(|e| {
+        format!(
+            "Android device {serial:?} is not answering adb ({e}) — restart adb \
+             (`adb kill-server`) or the emulator, then run again"
+        )
+    })
+}
+
+/// One `adb install` attempt's budget. An install of the showcase takes seven seconds on a CI
+/// emulator, and the failure this guards against is not a slow install but one that never
+/// returns: the API 24 emulator job hung here on a run's third to sixteenth install, with the
+/// client printing nothing until killed. Short enough that the retry below still fits inside
+/// what one [`INSTALL_TIMEOUT`] used to spend on a single silent wait.
+const INSTALL_ATTEMPT: Duration = Duration::from_secs(180);
+
+/// Install the APK, once more after a reconnect if the first attempt hung.
+///
+/// A wedged attempt is told from a failed one by its error: the deadline message names the
+/// timeout, and only that case gets the reconnect and the retry — a real `pm install` failure
+/// (a signature mismatch, say) is reported as it always was.
+fn install_apk(serial: &str, apk: &Path) -> Result<(), String> {
+    let attempt = || {
+        run_quiet(
+            adb(Some(serial)).args(["install", "-r"]).arg(apk),
+            &format!("adb install ({serial})"),
+            INSTALL_ATTEMPT,
+        )
+    };
+    let Err(first) = attempt() else {
+        return Ok(());
+    };
+    if !crate::ops::is_timeout_message(&first) {
+        return Err(first);
+    }
+    status(
+        "Warning",
+        &format!("{first}; reconnecting {serial} and installing once more"),
+    );
+    let _ = run_quiet(
+        adb(Some(serial)).args(["reconnect"]),
+        "adb reconnect",
+        Duration::from_secs(20),
+    );
+    ensure_device_answers(serial)?;
+    attempt()
+}
+
 /// Stream one device's app logs (day-android's `redirect_stdio_to_logcat` routes the app's
 /// stdout/stderr into logcat under tag `Day`). `-v tag` prefixes each line with `<prio>/Day:`;
 /// map the priority to a stream (I→stdout/blue, E/W/F→stderr/yellow) and re-prefix with `label`.
@@ -2902,6 +2998,9 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
             }
         };
         crate::signals::register_child(child.id());
+        if let Ok(mut pumps) = LOGCAT_PUMPS.lock() {
+            pumps.push(child.id());
+        }
         if let Some(out) = child.stdout.take() {
             for line in BufReader::new(out).lines().map_while(Result::ok) {
                 let (prio, msg) = match line.split_once(':') {
@@ -2918,8 +3017,34 @@ fn stream_logcat(serial: String, app_id: String, label: String) -> std::thread::
                 emit_log(&label, stream, msg);
             }
         }
-        child.wait().map(crate::ops::exit_code_of).unwrap_or(0)
+        let code = child.wait().map(crate::ops::exit_code_of).unwrap_or(0);
+        if let Ok(mut pumps) = LOGCAT_PUMPS.lock() {
+            pumps.retain(|pid| *pid != child.id());
+        }
+        crate::signals::forget_child(child.id());
+        code
     })
+}
+
+#[cfg(all(test, unix))]
+mod logcat_pump_tests {
+    use super::*;
+
+    /// Stopping the pumps ends the clients and empties the registry, so the next launch's
+    /// `logcat -c` and install meet an adbd with no stale sessions.
+    #[test]
+    fn stopping_the_pumps_kills_their_clients() {
+        let mut child = Command::new("sleep")
+            .arg("60")
+            .spawn()
+            .expect("spawn sleep");
+        crate::signals::register_child(child.id());
+        LOGCAT_PUMPS.lock().unwrap().push(child.id());
+        stop_logcat_pumps();
+        assert!(LOGCAT_PUMPS.lock().unwrap().is_empty());
+        let status = child.wait().expect("wait");
+        assert!(!status.success(), "the client should have been signalled");
+    }
 }
 
 #[cfg(test)]
