@@ -3043,7 +3043,7 @@ mod logcat_pump_tests {
         stop_logcat_pumps();
         assert!(LOGCAT_PUMPS.lock().unwrap().is_empty());
         let status = child.wait().expect("wait");
-        assert!(!status.success(), "the client should have been signalled");
+        assert!(!status.success(), "the client should have been signaled");
     }
 }
 
