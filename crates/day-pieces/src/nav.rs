@@ -322,6 +322,31 @@ fn with_page_active<R>(gate: Rc<dyn Fn() -> bool>, f: impl FnOnce() -> R) -> R {
     r
 }
 
+/// A document can leave the resident container for its own native window. Replace
+/// its selection gate while retaining enclosing navigation gates and nested-page gates.
+pub(crate) fn with_document_active<R>(gate: Rc<dyn Fn() -> bool>, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<Rc<dyn Fn() -> bool>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            NAV_PAGE_ACTIVE.with(|s| {
+                let mut s = s.borrow_mut();
+                s.pop();
+                if let Some(previous) = self.0.take() {
+                    s.push(previous);
+                }
+            });
+        }
+    }
+    let previous = NAV_PAGE_ACTIVE.with(|s| {
+        let mut s = s.borrow_mut();
+        let previous = s.pop();
+        s.push(gate);
+        previous
+    });
+    let _restore = Restore(previous);
+    f()
+}
+
 /// Run `f` with `cx` as the innermost nav-host context (a barrier when `None`), restoring after.
 fn with_nav_host<R>(cx: Option<NavHostCx>, f: impl FnOnce() -> R) -> R {
     NAV_HOST_CX.with(|s| s.borrow_mut().push(cx));
@@ -1312,8 +1337,12 @@ type IconProgressSource<K> = Rc<dyn Fn() -> Vec<(K, Option<f64>)>>;
 ///     .item("home", tr("home"), home_page)         // or .item(Section::Home, …)
 ///     .item("settings", tr("settings"), settings_page)
 /// ```
+type DocumentEvent = Rc<dyn Fn(&Event)>;
+
 pub struct Nav<S: Binding<K>, K: Route = String> {
     selection: S,
+    documents: Option<day_spec::props::DocumentTabsConfig>,
+    document_event: Option<DocumentEvent>,
     icon_progress: Option<IconProgressSource<K>>,
     style: NavStyle,
     title: TextSource,
@@ -1568,6 +1597,8 @@ impl SearchSpec {
 pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
     Nav {
         selection,
+        documents: None,
+        document_event: None,
         icon_progress: None,
         style: NavStyle::default(),
         pending_section: None,
@@ -1594,6 +1625,15 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 }
 
 impl<K: Route, S: Binding<K>> Nav<S, K> {
+    pub(crate) fn document_mode(
+        mut self,
+        config: day_spec::props::DocumentTabsConfig,
+        event: impl Fn(&Event) + 'static,
+    ) -> Self {
+        self.documents = Some(config);
+        self.document_event = Some(Rc::new(event));
+        self
+    }
     /// Collapsible sidebar sections. The set contains COLLAPSED stable section IDs;
     /// missing IDs default to expanded, and temporarily filtered-out IDs are retained.
     /// Pair with `section_id`; unkeyed headings use their first route as a fallback identity.
@@ -2191,6 +2231,7 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         let host = cx.native(
             kinds::NAV,
             &NavProps {
+                documents: None,
                 title: cfg.title.clone(),
                 // A permanent stack, like the `nav_stack()` piece: the chrome above already
                 // adapts, so this host must never try to.
@@ -2720,6 +2761,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     let host = cx.native(
         kinds::NAV,
         &NavProps {
+            documents: sel.documents.clone(),
             title: title_s.clone(),
             presentation: lowered,
             adaptive,
@@ -2743,6 +2785,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         },
         Boundary::Yes,
     );
+
+    if let Some(event) = sel.document_event.clone() {
+        cx.on(host, move |ev| event(ev));
+    }
 
     // The per-host back-owner stack (docs/navigation.md): the detail page pushes its "deselect"
     // owner, and a nested stack that merges into this host pushes its page owners on top. The
@@ -2843,6 +2889,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             (rows0.badge_icons.clone(), rows0.badge_tints.clone());
         let tints_init = rows0.tints.clone();
         let menus_init = rows0.menus.clone();
+        let document_keys = if sel.documents.is_some() {
+            typed.borrow().iter().map(Route::key).collect()
+        } else {
+            Vec::new()
+        };
+        let document_event = sel.document_event.clone();
         let menu_piece = if let Some(collapsed) = sel.collapsed_sections {
             section_sidebar(
                 items.clone(),
@@ -2865,6 +2917,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 let node = mcx.native(
                     kinds::NAV_MENU,
                     &NavMenuProps {
+                        document_keys,
                         items: titles_init,
                         icons: icons_init,
                         badges: badges_init,
@@ -2884,6 +2937,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     Boundary::No,
                 );
                 mh.set(Some(node));
+                if let Some(event) = document_event {
+                    mcx.on(node, move |ev| event(ev));
+                }
                 mcx.on(node, move |ev| {
                     if let Event::SelectionChanged(i) = ev
                         && let Some(k) = ks.borrow().get(*i as usize)
@@ -3667,6 +3723,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     }
 
     let icon_progress_enabled = icon_progress.is_some();
+    let documents = sel.documents.is_some();
     let retain_selection = sel.retain_selection;
     // Re-derive the row set when a dynamic block's signal changes (re-patch the native menu,
     // reset the selection if its item vanished) and when the locale changes (tracked title
@@ -3778,6 +3835,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         t.patch(
                             m,
                             Box::new(day_spec::props::NavMenuPatch::Items {
+                                document_keys: if documents {
+                                    key_strs.clone()
+                                } else {
+                                    Vec::new()
+                                }
+                                .into_boxed_slice(),
                                 items: ts.clone(),
                                 icons: ics.clone(),
                                 badges: bs.clone(),
@@ -3795,6 +3858,32 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 // Re-map active route keys after insertions/filtering, after the row patch.
                 if icon_progress_enabled {
                     progress_revision.update(|n| *n = n.wrapping_add(1));
+                }
+                // Document collections can add in the background and reorder existing keys.
+                // Realize missing pages first, then move the same native objects into key order.
+                if pres_now.rows_are_chrome() {
+                    for key in key_strs {
+                        let missing = !resident_e.borrow().iter().any(|p| &p.key == key);
+                        if missing {
+                            show_e(key);
+                        }
+                    }
+                    let order: Vec<usize> = key_strs
+                        .iter()
+                        .filter_map(|key| resident_e.borrow().iter().position(|p| &p.key == key))
+                        .collect();
+                    if order.len() == resident_e.borrow().len()
+                        && order.iter().enumerate().any(|(i, old)| i != *old)
+                    {
+                        let mut old: Vec<Option<ResidentPage>> =
+                            resident_e.borrow_mut().drain(..).map(Some).collect();
+                        // Unique route keys produce a permutation of all resident pages;
+                        // each in-bounds slot is taken exactly once.
+                        *resident_e.borrow_mut() =
+                            order.iter().map(|i| old[*i].take().unwrap()).collect();
+                        with_tree(|t| t.patch(host, Box::new(NavPatch::Reorder(order)), false));
+                        *current_e.borrow_mut() = None;
+                    }
                 }
                 // Drive the detail from here as well as from the selection bind. That bind is
                 // created first, so when a query signal and the selection are written in one
@@ -4160,6 +4249,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             host = cx.native(
                 kinds::NAV,
                 &NavProps {
+                    documents: None,
                     // A stack is a stack at every size: it has no sidebar pane to re-home, so
                     // there is nothing for a size-class change to re-present.
                     title: title_s.clone(),

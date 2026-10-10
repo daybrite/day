@@ -251,6 +251,7 @@ mod imp {
         static EDIT_STATE: std::cell::Cell<day_spec::EditState> =
             const { std::cell::Cell::new(day_spec::EditState { can_cut: false, can_copy: false, can_paste: false, can_select_all: false }) };
 
+        static DOCUMENT_HOSTS: RefCell<HashMap<usize, DocumentHost>> = RefCell::new(HashMap::new());
         static NAV_TABS: RefCell<HashMap<usize, NavTabsState>> = RefCell::new(HashMap::new());
         /// A realized NAV_MENU's rows, by its own view ptr. Recorded at realize because that is
         /// where the props are, and consumed at INSERT, which is the first moment the menu is in
@@ -4868,6 +4869,23 @@ mod imp {
     // is why day-core keeps its pages resident and drives them with `NavPatch::Select`.
     // -------------------------------------------------------------------
 
+    // Browser documents are custom containers, never application-section tab controllers.
+    struct DocumentHost {
+        controller: Retained<UIViewController>,
+        pages: Vec<(usize, Retained<UIViewController>)>,
+        selected: usize,
+    }
+    fn document_frames(host: &UIView, state: &DocumentHost) {
+        for (i, (_, vc)) in state.pages.iter().enumerate() {
+            unsafe {
+                if let Some(view) = vc.view() {
+                    view.setFrame(host.bounds());
+                    view.setHidden(i != state.selected);
+                }
+            }
+        }
+    }
+
     struct NavTabsState {
         tabbar: Retained<UITabBarController>,
         /// Detail pages in insertion order — index i IS the `Select(i)` index.
@@ -8389,6 +8407,33 @@ mod imp {
                     let Some(p) = day_spec::props_of::<NavProps>(kind, "uikit", props) else {
                         return placeholder_view(kind);
                     };
+                    if p.documents.is_some() {
+                        let controller = unsafe { UIViewController::new(mtm) };
+                        let host = unsafe { UIView::new(mtm) };
+                        unsafe {
+                            controller.setView(Some(&host));
+                        }
+                        if let Some(root) = WINDOW
+                            .with(|w| w.borrow().clone())
+                            .and_then(|w| w.rootViewController())
+                        {
+                            unsafe {
+                                root.addChildViewController(&controller);
+                                controller.didMoveToParentViewController(Some(&root));
+                            }
+                        }
+                        DOCUMENT_HOSTS.with(|m| {
+                            m.borrow_mut().insert(
+                                ptr_of(&host),
+                                DocumentHost {
+                                    controller,
+                                    pages: Vec::new(),
+                                    selected: 0,
+                                },
+                            )
+                        });
+                        return view_of(host);
+                    }
                     let nav = DayNavController::new(mtm, 0); // host ptr set just below
                     // Child-VC containment under the window's root VC (v1: app root).
                     let root_vc = WINDOW
@@ -9123,15 +9168,15 @@ mod imp {
                     // UIKit recolors the alpha mask natively. A template with no tint of its own
                     // inherits the tint around it (a cell's, a bar's): the iOS idiom, and what
                     // the nav menu's own rows do.
-                    if p.tint.is_some() || p.template {
-                        if let Some(img) = unsafe { iv.image() } {
-                            let templ = unsafe {
-                                img.imageWithRenderingMode(
-                                    objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
-                                )
-                            };
-                            unsafe { iv.setImage(Some(&templ)) };
-                        }
+                    if (p.tint.is_some() || p.template)
+                        && let Some(img) = unsafe { iv.image() }
+                    {
+                        let templ = unsafe {
+                            img.imageWithRenderingMode(
+                                objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate,
+                            )
+                        };
+                        unsafe { iv.setImage(Some(&templ)) };
                     }
                     if let Some(t) = p.tint {
                         unsafe { iv.setTintColor(Some(&uicolor(t))) };
@@ -9395,6 +9440,37 @@ mod imp {
                             // Scope and suggestion patches have no UIKit surface yet.
                         }
                     }
+                    let document = DOCUMENT_HOSTS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let Some(state) = m.get_mut(&ptr_of(h)) else {
+                            return false;
+                        };
+                        match patch.downcast_ref::<NavPatch>() {
+                            Some(NavPatch::Select(i)) => state.selected = *i,
+                            Some(NavPatch::Reorder(order)) => {
+                                let old = state.pages.clone();
+                                state.pages =
+                                    order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                            }
+                            _ => {}
+                        }
+                        document_frames(h, state);
+                        true
+                    });
+                    if document {
+                        return;
+                    }
+                    if let Some(NavPatch::Reorder(order)) = patch.downcast_ref::<NavPatch>() {
+                        let host = ptr_of(h);
+                        NAV_TABS.with(|m| {
+                            if let Some(t) = m.borrow_mut().get_mut(&host) {
+                                let old = t.vcs.clone();
+                                t.vcs = order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                            }
+                        });
+                        nav_tabs_sync(host);
+                        return;
+                    }
                     if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>() {
                         // A `.tabSidebar` host has no `NavState` — it is not a navigation stack — so
                         // this is handled before that lookup.
@@ -9450,7 +9526,9 @@ mod imp {
                                 // re-presents (the pieces layer gates it on `Cap::NavRepresent`);
                                 // `Select` belongs to tab hosts; representable split hosts
                                 // already track presentation through UIKit (docs/navigation.md).
-                                NavPatch::Presentation(_) | NavPatch::Select(_) => Act::None,
+                                NavPatch::Presentation(_)
+                                | NavPatch::Select(_)
+                                | NavPatch::Reorder(_) => Act::None,
                                 // Re-entering a list-backed destination after native back does
                                 // not change ListVisible. Explicitly restore its column to the
                                 // collapsed stack on the first tap instead of waiting for a
@@ -9876,6 +9954,13 @@ mod imp {
             }
         }
         fn release(&mut self, h: Handle) {
+            if let Some(state) = DOCUMENT_HOSTS.with(|m| m.borrow_mut().remove(&ptr_of(&h))) {
+                unsafe {
+                    state.controller.willMoveToParentViewController(None);
+                    state.controller.removeFromParentViewController();
+                }
+            }
+
             // Backstop for a released window root whose scene never disconnected
             // (docs/windows.md — disconnect normally prunes first).
             SCENES.with(|s| s.borrow_mut().retain(|e| !std::ptr::eq(&*e.root_view, &*h)));
@@ -9924,6 +10009,36 @@ mod imp {
         }
 
         fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+            let document = DOCUMENT_HOSTS.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                    return false;
+                };
+                if PAGE_PANE.with(|t| t.get(ptr_of(child))) == Some(day_spec::props::Pane::Sidebar)
+                {
+                    unsafe {
+                        parent.addSubview(child);
+                        child.setHidden(true);
+                    }
+                    return true;
+                }
+                if let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned()) {
+                    unsafe {
+                        state.controller.addChildViewController(&vc);
+                        if let Some(view) = vc.view() {
+                            parent.addSubview(&view);
+                        }
+                        vc.didMoveToParentViewController(Some(&state.controller));
+                    }
+                    state.pages.push((ptr_of(child), vc));
+                    document_frames(parent, state);
+                }
+                true
+            });
+            if document {
+                return;
+            }
+
             // What a page or the root holds decides whether it pads by the safe area
             // (`DayNavPageView`/`DayHolderView::layoutSubviews`), so a child joining it re-asks.
             reask_content_frame(parent);
@@ -10113,6 +10228,37 @@ mod imp {
         }
 
         fn remove(&mut self, parent: &Handle, child: &Handle) {
+            let document = DOCUMENT_HOSTS.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(state) = m.get_mut(&ptr_of(parent)) else {
+                    return false;
+                };
+                if let Some(at) = state
+                    .pages
+                    .iter()
+                    .position(|(key, _)| *key == ptr_of(child))
+                {
+                    let (_, vc) = state.pages.remove(at);
+                    unsafe {
+                        vc.willMoveToParentViewController(None);
+                        if let Some(view) = vc.view() {
+                            view.removeFromSuperview();
+                        }
+                        vc.removeFromParentViewController();
+                    }
+                    state.selected = state.selected.min(state.pages.len().saturating_sub(1));
+                    document_frames(parent, state);
+                } else {
+                    unsafe {
+                        child.removeFromSuperview();
+                    }
+                }
+                true
+            });
+            if document {
+                return;
+            }
+
             let nav_child = NAV_STATE.with(|m| m.borrow().contains_key(&ptr_of(parent)));
             if nav_child
                 && let Some(vc) = PAGE_VCS.with(|p| p.borrow().get(&ptr_of(child)).cloned())
@@ -10434,6 +10580,11 @@ mod imp {
                         f.origin.x + f.size.width / 2.0,
                         f.origin.y + f.size.height / 2.0,
                     ));
+                }
+            });
+            DOCUMENT_HOSTS.with(|m| {
+                if let Some(state) = m.borrow().get(&ptr_of(h)) {
+                    document_frames(h, state);
                 }
             });
         }
@@ -11056,6 +11207,10 @@ mod imp {
         /// detached from the window (drawing a detached root raises, see `snapshot_view`).
         fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
             snapshot_view(host)
+        }
+
+        fn native_document_tabs(&self) -> bool {
+            false
         }
 
         fn open_window(

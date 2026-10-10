@@ -4048,12 +4048,125 @@ struct NavMutation {
     NavMutation& operator=(const NavMutation&) = delete;
 };
 
+// Document pages live in a shared content canvas, independently of tab-strip metadata.
+// This keeps native page handles and their focus/undo state alive during reorder.
+#ifdef DAY_WINUI
+static WUXC::TabView document_tab_view(void* h) {
+    auto grid=elem(h).try_as<WUXC::Grid>();
+    if(grid && grid.Children().Size()>1) return grid.Children().GetAt(0).try_as<WUXC::TabView>();
+    return nullptr;
+}
+#endif
+void day_xaml_document_chrome(void* h, int native) {
+#ifdef DAY_WINUI
+    guard([&] {
+        auto grid=elem(h).try_as<WUXC::Grid>();
+        auto tabs=document_tab_view(h); if(!tabs || !grid) return;
+        tabs.Visibility(native ? WUX::Visibility::Visible : WUX::Visibility::Collapsed);
+        grid.RowDefinitions().GetAt(0).Height(WUX::GridLength{native ? 48.0 : 0.0, WUX::GridUnitType::Pixel});
+    });
+#else
+    (void)h; (void)native;
+#endif
+}
+void day_xaml_document_items(void* h, const char* titles_joined, const char* keys_joined) {
+#ifdef DAY_WINUI
+    NavMutation mutating;
+    guard([&] {
+        auto tabs=document_tab_view(h); if(!tabs) return;
+        auto split=[](const char* text) {
+            std::vector<std::string> out; std::string all=text ? text : "";
+            if(all.empty()) return out;
+            size_t start=0;
+            while(true) { auto end=all.find('\x1f',start);
+                out.push_back(all.substr(start,end==std::string::npos ? end : end-start));
+                if(end==std::string::npos) break; start=end+1;
+            }
+            return out;
+        };
+        auto titles=split(titles_joined), keys=split(keys_joined);
+        std::unordered_map<std::string,WUXC::TabViewItem> old;
+        for(auto item:tabs.TabItems()) {
+            auto tab=item.as<WUXC::TabViewItem>();
+            old.emplace(winrt::to_string(winrt::unbox_value<winrt::hstring>(tab.Tag())),tab);
+        }
+        tabs.TabItems().Clear();
+        for(size_t i=0;i<titles.size() && i<keys.size();++i) {
+            auto found=old.find(keys[i]);
+            WUXC::TabViewItem tab=found==old.end() ? WUXC::TabViewItem{} : found->second;
+            tab.Tag(winrt::box_value(hs(keys[i].c_str())));
+            tab.Header(winrt::box_value(hs(titles[i].c_str())));
+            WUXA::AutomationProperties::SetName(tab,hs(titles[i].c_str()));
+            tabs.TabItems().Append(tab);
+        }
+    });
+#else
+    (void)h; (void)titles_joined; (void)keys_joined;
+#endif
+}
+
 void* day_xaml_nav_new(unsigned long long id,
                         void (*sel_cb)(unsigned long long, int),
                         void (*size_cb)(unsigned long long, int, int, int),
                         void (*back_cb)(unsigned long long),
                         void** out_content,
-                        int stack, int rtl) {
+                        int stack, int rtl, int documents, int can_add, const char* new_label,
+                        void (*document_cb)(unsigned long long,int,int,const char*)) {
+    if(documents) {
+        WUXC::Grid grid;
+        WUXC::Canvas content;
+        content.FlowDirection(WUX::FlowDirection::LeftToRight);
+        content.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+        content.VerticalAlignment(WUX::VerticalAlignment::Stretch);
+        content.SizeChanged([id,size_cb](WF::IInspectable const& sender,WUX::SizeChangedEventArgs const&) {
+            auto fe=sender.as<FrameworkElement>();
+            size_cb(id,0,static_cast<int>(fe.ActualWidth()),static_cast<int>(fe.ActualHeight()));
+        });
+#ifdef DAY_WINUI
+        grid.FlowDirection(rtl ? WUX::FlowDirection::RightToLeft : WUX::FlowDirection::LeftToRight);
+        WUXC::RowDefinition strip_row, content_row;
+        strip_row.Height(WUX::GridLength{1,WUX::GridUnitType::Auto});
+        content_row.Height(WUX::GridLength{1,WUX::GridUnitType::Star});
+        grid.RowDefinitions().Append(strip_row); grid.RowDefinitions().Append(content_row);
+        WUXC::TabView tabs;
+        tabs.Height(48);
+        tabs.IsAddTabButtonVisible(false); // localized application-owned button in the footer
+        tabs.CanDragTabs(true); tabs.CanReorderTabs(true); tabs.AllowDropTabs(true);
+        if(can_add) {
+            WUXC::Button add; WUXC::SymbolIcon icon; icon.Symbol(WUXC::Symbol::Add); add.Content(icon);
+            WUXA::AutomationProperties::SetName(add,hs(new_label));
+            WUXC::ToolTipService::SetToolTip(add,winrt::box_value(hs(new_label)));
+            add.Click([id,document_cb](auto const&, auto const&) { document_cb(id,0,0,""); });
+            tabs.TabStripFooter(add);
+        }
+        // During native drag reorder, selection indices are transient. Report selection only
+        // after the stable-key order callback has brought Day's resident pages into sync.
+        auto dragging=std::make_shared<bool>(false);
+        tabs.TabDragStarting([dragging](auto const&, auto const&) { *dragging=true; });
+        tabs.SelectionChanged([id,sel_cb,dragging](WUXC::TabView const& sender,auto const&) {
+            if(!g_nav_mutating && !*dragging && sender.SelectedIndex()>=0) sel_cb(id,sender.SelectedIndex());
+        });
+        tabs.TabCloseRequested([id,document_cb](auto const&,WUXC::TabViewTabCloseRequestedEventArgs const& args) {
+            auto key=winrt::to_string(winrt::unbox_value<winrt::hstring>(args.Tab().Tag()));
+            document_cb(id,1,0,key.c_str());
+        });
+        tabs.TabDragCompleted([id,document_cb,dragging](WUXC::TabView const& sender,WUXC::TabViewTabDragCompletedEventArgs const& args) {
+            *dragging=false;
+            uint32_t index=0;
+            if(sender.TabItems().IndexOf(args.Tab(),index)) {
+                auto key=winrt::to_string(winrt::unbox_value<winrt::hstring>(args.Tab().Tag()));
+                document_cb(id,2,static_cast<int>(index),key.c_str());
+            }
+        });
+        grid.Children().Append(tabs);
+        WUXC::Grid::SetRow(content,1);
+#else
+        (void)can_add; (void)new_label; (void)document_cb;
+#endif
+        grid.Children().Append(content);
+        if(out_content) *out_content=boxh(content);
+        return boxh(grid);
+    }
     WUXC::NavigationView nv;
     nv.FlowDirection(rtl ? WUX::FlowDirection::RightToLeft : WUX::FlowDirection::LeftToRight);
     nv.IsSettingsVisible(false);
@@ -4303,6 +4416,9 @@ void day_xaml_nav_set_items(void* navh, const char* items_joined, const char* ic
 void day_xaml_nav_set_selected(void* navh, int idx) {
     NavMutation mutating;
     guard([&] {
+#ifdef DAY_WINUI
+        if(auto tabs=document_tab_view(navh)) { tabs.SelectedIndex(idx); return; }
+#endif
         auto nv = elem(navh).try_as<WUXC::NavigationView>();
         if (!nv) return;
         int at = nav_menu_index(nv, idx);

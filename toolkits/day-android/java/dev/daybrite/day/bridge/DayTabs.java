@@ -59,6 +59,24 @@ public class DayTabs extends LinearLayout {
     private boolean syncing;
     private int form = -1;
     private View chrome;
+    private boolean documentMode;
+    private boolean documentChrome = true;
+    void documentChrome(boolean visible) {
+        documentChrome = visible;
+        if (documentMode && getChildCount() > 1)
+            getChildAt(0).setVisibility(visible ? VISIBLE : GONE);
+    }
+    private String newLabel, closeLabel;
+    private boolean canAdd;
+    private final ArrayList<String> documentKeys = new ArrayList<>();
+    private static final class TabDrag {
+        final DayTabs owner;
+        final String key;
+        TabDrag(DayTabs owner, String key) {
+            this.owner = owner;
+            this.key = key;
+        }
+    }
 
     public DayTabs(Context ctx, long hostNode, int initial) {
         super(ctx);
@@ -69,6 +87,30 @@ public class DayTabs extends LinearLayout {
         // A form is applied on the first measure, when there is a width to judge. Starting at the
         // compact one means the first frame is never chrome-less on a phone, which is most of them.
         applyForm(FORM_BAR);
+    }
+
+    void documents(String newLabel, String closeLabel, boolean canAdd) {
+        this.newLabel = newLabel;
+        this.closeLabel = closeLabel;
+        this.canAdd = canAdd;
+        documentMode = true;
+        form = -1;
+        applyForm(FORM_BAR);
+    }
+    void documentKeys(String keys) {
+        documentKeys.clear();
+        for (String key : split(keys)) documentKeys.add(key);
+        if (documentMode)
+            fillChrome();
+    }
+    private void documentEvent(String tag, String key, int index) {
+        DayBridge.nativeOnEvent(hostNode, DayBridge.K_CUSTOM, index, tag + ":" + key);
+    }
+    void reorder(String order) {
+        ArrayList<View> old = new ArrayList<>(pageViews);
+        pageViews.clear();
+        if (!order.isEmpty())
+            for (String index : order.split(",")) pageViews.add(old.get(Integer.parseInt(index)));
     }
 
     /**
@@ -91,6 +133,18 @@ public class DayTabs extends LinearLayout {
             this.menuNode = menuNode;
         }
         fillChrome();
+    }
+
+    void removePage(View page) {
+        int index = pageViews.indexOf(page);
+        if (index >= 0) {
+            pageViews.remove(index);
+            if (index < selected)
+                selected--;
+            selected = Math.min(selected, Math.max(0, pageViews.size() - 1));
+        }
+        pages.removeView(page);
+        showPage(selected);
     }
 
     /** A resident destination page, in row order: page i is row i. */
@@ -123,6 +177,11 @@ public class DayTabs extends LinearLayout {
                 // Selection can arrive before the rows; retain it for fillChrome().
             } else if (chrome instanceof NavigationBarView) {
                 ((NavigationBarView) chrome).setSelectedItemId(itemIds.get(index));
+            } else if (chrome instanceof com.google.android.material.tabs.TabLayout) {
+                com.google.android.material.tabs.TabLayout tab =
+                        (com.google.android.material.tabs.TabLayout) chrome;
+                if (index < tab.getTabCount())
+                    tab.selectTab(tab.getTabAt(index));
             } else if (chrome instanceof NavigationView) {
                 Menu m = ((NavigationView) chrome).getMenu();
                 MenuItem item = m.findItem(itemIds.get(index));
@@ -144,10 +203,51 @@ public class DayTabs extends LinearLayout {
 
     /** Swap the chrome for the form this width calls for, carrying the rows and selection over. */
     private void applyForm(int next) {
+        if (documentMode)
+            next = FORM_BAR;
         if (next == form) return;
         form = next;
         removeAllViews();
         Context ctx = getContext();
+        if (documentMode) {
+            com.google.android.material.tabs.TabLayout tabs =
+                    new com.google.android.material.tabs.TabLayout(ctx);
+            tabs.setTabMode(com.google.android.material.tabs.TabLayout.MODE_SCROLLABLE);
+            tabs.addOnTabSelectedListener(
+                    new com.google.android.material.tabs.TabLayout.OnTabSelectedListener() {
+                        public void onTabSelected(
+                                com.google.android.material.tabs.TabLayout.Tab tab) {
+                            if (!syncing)
+                                pick(tab.getPosition());
+                        }
+                        public void onTabUnselected(
+                                com.google.android.material.tabs.TabLayout.Tab tab) {}
+                        public void onTabReselected(
+                                com.google.android.material.tabs.TabLayout.Tab tab) {}
+                    });
+            chrome = tabs;
+            setOrientation(VERTICAL);
+            LinearLayout strip = new LinearLayout(ctx);
+            strip.setGravity(android.view.Gravity.CENTER_VERTICAL);
+            strip.addView(chrome, new LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+            if (canAdd) {
+                android.widget.ImageButton add = new android.widget.ImageButton(ctx);
+                add.setImageResource(android.R.drawable.ic_input_add);
+                add.setImageTintList(tabs.getTabTextColors());
+                add.setContentDescription(newLabel);
+                add.setTooltipText(newLabel);
+                add.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+                add.setOnClickListener(v -> documentEvent("day:tab-new", "", 0));
+                strip.addView(add, new LayoutParams(dp(48), dp(48)));
+            }
+            addView(strip,
+                    new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.WRAP_CONTENT));
+            addView(pages, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            documentChrome(documentChrome);
+            fillChrome();
+            return;
+        }
         switch (next) {
             case FORM_RAIL: chrome = new NavigationRailView(ctx); break;
             case FORM_DRAWER: chrome = new NavigationView(ctx); break;
@@ -193,6 +293,58 @@ public class DayTabs extends LinearLayout {
     /** Build the current chrome's menu from the rows, and restore the selection into it. */
     private void fillChrome() {
         if (chrome == null) return;
+        if (chrome instanceof com.google.android.material.tabs.TabLayout) {
+            com.google.android.material.tabs.TabLayout bar =
+                    (com.google.android.material.tabs.TabLayout) chrome;
+            syncing = true;
+            bar.removeAllTabs();
+            for (int i = 0; i < titles.size(); i++) {
+                final int at = i;
+                final String title = titles.get(i);
+                com.google.android.material.tabs.TabLayout.Tab tab = bar.newTab().setText(title);
+                if (i < documentKeys.size()) {
+                    final String key = documentKeys.get(i);
+                    LinearLayout row = new LinearLayout(getContext());
+                    row.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    android.widget.TextView label = new android.widget.TextView(getContext());
+                    label.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    label.setText(title);
+                    label.setMaxLines(1);
+                    label.setMaxWidth(dp(200));
+                    label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                    label.setTextColor(bar.getTabTextColors());
+                    row.addView(
+                            label, new LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)));
+                    android.widget.ImageButton close = new android.widget.ImageButton(getContext());
+                    close.setImageResource(android.R.drawable.ic_menu_close_clear_cancel);
+                    close.setImageTintList(bar.getTabTextColors());
+                    close.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+                    close.setContentDescription(closeLabel + ": " + title);
+                    close.setTooltipText(closeLabel);
+                    close.setOnClickListener(v -> documentEvent("day:tab-close", key, 0));
+                    row.addView(close, new LayoutParams(dp(48), dp(48)));
+                    row.setOnClickListener(v -> bar.selectTab(tab));
+                    row.setOnLongClickListener(v
+                            -> v.startDragAndDrop(android.content.ClipData.newPlainText("", key),
+                                    new View.DragShadowBuilder(v), new TabDrag(this, key), 0));
+                    row.setOnDragListener((v, event) -> {
+                        Object local = event.getLocalState();
+                        if (!(local instanceof TabDrag) || ((TabDrag) local).owner != this)
+                            return false;
+                        if (event.getAction() == android.view.DragEvent.ACTION_DROP) {
+                            documentEvent("day:tab-move", ((TabDrag) local).key, at);
+                        }
+                        return true;
+                    });
+                    tab.setCustomView(row);
+                }
+                bar.addTab(tab, false);
+            }
+            syncing = false;
+            if (!titles.isEmpty())
+                select(Math.min(selected, titles.size() - 1));
+            return;
+        }
         Menu menu = chrome instanceof NavigationBarView
                 ? ((NavigationBarView) chrome).getMenu()
                 : ((NavigationView) chrome).getMenu();

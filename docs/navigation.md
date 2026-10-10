@@ -21,6 +21,67 @@ Keys implement [`Route`](#typed-routes). Start with strings, or use an app-defin
 you want the compiler to check destinations and their associated data. The string adapter
 (`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
 
+## Document tabs
+
+`document_tabs(tabs, new_label, close_label, title, content)` hosts documents with independent
+lifetimes. `TabSet<K>` owns their ordered stable keys and optional selected key; `K` implements
+`Route`. Application payloads, undo history, persistence, pinning, and suspension remain app-owned.
+Pass localized `res::str` accessors for the add/close labels and app-owned titles. Publication or
+user-supplied document titles can pass through unchanged.
+
+| Operation | Contract |
+|---|---|
+| `TabSet::new()` | Starts empty with no selection. Own it above the host. |
+| `open(key, foreground)` | Adds an absent key once. A background open preserves selection unless the set was empty. |
+| `select(&key)` | Selects an existing identity; returns false for an unknown key. |
+| `move_to(&key, index)` | Moves to the final index, clamped to the last position; preserves selected identity. |
+| `select_next(backwards)` | Wraps through the collection; does nothing when empty. |
+| `close(&key)` | Accepts removal. If selected, chooses the following neighbor or the preceding last tab. The final close selects `None`. |
+| `keys()`, `selected()`, `contains(&key)` | Read order, selection, or membership. |
+
+The host builds each document once, including background documents. Reordering permutes resident
+native pages with `NavPatch::Reorder`: each entry is an old resident-page index in the new order.
+Closing disposes only that document's scope. Selection and native indices never identify payloads.
+An `.on_close(handler)` callback receives a request; the app calls `tabs.close(&key)` after it
+accepts. Keeping the key vetoes the request. Without a handler, a request removes the key directly.
+`.on_new(handler)` delegates creation and key allocation to the app.
+
+`.native(|| preference.get())` changes presentation reactively. Supported backends use a native
+in-window control or an OS window group. Unsupported backends keep the composed strip. Content,
+scopes, and native handles survive each switch; only composed chrome is conditionally built.
+`.chrome(|actions| ...)` replaces that strip; `TabActions` supplies `tabs`, `new_tab`, `close`,
+`drag`, and `drop_before`. Drag payloads are host-scoped so equal keys in unrelated collections
+cannot move each other's documents. `.layout(|chrome, content| ...)` places the composed chrome.
+The default strip uses native button colors and disabled rendering for the selected destination,
+so light/dark appearance and contrast remain toolkit-owned.
+
+| Backend | Native document presentation |
+|---|---|
+| AppKit | OS window tabs; composed mode parks pages in an NSTabView. |
+| Qt | QTabWidget; macOS can move documents into OS window tabs. |
+| GTK | AdwTabView/AdwTabBar, including macOS. OS-window grouping is unsupported because GDK owns window decorations. |
+| WinUI | TabView with close requests and within-strip dragging. |
+| Android | Scrollable Material TabLayout with add/close controls and host-scoped long-press dragging. |
+| UIKit, ArkUI, DOM, system XAML | Composed strip; UIKit uses a UIViewController container for documents. |
+
+Toolkit duties distinguish OS-window grouping (`native_window_tabs`) from in-window chrome
+(`native_document_tabs`). Both default to false. `DocumentTabsConfig` carries localized labels
+and add-button availability through `NavProps`; `NavMenuProps::document_keys` aligns stable keys
+with rows. `DocumentTabsPatch` toggles native chrome while retaining pages. `day:tab-new`,
+`day:tab-close`, and `day:tab-move` custom events carry the key (where applicable); move carries the
+final destination index in `num`. These tags are protocol identifiers, not translated text.
+
+Qt's hidden sidebar occupies native tab 0 for both ordinary navigation and document tabs. The
+shim translates native selection `i > 0` into destination `i - 1`; parking/empty selections are
+ignored. Programmatic selection applies the inverse mapping with signals blocked. The
+[native Qt regression](../toolkits/day-qt-sys/tests/tabs.cpp) drives a plain tabbed nav with real
+keyboard events, checks its current widget, and verifies selection indices and echo suppression.
+
+The [mock regressions](../crates/day-pieces/tests/mock_e2e.rs) cover retained identity, background
+insertion, removal, repeated presentation switching, native reorder across detached groups,
+close vetoes, and zero frame requests while idle. See [document-window tabs](windows.md#document-window-tabs)
+for focus, command routing, and close lifecycle.
+
 ## `nav`: one-of-N
 
 ```rust

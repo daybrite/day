@@ -473,7 +473,7 @@ mod imp {
         /// suite. Where there is no suite above it (every presentation but `Tabs`) the handover
         /// finds nothing and the rows stay a list. Entries drop in `release`.
         static NAV_MENU_ROWS: std::cell::RefCell<
-            std::collections::HashMap<usize, (i64, String, String)>,
+            std::collections::HashMap<usize, (i64, String, String, String)>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
         /// Each window's toolbar model (docs/toolbars.md), by its root view ptr: what the app-bar
         /// menu is repainted from.
@@ -1512,6 +1512,19 @@ mod imp {
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         if kind == K_CUSTOM {
             let text = env.dstr(jstr).ok().unwrap_or_default();
+            for tag in ["day:tab-new", "day:tab-close", "day:tab-move"] {
+                if let Some(key) = text.strip_prefix(tag).and_then(|s| s.strip_prefix(':')) {
+                    emit(
+                        NodeId(id as u64),
+                        Event::Custom {
+                            tag,
+                            num,
+                            text: key.to_owned(),
+                        },
+                    );
+                    return;
+                }
+            }
             if let Some(token) = text
                 .strip_prefix("day-tree-expand:")
                 .and_then(|s| s.parse::<u64>().ok())
@@ -2712,6 +2725,23 @@ mod imp {
                                 &[JValue::Long(idj), JValue::Int(0)],
                             ))
                         });
+                        if let Some(config) = &p.documents {
+                            with_env(|env| {
+                                let new_label = jstr(env, &config.new_label);
+                                let close_label = jstr(env, &config.close_label);
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "documentNavSuite",
+                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
+                                    &[
+                                        JValue::Object(host.0.as_obj()),
+                                        JValue::Object(&new_label),
+                                        JValue::Object(&close_label),
+                                        JValue::Bool(config.can_add),
+                                    ],
+                                );
+                            });
+                        }
                         NAV_SUITES
                             .with(|m| m.borrow_mut().insert(host.0.as_obj().as_raw() as usize));
                         // Tell day-core what it got. The suite changes its chrome as it resizes
@@ -2857,7 +2887,12 @@ mod imp {
                         NAV_MENU_ROWS.with(|m| {
                             m.borrow_mut().insert(
                                 handle.0.as_obj().as_raw() as usize,
-                                (idj, joined.clone(), joined_icons.clone()),
+                                (
+                                    idj,
+                                    joined.clone(),
+                                    joined_icons.clone(),
+                                    p.document_keys.join("\u{1f}"),
+                                ),
                             )
                         });
                         // Per-row icon tints ride a best-effort follow-up (docs/vectors.md):
@@ -3255,6 +3290,7 @@ mod imp {
                             badge_tints,
                             sections,
                             selected,
+                            document_keys,
                             ..
                         }) => {
                             let joined = items.join("\u{1f}");
@@ -3290,6 +3326,13 @@ mod imp {
                                         JValue::Object(&si),
                                         JValue::Object(&ss),
                                     ],
+                                );
+                                let keys = jstr(env, &document_keys.join("\u{1f}"));
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "setDocumentTabKeys",
+                                    "(Landroid/view/View;Ljava/lang/String;)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&keys)],
                                 );
                                 // A rebuilt menu comes back unchecked, so re-apply the selection
                                 // the patch carries with it.
@@ -3338,6 +3381,17 @@ mod imp {
                     }
                 }
                 kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::DocumentTabsPatch>() {
+                        with_env(|env| {
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "documentNavChrome",
+                                "(Landroid/view/View;Z)V",
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(p.native)],
+                            );
+                        });
+                        return;
+                    }
                     // Inline search (docs/search.md): the app writing its query patches the live
                     // field, so a sync never rebuilds it or takes the insertion point. The Java
                     // side guards the echo while it writes.
@@ -3416,6 +3470,22 @@ mod imp {
                             // Android is `SlidingPaneLayout`, which decides at measure time and
                             // is OBSERVED rather than told (docs/size-classes.md).
                             NavPatch::Presentation(_) => {}
+                            NavPatch::Reorder(order) => with_env(|env| {
+                                let text = jstr(
+                                    env,
+                                    &order
+                                        .iter()
+                                        .map(usize::to_string)
+                                        .collect::<Vec<_>>()
+                                        .join(","),
+                                );
+                                let _ = env.dcall_static(
+                                    BRIDGE,
+                                    "reorderNavSuite",
+                                    "(Landroid/view/View;Ljava/lang/String;)V",
+                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&text)],
+                                );
+                            }),
                             // The resident-page switch (docs/navigation.md): the app moved the
                             // selection, so the suite shows that page and syncs its chrome
                             // Without reporting the move back as a tap.
@@ -3721,6 +3791,7 @@ mod imp {
             // (day_spec::sidetable; the maps below predate it and stay manual).
             day_spec::sidetable::sweep(key);
             LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
+            NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 TREE_SOURCES.with(|m| m.borrow_mut().remove(&nid));
                 LIST_SOURCES.with(|m| {
@@ -3759,7 +3830,7 @@ mod imp {
                     .get(&(child.0.as_obj().as_raw() as usize))
                     .cloned()
             });
-            if let Some((node, titles, icons)) = rows {
+            if let Some((node, titles, icons, keys)) = rows {
                 with_env(|env| {
                     let t = jstr(env, &titles);
                     let i = jstr(env, &icons);
@@ -3773,6 +3844,13 @@ mod imp {
                             JValue::Object(&i),
                             JValue::Long(node),
                         ],
+                    );
+                    let keys = jstr(env, &keys);
+                    let _ = env.dcall_static(
+                        BRIDGE,
+                        "setDocumentTabKeys",
+                        "(Landroid/view/View;Ljava/lang/String;)V",
+                        &[JValue::Object(child.0.as_obj()), JValue::Object(&keys)],
                     );
                     if env.exception_check() {
                         env.exception_clear();
@@ -4282,6 +4360,10 @@ mod imp {
                     env.new_global_ref(&obj).expect("adopt: global ref"),
                 ))
             })
+        }
+
+        fn native_document_tabs(&self) -> bool {
+            true
         }
 
         fn open_window(

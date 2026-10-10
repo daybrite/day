@@ -199,6 +199,7 @@ day_core::tls_group! {
     /// Recorded at realize, where the props are, and handed to a navigation suite at INSERT — the
     /// first moment the menu has ancestors to walk. Where there is no suite above it (every
     /// presentation but `Tabs`) the handover finds nothing and the rows stay a list.
+    static DOCUMENT_MENU_KEYS: RefCell<HashMap<usize, Vec<String>>> = RefCell::new(HashMap::new());
     static NAV_MENU_ROWS: RefCell<HashMap<usize, NavRow>> = RefCell::new(HashMap::new());
 
     /// Per-label style state, keyed by widget ptr. Font and color render through one Pango
@@ -1466,6 +1467,7 @@ impl NavSplit {
 
 /// nav host(Sidebar) → `NavSplit`; stack → AdwNavigationView (push/pop).
 enum NavPresent {
+    Documents(Rc<DocumentHost>),
     /// Sidebar, content list, and detail in nested GtkPaneds with draggable dividers.
     Split(Rc<NavSplit>),
     /// `NavPresentation::Tabs`: the Adwaita view-switching idiom — an `AdwViewSwitcher` over
@@ -1492,6 +1494,137 @@ enum NavPresent {
         menu_node: Rc<std::cell::Cell<u64>>,
     },
     Stack(adw::NavigationView),
+}
+
+/// Document tabs use libadwaita's document container, not its section switcher.
+struct DocumentHost {
+    bar: adw::TabBar,
+    view: adw::TabView,
+    sidebar: gtk4::Box,
+    keys: RefCell<Vec<String>>,
+    titles: RefCell<Vec<String>>,
+    page_keys: Rc<RefCell<HashMap<usize, String>>>,
+    menu: Rc<std::cell::Cell<u64>>,
+    suppress: Rc<std::cell::Cell<bool>>,
+}
+impl DocumentHost {
+    fn new(
+        id: NodeId,
+        config: &DocumentTabsConfig,
+        suppress: Rc<std::cell::Cell<bool>>,
+    ) -> (Handle, Rc<Self>) {
+        let view = adw::TabView::new();
+        view.set_vexpand(true);
+        let bar = adw::TabBar::new();
+        bar.set_view(Some(&view));
+        bar.set_autohide(false);
+        let container = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        let sidebar = gtk4::Box::new(gtk4::Orientation::Vertical, 0);
+        sidebar.set_visible(false);
+        container.append(&sidebar);
+        container.append(&bar);
+        container.append(&view);
+        let menu = Rc::new(std::cell::Cell::new(0));
+        let page_keys: Rc<RefCell<HashMap<usize, String>>> = Rc::default();
+        if config.can_add {
+            let button = gtk4::Button::from_icon_name("list-add-symbolic");
+            button.set_tooltip_text(Some(&config.new_label));
+            let label = config.new_label.clone();
+            button.update_property(&[gtk4::accessible::Property::Label(&label)]);
+            button.connect_clicked(move |_| {
+                emit(
+                    id,
+                    Event::Custom {
+                        tag: "day:tab-new",
+                        num: 0.0,
+                        text: String::new(),
+                    },
+                )
+            });
+            bar.set_end_action_widget(Some(&button));
+        }
+        {
+            let (s, m) = (suppress.clone(), menu.clone());
+            view.connect_selected_page_notify(move |view| {
+                if !s.get()
+                    && m.get() != 0
+                    && let Some(page) = view.selected_page()
+                {
+                    emit(
+                        NodeId(m.get()),
+                        Event::SelectionChanged(view.page_position(&page) as i64),
+                    );
+                }
+            });
+        }
+        {
+            let keys = page_keys.clone();
+            let s = suppress.clone();
+            view.connect_close_page(move |view, page| {
+                if s.get() {
+                    return gtk4::glib::Propagation::Proceed;
+                }
+                view.close_page_finish(page, false);
+                if !s.get()
+                    && let Some(key) = keys.borrow().get(&widget_key(&page.child())).cloned()
+                {
+                    emit(
+                        id,
+                        Event::Custom {
+                            tag: "day:tab-close",
+                            num: 0.0,
+                            text: key,
+                        },
+                    );
+                }
+                // Cancel native removal; the app accepts later by removing the model key.
+                gtk4::glib::Propagation::Stop
+            });
+        }
+        {
+            let keys = page_keys.clone();
+            let s = suppress.clone();
+            view.connect_page_reordered(move |_, page, index| {
+                if !s.get()
+                    && let Some(key) = keys.borrow().get(&widget_key(&page.child())).cloned()
+                {
+                    emit(
+                        id,
+                        Event::Custom {
+                            tag: "day:tab-move",
+                            num: index as f64,
+                            text: key,
+                        },
+                    );
+                }
+            });
+        }
+        let host = Rc::new(Self {
+            bar,
+            view,
+            sidebar,
+            keys: RefCell::new(Vec::new()),
+            titles: RefCell::new(Vec::new()),
+            page_keys,
+            menu,
+            suppress,
+        });
+        (container.upcast(), host)
+    }
+    fn rows(&self, node: NodeId, keys: &[String], titles: &[String]) {
+        self.menu.set(node.0);
+        *self.keys.borrow_mut() = keys.to_vec();
+        *self.titles.borrow_mut() = titles.to_vec();
+        for i in 0..self.view.n_pages() {
+            let page = self.view.nth_page(i);
+            if let Some(key) = self.page_keys.borrow().get(&widget_key(&page.child()))
+                && let Some(at) = keys.iter().position(|k| k == key)
+                && let Some(title) = titles.get(at)
+            {
+                page.set_title(title);
+            }
+        }
+    }
 }
 
 /// Show/hide the sidebar of this process's `nav(Sidebar)` host — what a
@@ -1978,10 +2111,11 @@ fn retint_template_images() {
     let mut live = Vec::new();
     IMAGE_SOURCE.with(|t| {
         t.for_each(|_, entry| {
-            if entry.template && entry.tint.is_none() {
-                if let Some(pic) = entry.picture.upgrade() {
-                    live.push((pic, entry.name.clone()));
-                }
+            if entry.template
+                && entry.tint.is_none()
+                && let Some(pic) = entry.picture.upgrade()
+            {
+                live.push((pic, entry.name.clone()));
             }
         })
     });
@@ -2232,6 +2366,7 @@ fn nav_report(host_key: usize) {
         let (hw, hh) = match &state.present {
             NavPresent::Split(sp) => (sp.outer.width() as f64, sp.outer.height() as f64),
             NavPresent::Stack(nv) => (nv.width() as f64, nv.height() as f64),
+            NavPresent::Documents(doc) => (doc.view.width() as f64, doc.view.height() as f64),
             NavPresent::Suite { stack, .. } => (stack.width() as f64, stack.height() as f64),
         };
         if hw <= 0.0 || hh <= 0.0 {
@@ -3159,11 +3294,25 @@ fn suite_apply_rows(stack: &adw::ViewStack, titles: &[String], icons: &[Option<S
 /// A nav menu's rows reached a navigation suite: walking up from `from`, the first Suite host
 /// takes them as its switcher's rows (the menu lives inside that host's rows page). Run when
 /// the menu is inserted and whenever its rows are rebuilt.
-fn suite_rows_changed(from: &Handle, node: NodeId, titles: &[String], icons: &[Option<String>]) {
+fn suite_rows_changed(
+    from: &Handle,
+    node: NodeId,
+    titles: &[String],
+    icons: &[Option<String>],
+    keys: &[String],
+) {
     let mut up = Some(from.clone());
     while let Some(w) = up {
         let taken = NAV_STATE.with(|m| {
             let m = m.borrow();
+            if let Some(NavState {
+                present: NavPresent::Documents(doc),
+                ..
+            }) = m.get(&widget_key(&w))
+            {
+                doc.rows(node, keys, titles);
+                return true;
+            }
             let Some(NavState {
                 present:
                     NavPresent::Suite {
@@ -4145,6 +4294,24 @@ impl Toolkit for Gtk {
                     .unwrap_or(day_spec::props::NavPresentation::Split);
                 let is_split = presentation.is_split();
                 let suppress = Rc::new(std::cell::Cell::new(false));
+                if let Some(config) = props
+                    .downcast_ref::<NavProps>()
+                    .and_then(|p| p.documents.as_ref())
+                {
+                    let (host, doc) = DocumentHost::new(id, config, suppress.clone());
+                    NAV_STATE.with(|m| {
+                        m.borrow_mut().insert(
+                            widget_key(&host),
+                            NavState {
+                                present: NavPresent::Documents(doc),
+                                split: false,
+                                pages: Vec::new(),
+                                suppress,
+                            },
+                        )
+                    });
+                    return host;
+                }
                 if presentation.rows_are_chrome() {
                     // The GNOME view-switching idiom (`NavPresent::Suite` explains).
                     let stack = adw::ViewStack::new();
@@ -4452,6 +4619,10 @@ impl Toolkit for Gtk {
                 sw.set_policy(gtk4::PolicyType::Never, gtk4::PolicyType::Automatic);
                 sw.set_child(Some(&listbox));
                 let handle: Handle = sw.upcast();
+                DOCUMENT_MENU_KEYS.with(|m| {
+                    m.borrow_mut()
+                        .insert(widget_key(&handle), p.document_keys.to_vec());
+                });
                 NAV_MENU_ROWS.with(|m| {
                     m.borrow_mut()
                         .insert(widget_key(&handle), (id, p.items.clone(), p.icons.clone()))
@@ -4794,8 +4965,9 @@ impl Toolkit for Gtk {
                             if let Some(cell) = expander.child()
                                 && let Some(src) = source.borrow().as_ref()
                             {
-                                TREE_CELL_TOKENS
-                                    .with(|m| m.borrow_mut().insert(widget_key(&cell), tok));
+                                TREE_CELL_TOKENS.with(|m| {
+                                    m.borrow_mut().insert(widget_key(cell.upcast_ref()), tok)
+                                });
                                 (src.bind_row)(tok, cell.as_ptr() as RawHandle);
                                 // `bind_row` laid the row at the TREE's width; the cell knows
                                 // the width the expander actually left it and re-lays to that.
@@ -4830,8 +5002,9 @@ impl Toolkit for Gtk {
                                 if let (Some(cell), Some(src)) =
                                     (expander.child(), source.borrow().as_ref())
                                 {
-                                    TREE_CELL_TOKENS
-                                        .with(|m| m.borrow_mut().remove(&widget_key(&cell)));
+                                    TREE_CELL_TOKENS.with(|m| {
+                                        m.borrow_mut().remove(&widget_key(cell.upcast_ref()))
+                                    });
                                     ffi_guard::contain((), || {
                                         (src.recycle)(cell.as_ptr() as RawHandle);
                                     });
@@ -5429,6 +5602,7 @@ impl Toolkit for Gtk {
             }
             kinds::NAV_MENU => {
                 if let Some(NavMenuPatch::Items {
+                    document_keys,
                     items,
                     icons,
                     badges,
@@ -5438,8 +5612,12 @@ impl Toolkit for Gtk {
                     tints,
                     menus,
                     selected,
+                    ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
+                    DOCUMENT_MENU_KEYS.with(|m| {
+                        m.borrow_mut().insert(widget_key(h), document_keys.to_vec());
+                    });
                     NAV_MENUS.with(|m| {
                         let mut m = m.borrow_mut();
                         let Some(state) = m.get_mut(&widget_key(h)) else {
@@ -5485,7 +5663,7 @@ impl Toolkit for Gtk {
                     if let Some(node) = node
                         && let Some(parent) = h.parent()
                     {
-                        suite_rows_changed(&parent, node, items, icons);
+                        suite_rows_changed(&parent, node, items, icons, document_keys);
                     }
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
@@ -5508,12 +5686,62 @@ impl Toolkit for Gtk {
                 }
             }
             kinds::NAV => {
+                if let Some(p) = patch.downcast_ref::<day_spec::props::DocumentTabsPatch>() {
+                    NAV_STATE.with(|m| {
+                        if let Some(state) = m.borrow().get(&widget_key(h))
+                            && let NavPresent::Documents(doc) = &state.present
+                        {
+                            doc.bar.set_visible(p.native);
+                        }
+                    });
+                    return;
+                }
+                if let Some(NavPatch::Reorder(order)) = patch.downcast_ref::<NavPatch>() {
+                    NAV_STATE.with(|m| {
+                        let mut m = m.borrow_mut();
+                        if let Some(state) = m.get_mut(&widget_key(h)) {
+                            let old = state.pages.clone();
+                            state.pages = old
+                                .first()
+                                .cloned()
+                                .into_iter()
+                                .chain(order.iter().filter_map(|i| old.get(i + 1).cloned()))
+                                .collect();
+                            if let NavPresent::Documents(doc) = &state.present {
+                                doc.suppress.set(true);
+                                for (i, (key, _, _)) in state.pages.iter().skip(1).enumerate() {
+                                    for n in 0..doc.view.n_pages() {
+                                        let page = doc.view.nth_page(n);
+                                        if page
+                                            .child()
+                                            .first_child()
+                                            .is_some_and(|c| widget_key(&c) == *key)
+                                        {
+                                            doc.view.reorder_page(&page, i as i32);
+                                            break;
+                                        }
+                                    }
+                                }
+                                doc.suppress.set(false);
+                            }
+                        }
+                    });
+                    return;
+                }
                 if let Some(p) = patch.downcast_ref::<NavPatch>() {
                     NAV_STATE.with(|m| {
                         let m = m.borrow();
                         let Some(state) = m.get(&widget_key(h)) else {
                             return;
                         };
+                        if let (NavPatch::Select(i), NavPresent::Documents(doc)) =
+                            (p, &state.present)
+                            && *i < doc.view.n_pages() as usize
+                        {
+                            doc.suppress.set(true);
+                            doc.view.set_selected_page(&doc.view.nth_page(*i as i32));
+                            doc.suppress.set(false);
+                        }
                         // Structure (sidebar / content / push) is driven from insert & remove;
                         // Popped drives the stack's day-initiated pop (suppressing its echo).
                         if let (NavPatch::Popped, NavPresent::Stack(nv)) = (p, &state.present) {
@@ -5794,6 +6022,7 @@ impl Toolkit for Gtk {
             }
         });
         let key = widget_key(&h);
+        DOCUMENT_MENU_KEYS.with(|m| m.borrow_mut().remove(&key));
         // One call clears this pointer out of every SideTable registered on this thread (canvas
         // OPS, IMAGE_SOURCE, LIST_CELL_ROWS, COVER_IDS, SURFACE's css providers, the
         // picker/textarea state, the toolbar tables), running each table's teardown hook —
@@ -5874,7 +6103,13 @@ impl Toolkit for Gtk {
         if let Some((node, titles, icons)) =
             NAV_MENU_ROWS.with(|m| m.borrow().get(&widget_key(child)).cloned())
         {
-            suite_rows_changed(parent, node, &titles, &icons);
+            let keys = DOCUMENT_MENU_KEYS.with(|m| {
+                m.borrow()
+                    .get(&widget_key(child))
+                    .cloned()
+                    .unwrap_or_default()
+            });
+            suite_rows_changed(parent, node, &titles, &icons, &keys);
         }
         let host_key = widget_key(parent);
         let handled = NAV_STATE.with(|m| {
@@ -5890,6 +6125,31 @@ impl Toolkit for Gtk {
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| "Day".to_string());
             let nav_page = match &state.present {
+                NavPresent::Documents(doc) => {
+                    if index == 0 {
+                        doc.sidebar.append(child);
+                    } else {
+                        let cell = DayCell::filling();
+                        cell.add_child(child);
+                        doc.suppress.set(true);
+                        let page = doc.view.append(&cell);
+                        if let Some(key) = doc.keys.borrow().get(index - 1).cloned() {
+                            doc.page_keys
+                                .borrow_mut()
+                                .insert(widget_key(cell.upcast_ref()), key);
+                        }
+                        if let Some(title) = doc.titles.borrow().get(index - 1) {
+                            page.set_title(title);
+                        }
+                        doc.suppress.set(false);
+                        cell.on_allocate(move |w, h| {
+                            if w > 0 && h > 0 {
+                                emit(id, Event::FrameChanged(Size::new(w as f64, h as f64)));
+                            }
+                        });
+                    }
+                    None
+                }
                 NavPresent::Split(sp) => {
                     // The page goes into its pane's filling cell, which hands it the whole
                     // pane; Day lays the page's content to the width `nav_report` reports.
@@ -6034,6 +6294,23 @@ impl Toolkit for Gtk {
                             child.parent().and_then(|p| p.downcast::<DayCell>().ok())
                         {
                             cell.remove_child(child);
+                        }
+                    }
+                    (NavPresent::Documents(doc), _) => {
+                        if let Some(cell) =
+                            child.parent().and_then(|p| p.downcast::<DayCell>().ok())
+                        {
+                            doc.suppress.set(true);
+                            let page = doc.view.page(&cell);
+                            doc.view.close_page(&page);
+
+                            doc.page_keys
+                                .borrow_mut()
+                                .remove(&widget_key(cell.upcast_ref()));
+                            cell.remove_child(child);
+                            doc.suppress.set(false);
+                        } else if child.parent().is_some() {
+                            doc.sidebar.remove(child);
                         }
                     }
                     (NavPresent::Suite { stack, .. }, _) => {
@@ -7223,6 +7500,10 @@ impl Toolkit for Gtk {
         snapshot_widget(host)
     }
 
+    fn native_document_tabs(&self) -> bool {
+        true
+    }
+
     fn open_window(
         &mut self,
         id: NodeId,
@@ -7264,7 +7545,9 @@ impl Toolkit for Gtk {
         if let Some(group) = &self.menu_group {
             window.insert_action_group("daymenu", Some(group));
         }
-        window.present();
+        if !options.start_hidden {
+            window.present();
+        }
         self.secondary.push(GtkWin {
             window,
             fixed: fixed.clone(),

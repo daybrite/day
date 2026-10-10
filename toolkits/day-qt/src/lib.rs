@@ -799,6 +799,10 @@ pub static RENDERERS: [fn() -> Renderer<Qt>];
 /// A live secondary window (docs/windows.md): the day root node id, the DayWindow, and
 /// its inner content widget (the adopted handle).
 struct QtWin {
+    #[cfg(target_os = "macos")]
+    id: NodeId,
+    #[cfg(target_os = "macos")]
+    tab_group: Option<String>,
     win: *mut c_void,
     content: *mut c_void,
 }
@@ -1348,6 +1352,7 @@ struct NavSuite {
     /// The row labels and glyph names, once the menu has arrived.
     titles: Vec<String>,
     icons: Vec<Option<String>>,
+    keys: Vec<String>,
 }
 
 /// Put the rows on the bar, for as many tabs as currently exist.
@@ -1408,7 +1413,7 @@ fn nav_suite_sync(host: *mut std::os::raw::c_void) {
 }
 
 /// A realized nav menu's rows: `(node, titles, icon names)`.
-type NavRow = (NodeId, Vec<String>, Vec<Option<String>>);
+type NavRow = (NodeId, Vec<String>, Vec<Option<String>>, Vec<String>);
 
 /// A tab click. Reported against the MENU, not the host, so one handler serves every presentation.
 extern "C" fn nav_suite_changed(id: u64, index: c_int) {
@@ -1422,6 +1427,33 @@ extern "C" fn nav_suite_changed(id: u64, index: c_int) {
         emit(
             node.unwrap_or(NodeId(id)),
             Event::SelectionChanged(index as i64),
+        );
+    });
+}
+
+extern "C" fn document_tab_event(id: u64, action: c_int, index: c_int, to: c_int) {
+    ffi_guard::contain((), || {
+        let key = NAV_SUITES
+            .with(|m| {
+                m.borrow()
+                    .values()
+                    .find(|s| s.host.0 == id)
+                    .and_then(|s| s.keys.get(index.saturating_sub(1) as usize))
+                    .cloned()
+            })
+            .unwrap_or_default();
+        let tag = match action {
+            0 => "day:tab-new",
+            1 => "day:tab-close",
+            _ => "day:tab-move",
+        };
+        emit(
+            NodeId(id),
+            Event::Custom {
+                tag,
+                num: (to - 1).max(0) as f64,
+                text: key,
+            },
         );
     });
 }
@@ -2096,9 +2128,20 @@ impl Toolkit for Qt {
                                     pages: Vec::new(),
                                     titles: Vec::new(),
                                     icons: Vec::new(),
+                                    keys: Vec::new(),
                                 },
                             )
                         });
+                        if let Some(config) = nav_props.and_then(|p| p.documents.as_ref()) {
+                            ffi::day_qt_tabs_documents(
+                                w,
+                                id.0,
+                                cstr(&config.new_label).as_ptr(),
+                                cstr(&config.close_label).as_ptr(),
+                                config.can_add as c_int,
+                                document_tab_event,
+                            );
+                        }
                         return QtHandle(w);
                     }
                     let is_split = nav_props.map(|p| p.presentation.is_split()).unwrap_or(true);
@@ -2186,8 +2229,15 @@ impl Toolkit for Qt {
                     // Keep the rows for `insert`, where a navigation suite above this menu can
                     // finally be found and handed them.
                     NAV_SUITE_ROWS.with(|m| {
-                        m.borrow_mut()
-                            .insert(w as usize, (id, p.items.clone(), p.icons.clone()))
+                        m.borrow_mut().insert(
+                            w as usize,
+                            (
+                                id,
+                                p.items.clone(),
+                                p.icons.clone(),
+                                p.document_keys.to_vec(),
+                            ),
+                        )
                     });
                     let joined = p.items.join("\u{1f}");
                     // Parallel per-row icon file paths (empty entry = no icon). Resolve the
@@ -2520,6 +2570,7 @@ impl Toolkit for Qt {
                 }
                 kinds::NAV_MENU => {
                     if let Some(NavMenuPatch::Items {
+                        document_keys,
                         items,
                         icons,
                         tints,
@@ -2531,6 +2582,24 @@ impl Toolkit for Qt {
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
+                        NAV_SUITE_ROWS.with(|m| {
+                            if let Some(row) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                                row.1 = items.clone();
+                                row.2 = icons.clone();
+                                row.3 = document_keys.to_vec();
+                            }
+                        });
+                        let host = ffi::day_qt_enclosing_tabs(h.0);
+                        if !host.is_null() {
+                            NAV_SUITES.with(|m| {
+                                if let Some(s) = m.borrow_mut().get_mut(&(host as usize)) {
+                                    s.titles = items.clone();
+                                    s.icons = icons.clone();
+                                    s.keys = document_keys.to_vec();
+                                }
+                            });
+                            suite_apply_rows(host);
+                        }
                         // Data-driven rows: rebuild the QListWidget from the new labels/icons
                         // (the same shim call realize uses), then apply the selection.
                         let joined = items.join("\u{1f}");
@@ -2659,6 +2728,26 @@ impl Toolkit for Qt {
                     }
                 }
                 kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::DocumentTabsPatch>() {
+                        ffi::day_qt_tabs_chrome(h.0, c_int::from(p.native));
+                        nav_suite_sync(h.0);
+                        return;
+                    }
+                    if let Some(NavPatch::Reorder(order)) = patch.downcast_ref::<NavPatch>() {
+                        NAV_SUITES.with(|m| {
+                            let mut m = m.borrow_mut();
+                            if let Some(s) = m.get_mut(&(h.0 as usize)) {
+                                let old = s.pages.clone();
+                                s.pages =
+                                    order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                                for (i, (page, _)) in s.pages.iter().enumerate() {
+                                    ffi::day_qt_tabs_move_page(h.0, page.0, (i + 1) as c_int);
+                                }
+                            }
+                        });
+                        suite_apply_rows(h.0);
+                        return;
+                    }
                     if let Some(NavPatch::Presentation(next)) = patch.downcast_ref::<NavPatch>() {
                         // A rail lands on the sidebar this backend does have: nothing in Qt is a
                         // vertical strip of icon-only destinations, and `NavPresentation::Rail` is
@@ -2734,7 +2823,7 @@ impl Toolkit for Qt {
                                 }
                                 // Custom back header → always NavBack{already_popped:false};
                                 // no native auto-pop to suppress (docs/navigation.md).
-                                NavPatch::GuardTop(_) => {}
+                                NavPatch::GuardTop(_) | NavPatch::Reorder(_) => {}
                                 // Handled before this borrow (it re-parents widgets).
                                 NavPatch::Presentation(_) => {}
                                 // The resident-page switch (docs/navigation.md): the app moved the
@@ -2914,6 +3003,8 @@ impl Toolkit for Qt {
         let toolbars = &mut self.toolbars;
         self.secondary.retain(|w| {
             if w.content == h.0 {
+                #[cfg(target_os = "macos")]
+                day_macos_tabs::unregister(w.id);
                 toolbars.remove(&(w.win as usize));
                 unsafe { ffi::day_qt_window_destroy(w.win) };
                 false
@@ -3036,7 +3127,7 @@ impl Toolkit for Qt {
         }
         // A nav menu that has just gained a parent chain: if a suite is above it, its rows are
         // that suite's bar. Labels and glyphs both, in row order.
-        if let Some((node, titles, icons)) =
+        if let Some((node, titles, icons, keys)) =
             NAV_SUITE_ROWS.with(|m| m.borrow().get(&(child.0 as usize)).cloned())
         {
             let suite = unsafe { ffi::day_qt_enclosing_tabs(parent.0) };
@@ -3046,6 +3137,7 @@ impl Toolkit for Qt {
                         s.menu_node = node;
                         s.titles = titles;
                         s.icons = icons;
+                        s.keys = keys;
                     }
                 });
                 suite_apply_rows(suite);
@@ -3820,6 +3912,48 @@ impl Toolkit for Qt {
         snapshot_qt_widget(host.0)
     }
 
+    fn native_window_tabs(&self) -> bool {
+        cfg!(target_os = "macos")
+    }
+    #[cfg(target_os = "macos")]
+    fn group_windows(&mut self, hosts: &[QtHandle]) {
+        // Core applies window flags after open_window. Qt can recreate its NSWindow
+        // while applying those flags, so obtain the native window only after that step.
+        for host in hosts {
+            if let Some(w) = self.secondary.iter().find(|w| w.content == host.0)
+                && let Some(group) = &w.tab_group
+            {
+                unsafe {
+                    ffi::day_qt_window_show(w.win);
+                    let view = ffi::day_qt_window_nsview(w.win);
+                    let raw = day_macos_tabs::window_from_view(view);
+                    day_macos_tabs::register(raw, w.id, group);
+                }
+            }
+        }
+        let ids = hosts
+            .iter()
+            .filter_map(|h| {
+                self.secondary
+                    .iter()
+                    .find(|w| w.content == h.0)
+                    .map(|w| w.id)
+            })
+            .collect::<Vec<_>>();
+        day_macos_tabs::group(&ids);
+    }
+    #[cfg(target_os = "macos")]
+    fn window_tab_order(&self, host: &QtHandle) -> Vec<NodeId> {
+        self.secondary
+            .iter()
+            .find(|w| w.content == host.0)
+            .map(|w| day_macos_tabs::order(w.id))
+            .unwrap_or_default()
+    }
+    fn native_document_tabs(&self) -> bool {
+        true
+    }
+
     fn open_window(
         &mut self,
         id: NodeId,
@@ -3837,9 +3971,23 @@ impl Toolkit for Qt {
             )
         };
         apply_open_options(win, options, fixed == 0);
-        unsafe { ffi::day_qt_window_show(win) };
+        if !options.start_hidden {
+            unsafe { ffi::day_qt_window_show(win) };
+        }
         let content = unsafe { ffi::day_qt_window_content(win) };
-        self.secondary.push(QtWin { win, content });
+        self.secondary.push(QtWin {
+            #[cfg(target_os = "macos")]
+            id,
+            #[cfg(target_os = "macos")]
+            tab_group: match &options.tabbing {
+                day_spec::WindowTabbing::Group(g) | day_spec::WindowTabbing::Preferred(g) => {
+                    Some(g.clone())
+                }
+                _ => None,
+            },
+            win,
+            content,
+        });
         day_spec::WindowOpenReply::Open(QtHandle(content))
     }
 
@@ -3847,6 +3995,8 @@ impl Toolkit for Qt {
         if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
             // closeEvent confirms with WindowClosed; the window HIDES — destruction is
             // anchored to day-core releasing the content handle (`release`, below).
+            #[cfg(target_os = "macos")]
+            day_macos_tabs::unregister(w.id);
             unsafe { ffi::day_qt_window_close(w.win) };
         }
     }

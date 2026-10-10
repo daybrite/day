@@ -5717,6 +5717,8 @@ pub mod props {
     /// Navigation host (docs/navigation.md).
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NavProps {
+        /// Document-tab chrome, independent of navigation destinations.
+        pub documents: Option<DocumentTabsConfig>,
         pub title: String,
         /// The presentation to draw now; re-presented in place by [`NavPatch::Presentation`].
         pub presentation: NavPresentation,
@@ -5759,6 +5761,20 @@ pub mod props {
         /// `true` on every host whose first destination has a list, and on hosts with no pane
         /// at all, where it means nothing.
         pub list_visible: bool,
+    }
+
+    /// Switch only tab chrome; resident contents must retain their native identity.
+    #[derive(Clone, Copy, Debug, PartialEq)]
+    pub struct DocumentTabsPatch {
+        pub native: bool,
+    }
+
+    /// Localized document-tab chrome. Native callbacks emit stable route keys.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct DocumentTabsConfig {
+        pub new_label: String,
+        pub close_label: String,
+        pub can_add: bool,
     }
 
     /// Where a searchable surface's field should be drawn.
@@ -5855,6 +5871,8 @@ pub mod props {
         /// A backend drawing a stacked presentation never receives it; the pieces layer sends
         /// push/pop there instead.
         Select(usize),
+        /// Reorder resident detail pages by their previous indices without rebuilding them.
+        Reorder(Vec<usize>),
         /// Show or collapse the content-list pane ([`Pane::List`]), the per-destination
         /// visibility switch (`Nav::content_list_for`, docs/navigation.md): a nav host
         /// section that spans the whole detail area (a settings page) collapses the pane, and
@@ -6023,6 +6041,8 @@ pub mod props {
     /// ignores them.
     #[derive(Clone, Debug, Default, PartialEq)]
     pub struct NavMenuProps {
+        /// Stable document identities, parallel to items; empty for ordinary navigation.
+        pub document_keys: Vec<String>,
         pub items: Vec<String>,
         pub icons: Vec<Option<String>>,
         /// A trailing accessory per row: an unread count, a status. Rendered right-aligned and
@@ -6064,6 +6084,7 @@ pub mod props {
         /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied without
         /// re-emitting SelectionChanged.
         Items {
+            document_keys: Box<[String]>,
             items: Vec<String>,
             icons: Vec<Option<String>>,
             badges: Vec<Option<String>>,
@@ -7070,6 +7091,21 @@ pub trait Toolkit: Sized + 'static {
     /// [`Event::WindowStateChanged`], never by assuming the request took. The default ignores
     /// every change.
     fn apply_window(&mut self, _host: &Self::Handle, _change: &WindowChange) {}
+
+    /// True OS window groups, as distinct from native tab widgets.
+    fn native_window_tabs(&self) -> bool {
+        false
+    }
+    /// Native in-window document/section tab control; OS grouping is reported separately.
+    fn native_document_tabs(&self) -> bool {
+        false
+    }
+    /// Join/reorder these windows in an OS tab group. Content remains window-owned.
+    fn group_windows(&mut self, _hosts: &[Self::Handle]) {}
+    /// Current native order of the group containing this window, including detached groups.
+    fn window_tab_order(&self, _host: &Self::Handle) -> Vec<NodeId> {
+        Vec::new()
+    }
 
     /// Install the app's Dock menu (docs/menus.md "Dock menu"): the items macOS shows above
     /// its own when the user right-clicks the app's Dock icon, built from the app's

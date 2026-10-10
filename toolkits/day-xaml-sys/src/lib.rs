@@ -336,7 +336,13 @@ unsafe extern "C" {
         out_content: *mut *mut c_void,
         stack: c_int,
         rtl: c_int,
+        documents: c_int,
+        can_add: c_int,
+        new_label: *const c_char,
+        document_cb: extern "C" fn(u64, c_int, c_int, *const c_char),
     ) -> *mut c_void;
+    pub fn day_xaml_document_chrome(host: *mut c_void, native: c_int);
+    pub fn day_xaml_document_items(nav: *mut c_void, titles: *const c_char, keys: *const c_char);
     pub fn day_xaml_nav_set_items(
         nav: *mut c_void,
         items_joined: *const c_char,

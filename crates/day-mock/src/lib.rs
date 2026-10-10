@@ -296,6 +296,10 @@ pub struct MockState {
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
+    /// Enable the OS window-tab contract for lifecycle tests.
+    pub native_window_tabs: bool,
+    /// Native tab groups in display order; tests can simulate an OS reorder or detach.
+    pub window_tab_groups: Vec<Vec<NodeId>>,
     /// Every `announce` in order, as `(text, urgent)` (docs/accessibility.md), probe-visible.
     pub announcements: Vec<(String, bool)>,
     /// What `reduce_motion` answers (docs/accessibility.md): the user's system setting as
@@ -1403,6 +1407,7 @@ impl Toolkit for MockToolkit {
                     // Logged only: mock answers `Cap::NavContentList` Unsupported, so the pieces
                     // layer composes and these arrive solely in tests that force the cap.
                     NavPatch::ListVisible(v) => format!("nav list visible={v}"),
+                    NavPatch::Reorder(order) => format!("nav reorder {order:?}"),
                     NavPatch::ListInStack(v) => format!("nav list in-stack={v}"),
                 }
             } else if let Some(p) = patch.downcast_ref::<CoverPatch>() {
@@ -2028,6 +2033,51 @@ impl Toolkit for MockToolkit {
         st.log(format!("fit_window {} {size:?}", host.0));
     }
 
+    fn native_window_tabs(&self) -> bool {
+        self.state.borrow().native_window_tabs
+    }
+    fn native_document_tabs(&self) -> bool {
+        true
+    }
+    fn group_windows(&mut self, hosts: &[MockHandle]) {
+        let mut state = self.state.borrow_mut();
+        let ids: Vec<_> = hosts
+            .iter()
+            .filter_map(|h| {
+                state
+                    .windows
+                    .iter()
+                    .find(|w| w.handle == h.0 && w.open)
+                    .map(|w| w.node)
+            })
+            .collect();
+        for group in &mut state.window_tab_groups {
+            group.retain(|id| !ids.contains(id));
+        }
+        state.window_tab_groups.retain(|group| !group.is_empty());
+        if !ids.is_empty() {
+            state.window_tab_groups.push(ids);
+        }
+        state.log(format!("group_windows {hosts:?}"));
+    }
+    fn window_tab_order(&self, host: &MockHandle) -> Vec<NodeId> {
+        let state = self.state.borrow();
+        let Some(window) = state.windows.iter().find(|w| w.handle == host.0 && w.open) else {
+            return Vec::new();
+        };
+        state
+            .window_tab_groups
+            .iter()
+            .find(|group| group.contains(&window.node))
+            .map(|group| {
+                group
+                    .iter()
+                    .copied()
+                    .filter(|id| state.windows.iter().any(|w| w.node == *id && w.open))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
     fn open_window(
         &mut self,
         id: NodeId,

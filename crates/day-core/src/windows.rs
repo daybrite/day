@@ -54,9 +54,11 @@ struct WindowRecord {
     /// `kind` today; a per-window override is the natural next step.
     role: WindowRole,
     scope: Scope,
+    content_scope: Option<Scope>,
     tier: Tier,
     focused: bool,
     on_close: OnCloseList,
+    close_request: Option<Rc<dyn Fn()>>,
     /// What the window's `state()` signal holds: written by the app to ask, and by
     /// `Event::WindowStateChanged` to report.
     state: Signal<WindowState>,
@@ -92,6 +94,7 @@ day_reactive::tls_slots! {
     static NEW_WINDOW: RefCell<Option<Rc<dyn Fn() -> AnyPiece>>> = const { RefCell::new(None) };
     /// Builders behind the macOS tab bar's "+" for windows of one tab group
     /// (`register_new_window_for`, docs/windows.md).
+    static TAB_NEW: RefCell<Vec<(String, Rc<dyn Fn()>)>> = const { RefCell::new(Vec::new()) };
     static GROUP_WINDOWS: RefCell<Vec<(String, Rc<dyn Fn() -> AnyPiece>)>> = const { RefCell::new(Vec::new()) };
     static NEW_WINDOW_ACTION: Cell<u64> = const { Cell::new(0) };
 
@@ -116,6 +119,42 @@ pub struct WindowHandle {
 }
 
 impl WindowHandle {
+    /// Bind command/ambient lookup to retained document state without transferring scope ownership.
+    pub fn set_content_scope(&self, scope: Scope) {
+        WINDOWS.with(|w| {
+            if let Some(r) = w.borrow_mut().iter_mut().find(|r| r.root == self.root) {
+                r.content_scope = Some(scope);
+            }
+        });
+    }
+
+    /// Route native user close requests to the document owner. `close()` still closes
+    /// unconditionally after the owner has accepted and removed its content.
+    pub fn on_close_request(&self, f: impl Fn() + 'static) {
+        WINDOWS.with(|w| {
+            if let Some(r) = w.borrow_mut().iter_mut().find(|r| r.root == self.root) {
+                r.close_request = Some(Rc::new(f));
+            }
+        });
+    }
+    /// Observe native activation (including selection of an OS window tab).
+    pub fn on_focus(&self, f: impl Fn() + 'static) {
+        with_tree(|t| {
+            t.on_event(
+                self.root,
+                Rc::new(move |ev| {
+                    if matches!(ev, Event::WindowFocused(true)) {
+                        f();
+                    }
+                }),
+            )
+        });
+    }
+    /// Native order of this window's tab group. Empty where unsupported.
+    pub fn tab_order(&self) -> Vec<NodeId> {
+        with_tree(|t| t.window_tab_order(self.root))
+    }
+
     /// Close the window. Asynchronous: the platform (or the cover's hide transition)
     /// confirms, then the content is disposed and `on_close` callbacks run. Idempotent.
     pub fn close(&self) {
@@ -491,7 +530,7 @@ pub fn focused_scope() -> Option<Scope> {
         let initial = INITIAL_WINDOW.with(|c| c.get());
         focused
             .or_else(|| windows.iter().find(|r| Some(r.root) == initial))
-            .map(|r| r.scope)
+            .map(|r| r.content_scope.unwrap_or(r.scope))
     })
 }
 
@@ -581,9 +620,11 @@ fn register(root: RNode, key: Option<&str>, kind: WindowKind, scope: Scope, tier
             kind,
             role: WindowRole::from(kind),
             scope,
+            content_scope: None,
             tier,
             focused: true,
             on_close: Rc::default(),
+            close_request: None,
             state,
             reported,
             remember: None,
@@ -1151,6 +1192,28 @@ pub fn register_new_window_for<P: Piece>(group: &str, build: impl Fn() -> P + 's
 /// whose tabbing names a group). Uses the group's registered builder, else the app's New Window
 /// builder; `None` when neither exists.
 pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
+    let action = TAB_NEW.with(|g| {
+        g.borrow()
+            .iter()
+            .find(|(name, _)| name == group)
+            .map(|(_, f)| f.clone())
+    });
+    if action.is_some() {
+        let group = group.to_string();
+        day_reactive::on_main(move || {
+            let action = TAB_NEW.with(|g| {
+                g.borrow()
+                    .iter()
+                    .find(|(name, _)| name == &group)
+                    .map(|(_, f)| f.clone())
+            });
+            if let Some(f) = action {
+                f();
+            }
+        });
+        return None;
+    }
+
     let Some(build) = GROUP_WINDOWS.with(|g| {
         g.borrow()
             .iter()
@@ -1330,4 +1393,49 @@ pub fn initial_window() -> Option<WindowHandle> {
 /// The window root's spec-boundary id (backends key their per-window maps by it).
 pub fn window_node_id(handle: &WindowHandle) -> NodeId {
     rnode_to_id(handle.root)
+}
+
+/// Whether this backend can group actual OS windows as tabs.
+pub fn native_window_tabs() -> bool {
+    with_tree(|t| t.native_window_tabs())
+}
+
+/// Explicit grouping, independent of the user's automatic-tabbing preference.
+pub fn group_windows(windows: &[WindowHandle]) {
+    with_tree(|t| t.group_windows(&windows.iter().map(|w| w.root).collect::<Vec<_>>()));
+}
+
+/// Native close delegate hook. Queue document code outside the toolkit callback.
+/// Returns false when the owner will decide whether to close.
+pub fn native_close_requested(id: NodeId) -> bool {
+    let handler = WINDOWS.with(|w| {
+        w.borrow()
+            .iter()
+            .find(|r| r.root == id_to_rnode(id))
+            .and_then(|r| r.close_request.clone())
+    });
+    if handler.is_some() {
+        day_reactive::on_main(move || {
+            let handler = WINDOWS.with(|w| {
+                w.borrow()
+                    .iter()
+                    .find(|r| r.root == id_to_rnode(id))
+                    .and_then(|r| r.close_request.clone())
+            });
+            if let Some(f) = handler {
+                f();
+            }
+        });
+        false
+    } else {
+        true
+    }
+}
+
+/// Route the native group add button to a document collection rather than a window builder.
+/// Registration belongs to the current scope.
+pub fn register_tab_new(group: String, action: Rc<dyn Fn()>) {
+    TAB_NEW.with(|g| g.borrow_mut().push((group.clone(), action)));
+    Scope::current()
+        .on_cleanup(move || TAB_NEW.with(|g| g.borrow_mut().retain(|(name, _)| *name != group)));
 }

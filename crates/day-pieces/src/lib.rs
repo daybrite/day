@@ -50,7 +50,9 @@ mod sources;
 mod split;
 mod status;
 mod structure;
+mod tabs;
 mod toolbar;
+pub use tabs::*;
 
 pub use canvas::*;
 pub use containers::*;
@@ -75,6 +77,7 @@ pub use day_core::{Ambient, app_environment, environment, focused_environment, w
 pub use toolbar::*;
 
 pub mod prelude {
+    pub use crate::{DocumentTabs, TabActions, TabSet, document_tabs};
     // Model-driven rows (docs/model.md): the store-as-RowSource surface.
     pub use crate::TextStyle;
     pub use crate::ToolbarEntry;

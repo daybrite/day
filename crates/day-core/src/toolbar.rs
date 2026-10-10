@@ -59,11 +59,34 @@ struct Contribution {
     items: Vec<ToolbarItem>,
     /// The window this contribution's chrome belongs to.
     window: RNode,
+    document_window: Option<DocumentWindow>,
     /// Whether the page carrying it is on screen. One bar serves the window, so a pane that is
     /// collapsed or a destination that is not the one showing must not leave its commands on it;
     /// that is what made a sidebar row's chrome look one level out of step (docs/toolbars.md).
     /// `None` for a window's items, which are always showing.
     active: Option<Rc<dyn Fn() -> bool>>,
+}
+
+/// A resident document's mutable presentation window. Contributions inherit this
+/// context so moving the document also moves its commands without rebuilding them.
+#[derive(Clone)]
+pub struct DocumentWindow(Rc<Cell<RNode>>);
+impl DocumentWindow {
+    pub fn new(root: RNode) -> Self {
+        Self(Rc::new(Cell::new(root)))
+    }
+    pub fn set(&self, root: RNode) {
+        if self.0.replace(root) != root {
+            schedule_recompose();
+        }
+    }
+}
+impl Contribution {
+    fn window(&self) -> RNode {
+        self.document_window
+            .as_ref()
+            .map_or(self.window, |w| w.0.get())
+    }
 }
 
 day_reactive::tls_slots! {
@@ -269,6 +292,7 @@ pub fn register_contribution_gated(
                 seq: token,
                 items,
                 window,
+                document_window: day_reactive::Scope::current().use_context::<DocumentWindow>(),
                 active,
             },
         )
@@ -284,7 +308,7 @@ fn merged_window(root: RNode) -> Vec<ToolbarItem> {
     let mut live: Vec<(u64, Vec<ToolbarItem>)> = CONTRIBUTIONS.with(|m| {
         m.borrow()
             .values()
-            .filter(|c| c.window == root)
+            .filter(|c| c.window() == root)
             .filter(|c| {
                 c.active
                     .as_ref()
@@ -395,7 +419,7 @@ fn mirror_value(action: u64, value: &ToolbarValue) {
         },
     };
     CONTRIBUTIONS.with(|m| {
-        for c in m.borrow_mut().values_mut().filter(|c| c.window == root) {
+        for c in m.borrow_mut().values_mut().filter(|c| c.window() == root) {
             apply_to_model(&mut c.items, &patch);
         }
     });
@@ -469,7 +493,7 @@ fn recompose_windows_inner() {
     RECOMPOSE_PENDING.with(|p| p.set(false));
     let roots: Vec<RNode> = {
         let mut v: Vec<RNode> =
-            CONTRIBUTIONS.with(|m| m.borrow().values().map(|c| c.window).collect());
+            CONTRIBUTIONS.with(|m| m.borrow().values().map(|c| c.window()).collect());
         // A window whose last contribution left still has a bar to take down.
         v.extend(MODELS.with(|m| {
             m.borrow()
@@ -781,7 +805,7 @@ pub fn patch_chrome(chrome: Chrome, patch: ToolbarPatch) {
         for c in m.values_mut() {
             if c.chrome == chrome {
                 apply_to_model(&mut c.items, &patch);
-                window = Some(c.window);
+                window = Some(c.window());
             }
         }
         window
@@ -858,7 +882,7 @@ pub(crate) fn forget_window(root: RNode) {
         let mut m = m.borrow_mut();
         let mut gone = Vec::new();
         m.retain(|_, c| {
-            let mine = c.window == root;
+            let mine = c.window() == root;
             if mine {
                 gone.extend(c.items.clone());
             }

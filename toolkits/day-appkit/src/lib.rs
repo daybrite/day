@@ -5054,6 +5054,11 @@ define_class!(
             })
         }
 
+        #[unsafe(method(windowShouldClose:))]
+        fn window_should_close(&self, _window: &NSWindow) -> bool {
+            ffi_guard::contain(false, || day_core::windows::native_close_requested(self.ivars().node.unwrap_or(WINDOW_NODE)))
+        }
+
         #[unsafe(method(windowWillClose:))]
         fn window_will_close(&self, _notification: &NSNotification) {
             ffi_guard::contain((), || {
@@ -6750,7 +6755,16 @@ impl Toolkit for AppKit {
                         ),
                     );
                     unsafe {
-                        tv.setTabViewType(objc2_app_kit::NSTabViewType::TopTabsBezelBorder);
+                        tv.setTabViewType(
+                            if props
+                                .downcast_ref::<NavProps>()
+                                .is_some_and(|p| p.documents.is_some())
+                            {
+                                objc2_app_kit::NSTabViewType::NoTabsNoBorder
+                            } else {
+                                objc2_app_kit::NSTabViewType::TopTabsBezelBorder
+                            },
+                        );
                         tv.setFrame(frame);
                         tv.setAutoresizingMask(
                             objc2_app_kit::NSAutoresizingMaskOptions::ViewWidthSizable
@@ -7352,6 +7366,7 @@ impl Toolkit for AppKit {
                     tints,
                     menus,
                     selected,
+                    ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
                     NAV_MENUS.with(|m| {
@@ -7536,6 +7551,26 @@ impl Toolkit for AppKit {
                             // (NavBack{already_popped:false}), so there is no native auto-pop to
                             // suppress; the guard runs in the pieces layer (docs/navigation.md).
                             NavPatch::GuardTop(_) => {}
+                            NavPatch::Reorder(order) => {
+                                let old = state.pages.clone();
+                                state.pages =
+                                    order.iter().filter_map(|i| old.get(*i).cloned()).collect();
+                                if let Some(tabs) = &state.tabs {
+                                    TAB_PICK_SUPPRESS.with(|s| s.set(true));
+                                    unsafe {
+                                        let items = tabs.view.tabViewItems();
+                                        for item in items.iter() {
+                                            tabs.view.removeTabViewItem(&item);
+                                        }
+                                        for i in order {
+                                            if let Some(item) = items.iter().nth(*i) {
+                                                tabs.view.addTabViewItem(&item);
+                                            }
+                                        }
+                                    }
+                                    TAB_PICK_SUPPRESS.with(|s| s.set(false));
+                                }
+                            }
                             // Handled outside this borrow (it re-homes views and builds chrome).
                             NavPatch::Presentation(_) => {}
                             // Resident-page switch (docs/navigation.md): every page stays in the
@@ -9391,6 +9426,53 @@ impl Toolkit for AppKit {
             content: content.clone(),
         });
         day_spec::WindowOpenReply::Open(content)
+    }
+
+    fn native_window_tabs(&self) -> bool {
+        true
+    }
+    fn group_windows(&mut self, hosts: &[Handle]) {
+        let windows: Vec<_> = hosts.iter().filter_map(|h| self.ns_window_for(h)).collect();
+        let Some(first) = windows.first() else {
+            return;
+        };
+        unsafe {
+            NSWindow::setAllowsAutomaticWindowTabbing(true, self.mtm);
+        }
+        // Explicit insertion respects the model even when system automatic tabbing is off.
+        for window in windows.iter().skip(1) {
+            unsafe {
+                first.addTabbedWindow_ordered(window, objc2_app_kit::NSWindowOrderingMode::Above);
+            }
+        }
+        if let Some(group) = first.tabGroup() {
+            if !group.isTabBarVisible() {
+                unsafe {
+                    first.toggleTabBar(None);
+                }
+            }
+            for (i, window) in windows.iter().enumerate() {
+                group.insertWindow_atIndex(window, i as isize);
+            }
+        }
+    }
+    fn window_tab_order(&self, host: &Handle) -> Vec<NodeId> {
+        let Some(window) = self.ns_window_for(host) else {
+            return Vec::new();
+        };
+        let windows = window.tabGroup().map(|g| g.windows());
+        let Some(windows) = windows else {
+            return Vec::new();
+        };
+        windows
+            .iter()
+            .filter_map(|window| {
+                self.secondary
+                    .iter()
+                    .find(|w| std::ptr::eq(&*w.window, &*window))
+                    .and_then(|w| w.delegate.ivars().node)
+            })
+            .collect()
     }
 
     fn close_window(&mut self, host: &Handle) {

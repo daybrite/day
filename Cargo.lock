@@ -654,6 +654,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-macos-tabs"
+version = "0.5.0"
+dependencies = [
+ "day-core",
+ "day-reactive",
+ "day-spec",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "day-macros"
 version = "0.5.0"
 
@@ -1226,6 +1238,7 @@ version = "0.5.0"
 dependencies = [
  "day-core",
  "day-dbus",
+ "day-macos-tabs",
  "day-pieces",
  "day-qt-sys",
  "day-spec",
@@ -5486,11 +5499,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "day-piece-charts"
-version = "0.4.2"
-
-[[patch.unused]]
-name = "day-piece-webview"
-version = "0.4.3"

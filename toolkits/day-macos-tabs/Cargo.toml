@@ -1,0 +1,20 @@
+# Copyright © The Daybrite Project
+# SPDX-License-Identifier: MPL-2.0
+
+[package]
+name = "day-macos-tabs"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+day-core = { workspace = true }
+day-reactive = { workspace = true }
+day-spec = { workspace = true }
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-app-kit = "0.3"

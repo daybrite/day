@@ -25,3 +25,6 @@ windows = { version = "0.62", features = ["ApplicationModel_DataTransfer", "Foun
 # docs/deep-links.md): Unity LauncherEntry and a claimed bus name over the session bus, std-only.
 [target.'cfg(target_os = "linux")'.dependencies]
 day-dbus = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+day-macos-tabs = { path = "../day-macos-tabs" }

@@ -186,6 +186,31 @@ extern "C" fn nav_menu_changed(id: u64, index: c_int) {
 
 /// A user pick in a NavigationView pane: the shim passes the HOST node id + item index; route it to
 /// the host's NAV_MENU node (whose day handler maps the index back to a route).
+extern "C" fn document_event(host_id: u64, kind: c_int, index: c_int, key: *const c_char) {
+    ffi_guard::contain((), || {
+        let tag = match kind {
+            0 => "day:tab-new",
+            1 => "day:tab-close",
+            _ => "day:tab-move",
+        };
+        let text = if key.is_null() {
+            String::new()
+        } else {
+            unsafe { std::ffi::CStr::from_ptr(key) }
+                .to_string_lossy()
+                .into_owned()
+        };
+        emit(
+            NodeId(host_id),
+            Event::Custom {
+                tag,
+                num: index as f64,
+                text,
+            },
+        );
+    });
+}
+
 extern "C" fn nav_selection(host_id: u64, index: c_int) {
     ffi_guard::contain((), || {
         let host = NAV_HOST_BY_ID.with(|m| m.borrow().get(&host_id).copied());
@@ -1825,6 +1850,10 @@ impl Toolkit for Xaml {
                         &mut content,
                         is_stack as c_int,
                         (day_core::layout_direction() == day_spec::LayoutDirection::Rtl) as c_int,
+                        p.documents.is_some() as c_int,
+                        p.documents.as_ref().is_some_and(|d| d.can_add) as c_int,
+                        cstr(p.documents.as_ref().map_or("", |d| d.new_label.as_str())).as_ptr(),
+                        document_event,
                     );
                     if pane_mode >= 0 {
                         ffi::day_xaml_nav_set_pane_mode(nav, pane_mode);
@@ -1933,6 +1962,11 @@ impl Toolkit for Xaml {
                             .map(|ic| ic.as_deref().map(icon_file_name).unwrap_or_default())
                             .collect::<Vec<_>>()
                             .join("\n");
+                        ffi::day_xaml_document_items(
+                            pending,
+                            cstr(&p.items.join("\u{1f}")).as_ptr(),
+                            cstr(&p.document_keys.join("\u{1f}")).as_ptr(),
+                        );
                         ffi::day_xaml_nav_set_items(
                             pending,
                             cstr(&p.items.join("\n")).as_ptr(),
@@ -2418,6 +2452,7 @@ impl Toolkit for Xaml {
                             badge_tints,
                             sections,
                             selected,
+                            document_keys,
                             ..
                         }) => {
                             let idx = selected.map(|i| i as c_int).unwrap_or(-1);
@@ -2432,6 +2467,11 @@ impl Toolkit for Xaml {
                                         })
                                         .collect::<Vec<_>>()
                                         .join("\n");
+                                    ffi::day_xaml_document_items(
+                                        nav,
+                                        cstr(&items.join("\u{1f}")).as_ptr(),
+                                        cstr(&document_keys.join("\u{1f}")).as_ptr(),
+                                    );
                                     ffi::day_xaml_nav_set_items(
                                         nav,
                                         joined.as_ptr(),
@@ -2528,6 +2568,12 @@ impl Toolkit for Xaml {
                     }
                 }
                 kinds::NAV => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::DocumentTabsPatch>() {
+                        unsafe {
+                            ffi::day_xaml_document_chrome(h.0, c_int::from(p.native));
+                        }
+                        return;
+                    }
                     if let Some(np) = patch.downcast_ref::<NavPatch>() {
                         let title = match np {
                             NavPatch::Pushed { title, .. } => Some(title.as_str()),
@@ -2538,6 +2584,20 @@ impl Toolkit for Xaml {
                             // NavigationView BackRequested already routes back through Day
                             // (never a native auto-pop), so nothing to suppress here.
                             NavPatch::GuardTop(_) => None,
+                            NavPatch::Reorder(order) => {
+                                NAV_STATE.with(|m| {
+                                    if let Some(NavState::Split(st)) =
+                                        m.borrow_mut().get_mut(&(h.0 as usize))
+                                    {
+                                        let old = st.detail_pages.clone();
+                                        st.detail_pages = order
+                                            .iter()
+                                            .filter_map(|i| old.get(*i).cloned())
+                                            .collect();
+                                    }
+                                });
+                                None
+                            }
                             // Unreachable: this backend answers `Cap::NavRepresent =
                             // Unsupported`, so the pieces layer never sends it. A NavigationView
                             // owns its own PaneDisplayMode, so re-presenting here means driving
@@ -3441,6 +3501,10 @@ impl Toolkit for Xaml {
         unsafe {
             ffi::day_xaml_canvas_set_ops(h.0, nums.as_ptr(), nums.len() as c_int, joined.as_ptr())
         };
+    }
+
+    fn native_document_tabs(&self) -> bool {
+        cfg!(feature = "winui")
     }
 
     fn open_window(

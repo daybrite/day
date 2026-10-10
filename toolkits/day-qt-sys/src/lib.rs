@@ -27,6 +27,8 @@ unsafe extern "C" {
         fixed: c_int,
     ) -> *mut c_void;
     pub fn day_qt_window_content(win: *mut c_void) -> *mut c_void;
+    #[cfg(target_os = "macos")]
+    pub fn day_qt_window_nsview(window: *mut c_void) -> *mut c_void;
     pub fn day_qt_window_close(win: *mut c_void);
     pub fn day_qt_window_raise(win: *mut c_void);
     pub fn day_qt_window_set_title(win: *mut c_void, title: *const c_char);
@@ -221,6 +223,16 @@ unsafe extern "C" {
     pub fn day_qt_progress_new(determinate: c_int, value: c_int) -> *mut c_void;
     pub fn day_qt_progress_set(w: *mut c_void, value: c_int);
 
+    pub fn day_qt_tabs_chrome(tabs: *mut c_void, native: c_int);
+    pub fn day_qt_tabs_documents(
+        tabs: *mut c_void,
+        id: u64,
+        new_label: *const c_char,
+        close_label: *const c_char,
+        can_add: c_int,
+        cb: extern "C" fn(u64, c_int, c_int, c_int),
+    );
+    pub fn day_qt_tabs_move_page(tabs: *mut c_void, page: *mut c_void, index: c_int);
     pub fn day_qt_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     /// The first QTabWidget above `w`, or null — how a nav menu finds the suite drawing its rows.
     pub fn day_qt_enclosing_tabs(w: *mut c_void) -> *mut c_void;

@@ -1701,6 +1701,10 @@ public final class DayBridge {
             return;
         }
         ViewGroup p = (ViewGroup) child.getParent();
+        if (p != null && p.getParent() instanceof DayTabs) {
+            ((DayTabs) p.getParent()).removePage(child);
+            return;
+        }
         if (p != null) p.removeView(child);
     }
     public static void setFrame(View v, int x, int y, int w, int h) {
@@ -2537,6 +2541,27 @@ public final class DayBridge {
         }
     }
 
+    public static void reorderNavSuite(View suite, String order) {
+        if (suite instanceof DayTabs)
+            ((DayTabs) suite).reorder(order);
+    }
+    public static void documentNavChrome(View suite, boolean visible) {
+        if (suite instanceof DayTabs)
+            ((DayTabs) suite).documentChrome(visible);
+    }
+    public static void documentNavSuite(
+            View suite, String newLabel, String closeLabel, boolean canAdd) {
+        if (suite instanceof DayTabs)
+            ((DayTabs) suite).documents(newLabel, closeLabel, canAdd);
+    }
+    public static void setDocumentTabKeys(View menu, String keys) {
+        for (android.view.ViewParent p = menu.getParent(); p != null; p = p.getParent()) {
+            if (p instanceof DayTabs) {
+                ((DayTabs) p).documentKeys(keys);
+                return;
+            }
+        }
+    }
     public static void setNavSuiteSelected(View suite, int index) {
         if (suite instanceof DayTabs) ((DayTabs) suite).select(index);
     }
@@ -2599,6 +2624,7 @@ public final class DayBridge {
             String joinedSections) {
         if (!(v instanceof NavigationView)) return;
         fillNavMenu((NavigationView) v, joinedItems, joinedIcons, joinedSections);
+        setNavSuiteRows(v, joinedItems, joinedIcons, 0);
     }
 
     /** Where a sidebar row's menu-item id starts.

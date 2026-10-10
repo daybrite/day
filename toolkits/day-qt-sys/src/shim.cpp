@@ -445,6 +445,9 @@ void *day_qt_window_new2(const char *title, int w, int h, unsigned long long nod
     return win;
 }
 void *day_qt_window_content(void *win) { return static_cast<DayWindow *>(win)->content; }
+#ifdef Q_OS_MAC
+void *day_qt_window_nsview(void *win) { return reinterpret_cast<void *>(static_cast<QWidget *>(win)->winId()); }
+#endif
 void day_qt_window_close(void *win) { static_cast<QWidget *>(win)->close(); }
 void day_qt_window_raise(void *win) {
     auto *w = static_cast<QWidget *>(win);
@@ -2346,9 +2349,43 @@ void *day_qt_tabs_new(uint64_t id, void (*cb)(uint64_t, int)) {
         t->tabBar()->setStyle(fusion);
     }
 #endif
-    QObject::connect(t, &QTabWidget::currentChanged,
-                     [id, cb](int index) { cb(id, index); });
+    QObject::connect(t, &QTabWidget::currentChanged, [id, cb](int index) {
+        // Every Day suite parks the hidden sidebar at tab 0. Report destination rows,
+        // matching NavPatch::Select's inverse mapping, and ignore empty/parking pages.
+        if (index > 0) cb(id, index - 1);
+    });
     return t;
+}
+void day_qt_tabs_chrome(void *tabs, int native) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    t->tabBar()->setVisible(native != 0);
+    if (auto *corner=t->cornerWidget()) corner->setVisible(native != 0);
+}
+void day_qt_tabs_documents(void *tabs, uint64_t id, const char *newLabel, const char *closeLabel, int canAdd, void (*cb)(uint64_t,int,int,int)) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    t->setDocumentMode(true);
+    t->setTabsClosable(true);
+    t->setMovable(true);
+    t->setUsesScrollButtons(true);
+    t->tabBar()->setAccessibleDescription(QString::fromUtf8(closeLabel));
+    QObject::connect(t, &QTabWidget::tabCloseRequested, [id,cb](int i) { if (i > 0) cb(id,1,i,0); });
+    QObject::connect(t->tabBar(), &QTabBar::tabMoved, [id,cb](int from,int to) { if (from > 0 && to > 0) cb(id,2,from,to); });
+    if (canAdd) {
+        auto *b = new QToolButton(t);
+        b->setText(QStringLiteral("+"));
+        b->setToolTip(QString::fromUtf8(newLabel));
+        b->setAccessibleName(QString::fromUtf8(newLabel));
+        QObject::connect(b, &QToolButton::clicked, [id,cb] { cb(id,0,0,0); });
+        t->setCornerWidget(b);
+    }
+}
+void day_qt_tabs_move_page(void *tabs, void *page, int index) {
+    auto *t = static_cast<QTabWidget *>(tabs);
+    const int from = t->indexOf(static_cast<QWidget *>(page));
+    if (from < 0 || from == index) return;
+    QSignalBlocker block(t);
+    QSignalBlocker barBlock(t->tabBar());
+    t->tabBar()->moveTab(from,index);
 }
 void day_qt_tabs_add_page(void *tabs, void *page, const char *title, int index) {
     auto *t = static_cast<QTabWidget *>(tabs);

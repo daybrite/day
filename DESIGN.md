@@ -119,6 +119,7 @@ the architecture-level view and the rationale.
 | day-lite — JS/TS miniapps, superapp embedding, a headless miniapp test runner (in its own repository since 2026-09); the dyn piece registry it drives stays in day-pieces | [daybrite/day-lite](https://github.com/daybrite/day-lite) (its `docs/lite.md`) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | logging — the `log` facade every day crate emits through, the auto-installed default logger, per-platform sinks (stderr / logcat / the browser console), `DAY_LOG` | [docs/logging.md](docs/logging.md) | [§8.5](#85-panics-and-crashes) |
 | day-piece-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
+| document tabs — stable keys, resident pages, native window groups, and live chrome switching | [docs/navigation.md](docs/navigation.md#document-tabs), [docs/windows.md](docs/windows.md#document-window-tabs) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag; window properties (`state()`, content protection, frame, level, monitors, remembered frames, macOS tab groups) | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
 | window chrome — `WindowChrome` (frameless, overlay title bar), transparent and material backgrounds, placement, `.window_drag_region()` | [docs/window-chrome.md](docs/window-chrome.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | status items — menu-bar / tray items, Dock and taskbar progress, menu-bar apps, `KeepRunning`, `day::quit` | [docs/status-item.md](docs/status-item.md) | [§8.1](#81-the-toolkit-trait) |
@@ -387,6 +388,7 @@ Day runtime dependencies), and `day-cli` (the `day` binary).
 | `day-toolchain` | one place that knows where host toolchains/SDKs live — used by the CLI, the `-sys` build scripts, and generated scaffolds | — |
 | `day` | umbrella: `prelude`, `day::launch`, feature-gated re-export of the selected backend, plus `day::prefs` (day-part-prefs, default-on `prefs` feature — [docs/prefs.md](docs/prefs.md)) | all of the above |
 | `toolkits/day-appkit`, `day-uikit`, `day-gtk`, `day-qt` (+`day-qt-sys`), `day-android`, `day-xaml` (+`day-xaml-sys`), `day-arkui`, `day-dom` (whose JS shim ships in `crates/day-cli/resources/web/`) | backend crates | day-spec; day-core for native frame tickets and toolkit-access hooks |
+| `toolkits/day-macos-tabs` | Qt macOS window-tab bridge; forwards the toolkit delegate and routes document add/close requests | day-core, day-reactive, day-spec; macOS-only Objective-C bindings |
 | `day-cli` | the `day` binary ([§16](#16-the-day-cli)) | day-build, day-toolchain, day-fonts, day-script-proto (+ clap, serde, `serde_norway` YAML, fluent-syntax) |
 
 Two structural rules carried over from pane, both still enforced:
@@ -802,6 +804,11 @@ caller's `.any()`, never the constructor's.
 > focus-scoped key route in the modifier list below. `Decorate` did instead grow the
 > transform family (`.opacity()`, `.rotation()`, `.scale()`, `.translation()`, `.transform()`) and
 > `.animation()`. Per-subsystem detail lives in the docs/ files named in the subsystem index.
+
+`TabSet<K>` owns ordered document keys and selection. `document_tabs` keeps each document
+resident across reorder and `.native(...)` presentation changes; `.on_close` separates a close
+request from accepted removal. `.chrome` supplies shared `TabActions`, and `.layout` places that
+chrome around the content. See [document tabs](docs/navigation.md#document-tabs).
 
 ```rust
 // text & controls — two-way controls take `impl Binding<T>` (Signal<T>, or a projection):
@@ -1788,6 +1795,18 @@ through window creation.
 > Normative docs: [docs/windows.md](docs/windows.md), [docs/window-chrome.md](docs/window-chrome.md),
 > [docs/status-item.md](docs/status-item.md), [docs/menus.md](docs/menus.md#dock-menu),
 > [docs/deep-links.md](docs/deep-links.md).
+
+> [!NOTE]
+> Revised 2026-10: document tabs add defaulted `Toolkit::{native_window_tabs,
+> native_document_tabs, group_windows, window_tab_order}` duties. AppKit and macOS Qt can
+> group OS windows; GTK uses its in-window AdwTabView, including on macOS. `NavPatch::Reorder`
+> permutes resident pages; `DocumentTabsPatch` changes chrome without replacing content.
+> `TreeOps::reparent` preserves the document subtree and scope while rejecting cycles and
+> window roots. `DocumentWindow` follows its toolbar contributions; `set_content_scope`
+> makes commands resolve in the focused document. Native order sync runs on focus and close,
+> without a frame-clock subscription. The Qt bridge lives in `toolkits/day-macos-tabs`, so
+> day-core has no AppKit dependencies. See [navigation](docs/navigation.md#document-tabs)
+> and [document-window lifecycle](docs/windows.md#document-window-tabs).
 
 `WindowOptions::start_hidden` defaults to false. AppKit honors it for both the initial host and
 secondary windows: native creation and root mounting still happen, but the window is not
@@ -5060,7 +5079,7 @@ day/                                # THIS repository
   crates/                           # day, day-core, day-reactive, day-geometry, day-spec,
                                     #   day-pieces, day-fluent, day-l10n, day-script, day-script-proto, day-mock,
                                     #   day-build, day-fonts, day-toolchain, day-cli
-  toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys),
+  toolkits/                         # day-appkit, day-uikit, day-gtk, day-qt(+sys), day-macos-tabs,
                                     #   day-android, day-xaml(+sys), day-arkui(+sys)
   pieces/                           # external-style UI pieces (day-piece-combobox, -searchfield,
                                     #   -picker, -rating, -activity, -map,
@@ -7347,5 +7366,5 @@ implemented capabilities, and does not promise system PAC/caches/native-auth equ
 Transport observation maintains constant-size aggregate payload counters and the latest 256
 transfer records per session/global scope. HTTP exchanges and WebSocket lifetimes are distinct
 from physical sockets; rates include idle time and simulated bytes are labeled separately. Only
-traffic through this part is observable. Details and examples live in `docs/http.md` and
+traffic through this part is observable. Details and examples live in [docs/http.md](docs/http.md) and
 `parts/day-part-http/README.md`; regression tests are in `parts/day-part-http/tests/simulation.rs`.

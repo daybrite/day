@@ -9837,3 +9837,268 @@ fn sidebar_destination_centers_in_native_cell_height() {
         );
     }
 }
+
+#[test]
+fn document_tabs_preserve_resident_identity_and_dispose_only_closed_pages() {
+    use std::{cell::RefCell, rc::Rc};
+    let tabs = TabSet::<String>::new();
+    tabs.open("first".into(), true);
+    let built = Rc::new(RefCell::new(Vec::new()));
+    let disposed = Rc::new(RefCell::new(Vec::new()));
+    let (builds, closes) = (built.clone(), disposed.clone());
+    let probe = boot(move || {
+        document_tabs(
+            tabs,
+            "Fixture new tab",
+            "Fixture close tab",
+            Clone::clone,
+            move |key| {
+                builds.borrow_mut().push(key.clone());
+                let (key, closes) = (key.clone(), closes.clone());
+                let title = format!("Fixture page {key}");
+                Scope::current().on_cleanup(move || closes.borrow_mut().push(key.clone()));
+                label(title)
+            },
+        )
+    });
+    let first = probe
+        .find_by_kind("day.label")
+        .into_iter()
+        .find(|(_, w)| w.text == "Fixture page first")
+        .unwrap()
+        .0;
+    tabs.open("second".into(), false);
+    flush_sync();
+    assert_eq!(tabs.selected().as_deref(), Some("first"));
+    assert_eq!(&*built.borrow(), &["first", "second"]);
+    tabs.move_to(&"first".into(), 1);
+    flush_sync();
+    tabs.select(&"second".into());
+    flush_sync();
+    tabs.select(&"first".into());
+    flush_sync();
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(h, _)| *h == first)
+    );
+    assert!(disposed.borrow().is_empty());
+    assert_eq!(built.borrow().len(), 2);
+    tabs.close(&"second".into());
+    flush_sync();
+    assert_eq!(&*disposed.borrow(), &["second"]);
+    assert_eq!(tabs.selected().as_deref(), Some("first"));
+    tabs.close(&"first".into());
+    flush_sync();
+    assert_eq!(&*disposed.borrow(), &["second", "first"]);
+}
+
+#[test]
+fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
+    use std::{cell::Cell, rc::Rc};
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.state.borrow_mut().native_window_tabs = true;
+    let tabs = TabSet::<String>::new();
+    tabs.open("fixture-one".into(), true);
+    tabs.open("fixture-two".into(), false);
+    let native = Signal::new(false);
+    let builds = Rc::new(Cell::new(0));
+    let disposals = Rc::new(Cell::new(0));
+    let (built, disposed) = (builds.clone(), disposals.clone());
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        document_tabs(
+            tabs,
+            "Fixture new",
+            "Fixture close",
+            Clone::clone,
+            move |key| {
+                built.set(built.get() + 1);
+                let disposed = disposed.clone();
+                Scope::current().on_cleanup(move || disposed.set(disposed.get() + 1));
+                text_field(Signal::new(key.clone()))
+                    .id(key.clone())
+                    .toolbar(toolbar_button(
+                        format!("fixture-command-{key}"),
+                        key.clone(),
+                    ))
+            },
+        )
+        .native(move || native.get())
+        .any()
+    });
+    let before = day_core::with_tree(|t| t.find_by_id("fixture-one")).unwrap();
+    for _ in 0..3 {
+        native.set(true);
+        flush_sync();
+        assert_eq!(probe.windows().iter().filter(|w| w.open).count(), 2);
+        assert_eq!(
+            day_core::with_tree(|t| t.find_by_id("fixture-one")),
+            Some(before)
+        );
+        assert_eq!(builds.get(), 2);
+        assert_eq!(disposals.get(), 0);
+        assert_eq!(
+            day_core::toolbar::toolbar_model()
+                .iter()
+                .filter(|item| item.id.starts_with("fixture-command-"))
+                .count(),
+            2
+        );
+        // A native tab click updates selection without sending focus back to the toolkit.
+        let focus_count = probe
+            .log()
+            .iter()
+            .filter(|line| line.starts_with("focus_window #"))
+            .count();
+        let second = probe
+            .windows()
+            .into_iter()
+            .find(|w| w.open && w.title == "fixture-two")
+            .unwrap();
+        probe.emit(second.node, Event::WindowFocused(true));
+        flush_sync();
+        assert_eq!(tabs.selected().as_deref(), Some("fixture-two"));
+        assert_eq!(
+            probe
+                .log()
+                .iter()
+                .filter(|line| line.starts_with("focus_window #"))
+                .count(),
+            focus_count
+        );
+        native.set(false);
+        flush_sync();
+        assert_eq!(
+            day_core::with_tree(|t| t.find_by_id("fixture-one")),
+            Some(before)
+        );
+        assert_eq!(probe.windows().iter().filter(|w| w.open).count(), 0);
+        assert_eq!(
+            day_core::toolbar::toolbar_model()
+                .iter()
+                .filter(|item| item.id.starts_with("fixture-command-"))
+                .count(),
+            1
+        );
+        assert_eq!(builds.get(), 2);
+        assert_eq!(disposals.get(), 0);
+    }
+    native.set(true);
+    flush_sync();
+    tabs.close(&"fixture-one".into());
+    flush_sync();
+    assert_eq!(disposals.get(), 1);
+    assert_eq!(probe.windows().iter().filter(|w| w.open).count(), 1);
+    assert_eq!(tabs.selected().as_deref(), Some("fixture-two"));
+    native.set(false);
+    flush_sync();
+    tabs.close(&"fixture-two".into());
+    flush_sync();
+    assert_eq!(disposals.get(), 2);
+}
+
+#[test]
+fn document_tabs_observe_native_order_on_focus_and_close_without_frames() {
+    use std::{cell::Cell, rc::Rc};
+    let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.state.borrow_mut().native_window_tabs = true;
+    let tabs = TabSet::<String>::new();
+    for key in ["fixture-a", "fixture-b", "fixture-c", "fixture-d"] {
+        tabs.open(key.into(), false);
+    }
+    let native = Signal::new(false);
+    let builds = Rc::new(Cell::new(0));
+    let disposals = Rc::new(Cell::new(0));
+    let (built, disposed) = (builds.clone(), disposals.clone());
+    let requests = Rc::new(Cell::new(0));
+    let requested = requests.clone();
+    day_core::launch_with(mock, WindowOptions::default(), move || {
+        document_tabs(
+            tabs,
+            "Fixture new",
+            "Fixture close",
+            Clone::clone,
+            move |key| {
+                built.set(built.get() + 1);
+                let disposed = disposed.clone();
+                Scope::current().on_cleanup(move || disposed.set(disposed.get() + 1));
+                label(key.clone()).id(key)
+            },
+        )
+        .native(move || native.get())
+        .on_close(move |_| requested.set(requested.get() + 1))
+        .any()
+    });
+    let frames = Rc::new(Cell::new(0));
+    let frame_count = frames.clone();
+    day_core::frame::install_frame_requester(move |_, _| {
+        frame_count.set(frame_count.get() + 1);
+        Box::new(|| {})
+    });
+    let original = day_core::with_tree(|t| t.find_by_id("fixture-a")).unwrap();
+    native.set(true);
+    flush_sync();
+    let windows = probe.windows();
+    let id = |key| windows.iter().find(|w| w.title == key).unwrap().node;
+    let (a, b, c, d) = (
+        id("fixture-a"),
+        id("fixture-b"),
+        id("fixture-c"),
+        id("fixture-d"),
+    );
+    // Simulate native reorder plus detachment into a second group. Inter-group positions
+    // stay fixed, and each group's order is merged into just its occupied positions.
+    probe.state.borrow_mut().window_tab_groups = vec![vec![c, a], vec![d, b]];
+    let grouped = probe
+        .log()
+        .iter()
+        .filter(|s| s.starts_with("group_windows"))
+        .count();
+    probe.emit(c, Event::WindowFocused(true));
+    flush_sync();
+    assert_eq!(
+        tabs.keys(),
+        ["fixture-c", "fixture-d", "fixture-a", "fixture-b"]
+    );
+    assert_eq!(tabs.selected().as_deref(), Some("fixture-c"));
+    assert_eq!(
+        probe
+            .log()
+            .iter()
+            .filter(|s| s.starts_with("group_windows"))
+            .count(),
+        grouped
+    );
+    assert_eq!(
+        day_core::with_tree(|t| t.find_by_id("fixture-a")),
+        Some(original)
+    );
+    assert_eq!(builds.get(), 4);
+    assert_eq!(disposals.get(), 0);
+    assert_eq!(frames.get(), 0, "idle tab windows must not request frames");
+
+    // A close request observes a reorder even without a focus event, but leaves removal
+    // to the app. This callback vetoes the close by keeping its key.
+    probe.state.borrow_mut().window_tab_groups = vec![vec![a, c], vec![d, b]];
+    assert!(!day_core::windows::native_close_requested(c));
+    flush_sync();
+    assert_eq!(requests.get(), 1);
+    assert_eq!(
+        tabs.keys(),
+        ["fixture-a", "fixture-d", "fixture-c", "fixture-b"]
+    );
+    assert!(tabs.contains(&"fixture-c".into()));
+    assert_eq!(disposals.get(), 0);
+    tabs.close(&"fixture-c".into());
+    flush_sync();
+    assert_eq!(disposals.get(), 1);
+    assert_eq!(probe.windows().iter().filter(|w| w.open).count(), 3);
+    assert_eq!(frames.get(), 0);
+    native.set(false);
+    flush_sync();
+}

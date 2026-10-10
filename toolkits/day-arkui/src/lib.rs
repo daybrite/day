@@ -292,6 +292,7 @@ mod imp {
     /// the platform's own metrics, and the rows keep their meaning: a bar item reports through
     /// the same synthetic-click table a sidebar row uses, so a tap is one event either way.
     struct NavSuite {
+        documents: bool,
         pages: AHandle,
         bar: AHandle,
         /// Destination pages in bar order; index i is the `Select(i)` index.
@@ -363,6 +364,9 @@ mod imp {
             suite.menu = Some(menu);
             suite.labels = items.to_vec();
             suite.icons = icons.to_vec();
+            if suite.documents {
+                return;
+            }
             let placement = suite.placement;
             for old in std::mem::take(&mut suite.bar_items) {
                 node::remove_child(suite.bar.0, old.0);
@@ -454,7 +458,7 @@ mod imp {
         let refill = NAV_SUITES.with(|c| {
             let mut c = c.borrow_mut();
             let suite = c.get_mut(&host)?;
-            if suite.placement == placement {
+            if suite.documents || suite.placement == placement {
                 return None;
             }
             suite.placement = placement;
@@ -493,21 +497,25 @@ mod imp {
             let Some(suite) = c.get_mut(&host) else {
                 return Vec::new();
             };
-            let (page_x, page, bar) = match placement {
-                SuitePlacement::Bottom => {
-                    let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
-                    (0.0, page, (0.0, page.height, size.width, NAV_BAR_H))
+            let (page_x, page, bar) = if suite.documents {
+                (0.0, size, (0.0, 0.0, 0.0, 0.0))
+            } else {
+                match placement {
+                    SuitePlacement::Bottom => {
+                        let page = Size::new(size.width, (size.height - NAV_BAR_H).max(0.0));
+                        (0.0, page, (0.0, page.height, size.width, NAV_BAR_H))
+                    }
+                    SuitePlacement::Rail => (
+                        NAV_RAIL_W,
+                        Size::new((size.width - NAV_RAIL_W).max(0.0), size.height),
+                        (0.0, 0.0, NAV_RAIL_W, size.height),
+                    ),
+                    SuitePlacement::Sidebar => (
+                        NAV_SIDEBAR_W,
+                        Size::new((size.width - NAV_SIDEBAR_W).max(0.0), size.height),
+                        (0.0, 0.0, NAV_SIDEBAR_W, size.height),
+                    ),
                 }
-                SuitePlacement::Rail => (
-                    NAV_RAIL_W,
-                    Size::new((size.width - NAV_RAIL_W).max(0.0), size.height),
-                    (0.0, 0.0, NAV_RAIL_W, size.height),
-                ),
-                SuitePlacement::Sidebar => (
-                    NAV_SIDEBAR_W,
-                    Size::new((size.width - NAV_SIDEBAR_W).max(0.0), size.height),
-                    (0.0, 0.0, NAV_SIDEBAR_W, size.height),
-                ),
             };
             suite.page_size = page;
             node::set_frame(suite.pages.0, page_x, 0.0, page.width, page.height);
@@ -2516,6 +2524,7 @@ mod imp {
                             c.borrow_mut().insert(
                                 host.0 as usize,
                                 NavSuite {
+                                    documents: p.documents.is_some(),
                                     pages,
                                     bar,
                                     items: Vec::new(),
@@ -2744,6 +2753,17 @@ mod imp {
                             // The resident-page switch (docs/navigation.md): show that
                             // destination and move the bar's accent to it.
                             NavPatch::Select(i) => suite_select(h.0 as usize, *i),
+                            NavPatch::Reorder(order) => {
+                                NAV_SUITES.with(|m| {
+                                    if let Some(s) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                                        let old = s.items.clone();
+                                        s.items = order
+                                            .iter()
+                                            .filter_map(|i| old.get(*i).cloned())
+                                            .collect();
+                                    }
+                                });
+                            }
                             // Never arrives: this backend answers `Cap::NavContentList`
                             // Unsupported, so the pieces layer composes the pane itself
                             // (docs/navigation.md).

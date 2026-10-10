@@ -93,6 +93,10 @@ implement them, and this table proves it.
 | `fit_window` | · | ✓ | · | · | · | · | · | · | · | ✓ |
 | `snapshot_window_of` | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ |
 | `apply_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `native_window_tabs` | · | ✓ | · | · | ✓ | · | · | · | · | ✓ |
+| `native_document_tabs` | · | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
+| `group_windows` | · | ✓ | · | · | ✓ | · | · | · | · | ✓ |
+| `window_tab_order` | · | ✓ | · | · | ✓ | · | · | · | · | ✓ |
 | `set_dock_menu` | · | ✓ | · | · | · | · | · | · | · | ✓ |
 | `set_drag_region` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | ✓ | ✓ |
 | `set_status_items` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |

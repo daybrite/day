@@ -738,6 +738,13 @@ pub trait TreeOps {
         scope: Scope,
     ) -> RNode;
     fn attach(&mut self, parent: RNode, child: RNode);
+    /// Move an existing subtree without disposing its scope or native handles.
+    fn reparent(&mut self, child: RNode, parent: RNode) -> bool;
+    fn native_window_tabs(&self) -> bool;
+    fn native_document_tabs(&self) -> bool;
+    fn group_windows(&mut self, roots: &[RNode]);
+    fn window_tab_order(&self, root: RNode) -> Vec<day_spec::NodeId>;
+
     fn attach_at(&mut self, parent: RNode, child: RNode, index: usize);
     fn reorder_children(&mut self, parent: RNode, order: Vec<RNode>);
     fn remove_subtree(&mut self, node: RNode);
@@ -1258,6 +1265,69 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             .map(|p| p.children.len())
             .unwrap_or(0);
         self.attach_impl(parent, child, index);
+    }
+
+    fn native_window_tabs(&self) -> bool {
+        self.toolkit.native_window_tabs()
+    }
+    fn native_document_tabs(&self) -> bool {
+        self.toolkit.native_document_tabs()
+    }
+    fn group_windows(&mut self, roots: &[RNode]) {
+        let hosts = roots
+            .iter()
+            .filter_map(|r| self.nodes.get(*r)?.handle.clone())
+            .collect::<Vec<_>>();
+        self.toolkit.group_windows(&hosts);
+    }
+    fn window_tab_order(&self, root: RNode) -> Vec<day_spec::NodeId> {
+        self.nodes
+            .get(root)
+            .and_then(|n| n.handle.as_ref())
+            .map(|h| self.toolkit.window_tab_order(h))
+            .unwrap_or_default()
+    }
+    fn reparent(&mut self, child: RNode, parent: RNode) -> bool {
+        if !self.nodes.contains_key(child) || !self.nodes.contains_key(parent) {
+            return false;
+        }
+        let old = self.nodes[child].parent;
+        if old == parent {
+            return true;
+        }
+        // Reject cycles and window roots: only content may migrate.
+        if self.windows.iter().any(|w| w.root == child) {
+            return false;
+        }
+        let mut up = parent;
+        while let Some(n) = self.nodes.get(up) {
+            if up == child {
+                return false;
+            }
+            up = n.parent;
+        }
+        let ancestor = self.native_ancestor(old);
+        let handle = self.nodes.get(ancestor).and_then(|n| n.handle.clone());
+        let mut roots = Vec::new();
+        if self.nodes[child].handle.is_some() {
+            roots.push(child);
+        } else {
+            self.native_descendants(child, &mut roots);
+        }
+        if let Some(h) = handle {
+            for r in roots {
+                // roots contains only nodes with handles, collected above without mutation.
+                self.toolkit
+                    .remove(&h, self.nodes[r].handle.as_ref().unwrap());
+            }
+        }
+        if let Some(p) = self.nodes.get_mut(old) {
+            p.children.retain(|n| *n != child);
+        }
+        self.mark_needs_measure_impl(old);
+        self.attach(parent, child);
+        self.layout_dirty = true;
+        true
     }
 
     fn attach_at(&mut self, parent: RNode, child: RNode, index: usize) {

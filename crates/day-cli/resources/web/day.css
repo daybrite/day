@@ -742,3 +742,6 @@ body.day-has-toolbar #day-root {
 }
 /* The sidebar toggle hides the split's sidebar pane rather than dispatching an app action. */
 .day-nav.split.day-sidebar-hidden .day-nav-sidebar { display: none; }
+
+/* DocumentTabs supplies the accessible closable strip; keep only resident content here. */
+.day-nav.document-tabs > .day-nav-tabbar { display: none; }

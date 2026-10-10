@@ -408,3 +408,37 @@ releases stay sound).
 | HarmonyOS | Native (when the ArkTS host registers the launchers) | multiton `DayWindowAbility` per window; `Preferences` → cover. Pre-existing backend quirk: presented covers pass asserts and receive taps but device captures show the page beneath (affects the cover piece identically — follow-up) |
 | web | Unsupported → cover fallback | a second browser window cannot share the wasm instance |
 | mock | Native | recorded windows + synthesized confirms; the e2e suite that pins the window duties |
+
+## Document-window tabs
+
+`document_tabs` can move resident documents into OS window groups on AppKit and macOS Qt.
+`Toolkit::group_windows` explicitly groups and orders the supplied window handles, independently
+of the user's automatic-tabbing preference. `window_tab_order(host)` returns known root `NodeId`s
+in native group order, or an empty vector where unsupported. GTK uses AdwTabView on every platform;
+it does not rewrite GDK's NSWindow style mask or hide its title bar to create OS tabs.
+
+Each presentation window is registered with day-core for layout, focus, size, and close events.
+`TreeOps::reparent` moves the existing content subtree without disposing its scope or handles;
+it rejects dead nodes, cycles, and window roots. `WindowHandle::set_content_scope` directs focused
+ambient and command lookup to the retained document. A mutable `DocumentWindow` context moves
+its toolbar contributions with it, including nested-navigation visibility gates.
+
+Native activation selects the document without echoing a focus request to the toolkit. Order is
+read on focus, close request, and completed close. Each detached group's order is merged into its
+existing positions in `TabSet`; observation does not merge detached groups back together. There
+is no polling timer or frame-clock subscription. A native reorder that emits no focus/close event
+is reflected at the next such event.
+
+`WindowHandle::on_close_request` defers a native close to the document owner. The owner can keep
+the key while asking about unsaved edits; accepted removal calls `TabSet::close`. Programmatic
+`WindowHandle::close()` bypasses the request hook. Switching to composed presentation first moves
+content home, then closes the empty presentation windows, so closure cannot dispose the documents.
+The initial host becomes visible again when the collection is empty or composed mode is selected.
+
+Qt's macOS bridge is in `toolkits/day-macos-tabs`. Its delegate proxy forwards toolkit-owned
+methods, retains the original delegate, and restores it at unregister. When necessary it supplies
+an NSWindowController for the native add-tab action. day-core stays platform-independent.
+
+This API does not change Preferences presentation: desktop Preferences use a separate singleton
+window, while mobile Preferences remain an in-app cover, including on iPad. See the
+[navigation contract](navigation.md#document-tabs) for keys, close handlers, and regression tests.

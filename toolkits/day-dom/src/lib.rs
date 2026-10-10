@@ -1908,6 +1908,7 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_NAV) };
+                class(el, "document-tabs", p.documents.is_some());
                 unsafe {
                     day_dom_nav_mode(
                         el,
@@ -3470,6 +3471,10 @@ fn nav_patch(el: u32, p: &NavPatch) {
             }
             // The custom back bar routes back through Day; no native auto-pop to suppress.
             NavPatch::GuardTop(_) => {}
+            NavPatch::Reorder(order) => {
+                let old = state.pages.clone();
+                state.pages = order.iter().filter_map(|i| old.get(*i).copied()).collect();
+            }
             NavPatch::Title(t) => {
                 if let Some(last) = state.titles.last_mut() {
                     *last = t.clone();
