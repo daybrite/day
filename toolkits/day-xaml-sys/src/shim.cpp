@@ -4085,19 +4085,37 @@ void day_xaml_document_items(void* h, const char* titles_joined, const char* key
             return out;
         };
         auto titles=split(titles_joined), keys=split(keys_joined);
-        std::unordered_map<std::string,WUXC::TabViewItem> old;
-        for(auto item:tabs.TabItems()) {
-            auto tab=item.as<WUXC::TabViewItem>();
-            old.emplace(winrt::to_string(winrt::unbox_value<winrt::hstring>(tab.Tag())),tab);
+        auto count=static_cast<uint32_t>(titles.size()<keys.size() ? titles.size() : keys.size());
+        auto items=tabs.TabItems();
+        auto key_of=[](WF::IInspectable const& item) {
+            return winrt::to_string(winrt::unbox_value_or<winrt::hstring>(item.as<WUXC::TabViewItem>().Tag(),L""));
+        };
+        // Reconciled in place rather than cleared and refilled: a removed tab plays TabView's
+        // close animation and an added one its entrance, and every other tab keeps its visual,
+        // hover and focus state, which a rebuild would reset on each title edit. Removals run
+        // back to front so the indices still to visit stay valid.
+        for(uint32_t i=items.Size();i-->0;) {
+            auto key=key_of(items.GetAt(i));
+            if(std::find(keys.begin(),keys.begin()+count,key)==keys.begin()+count) items.RemoveAt(i);
         }
-        tabs.TabItems().Clear();
-        for(size_t i=0;i<titles.size() && i<keys.size();++i) {
-            auto found=old.find(keys[i]);
-            WUXC::TabViewItem tab=found==old.end() ? WUXC::TabViewItem{} : found->second;
-            tab.Tag(winrt::box_value(hs(keys[i].c_str())));
-            tab.Header(winrt::box_value(hs(titles[i].c_str())));
-            WUXA::AutomationProperties::SetName(tab,hs(titles[i].c_str()));
-            tabs.TabItems().Append(tab);
+        for(uint32_t i=0;i<count;++i) {
+            WUXC::TabViewItem tab{nullptr};
+            for(uint32_t j=i;j<items.Size();++j) {
+                auto candidate=items.GetAt(j).as<WUXC::TabViewItem>();
+                if(key_of(candidate)!=keys[i]) continue;
+                if(j!=i) { items.RemoveAt(j); items.InsertAt(i,candidate); }
+                tab=candidate; break;
+            }
+            if(!tab) {
+                tab=WUXC::TabViewItem{};
+                tab.Tag(winrt::box_value(hs(keys[i].c_str())));
+                items.InsertAt(i,tab);
+            }
+            auto title=hs(titles[i].c_str());
+            if(winrt::unbox_value_or<winrt::hstring>(tab.Header(),L"")!=title) {
+                tab.Header(winrt::box_value(title));
+                WUXA::AutomationProperties::SetName(tab,title);
+            }
         }
     });
 #else
@@ -4130,20 +4148,36 @@ void* day_xaml_nav_new(unsigned long long id,
         grid.RowDefinitions().Append(strip_row); grid.RowDefinitions().Append(content_row);
         WUXC::TabView tabs;
         tabs.Height(48);
-        tabs.IsAddTabButtonVisible(false); // localized application-owned button in the footer
         tabs.CanDragTabs(true); tabs.CanReorderTabs(true); tabs.AllowDropTabs(true);
+        // The add button is TabView's own, which the strip keeps right after the last tab the
+        // way Edge and Terminal do; it answers with the app's localized label rather than WinUI's
+        // string, written onto the template's button once it is realized (the template is
+        // applied on load, so the name is set from Loaded, and again should the strip reload).
+        tabs.IsAddTabButtonVisible(can_add!=0);
         if(can_add) {
-            WUXC::Button add; WUXC::SymbolIcon icon; icon.Symbol(WUXC::Symbol::Add); add.Content(icon);
-            WUXA::AutomationProperties::SetName(add,hs(new_label));
-            WUXC::ToolTipService::SetToolTip(add,winrt::box_value(hs(new_label)));
-            add.Click([id,document_cb](auto const&, auto const&) { document_cb(id,0,0,""); });
-            tabs.TabStripFooter(add);
+            tabs.AddTabButtonClick([id,document_cb](auto const&, auto const&) { document_cb(id,0,0,""); });
+            winrt::hstring label=hs(new_label);
+            tabs.Loaded([label](WF::IInspectable const& s, WUX::RoutedEventArgs const&) {
+                std::vector<WUX::DependencyObject> pending{s.as<WUX::DependencyObject>()};
+                while(!pending.empty()) {
+                    auto current=pending.back(); pending.pop_back();
+                    if(auto add=current.try_as<WUXC::Button>(); add && add.Name()==L"AddButton") {
+                        WUXA::AutomationProperties::SetName(add,label);
+                        WUXC::ToolTipService::SetToolTip(add,winrt::box_value(label));
+                        return;
+                    }
+                    for(int i=0;i<WUXM::VisualTreeHelper::GetChildrenCount(current);++i)
+                        pending.push_back(WUXM::VisualTreeHelper::GetChild(current,i));
+                }
+            });
         }
         // During native drag reorder, selection indices are transient. Report selection only
         // after the stable-key order callback has brought Day's resident pages into sync.
         auto dragging=std::make_shared<bool>(false);
         tabs.TabDragStarting([dragging](auto const&, auto const&) { *dragging=true; });
-        tabs.SelectionChanged([id,sel_cb,dragging](WUXC::TabView const& sender,auto const&) {
+        tabs.SelectionChanged([id,sel_cb,dragging](WF::IInspectable const& s,WUXC::SelectionChangedEventArgs const&) {
+            // SelectionChangedEventHandler is untyped: the sender arrives as IInspectable.
+            auto sender=s.as<WUXC::TabView>();
             if(!g_nav_mutating && !*dragging && sender.SelectedIndex()>=0) sel_cb(id,sender.SelectedIndex());
         });
         tabs.TabCloseRequested([id,document_cb](auto const&,WUXC::TabViewTabCloseRequestedEventArgs const& args) {

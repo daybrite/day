@@ -62,7 +62,7 @@ impl<K: Clone + PartialEq + 'static> TabSet<K> {
         self.selected.set(Some(key.clone()));
         true
     }
-    /// Remove after the app accepts a close request. Prefer the following neighbour,
+    /// Remove after the app accepts a close request. Prefer the following neighbor,
     /// or the preceding one when closing the last tab. Closing the final tab selects None.
     pub fn close(self, key: &K) -> bool {
         let mut keys = self.order.get_untracked();

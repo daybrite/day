@@ -2569,9 +2569,7 @@ impl Toolkit for Xaml {
                 }
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::DocumentTabsPatch>() {
-                        unsafe {
-                            ffi::day_xaml_document_chrome(h.0, c_int::from(p.native));
-                        }
+                        ffi::day_xaml_document_chrome(h.0, c_int::from(p.native));
                         return;
                     }
                     if let Some(np) = patch.downcast_ref::<NavPatch>() {
