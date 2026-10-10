@@ -35,6 +35,7 @@ day build   -p macos-appkit  # build one target
 day launch  -p macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
 day launch  --day-src <path|url>  # run this app against another day, for one build
+day launch  --patch-local <checkout>  # run against a local day, piece, or part checkout, for one build (repeatable)
 day build   --flavor custom  # build the Day-custom.toml flavor of this app (/docs/flavors)
 day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign check              # report release-signing readiness without printing secrets
@@ -237,19 +238,34 @@ day launch --day-src https://github.com/daybrite/day.git@experimental-nav  # a b
 day launch --day-src https://github.com/someone/day.git@fix-482            # a PR fork
 ```
 
-`day patch` writes `.cargo/config.toml` and every later build uses it until you delete it;
-`--day-src` computes the same `[patch]` table, hands it to one cargo run, and leaves the project
-exactly as it found it — `Cargo.lock` included, which cargo rewrites during the build and which the
-CLI puts back afterwards. Use `day patch` when you're developing the framework and the app together
-for a while, and `--day-src` when you want one look.
+`--patch-local <checkout>` is the same idea for anything `day patch --local` takes: a day checkout,
+or an external piece or part the app depends on from git, each recognized by what it carries. It
+repeats, and it sits beside `--day-src`, so a framework branch and the piece you are changing
+against it can be tried in one run:
 
-Each day-src gets its own build tree under `build/day/day-src/<slug>/`, so two versions can be
-compared without either one's compile throwing away the other's:
+```bash
+day launch --patch-local ../day                                            # same as --day-src ../day
+day launch --patch-local ../day-piece-lottie                               # just the piece
+day launch --day-src https://github.com/daybrite/day.git@experimental-nav \
+           --patch-local ../day-piece-lottie                               # a branch, plus the piece
+```
+
+`day patch` writes `.cargo/config.toml` and every later build uses it until you delete it;
+`--day-src` and `--patch-local` compute the same `[patch]` table, hand it to one cargo run, and
+leave the project exactly as it found it — `Cargo.lock` included, which cargo rewrites during the
+build and which the CLI puts back afterwards. A lock that already holds the framework from git at
+some other version would make cargo skip the table (it warns the patch "was not used in the crate
+graph"), so those packages are relocked onto the checkout for the build — and only those, so every
+other dependency stays at the version the app has. Use `day patch` when you're developing the
+framework and the app together for a while, and the flags when you want one look.
+
+Each combination of sources gets its own build tree under `build/day/day-src/<slug>/`, so two
+versions can be compared without either one's compile throwing away the other's:
 
 ```text
      Day src https://github.com/daybrite/day.git @ main
     Checkout ~/Library/Caches/day/git/github.com/daybrite/day/main
-     Patched 33 day crate(s) → https://github.com/daybrite/day.git @ main
+     Patched 33 crate(s) → https://github.com/daybrite/day.git @ main
    Launching macos-appkit
 ```
 
@@ -258,8 +274,8 @@ from — `Day Rise (0.1.0+main-2d77edbf/appkit)` beside `Day Rise (0.1.0+day-4ae
 Switching back to a version you've already built is an incremental compile, not a fresh one.
 
 On Android and HarmonyOS only the Rust half is isolated; Gradle and hvigor keep their own shared
-build directories, so the packaging step re-runs when you switch. And `day pack` takes no
-`--day-src`, so a shipped artifact always records the framework that built it.
+build directories, so the packaging step re-runs when you switch. And `day pack` takes neither
+`--day-src` nor `--patch-local`, so a shipped artifact always records the framework that built it.
 
 `day launch` streams the app's stdout/stderr back to your terminal and can drive it with a script:
 

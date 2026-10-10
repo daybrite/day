@@ -34,6 +34,10 @@
 //! "patches must point to different sources"). That is why external crates depend on the bare
 //! canonical URL and let the app's `Cargo.lock` pick the revision, and why `--day-src` clones a
 //! ref into a directory and patches to the PATH ([`resolve_day_src`]).
+//!
+//! Both tables also exist for one run only: `day launch --day-src <path|url>` takes a day
+//! checkout or ref, and `--patch-local <checkout>` takes anything `day patch --local` would, and
+//! both hand the same table to that run's cargo through `--config` ([`resolve_run_patch`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -582,8 +586,18 @@ fn write_patch(root: &Path, sources: &[Source]) -> Result<usize, String> {
 /// The URLs a project's `.cargo/config.toml` patches, or the framework's, when there is no table
 /// yet (so a bare `--check` still asks the question it always asked).
 fn patched_urls(root: &Path) -> Vec<String> {
-    let path = root.join(".cargo/config.toml");
-    let keys = std::fs::read_to_string(&path)
+    let keys = patch_keys(&root.join(".cargo/config.toml"));
+    if keys.is_empty() {
+        vec![canon(DAY_GIT)]
+    } else {
+        keys
+    }
+}
+
+/// The URLs a cargo config file's `[patch]` tables redirect, canonical; empty when there is no
+/// such file or table.
+fn patch_keys(config: &Path) -> Vec<String> {
+    std::fs::read_to_string(config)
         .ok()
         .and_then(|t| toml::from_str::<toml::Value>(&t).ok())
         .and_then(|doc| {
@@ -591,12 +605,106 @@ fn patched_urls(root: &Path) -> Vec<String> {
                 .and_then(|p| p.as_table())
                 .map(|t| t.keys().map(|k| canon(k)).collect::<Vec<_>>())
         })
-        .unwrap_or_default();
-    if keys.is_empty() {
-        vec![canon(DAY_GIT)]
-    } else {
-        keys
+        .unwrap_or_default()
+}
+
+// --- The lock ----------------------------------------------------------------------------------
+
+/// Packages `Cargo.lock` still takes from one of `urls`: name, version, and the source URL as the
+/// lock spells it (query and fragment removed, so it is a package-id spec cargo accepts).
+///
+/// A `[patch]` entry is a candidate, not an order: when the lock already holds the crate from the
+/// URL at some other version, cargo keeps what is locked and warns that the patch "was not used
+/// in the crate graph" — then compiles the git copy, and an app written against the checkout
+/// fails to compile against a framework it never asked for. Cargo's own remedy is
+/// `cargo update -p <pkg>` for those packages, which is what [`relock`] runs.
+fn stale_in_lock(root: &Path, urls: &[String]) -> Vec<(String, String, String)> {
+    let Ok(text) = std::fs::read_to_string(root.join("Cargo.lock")) else {
+        return Vec::new();
+    };
+    let Ok(doc) = toml::from_str::<toml::Value>(&text) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for pkg in doc
+        .get("package")
+        .and_then(|p| p.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let field = |k: &str| pkg.get(k).and_then(|v| v.as_str());
+        let (Some(name), Some(version), Some(source)) =
+            (field("name"), field("version"), field("source"))
+        else {
+            continue;
+        };
+        let Some(git) = source.strip_prefix("git+") else {
+            continue;
+        };
+        if !urls.contains(&canon(git)) {
+            continue;
+        }
+        let bare = git.split_once('#').map_or(git, |(u, _)| u);
+        let bare = bare.split_once('?').map_or(bare, |(u, _)| u);
+        out.push((name.to_string(), version.to_string(), bare.to_string()));
     }
+    out
+}
+
+/// Relock whatever the lock still takes from a patched URL, so the table applies to this build.
+///
+/// Only those packages, by full package id: the rest of the lock (every crates.io version the
+/// app has) stays as it is, so the build differs from an unpatched one by the framework alone.
+/// Offline first, since the packages move onto paths and nothing needs fetching; a cold index is
+/// the one reason that fails, and the online run covers it. `config` is the one-run table handed
+/// to cargo with `--config`; `None` reads the project's `.cargo/config.toml` as a build would.
+/// Returns how many packages moved.
+pub(crate) fn relock(root: &Path, urls: &[String], config: Option<&Path>) -> Result<usize, String> {
+    let stale = stale_in_lock(root, urls);
+    if stale.is_empty() {
+        return Ok(0);
+    }
+    let specs: Vec<String> = stale
+        .iter()
+        .map(|(name, version, url)| format!("{url}#{name}@{version}"))
+        .collect();
+    let run = |offline: bool| -> Result<(), String> {
+        let mut cmd = Command::new("cargo");
+        cmd.current_dir(root).arg("update");
+        if offline {
+            cmd.arg("--offline");
+        }
+        if let Some(cfg) = config {
+            cmd.arg("--config").arg(cfg);
+        }
+        for spec in &specs {
+            cmd.arg("-p").arg(spec);
+        }
+        let out = cmd
+            .output()
+            .map_err(|e| format!("could not run cargo update: {e}"))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
+        }
+    };
+    if let Err(offline) = run(true)
+        && let Err(online) = run(false)
+    {
+        return Err(format!(
+            "cargo update -p {} failed: {online} (offline: {offline})",
+            specs.join(" -p ")
+        ));
+    }
+    status(
+        "Relocked",
+        &format!(
+            "{} crate(s) Cargo.lock still took from git, onto the patch",
+            stale.len()
+        ),
+    );
+    Ok(stale.len())
 }
 
 /// What [`check`] found: packages that should have been patched and were not, and packages from
@@ -682,6 +790,44 @@ pub fn check(root: &Path) -> Result<CheckReport, String> {
     Ok(report)
 }
 
+/// The source a `--local` / `--patch-local` checkout stands for: the URL its crates are depended
+/// on by ([`checkout_url`]), redirected to the directory. `flag` names the option in errors.
+fn local_source(local: &Path, flag: &str) -> Result<Source, CliError> {
+    let checkout = local
+        .canonicalize()
+        .map_err(|e| CliError::usage(format!("{flag} {}: {e}", local.display())))?;
+    let crates = checkout_crates(&checkout)
+        .map_err(|e| CliError::usage(format!("{flag} {}: {e}", local.display())))?;
+    let url = checkout_url(&checkout, &crates)
+        .map_err(|e| CliError::usage(format!("{flag} {}: {e}", local.display())))?;
+    Ok(Source {
+        url,
+        target: Target::Checkout(checkout),
+    })
+}
+
+/// One table per URL: cargo rejects a `[patch."…"]` key written twice, and the second checkout
+/// would otherwise lose silently to the first in a table that merged them. Named now, as the two
+/// flags that collide, rather than as cargo's duplicate-key parse error against a generated file.
+fn distinct(sources: &[Source]) -> Result<(), String> {
+    for (i, a) in sources.iter().enumerate() {
+        if let Some(b) = sources[..i].iter().find(|b| canon(&b.url) == canon(&a.url)) {
+            let name = |s: &Source| match &s.target {
+                Target::Checkout(dir) => dir.display().to_string(),
+                Target::Fork { url, .. } => url.clone(),
+            };
+            return Err(format!(
+                "{} and {} both stand for {} — a source can be patched to one place; drop one \
+                 of them",
+                name(b),
+                name(a),
+                a.url
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]`.
 pub fn run(
     root: &Path,
@@ -691,15 +837,7 @@ pub fn run(
 ) -> Result<(), CliError> {
     let mut sources = Vec::new();
     for local in locals {
-        let checkout = local
-            .canonicalize()
-            .map_err(|e| CliError::usage(format!("--local {}: {e}", local.display())))?;
-        let crates = checkout_crates(&checkout).map_err(CliError::usage)?;
-        let url = checkout_url(&checkout, &crates).map_err(CliError::usage)?;
-        sources.push(Source {
-            url,
-            target: Target::Checkout(checkout),
-        });
+        sources.push(local_source(local, "--local")?);
     }
     if let Some(arg) = git {
         let spec = crate::git::parse_spec(arg).map_err(CliError::usage)?;
@@ -726,7 +864,12 @@ pub fn run(
         });
     }
     if !sources.is_empty() {
+        distinct(&sources).map_err(CliError::usage)?;
         write_patch(root, &sources).map_err(CliError::failure)?;
+        // The note above says cargo will rewrite the lock; a lock that holds the URL at another
+        // version would not be rewritten but kept, and the check below would fail against it.
+        let urls: Vec<String> = sources.iter().map(|s| canon(&s.url)).collect();
+        relock(root, &urls, None).map_err(CliError::failure)?;
     }
     match check(root) {
         Ok(report) if report.missing.is_empty() => {
@@ -920,14 +1063,12 @@ pub const DAY_SRC_DIR_ENV: &str = "DAY_SRC_DIR";
 /// function whose behavior does not otherwise change.
 static ACTIVE: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 
-/// A resolved `--day-src`.
+/// A resolved `--day-src`: a day checkout on disk and how it was named.
 pub struct DaySrc {
     /// The day checkout to build against, absolute.
     pub checkout: PathBuf,
     /// How it was named, for the status line: a path, or `url @ ref`.
     pub label: String,
-    /// `build/day/day-src/<slug>`: this run's build root, and where the cargo config is written.
-    pub dir: PathBuf,
 }
 
 /// Resolve a `--day-src` argument to a day checkout on disk.
@@ -935,7 +1076,7 @@ pub struct DaySrc {
 /// An existing directory is that checkout. Anything else must be a git URL, cloned into the same
 /// per-URL-and-ref cache `--git` uses ([`crate::git`]), so two branches of the framework coexist as
 /// two checkouts and switching between them stays incremental.
-pub fn resolve_day_src(arg: &str, project: &Project) -> Result<DaySrc, CliError> {
+pub fn resolve_day_src(arg: &str) -> Result<DaySrc, CliError> {
     let arg = arg.trim();
     let local = Path::new(arg);
     let (checkout, label) = if local.is_dir() {
@@ -970,29 +1111,92 @@ pub fn resolve_day_src(arg: &str, project: &Project) -> Result<DaySrc, CliError>
         .map_err(|e| CliError::usage(format!("--day-src {}: {e}", checkout.display())))?;
     if !crates.contains_key("day") {
         return Err(CliError::usage(format!(
-            "--day-src {}: a cargo workspace, but not a day checkout (no `day` crate in it)",
+            "--day-src {}: a cargo workspace, but not a day checkout (no `day` crate in it) — \
+             for a piece or part checkout use --patch-local",
             checkout.display()
         )));
     }
 
-    let dir = project.root.join("build/day/day-src").join(slug(&checkout));
-    Ok(DaySrc {
-        checkout,
-        label,
-        dir,
-    })
+    Ok(DaySrc { checkout, label })
 }
 
-/// The build-tree name for one day-src: a readable stem plus a hash of what it resolved to.
+/// The `[patch]` table one `build`/`launch` runs under: what `--day-src` and every `--patch-local`
+/// resolved to, and the build tree that holds it.
+pub struct RunPatch {
+    /// The day-src first, when there is one, then each `--patch-local` in the order given.
+    pub sources: Vec<Source>,
+    /// How each source was named, in the same order, for the status line.
+    pub labels: Vec<String>,
+    /// `build/day/day-src/<slug>`: this run's build root, and where the cargo config is written.
+    pub dir: PathBuf,
+}
+
+/// Resolve `--day-src` and `--patch-local` together into this run's table, or `None` when
+/// neither was given.
 ///
-/// Both come from the resolved checkout rather than what was typed, which gets each of them right
-/// at once. The stem is the directory's name; for a git day-src that is the ref, since the
+/// One table because cargo takes one: a day checkout from `--day-src` and a piece checkout from
+/// `--patch-local` are two sources in it, exactly as `day patch --local ../day --local ../piece`
+/// writes them. A `--patch-local` that names a day checkout is the same source `--day-src` would
+/// resolve, so the two spellings share a build tree; naming it both ways is refused, the way two
+/// `--local`s for one URL are ([`distinct`]).
+pub fn resolve_run_patch(
+    day_src: Option<&str>,
+    locals: &[PathBuf],
+    project: &Project,
+) -> Result<Option<RunPatch>, CliError> {
+    let mut sources = Vec::new();
+    let mut labels = Vec::new();
+    if let Some(arg) = day_src {
+        let src = resolve_day_src(arg)?;
+        sources.push(Source {
+            url: DAY_GIT.to_string(),
+            target: Target::Checkout(src.checkout),
+        });
+        labels.push(src.label);
+    }
+    for local in locals {
+        let source = local_source(local, "--patch-local")?;
+        labels.push(match &source.target {
+            Target::Checkout(dir) => dir.display().to_string(),
+            Target::Fork { url, .. } => url.clone(),
+        });
+        sources.push(source);
+    }
+    if sources.is_empty() {
+        return Ok(None);
+    }
+    distinct(&sources).map_err(CliError::usage)?;
+    let checkouts: Vec<PathBuf> = sources
+        .iter()
+        .filter_map(|s| match &s.target {
+            Target::Checkout(dir) => Some(dir.clone()),
+            Target::Fork { .. } => None,
+        })
+        .collect();
+    let dir = project
+        .root
+        .join("build/day/day-src")
+        .join(slug(&checkouts));
+    Ok(Some(RunPatch {
+        sources,
+        labels,
+        dir,
+    }))
+}
+
+/// The build-tree name for one run's patch: a readable stem plus a hash of what it resolved to.
+///
+/// Both come from the resolved checkouts rather than what was typed, which gets each of them right
+/// at once. The stem is the first directory's name; for a git day-src that is the ref, since the
 /// cache is keyed by one (`…/daybrite/day/experimental-nav`). The hash keeps two branches apart
-/// when their stems collide, and makes `../day` and the absolute path it points at share one tree
-/// instead of building the same framework twice.
-fn slug(checkout: &Path) -> String {
-    let stem = checkout
-        .file_name()
+/// when their stems collide, makes `../day` and the absolute path it points at share one tree
+/// instead of building the same framework twice, and covers every checkout, so the framework
+/// alone and the framework plus a patched piece are two trees. A single checkout hashes exactly
+/// as it did before `--patch-local`, so no existing build tree is orphaned.
+fn slug(checkouts: &[PathBuf]) -> String {
+    let stem = checkouts
+        .first()
+        .and_then(|c| c.file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "day-src".to_string());
     let stem: String = stem
@@ -1008,7 +1212,12 @@ fn slug(checkout: &Path) -> String {
     let digest = {
         use sha2::Digest;
         let mut h = sha2::Sha256::new();
-        h.update(checkout.display().to_string().as_bytes());
+        let joined = checkouts
+            .iter()
+            .map(|c| c.display().to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        h.update(joined.as_bytes());
         h.finalize()
             .iter()
             .take(4)
@@ -1018,26 +1227,26 @@ fn slug(checkout: &Path) -> String {
     format!("{stem}-{digest}")
 }
 
-/// Compute the patch table, write it under the day-src build directory, and make it this run's.
+/// Compute the patch table, write it under the run's build directory, and make it this run's.
 ///
 /// Called once, from the `build`/`launch` dispatch. Everything downstream reads [`ACTIVE`] (or, in
 /// the xcode-backend process, [`DAY_SRC_DIR_ENV`]) and needs no argument of its own.
-pub fn activate(src: &DaySrc, project: &Project) -> Result<(), CliError> {
-    let source = Source {
-        url: DAY_GIT.to_string(),
-        target: Target::Checkout(src.checkout.clone()),
-    };
+pub fn activate(run: &RunPatch, project: &Project) -> Result<(), CliError> {
+    // Computing the table resolves the graph, and any resolve may rewrite the lock (cargo drops
+    // the `[[patch.unused]]` records a failed build left, say). Snapshot-only: the table is not
+    // in effect yet, so there is nothing to relock onto.
+    let _lock = LockGuard::snapshot(project);
     let (table, count) = patch_tables(
         &project.root,
-        std::slice::from_ref(&source),
-        "# Generated by `day launch --day-src` / `day build --day-src` for ONE build.\n\
+        &run.sources,
+        "# Generated by `day launch` / `day build` with --day-src or --patch-local, for ONE build.\n\
          # Handed to cargo with `--config`; nothing in the project is modified, and the next\n\
          # build without the flag resolves the git dependency as usual.\n",
     )
     .map_err(CliError::failure)?;
-    std::fs::create_dir_all(&src.dir)
-        .map_err(|e| CliError::failure(format!("{}: {e}", src.dir.display())))?;
-    let file = config_path(&src.dir);
+    std::fs::create_dir_all(&run.dir)
+        .map_err(|e| CliError::failure(format!("{}: {e}", run.dir.display())))?;
+    let file = config_path(&run.dir);
     std::fs::write(&file, table)
         .map_err(|e| CliError::failure(format!("{}: {e}", file.display())))?;
 
@@ -1048,11 +1257,15 @@ pub fn activate(src: &DaySrc, project: &Project) -> Result<(), CliError> {
     if project.root.join(".cargo/config.toml").is_file() {
         crate::ops::status(
             "Note",
-            "this project has a `day patch` table; --day-src overrides it for this build only",
+            "this project has a `day patch` table; --day-src / --patch-local override it for \
+             this build only",
         );
     }
-    status("Patched", &format!("{count} day crate(s) → {}", src.label));
-    let _ = ACTIVE.set(src.dir.clone());
+    status(
+        "Patched",
+        &format!("{count} crate(s) → {}", run.labels.join(" + ")),
+    );
+    let _ = ACTIVE.set(run.dir.clone());
     Ok(())
 }
 
@@ -1103,9 +1316,14 @@ pub fn apply_day_src(cmd: &mut Command) {
     }
 }
 
-/// Cargo records the patched sources in `Cargo.lock`, so a build under `--day-src` would leave the
-/// project's lockfile rewritten: a tracked file, modified by a flag whose promise is that it
-/// changes nothing. This snapshots the lock and puts it back.
+/// Cargo records the patched sources in `Cargo.lock`, so a build under `--day-src` or
+/// `--patch-local` would leave the project's lockfile rewritten: a tracked file, modified by a
+/// flag whose promise is that it changes nothing. This snapshots the lock and puts it back.
+///
+/// It also brings the lock onto the patch first ([`relock`]), since a lock that holds the
+/// framework from git at another version would otherwise win over the table and the build would
+/// quietly compile the git copy. That relock runs once per process and its result is replayed by
+/// every later guard, so the second target of a launch pays no resolver run for it.
 ///
 /// Scoped to the build, not the launch: the app may run for a long time afterwards, and the lock
 /// should be correct again the moment the compiler is done with it. Restoring costs no rebuild;
@@ -1116,14 +1334,44 @@ pub struct LockGuard {
     before: Option<Vec<u8>>,
 }
 
+/// The lock as it stands once relocked onto this run's patch, replayed by each guard after the
+/// first (`None` until then, or when nothing needed relocking).
+static RELOCKED: std::sync::Mutex<Option<Vec<u8>>> = std::sync::Mutex::new(None);
+
 impl LockGuard {
-    /// Take the snapshot. A no-op (and no guard work on drop) when `--day-src` is not in effect.
-    pub fn new(project: &Project) -> Option<Self> {
-        day_src_dir()?;
+    /// Take the snapshot alone: the lock comes back as it was, and nothing is relocked.
+    fn snapshot(project: &Project) -> Self {
         let path = project.root.join("Cargo.lock");
         let before = std::fs::read(&path).ok();
         crate::signals::register_restore(&path, before.as_deref());
-        Some(LockGuard { path, before })
+        LockGuard { path, before }
+    }
+
+    /// Take the snapshot and bring the lock onto the patch. A no-op (and no guard work on drop)
+    /// when neither `--day-src` nor `--patch-local` is in effect.
+    pub fn new(project: &Project) -> Result<Option<Self>, CliError> {
+        let Some(dir) = day_src_dir() else {
+            return Ok(None);
+        };
+        let guard = LockGuard::snapshot(project);
+
+        let mut relocked = RELOCKED.lock().unwrap_or_else(|e| e.into_inner());
+        match relocked.as_ref() {
+            Some(bytes) => {
+                std::fs::write(&guard.path, bytes)
+                    .map_err(|e| CliError::failure(format!("{}: {e}", guard.path.display())))?;
+            }
+            None => {
+                let config = config_path(&dir);
+                let urls = patch_keys(&config);
+                let moved =
+                    relock(&project.root, &urls, Some(&config)).map_err(CliError::failure)?;
+                if moved > 0 {
+                    *relocked = std::fs::read(&guard.path).ok();
+                }
+            }
+        }
+        Ok(Some(guard))
     }
 }
 
@@ -1452,20 +1700,88 @@ day-part-http = { git = "https://github.com/daybrite/day.git" }
     #[test]
     fn the_slug_is_readable_stable_and_distinct() {
         // `../day` and `/w/day` are the same checkout once resolved, so they share a build tree.
-        let a = slug(Path::new("/w/day"));
-        assert_eq!(a, slug(Path::new("/w/day")));
+        let a = slug(&[PathBuf::from("/w/day")]);
+        assert_eq!(a, slug(&[PathBuf::from("/w/day")]));
         assert!(a.starts_with("day-"), "{a} should stay readable");
 
         // A git day-src is cached per ref, so the directory name IS the branch.
-        let nav = slug(Path::new("/c/git/github.com/daybrite/day/experimental-nav"));
-        let fix = slug(Path::new("/c/git/github.com/daybrite/day/fix-482"));
+        let nav = slug(&[PathBuf::from(
+            "/c/git/github.com/daybrite/day/experimental-nav",
+        )]);
+        let fix = slug(&[PathBuf::from("/c/git/github.com/daybrite/day/fix-482")]);
         assert_ne!(nav, fix, "two branches, two build trees");
+
+        // The framework alone and the framework plus a patched piece build in different trees,
+        // under the framework's name either way.
+        let with_piece = slug(&[
+            PathBuf::from("/w/day"),
+            PathBuf::from("/w/day-piece-lottie"),
+        ]);
+        assert_ne!(a, with_piece, "another checkout, another build tree");
+        assert!(with_piece.starts_with("day-"), "{with_piece}");
         assert!(nav.starts_with("experimental-nav-"), "{nav}");
         assert!(
             nav.chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')),
             "{nav} has to be a directory name on every host"
         );
+    }
+
+    /// A lock that holds a patched URL at any version is what makes cargo skip the table; only
+    /// those packages are named, by a spec cargo takes, and path or crates.io packages never are.
+    #[test]
+    fn the_lock_names_what_still_comes_from_a_patched_url() {
+        let tmp = std::env::temp_dir().join(format!("day-stale-lock-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::fs::write(
+            tmp.join("Cargo.lock"),
+            r#"version = 4
+
+[[package]]
+name = "day"
+version = "0.4.10"
+source = "git+https://github.com/daybrite/day.git#9996c0743ca8390a5c6f09eb1631caee55fd2a52"
+
+[[package]]
+name = "day-core"
+version = "0.4.10"
+source = "git+https://github.com/daybrite/day.git?branch=main#9996c0743ca8390a5c6f09eb1631caee55fd2a52"
+
+[[package]]
+name = "day"
+version = "0.5.0"
+
+[[package]]
+name = "day-piece-lottie"
+version = "0.2.0"
+source = "git+https://github.com/daybrite/day-piece-lottie#abc"
+
+[[package]]
+name = "serde"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+"#,
+        )
+        .expect("lock");
+        let stale = stale_in_lock(&tmp, &[canon(DAY_GIT)]);
+        assert_eq!(
+            stale,
+            vec![
+                (
+                    "day".to_string(),
+                    "0.4.10".to_string(),
+                    "https://github.com/daybrite/day.git".to_string()
+                ),
+                (
+                    "day-core".to_string(),
+                    "0.4.10".to_string(),
+                    "https://github.com/daybrite/day.git".to_string()
+                ),
+            ]
+        );
+        assert!(stale_in_lock(&tmp, &[canon("https://github.com/nobody/x")]).is_empty());
+        assert!(stale_in_lock(&tmp.join("absent"), &[canon(DAY_GIT)]).is_empty());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// The flag promises to leave the project alone, and cargo rewrites Cargo.lock to record the

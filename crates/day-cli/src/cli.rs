@@ -177,6 +177,7 @@ pub(crate) struct Cli {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)] // one Cmd per process, parsed once and matched once; `launch` is simply the command with the most flags
 enum Cmd {
     /// Print the CLI version and build information
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
@@ -207,6 +208,10 @@ enum Cmd {
         /// Use a Day checkout or Git URL for this build only; leave project settings unchanged
         #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
         day_src: Option<String>,
+        /// Build against a local Day, piece, or part checkout for this build only, as `day patch
+        /// --local` would for good (repeatable)
+        #[arg(long = "patch-local", value_name = "CHECKOUT")]
+        patch_local: Vec<PathBuf>,
     },
     /// Generate app icons for each platform
     #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
@@ -230,6 +235,10 @@ enum Cmd {
         /// Use a Day checkout or Git URL for this run only; leave project settings unchanged
         #[arg(long = "day-src", value_name = "PATH|URL[@REF]")]
         day_src: Option<String>,
+        /// Build against a local Day, piece, or part checkout for this run only, as `day patch
+        /// --local` would for good (repeatable)
+        #[arg(long = "patch-local", value_name = "CHECKOUT")]
+        patch_local: Vec<PathBuf>,
         /// Build profile
         #[arg(long, value_enum, default_value = "debug")]
         profile: Profile,
@@ -1683,6 +1692,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     git: None,
                     dir: None,
                     day_src: None,
+                    patch_local: Vec::new(),
                     profile,
                     locale,
                     envs,
@@ -2046,11 +2056,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             platforms,
             profile,
             day_src,
+            patch_local,
         } => with_project(cli.project.as_deref(), |project| {
-            use_day_src(day_src.as_deref(), project)?;
+            use_run_patch(day_src.as_deref(), &patch_local, project)?;
             // Cargo records the patched sources in Cargo.lock; the guard puts it back when the
             // build phase ends, so a flag that promises to change nothing leaves nothing changed.
-            let _lock = crate::patch::LockGuard::new(project);
+            let _lock = crate::patch::LockGuard::new(project)?;
             // One copy of every day crate, before anything compiles (crate::patch::verify_graph).
             crate::patch::verify_graph(project).map_err(CliError::usage)?;
             let mut results = Vec::new();
@@ -2099,6 +2110,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             themes,
             capture_size,
             day_src,
+            patch_local,
             memory_profile,
         } => {
             // The existing workflow launch-env input can opt in without a new actions API.
@@ -2124,8 +2136,13 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 None => cli.project.clone(),
             };
             with_project(start.as_deref(), |project| {
-                use_day_src(day_src.as_deref(), project)?;
-                crate::patch::verify_graph(project).map_err(CliError::usage)?;
+                use_run_patch(day_src.as_deref(), &patch_local, project)?;
+                {
+                    // Under a guard so the graph it checks is the one the build will see: the
+                    // guard brings a stale lock onto the patch, and puts it back after.
+                    let _lock = crate::patch::LockGuard::new(project)?;
+                    crate::patch::verify_graph(project).map_err(CliError::usage)?;
+                }
                 // No `-p`: run what this machine natively is. Announced rather than assumed: the
                 // chosen target decides which toolkit gets built, so a silent pick would be a
                 // surprising several-minute build of something the caller did not name.
@@ -2343,7 +2360,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     // for a long time afterwards, and the project's Cargo.lock should be correct
                     // again the moment the compiler is done with it.
                     let built = {
-                        let _lock = crate::patch::LockGuard::new(project);
+                        let _lock = crate::patch::LockGuard::new(project)?;
                         if skip_build {
                             ops::reuse_build(project, target, profile)
                         } else if spec.wants_ios_device() {
@@ -2599,17 +2616,21 @@ fn with_project(
     f(&p)
 }
 
-/// Resolve `--day-src` and make it this run's framework, if it was given.
+/// Resolve `--day-src` and every `--patch-local` and make them this run's sources, if any were
+/// given.
 ///
 /// Everything downstream (the cargo invocations and the build paths) reads it back from
 /// [`crate::patch`] rather than being handed it, the way `--verbose` works, so no builder's
 /// signature changes for a flag that does not change what it does.
-fn use_day_src(day_src: Option<&str>, project: &meta::Project) -> Result<(), CliError> {
-    let Some(arg) = day_src else {
-        return Ok(());
-    };
-    let src = crate::patch::resolve_day_src(arg, project)?;
-    crate::patch::activate(&src, project)
+fn use_run_patch(
+    day_src: Option<&str>,
+    patch_local: &[PathBuf],
+    project: &meta::Project,
+) -> Result<(), CliError> {
+    match crate::patch::resolve_run_patch(day_src, patch_local, project)? {
+        Some(run) => crate::patch::activate(&run, project),
+        None => Ok(()),
+    }
 }
 
 fn print_pack_json(outcomes: &[crate::pack::PackOutcome]) {
@@ -3095,6 +3116,63 @@ mod error_tests {
                 .expect("build");
         match cli.command {
             Cmd::Build { day_src, .. } => assert_eq!(day_src.as_deref(), Some("../day")),
+            _ => unreachable!("parsed a build command"),
+        }
+    }
+
+    /// `--patch-local` is `day patch --local` for one run: repeatable, on both halves of the
+    /// inner loop, and at home beside `--day-src` (a day checkout plus a piece being changed).
+    #[test]
+    fn patch_local_repeats_on_build_and_launch() {
+        let cli = Cli::try_parse_from([
+            "day",
+            "launch",
+            "--patch-local",
+            "../day",
+            "--patch-local",
+            "../day-piece-lottie",
+        ])
+        .expect("launch");
+        match cli.command {
+            Cmd::Launch {
+                patch_local,
+                day_src,
+                ..
+            } => {
+                assert_eq!(
+                    patch_local,
+                    vec![
+                        PathBuf::from("../day"),
+                        PathBuf::from("../day-piece-lottie")
+                    ]
+                );
+                assert!(day_src.is_none());
+            }
+            _ => unreachable!("parsed a launch command"),
+        }
+        let cli = Cli::try_parse_from([
+            "day",
+            "build",
+            "-p",
+            "macos-appkit",
+            "--day-src",
+            "https://github.com/daybrite/day.git@main",
+            "--patch-local",
+            "../day-piece-lottie",
+        ])
+        .expect("build");
+        match cli.command {
+            Cmd::Build {
+                patch_local,
+                day_src,
+                ..
+            } => {
+                assert_eq!(patch_local, vec![PathBuf::from("../day-piece-lottie")]);
+                assert_eq!(
+                    day_src.as_deref(),
+                    Some("https://github.com/daybrite/day.git@main")
+                );
+            }
             _ => unreachable!("parsed a build command"),
         }
     }

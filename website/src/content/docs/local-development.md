@@ -47,10 +47,19 @@ day launch --day-src https://github.com/daybrite/day.git@experimental-nav  # a b
 day launch --day-src https://github.com/someone/day.git@fix-482            # a PR fork
 ```
 
-It computes the same `[patch]` table, hands it to that one cargo run, and leaves the project as it
-found it: cargo rewrites `Cargo.lock` during the build and the CLI restores after it. A git URL is
-cloned into the shared cache and cached per ref, so a second look at the same branch skips the
-clone.
+`--patch-local` does the same for any checkout `day patch --local` would take, and repeats, so a
+piece under development can ride along with the framework for one run:
+
+```sh
+day launch --patch-local ../day --patch-local ../day-piece-lottie         # day patch --local ×2, once
+day launch --day-src https://github.com/daybrite/day.git@experimental-nav \
+           --patch-local ../day-piece-lottie                               # a branch, plus the piece
+```
+
+Either flag computes the same `[patch]` table, hands it to that one cargo run, and leaves the
+project as it found it: cargo rewrites `Cargo.lock` during the build and the CLI restores after it.
+A git URL is cloned into the shared cache and cached per ref, so a second look at the same branch
+skips the clone.
 
 Each day-src also gets its own build tree, so you can leave two versions of the app running at
 once and switching between them is an incremental compile. In a debug build the window titles say
@@ -59,13 +68,15 @@ which is which: `Day Rise (0.1.0+main-2d77edbf/appkit)` beside
 [CLI & projects](/docs/cli#trying-another-version-of-day-itself) has the full flag.
 
 Reach for `day patch` when you're working on the framework and the app together over a session,
-and `--day-src` when you're comparing.
+and `--day-src` or `--patch-local` when you're comparing.
 
 ## What it writes
 
 `day patch --local <checkout>` writes the app's `.cargo/config.toml` with a Cargo
 [`[patch]` table](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html)
-mapping every day crate in the app's dependency graph to a path inside the checkout:
+mapping every day crate in the app's dependency graph to a path inside the checkout, and relocks
+any of them that `Cargo.lock` still holds from git at another version (cargo would otherwise keep
+the locked copy and ignore the table):
 
 ```toml
 [patch."https://github.com/daybrite/day.git"]
