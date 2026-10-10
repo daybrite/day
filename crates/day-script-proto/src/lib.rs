@@ -456,9 +456,14 @@ pub enum Step {
     /// the preferences window is `day.preferences`), through the same async confirm →
     /// teardown path a title-bar close takes (docs/windows.md; on the cover-fallback tier
     /// this dismisses the cover). An already-closed window is a success (closing is
-    /// idempotent).
+    /// idempotent). With no `window`, the app's initial window, whose close ends the app
+    /// (docs/windows.md close policy), so follow it with `expect_exit`. GTK routes that close
+    /// through the title bar's path today; the other desktop toolkits' `close_window` duties
+    /// still look only at secondary windows, so there the step is a no-op and `expect_exit`
+    /// times out.
     CloseWindow {
-        window: String,
+        #[serde(default)]
+        window: Option<String>,
     },
     Screenshot {
         name: String,
@@ -778,5 +783,26 @@ impl Reply {
             retryable,
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod close_window_tests {
+    use super::*;
+
+    /// `close_window: {}` is the initial window; a key still names a secondary one.
+    #[test]
+    fn close_window_defaults_to_the_initial_window() {
+        let step: Step = serde_json::from_str(r#"{"op":"close_window"}"#).expect("parse");
+        assert_eq!(step, Step::CloseWindow { window: None });
+        let step: Step =
+            serde_json::from_str(r#"{"op":"close_window","window":"day.preferences"}"#)
+                .expect("parse");
+        assert_eq!(
+            step,
+            Step::CloseWindow {
+                window: Some("day.preferences".into())
+            }
+        );
     }
 }

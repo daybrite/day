@@ -100,7 +100,7 @@ shape whichever tool captured them. Set `DAY_SCREENSHOT_RAW=1` to keep the captu
 | Waiting | `wait_for` (an id appears; `timeout_secs` raises its budget), `wait_idle`, `pause` |
 | Acting | `tap` (`repeat`), `input`, `set_value`, `toggle`, `select`, `activate` (invoke a list row without changing selection), `submit`, `focus`, `scroll_to` (to an `edge`, an `x`/`y` offset, or an element to reveal), `reorder` (list row `from` → `to`), `drag`, `hover` (`at`, or `leave`), `pan` (`by`), `pinch` (`scale`) |
 | Navigation | `navigate`, `nav_back`, `assert_route` |
-| Window chrome | `menu` (`item`/`key`/`path`), `context_menu` (an element's menu: `id`, then `item_id`/`item`/`key`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`) |
+| Window chrome | `menu` (`item`/`key`/`path`), `context_menu` (an element's menu: `id`, then `item_id`/`item`/`key`), `toolbar` (`item`, plus `text`/`key` or `on`), `close_window` (`window`; omitted: the initial window, which ends the app — pair with `expect_exit`; GTK today) |
 | Asserting | `assert_visible`, `assert_hidden` (missing, empty, or hidden natively), `assert_text` (`timeout_secs` raises its budget), `assert_value`, `assert_focused`, `assert_no_placeholders` (`allow` lists expected gaps) |
 | Web views | `web_eval` (`id`, `script`, `text`/`contains`; `timeout_secs` raises its budget for cold engine startup or slow page loads) |
 | Dialogs | `assert_presented`, `respond` (a `button` index, prompt `text`, file `path`, or `dismiss`) |

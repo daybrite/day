@@ -351,6 +351,8 @@ before tagging; an app that sets only `title` still shows "Day News" in its App 
 - wait_for: { id: prefs-title }                        # ids are tree-global — no window scoping
 - screenshot: { name: prefs, window: day.preferences } # capture a window by its open key
 - close_window: { window: day.preferences }            # async confirm → teardown, like the title bar
+- close_window: {}                                     # the initial window: the app ends (close policy above; GTK today)
+- expect_exit: { within: 20 }                          # …so the run waits for that instead of stopping the app
 ```
 
 `screenshot.window` resolves the key through the registry; on the cover tier it captures the

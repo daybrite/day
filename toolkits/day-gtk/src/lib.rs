@@ -1909,33 +1909,43 @@ fn fill_nav_menu(
 
 /// The nav menu's `header-func`: the section title recorded for this row's index, as a dim
 /// heading above it, or nothing. Installed once per ListBox at realize.
+///
+/// GTK calls it from a C trampoline, including while a box is being emptied during teardown,
+/// so like every other callback it runs under [`ffi_guard::contain`]: a panic that crossed the
+/// trampoline would abort the process. The map is read with `try_with` for the same reason: at
+/// thread exit this crate's thread-locals may be gone before the widgets are.
 fn nav_menu_headers(row: &gtk4::ListBoxRow, listbox_key: usize) {
-    let index = row.index();
-    let title = NAV_MENU_SECTIONS.with(|m| {
-        m.borrow()
-            .get(&listbox_key)
-            .and_then(|s| usize::try_from(index).ok().and_then(|i| s.get(i).cloned()))
-            .flatten()
-    });
-    let Some(title) = title else {
-        row.set_header(None::<&gtk4::Widget>);
-        return;
-    };
-    // Reuse the label GTK already parented for this row when only its text moved.
-    if let Some(label) = row.header().and_downcast::<gtk4::Label>() {
-        if label.text() != title.as_str() {
-            label.set_text(&title);
+    ffi_guard::contain((), || {
+        let index = row.index();
+        let title = NAV_MENU_SECTIONS
+            .try_with(|m| {
+                m.borrow()
+                    .get(&listbox_key)
+                    .and_then(|s| usize::try_from(index).ok().and_then(|i| s.get(i).cloned()))
+                    .flatten()
+            })
+            .ok()
+            .flatten();
+        let Some(title) = title else {
+            row.set_header(None::<&gtk4::Widget>);
+            return;
+        };
+        // Reuse the label GTK already parented for this row when only its text moved.
+        if let Some(label) = row.header().and_downcast::<gtk4::Label>() {
+            if label.text() != title.as_str() {
+                label.set_text(&title);
+            }
+            return;
         }
-        return;
-    }
-    let header = gtk4::Label::new(Some(&title));
-    header.add_css_class("heading");
-    header.add_css_class("dim-label");
-    header.set_xalign(0.0);
-    header.set_margin_top(if index == 0 { 2 } else { 10 });
-    header.set_margin_bottom(2);
-    header.set_margin_start(4);
-    row.set_header(Some(&header));
+        let header = gtk4::Label::new(Some(&title));
+        header.add_css_class("heading");
+        header.add_css_class("dim-label");
+        header.set_xalign(0.0);
+        header.set_margin_top(if index == 0 { 2 } else { 10 });
+        header.set_margin_bottom(2);
+        header.set_margin_start(4);
+        row.set_header(Some(&header));
+    });
 }
 
 /// The bundled glyph `source`, recolored to `t` with its alpha kept as the mask — the recolor
@@ -7556,22 +7566,17 @@ impl Toolkit for Gtk {
     }
 
     fn close_window(&mut self, host: &Handle) {
-        if let Some(w) = self
-            .secondary
-            .iter()
-            .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
-        {
-            w.window.close();
+        // The primary too (`gtk_window_for`): the initial window is an ordinary window
+        // (docs/windows.md), and `close()` takes it through `close-request`, so a scripted close
+        // ends the app exactly as the title bar's button does.
+        if let Some(w) = self.gtk_window_for(host) {
+            w.close();
         }
     }
 
     fn focus_window(&mut self, host: &Handle) {
-        if let Some(w) = self
-            .secondary
-            .iter()
-            .find(|w| w.fixed.upcast_ref::<gtk4::Widget>() == host)
-        {
-            w.window.present();
+        if let Some(w) = self.gtk_window_for(host) {
+            w.present();
         }
     }
 

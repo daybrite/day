@@ -1664,7 +1664,11 @@ fn exec(step: Step, revision: u32) -> Reply {
                 }
             }
             Step::CloseWindow { window } => {
-                if let Some(handle) = day_core::window_by_key(&window) {
+                let handle = match &window {
+                    Some(key) => day_core::window_by_key(key),
+                    None => day_core::initial_window(),
+                };
+                if let Some(handle) = handle {
                     handle.close();
                 }
                 day_reactive::flush_sync();

@@ -2679,7 +2679,16 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
 day_reactive::tls_slots! {
     tree;
-    static TREE: RefCell<Option<Box<dyn TreeOps>>> = const { RefCell::new(None) };
+    /// The installed tree. `ManuallyDrop` so the thread-local destructor never drops it: the
+    /// tree owns the toolkit's native widgets, and dropping those at thread exit runs the
+    /// toolkit's callbacks (a GtkListBox being emptied calls its header func) against
+    /// thread-locals that may already be gone — Rust destroys them in an order nobody controls,
+    /// and a panic inside a C trampoline cannot unwind, so the process aborted on the way out
+    /// of a clean exit. At process exit the OS reclaims the widgets; nothing in their drop
+    /// matters. [`uninstall_tree`] (tests, Android's remount) still drops the tree explicitly,
+    /// while every thread-local is alive.
+    static TREE: std::mem::ManuallyDrop<RefCell<Option<Box<dyn TreeOps>>>> =
+        const { std::mem::ManuallyDrop::new(RefCell::new(None)) };
     static EVENTS: RefCell<VecDeque<(NodeId, Event)>> = const { RefCell::new(VecDeque::new()) };
     static PUMP_PENDING: Cell<bool> = const { Cell::new(false) };
     static PUMP_ACTIVE: Cell<bool> = const { Cell::new(false) };
@@ -3186,4 +3195,79 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
             h(ev);
         }
     });
+}
+
+#[cfg(test)]
+mod thread_exit_tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// A toolkit that records being dropped: the tree owns it, so it goes when the tree does.
+    struct Probe(Arc<AtomicBool>);
+
+    impl Drop for Probe {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl Toolkit for Probe {
+        type Handle = ();
+        fn realize(&mut self, _: PieceKind, _: &dyn Any, _: NodeId) -> Self::Handle {}
+        fn release(&mut self, _: Self::Handle) {}
+        fn insert(&mut self, _: &Self::Handle, _: &Self::Handle, _: usize) {}
+        fn remove(&mut self, _: &Self::Handle, _: &Self::Handle) {}
+        fn move_child(&mut self, _: &Self::Handle, _: &Self::Handle, _: usize) {}
+        fn measure(&mut self, _: &Self::Handle, _: PieceKind, _: Proposal) -> Size {
+            Size::new(0.0, 0.0)
+        }
+        fn set_frame(&mut self, _: &Self::Handle, _: Rect, _: Option<&AnimSpec>) {}
+        fn set_input_traits(&mut self, _: &Self::Handle, _: &InputTraits) -> Option<Self::Handle> {
+            None
+        }
+        fn set_event_sink(&mut self, _: EventSink) {}
+        fn update(&mut self, _: &Self::Handle, _: &'static str, _: &dyn Any, _: Option<&AnimSpec>) {
+        }
+    }
+
+    fn install_probe(dropped: &Arc<AtomicBool>) {
+        let tree = Tree::new(Probe(dropped.clone()), (), Size::new(0.0, 0.0));
+        install_tree(Box::new(tree));
+    }
+
+    /// The tree owns the toolkit's native widgets, and dropping those at thread exit runs the
+    /// toolkit's callbacks against thread-locals that are already gone (a GtkListBox being
+    /// emptied calls its header func; a panic there cannot unwind through C and aborts the
+    /// process on the way out of a clean exit). So a thread's end must leak the tree.
+    #[test]
+    fn the_tree_is_not_dropped_when_its_thread_ends() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let d = dropped.clone();
+        std::thread::spawn(move || install_probe(&d))
+            .join()
+            .expect("thread");
+        assert!(
+            !dropped.load(Ordering::SeqCst),
+            "the thread-local destructor dropped the tree, and with it the native widgets"
+        );
+    }
+
+    /// Explicit teardown is a different matter: tests and Android's remount take the tree down
+    /// while every thread-local is alive, and that must still drop it.
+    #[test]
+    fn uninstall_still_drops_the_tree() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let d = dropped.clone();
+        std::thread::spawn(move || {
+            install_probe(&d);
+            uninstall_tree();
+            assert!(
+                d.load(Ordering::SeqCst),
+                "uninstall_tree must drop the tree"
+            );
+        })
+        .join()
+        .expect("thread");
+    }
 }
