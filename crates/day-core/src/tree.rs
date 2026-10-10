@@ -1204,6 +1204,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
                 probe.text = p.title.clone();
                 probe.enabled = p.enabled;
+                // The selected state reads like a toggle's (`assert_on`).
+                probe.flag = p.selected;
             } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
                 probe.flag = p.on;
                 probe.enabled = p.enabled;
@@ -1709,6 +1711,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                         ButtonPatch::Title(t) => n.probe.text = t.clone(),
                         ButtonPatch::Content(c) => n.probe.text = c.title.clone(),
                         ButtonPatch::Enabled(e) => n.probe.enabled = *e,
+                        ButtonPatch::Selected(on) => n.probe.flag = *on,
                         // The style is a look, not something a probe asserts on.
                         ButtonPatch::Style(_) => {}
                     }

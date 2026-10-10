@@ -3027,6 +3027,12 @@ mod imp {
                             "(Landroid/view/View;Z)V",
                             &[JValue::Object(v.as_obj()), JValue::Bool(p.enabled)],
                         );
+                        let _ = env.dcall_static(
+                            BRIDGE,
+                            "setButtonSelected",
+                            "(Landroid/view/View;Z)V",
+                            &[JValue::Object(v.as_obj()), JValue::Bool(p.selected)],
+                        );
                         apply_button_style(env, &v, p.style);
                         if p.icon.is_some() {
                             apply_button_content(env, &v, &p.title, p.icon.as_ref(), p.icon_only);
@@ -3615,6 +3621,11 @@ mod imp {
                                 "setEnabled",
                                 "(Landroid/view/View;Z)V",
                                 &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
+                            ),
+                            ButtonPatch::Selected(on) => call_void(
+                                "setButtonSelected",
+                                "(Landroid/view/View;Z)V",
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
                             ),
                             ButtonPatch::Style(s) => {
                                 with_env(|env| apply_button_style(env, &h.0, *s))
@@ -4548,6 +4559,8 @@ mod imp {
                 Role::Group => (8, 0),
                 Role::Tree => (9, 0),
                 Role::TreeItem => (10, 0),
+                Role::Tab => (11, 0),
+                Role::TabList => (12, 0),
             };
             with_env(|env| {
                 let label = jstr(env, a11y.label.as_deref().unwrap_or(""));
@@ -4558,7 +4571,7 @@ mod imp {
                     BRIDGE,
                     "setA11y",
                     "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;\
-                     Ljava/lang/String;IIZ)V",
+                     Ljava/lang/String;IIZI)V",
                     &[
                         JValue::Object(h.0.as_obj()),
                         JValue::Object(&label),
@@ -4568,6 +4581,8 @@ mod imp {
                         JValue::Int(role),
                         JValue::Int(level),
                         JValue::Bool(a11y.hidden),
+                        // -1 leaves the view's own selected state alone.
+                        JValue::Int(a11y.selected.map_or(-1, i32::from)),
                     ],
                 );
             });

@@ -97,7 +97,7 @@ Day's own assertions read Day's tree, so on their own they prove the binding and
 path but not that the platform's widget shows what Day thinks it shows. In a conformance run,
 `assert_text`, `assert_value` and `assert_on` are therefore each followed by `assert_native` of
 the same fact, read back from the widget through `Toolkit::read_native`: its displayed text,
-its value, its checked state. `d.assert_native(id, NativeExpect { .. })` checks what those do
+its value, its checked state (a toggle's, or a button's selected state). `d.assert_native(id, NativeExpect { .. })` checks what those do
 not cover (`enabled`, `visible`), and `d.assert_enabled(id, on)` checks enabled in Day and
 natively at once.
 

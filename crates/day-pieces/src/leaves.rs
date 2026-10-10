@@ -661,6 +661,7 @@ pub struct Button {
     /// [`Button::tint`]; it wins over `bordered`/`prominent` because it is the more specific ask.
     tint: Option<Reactive<day_spec::Color>>,
     enabled: Reactive<bool>,
+    selected: Reactive<bool>,
 }
 
 pub fn button<M>(title: impl IntoText<M>) -> Button {
@@ -672,6 +673,7 @@ pub fn button<M>(title: impl IntoText<M>) -> Button {
         native_style: day_spec::props::ButtonStyleSpec::Automatic,
         tint: None,
         enabled: true.into_reactive(),
+        selected: false.into_reactive(),
     }
 }
 
@@ -760,6 +762,20 @@ impl Button {
         self.native_style = day_spec::props::ButtonStyleSpec::Compact;
         self
     }
+
+    /// Mark this button as the current choice among its peers: a document tab, one view of a
+    /// switcher. The platform draws its own checked or selected look (an NSButton's on state,
+    /// `UIButton.isSelected`, GTK's `:checked`, a checked `QPushButton`, a checked
+    /// `MaterialButton`, `aria-pressed` on the web) and announces it as selected, while the
+    /// button stays enabled, focusable and activatable, which a disabled stand-in is not.
+    ///
+    /// Reactive, so it follows the selection: `.selected(move || current.get() == key)`. A press
+    /// never toggles the state natively; the app's handler decides, and the next value of the
+    /// closure is what the control shows.
+    pub fn selected<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
+        self.selected = v.into_reactive();
+        self
+    }
 }
 
 /// [`Button`]'s builders, reachable through a decoration: the [`LabelBuilder`] pattern, for
@@ -776,6 +792,8 @@ pub trait ButtonBuilder: Sized {
     fn prominent(self) -> Self;
     fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self;
     fn compact(self) -> Self;
+    /// The selected state, including through decorations. See [`Button::selected`].
+    fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self;
 }
 
 impl ButtonBuilder for Button {
@@ -805,6 +823,9 @@ impl ButtonBuilder for Button {
     }
     fn compact(self) -> Self {
         Button::compact(self)
+    }
+    fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        Button::selected(self, v)
     }
 }
 
@@ -836,6 +857,9 @@ impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
     fn compact(self) -> Self {
         self.map_inner(ButtonBuilder::compact)
     }
+    fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self {
+        self.map_inner(|p| p.selected(v))
+    }
 }
 
 impl Piece for Button {
@@ -854,9 +878,19 @@ impl Piece for Button {
                 icon_only: self.icon_only,
                 enabled: self.enabled.get_untracked(),
                 style,
+                selected: self.selected.get_untracked(),
             },
             Flex::default(),
         );
+        // A reactive `selected` patches on change, like `enabled` below.
+        if let selected @ Reactive::Dyn(_) = self.selected {
+            bind(
+                move || selected.get(),
+                move |on: &bool| {
+                    with_tree(|t| t.patch(node, Box::new(ButtonPatch::Selected(*on)), false));
+                },
+            );
+        }
         // A reactive tint recolors in place; a constant one was applied at realize above.
         if let Some(c @ Reactive::Dyn(_)) = self.tint.clone() {
             bind(

@@ -1128,8 +1128,25 @@ void day_qt_button_set_content(void *w, const char *title, const char *icon, int
 }
 void *day_qt_button_new(const char *title, uint64_t id, void (*cb)(uint64_t)) {
     QPushButton *b = new QPushButton(QString::fromUtf8(title));
-    QObject::connect(b, &QPushButton::clicked, [id, cb]() { cb(id); });
+    QObject::connect(b, &QPushButton::clicked, [b, id, cb]() {
+        cb(id);
+        // A checkable button toggled itself on the click; Day owns the selected state
+        // (`day_qt_button_set_selected`), so put back what it last asked for.
+        if (b->isCheckable()) b->setChecked(b->property("daySelected").toBool());
+    });
     return b;
+}
+/// `ButtonProps::selected`: a checked QPushButton, which every style draws sunken or filled and
+/// every bridge reports as checked. The property is the state Day holds (restored after a
+/// click, read back as `checked`); the button turns checkable only once it is first selected,
+/// so an ordinary button keeps its momentary behavior.
+void day_qt_button_set_selected(void *w, int on) {
+    auto *b = static_cast<QPushButton *>(w);
+    b->setProperty("daySelected", on != 0);
+    if (on || b->isCheckable()) {
+        b->setCheckable(true);
+        b->setChecked(on != 0);
+    }
 }
 void day_qt_button_set_title(void *w, const char *title) {
     static_cast<QPushButton *>(w)->setText(QString::fromUtf8(title));
@@ -1459,6 +1476,8 @@ static QAccessible::Role day_qt_a11y_role(int role) {
     case 8: return QAccessible::Grouping;
     case 9: return QAccessible::Tree;
     case 10: return QAccessible::TreeItem;
+    case 11: return QAccessible::PageTab;
+    case 12: return QAccessible::PageTabList;
     default: return QAccessible::NoRole;
     }
 }
@@ -1509,6 +1528,12 @@ public:
             s.invisible = true;
             s.offscreen = true;
         }
+        // The selected state Day set (a tab, a row); unset leaves the widget's own answer.
+        const QVariant selected = prop("day_a11y_selected");
+        if (selected.isValid()) {
+            s.selectable = true;
+            s.selected = selected.toBool();
+        }
         return s;
     }
     int childCount() const override { return hidden() ? 0 : QAccessibleWidget::childCount(); }
@@ -1555,8 +1580,9 @@ static QAccessibleInterface *day_qt_a11y_factory(const QString &, QObject *objec
 }
 static void day_qt_install_a11y_factory() { QAccessible::installFactory(day_qt_a11y_factory); }
 
-// `role`/`level` per the table above (0 = none); `value` NULL = none; `hidden` is sticky.
-void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int hidden) {
+// `role`/`level` per the table above (0 = none); `value` NULL = none; `hidden` is sticky;
+// `selected` -1 = unset, else the selected state.
+void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int hidden, int selected) {
     auto *widget = static_cast<QWidget *>(w);
     if (role > 0) {
         widget->setProperty("day_a11y_role", role);
@@ -1564,7 +1590,8 @@ void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int
     }
     if (value) widget->setProperty("day_a11y_value", QString::fromUtf8(value));
     if (hidden) widget->setProperty("day_a11y_hidden", true);
-    if (role <= 0 && !value && !hidden) return;
+    if (selected >= 0) widget->setProperty("day_a11y_selected", selected != 0);
+    if (role <= 0 && !value && !hidden && selected < 0) return;
     widget->setProperty("day_a11y", true);
     // A query made while the widget was still plain cached Qt's stock interface, which cannot
     // carry Day's role or value: drop it so the next query builds Day's. Not only when a bridge
@@ -1585,6 +1612,12 @@ void day_qt_set_a11y_traits(void *w, int role, int level, const char *value, int
         QAccessible::State changed;
         changed.invisible = true;
         changed.offscreen = true;
+        QAccessibleStateChangeEvent ev(widget, changed);
+        QAccessible::updateAccessibility(&ev);
+    }
+    if (selected >= 0) {
+        QAccessible::State changed;
+        changed.selected = true;
         QAccessibleStateChangeEvent ev(widget, changed);
         QAccessible::updateAccessibility(&ev);
     }
@@ -1627,6 +1660,8 @@ static int day_qt_role_code(QAccessible::Role role) {
     case QAccessible::Grouping: return 8;
     case QAccessible::Tree: return 9;
     case QAccessible::TreeItem: return 10;
+    case QAccessible::PageTab: return 11;
+    case QAccessible::PageTabList: return 12;
     default: return 0;
     }
 }
@@ -1727,6 +1762,8 @@ void day_qt_read_native(void *w, DayQtNative *out) {
 
     if (auto *b = qobject_cast<QAbstractButton *>(widget); b && b->isCheckable())
         out->checked = b->isChecked() ? 1 : 0;
+    else if (b && b->property("daySelected").isValid())
+        out->checked = 0; // a Day button never yet selected (`day_qt_button_set_selected`)
     out->enabled = widget->isEnabled() ? 1 : 0;
     out->visible = widget->isVisible() ? 1 : 0;
 
@@ -2326,13 +2363,19 @@ void *day_qt_enclosing_tabs(void *w) {
     }
     return nullptr;
 }
-// A tab that is present but not shown: the suite's sidebar page, whose rows BECAME the bar.
-void day_qt_tabs_set_page_visible(void *tabs, void *page, int visible) {
+// The suite's sidebar page, whose rows BECAME the bar: kept under the QTabWidget, so the nav
+// menu inside it still finds the suite through `day_qt_enclosing_tabs`, but never a page, so
+// tab indices are destination indices with nothing to subtract. The hidden holder keeps it off
+// screen whatever is later set on the page itself.
+void day_qt_tabs_park(void *tabs, void *page) {
     auto *t = static_cast<QTabWidget *>(tabs);
-    int i = t->indexOf(static_cast<QWidget *>(page));
-    if (i >= 0) {
-        t->setTabVisible(i, visible != 0);
+    auto *holder = t->findChild<QWidget *>(QStringLiteral("dayParkedPage"), Qt::FindDirectChildrenOnly);
+    if (!holder) {
+        holder = new QWidget(t);
+        holder->setObjectName(QStringLiteral("dayParkedPage"));
+        holder->hide();
     }
+    static_cast<QWidget *>(page)->setParent(holder);
 }
 
 // --- the navigation suite (docs/navigation.md): a QTabWidget owns its page widgets ---
@@ -2350,9 +2393,9 @@ void *day_qt_tabs_new(uint64_t id, void (*cb)(uint64_t, int)) {
     }
 #endif
     QObject::connect(t, &QTabWidget::currentChanged, [id, cb](int index) {
-        // Every Day suite parks the hidden sidebar at tab 0. Report destination rows,
-        // matching NavPatch::Select's inverse mapping, and ignore empty/parking pages.
-        if (index > 0) cb(id, index - 1);
+        // Tab i is destination i (the sidebar page is parked, never a tab); an empty widget
+        // reports -1, which is no destination.
+        if (index >= 0) cb(id, index);
     });
     return t;
 }
@@ -2368,8 +2411,8 @@ void day_qt_tabs_documents(void *tabs, uint64_t id, const char *newLabel, const 
     t->setMovable(true);
     t->setUsesScrollButtons(true);
     t->tabBar()->setAccessibleDescription(QString::fromUtf8(closeLabel));
-    QObject::connect(t, &QTabWidget::tabCloseRequested, [id,cb](int i) { if (i > 0) cb(id,1,i,0); });
-    QObject::connect(t->tabBar(), &QTabBar::tabMoved, [id,cb](int from,int to) { if (from > 0 && to > 0) cb(id,2,from,to); });
+    QObject::connect(t, &QTabWidget::tabCloseRequested, [id,cb](int i) { cb(id,1,i,0); });
+    QObject::connect(t->tabBar(), &QTabBar::tabMoved, [id,cb](int from,int to) { cb(id,2,from,to); });
     if (canAdd) {
         auto *b = new QToolButton(t);
         b->setText(QStringLiteral("+"));

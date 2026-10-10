@@ -187,6 +187,8 @@ unsafe extern "C" {
     );
     pub fn day_qt_button_set_title(w: *mut c_void, title: *const c_char);
     pub fn day_qt_button_set_style(w: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
+    /// `ButtonProps::selected`: a checked QPushButton, restored after each click.
+    pub fn day_qt_button_set_selected(w: *mut c_void, on: c_int);
 
     pub fn day_qt_checkbox_new(on: c_int, id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     pub fn day_qt_checkbox_set(w: *mut c_void, on: c_int);
@@ -236,8 +238,9 @@ unsafe extern "C" {
     pub fn day_qt_tabs_new(id: u64, cb: extern "C" fn(u64, c_int)) -> *mut c_void;
     /// The first QTabWidget above `w`, or null — how a nav menu finds the suite drawing its rows.
     pub fn day_qt_enclosing_tabs(w: *mut c_void) -> *mut c_void;
-    /// Present but not shown: the suite's sidebar page, whose rows became the bar.
-    pub fn day_qt_tabs_set_page_visible(tabs: *mut c_void, page: *mut c_void, visible: c_int);
+    /// The suite's sidebar page, whose rows became the bar: kept under the QTabWidget for the
+    /// menu's parent chain, never a tab, so tab i is destination i.
+    pub fn day_qt_tabs_park(tabs: *mut c_void, page: *mut c_void);
     pub fn day_qt_tabs_add_page(
         tabs: *mut c_void,
         page: *mut c_void,
@@ -308,13 +311,15 @@ unsafe extern "C" {
     /// interface (docs/accessibility.md). `role` follows `day_spec::Role` declaration order
     /// (shim.cpp carries the same table): 0 none (the widget's own role stays), 1 Button,
     /// 2 Toggle, 3 Slider, 4 TextInput, 5 Heading with `level`, 6 Image, 7 Meter, 8 Group,
-    /// 9 Tree, 10 TreeItem. `value` NULL = none. Once hidden, a widget stays hidden.
+    /// 9 Tree, 10 TreeItem, 11 Tab, 12 TabList. `value` NULL = none. Once hidden, a widget
+    /// stays hidden. `selected` -1 = unset, else the selected state.
     pub fn day_qt_set_a11y_traits(
         w: *mut c_void,
         role: c_int,
         level: c_int,
         value: *const c_char,
         hidden: c_int,
+        selected: c_int,
     );
     /// 1 when the Qt linked carries `QAccessibleAnnouncementEvent` (6.8+), else 0.
     pub fn day_qt_can_announce() -> c_int;

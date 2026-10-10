@@ -110,6 +110,10 @@ day_core::tls_group! {
     /// `ButtonPatch::Title` would otherwise replace it with a plain one and lose the color.
     static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
         RefCell::new(HashMap::new());
+    /// Each button's selected state (`ButtonProps::selected`), keyed by its view pointer: what
+    /// the `action:` handler restores after a click toggles a push-on/push-off button, and the
+    /// buttons whose `state` `read_native` reports as `checked`.
+    static BUTTON_SELECTED: RefCell<HashMap<usize, bool>> = RefCell::new(HashMap::new());
 
     /// Canvas ptr → its display list. A [`SideTable`], so the release sweep reclaims it
     /// (replay inserted but nothing ever removed).
@@ -404,13 +408,17 @@ fn ns_role(role: day_spec::Role) -> Option<&'static objc2_app_kit::NSAccessibili
     use objc2_app_kit::{
         NSAccessibilityButtonRole, NSAccessibilityCheckBoxRole, NSAccessibilityGroupRole,
         NSAccessibilityHeadingRole, NSAccessibilityImageRole, NSAccessibilityLevelIndicatorRole,
-        NSAccessibilityOutlineRole, NSAccessibilityRowRole, NSAccessibilitySliderRole,
-        NSAccessibilityTextFieldRole,
+        NSAccessibilityOutlineRole, NSAccessibilityRadioButtonRole, NSAccessibilityRowRole,
+        NSAccessibilitySliderRole, NSAccessibilityTabGroupRole, NSAccessibilityTextFieldRole,
     };
     unsafe {
         Some(match role {
             Role::Button => NSAccessibilityButtonRole,
             Role::Toggle => NSAccessibilityCheckBoxRole,
+            // A tab is a radio button with the tab-button subrole (`set_a11y` adds it), which
+            // is how NSTabView's own tabs read to VoiceOver; the strip is a tab group.
+            Role::Tab => NSAccessibilityRadioButtonRole,
+            Role::TabList => NSAccessibilityTabGroupRole,
             Role::Slider => NSAccessibilitySliderRole,
             Role::TextInput => NSAccessibilityTextFieldRole,
             // `AXHeading` lands the label in VoiceOver's headings rotor. The level has no
@@ -445,6 +453,8 @@ fn day_role_from_ns(ax: &str) -> day_spec::Role {
         "AXImage" => Role::Image,
         "AXLevelIndicator" | "AXProgressIndicator" => Role::Meter,
         "AXGroup" => Role::Group,
+        "AXRadioButton" => Role::Tab,
+        "AXTabGroup" => Role::TabList,
         _ => Role::None,
     }
 }
@@ -517,6 +527,18 @@ define_class!(
                     }
                 } else {
                     emit(node, Event::Pressed);
+                    // A push-on/push-off button toggled its state on the click; Day owns the
+                    // selected state (`set_button_selected`), so put back what it last asked.
+                    let wanted = BUTTON_SELECTED.with(|m| m.borrow().get(&ptr_of(sender)).copied());
+                    if let (Some(on), Some(btn)) = (wanted, sender.downcast_ref::<NSButton>()) {
+                        unsafe {
+                            btn.setState(if on {
+                                NSControlStateValueOn
+                            } else {
+                                NSControlStateValueOff
+                            })
+                        };
+                    }
                 }
             })
         }
@@ -4672,6 +4694,25 @@ fn apply_button_content(
     }
 }
 
+/// Put `ButtonProps::selected` on an `NSButton`, keeping it an NSButton. A momentary button
+/// shows no state, so the first `true` makes it push-on/push-off, whose on state AppKit draws
+/// as the bezel's highlighted fill and VoiceOver reads as selected; a button that never
+/// selects keeps its momentary type. A click toggles the state natively before the action
+/// runs, so the `action:` handler restores the value recorded here.
+fn set_button_selected(btn: &objc2_app_kit::NSButton, on: bool) {
+    BUTTON_SELECTED.with(|m| m.borrow_mut().insert(ptr_of(btn), on));
+    unsafe {
+        if on {
+            btn.setButtonType(objc2_app_kit::NSButtonType::PushOnPushOff);
+        }
+        btn.setState(if on {
+            NSControlStateValueOn
+        } else {
+            NSControlStateValueOff
+        });
+    }
+}
+
 /// Put a [`day_spec::props::ButtonStyleSpec`] on an `NSButton`, keeping it an NSButton.
 ///
 /// Prominent = the return-key default button. Tinted = `bezelColor`, which AppKit composites
@@ -6360,6 +6401,7 @@ impl Toolkit for AppKit {
                     apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
                 }
                 unsafe { btn.setEnabled(p.enabled) };
+                set_button_selected(&btn, p.selected);
                 let view = view_of(btn);
                 TARGETS.with(|m| m.borrow_mut().insert(ptr_of(&view), target));
                 view
@@ -7292,6 +7334,7 @@ impl Toolkit for AppKit {
                             set_button_title(&btn, t, style);
                         }
                         ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
+                        ButtonPatch::Selected(on) => set_button_selected(&btn, *on),
                         ButtonPatch::Style(s) => apply_button_style(&btn, *s),
                     }
                 }
@@ -9001,6 +9044,12 @@ impl Toolkit for AppKit {
             if let Some(role) = ns_role(a11y.role) {
                 h.setAccessibilityRole(Some(role));
             }
+            if a11y.role == day_spec::Role::Tab {
+                h.setAccessibilitySubrole(Some(objc2_app_kit::NSAccessibilityTabButtonSubrole));
+            }
+            if let Some(on) = a11y.selected {
+                h.setAccessibilitySelected(on);
+            }
             // Decorative / hidden: drop from the AX tree entirely. An ignored view alone is
             // not enough — AppKit promotes an ignored element's children into its parent's
             // list — so the subtree is cut off too, which also covers subviews added later
@@ -9077,14 +9126,22 @@ impl Toolkit for AppKit {
                     None => native_text(h),
                 },
                 number: native_number(h),
-                checked: h
-                    .downcast_ref::<NSSwitch>()
-                    .and_then(|sw| match sw.state() {
+                checked: if let Some(sw) = h.downcast_ref::<NSSwitch>() {
+                    match sw.state() {
                         s if s == NSControlStateValueOn => Some(true),
                         s if s == NSControlStateValueOff => Some(false),
                         // Mixed is neither on nor off.
                         _ => None,
-                    }),
+                    }
+                } else if let Some(btn) = h.downcast_ref::<NSButton>() {
+                    // A Day button's selected state (`ButtonProps::selected`): its own
+                    // `state`, which a momentary button holds off at rest.
+                    BUTTON_SELECTED
+                        .with(|m| m.borrow().contains_key(&ptr_of(h)))
+                        .then(|| btn.state() == NSControlStateValueOn)
+                } else {
+                    None
+                },
                 // A label is a non-editable NSTextField whose `isEnabled` says nothing about
                 // input; every other control answers for itself.
                 enabled: match (&picker, h.downcast_ref::<NSControl>()) {

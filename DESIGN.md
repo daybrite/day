@@ -823,7 +823,8 @@ link(text, url)                    // tappable accent text → #route navigates 
                                    //   open in the default handler; .font() / .color() / .bold()
 open_link(target)                  // shared default for link(), markdown and TextBuilder links:
                                    //   strip a leading # and call navigate; otherwise open_url
-button(text).action(f)             // .bordered() / .prominent() / .tint(color) (docs/buttons.md)
+button(text).action(f)             // .bordered() / .prominent() / .tint(color) / .selected(on)
+                                   //   (docs/buttons.md)
     .icon(Symbol::Play)            // native symbol; reactive symbol sources are supported
     .icon_only()                   // hide the visible title, retain its accessible name
 button(text).image(res::vectors::mark) // bundled image/vector instead of a symbol
@@ -1805,7 +1806,12 @@ through window creation.
 > window roots. `DocumentWindow` follows its toolbar contributions; `set_content_scope`
 > makes commands resolve in the focused document. Native order sync runs on focus and close,
 > without a frame-clock subscription. The Qt bridge lives in `toolkits/day-macos-tabs`, so
-> day-core has no AppKit dependencies. See [navigation](docs/navigation.md#document-tabs)
+> day-core has no AppKit dependencies. `ButtonProps::selected` / `ButtonPatch::Selected` carry
+> a button's native selected state (the strip's current tab is a selected button, not a
+> disabled one), `Role::{Tab, TabList}` and `A11yProps::selected` name it to assistive tech,
+> and `NativeSnapshot::checked` reads it back. Qt parks the nav host's sidebar page under its
+> `QTabWidget` instead of hiding it at tab 0, so native tab indices are destination indices.
+> See [navigation](docs/navigation.md#document-tabs)
 > and [document-window lifecycle](docs/windows.md#document-window-tabs).
 
 `WindowOptions::start_hidden` defaults to false. AppKit honors it for both the initial host and
@@ -2914,11 +2920,13 @@ image(res::images::chart)
 canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.get())))
 ```
 
-- `A11yProps { label, hint, value, role, hidden, identifier }` — the three strings are
+- `A11yProps { label, hint, value, role, selected, hidden, identifier }` — the three strings are
   `IntoText` on the builder (a11y strings are localized like any other, and a closure updates
-  reactively: the string is re-sent alone and merged onto the node's set).
-- Roles map to native: `Role::Button/Toggle/Slider/TextInput/Heading(level)/Image/Meter/Group/…` —
-  most built-ins set their role automatically; `role` matters for canvas and custom pieces.
+  reactively: the string is re-sent alone and merged onto the node's set); `selected` is the
+  platform's selected state for one item among peers, reactive the same way.
+- Roles map to native: `Role::Button/Toggle/Slider/TextInput/Heading(level)/Image/Meter/Group/
+  Tree/TreeItem/Tab/TabList` — most built-ins set their role automatically; `role` matters for
+  canvas, custom pieces and composed chrome (the document strip's tabs).
 - **Reduced motion**: `day::reduce_motion()` is the user's setting as a reactive read, and the
   gate Day's own animations already honor ([§8.4](#84-animation-and-display-frames)).
 - **Announcements**: `day::announce(text)` / `announce_urgent(text)` speak a sentence through the

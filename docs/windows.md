@@ -309,8 +309,9 @@ tabbing` puts a window in a tab group of its own:
 | `Disallowed` | Never become a tab. |
 
 `register_new_window_for(group, build)` is the builder behind the tab bar's "+" in that group's
-windows. A group without one falls back to the app's `register_new_window` builder. Other
-platforms have no system window tabs and ignore the option (`Cap::WindowTabbing`).
+windows. A group without one falls back to the app's `register_new_window` builder. AppKit and
+Qt on macOS (through `toolkits/day-macos-tabs`) answer `Cap::WindowTabbing`; every other
+platform has no system window tabs and ignores the option.
 
 ## Keeping the app running
 

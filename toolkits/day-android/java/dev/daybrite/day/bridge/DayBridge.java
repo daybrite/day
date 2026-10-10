@@ -1111,15 +1111,41 @@ public final class DayBridge {
     }
 
     public static View makeButton(final long id, String title) {
-        MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
+        final MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
         buttonTints.put(b, b.getBackgroundTintList());
         buttonMetrics.put(b, new int[] {
                 b.getMinWidth(), b.getMinimumWidth(), b.getPaddingStart(), b.getPaddingEnd() });
         b.setText(title);
         b.setOnClickListener(new View.OnClickListener() {
-            public void onClick(View x) { nativeOnEvent(id, K_PRESSED, 0, null); }
+            public void onClick(View x) {
+                nativeOnEvent(id, K_PRESSED, 0, null);
+                // A checkable button toggled itself on the click; Day owns the selected state
+                // (setButtonSelected), so put back what it last asked for.
+                Boolean want = buttonSelected.get(b);
+                if (want != null && b.isCheckable()) b.setChecked(want);
+            }
         });
         return b;
+    }
+
+    /** Each button's selected state (`ButtonProps::selected`): what the click listener restores
+     *  and `readNative` reports as checked. */
+    static final java.util.WeakHashMap<View, Boolean> buttonSelected = new java.util.WeakHashMap<>();
+
+    /**
+     * `ButtonProps::selected`: a checked MaterialButton, Material's own selected look, plus the
+     * view's selected state, which TalkBack reads as "selected". The button turns checkable only
+     * once it is first selected, so an ordinary button keeps its momentary behavior.
+     */
+    public static void setButtonSelected(View v, boolean on) {
+        buttonSelected.put(v, on);
+        v.setSelected(on);
+        if (!(v instanceof MaterialButton)) return;
+        MaterialButton b = (MaterialButton) v;
+        if (on || b.isCheckable()) {
+            b.setCheckable(true);
+            b.setChecked(on);
+        }
     }
 
     /**
@@ -3385,10 +3411,11 @@ public final class DayBridge {
     // they come from an AccessibilityDelegate reading the traits stored per view below.
 
     /** Day's `Role`, by declaration order (day_spec::Role): 0 None 1 Button 2 Toggle 3 Slider
-     *  4 TextInput 5 Heading 6 Image 7 Meter 8 Group 9 Tree 10 TreeItem. `set_a11y` sends it as
-     *  the int, with the heading level beside it. */
+     *  4 TextInput 5 Heading 6 Image 7 Meter 8 Group 9 Tree 10 TreeItem 11 Tab 12 TabList.
+     *  `set_a11y` sends it as the int, with the heading level beside it. */
     static final int ROLE_NONE = 0, ROLE_BUTTON = 1, ROLE_TOGGLE = 2, ROLE_SLIDER = 3,
-            ROLE_TEXT_INPUT = 4, ROLE_HEADING = 5, ROLE_IMAGE = 6, ROLE_METER = 7, ROLE_GROUP = 8;
+            ROLE_TEXT_INPUT = 4, ROLE_HEADING = 5, ROLE_IMAGE = 6, ROLE_METER = 7, ROLE_GROUP = 8,
+            ROLE_TAB = 11, ROLE_TAB_LIST = 12;
 
     /** The delegate-borne traits of one view: the hint, the explicit role, and the Day id. */
     private static final class A11yTraits {
@@ -3441,6 +3468,10 @@ public final class DayBridge {
                 case ROLE_IMAGE: info.setClassName(android.widget.ImageView.class.getName()); break;
                 case ROLE_METER: info.setClassName(ProgressBar.class.getName()); break;
                 case ROLE_GROUP: info.setClassName(ViewGroup.class.getName()); break;
+                // A tab reads as a button; its selected state (setA11y's `selected`, the view's
+                // own) is what tells the current one apart. The strip is a plain group.
+                case ROLE_TAB: info.setClassName(android.widget.Button.class.getName()); break;
+                case ROLE_TAB_LIST: info.setClassName(ViewGroup.class.getName()); break;
                 default: break; // None, Tree, TreeItem: the platform has no node type for them
             }
         }
@@ -3500,8 +3531,10 @@ public final class DayBridge {
     static final java.util.Map<View, Boolean> appLabeled = new java.util.WeakHashMap<>();
 
     public static void setA11y(View v, String label, String hint, String value, String id,
-            int role, int level, boolean hidden) {
+            int role, int level, boolean hidden, int selected) {
         try {
+            // The selected state (-1 unset): the view's own, which TalkBack reads as "selected".
+            if (selected >= 0) v.setSelected(selected == 1);
             boolean hasLabel = label != null && !label.isEmpty();
             if (hasLabel) appLabeled.put(v, Boolean.TRUE); else appLabeled.remove(v);
             boolean hasValue = value != null && !value.isEmpty();
@@ -3583,6 +3616,11 @@ public final class DayBridge {
                 if (!isMasked(e)) out[RN_TEXT] = e.getText().toString();
             } else if (c instanceof CompoundButton) {
                 out[RN_CHECKED] = ((CompoundButton) c).isChecked() ? "1" : "0";
+            } else if (c instanceof MaterialButton && buttonSelected.containsKey(c)) {
+                // A Day button: its title, and its selected state as checked (setButtonSelected).
+                MaterialButton b = (MaterialButton) c;
+                out[RN_TEXT] = b.getText().toString();
+                out[RN_CHECKED] = b.isCheckable() && b.isChecked() ? "1" : "0";
             } else if (c instanceof TextView) {
                 // A label (runs flatten to their plain string) or a button's title.
                 out[RN_TEXT] = ((TextView) c).getText().toString();

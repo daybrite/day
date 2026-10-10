@@ -378,6 +378,27 @@ fn native_frame(h: &Handle) -> Option<Rect> {
 /// Adwaita's button styling uses, so a plain `background-color` would be painted over) and the
 /// label color. GTK keeps drawing the button, so `:hover`, `:active`, `:focus` and `:disabled`
 /// still come from the theme.
+/// Put `ButtonProps::selected` on a plain `gtk4::Button`: the `:checked` state flag, which the
+/// theme draws exactly as a toggle button's checked look, without swapping in a
+/// `GtkToggleButton` that would flip itself on every click. AT-SPI hears a button that has been
+/// selected as pressed or not; a button that never selects keeps its plain button semantics.
+fn set_button_selected(btn: &gtk4::Button, on: bool) {
+    let was = btn.state_flags().contains(gtk4::StateFlags::CHECKED);
+    if on {
+        btn.set_state_flags(gtk4::StateFlags::CHECKED, false);
+    } else {
+        btn.unset_state_flags(gtk4::StateFlags::CHECKED);
+    }
+    if on || was {
+        let pressed = if on {
+            gtk4::AccessibleTristate::True
+        } else {
+            gtk4::AccessibleTristate::False
+        };
+        btn.update_state(&[gtk4::accessible::State::Pressed(pressed)]);
+    }
+}
+
 fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpec) {
     use day_spec::props::ButtonStyleSpec as S;
     use gtk4::prelude::*;
@@ -4718,6 +4739,7 @@ impl Toolkit for Gtk {
                     apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
                 }
                 btn.set_sensitive(p.enabled);
+                set_button_selected(&btn, p.selected);
                 btn.connect_clicked(move |_| ffi_guard::contain((), || emit(id, Event::Pressed)));
                 wire_focus(&btn, id);
                 btn.upcast()
@@ -5710,16 +5732,14 @@ impl Toolkit for Gtk {
                     NAV_STATE.with(|m| {
                         let mut m = m.borrow_mut();
                         if let Some(state) = m.get_mut(&widget_key(h)) {
+                            // `pages` holds documents alone (the sidebar page is not in it),
+                            // so each entry of `order` is an index into it.
                             let old = state.pages.clone();
-                            state.pages = old
-                                .first()
-                                .cloned()
-                                .into_iter()
-                                .chain(order.iter().filter_map(|i| old.get(i + 1).cloned()))
-                                .collect();
+                            state.pages =
+                                order.iter().filter_map(|i| old.get(*i).cloned()).collect();
                             if let NavPresent::Documents(doc) = &state.present {
                                 doc.suppress.set(true);
-                                for (i, (key, _, _)) in state.pages.iter().skip(1).enumerate() {
+                                for (i, (key, _, _)) in state.pages.iter().enumerate() {
                                     for n in 0..doc.view.n_pages() {
                                         let page = doc.view.nth_page(n);
                                         if page
@@ -5829,6 +5849,7 @@ impl Toolkit for Gtk {
                         }
                         ButtonPatch::Title(t) => btn.set_label(t),
                         ButtonPatch::Enabled(e) => btn.set_sensitive(*e),
+                        ButtonPatch::Selected(on) => set_button_selected(btn, *on),
                         ButtonPatch::Style(s) => apply_button_style(btn, *s),
                     }
                 }
@@ -6136,8 +6157,12 @@ impl Toolkit for Gtk {
                 .unwrap_or_else(|| "Day".to_string());
             let nav_page = match &state.present {
                 NavPresent::Documents(doc) => {
+                    // Day's nav host keeps its menu as child 0, inside the sidebar page: that
+                    // page goes in the hidden sidebar box and never into `pages` or the tab
+                    // view, so document i is Day's child i + 1 and the view's page i.
                     if index == 0 {
                         doc.sidebar.append(child);
+                        return true;
                     } else {
                         let cell = DayCell::filling();
                         cell.add_child(child);
@@ -6294,6 +6319,13 @@ impl Toolkit for Gtk {
                 return false;
             };
             let key = widget_key(child);
+            // The document host's sidebar page is not in `pages` (see `insert`).
+            if let NavPresent::Documents(doc) = &state.present
+                && child.parent().as_ref() == Some(doc.sidebar.upcast_ref::<gtk4::Widget>())
+            {
+                doc.sidebar.remove(child);
+                return true;
+            }
             if let Some(pos) = state.pages.iter().position(|(k, _, _)| *k == key) {
                 let (_, _, nav_page) = state.pages.remove(pos);
                 match (&state.present, nav_page) {
@@ -6319,8 +6351,6 @@ impl Toolkit for Gtk {
                                 .remove(&widget_key(cell.upcast_ref()));
                             cell.remove_child(child);
                             doc.suppress.set(false);
-                        } else if child.parent().is_some() {
-                            doc.sidebar.remove(child);
                         }
                     }
                     (NavPresent::Suite { stack, .. }, _) => {
@@ -7245,6 +7275,8 @@ impl Toolkit for Gtk {
             Role::Group => Some(AccessibleRole::Group),
             Role::Tree => Some(AccessibleRole::Tree),
             Role::TreeItem => Some(AccessibleRole::TreeItem),
+            Role::Tab => Some(AccessibleRole::Tab),
+            Role::TabList => Some(AccessibleRole::TabList),
         };
         if let Some(role) = role
             && h.root().is_none()
@@ -7254,6 +7286,10 @@ impl Toolkit for Gtk {
         }
         if !props.is_empty() {
             h.update_property(&props);
+        }
+        // The selected state, which AT-SPI reports for a tab or a row.
+        if let Some(on) = a11y.selected {
+            h.update_state(&[State::Selected(Some(on))]);
         }
         // Hidden drops the whole subtree from AT-SPI: children hang under a node the bridge
         // no longer presents.
@@ -7284,6 +7320,9 @@ impl Toolkit for Gtk {
             snap.text = button_text(btn);
             if let Some(toggle) = btn.downcast_ref::<gtk4::ToggleButton>() {
                 snap.checked = Some(toggle.is_active());
+            } else {
+                // A Day button's selected state (`set_button_selected`): the `:checked` flag.
+                snap.checked = Some(btn.state_flags().contains(gtk4::StateFlags::CHECKED));
             }
         } else if let Some(sw) = h.downcast_ref::<gtk4::Switch>() {
             snap.checked = Some(sw.is_active());

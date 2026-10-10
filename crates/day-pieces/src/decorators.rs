@@ -393,8 +393,28 @@ fn op_a11y(f: impl FnOnce(A11yBuilder) -> A11yBuilder + 'static) -> impl FnOnce(
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            let (props, live) = f(A11yBuilder::default()).split();
+            let (props, live, selected) = f(A11yBuilder::default()).split();
+            let seed = props.selected;
             with_tree(|t| t.set_a11y(n, props));
+            // The selected state follows its signal the same way: re-sent alone, merged by
+            // day-core onto the node's set.
+            if let Some(selected) = selected {
+                day_reactive::bind_seeded(
+                    seed.unwrap_or(false),
+                    move || selected.get(),
+                    move |on: &bool| {
+                        with_tree(|t| {
+                            t.set_a11y(
+                                n,
+                                A11yProps {
+                                    selected: Some(*on),
+                                    ..Default::default()
+                                },
+                            )
+                        })
+                    },
+                );
+            }
             // A string that reads a signal or the locale re-sends itself alone; day-core
             // merges it onto the node's set and re-applies the whole picture (§13).
             for (src, patch) in live {
@@ -1623,6 +1643,8 @@ pub struct A11yBuilder {
     label: Option<TextSource>,
     hint: Option<TextSource>,
     value: Option<TextSource>,
+    /// The selected state, reactive so a tab or row follows the selection.
+    selected: Option<Reactive<bool>>,
     props: A11yProps,
 }
 
@@ -1648,6 +1670,13 @@ impl A11yBuilder {
         self.props.role = r;
         self
     }
+    /// Whether this element is the selected one among its peers (a `Role::Tab`, a row): the
+    /// platform's selected state, which a screen reader reads as "selected". Reactive like the
+    /// strings: `.selected(move || current.get() == key)` re-sends it when the selection moves.
+    pub fn selected<M>(mut self, on: impl IntoReactive<bool, M>) -> Self {
+        self.selected = Some(on.into_reactive());
+        self
+    }
     /// Hide this element from assistive tech (still visible on screen), e.g. a redundant chrome
     /// element already announced by its labeled sibling.
     pub fn hidden(mut self) -> Self {
@@ -1662,11 +1691,23 @@ impl A11yBuilder {
         self
     }
 
-    /// The annotations as first applied, with every string resolved once, and the sources
-    /// that can change, each paired with the patch that re-sends it.
-    fn split(self) -> (A11yProps, Vec<LiveA11yString>) {
+    /// The annotations as first applied, with every string resolved once, the sources that
+    /// can change, each paired with the patch that re-sends it, and the selected state when it
+    /// reads a signal.
+    fn split(self) -> (A11yProps, Vec<LiveA11yString>, Option<Reactive<bool>>) {
         let mut props = self.props;
         let mut live = Vec::new();
+        let selected = match self.selected {
+            Some(Reactive::Const(on)) => {
+                props.selected = Some(on);
+                None
+            }
+            Some(dynamic @ Reactive::Dyn(_)) => {
+                props.selected = Some(day_reactive::untrack(|| dynamic.get()));
+                Some(dynamic)
+            }
+            None => None,
+        };
         let mut take =
             |src: Option<TextSource>, slot: &mut Option<String>, patch: fn(String) -> A11yProps| {
                 if let Some(src) = src {
@@ -1688,7 +1729,7 @@ impl A11yBuilder {
             value: Some(value),
             ..Default::default()
         });
-        (props, live)
+        (props, live, selected)
     }
 }
 

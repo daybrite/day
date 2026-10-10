@@ -149,6 +149,8 @@ pub struct MockWidget {
     pub value: f64,
     pub flag: bool,
     pub enabled: bool,
+    /// A button's selected state (`ButtonProps::selected`), probe-visible for tests.
+    pub selected: bool,
     /// `text_area` attributes (probe-visible for tests): editable/read-only, selectable, spell-check.
     pub editable: bool,
     pub selectable: bool,
@@ -1023,10 +1025,18 @@ impl Toolkit for MockToolkit {
             // Records every window change and Dock menu and completes state requests the way a
             // platform reports them (`apply_window` below), so the two-way state signal and the
             // menu lowering are testable headless.
+            // OS window tabs follow the test's own switch (`MockState::native_window_tabs`),
+            // so a case that `requires` them is skipped unless a test turned them on.
+            Cap::WindowTabbing => {
+                if self.state.borrow().native_window_tabs {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
             Cap::WindowStates
             | Cap::WindowFullscreen
             | Cap::ContentProtection
-            | Cap::WindowTabbing
             | Cap::DockMenu
             | Cap::DragRegion
             | Cap::StatusItem
@@ -1138,6 +1148,7 @@ impl Toolkit for MockToolkit {
         } else if let Some(p) = props.downcast_ref::<ButtonProps>() {
             w.text = p.title.clone();
             w.enabled = p.enabled;
+            w.selected = p.selected;
             detail = format!(" title={:?}", p.title);
         } else if let Some(p) = props.downcast_ref::<ToggleProps>() {
             w.flag = p.on;
@@ -1275,6 +1286,10 @@ impl Toolkit for MockToolkit {
                     ButtonPatch::Enabled(e) => {
                         w.enabled = *e;
                         format!("enabled={e}")
+                    }
+                    ButtonPatch::Selected(on) => {
+                        w.selected = *on;
+                        format!("selected={on}")
                     }
                     // Recorded so a walkthrough can see a reactive tint change, but the mock
                     // has no pixels to apply it to.
@@ -2401,7 +2416,12 @@ impl Toolkit for MockToolkit {
             identifier: w.a11y.identifier.clone(),
             text: texty.then(|| w.text.clone()).or(picked),
             number: matches!(kind, "day.slider" | "day.progress").then_some(w.value),
-            checked: (kind == "day.toggle").then_some(w.flag),
+            // A toggle's state, or a button's selected state.
+            checked: match kind {
+                "day.toggle" => Some(w.flag),
+                "day.button" => Some(w.selected),
+                _ => None,
+            },
             enabled: Some(w.enabled),
             visible: None,
             frame: Some(w.frame),

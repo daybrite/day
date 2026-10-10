@@ -1367,11 +1367,11 @@ fn suite_apply_rows(host: *mut std::os::raw::c_void) {
             return;
         };
         for (i, title) in suite.titles.iter().enumerate() {
-            // Tab 0 is the hidden sidebar page, so row i is tab i + 1.
+            // Row i is tab i: the sidebar page is parked under the widget, never a tab.
             if i >= suite.pages.len() {
                 break;
             }
-            let at = (i + 1) as c_int;
+            let at = i as c_int;
             unsafe { ffi::day_qt_tabs_set_title(host, at, cstr(title).as_ptr()) };
             let icon = suite
                 .icons
@@ -1865,6 +1865,8 @@ impl Toolkit for Qt {
             // `QWidget::setCursor` per widget; several CSS shapes take their nearest Qt shape
             // (docs/cursor.md).
             Cap::Cursor => Support::Emulated,
+            // OS window tabs exist on macOS alone, through `day_macos_tabs` (docs/windows.md).
+            Cap::WindowTabbing if cfg!(target_os = "macos") => Support::Native,
             // `QFontDatabase::families()` + `styles()` (docs/fonts.md).
             Cap::FontList => Support::Native,
             // Opacity and transform tween through the shim's QVariantAnimations on the
@@ -2320,6 +2322,7 @@ impl Toolkit for Qt {
                     };
                     let w = ffi::day_qt_button_new(cstr(&p.title).as_ptr(), id.0, on_press);
                     ffi::day_qt_set_enabled(w, p.enabled as c_int);
+                    ffi::day_qt_button_set_selected(w, p.selected as c_int);
                     apply_button_style(w, p.style);
                     if p.icon.is_some() {
                         apply_button_content(w, &p.title, p.icon.as_ref(), p.icon_only);
@@ -2741,7 +2744,7 @@ impl Toolkit for Qt {
                                 s.pages =
                                     order.iter().filter_map(|i| old.get(*i).cloned()).collect();
                                 for (i, (page, _)) in s.pages.iter().enumerate() {
-                                    ffi::day_qt_tabs_move_page(h.0, page.0, (i + 1) as c_int);
+                                    ffi::day_qt_tabs_move_page(h.0, page.0, i as c_int);
                                 }
                             }
                         });
@@ -2764,12 +2767,12 @@ impl Toolkit for Qt {
                     // of the split/stack block below — which returns early for it. (Until
                     // 2026-09-12 the suite branch sat inside that block and never ran, so a
                     // programmatic selection — a route, a deep link — left the bar on the
-                    // first tab.) Tab 0 is the hidden sidebar page, so destination i is tab
-                    // i + 1; the newly shown page gets its size report at once.
+                    // first tab.) Destination i is tab i: the sidebar page is parked, never a
+                    // tab. The newly shown page gets its size report at once.
                     if let Some(NavPatch::Select(i)) = patch.downcast_ref::<NavPatch>()
                         && NAV_SUITES.with(|m| m.borrow().contains_key(&(h.0 as usize)))
                     {
-                        ffi::day_qt_tabs_set_current(h.0, (*i + 1) as c_int);
+                        ffi::day_qt_tabs_set_current(h.0, *i as c_int);
                         nav_suite_sync(h.0);
                         return;
                     }
@@ -2827,8 +2830,7 @@ impl Toolkit for Qt {
                                 // Handled before this borrow (it re-parents widgets).
                                 NavPatch::Presentation(_) => {}
                                 // The resident-page switch (docs/navigation.md): the app moved the
-                                // selection, so the suite shows that destination. Tab 0 is the
-                                // hidden sidebar page, so destination i is tab i + 1.
+                                // selection, so the suite shows that destination.
                                 NavPatch::Select(i) => {
                                     // The resident-page switch (docs/navigation.md) on a
                                     // split — which is also what a ROUNDED `Rail` lands on
@@ -2911,6 +2913,9 @@ impl Toolkit for Qt {
                                 ffi::day_qt_button_set_title(h.0, cstr(t).as_ptr())
                             }
                             ButtonPatch::Enabled(e) => ffi::day_qt_set_enabled(h.0, *e as c_int),
+                            ButtonPatch::Selected(on) => {
+                                ffi::day_qt_button_set_selected(h.0, *on as c_int)
+                            }
                             ButtonPatch::Style(s) => apply_button_style(h.0, *s),
                         }
                     }
@@ -3091,29 +3096,33 @@ impl Toolkit for Qt {
             }
             return;
         }
-        // Navigation suite: every destination becomes a tab. The page at index 0 is the SIDEBAR
-        // page, whose rows became the bar — it stays a tab so its nav menu keeps a parent chain
-        // up to the suite, but a hidden one, because drawing the rows again as a list would be
-        // the same navigation twice.
+        // Navigation suite: every destination becomes a tab. Day's nav host keeps its menu as
+        // child 0, inside the SIDEBAR page whose rows became the bar; that page is parked under
+        // the widget (so the menu keeps a parent chain up to the suite) and never a tab, because
+        // drawing the rows again as a list would be the same navigation twice. So destination
+        // i, Day's child i + 1, is tab i.
         let suite_handled = NAV_SUITES.with(|m| {
             let mut m = m.borrow_mut();
             let Some(suite) = m.get_mut(&(parent.0 as usize)) else {
                 return false;
             };
             unsafe {
-                ffi::day_qt_tabs_add_page(parent.0, child.0, cstr("").as_ptr(), index as c_int);
                 if index == 0 {
-                    ffi::day_qt_tabs_set_page_visible(parent.0, child.0, 0);
+                    ffi::day_qt_tabs_park(parent.0, child.0);
                 } else {
+                    ffi::day_qt_tabs_add_page(
+                        parent.0,
+                        child.0,
+                        cstr("").as_ptr(),
+                        (index - 1) as c_int,
+                    );
                     let id = NAV_PAGE_IDS
                         .with(|ids| ids.borrow().get(&(child.0 as usize)).copied())
                         .unwrap_or(NodeId(0));
                     suite.pages.push((*child, id));
-                    // Hiding tab 0 does not move off it — QTabWidget keeps showing whatever the
-                    // current index points at, so the first destination has to claim it or the
-                    // content area stays on the sidebar page nobody is meant to see.
+                    // The first destination claims the content area (insertion is silent).
                     if suite.pages.len() == 1 {
-                        ffi::day_qt_tabs_set_current(parent.0, 1);
+                        ffi::day_qt_tabs_set_current(parent.0, 0);
                     }
                 }
                 NAV_SUITE_PAGES.with(|m| m.borrow_mut().insert(child.0 as usize));
@@ -3682,15 +3691,18 @@ impl Toolkit for Qt {
                 Role::Group => (8, 0),
                 Role::Tree => (9, 0),
                 Role::TreeItem => (10, 0),
+                Role::Tab => (11, 0),
+                Role::TabList => (12, 0),
             };
             let value = a11y.value.as_deref().map(cstr);
-            if role != 0 || value.is_some() || a11y.hidden {
+            if role != 0 || value.is_some() || a11y.hidden || a11y.selected.is_some() {
                 ffi::day_qt_set_a11y_traits(
                     h.0,
                     role,
                     level,
                     value.as_ref().map_or(std::ptr::null(), |v| v.as_ptr()),
                     c_int::from(a11y.hidden),
+                    a11y.selected.map_or(-1, c_int::from),
                 );
             }
         }
@@ -3726,6 +3738,8 @@ impl Toolkit for Qt {
             8 => Role::Group,
             9 => Role::Tree,
             10 => Role::TreeItem,
+            11 => Role::Tab,
+            12 => Role::TabList,
             _ => Role::None,
         };
         let ticks = f64::from(n.number) / 1000.0;

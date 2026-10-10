@@ -88,6 +88,11 @@ mod imp {
     day_core::tls_group! {
         static BUTTON_INK: day_spec::sidetable::SideTable<u32> = day_spec::sidetable::SideTable::new();
         static BUTTON_CHILDREN: RefCell<HashMap<usize, Vec<AHandle>>> = RefCell::new(HashMap::new());
+        /// Each button's style and selected state (`ButtonProps::selected`), so the selected
+        /// look (the prominent fill) can give way to the button's own style again, and
+        /// `read_native` can report the state as `checked`.
+        static BUTTON_STYLE: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> = RefCell::new(HashMap::new());
+        static BUTTON_SELECTED: RefCell<HashMap<usize, bool>> = RefCell::new(HashMap::new());
         /// Navigation state is keyed by host pointer; page keys are globally unique Day NodeIds.
         /// Each host owns its pending children and path. Creating another host must never
         /// clear a sibling tab's state or redirect its Back/search/title callbacks.
@@ -992,9 +997,28 @@ mod imp {
         }
     }
 
+    /// `ButtonProps::selected`: ArkUI's Button has no checked state, so the selected look is
+    /// the prominent fill and ink over the button's own style, which deselecting restores.
+    fn apply_button_selected(n: Handle, on: bool) {
+        BUTTON_SELECTED.with(|m| {
+            m.borrow_mut().insert(n as usize, on);
+        });
+        let style = BUTTON_STYLE
+            .with(|m| m.borrow().get(&(n as usize)).copied())
+            .unwrap_or_default();
+        apply_button_style(n, style);
+    }
+
     fn apply_button_style(n: Handle, style: day_spec::props::ButtonStyleSpec) {
         use day_spec::props::ButtonStyleSpec as S;
+        BUTTON_STYLE.with(|m| {
+            m.borrow_mut().insert(n as usize, style);
+        });
+        let selected = BUTTON_SELECTED
+            .with(|m| m.borrow().get(&(n as usize)).copied())
+            .unwrap_or(false);
         let (fill, ink, border) = match style {
+            _ if selected => (0xFF33_7DFF, 0xFFFF_FFFF, 0.0),
             S::Automatic | S::Compact => (0, 0xFF33_7DFF, 0.0),
             S::Bordered => (0, 0xFF33_7DFF, 1.0),
             S::Prominent => (0xFF33_7DFF, 0xFFFF_FFFF, 0.0),
@@ -2033,6 +2057,9 @@ mod imp {
                     Some(None) => None,
                     None => string(n, Attr::NODE_BUTTON_LABEL),
                 };
+                // The selected state (`apply_button_selected`), which the node itself has no
+                // attribute for.
+                snap.checked = BUTTON_SELECTED.with(|m| m.borrow().get(&(n as usize)).copied());
             }
             Some(node::TEXT_INPUT) => {
                 // A password type masks the text: nothing is reported, nor for an unread type.
@@ -2354,6 +2381,7 @@ mod imp {
                         apply_button_content(n, &p.title, p.icon.as_ref(), p.icon_only);
                     }
                     node::set_enabled(n.0, p.enabled);
+                    apply_button_selected(n.0, p.selected);
                     n
                 }
                 Some(Builtin::TextField) => {
@@ -2933,6 +2961,7 @@ mod imp {
                         apply_button_content(*h, &c.title, c.icon.as_ref(), c.icon_only)
                     }
                     Some(ButtonPatch::Enabled(on)) => node::set_enabled(h.0, *on),
+                    Some(ButtonPatch::Selected(on)) => apply_button_selected(h.0, *on),
                     Some(ButtonPatch::Title(t)) => node::set_button_label(h.0, t),
                     Some(ButtonPatch::Style(s)) => apply_button_style(h.0, *s),
                     _ => {}
@@ -3094,6 +3123,8 @@ mod imp {
         fn release(&mut self, h: AHandle) {
             clear_button_content(h);
             let key = h.0 as usize;
+            BUTTON_STYLE.with(|m| m.borrow_mut().remove(&key));
+            BUTTON_SELECTED.with(|m| m.borrow_mut().remove(&key));
             // One sweep drops this node's entry from every registered `SideTable`, present
             // and future, before the manual purges below (day_spec::sidetable; the existing
             // maps predate it and keep their explicit lines).

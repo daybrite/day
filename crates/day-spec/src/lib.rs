@@ -3509,6 +3509,11 @@ pub enum Role {
     /// One row of a tree: `role="treeitem"`, with level/expanded state where the platform
     /// carries them (docs/tree.md).
     TreeItem,
+    /// One tab in a strip of peers (`role="tab"`, `AXTabButton`): the composed document
+    /// strip's title buttons. Pair it with [`A11yProps::selected`] for the current one.
+    Tab,
+    /// The strip holding tabs (`role="tablist"`, `AXTabGroup`).
+    TabList,
 }
 
 impl Role {
@@ -3539,6 +3544,9 @@ pub struct A11yProps {
     pub identifier: Option<String>,
     pub hidden: bool,
     pub decorative: bool,
+    /// Whether the element is the selected one among its peers (a tab, a row): the
+    /// platform's selected state, read aloud as such. `None` leaves the widget's own answer.
+    pub selected: Option<bool>,
 }
 
 impl A11yProps {
@@ -3564,6 +3572,9 @@ impl A11yProps {
         }
         self.hidden |= other.hidden;
         self.decorative |= other.decorative;
+        if other.selected.is_some() {
+            self.selected = other.selected;
+        }
     }
 
     /// The role to *expect* for a node of `kind` carrying these annotations: an explicit
@@ -3605,7 +3616,7 @@ pub struct NativeSnapshot {
     pub text: Option<String>,
     /// A slider's or progress indicator's value, in the range Day gave it.
     pub number: Option<f64>,
-    /// A toggle's state.
+    /// A toggle's state, or a button's selected state (`ButtonProps::selected`).
     pub checked: Option<bool>,
     /// Whether the widget takes input.
     pub enabled: Option<bool>,
@@ -5416,6 +5427,11 @@ pub mod props {
         pub icon_only: bool,
         pub enabled: bool,
         pub style: ButtonStyleSpec,
+        /// The button stands for the current choice among its siblings (a document tab, a
+        /// view switcher): the platform's own checked or selected rendering, which keeps the
+        /// button enabled, focusable and activatable, and tells assistive tech it is selected.
+        /// A click never toggles it natively; only the app's next patch changes it.
+        pub selected: bool,
     }
     #[derive(Clone, Debug, PartialEq)]
     pub enum ButtonPatch {
@@ -5423,6 +5439,8 @@ pub mod props {
         /// Update an icon button's label and icon together. Plain buttons still use `Title`.
         Content(ButtonContent),
         Enabled(bool),
+        /// The selected state (see [`ButtonProps::selected`]).
+        Selected(bool),
         /// A live style change: what a reactive `.tint(…)` sends, so a button can recolor with
         /// app state without being torn down and realized again.
         Style(ButtonStyleSpec),

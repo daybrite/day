@@ -69,6 +69,7 @@ for example `button("Play").padding(4.0).icon(Symbol::Play)`.
 | `.tint(color)` | A filled button with a contrasting foreground |
 | `.compact()` | Removes extra minimum width and horizontal padding on Android and web |
 | `.enabled(value)` | Enables or disables interaction; accepts reactive values |
+| `.selected(value)` | Marks the button as the current choice among its peers; accepts reactive values |
 
 `.tint()` takes precedence over the other styles and can follow a signal. Day chooses black
 or white foreground according to which has the higher WCAG contrast ratio against the fill.
@@ -79,6 +80,35 @@ button("Record")
     .icon(Symbol::Play)
     .tint(move || if recording.get() { RUST } else { SLATE })
 ```
+
+## Selected state
+
+`.selected(value)` marks a button as the current choice among its peers: a document tab, one
+view of a switcher. The platform draws its own checked or selected look and tells assistive
+technology the button is selected, while the button stays enabled, focusable and activatable.
+A disabled stand-in would do neither. A press never toggles the state natively: the app's
+handler decides, and the next value of the closure is what the control shows.
+
+```rust
+button("Drafts")
+    .selected(move || current.get() == Section::Drafts)
+    .action(move || current.set(Section::Drafts))
+```
+
+| Toolkit | Selected rendering |
+| --- | --- |
+| AppKit | The `NSButton` becomes push-on/push-off on its first selection; the on state is the bezel's highlighted fill |
+| UIKit | `isSelected`, drawn with the system's tinted configuration; deselecting restores the button's style |
+| Android | A checkable `MaterialButton` in its checked state, plus the view's selected state for TalkBack |
+| GTK | The `:checked` state flag on the plain `GtkButton`, which the theme draws as a toggle's checked look |
+| Qt | A checkable `QPushButton` in its checked state |
+| XAML | The theme's accent fill on the `Button`; automation carries no selected state |
+| ArkUI | The prominent fill over the button's own style; the bound NDK has no selected state attribute |
+| web-dom | `aria-pressed` and the `selected` class, drawn as the accent fill |
+
+`read_native` reports the state as `checked`, so a conformance case asserts it with
+`assert_on` and `assert_native` (docs/testing.md). The composed document strip uses it for the
+current tab (docs/navigation.md "Document tabs").
 
 ## Platform implementation
 

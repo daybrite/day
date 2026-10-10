@@ -186,6 +186,10 @@ body.day-has-toolbar #day-root {
 .day-btn.destructive { background: #e63946; color: #fff; }
 /* A glyph-sized button (a stepper's − and +): no minimum width, tight insets. */
 .day-btn.compact { min-width: 0; padding: 0 8px; }
+/* The selected button (ButtonProps::selected, aria-pressed): the accent fill a chosen item gets,
+   still a <button>. After the style classes, so a selected bordered or tinted button reads as
+   selected. */
+.day-btn.selected { background: var(--day-accent); color: var(--day-accent-fg); border-color: transparent; }
 
 .day-toggle {
   display: inline-block;

@@ -31,8 +31,12 @@ image("chart").a11y(|a| a.label(tr("q3-chart-summary").format()))   // or .decor
 gauge(level).a11y(|a| a.role(Role::Meter).label("Volume").value("72"))   // canvas → explicit role
 ```
 
-`A11yBuilder`: `.label`, `.hint`, `.value`, `.role(Role)`, `.hidden()`, `.decorative()`
-(decorative ⇒ hidden + exempt from the "needs a label" lint). `.id(_)` sets the identifier.
+`A11yBuilder`: `.label`, `.hint`, `.value`, `.role(Role)`, `.selected(bool)`, `.hidden()`,
+`.decorative()` (decorative ⇒ hidden + exempt from the "needs a label" lint). `.id(_)` sets the
+identifier. `.selected` is the platform's selected state for one item among peers, a `Role::Tab`
+or a row; it takes a `bool`, a `Signal<bool>` or a closure and follows it. A `button(..).selected(..)`
+carries the same state through the control itself (docs/buttons.md), so the annotation is for
+custom chrome and drawn pieces.
 The three strings take what a `label` takes: a literal, a `String`, a `Signal<String>` or a
 closure. A closure is re-read whenever what it reads changes and the new string is re-sent on
 its own, so a gauge's spoken value follows the gauge and a localized label follows the locale:
@@ -51,7 +55,12 @@ handle-less layout node, so annotations placed after them wouldn't reach a nativ
 ## Roles
 
 `Role`: `None`, `Button`, `Toggle`, `Slider`, `TextInput`, `Heading(u8)`, `Image`, `Meter`, `Group`,
-`Tree`, `TreeItem`.
+`Tree`, `TreeItem`, `Tab`, `TabList`.
+
+`Tab` and `TabList` are what the composed document strip applies to its title buttons and their
+row (docs/navigation.md "Document tabs"): a tab button on AppKit, `role="tab"` on the web, GTK's
+and Qt's tab roles, a button with the selected trait or state on UIKit and Android, where no
+single-tab role exists.
 
 Day only applies an explicit role (the canvas/custom cases, e.g. a `Meter` gauge). Native controls
 already report the right role, so Day records their kind-default (`Role::for_kind`) as the audit
@@ -65,7 +74,8 @@ default.
 | label | `accessibilityLabel` | `accessibilityLabel` | `Property::Label` | `accessibleName` (+ tooltip) | `contentDescription` | `AutomationProperties.Name` | `NODE_ACCESSIBILITY_TEXT` | `aria-label` |
 | hint | `accessibilityHelp` | `accessibilityHint` | `Property::Description` | `accessibleDescription` | `hintText` through a delegate | `HelpText` | `NODE_ACCESSIBILITY_DESCRIPTION` | `aria-description` |
 | value | `accessibilityValue` | `accessibilityValue` | `Property::ValueText` | `QAccessibleInterface::text(Value)` | `stateDescription` (API 30+; appended to the label below) | `ItemStatus` | `NODE_ACCESSIBILITY_VALUE` | `aria-valuetext` (+ `aria-valuenow`) on meters and sliders, else in `aria-description` |
-| role (explicit) | `accessibilityRole` | `accessibilityTraits` (button, adjustable, header, image) | `accessible-role`, set before the widget meets an AT | `QAccessibleInterface::role()` | `className` and `heading` through a delegate | `HeadingLevel`; `LocalizedControlType` for the rest | `NODE_ACCESSIBILITY_ROLE` | `role` (+ `aria-level`) |
+| role (explicit) | `accessibilityRole` (+ the tab-button subrole for `Tab`) | `accessibilityTraits` (button, adjustable, header, image, tab bar) | `accessible-role`, set before the widget meets an AT | `QAccessibleInterface::role()` | `className` and `heading` through a delegate | `HeadingLevel`; `LocalizedControlType` for the rest | `NODE_ACCESSIBILITY_ROLE` | `role` (+ `aria-level`) |
+| selected | `accessibilitySelected` | the selected trait | `State::Selected` | `selected` state through Day's interface | `View.setSelected` | not applied: no automation property short of a custom peer | not applied: no state attribute in the bound NDK | `aria-selected` |
 | hidden / decorative | `accessibilityElement = false`, no children | `isAccessibilityElement = false`, descendants hidden | `State::Hidden` | `invisible` + `offscreen` state, no children | `importantForAccessibility = NO_HIDE_DESCENDANTS` | `AccessibilityView.Raw` | `NODE_ACCESSIBILITY_MODE` disabled for descendants | `aria-hidden`, out of the tab order |
 | identifier | `accessibilityIdentifier` | `accessibilityIdentifier` | `widget name` (Inspector only) | `objectName` | `uniqueId` through the delegate (API 33+; node extras below) | `AutomationId` | `NODE_ID` | `id` |
 

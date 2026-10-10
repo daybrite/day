@@ -413,6 +413,9 @@ unsafe extern "C" {
         cb: extern "C" fn(u64),
     ) -> *mut c_void;
     pub fn day_xaml_button_set_style(h: *mut c_void, kind: c_int, argb: u32, fg_argb: u32);
+    /// `ButtonProps::selected`: the theme's accent fill on a plain Button (a ToggleButton's
+    /// `IsChecked`), kept across a restyle and read back as `checked`.
+    pub fn day_xaml_button_set_selected(h: *mut c_void, on: c_int);
     pub fn day_xaml_button_set_content(
         h: *mut c_void,
         title: *const c_char,
@@ -555,7 +558,7 @@ unsafe extern "C" {
     /// A node's accessibility annotations (docs/accessibility.md), each applied only when set:
     /// a null or empty string, role 0 and hidden 0 leave the element alone. `role` is
     /// `day_spec::Role`'s declaration order (0 None, 1 Button, 2 Toggle, 3 Slider, 4 TextInput,
-    /// 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree, 10 TreeItem); `level` is the 1-based
+    /// 5 Heading, 6 Image, 7 Meter, 8 Group, 9 Tree, 10 TreeItem, 11 Tab, 12 TabList); `level` is the 1-based
     /// heading level, read only with role 5. The automation id stays with [`day_xaml_set_name`].
     pub fn day_xaml_set_a11y(
         w: *mut c_void,

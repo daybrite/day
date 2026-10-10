@@ -2069,6 +2069,7 @@ impl Toolkit for Xaml {
                     }
                     ffi::day_xaml_enable_focus(h, id.0, on_focus);
                     ffi::day_xaml_set_enabled(h, p.enabled as c_int);
+                    ffi::day_xaml_button_set_selected(h, p.selected as c_int);
                     WinHandle(h)
                 }
                 Some(Builtin::Toggle) => {
@@ -2376,6 +2377,9 @@ impl Toolkit for Xaml {
                                 ffi::day_xaml_button_set_title(h.0, cstr(t).as_ptr())
                             }
                             ButtonPatch::Enabled(e) => ffi::day_xaml_set_enabled(h.0, *e as c_int),
+                            ButtonPatch::Selected(on) => {
+                                ffi::day_xaml_button_set_selected(h.0, *on as c_int)
+                            }
                             ButtonPatch::Style(s) => apply_button_style(h.0, *s),
                         }
                     }
@@ -3247,6 +3251,8 @@ impl Toolkit for Xaml {
             Role::Group => (8, 0),
             Role::Tree => (9, 0),
             Role::TreeItem => (10, 0),
+            Role::Tab => (11, 0),
+            Role::TabList => (12, 0),
         };
         let label = cstr(a11y.label.as_deref().unwrap_or(""));
         let hint = cstr(a11y.hint.as_deref().unwrap_or(""));
@@ -3322,6 +3328,8 @@ impl Toolkit for Xaml {
             8 => Role::Group,
             9 => Role::Tree,
             10 => Role::TreeItem,
+            11 => Role::Tab,
+            12 => Role::TabList,
             _ => Role::None,
         };
         let (label, value, identifier) = (take(raw.label), take(raw.value), take(raw.identifier));

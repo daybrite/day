@@ -6908,6 +6908,39 @@ mod imp {
         });
     }
 
+    thread_local! {
+        /// Each button's style, keyed by its view pointer, so deselecting a button
+        /// (`set_button_selected`) can give it its own look back.
+        static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// Put `ButtonProps::selected` on a UIButton. `isSelected` is the control's own state, from
+    /// which VoiceOver adds the selected trait; the look is the system's tinted configuration,
+    /// the treatment iOS gives a chosen filter chip, and deselecting restores the button's own
+    /// style. A touch never toggles `isSelected`, so nothing has to be put back after a press.
+    fn set_button_selected(btn: &UIButton, on: bool, mtm: MainThreadMarker) {
+        unsafe {
+            btn.setSelected(on);
+            let title = btn
+                .configuration()
+                .and_then(|c| c.title())
+                .or_else(|| btn.titleForState(UIControlState::Normal))
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            if on {
+                let config = objc2_ui_kit::UIButtonConfiguration::tintedButtonConfiguration(mtm);
+                config.setTitle(Some(&NSString::from_str(&title)));
+                btn.setConfiguration(Some(&config));
+            } else {
+                let style = BUTTON_STYLES
+                    .with(|m| m.borrow().get(&ptr_of(btn)).copied())
+                    .unwrap_or_default();
+                apply_button_style(btn, &title, style, mtm);
+            }
+        }
+    }
+
     /// Put a [`day_spec::props::ButtonStyleSpec`] on a `UIButton`, keeping it a UIButton.
     ///
     /// Bordered / Prominent map to `UIButtonConfiguration` tiers (iOS 15+) — the plain system
@@ -6925,6 +6958,7 @@ mod imp {
     ) {
         use day_spec::props::ButtonStyleSpec as S;
         use objc2_ui_kit::UIButtonConfiguration;
+        BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
         unsafe {
             let config = match style {
                 // The plain system button hugs its title already, so Compact is Automatic.
@@ -7734,11 +7768,14 @@ mod imp {
         use day_spec::Role;
         use objc2_ui_kit::{
             UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
-            UIAccessibilityTraitImage,
+            UIAccessibilityTraitImage, UIAccessibilityTraitTabBar,
         };
         unsafe {
             Some(match role {
-                Role::Button | Role::Toggle => UIAccessibilityTraitButton,
+                // UIKit has no trait for one tab: it is a button, and the selected trait
+                // (`set_a11y`'s `selected`) says which one is current. The strip is a tab bar.
+                Role::Button | Role::Toggle | Role::Tab => UIAccessibilityTraitButton,
+                Role::TabList => UIAccessibilityTraitTabBar,
                 Role::Slider => UIAccessibilityTraitAdjustable,
                 Role::Heading(_) => UIAccessibilityTraitHeader,
                 Role::Image => UIAccessibilityTraitImage,
@@ -7752,11 +7789,13 @@ mod imp {
         use day_spec::Role;
         use objc2_ui_kit::{
             UIAccessibilityTraitAdjustable, UIAccessibilityTraitButton, UIAccessibilityTraitHeader,
-            UIAccessibilityTraitImage,
+            UIAccessibilityTraitImage, UIAccessibilityTraitTabBar,
         };
         unsafe {
             if t & UIAccessibilityTraitAdjustable != 0 {
                 Role::Slider
+            } else if t & UIAccessibilityTraitTabBar != 0 {
+                Role::TabList
             } else if t & UIAccessibilityTraitHeader != 0 {
                 Role::Heading(0)
             } else if t & UIAccessibilityTraitImage != 0 {
@@ -9015,6 +9054,9 @@ mod imp {
                         apply_button_content(&btn, &p.title, p.icon.as_ref(), p.icon_only);
                     }
                     unsafe { btn.setEnabled(p.enabled) };
+                    if p.selected {
+                        set_button_selected(&btn, true, mtm);
+                    }
                     unsafe {
                         let tobj: &AnyObject = target.as_ref();
                         btn.addTarget_action_forControlEvents(
@@ -9680,6 +9722,7 @@ mod imp {
                                 }
                             },
                             ButtonPatch::Enabled(e) => unsafe { btn.setEnabled(*e) },
+                            ButtonPatch::Selected(on) => set_button_selected(btn, *on, mtm()),
                             ButtonPatch::Style(s) => {
                                 // Re-apply with the current title: a configured button carries
                                 // its title in the configuration, which this replaces.
@@ -10886,6 +10929,18 @@ mod imp {
                 if let Some(traits) = ui_traits(a11y.role) {
                     let _: () = msg_send![&**h, setAccessibilityTraits: traits];
                 }
+                // The selected trait, added to or removed from whatever the element reports.
+                if let Some(on) = a11y.selected {
+                    let traits: objc2_ui_kit::UIAccessibilityTraits =
+                        msg_send![&**h, accessibilityTraits];
+                    let selected = objc2_ui_kit::UIAccessibilityTraitSelected;
+                    let traits = if on {
+                        traits | selected
+                    } else {
+                        traits & !selected
+                    };
+                    let _: () = msg_send![&**h, setAccessibilityTraits: traits];
+                }
                 // Decorative / hidden: `accessibilityElementsHidden` drops only the
                 // DESCENDANTS, so the view itself (a decorative image, a native control) is
                 // unmarked as an element too. Hidden never flips back, so neither is restored.
@@ -10958,7 +11013,12 @@ mod imp {
                         None => native_text(h),
                     },
                     number: native_number(h),
-                    checked: (**h).downcast_ref::<UISwitch>().map(|sw| sw.isOn()),
+                    // A toggle's state, or a button's selected state (`ButtonProps::selected`).
+                    checked: if let Some(sw) = (**h).downcast_ref::<UISwitch>() {
+                        Some(sw.isOn())
+                    } else {
+                        (**h).downcast_ref::<UIButton>().map(|b| b.isSelected())
+                    },
                     // Only a UIControl takes input; a UILabel's `isEnabled` only dims it, and
                     // a text view (a text area or a selectable label) has no enabled state.
                     enabled: match &picker {

@@ -5056,6 +5056,49 @@ void* day_xaml_button_new(const char* title, unsigned long long id, void (*cb)(u
     return boxh(b);
 }
 
+// `ButtonProps::selected`, per button: the state day_xaml_button_set_selected applied, restored
+// after a style change and read back as `checked`; and a tinted button's colors, which a
+// deselection puts back. Both are dropped with the node (day_xaml_free).
+static std::map<void*, bool> g_button_selected;
+static std::map<void*, std::pair<unsigned, unsigned>> g_button_tint;
+
+// A plain Button has no checked state, so the selected look is the theme's accent fill and
+// the foreground it pairs with it, the treatment a chosen item gets; off restores the stock
+// look, or the button's tint. A ToggleButton (none are made here, but a tweak may) takes its own.
+static void apply_button_selected(void* h, bool on) {
+    auto b = elem(h).try_as<WUXC::Button>();
+    if (!b) return;
+    if (auto tb = b.try_as<WUXCP::ToggleButton>()) {
+        tb.IsChecked(on);
+        return;
+    }
+    if (on) {
+        auto res = WUX::Application::Current().Resources();
+        auto bg = winrt::box_value(winrt::hstring(L"SystemControlHighlightAccentBrush"));
+        auto fg = winrt::box_value(winrt::hstring(L"SystemControlHighlightAltChromeWhiteBrush"));
+        if (res.HasKey(bg)) {
+            if (auto brush = res.Lookup(bg).try_as<WUXM::Brush>()) b.Background(brush);
+        }
+        if (res.HasKey(fg)) {
+            if (auto brush = res.Lookup(fg).try_as<WUXM::Brush>()) b.Foreground(brush);
+        }
+        return;
+    }
+    b.ClearValue(WUXC::Control::BackgroundProperty());
+    b.ClearValue(WUXC::Control::ForegroundProperty());
+    auto tint = g_button_tint.find(h);
+    if (tint != g_button_tint.end()) {
+        b.Background(brush_bits(tint->second.first));
+        b.Foreground(brush_bits(tint->second.second));
+    }
+}
+void day_xaml_button_set_selected(void* h, int on) {
+    guard([&] {
+        g_button_selected[h] = on != 0;
+        apply_button_selected(h, on != 0);
+    });
+}
+
 /// Style a button in place: kind 0 automatic, 1 bordered, 2 prominent, 3 tinted.
 ///
 /// Prominent takes the resource set's AccentButtonStyle where it exists. A tint sets Background
@@ -5072,18 +5115,22 @@ void day_xaml_button_set_style(void* h, int kind, unsigned argb, unsigned fg_arg
     b.ClearValue(WUXC::Control::BackgroundProperty());
     b.ClearValue(WUXC::Control::ForegroundProperty());
     b.ClearValue(WUX::FrameworkElement::StyleProperty());
+    g_button_tint.erase(h);
     if (kind == 2) {
         auto res = WUX::Application::Current().Resources();
         auto key = winrt::box_value(winrt::hstring(L"AccentButtonStyle"));
         if (res.HasKey(key)) {
             if (auto style = res.Lookup(key).try_as<WUX::Style>()) b.Style(style);
         }
-        return;
+    } else if (kind == 3) {
+        // `brush_bits` is this file's own 0xAARRGGBB → SolidColorBrush helper.
+        g_button_tint[h] = { argb, fg_argb };
+        b.Background(brush_bits(argb));
+        b.Foreground(brush_bits(fg_argb));
     }
-    if (kind != 3) return;
-    // `brush_bits` is this file's own 0xAARRGGBB → SolidColorBrush helper.
-    b.Background(brush_bits(argb));
-    b.Foreground(brush_bits(fg_argb));
+    // A selected button keeps its selected look across a restyle.
+    auto selected = g_button_selected.find(h);
+    if (selected != g_button_selected.end() && selected->second) apply_button_selected(h, true);
 }
 void day_xaml_button_set_title(void* h, const char* t) {
     if (auto b = elem(h).try_as<WUXC::Button>()) b.Content(winrt::box_value(hs(t)));
@@ -6062,6 +6109,8 @@ void day_xaml_delete(void* h) {
     picker_forget(h);
     g_clip_geometry.erase(h);
     g_field_live.erase(h);
+    g_button_selected.erase(h);
+    g_button_tint.erase(h);
     delete reinterpret_cast<Node*>(h);
 }
 
@@ -6308,6 +6357,8 @@ void day_xaml_set_a11y(void* h, const char* label, const char* hint, const char*
                 case 8: type = L"group"; break;
                 case 9: type = L"tree"; break;
                 case 10: type = L"tree item"; break;
+                case 11: type = L"tab"; break;
+                case 12: type = L"tab list"; break;
                 default: break;
             }
             if (type) {
@@ -6474,6 +6525,11 @@ void day_xaml_read_native(void* h, DayXamlNative* out) {
             out->checked = sw.IsOn() ? 1 : 0;
         } else if (auto tb = el.try_as<WUXCP::ToggleButton>()) {
             if (auto on = tb.IsChecked()) out->checked = on.Value() ? 1 : 0;
+        } else if (el.try_as<WUXC::Button>()) {
+            // A Day button's selected state (day_xaml_button_set_selected): a plain Button has
+            // no checked property, so the state applied is what is read.
+            auto it = g_button_selected.find(h);
+            if (it != g_button_selected.end()) out->checked = it->second ? 1 : 0;
         }
     });
     guard([&] {

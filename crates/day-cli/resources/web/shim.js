@@ -1605,7 +1605,9 @@ const env = {
       let number = '';
       if (tag === 'INPUT' && el.type === 'range') number = String(Number(el.value));
       else if (tag === 'PROGRESS') number = String(el.position >= 0 ? el.value : '');
-      const checked = tag === 'INPUT' && el.type === 'checkbox' ? (el.checked ? '1' : '0') : '';
+      // A toggle's state, or a button's selected state (day-dom's set_button_selected).
+      const checked = tag === 'INPUT' && el.type === 'checkbox' ? (el.checked ? '1' : '0')
+        : tag === 'BUTTON' && el.hasAttribute('aria-pressed') ? (el.getAttribute('aria-pressed') === 'true' ? '1' : '0') : '';
       let enabled = '';
       if (el.matches('button, input, select, textarea')) enabled = el.matches(':disabled') ? '0' : '1';
       else if (isChoiceGroup(el)) enabled = el.hasAttribute('disabled') ? '0' : '1';

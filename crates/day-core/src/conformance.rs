@@ -151,7 +151,7 @@ pub struct NativeExpect {
     pub text: Option<String>,
     /// A slider's or progress indicator's value.
     pub number: Option<f64>,
-    /// A toggle's state.
+    /// A toggle's state, or a button's selected state.
     pub checked: Option<bool>,
     /// Whether the widget takes input.
     pub enabled: Option<bool>,

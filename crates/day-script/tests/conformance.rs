@@ -24,6 +24,9 @@ fn boot_with(root: impl FnOnce() -> day_core::AnyPiece + 'static) -> day_mock::M
     // No test drives the mock's native side here (binding rows, reporting covers), so it does
     // that by itself.
     probe.set_native_behavior(20);
+    // The mock groups windows like AppKit does (recorded, never drawn), so the document tabs'
+    // window-group case runs here rather than skipping on `Cap::WindowTabbing`.
+    probe.state.borrow_mut().native_window_tabs = true;
     day_core::launch_with(
         mock,
         WindowOptions {

@@ -327,6 +327,13 @@ fn apply_button_content(el: u32, title: &str, icon: Option<&day_spec::Icon>, ico
 /// the `:hover`/`:active`/`:disabled` rules every `.day-btn` already has. Painting the colors
 /// through variables rather than inline `background` is what lets those state rules keep
 /// working — an inline background would win over them.
+/// `ButtonProps::selected`: `aria-pressed` is the state a screen reader reads, and the class is
+/// what day.css draws (the accent fill a chosen item gets); the element stays a `<button>`.
+fn set_button_selected(el: u32, on: bool) {
+    attr(el, "aria-pressed", if on { "true" } else { "false" });
+    class(el, "selected", on);
+}
+
 fn apply_button_style(el: u32, style: ButtonStyleSpec) {
     // Clear the others first, so a patch between styles cannot leave two classes on.
     class(el, "prominent", false);
@@ -1720,6 +1727,7 @@ impl Toolkit for Dom {
                     text(el, &p.title);
                 }
                 apply_button_style(el, p.style);
+                set_button_selected(el, p.selected);
                 if !p.enabled {
                     attr(el, "disabled", "-");
                 }
@@ -2168,6 +2176,7 @@ impl Toolkit for Dom {
                         }
                         ButtonPatch::Title(t) => text(el, t),
                         ButtonPatch::Enabled(e) => set_enabled(el, *e),
+                        ButtonPatch::Selected(on) => set_button_selected(el, *on),
                         ButtonPatch::Style(st) => apply_button_style(el, *st),
                     }
                 }
@@ -2840,12 +2849,17 @@ impl Toolkit for Dom {
             Role::Group => Some("group"),
             Role::Tree => Some("tree"),
             Role::TreeItem => Some("treeitem"),
+            Role::Tab => Some("tab"),
+            Role::TabList => Some("tablist"),
         };
         if let Some(role) = role {
             attr(h.0, "role", role);
         }
         if let Role::Heading(level) = a11y.role {
             attr(h.0, "aria-level", &level.to_string());
+        }
+        if let Some(on) = a11y.selected {
+            attr(h.0, "aria-selected", if on { "true" } else { "false" });
         }
         // A range role reads its value through `aria-valuetext`, with `aria-valuenow` beside it
         // when the text leads with a number ("72%" is 72). Any other role has no value
@@ -2915,6 +2929,8 @@ impl Toolkit for Dom {
             Some("group") => Role::Group,
             Some("tree") => Role::Tree,
             Some("treeitem") => Role::TreeItem,
+            Some("tab") => Role::Tab,
+            Some("tablist") => Role::TabList,
             _ => Role::None,
         };
         let label = next();

@@ -52,8 +52,12 @@ scopes, and native handles survive each switch; only composed chrome is conditio
 `.chrome(|actions| ...)` replaces that strip; `TabActions` supplies `tabs`, `new_tab`, `close`,
 `drag`, and `drop_before`. Drag payloads are host-scoped so equal keys in unrelated collections
 cannot move each other's documents. `.layout(|chrome, content| ...)` places the composed chrome.
-The default strip uses native button colors and disabled rendering for the selected destination,
-so light/dark appearance and contrast remain toolkit-owned.
+The default strip is native buttons: the current document's is a selected button
+(`button(..).selected(..)`, docs/buttons.md), so it keeps its focus stop and activation, the
+platform draws its own selected look, and assistive tech hears a selected tab in a tab list
+(`Role::Tab`, `Role::TabList`). `.strip_id("docs")` names its elements for scripts and tests:
+`docs-strip`, `docs-tab-{key}`, `docs-close-{key}` and `docs-new`; without it the prefix is
+`day-documents-{n}`, unique per host.
 
 | Backend | Native document presentation |
 |---|---|
@@ -71,12 +75,21 @@ with rows. `DocumentTabsPatch` toggles native chrome while retaining pages. `day
 `day:tab-close`, and `day:tab-move` custom events carry the key (where applicable); move carries the
 final destination index in `num`. These tags are protocol identifiers, not translated text.
 
-Qt's hidden sidebar occupies native tab 0 for both ordinary navigation and document tabs. The
-shim translates native selection `i > 0` into destination `i - 1`; parking/empty selections are
-ignored. Programmatic selection applies the inverse mapping with signals blocked. The
-[native Qt regression](../toolkits/day-qt-sys/tests/tabs.cpp) drives a plain tabbed nav with real
-keyboard events, checks its current widget, and verifies selection indices and echo suppression.
+Day's nav host keeps its menu as child 0, inside the sidebar page whose rows become the bar, so
+a toolkit's document i is Day's child i + 1. Neither Qt nor GTK gives that page a tab: Qt parks
+it under the `QTabWidget`, on the menu's parent chain but never a page, and GTK keeps it in a
+hidden box beside the `AdwTabView`, so native tab indices are destination indices with nothing
+to subtract, and a drag to the first slot is an ordinary move. The
+[native Qt regression](../toolkits/day-qt-sys/tests/tabs.cpp) parks a page, drives a plain tabbed
+nav with real keyboard events, checks the current widget and the reported indices, and in
+document mode checks a close request and a drag to the first slot.
 
+The conformance cases (`day test 'document-tabs-*'`, docs/testing.md) run on every toolkit:
+selection through the strip with the current tab enabled and natively selected, neighbor
+selection on close, a vetoed close request, reordering with resident counters and the strip's
+geometry, background opens, cycling, the add button, an empty host, live titles, repeated
+presentation switches, OS window groups where `Cap::WindowTabbing` is supported, app-owned
+chrome through `TabActions`, and the model's contract headless.
 The [mock regressions](../crates/day-pieces/tests/mock_e2e.rs) cover retained identity, background
 insertion, removal, repeated presentation switching, native reorder across detached groups,
 close vetoes, and zero frame requests while idle. See [document-window tabs](windows.md#document-window-tabs)

@@ -1069,6 +1069,11 @@ pub fn set_a11y(n: Handle, a11y: &day_spec::A11yProps) {
         Role::Group => Some(STACK),
         Role::Tree => Some(LIST),
         Role::TreeItem => Some(LIST_ITEM),
+        // A tab reads as a button; the strip as a plain container. The selected state has no
+        // attribute in the NDK this crate binds (`NODE_ACCESSIBILITY_STATE` arrives later), so
+        // `selected` is not applied here.
+        Role::Tab => Some(BUTTON),
+        Role::TabList => Some(STACK),
     };
     if let Some(role) = role {
         set_u32(n, Attr::NODE_ACCESSIBILITY_ROLE, role.0);
