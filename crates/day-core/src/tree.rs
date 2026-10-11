@@ -2695,6 +2695,9 @@ day_reactive::tls_slots! {
     static EVENTS: RefCell<VecDeque<(NodeId, Event)>> = const { RefCell::new(VecDeque::new()) };
     static PUMP_PENDING: Cell<bool> = const { Cell::new(false) };
     static PUMP_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    /// Posted main-thread closures that arrived while the tree was borrowed and so could
+    /// not run (see [`run_posted_or_defer`]). Drained at the next safe point, in order.
+    static DEFERRED: RefCell<Vec<Box<dyn FnOnce() + Send>>> = const { RefCell::new(Vec::new()) };
     /// The event observer installed by [`set_event_observer`] and consulted by [`enqueue_events`].
     /// `Rc`, not `Box`, so the handle can be cloned out and invoked with no borrow held (the
     /// observer may safely re-enter Day to read the tree or stop recording).
@@ -2785,7 +2788,38 @@ pub fn with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> R {
     if PUMP_PENDING.with(|c| c.replace(false)) {
         pump_events();
     }
+    run_deferred();
     r
+}
+
+/// Run a posted main-thread closure now, or hold it for the next safe point when the tree is
+/// borrowed. Tree methods never run user code, but a backend may pump its native message
+/// loop from inside one (XAML's `open_window` waits for the new root to load; a modal native
+/// loop can nest anywhere), and a closure that loop dispatches would re-enter [`with_tree`]
+/// on the borrowed tree and panic ("RefCell already borrowed"). Held closures run at the end
+/// of the outermost `with_tree`, in arrival order, each contained like any posted task.
+pub(crate) fn run_posted_or_defer(f: Box<dyn FnOnce() + Send>) {
+    let borrowed = TREE.with(|t| t.try_borrow_mut().is_err());
+    if borrowed {
+        DEFERRED.with(|d| d.borrow_mut().push(f));
+    } else {
+        crate::contain_posted_panic(f);
+    }
+}
+
+/// The safe-point drain for [`run_posted_or_defer`]: called once the borrow is released. A
+/// drained closure may defer more (it can borrow the tree and nest a pump of its own), so
+/// this loops until the queue stays empty; each batch is taken out before it runs.
+fn run_deferred() {
+    loop {
+        let batch = DEFERRED.with(|d| std::mem::take(&mut *d.borrow_mut()));
+        if batch.is_empty() {
+            return;
+        }
+        for f in batch {
+            crate::contain_posted_panic(f);
+        }
+    }
 }
 
 /// Query the active toolkit's support for a capability (docs). Lets app/piece code adapt its
@@ -2895,8 +2929,11 @@ pub fn try_with_tree<R>(f: impl FnOnce(&mut dyn TreeOps) -> R) -> Option<R> {
         let ops = opt.as_mut()?;
         Some(f(ops.as_mut()))
     });
-    if r.is_some() && PUMP_PENDING.with(|c| c.replace(false)) {
-        pump_events();
+    if r.is_some() {
+        if PUMP_PENDING.with(|c| c.replace(false)) {
+            pump_events();
+        }
+        run_deferred();
     }
     r
 }
@@ -3269,6 +3306,42 @@ mod thread_exit_tests {
                 d.load(Ordering::SeqCst),
                 "uninstall_tree must drop the tree"
             );
+        })
+        .join()
+        .expect("thread");
+    }
+
+    /// A posted closure that arrives while the tree is borrowed (a backend pumping its native
+    /// loop from inside a tree method) must wait for the safe point rather than re-enter
+    /// `with_tree` on the borrowed tree: the "RefCell already borrowed" the web view demo hit
+    /// opening Browser Settings on WinUI while a second tab's poll kept posts in flight.
+    #[test]
+    fn a_post_during_a_tree_borrow_runs_at_the_safe_point() {
+        std::thread::spawn(|| {
+            install_probe(&Arc::new(AtomicBool::new(false)));
+            let ran = Arc::new(AtomicBool::new(false));
+            let r = ran.clone();
+            with_tree(|_| {
+                run_posted_or_defer(Box::new(move || {
+                    // The deferred closure borrows the tree itself, as a reactive flush or an
+                    // eval reply does; running it inside the outer borrow would panic here.
+                    with_tree(|_| r.store(true, Ordering::SeqCst));
+                }));
+                assert!(!ran.load(Ordering::SeqCst), "ran inside the borrow");
+            });
+            assert!(
+                ran.load(Ordering::SeqCst),
+                "never ran after the borrow was released"
+            );
+            // With the tree free, the same door runs the closure immediately.
+            let now = Arc::new(AtomicBool::new(false));
+            let n = now.clone();
+            run_posted_or_defer(Box::new(move || n.store(true, Ordering::SeqCst)));
+            assert!(
+                now.load(Ordering::SeqCst),
+                "a post with the tree free must run at once"
+            );
+            uninstall_tree();
         })
         .join()
         .expect("thread");

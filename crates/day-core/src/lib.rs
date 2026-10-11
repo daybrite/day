@@ -461,7 +461,7 @@ pub fn set_log_level(level: log::LevelFilter) {
 /// Run a posted main-thread task, containing any panic (the `pump_events` twin for the poster /
 /// scheduler doors): log the cause and reset the reactive runtime so the app keeps running
 /// (degraded) instead of aborting across the native trampoline's non-unwind boundary.
-fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
+pub(crate) fn contain_posted_panic(f: Box<dyn FnOnce() + Send>) {
     if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         let msg = payload
             .downcast_ref::<&str>()
@@ -685,18 +685,20 @@ pub fn launch_with<P: Platform>(
     // Backend FFI trampolines (JNI up-calls, C callbacks, posted closures) contain panics
     // through day-spec's `ffi_guard`; hand it the recovery hook here (the one layer that
     // knows day-reactive) so a contained panic can't strand the observer stack or leave a
-    // half-open batch behind.
+    // half-open batch behind. Each door also defers its closure when the tree is borrowed
+    // (`tree::run_posted_or_defer`): a backend pumping its native loop from inside a tree
+    // method would otherwise run the closure on the borrowed tree.
     day_spec::ffi_guard::set_recovery(day_reactive::recover_from_panic);
     day_reactive::install_main_poster(|f| {
-        P::post(Box::new(move || contain_posted_panic(f)));
+        P::post(Box::new(move || tree::run_posted_or_defer(f)));
     });
-    // The timer door (docs/async.md `day::sleep`): same panic containment as the poster.
+    // The timer door (docs/async.md `day::sleep`): same containment and deferral as the poster.
     day_reactive::install_delayed_poster(|ms, f| {
-        P::post_delayed(ms, Box::new(move || contain_posted_panic(f)));
+        P::post_delayed(ms, Box::new(move || tree::run_posted_or_defer(f)));
     });
     day_reactive::install_scheduler(|| {
         P::post(Box::new(|| {
-            contain_posted_panic(Box::new(day_reactive::flush_sync));
+            tree::run_posted_or_defer(Box::new(day_reactive::flush_sync));
         }))
     });
     // The async-spawn door (docs/async.md): day-reactive's `Resource` runs its fetch futures on

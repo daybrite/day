@@ -2026,18 +2026,9 @@ void* day_xaml_window_new(const char* title, int w, int h, int min_w, int min_h,
     auto token = root.Loaded([loaded](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
         *loaded = true;
     });
-    {
-        MSG msg{};
-        ULONGLONG start = GetTickCount64();
-        while (!*loaded && GetTickCount64() - start < 4000) {
-            if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            } else {
-                Sleep(1);
-            }
-        }
-    }
+    // The filtered pump: day's own WM_APP+1 posts stay queued for the real loop, so a
+    // closure that re-enters day-core cannot run from inside this call.
+    pump_until([&] { return *loaded; }, 4000);
     root.Loaded(token);
 
     chrome_attach(host, island, root);
@@ -2575,18 +2566,12 @@ void* day_xaml_window_new2(const char* title, int w, int h,
     auto token = root.Loaded([loaded](WF::IInspectable const&, WUX::RoutedEventArgs const&) {
         *loaded = true;
     });
-    {
-        MSG msg{};
-        ULONGLONG start = GetTickCount64();
-        while (!*loaded && GetTickCount64() - start < 2000) {
-            if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
-            } else {
-                Sleep(1);
-            }
-        }
-    }
+    // This runs inside day-core's `with_tree` borrow (`Toolkit::open_window`), and the
+    // filtered pump matters here: a day post (WM_APP+1) dispatched from this nested loop
+    // runs a reactive flush, a timer or an eval reply that re-enters `with_tree` on the
+    // borrowed tree ("RefCell already borrowed"). Seen opening Browser Settings in the
+    // web view demo while a second tab's poll kept posts in flight.
+    pump_until([&] { return *loaded; }, 2000);
     root.Loaded(token);
 
     // Day's tree goes in a child canvas, not in `root` — `root` also carries the docked menu bar
