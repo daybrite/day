@@ -281,7 +281,10 @@ has two calls: `can_move(from, proposed) -> accepted-index-or--1` for the live v
 `move_row(from, to)` for the commit, which rotates Day's row snapshot **before returning**, so
 `len`/`token_at`/`bind_row` answer in the new order while the native move animates, and defers
 the app's `on_reorder` through the event queue. When the app's own data change echoes back with
-exactly the committed token order, the piece skips the redundant `Reload` (no post-drop flicker).
+exactly the committed token order, the piece skips the redundant `Reload`. On AppKit, a deferred
+native reload and retile reconciles the table after the drop callback, preserving its selection
+and scroll position. This keeps temporary drag geometry from becoming the final document scroll
+extent. The reconciliation drains the app callback first and safely skips a disposed list.
 
 The dayscript step `reorder: { id, from, to }` drives the same guard → commit path without a
 native gesture (a guard denial fails the step, non-retryably); that is how CI asserts reordering

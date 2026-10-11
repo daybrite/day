@@ -7,6 +7,8 @@ rust-version.workspace = true
 description.workspace = true
 repository.workspace = true
 license.workspace = true
+keywords = ["font", "ttf", "otf", "sfnt", "opentype"]
+categories = ["parser-implementations", "text-processing"]
 
 # A leaf crate: an sfnt `name`-table reader + the family→identifier/file rules shared by the CLI
 # (staging-time font discovery) and the runtimes (startup registration). Pure std with no day deps,

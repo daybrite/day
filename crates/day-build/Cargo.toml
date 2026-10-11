@@ -7,6 +7,8 @@ rust-version.workspace = true
 description.workspace = true
 repository.workspace = true
 license.workspace = true
+keywords = ["build-script", "codegen", "resources", "localization", "gui"]
+categories = ["development-tools::build-utils", "gui"]
 
 # A build-script helper: scan a Day project's `resource/{images,assets,fonts}` and emit typed
 # symbolic constants (`res::images::nav_system: ImageName`, …) so app code references resources by a
@@ -17,8 +19,9 @@ license.workspace = true
 # constant string can never drift from the staged native name.
 [dependencies]
 # Compiles a bridge crate's generated C/C++ arm (docs/bridge.md). Already the workspace's
-# C compiler driver; day-qt-sys and day-xaml-sys build their shims with it.
-cc = "1"
+# C compiler driver; day-qt-sys and day-xaml-sys build their shims with it. The floor is the
+# version Cargo.lock resolves, so a downstream build never picks a `cc` older than CI tested.
+cc = "1.6"
 day-fonts = { workspace = true }
 # Parse app `.ftl` files to extract each message's parameters (§18.5 `res::str`): the same parser
 # `fluent-bundle` (the runtime engine) is built on, so the keys/params we generate match what

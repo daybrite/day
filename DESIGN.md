@@ -2341,6 +2341,11 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > row scrolling** followed
 > (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
+> Native AppKit drops also schedule a table reload and retile after the drop callback,
+> because the matching app-data echo deliberately skips Reload. This reconciles the document
+> scroll extent while retaining the viewport and selection; cell realization runs outside the
+> tree borrow. The deferred task resolves live handles again so disposal during `on_reorder`
+> is safe (`day-appkit/tests/native_list_scroll.rs`).
 > **Swipe actions shipped** (2026-08): app-declared reveal-as-you-swipe buttons on either
 > semantic edge, offers pulled per gesture so labels track row state — the pieces API
 > (`swipe_action(label).destructive/.tint/.symbol/.action` + `.swipe_leading/.swipe_trailing`), the
@@ -5419,7 +5424,14 @@ and the moment, rather than the compiled program, are removed. `normalize()` in 
 where that line is drawn, and for Mach-O it removes three things: the code signature (computed over
 the bytes below it, and carrying the packager's identity and clock), the `LC_UUID` build id (unique
 per link by design), and the debug map — the `N_OSO` stabs, in which the linker records an absolute
-path to every object file it consumed. Everything that decides what the program does is left alone:
+path to every object file it consumed. For ELF it removes one: the `NT_GNU_BUILD_ID` note. lld
+computes that id as a hash of the whole file it links, symbol tables included, and the packager
+(hvigor for `libs/`, AGP for `jniLibs/`) strips those tables before the library ships — so the id
+fingerprints bytes the shipped file no longer carries, and two libraries whose every surviving
+section matches still differ in it when a local symbol name did. It arrived with cargo-ohos, whose
+link line passes `--build-id` where the SDK's clang wrapper never had (2026-10); the harmony-arkui
+scaffold check failed on exactly that one section the first time it ran. Everything that decides
+what the program does is left alone:
 text and data, the symbol table proper, the load commands, the linked libraries. A change in any of
 those still fails the check. Both external steps `normalize()` drives (`codesign
 --remove-signature`, then `strip -S`) are checked: a tool that refuses ends the run with the reason
@@ -5432,8 +5444,8 @@ the first, and the Mach-O region that offset falls in (`__TEXT,__text`, `__LINKE
 a named load command, a slice of a fat binary), and answers a length mismatch as such. An ELF
 library (Android, Linux) is compared section by section instead and reports every section whose
 bytes differ, with both sizes where those changed: in ELF a length change moves the section header
-table, so the first differing byte is always the header's `e_shoff` and names nothing. ELF is not
-normalized; the Android leg also uploads both libraries when its check fails. The runner is gone by
+table, so the first differing byte is always the header's `e_shoff` and names nothing. The Android
+leg also uploads both libraries when its check fails. The runner is gone by
 the time anyone reads its log, so the verdict has to carry the evidence with it.
 
 Android's generated `day-app.properties` carries the absolute, Java-properties-escaped `ndkPath`

@@ -176,7 +176,14 @@ identical *before* signing for any of this to hold: the constraint F-Droid docum
 
 ### harmony-arkui
 
-The compiled `.so` is reproducible. A signed `.hap` cannot be.
+The compiled `.so` is reproducible once its build ID is set aside. A signed `.hap` cannot be.
+
+`hvigor` strips the library's symbol tables as it packages `libs/` into the `.hap`. The linker ran
+before that: cargo-ohos links with `--build-id`, and lld computes that ID as a hash of the whole
+unstripped file, local symbol names included. Those names can differ across build directories, as
+on Android, so two haps whose code matches byte for byte can still carry different build IDs. Day
+zeroes the `NT_GNU_BUILD_ID` note before comparing, the way it zeroes `LC_UUID` on Apple platforms,
+and compares every other section as shipped.
 
 `hvigor` assembles and emits the `.hap` itself, so there is no staging tree for Day to stamp. Day
 patches the archive's timestamps in place instead, and does it before signing. A `.hap` signature

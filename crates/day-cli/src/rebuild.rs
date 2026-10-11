@@ -1102,7 +1102,10 @@ fn looks_macho(head: &[u8]) -> bool {
 /// * the code signature: computed over the bytes below, so it cannot survive their normalization,
 ///   and identity/timestamp are the packager's, not the program's;
 /// * the Mach-O `LC_UUID`: a per-link build id, unique per link;
-/// * the debug map (`N_OSO` stabs): absolute paths to the object files the linker consumed.
+/// * the debug map (`N_OSO` stabs): absolute paths to the object files the linker consumed;
+/// * the ELF `NT_GNU_BUILD_ID` note: lld's hash of the whole output it linked, taken before the
+///   packager stripped the symbol tables out of it, so a fingerprint of bytes the shipped library
+///   no longer carries (`zero_elf_build_id`).
 ///
 /// What stays on is everything that decides what the program does: the text and data, the
 /// symbol table proper, the load commands, the linked libraries. A change in any of those still
@@ -1111,6 +1114,13 @@ fn normalize(path: &Path) -> Result<(), String> {
     let Ok(head) = std::fs::read(path) else {
         return Ok(());
     };
+    if head.starts_with(ELF64_LE_MAGIC) {
+        let mut buf = head;
+        if zero_elf_build_id(&mut buf) > 0 {
+            std::fs::write(path, &buf).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
     if !looks_macho(&head) {
         return Ok(());
     }
@@ -1486,6 +1496,66 @@ fn first_binary_difference(a: &Path, b: &Path) -> Option<String> {
     })
 }
 
+/// `\x7fELF`, ELFCLASS64, ELFDATA2LSB: every Android ABI Day builds, every OpenHarmony one, and
+/// every 64-bit Linux one.
+const ELF64_LE_MAGIC: &[u8] = b"\x7fELF\x02\x01";
+
+/// Zero the descriptor of every `NT_GNU_BUILD_ID` note in an ELF's `.note.gnu.build-id` section,
+/// in place: the ELF counterpart of [`zero_macho_uuid`]. Returns how many notes were zeroed.
+///
+/// lld computes the id as a hash of the entire file it is about to write, symbol tables included,
+/// and the packager then strips those tables before the library reaches the artifact (hvigor does
+/// it to `libs/`, AGP to `jniLibs/`). The id therefore fingerprints bytes the shipped file no
+/// longer carries: two builds whose every surviving section matches byte for byte still differ in
+/// it when a local symbol's name or a stab did. The sections are what this comparison reads, so
+/// the id comes off. It arrived with cargo-ohos, whose link line passes `--build-id` (2026-10); the
+/// SDK's own clang wrapper never did, which is why the harmony-arkui rebuild reproduced before.
+fn zero_elf_build_id(buf: &mut [u8]) -> usize {
+    const NT_GNU_BUILD_ID: usize = 3;
+    let Some(sections) = elf_sections(buf) else {
+        return 0;
+    };
+    let mut zeroed = 0;
+    for (name, off, len) in sections {
+        if name != ".note.gnu.build-id" {
+            continue;
+        }
+        let Some(end) = off.checked_add(len).filter(|e| *e <= buf.len()) else {
+            continue;
+        };
+        // Each note: namesz, descsz and type as u32 LE, then the name and the descriptor, each
+        // padded to a 4-byte boundary.
+        let mut at = off;
+        while at + 12 <= end {
+            let word = |i: usize| -> Option<usize> {
+                Some(u32::from_le_bytes(buf.get(i..i + 4)?.try_into().ok()?) as usize)
+            };
+            let (Some(namesz), Some(descsz), Some(kind)) = (word(at), word(at + 4), word(at + 8))
+            else {
+                break;
+            };
+            let Some(desc) = namesz
+                .checked_next_multiple_of(4)
+                .and_then(|n| n.checked_add(at + 12))
+            else {
+                break;
+            };
+            let Some(desc_end) = desc.checked_add(descsz).filter(|e| *e <= end) else {
+                break;
+            };
+            if kind == NT_GNU_BUILD_ID {
+                buf[desc..desc_end].fill(0);
+                zeroed += 1;
+            }
+            let Some(next) = desc_end.checked_next_multiple_of(4) else {
+                break;
+            };
+            at = next;
+        }
+    }
+    zeroed
+}
+
 /// The sections of a 64-bit little-endian ELF file: name, file offset and size (`SHT_NOBITS`
 /// sections such as `.bss` occupy no file bytes and report a size of 0). `None` for anything
 /// else, including a truncated or malformed header.
@@ -1496,8 +1566,7 @@ fn elf_sections(buf: &[u8]) -> Option<Vec<(String, usize, usize)>> {
         let v = u64::from_le_bytes(buf.get(at..at + 8)?.try_into().ok()?);
         usize::try_from(v).ok()
     };
-    // \x7fELF, ELFCLASS64, ELFDATA2LSB: every Android ABI Day builds and every 64-bit Linux one.
-    if buf.get(..6)? != b"\x7fELF\x02\x01" {
+    if !buf.starts_with(ELF64_LE_MAGIC) {
         return None;
     }
     let (shoff, shentsize) = (u64_at(0x28)?, usize::from(u16_at(0x3A)?));
@@ -1760,16 +1829,27 @@ mod tests {
     ///
     /// Not staged against a live attachment: that version manipulated global
     /// disk-image state and flaked in a parallel run. `day rebuild` exercises the recovery itself.
-    /// A minimal ELF64 LE image: a `.data` section of `data`, then `.shstrtab`, then the three
-    /// section headers (null, `.data`, `.shstrtab`).
-    fn tiny_elf(data: &[u8]) -> Vec<u8> {
-        let names = b"\0.data\0.shstrtab\0";
+    /// A minimal ELF64 LE image: the given `(name, sh_type, bytes)` sections in order, then
+    /// `.shstrtab`, then the section headers (null, each section, `.shstrtab`).
+    fn tiny_elf_with(sections: &[(&str, u32, &[u8])]) -> Vec<u8> {
+        let mut names = vec![0u8];
+        let mut name_at = Vec::new();
+        for (name, _, _) in sections {
+            name_at.push(names.len() as u32);
+            names.extend_from_slice(name.as_bytes());
+            names.push(0);
+        }
+        let shstrtab_name = names.len() as u32;
+        names.extend_from_slice(b".shstrtab\0");
         let mut buf = vec![0u8; 0x40];
-        buf[..6].copy_from_slice(b"\x7fELF\x02\x01");
-        let data_off = buf.len();
-        buf.extend_from_slice(data);
+        buf[..6].copy_from_slice(ELF64_LE_MAGIC);
+        let mut placed = Vec::new();
+        for (_, _, data) in sections {
+            placed.push((buf.len(), data.len()));
+            buf.extend_from_slice(data);
+        }
         let names_off = buf.len();
-        buf.extend_from_slice(names);
+        buf.extend_from_slice(&names);
         let shoff = buf.len();
         let mut header = |name: u32, kind: u32, off: usize, size: usize| {
             let mut h = [0u8; 0x40];
@@ -1780,13 +1860,73 @@ mod tests {
             buf.extend_from_slice(&h);
         };
         header(0, 0, 0, 0);
-        header(1, 1, data_off, data.len());
-        header(7, 3, names_off, names.len());
+        for (i, (_, kind, _)) in sections.iter().enumerate() {
+            header(name_at[i], *kind, placed[i].0, placed[i].1);
+        }
+        header(shstrtab_name, 3, names_off, names.len());
+        let shnum = sections.len() as u16 + 2;
         buf[0x28..0x30].copy_from_slice(&(shoff as u64).to_le_bytes());
         buf[0x3A..0x3C].copy_from_slice(&0x40u16.to_le_bytes());
-        buf[0x3C..0x3E].copy_from_slice(&3u16.to_le_bytes());
-        buf[0x3E..0x40].copy_from_slice(&2u16.to_le_bytes());
+        buf[0x3C..0x3E].copy_from_slice(&shnum.to_le_bytes());
+        buf[0x3E..0x40].copy_from_slice(&(shnum - 1).to_le_bytes());
         buf
+    }
+
+    /// [`tiny_elf_with`] holding one `.data` section of `data`.
+    fn tiny_elf(data: &[u8]) -> Vec<u8> {
+        tiny_elf_with(&[(".data", 1, data)])
+    }
+
+    /// One GNU build-id note, as lld writes it: `namesz` 4, the descriptor, type 3, "GNU\0".
+    fn build_id_note(desc: &[u8]) -> Vec<u8> {
+        let mut n = Vec::new();
+        n.extend_from_slice(&4u32.to_le_bytes());
+        n.extend_from_slice(&(desc.len() as u32).to_le_bytes());
+        n.extend_from_slice(&3u32.to_le_bytes());
+        n.extend_from_slice(b"GNU\0");
+        n.extend_from_slice(desc);
+        n
+    }
+
+    /// Two libraries that differ only in their build id compare equal once it is zeroed, and the
+    /// zeroing touches the descriptor alone: the note's header and owner stay, as does every
+    /// other section. A note of another type, or no note, is left as it is.
+    #[test]
+    fn zeroing_the_elf_build_id_leaves_the_rest() {
+        const SHT_NOTE: u32 = 7;
+        let lib = |id: &[u8]| {
+            tiny_elf_with(&[
+                (".text", 1, b"code"),
+                (".note.gnu.build-id", SHT_NOTE, &build_id_note(id)),
+            ])
+        };
+        let (mut a, mut b) = (lib(&[0xAB; 8]), lib(&[0xCD; 8]));
+        assert_eq!(
+            elf_section_differences(&a, &b).as_deref(),
+            Some(".note.gnu.build-id")
+        );
+        assert_eq!(zero_elf_build_id(&mut a), 1);
+        assert_eq!(zero_elf_build_id(&mut b), 1);
+        assert_eq!(a, b, "identical once the id is gone");
+        let sections = elf_sections(&a).expect("parses");
+        let (_, off, len) = sections
+            .iter()
+            .find(|s| s.0 == ".note.gnu.build-id")
+            .expect("the note section is kept");
+        assert_eq!(&a[*off..*off + 16], &build_id_note(&[0; 8])[..16]);
+        assert_eq!(&a[*off + 16..*off + len], &[0u8; 8]);
+        assert_eq!(
+            elf_section_differences(&a, &lib(&[0xAB; 8])).as_deref(),
+            Some(".note.gnu.build-id"),
+            "zeroing is what made them equal"
+        );
+
+        let mut other_note = build_id_note(&[1; 8]);
+        other_note[8..12].copy_from_slice(&1u32.to_le_bytes()); // NT_GNU_ABI_TAG
+        let mut other = tiny_elf_with(&[(".note.gnu.build-id", SHT_NOTE, &other_note)]);
+        assert_eq!(zero_elf_build_id(&mut other), 0);
+        assert_eq!(zero_elf_build_id(&mut tiny_elf(b"abcd")), 0);
+        assert_eq!(zero_elf_build_id(&mut b"not an elf".to_vec()), 0);
     }
 
     /// An ELF library is reported by section, so a length change names the section that grew

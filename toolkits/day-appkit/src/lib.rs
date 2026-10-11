@@ -3023,6 +3023,44 @@ fn post_realize_visible_rows(key: usize) {
     }));
 }
 
+/// A native drop changes the snapshot synchronously and suppresses the app's echo Reload.
+/// Once AppKit has unwound its drop/gap tracking, reconcile the table with that snapshot:
+/// the incremental move alone can leave its row tiling and scroll extent out of sync.
+/// Preserve the user's viewport and selection; never force a jump to the moved row.
+fn post_settle_list_drop(key: usize) {
+    <AppKit as Platform>::post(Box::new(move || {
+        // Publish the deferred on_reorder before reading the final row set. App code may
+        // remove rows or close the list, so resolve the native handles only after the drain.
+        day_core::pump_events();
+        let Some((table, data)) = list_entry(key) else {
+            return;
+        };
+        let Some(scroll) = table.enclosingScrollView() else {
+            return;
+        };
+        let clip = scroll.contentView();
+        let origin = clip.bounds().origin;
+        let selected = table.selectedRowIndexes();
+        let suppressed = data.ivars().suppress.replace(true);
+        table.reloadData();
+        // Outside with_tree: tiling is allowed to bind/rebind Day's cell contents here.
+        table.layoutSubtreeIfNeeded();
+        let restored = objc2_foundation::NSMutableIndexSet::new();
+        for row in 0..table.numberOfRows().max(0) as usize {
+            if selected.containsIndex(row) {
+                restored.addIndex(row);
+            }
+        }
+        table.selectRowIndexes_byExtendingSelection(&restored, false);
+        let mut bounds = clip.bounds();
+        bounds.origin = origin;
+        clip.scrollToPoint(clip.constrainBoundsRect(bounds).origin);
+        scroll.reflectScrolledClipView(&clip);
+        data.ivars().suppress.set(suppressed);
+        post_realize_visible_rows(key);
+    }));
+}
+
 // DayListData — NSTableView data-source + delegate for the recycling list (docs/list.md, §10)
 //
 // No custom NSTableRowView: the table runs the PLAIN style, whose standard row view lays cell
@@ -3335,6 +3373,9 @@ define_class!(
                     }
                 }
                 unsafe { tv.moveRowAtIndex_toIndex(from as isize, accepted as isize) };
+                if let Some(scroll) = tv.enclosingScrollView() {
+                    post_settle_list_drop(ptr_of(&scroll));
+                }
                 true
             };
             // Guarded: the commit runs the seam's move closure into day-core and the app.

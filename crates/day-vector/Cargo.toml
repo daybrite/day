@@ -6,6 +6,8 @@ rust-version.workspace = true
 description = "Day's vector-graphics engine: SVG parsing/rasterization, SF Symbol template handling, and per-platform icon-format writers (VectorDrawable, .ico, .icns, .symbolset)"
 repository.workspace = true
 license.workspace = true
+keywords = ["svg", "icon", "rasterize", "vector-graphics", "sf-symbols"]
+categories = ["multimedia::images", "rendering"]
 
 [dependencies]
 # The one real dependency cluster (DESIGN.md §16.5 `day icon build` / docs/vectors.md): SVG parse +
