@@ -97,7 +97,7 @@ icons there, and hvigor — whose resource roots are fixed — gets gitignored s
 | `linux/` | `day-icon-{48,128,256,512}.png` (appstream-compose-safe sizes) |
 | `windows/` | multi-size `day.ico` (16/32/48/256, PNG-compressed) + `day-icon-256.png` |
 
-`-p <target>` limits a run to that target's family. Everything renders in memory first, so
+`-t <target>` limits a run to that target's family. Everything renders in memory first, so
 A macOS build bumps the rebuilt `.app` directory's modification date: Finder and the Dock
 cache a bundle's icon against it, and xcodebuild rewrites the bundle's contents without
 touching the directory, so a new icon kept showing as the old one otherwise. A Dock tile of an
@@ -142,7 +142,7 @@ and `pack` calls `ensure` first: a no-op while the lock vouches for the sources 
 generator and every listed output exists, a full `prepare` otherwise. The Xcode target's
 "Build Rust (day)" phase does the same, so a build started from the Xcode GUI never compiles a
 stale or missing catalog. `day prepare --check` is the CI gate and what the VS Code extension
-asks before "Open in Xcode" or "Open in Android Studio"; `day open -p <target>` prepares and
+asks before "Open in Xcode" or "Open in Android Studio"; `day open -t <target>` prepares and
 opens the project in one step.
 
 ## Migrating an app

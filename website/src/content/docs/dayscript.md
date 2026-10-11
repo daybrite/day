@@ -45,8 +45,8 @@ It assumes a fresh launch with the count at zero.
 Run it on a configured target:
 
 ```bash
-day launch -p macos-appkit --script dayscript/counter.yaml
-day launch -p android-mdc --script dayscript/counter.yaml
+day launch -t macos-appkit --script dayscript/counter.yaml
+day launch -t android-mdc --script dayscript/counter.yaml
 ```
 
 `day launch` builds, starts the app with scripting enabled, executes the steps, and
@@ -279,8 +279,8 @@ or for one run, with a flag or an environment variable, which is how a CI workfl
 without editing the app:
 
 ```sh
-day launch -p macos-appkit --script dayscript/walkthrough.yaml --capture-size 1440x900@1
-DAY_CAPTURE_SIZE=window day launch -p linux-gtk --script dayscript/walkthrough.yaml
+day launch -t macos-appkit --script dayscript/walkthrough.yaml --capture-size 1440x900@1
+DAY_CAPTURE_SIZE=window day launch -t linux-gtk --script dayscript/walkthrough.yaml
 ```
 
 The flag wins over the variable, and the variable over `Day.toml`. A size has to be a whole
@@ -307,14 +307,14 @@ needs no per-toolkit code.
 Record headlessly from the CLI:
 
 ```bash
-day launch -p macos-appkit --record recording.yaml
+day launch -t macos-appkit --record recording.yaml
 ```
 
 Drive the app by hand; `recording.yaml` is rewritten as you go and holds everything up to the last
 action even if the app is killed. Because it's an ordinary dayscript, you replay it on any target:
 
 ```bash
-day launch -p android-mdc --script recording.yaml
+day launch -t android-mdc --script recording.yaml
 ```
 
 Or record and replay inside the app. `day::record::start_into(buffer)` streams the script into a

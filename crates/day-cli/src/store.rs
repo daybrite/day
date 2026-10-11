@@ -34,7 +34,7 @@
 //! text may also sit in `store/app.<tag>.toml` beside the main file, the same tree with only
 //! `metadata` tables in it, each read as that locale's.
 //!
-//! `day store stage -p <target>` (and every `day pack` of a store target) writes
+//! `day store stage -t <target>` (and every `day pack` of a store target) writes
 //! `build/day/store/<target>/`, a tree `fastlane deliver` / `fastlane supply` accept as-is.
 //! Generated, never checked in: the pristine-checkout rule (§20.3) means a build must not write
 //! into tracked directories. `day store export` writes the whole listing, resolved, as one JSON
@@ -2431,7 +2431,7 @@ fn apple_fastfile_text() -> String {
 # No metrics: fastlane reports usage to its own servers unless a Fastfile opts out, and a lane
 # that publishes an app is not a place to send anything anywhere but the store.
 opt_out_usage
-# The .ipa comes from `day pack -p ios-uikit`; this only uploads what that produced.
+# The .ipa comes from `day pack -t ios-uikit`; this only uploads what that produced.
 default_platform(:ios)
 
 # DAY_IPA names the artifact outright (the release workflow points it at the packed
@@ -2440,7 +2440,7 @@ default_platform(:ios)
 def day_ipa
   return ENV["DAY_IPA"] unless ENV["DAY_IPA"].to_s.empty?
   Dir[File.expand_path("../../../dist/*.ipa", __dir__)].first ||
-    UI.user_error!("no .ipa in build/day/dist — run `day pack -p ios-uikit` first")
+    UI.user_error!("no .ipa in build/day/dist — run `day pack -t ios-uikit` first")
 end
 
 # App Store Connect API key from the environment, so no Apple ID password is ever needed.
@@ -2554,7 +2554,7 @@ fn play_fastfile_text() -> String {
 # No metrics: fastlane reports usage to its own servers unless a Fastfile opts out, and a lane
 # that publishes an app is not a place to send anything anywhere but the store.
 opt_out_usage
-# The .aab comes from `day pack -p android-mdc`; this only uploads what that produced.
+# The .aab comes from `day pack -t android-mdc`; this only uploads what that produced.
 default_platform(:android)
 
 # __dir__ is <project>/build/day/store/<target>/fastlane, so ../../../dist is build/day/dist.
@@ -2570,7 +2570,7 @@ end
 def day_aab
   return ENV["DAY_AAB"] unless ENV["DAY_AAB"].to_s.empty?
   Dir[File.expand_path("../../../dist/*.aab", __dir__)].first ||
-    UI.user_error!("no .aab in build/day/dist — run `day pack -p android-mdc` first")
+    UI.user_error!("no .aab in build/day/dist — run `day pack -t android-mdc` first")
 end
 
 platform :android do

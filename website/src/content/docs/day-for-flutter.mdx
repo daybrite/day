@@ -35,7 +35,7 @@ composition, state, packages, resources, and builds, with examples in Dart and R
 | assets section in pubspec | the `resource/` directory, by convention |
 | ARB files + `intl` codegen | Fluent `.ftl` files + generated `res::str` functions |
 | platform channels | [parts](/docs/parts), called over direct FFI |
-| `flutter build apk` / `ipa` | `day pack -p android-mdc` / `-p ios-uikit` |
+| `flutter build apk` / `ipa` | `day pack -t android-mdc` / `-t ios-uikit` |
 | hot reload | none — `day relaunch` rebuilds and relaunches |
 
 ## The same counter in both
@@ -523,13 +523,13 @@ platform's tools, and writes an installable artifact plus checksum to `build/day
 
 | Task | Flutter | Day |
 |---|---|---|
-| run in dev | `flutter run` | `day launch -p macos-appkit` |
+| run in dev | `flutter run` | `day launch -t macos-appkit` |
 | apply changes | hot reload (`r`) | `day relaunch --all-running` |
-| Android store build | `flutter build appbundle` | `day pack -p android-mdc` → signed `.apk` + `.aab` |
-| iOS store build | `flutter build ipa` | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
-| macOS | `flutter build macos` (then sign/notarize yourself) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
-| Linux | `flutter build linux` (then package yourself) | `day pack -p linux-gtk` → single-file `.flatpak` + `.appimage` |
-| Windows | `flutter build windows` (then package yourself) | `day pack -p windows-winui` → `.msix` + NSIS installer |
+| Android store build | `flutter build appbundle` | `day pack -t android-mdc` → signed `.apk` + `.aab` |
+| iOS store build | `flutter build ipa` | `day pack -t ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
+| macOS | `flutter build macos` (then sign/notarize yourself) | `day pack -t macos-appkit` → signed, notarized, stapled `.dmg` |
+| Linux | `flutter build linux` (then package yourself) | `day pack -t linux-gtk` → single-file `.flatpak` + `.appimage` |
+| Windows | `flutter build windows` (then package yourself) | `day pack -t windows-winui` → `.msix` + NSIS installer |
 | doctor | `flutter doctor` | `day doctor` |
 
 Day has no hot reload. A change is a Rust rebuild (incremental, a few seconds on a warm build)

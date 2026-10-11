@@ -39,7 +39,7 @@ rustup default stable-msvc
 cargo install day-cli
 day new app my-app --toolkit windows-winui
 cd my-app
-day launch -p windows-winui
+day launch -t windows-winui
 ```
 
 The app's `Cargo.toml` carries a `winui = ["day/winui"]` feature, which the `day new` template
@@ -66,7 +66,7 @@ Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
 ## Packing
 
 ```powershell
-day pack -p windows-winui     # .msix plus an NSIS -setup.exe
+day pack -t windows-winui     # .msix plus an NSIS -setup.exe
 ```
 
 This writes `<app>-windows-winui.msix` and `<app>-windows-winui-setup.exe`. The installer needs
@@ -233,8 +233,8 @@ $env:PATH = "C:\msys64\clangarm64\bin;$env:PATH"
 $env:RUSTUP_TOOLCHAIN = "stable-aarch64-pc-windows-gnullvm"
 
 day doctor --toolkit qt          # and --toolkit gtk
-day launch -p windows-qt
-day launch -p windows-gtk
+day launch -t windows-qt
+day launch -t windows-gtk
 ```
 
 Setting `RUSTUP_TOOLCHAIN` per shell is the only switch: a shell without it still builds

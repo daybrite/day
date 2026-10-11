@@ -429,7 +429,7 @@ covers and no platform-neutral `[package.metadata.day.permissions]` name maps to
 permissions = ["ohos.permission.GET_NETWORK_INFO"]   # joined into module.json5 at build
 ```
 
-`day build -p harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
+`day build -t harmony-arkui` stages every piece's dirs under `entry/src/main/ets/daypieces/<crate>/`
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
 `DayPieces.ets`, whose `registerDayPieces(uiContext, builtins)` hands the native shim one factory,
 command sink, and disposer for all pieces. The framework's host page (staged beside them from the

@@ -15,9 +15,9 @@ white-label build per customer, a demo build with a smaller target list. It is a
 `Day.toml`, written in a `Day-<name>.toml` beside it, and it applies to one command at a time:
 
 ```sh
-day build  --flavor custom -p ios-uikit
-day launch --flavor custom -p macos-appkit
-day pack   --flavor custom -p android-mdc
+day build  --flavor custom -t ios-uikit
+day launch --flavor custom -t macos-appkit
+day pack   --flavor custom -t android-mdc
 ```
 
 The flag is global, so every command takes it — `metadata`, `lint`, `store`, `screenshot`,

@@ -49,15 +49,15 @@ nothing diffs or rebuilds it.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
    them.
 7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -p <target>`
-   and, for assertions, `day launch -p <target> --script <dayscript.yaml>`.
+   and, for assertions, `day launch -t <target> --script <dayscript.yaml>`.
 
 ## Setup (canonical)
 
 ```bash
 day new app my-app --toolkit macos-appkit,ios-uikit,android-mdc
 cd my-app
-day launch -p macos-appkit                 # build + run
-day launch -p macos-appkit --script dayscript/demo.yaml    # build + run + assert
+day launch -t macos-appkit                 # build + run
+day launch -t macos-appkit --script dayscript/demo.yaml    # build + run + assert
 ```
 
 `Day.toml` (`name`/`version` come from Cargo.toml's `[package]`):
@@ -247,21 +247,21 @@ macos-qt, which have no AppKit view tree.
 
 ```bash
 day new app <name> --toolkit <t1,t2>  # scaffold an app (bare `day new` = interactive)
-day build   -p <target>               # compile
-day launch  -p <target>               # build + run (streams stdout/stderr)
-day launch  -p <target> --script s.yaml   # build + run + drive/assert
-day launch  -p <target> --record s.yaml   # record your manual session as a replayable dayscript
+day build   -t <target>               # compile
+day launch  -t <target>               # build + run (streams stdout/stderr)
+day launch  -t <target> --script s.yaml   # build + run + drive/assert
+day launch  -t <target> --record s.yaml   # record your manual session as a replayable dayscript
 #   scripted-launch flags: --variant <name> (screenshot set), --locales <l,…> / --themes <t,…>
 #   (capture matrix: one run per theme×locale), --keep-alive, --skip-build,
 #   --ios-device / --ios-simulator / --android-device (pick the device per runtime)
-day pack    -p <target>               # installable artifact (.dmg / .ipa / .aab / .hap / flatpak / installer)
+day pack    -t <target>               # installable artifact (.dmg / .ipa / .aab / .hap / flatpak / installer)
 day lint                              # ids, Fluent coverage, project shape
 day doctor                            # toolchains per target
-day doctor verify [-p <target>,…]           # doctor, then scaffold + build + pack a throwaway app per target
+day doctor verify [-t <target>,…]           # doctor, then scaffold + build + pack a throwaway app per target
 #   --day-version <main|x.y.z|latest>  checks that Day: installs its CLI and pins the scaffold to it
 day relaunch --all-running            # stop + rebuild + relaunch — "apply my changes"
 day stop --all                        # stop every recorded session
-day drive -p <target> --steps-json …  # drive a running app (see below)
+day drive -t <target> --steps-json …  # drive a running app (see below)
 day mcp-server                        # serve all of the above as MCP tools (stdio)
 ```
 
@@ -294,7 +294,7 @@ Every `day launch` embeds a loopback automation engine and records its coordinat
 file:
 
 ```bash
-day drive -p macos-appkit --steps-json \
+day drive -t macos-appkit --steps-json \
   '[{"navigate":{"route":"settings"}},{"wait_idle":null},
     {"tap":{"id":"save-button"}},{"assert_text":{"id":"status","text":"Saved"}},
     {"screenshot":"after-save"}]'

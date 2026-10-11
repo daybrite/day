@@ -39,9 +39,9 @@ NOTES_EDITION = "Custom"
 ```
 
 ```bash
-day build  --flavor custom -p ios-uikit
-day launch --flavor custom -p macos-appkit
-day pack   --flavor custom -p android-mdc
+day build  --flavor custom -t ios-uikit
+day launch --flavor custom -t macos-appkit
+day pack   --flavor custom -t android-mdc
 ```
 
 `--flavor` works on every command, so `day metadata`, `day lint`, `day store stage` and

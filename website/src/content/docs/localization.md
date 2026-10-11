@@ -364,8 +364,8 @@ launch. An in-app language preference must be saved and restored by your app.
 Run a DayScript walkthrough in the languages you ship:
 
 ```sh
-day launch -p web-dom --locales 'en fr ar' --script dayscript/walkthrough.yaml
-day launch -p macos-appkit --locales en-XA --script dayscript/walkthrough.yaml
+day launch -t web-dom --locales 'en fr ar' --script dayscript/walkthrough.yaml
+day launch -t macos-appkit --locales en-XA --script dayscript/walkthrough.yaml
 ```
 
 The `-XA` pseudolocale accents and expands the selected language's messages. It helps find

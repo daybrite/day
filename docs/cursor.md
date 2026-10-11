@@ -130,7 +130,7 @@ whose shape follows a picker, a nested pair that shows the nearest ancestor winn
 toolkit's extras.
 
 ```
-day launch -p macos-appkit --script dayscript/cursors.yaml
+day launch -t macos-appkit --script dayscript/cursors.yaml
 ```
 
 The walkthrough asserts the support row and drives the picker. The shape itself is the

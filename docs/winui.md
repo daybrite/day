@@ -86,7 +86,7 @@ whichever stack the build targets.
 - **Cargo.** A `winui` feature that implies the piece's `xaml` feature and turns on
   `day-xaml-sys/winui` (or forwards to the piece it wraps), with `"winui"` in
   `[package.metadata.day.piece] backends`. The Rust half is the `xaml` half, unchanged, and
-  `day build -p windows-winui` switches `<piece>/winui` on like any backend feature.
+  `day build -t windows-winui` switches `<piece>/winui` on like any backend feature.
 - **build.rs.** `.includes(day_toolchain::winappsdk::shim_includes(&cppwinrt))` where the shim used
   to add the SDK's cppwinrt directory, and `DAY_WINUI` defined when
   `day_toolchain::winappsdk::shim_is_winui()`.
@@ -110,7 +110,7 @@ WinUI build out.
 
 ## Packing
 
-`day pack -p windows-winui` ships the app **self-contained**: the Windows App SDK runtime
+`day pack -t windows-winui` ships the app **self-contained**: the Windows App SDK runtime
 travels inside the package, so neither the `.msix` nor the installer needs it installed. This is
 what `WindowsAppSDKSelfContained=true` does in Microsoft's MSBuild targets
 (`Microsoft.WindowsAppSDK.SelfContained.targets`, in the SDK's Base package), done for a cargo

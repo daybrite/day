@@ -1335,12 +1335,12 @@ fn run_scripts_inner(
         if attached {
             eprintln!(
                 "  {WARN}▸{WARN:#} {} left running (--keep-alive): streaming logs — stop the task \
-                 (or Ctrl-C) to quit; drive it from another shell with `day drive -p {}`",
+                 (or Ctrl-C) to quit; drive it from another shell with `day drive -t {}`",
                 target.name, target.name
             );
         } else {
             eprintln!(
-                "  {WARN}▸{WARN:#} {} left running (--keep-alive): drive it with `day drive -p {}`",
+                "  {WARN}▸{WARN:#} {} left running (--keep-alive): drive it with `day drive -t {}`",
                 target.name, target.name
             );
         }

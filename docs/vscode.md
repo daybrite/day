@@ -39,9 +39,9 @@ target, and stop/restart ride the standard task lifecycle.
 
 | UI action | CLI invocation |
 |---|---|
-| Run target(s) | `day --project <root> launch -p <target> --profile <mode> [--locale …] [--script …] [--env …]` |
-| Run Tests | `day --project <root> test -p <target> --profile <mode> --shots <policy> [--locale …] [--env …] [<device flag>] [names…]`, once per ticked target |
-| Build target(s) | `day --project <root> build -p <target> --profile <mode>` |
+| Run target(s) | `day --project <root> launch -t <target> --profile <mode> [--locale …] [--script …] [--env …]` |
+| Run Tests | `day --project <root> test -t <target> --profile <mode> --shots <policy> [--locale …] [--env …] [<device flag>] [names…]`, once per ticked target |
+| Build target(s) | `day --project <root> build -t <target> --profile <mode>` |
 | Stop | `TaskExecution.terminate()` → SIGTERM → `day` kills the app + simctl/adb watchers (`signals.rs`) |
 | Restart | terminate + re-execute |
 

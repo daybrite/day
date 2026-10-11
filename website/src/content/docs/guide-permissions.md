@@ -122,9 +122,9 @@ Windows resolve immediately as `Granted`.
   `Unsupported`; a `request` resolves immediately with `Unsupported` and no prompt. The reverse case
   also exists: `Granted` on an ungated desktop is not a promise the hardware exists; ask the
   capability's own part about that.
-- macOS dev builds can't be granted anything. `day launch -p macos-appkit` runs a bare
+- macOS dev builds can't be granted anything. `day launch -t macos-appkit` runs a bare
   binary, and TCC reads usage descriptions from a bundle's `Info.plist`, so an unbundled process
-  is denied or killed regardless of what `Day.toml` says. `day pack -p macos-appkit` produces the
+  is denied or killed regardless of what `Day.toml` says. `day pack -t macos-appkit` produces the
   bundle that can hold a grant.
 - Dropping a `StatusFuture` does not dismiss the prompt. No platform can take its own
   permission dialog off the screen. Dropping stops you listening; the user's answer is still
@@ -138,7 +138,7 @@ between the install and the start, with the platform's own tool (`pm grant` on A
 privacy grant` on the iOS Simulator), so the app's first `status` already reads `Granted`.
 
 ```sh
-day launch -p android-mdc --grant camera --script dayscript/capture.yaml
+day launch -t android-mdc --grant camera --script dayscript/capture.yaml
 ```
 
 Where no tool exists the flag is refused before the build: HarmonyOS, a physical iPhone,

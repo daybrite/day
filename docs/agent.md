@@ -16,7 +16,7 @@ editors share one implementation; editor extensions only register it.
 
 ## Fast functional walkthroughs
 
-Use `day launch -p <target> --script dayscript/walkthrough.yaml --fast` to apply
+Use `day launch -t <target> --script dayscript/walkthrough.yaml --fast` to apply
 decorative motion at its destination state. This passes `DAY_TEST_FAST=1` to the app,
 which forces Day's reduced-motion gate on ([docs/accessibility.md](accessibility.md)):
 fast mode and the user's reduce-motion setting are one mechanism, so what a fast run
@@ -80,7 +80,7 @@ drop on `day stop` and are replaced by a new launch of the same target. A launch
 ## `day drive`: dayscript against a running app
 
 ```sh
-day drive -p macos-appkit --steps-json \
+day drive -t macos-appkit --steps-json \
   '[{"navigate":{"route":"controls"}},{"wait_idle":null},
     {"tap":{"id":"increment-button","repeat":2}},
     {"assert_text":{"id":"counter-label","text":"2 clicks"}},
@@ -143,9 +143,9 @@ crash without anyone opening the log.
 
 ## `day stop` / `day relaunch`
 
-- `day stop -p <target>… | --all` — terminate launches (per-platform: pkill / taskkill /
+- `day stop -t <target>… | --all` — terminate launches (per-platform: pkill / taskkill /
   `simctl terminate` / `am force-stop` / `aa force-stop`) and drop their sessions.
-- `day relaunch -p <target>… | --all-running` — stop + rebuild + launch, recording fresh
+- `day relaunch -t <target>… | --all-running` — stop + rebuild + launch, recording fresh
   sessions. This is the agent's "apply my code changes" verb.
 
 ## `day mcp-server`
@@ -157,12 +157,12 @@ back into the day CLI, so the server only forwards calls. Tools:
 |---|---|
 | `day_metadata` | `metadata --json` |
 | `day_doctor` | `doctor [--toolkit …]` |
-| `day_build` | `build -p … --profile …` |
-| `day_launch` | `launch -p … --detach [--locale …] [--env K=V]` |
+| `day_build` | `build -t … --profile …` |
+| `day_launch` | `launch -t … --detach [--locale …] [--env K=V]` |
 | `day_relaunch` | `relaunch` (no targets ⇒ all running sessions) |
 | `day_stop` | `stop` (no targets ⇒ `--all`) |
 | `day_running` | the session registry + reachability probe |
-| `day_drive` | `drive -p … --steps-json …`; screenshots become MCP **image** content |
+| `day_drive` | `drive -t … --steps-json …`; screenshots become MCP **image** content |
 | `day_screenshot` | `drive` with `wait_idle` + `screenshot` |
 | `day_lint` | `lint` |
 
@@ -192,7 +192,7 @@ Codex project configuration, Claude Code registration, and shared project instru
 3. `day_relaunch` → compile errors come back in the result; fix; repeat.
 4. `day_drive` → navigate to the changed screen, assert ids/text, `screenshot`, and **look**
    at it. On every affected target.
-5. `day launch -p <target> --script dayscript/walkthrough.yaml` when the change touches
+5. `day launch -t <target> --script dayscript/walkthrough.yaml` when the change touches
    walkthrough-covered flows.
 
 ## Security posture

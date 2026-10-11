@@ -9,11 +9,11 @@ The `day` command line: create, build, run, test, and package Day apps.
 
 ```text
 day new app hello         # a working project: Day.toml, src/, a starter UI
-day launch -p macos-appkit -p android-mdc
+day launch -t macos-appkit -t android-mdc
 day launch --git https://github.com/daybrite/Day-Rise.git   # clone a repo and run its app
 day doctor                # what's installed, what's missing, how to fix it
 day doctor verify        # doctor, then scaffold + build + pack a test app for every target
-day pack -p macos-appkit  # a signed .dmg; .ipa, .apk, .flatpak, .msix, .hap per target
+day pack -t macos-appkit  # a signed .dmg; .ipa, .apk, .flatpak, .msix, .hap per target
 ```
 
 Building for seven toolkits normally means juggling seven build systems — cargo,

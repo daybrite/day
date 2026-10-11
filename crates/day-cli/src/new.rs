@@ -900,7 +900,7 @@ pub fn piece(
             Some(&demo),
         )?;
         next.push_str(&format!(
-            "    # the demo app:  cd demo && day launch -p {} --script dayscript/demo.yaml\n",
+            "    # the demo app:  cd demo && day launch -t {} --script dayscript/demo.yaml\n",
             targets::suggested(&app.targets)
         ));
     }
@@ -1169,7 +1169,7 @@ pub fn app(
     // directory is `repo`, the name as typed: `day new app Some-Fair` scaffolds `Some-Fair/`
     // holding a `some-fair` package, and a `cd some-fair` finds nothing on a case-sensitive
     // file system.
-    eprintln!("\n  next:\n    cd {repo}\n    day doctor\n    day launch -p {run_target}\n");
+    eprintln!("\n  next:\n    cd {repo}\n    day doctor\n    day launch -t {run_target}\n");
     Ok(())
 }
 
@@ -1775,7 +1775,7 @@ pub fn add_target(
     // for the two mobile toolkits.
     let toolkit =
         crate::doctor::group_id(targets::find(first).map(|t| t.toolkit).unwrap_or_default());
-    eprintln!("\n  next:\n    day doctor --toolkit {toolkit}\n    day launch -p {first}\n");
+    eprintln!("\n  next:\n    day doctor --toolkit {toolkit}\n    day launch -t {first}\n");
     Ok(())
 }
 
@@ -3214,7 +3214,7 @@ const DEMO_SECTION: &str = r#"
 
 `demo/` is a one-page app that shows this piece, and its walkthrough is the piece's on-device test.
 It depends on the crate by path, so it always builds the code here. From `demo/`, run
-`day launch -p <target> --script dayscript/demo.yaml` with any target its `Day.toml` lists.
+`day launch -t <target> --script dayscript/demo.yaml` with any target its `Day.toml` lists.
 "#;
 
 const DEMO_README: &str = r#"# __TITLE__
@@ -3226,10 +3226,10 @@ A one-page app that shows [`__CRATE__`](..). It depends on the piece by path
 
 ```sh
 day doctor
-day launch -p __FIRST_TARGET__ --script dayscript/demo.yaml
+day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 ```
 
-`Day.toml` lists the targets the piece supports; pass any of them to `-p`. The walkthrough checks
+`Day.toml` lists the targets the piece supports; pass any of them to `-t`. The walkthrough checks
 that the page and the piece are on screen and saves a screenshot under `build/day/screenshots/`.
 Add a step for each feature you give the piece (https://daybrite.dev/docs/dayscript).
 "#;
@@ -3324,7 +3324,7 @@ demo_placeholder = Type here
 
 const DEMO_COMPOSITE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/dayscript) and the piece's on-device test:
 #
-#     day launch -p __FIRST_TARGET__ --script dayscript/demo.yaml
+#     day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 flow:
   - wait_for: { id: demo-piece }
   - assert_text: { id: demo-title, text: "__TITLE__" }
@@ -3334,7 +3334,7 @@ flow:
 
 const DEMO_NATIVE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.dev/docs/dayscript) and the piece's on-device test:
 #
-#     day launch -p __FIRST_TARGET__ --script dayscript/demo.yaml
+#     day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 flow:
   - wait_for: { id: demo-piece }
   - assert_text: { id: demo-title, text: "__TITLE__" }

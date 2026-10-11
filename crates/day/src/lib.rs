@@ -459,7 +459,7 @@ pub use day_spec::{Lifecycle, WindowOptions};
 /// steps, save, clear, exclude_prefix}` captures them into a replayable dayscript; a recorder also
 /// arms headlessly from `day launch --record <file>` (the `DAY_RECORD` env, honored inside
 /// `day_script::init`). What it records is an ordinary dayscript, so it replays cross-toolkit
-/// through [`play_script`] or `day launch -p <target> --script <file>`.
+/// through [`play_script`] or `day launch -t <target> --script <file>`.
 ///
 /// `day::record::log_actions(true)` (or `DAY_LOG_ACTIONS=1`) turns on the narration alone: every
 /// action echoed to stdout in the same vocabulary, keeping nothing:
@@ -657,7 +657,7 @@ macro_rules! require_lifecycle {
 /// Launch through an external toolkit's backend (docs/extending.md "External toolkits"): the
 /// cfg-free counterpart of the feature-gated `launch` entries below, for platform-toolkit pairs
 /// registered via `[package.metadata.day.toolkit]`. Feature-independent because `day build
-/// -p <external>` compiles the app with only the external toolkit's feature, so none of the
+/// -t <external>` compiles the app with only the external toolkit's feature, so none of the
 /// launchers below exist in that build. Starts the dayscript engine exactly as they do, which
 /// is what keeps `day launch --script`, `day drive`, and the session registry working on a
 /// backend this repository has never heard of.

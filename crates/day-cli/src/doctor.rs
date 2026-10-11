@@ -195,7 +195,7 @@ fn android_sdk_install_hint(what: &str, pkg: &str) -> String {
 }
 
 /// The C compiler the web build's SQLite compile will use: [`day_toolchain::wasm_cc`], the
-/// Same resolution `day build -p web-dom` applies, so doctor reports what the build will run.
+/// Same resolution `day build -t web-dom` applies, so doctor reports what the build will run.
 /// A set cc-rs variable is the one case that still gets probed here: the build honors it
 /// blindly, and doctor's job is to say whether that program can actually emit wasm.
 fn have_wasm_cc() -> Option<String> {
@@ -329,7 +329,7 @@ fn uikit_group() -> Group {
                     "bash",
                     &["-c", "xcrun simctl list devices booted | grep -m1 Booted"],
                 ),
-                "boot a simulator: `day devices boot -p ios-uikit <id>`",
+                "boot a simulator: `day devices boot -t ios-uikit <id>`",
             )
             .need(Need::Launch),
             // Advisory: a build, a launch and a dayscript capture all work without a window.
@@ -466,14 +466,14 @@ fn gtk_group() -> Group {
                 "install glib tools (bundled with glib/GTK; ships `glib-compile-resources`)",
             )
             .need(Need::BuildOptional),
-            // Only `day pack -p linux-gtk` (the .flatpak bundle, §16.5) needs it.
+            // Only `day pack -t linux-gtk` (the .flatpak bundle, §16.5) needs it.
             Probe::new(
                 "flatpak-builder",
                 which("flatpak-builder").map(|p| p.display().to_string()),
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
             .need(Need::Pack),
-            // The other half of `day pack -p linux-gtk`: the .appimage (§16.5). Without the gtk
+            // The other half of `day pack -t linux-gtk`: the .appimage (§16.5). Without the gtk
             // plugin an AppImage still builds, but carries no GdkPixbuf loaders or GSettings
             // schemas, so both are probed, and the plugin is the optional one.
             Probe::new(
@@ -493,7 +493,7 @@ fn gtk_group() -> Group {
                 newer and libadwaita 1.5 or newer — it builds stack navigation on\n\
                 AdwNavigationView and dialogs on GtkFileDialog/GtkAlertDialog, none of which\n\
                 exist below those versions. A distribution that ships an older GTK (Debian 12 has\n\
-                gtk4 4.8) cannot build this target; use `-p linux-qt` there, or a newer runtime.\n\
+                gtk4 4.8) cannot build this target; use `-t linux-qt` there, or a newer runtime.\n\
                 Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
                 • Linux  — `apt install libgtk-4-dev libadwaita-1-dev pkg-config`\n\
@@ -530,14 +530,14 @@ fn qt_group() -> Group {
                 "install Qt 6 (rcc, the resource compiler, ships in Qt's libexec)",
             )
             .need(Need::BuildOptional),
-            // Only `day pack -p linux-qt` (the .flatpak bundle, §16.5) needs it.
+            // Only `day pack -t linux-qt` (the .flatpak bundle, §16.5) needs it.
             Probe::new(
                 "flatpak-builder",
                 which("flatpak-builder").map(|p| p.display().to_string()),
                 "install flatpak + flatpak-builder and add the flathub remote (for `day pack`)",
             )
             .need(Need::Pack),
-            // The other half of `day pack -p linux-qt`: the .appimage (§16.5). Without the qt
+            // The other half of `day pack -t linux-qt`: the .appimage (§16.5). Without the qt
             // plugin the image carries no platform plugin, so it cannot open a window on a machine
             // without Qt, hence probing the plugin as well as the tool.
             Probe::new(
@@ -589,7 +589,7 @@ fn xaml_group() -> Group {
                 }),
                 "rustup default stable-msvc + install the VS 2022 C++ Build Tools",
             ),
-            // Only `day pack -p windows-xaml` needs these (§16.5): makeappx/signtool ship with
+            // Only `day pack -t windows-xaml` needs these (§16.5): makeappx/signtool ship with
             // the Windows SDK, makensis via `choco install nsis`.
             Probe::new(
                 "makeappx (Windows SDK)",
@@ -873,7 +873,7 @@ fn harmonyos_group() -> Group {
                 An OpenHarmony emulator (Oniro) or device is needed only to launch, not to build:\n\
                 install QEMU, unpack an emulator image (Oniro for OpenHarmony 6.x, or ohos-qemu's\n\
                 x86_64_virt for 7.0; neither is bundled, see docs/harmonyos.md), then\n\
-                `day devices boot -p harmony-arkui`.",
+                `day devices boot -t harmony-arkui`.",
     }
 }
 
@@ -1115,8 +1115,8 @@ fn dom_group() -> Group {
                 also compiles the bundled SQLite to wasm, which needs a clang with the wasm32\n\
                 backend — Apple's has none. `day build` probes plain `clang`, then Homebrew LLVM\n\
                 and swift.org toolchains, exporting what it finds; a set CC_wasm32_unknown_unknown\n\
-                (or CC) picks the compiler yourself. `day build -p web-dom` writes a\n\
-                self-contained static dist/; `day launch -p web-dom` serves it and opens a browser.",
+                (or CC) picks the compiler yourself. `day build -t web-dom` writes a\n\
+                self-contained static dist/; `day launch -t web-dom` serves it and opens a browser.",
     }
 }
 

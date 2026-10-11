@@ -186,6 +186,46 @@ pub fn find(name: &str) -> Option<&'static Target> {
     TARGETS.iter().find(|t| t.name == name)
 }
 
+/// The target a `-t`/`--target` value names. A full `<os>-<toolkit>` name passes through as
+/// written, external targets included (this catalog does not know them; external.rs resolves
+/// them later). A toolkit alone expands to its target on this host: `dom` is `web-dom`
+/// everywhere, `uikit` is `ios-uikit`, and `gtk` is `macos-gtk` on a Mac, `linux-gtk` on Linux.
+/// A toolkit that exists on several platforms but has none on this host is an error that lists
+/// the choices.
+pub fn expand(name: &str) -> Result<String, String> {
+    expand_on(name, host_os())
+}
+
+/// [`expand`] against an explicit host, so the mapping is testable off the host it runs on.
+pub fn expand_on(name: &str, host: &str) -> Result<String, String> {
+    if name.is_empty() || name.contains('-') {
+        return Ok(name.to_string());
+    }
+    let candidates: Vec<&Target> = TARGETS.iter().filter(|t| t.toolkit == name).collect();
+    match candidates.as_slice() {
+        [] => Ok(name.to_string()),
+        [one] => Ok(one.name.to_string()),
+        many => many
+            .iter()
+            .find(|t| t.host == host)
+            .map(|t| t.name.to_string())
+            .ok_or_else(|| {
+                let names: Vec<&str> = many.iter().map(|t| t.name).collect();
+                format!(
+                    "`{name}` is a toolkit on several platforms; name the target: {}",
+                    names.join(", ")
+                )
+            }),
+    }
+}
+
+/// The `-t`/`--target` value parser: every comma-separated entry goes through [`expand`], so a
+/// list (`day doctor verify -t gtk,dom`) expands the way single values do.
+pub fn parse_arg(value: &str) -> Result<String, String> {
+    let parts: Result<Vec<String>, String> = value.split(',').map(expand).collect();
+    Ok(parts?.join(","))
+}
+
 pub fn host_os() -> &'static str {
     if cfg!(target_os = "macos") {
         "macos"
@@ -200,7 +240,7 @@ pub fn host_os() -> &'static str {
 
 /// The default target for the current host: the sensible preselection for `day new app`'s target
 /// menu, the fallback when a non-interactive `day new app` gets no `--toolkit`, and what
-/// `day launch`/`day build` run when given no `-p`.
+/// `day launch`/`day build` run when given no `-t`.
 ///
 /// Each OS has one obvious native answer except Linux, where the toolkit follows the DESKTOP the
 /// user is actually running: a Qt desktop gets `linux-qt`, everything else `linux-gtk`. Getting
@@ -273,6 +313,42 @@ fn desktop_toolkit(values: &[String]) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A toolkit alone names this host's target for it; full names and names outside the
+    /// catalog pass through untouched.
+    #[test]
+    fn a_toolkit_alone_expands_to_the_hosts_target() {
+        assert_eq!(expand_on("gtk", "macos").unwrap(), "macos-gtk");
+        assert_eq!(expand_on("gtk", "linux").unwrap(), "linux-gtk");
+        assert_eq!(expand_on("gtk", "windows").unwrap(), "windows-gtk");
+        assert_eq!(expand_on("qt", "linux").unwrap(), "linux-qt");
+        for (toolkit, target) in [
+            ("dom", "web-dom"),
+            ("uikit", "ios-uikit"),
+            ("mdc", "android-mdc"),
+            ("arkui", "harmony-arkui"),
+            ("appkit", "macos-appkit"),
+            ("winui", "windows-winui"),
+            ("xaml", "windows-xaml"),
+        ] {
+            assert_eq!(expand_on(toolkit, "linux").unwrap(), target, "{toolkit}");
+        }
+        assert_eq!(expand_on("linux-gtk", "macos").unwrap(), "linux-gtk");
+        assert_eq!(
+            expand_on("netbsd-wxwidgets", "macos").unwrap(),
+            "netbsd-wxwidgets"
+        );
+        assert_eq!(expand_on("wxwidgets", "macos").unwrap(), "wxwidgets");
+        assert_eq!(expand_on("", "macos").unwrap(), "");
+        let err = expand_on("gtk", "other").unwrap_err();
+        assert!(
+            err.contains("macos-gtk") && err.contains("linux-gtk"),
+            "{err}"
+        );
+        // A comma list expands entry by entry.
+        let list = parse_arg("dom,uikit,web-dom").unwrap();
+        assert_eq!(list, "web-dom,ios-uikit,web-dom");
+    }
 
     /// Every default names a real target; a typo here would only surface as a launch failure on
     /// the one OS that hits that arm.

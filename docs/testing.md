@@ -210,12 +210,12 @@ its retry.
 ### `day test`, on a toolkit
 
 ```
-day test -p macos-appkit                         # every test in the project
-day test -p macos-gtk 'text-field-*'             # a glob over test names
-day test -p ios-uikit --ios-simulator <udid>     # the device flags day launch takes
-day test -p android-mdc --shots always           # keep every capture, not only a failure's
-day test -p linux-gtk --case-timeout 0           # no per-case limit (a debugger attached)
-day test -p web-dom --list                       # the registry, without running
+day test -t macos-appkit                         # every test in the project
+day test -t macos-gtk 'text-field-*'             # a glob over test names
+day test -t ios-uikit --ios-simulator <udid>     # the device flags day launch takes
+day test -t android-mdc --shots always           # keep every capture, not only a failure's
+day test -t linux-gtk --case-timeout 0           # no per-case limit (a debugger attached)
+day test -t web-dom --list                       # the registry, without running
 ```
 
 `day test` is a launch with one generated script: it builds the project for the target

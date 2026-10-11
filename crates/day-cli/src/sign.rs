@@ -382,7 +382,7 @@ pub fn apply(
         // Named rather than lumped into "unsupported": these are the formats the verb is expected
         // to grow, and a caller who tries one should hear that it is coming, not that it is wrong.
         "dmg" | "pkg" => Err(CliError::sign(format!(
-            "signing a {ext} is not implemented yet — `day pack -p macos-appkit` signs and \
+            "signing a {ext} is not implemented yet — `day pack -t macos-appkit` signs and \
              notarizes during the build (docs/packaging.md)"
         ))),
         _ => Err(CliError::sign(format!(

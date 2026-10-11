@@ -204,7 +204,7 @@ resources, which aggregate into your app without name collisions.
 
 ```text
 resource/images/wave@2x.png ─┐  resource/fonts/Pacifico-Regular.ttf ─┐  resource/assets/stations.json ─┐
-                     ▼          day build -p <target>   ▼                            ▼
+                     ▼          day build -t <target>   ▼                            ▼
    ┌───────────────────────────────────────────────────────────────────────┐
    │ android  → res/drawable-xhdpi/wave.png · res/font/pacifico.ttf        │
    │ ios      → DayPieces asset catalog + fonts/ bundle dir + UIAppFonts   │

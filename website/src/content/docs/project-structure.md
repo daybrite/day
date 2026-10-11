@@ -64,12 +64,12 @@ my-app/
 
 ## How a build works
 
-Every target follows the same shape. `day build -p <target>` (or `launch`, which builds first)
+Every target follows the same shape. `day build -t <target>` (or `launch`, which builds first)
 stages resources, selects the toolkit feature, and runs the platform's build system for
 anything native:
 
 ```text
-day build -p <target>
+day build -t <target>
 │
 ├── 1. stage resources          resource/images + resource/assets → the target's native store
 │                               (actool / aapt2 / GResource / .qrc / rawfile — see below)
@@ -99,7 +99,7 @@ src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO
                  ├── Qt / XAML: cc-compiled C++ shim (built by the toolkit crate's build.rs)
                  ├── XAML: embeds a side-by-side manifest (`maxversiontested`, which
                  │   XAML Islands requires; both XAML targets get it);
-                 │   day pack -p windows-winui adds the runtime's WinRT registrations
+                 │   day pack -t windows-winui adds the runtime's WinRT registrations
                  └── macos-appkit: swift build prepass when Swift is contributed
                      (build/day/macos/DayPieces, statically linked — docs/swiftui)
                  ▼
@@ -119,7 +119,7 @@ The Xcode project owns the bundle; the Rust code arrives as a static library thr
 callback into the `day` CLI:
 
 ```text
-day build -p ios-uikit
+day build -t ios-uikit
 │
 ├── generate DayPieces           a local SwiftPM package assembled from every piece's
 │                                [package.metadata.day.ios]: Swift shims, SwiftPM deps
@@ -176,7 +176,7 @@ On Android, `day` runs Cargo first, then hands Gradle a project whose source set
 everything Day staged:
 
 ```text
-day build -p android-mdc
+day build -t android-mdc
 │
 ├── cargo-ndk (arm64-v8a) ────────► build/day/jniLibs/arm64-v8a/libmy_app.so
 │
@@ -206,7 +206,7 @@ The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS h
 OpenHarmony development certificate:
 
 ```text
-day build -p harmony-arkui
+day build -t harmony-arkui
 │
 ├── cargo rustc --crate-type cdylib --target x86_64-unknown-linux-ohos   (emulator; arm64 device)
 │       linker = $OHOS_NDK_HOME/llvm/bin/<triple>-clang
@@ -231,7 +231,7 @@ This is the shortest of the five pipelines, and the only one with no host projec
 app's lib crate is compiled straight to wasm and dropped next to the host page:
 
 ```text
-day build -p web-dom
+day build -t web-dom
 │
 ├── cargo rustc --crate-type cdylib --target wasm32-unknown-unknown
 │       exports day_dom_main (via day::day_start_web!)
@@ -245,7 +245,7 @@ day build -p web-dom
                         ▼
               dist/ is the deployable — copy it to any static host
                         ▼
-day launch -p web-dom   serves dist/ over loopback and opens your browser
+day launch -t web-dom   serves dist/ over loopback and opens your browser
 ```
 
 There is no `day pack` for this target: `dist/` is already the artifact. Browsers refuse to
@@ -261,7 +261,7 @@ native resource store, so the platform's machinery does the optimizing, and the 
 native (and zero-copy wherever the store exposes a stable pointer):
 
 ```text
-                        day build -p <target>
+                        day build -t <target>
                                  │  stage
       ┌──────────────────────────┼──────────────────────────────┐
       ▼                          ▼                              ▼

@@ -37,7 +37,7 @@ pieces, hooks to signals, and npm packages to Cargo dependencies, with examples 
 | i18next / react-intl | Fluent `.ftl` + generated `res::str` functions |
 | Turbo Modules / native components | [parts](/docs/parts) and [pieces](/docs/extending) |
 | Fast Refresh | none — `day relaunch` rebuilds and relaunches |
-| `eas build` / fastlane / Gradle + Xcode | `day pack -p <target>` |
+| `eas build` / fastlane / Gradle + Xcode | `day pack -t <target>` |
 
 ## The same counter in both
 
@@ -485,12 +485,12 @@ included. The hosts are already in your repository, so there is nothing to eject
 
 | Task | React Native | Day |
 |---|---|---|
-| run in dev | `npx react-native run-ios` / `run-android` | `day launch -p ios-uikit` / `-p android-mdc` |
+| run in dev | `npx react-native run-ios` / `run-android` | `day launch -t ios-uikit` / `-t android-mdc` |
 | apply changes | Fast Refresh | `day relaunch --all-running` |
-| Android store build | Gradle `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab` |
-| iOS store build | Xcode archive / fastlane / EAS | `day pack -p ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
-| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -p macos-appkit` / `-p windows-winui` / `-p linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` + `.appimage` |
-| web | react-native-web (renders DOM via the RN API) | `day build -p web-dom` — the same crate compiled to WebAssembly, driving DOM elements |
+| Android store build | Gradle `bundleRelease` + signing config | `day pack -t android-mdc` → signed `.apk` + `.aab` |
+| iOS store build | Xcode archive / fastlane / EAS | `day pack -t ios-uikit` → `.ipa` via `xcodebuild -exportArchive` |
+| macOS / Windows / Linux | react-native-macos / react-native-windows (separate forks) | `day pack -t macos-appkit` / `-t windows-winui` / `-t linux-gtk` — `.dmg` (notarized), `.msix` + installer, `.flatpak` + `.appimage` |
+| web | react-native-web (renders DOM via the RN API) | `day build -t web-dom` — the same crate compiled to WebAssembly, driving DOM elements |
 | environment check | `npx react-native doctor` | `day doctor` |
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has

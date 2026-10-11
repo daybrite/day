@@ -29,7 +29,7 @@ sudo dnf install gtk4-devel libadwaita-devel pkgconf        # Fedora
 cargo install day-cli
 day new app my-app --toolkit linux-gtk
 cd my-app
-day launch -p linux-gtk
+day launch -t linux-gtk
 ```
 
 Add `libwebkitgtk-6.0-dev` if you use the web view piece. `day doctor --toolkit gtk` probes
@@ -37,7 +37,7 @@ GTK 4, libadwaita, `glib-compile-resources`, and the packaging tools (`flatpak-b
 `linuxdeploy`, `linuxdeploy-plugin-gtk`); it does not check WebKitGTK.
 
 ```sh
-day pack -p linux-gtk        # single-file .flatpak AND a portable .appimage
+day pack -t linux-gtk        # single-file .flatpak AND a portable .appimage
 ```
 
 `day pack` produces both formats by default. The flatpak runtime supplies GTK itself

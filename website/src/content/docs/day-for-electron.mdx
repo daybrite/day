@@ -33,7 +33,7 @@ communication, dependencies, and packaging; this guide compares those areas with
 | `<webview>` / `WebContentsView` | [`day-piece-webview`](https://github.com/daybrite/day-piece-webview) — the system webview |
 | native modules (N-API, node-gyp) | [parts](/docs/parts) and [pieces](/docs/extending), compiled with the app |
 | `nodeIntegration` / `contextIsolation` hardening | not applicable; the UI is compiled Rust driving native widgets, so there is nothing to isolate |
-| `electron-builder` / Forge | `day pack -p <target>` |
+| `electron-builder` / Forge | `day pack -t <target>` |
 | `autoUpdater` (Squirrel) | none yet; updates ship through stores and installers |
 | Playwright / WebdriverIO | [dayscript](/docs/dayscript), the same script on every target |
 
@@ -225,7 +225,7 @@ system web view (WKWebView, WebView2, WebKitGTK).
 
 Two paths keep existing web code useful. `web_view(url_signal)` embeds existing web screens in the
 system web view while you migrate page by page. And the whole app also runs as a website: `day build
--p web-dom` compiles the same crate to WebAssembly driving DOM elements. For a team that keeps
+-t web-dom` compiles the same crate to WebAssembly driving DOM elements. For a team that keeps
 writing TypeScript, [`day-lite`](https://github.com/daybrite/day-lite) runs JS/TS miniapps on top of Day's native
 pieces; it hosts miniapps and is not a way to write the app itself.
 
@@ -314,13 +314,13 @@ catalogs compiled to typed functions ([Localization](/docs/localization)).
 
 | Task | Electron | Day |
 |---|---|---|
-| run in dev | `electron .` | `day launch -p macos-appkit` |
+| run in dev | `electron .` | `day launch -t macos-appkit` |
 | apply changes | reload the window | `day relaunch --all-running` |
-| macOS artifact | electron-builder → `.dmg`, notarize via config | `day pack -p macos-appkit` → notarized, stapled `.dmg` |
-| Windows artifact | NSIS / Squirrel | `day pack -p windows-winui` → `.msix` + NSIS installer |
-| Linux artifact | AppImage / deb / snap | `day pack -p linux-gtk` → `.flatpak` + `.appimage` |
-| mobile | — | `day pack -p ios-uikit` / `-p android-mdc` → `.ipa`, `.apk` + `.aab` |
-| web | separate web build of the renderer code | `day build -p web-dom` — the same crate |
+| macOS artifact | electron-builder → `.dmg`, notarize via config | `day pack -t macos-appkit` → notarized, stapled `.dmg` |
+| Windows artifact | NSIS / Squirrel | `day pack -t windows-winui` → `.msix` + NSIS installer |
+| Linux artifact | AppImage / deb / snap | `day pack -t linux-gtk` → `.flatpak` + `.appimage` |
+| mobile | — | `day pack -t ios-uikit` / `-t android-mdc` → `.ipa`, `.apk` + `.aab` |
+| web | separate web build of the renderer code | `day build -t web-dom` — the same crate |
 | auto-update | `autoUpdater` + an update server | none yet; stores and installers carry updates |
 | UI tests | Playwright per OS | one dayscript, every target, in CI with screenshots |
 | supply chain | your Chromium/Node rebuild cadence | reproducible builds with SBOM + buildinfo sidecars per artifact ([details](/docs/reproducible-builds)) |

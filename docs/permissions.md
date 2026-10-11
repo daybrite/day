@@ -175,9 +175,9 @@ day_part_permissions::request(perm, move |s| {
 
 ### macOS: the desktop dev loop cannot exercise permissions
 
-`day launch -p macos-appkit` runs the bare binary, not a bundle. TCC reads usage descriptions from a
+`day launch -t macos-appkit` runs the bare binary, not a bundle. TCC reads usage descriptions from a
 bundle's `Info.plist`, so an unbundled process is denied (or killed) regardless of what Day.toml
-says. Only `day pack -p macos-appkit` produces a bundle that can be granted anything. The crate
+says. Only `day pack -t macos-appkit` produces a bundle that can be granted anything. The crate
 guards every `UNUserNotificationCenter` call behind a bundle check for the same reason: touching it
 unbundled aborts the process.
 
@@ -242,7 +242,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   `resources/zh_CN/element/string.json`. Hand-written strings survive the merge; obsolete
   generated translations are removed. The source host under `platform/harmony/` stays
   unchanged, so adding a locale requires no generated native files in git. `day prepare`
-  prepares these files too, and `day open -p harmony-arkui` opens the staged project.
+  prepares these files too, and `day open -t harmony-arkui` opens the staged project.
 
 ## Testing past the prompt
 
@@ -251,7 +251,7 @@ out of its reach ([docs/testing.md](testing.md)), so a walkthrough that needs th
 microphone stops at the first `request`. Rather than drive the prompt, avoid it:
 
 ```sh
-day launch -p android-mdc --grant camera --script dayscript/capture.yaml
+day launch -t android-mdc --grant camera --script dayscript/capture.yaml
 ```
 
 `--grant` takes a portable name (repeatable, or a comma-separated list) and marks it granted on
@@ -286,7 +286,7 @@ else.
 | `day::lint::missing-reason` | a declared permission that needs a reason has none — or has inline text only while another locale's catalog lacks its `permission_<name>` message |
 | `day::lint::duplicate-reason` | a reason given both inline and in the default catalog (the catalog's ships; the other can drift) |
 | `day::lint::unused-permission` | declared, referenced by nothing (a warning — over-declaring gets apps rejected) |
-| `day::lint::stale-manifest` | the checked-in `Info.plist` or `InfoPlist.xcstrings` disagrees with Day.toml and the catalogs; run `day build -p ios-uikit` |
+| `day::lint::stale-manifest` | the checked-in `Info.plist` or `InfoPlist.xcstrings` disagrees with Day.toml and the catalogs; run `day build -t ios-uikit` |
 
 ## What it shows about the extension system
 

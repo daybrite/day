@@ -14,7 +14,7 @@
 //! doctor = "wx-config --version" # optional: `day doctor` probe (command + space-separated args)
 //! ```
 //!
-//! The CLI resolves `-p <name>` against the builtin catalog first and then against these
+//! The CLI resolves `-t <name>` against the builtin catalog first and then against these
 //! declarations, read from `cargo metadata` exactly as the piece contracts are (pieces.rs), so
 //! registering a toolkit is pure Cargo.toml data on a crate the app depends on. A declared target
 //! inherits the desktop pipeline: `cargo build --features <toolkit-half>`, run the binary, stream

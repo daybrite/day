@@ -30,15 +30,15 @@ cover the install in detail.
 cargo install day-cli
 day new app my-app --toolkit harmony-arkui
 cd my-app
-day build -p harmony-arkui       # cross-compiles, then hvigor → signed .hap
-day launch -p harmony-arkui      # installs and starts on an emulator or device
+day build -t harmony-arkui       # cross-compiles, then hvigor → signed .hap
+day launch -t harmony-arkui      # installs and starts on an emulator or device
 ```
 
 `day build` signs the `.hap` with the public development certificate, so you get an installable
-artifact without a vendor account. `day pack -p harmony-arkui` produces the release `.hap`, signed
+artifact without a vendor account. `day pack -t harmony-arkui` produces the release `.hap`, signed
 with your own material when configured.
 
-The [`day devices boot`](/docs/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -p harmony-arkui` (add
+The [`day devices boot`](/docs/cli#simulators-emulators-and-devices) command starts the emulator: `day devices boot -t harmony-arkui` (add
 `--headless` to run without a window) boots the emulator image under QEMU and connects `hdc`:
 Oniro's for OpenHarmony 6.x, or harmony-contrib/ohos-qemu's `x86_64_virt` for 7.0, recognized by
 its files. It does not download images: unpack the Oniro release's `oniro_emulator.zip` into

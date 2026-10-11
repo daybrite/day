@@ -80,7 +80,7 @@ their constructors.
 
 ## How a build works
 
-`day build -p <target>` orchestrates; platform tools do the platform work. Most desktop targets
+`day build -t <target>` orchestrates; platform tools do the platform work. Most desktop targets
 are plain cargo builds (each target gets its own `CARGO_TARGET_DIR`, so parallel target builds
 never contend); the exception is `macos-appkit`, which builds through its `platform/macos/`
 Xcode host project like a mobile target — including any macOS Swift a dependency contributes,
@@ -90,7 +90,7 @@ part, so building from Xcode/Android Studio and building from the CLI produce id
 and neither goes stale.
 
 ```text
- day build -p ios-uikit                    day build -p android-mdc
+ day build -t ios-uikit                    day build -t android-mdc
 ──────────────────────────                ─────────────────────────────
  day CLI                                   day CLI
    │  generates DayPieces SwiftPM pkg        │  cargo-ndk → libapp.so per ABI

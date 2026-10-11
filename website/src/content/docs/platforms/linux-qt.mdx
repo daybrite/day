@@ -32,7 +32,7 @@ brew install qt pkg-config                    # macOS, for the macos-qt dev comb
 cargo install day-cli
 day new app my-app --toolkit linux-qt
 cd my-app
-day launch -p linux-qt
+day launch -t linux-qt
 ```
 
 Two optional modules enable two pieces; without a module the build still succeeds and the piece
@@ -48,7 +48,7 @@ degrades:
 Multimedia.
 
 ```sh
-day pack -p linux-qt        # single-file .flatpak (org.kde.Platform runtime) AND a portable .appimage
+day pack -t linux-qt        # single-file .flatpak (org.kde.Platform runtime) AND a portable .appimage
 ```
 
 `day pack` produces both formats by default: the flatpak resolves Qt from its runtime; the

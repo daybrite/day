@@ -480,7 +480,7 @@ This is what `day-part-network` declares (its `apple.rs` drives SystemConfigurat
 `#[link(name = "SystemConfiguration", kind = "framework")]` directive in the Rust source is not
 enough, because cargo honors it only when it drives the final link, i.e. on the macOS desktop build.
 On iOS, `xcodebuild` links the Rust staticlib and does not read Rust link metadata, so the app
-itself must link the framework. `day build -p ios-uikit` generates a local SwiftPM package
+itself must link the framework. `day build -t ios-uikit` generates a local SwiftPM package
 (`build/day/ios/DayPieces`) whose `linkerSettings` list every part's declared frameworks; the app's
 one checked-in `.xcodeproj` depends on that package. So an iOS framework dependency is `Cargo.toml`
 data, and the `.xcodeproj` stays unchanged.

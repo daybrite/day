@@ -338,7 +338,7 @@ release workflow hands each lane the file it downloaded; without them the lanes 
 `build/day/dist/`.
 
 ```sh
-day pack -p ios-uikit --profile release
+day pack -t ios-uikit --profile release
 cd build/day/store/ios-uikit && fastlane ios validate
 ```
 

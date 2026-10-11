@@ -17,7 +17,10 @@ project settings they use.
 ## The commands
 
 `day --help` groups commands by task. Use `day help <command>` for its options and subcommands,
-for example `day help icon new`. A target flag accepts `-p`, `--platform`, or `--target`.
+for example `day help icon new`. A target flag is `-t` or `--target`. It takes a target name such
+as `macos-gtk`, or a toolkit alone, which means that toolkit on this machine: `-t gtk` is
+`macos-gtk` on a Mac and `linux-gtk` on Linux, and `-t dom` is `web-dom` everywhere. The older
+`-p` and `--platform` spellings still work and print a deprecation warning.
 `icon`, `sign`, and `project` require a subcommand; bare `day doctor` runs quick toolchain checks.
 `day doctor verify` builds and packages test apps and can take several minutes.
 
@@ -27,29 +30,29 @@ day new app my-app           # scaffold a new app non-interactively (--no-websit
 day project add-target android-mdc   # add a target to an existing app
 day localize list|add|remove # survey the project's locales, or add/remove one on every surface at once
 day prepare                  # render the derived host files (icon catalogs, mipmaps) under build/day/host (--check: CI gate)
-day open -p <target>         # prepare, then open the host project in Xcode / Android Studio / DevEco
+day open -t <target>         # prepare, then open the host project in Xcode / Android Studio / DevEco
 day icon build              # render platform icons from the source icon
 day icon new                # create a seeded source icon and render its platform icons
 day icon check              # check for icon drift without writing files (exit 5)
-day build   -p macos-appkit  # build one target
-day launch  -p macos-gtk     # build + run on a target
+day build   -t macos-appkit  # build one target
+day launch  -t macos-gtk     # build + run on a target
 day launch  --git <url>      # clone a repository and run the app in it — no checkout needed
 day launch  --day-src <path|url>  # run this app against another day, for one build
 day launch  --patch-local <checkout>  # run against a local day, piece, or part checkout, for one build (repeatable)
 day build   --flavor custom  # build the Day-custom.toml flavor of this app (/docs/flavors)
-day pack    -p macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
+day pack    -t macos-appkit  # build + sign + produce a distributable artifact (.dmg here)
 day sign check              # report release-signing readiness without printing secrets
 day rebuild <artifact>       # rebuild a shipped artifact from its provenance and compare the bytes
 day lint                     # check ids, Fluent coverage, project shape (--fix applies what it can)
 day devices list             # simulators, emulators and phones a mobile target can launch onto
-day devices boot -p ios-uikit <id>  # start a simulator/AVD so it can be launched onto
+day devices boot -t ios-uikit <id>  # start a simulator/AVD so it can be launched onto
 day doctor                   # check toolchains for every target
 day doctor verify           # doctor, then scaffold + build + pack a throwaway app per target
 day stop --all               # stop running launches (sessions in build/day/sessions.json)
 day clean                    # remove all build artifacts (build/, target/, gradle/hvigor outputs); --dry-run lists them
 day relaunch --all-running   # stop + rebuild + relaunch — "apply my changes"
-day drive -p <t> --steps-json '…'   # drive a running app with dayscript steps
-day test -p <t> [FILTER…]    # run the app's #[day::test] cases on a target; --list names them
+day drive -t <t> --steps-json '…'   # drive a running app with dayscript steps
+day test -t <t> [FILTER…]    # run the app's #[day::test] cases on a target; --list names them
 day patch --local <checkout> # build against a local day (or piece) checkout; repeatable (--check: verify)
 day patch --git <url>[@<ref>] # build against a fork of day, for the whole graph; commit the table
 day mcp-server               # serve Day tools to AI agents (Model Context Protocol, stdio)
@@ -93,7 +96,7 @@ left out.
 
 `day new app` scaffolds a working starter: a typed-route [sidebar](/docs/glossary#sidebar) over four sample panels (a
 [reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
-[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -p <target> --script dayscript/demo.yaml`), the native
+[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -t <target> --script dayscript/demo.yaml`), the native
 host projects the mobile targets build through, and a GitHub Actions workflow that builds and
 tests every scaffolded target through the shared [`dayapp.yml`](/docs/github-actions) workflow
 as soon as the repository is pushed. The interactive run asks whether to set that repository up:
@@ -131,7 +134,7 @@ day new app my-app --template https://github.com/you/tpl#v1   # a git repo (opti
 `day new piece` also writes `demo/` beside the crate: the same app template, cut to one page that
 shows the piece, with a `dayscript/demo.yaml` walkthrough. A native piece's demo targets the
 platforms its toolkits draw on, and a composite piece's demo targets all of them. The demo depends
-on the piece by path, so `day launch -p <target> --script dayscript/demo.yaml`, run from `demo/`,
+on the piece by path, so `day launch -t <target> --script dayscript/demo.yaml`, run from `demo/`,
 builds the code you are editing. `--no-demo` leaves it out.
 
 `day new --describe` prints the questions themselves (every kind's fields, their options, and the
@@ -174,13 +177,13 @@ and MCP tool names remain stable.
 ### Running a repository directly
 
 `day launch --git <url>` runs an app you haven't checked out. It clones the repository, finds the
-Day project inside it, and launches that. With no `-p`, it builds for your host's default
+Day project inside it, and launches that. With no `-t`, it builds for your host's default
 toolkit, so trying a sample app is one command:
 
 ```bash
 day launch --git https://github.com/daybrite/Day-Rise.git
 day launch --git https://github.com/daybrite/Day-Rise.git@main       # a branch, tag, or commit
-day launch --git https://github.com/daybrite/Day-Skies.git -p ios-uikit --env WEATHER_MOCK=1
+day launch --git https://github.com/daybrite/Day-Skies.git -t ios-uikit --env WEATHER_MOCK=1
 ```
 
 The checkout is cached per URL and ref, under `$XDG_CACHE_HOME/day/git/…` when that's set and
@@ -190,7 +193,7 @@ Linux, `%LOCALAPPDATA%\day\cache` on Windows). Every run prints the path:
 ```text
      Cloning daybrite/Day-Rise @ main
     Checkout ~/Library/Caches/day/git/github.com/daybrite/Day-Rise/main
-  Defaulting macos-appkit (no --platform given)
+  Defaulting macos-appkit (no --target given)
     Building macos-appkit (xcodebuild Debug, macosx)
    Launching macos-appkit
 ```
@@ -281,24 +284,24 @@ build directories, so the packaging step re-runs when you switch. And `day pack`
 
 ```bash
 # run a dayscript walkthrough after launch, capturing localized screenshots
-day launch -p macos-gtk --script dayscript/walkthrough.yaml --locale fr
+day launch -t macos-gtk --script dayscript/walkthrough.yaml --locale fr
 
 # capture variants of the same walkthrough: `--variant` names the screenshot subdirectory
 # (build/day/screenshots/<target>/<variant>/) and DAY_THEME forces the theme on every backend
-day launch -p macos-gtk --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
+day launch -t macos-gtk --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 
 # variant loops share one binary (theme and locale are runtime inputs): build once, then
 # `--skip-build` reuses the artifact — on iOS this pays xcodebuild once instead of per variant
-day build -p ios-uikit
-day launch -p ios-uikit --skip-build --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
+day build -t ios-uikit
+day launch -t ios-uikit --skip-build --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 
 # --record captures what you do into a replayable dayscript: drive the app by hand, and the file
 # is rewritten continuously (see the dayscript "Recording" guide)
-day launch -p macos-appkit --record recording.yaml
+day launch -t macos-appkit --record recording.yaml
 
 # --grant marks a permission allowed on the device before the app starts, so a script that uses
 # the camera never meets the OS prompt it cannot dismiss (Android and the iOS Simulator)
-day launch -p android-mdc --grant camera --script dayscript/capture.yaml
+day launch -t android-mdc --grant camera --script dayscript/capture.yaml
 ```
 
 `--grant` takes the portable names from `[permissions]` in `Day.toml` (`camera`, `microphone`,
@@ -320,7 +323,7 @@ A scripted run captures the desktop toolkits and the web build at 2560×1600 pix
 
 ### Simulators, emulators, and devices
 
-For HarmonyOS, run `day devices boot -p harmony-arkui --headless` to start the configured
+For HarmonyOS, run `day devices boot -t harmony-arkui --headless` to start the configured
 Oniro image without a window. It always waits for boot readiness, so `--wait` is accepted but
 unnecessary. There is one image, and its screen is whatever size the emulator is given, so
 `--device` names a panel rather than a device: `phone` (360x720, the default), `tablet`
@@ -331,7 +334,7 @@ this target.
 Without a device flag, a launch goes to every runtime of that kind it can see: every booted iOS
 simulator, every connected Android device and emulator. That suits a capture sweep. To target one
 phone, name it with a flag. Selection is one flag per runtime, so a single command can send each
-`-p` somewhere different:
+`-t` somewhere different:
 
 | Flag | Selects | Find them with |
 | --- | --- | --- |
@@ -344,16 +347,16 @@ Or ask Day, which lists all three from any directory:
 
 ```bash
 day devices list                      # every mobile target
-day devices list -p ios-uikit         # just one
+day devices list -t ios-uikit         # just one
 day --format json devices list        # for editors and scripts
 
 # start something to launch onto: a simulator, an AVD, or the OpenHarmony emulator
-day devices boot -p ios-uikit  C4C903E3-95E1-40F3-A3F8-45D3EAE035BB
-day devices boot -p android-mdc Pixel_9_API_36
+day devices boot -t ios-uikit  C4C903E3-95E1-40F3-A3F8-45D3EAE035BB
+day devices boot -t android-mdc Pixel_9_API_36
 
 # and stop one when you are done with it
-day devices shutdown -p ios-uikit  "iPhone 16 Pro"
-day devices shutdown -p android-mdc Pixel_9_API_36
+day devices shutdown -t ios-uikit  "iPhone 16 Pro"
+day devices shutdown -t android-mdc Pixel_9_API_36
 ```
 
 Booted simulators, attached phones, running emulators and reachable hdc targets come back under
@@ -378,7 +381,7 @@ so Day opens it on the device being booted
 (`open -a DeviceHub.app "devices://manage/select?id=<udid>"`). Day picks whichever the selected
 Xcode ships, and `day doctor` names it as `simulator-ui`.
 
-`day launch -p ios-uikit` brings that window up too when it is launching onto a single simulator,
+`day launch -t ios-uikit` brings that window up too when it is launching onto a single simulator,
 so an app started against an already-booted device is something you can watch. A run that targets
 several simulators at once (a capture sweep) opens none of them.
 
@@ -405,32 +408,32 @@ enumerated first.
 
 ```bash
 # every booted simulator — the default, and what a screenshot sweep wants
-day launch -p ios-uikit
+day launch -t ios-uikit
 
 # one booted simulator, by name or UDID
-day launch -p ios-uikit --ios-simulator "iPhone 16 Pro"
+day launch -t ios-uikit --ios-simulator "iPhone 16 Pro"
 
 # a physical iPhone
-day launch -p ios-uikit --ios-device "iPhone 13 mini"
+day launch -t ios-uikit --ios-device "iPhone 13 mini"
 
 # one Android device or emulator, by adb serial
-day launch -p android-mdc --android-device 19091FDF600BAY
+day launch -t android-mdc --android-device 19091FDF600BAY
 
 # one OpenHarmony device or emulator, by hdc connect key
-day launch -p harmony-arkui --ohos-device 127.0.0.1:55555
+day launch -t harmony-arkui --ohos-device 127.0.0.1:55555
 
 # both phones at once, from one command, with the logs interleaved
-day launch -p ios-uikit    --ios-device "iPhone 13 mini" \
-           -p android-mdc  --android-device 19091FDF600BAY
+day launch -t ios-uikit    --ios-device "iPhone 13 mini" \
+           -t android-mdc  --android-device 19091FDF600BAY
 
 # start them and get the shell back rather than staying attached to the logs
-day launch -p ios-uikit --ios-device "iPhone 13 mini" --detach
+day launch -t ios-uikit --ios-device "iPhone 13 mini" --detach
 
 # drive a device run with a dayscript, the same as a simulator run
-day launch -p ios-uikit --ios-device "iPhone 13 mini" --script dayscript/demo.yaml
+day launch -t ios-uikit --ios-device "iPhone 13 mini" --script dayscript/demo.yaml
 
 # a phone and a desktop together, to compare the same screen side by side
-day launch -p ios-uikit --ios-device "iPhone 13 mini" -p macos-appkit
+day launch -t ios-uikit --ios-device "iPhone 13 mini" -t macos-appkit
 ```
 
 Every target reports the same way. Day reports each step itself, and the tools underneath it
@@ -492,13 +495,13 @@ packaged size are printed at the end.
 
 ```bash
 day doctor verify                                   # every target this machine can build
-day doctor verify -p ios-uikit,macos-appkit         # only these
+day doctor verify -t ios-uikit,macos-appkit         # only these
 day doctor verify --no-pack --profile release       # stop after the build; use the release profile
 day doctor verify --day-version 0.2.0               # check that release, not the CLI you have
 ```
 
 Run it with no arguments and a target whose prerequisites are missing is skipped, with the same fix
-line `day doctor` would print. Name targets with `-p` and a missing prerequisite is an error
+line `day doctor` would print. Name targets with `-t` and a missing prerequisite is an error
 instead, since you said those targets work here. `--strict` fails the run on any target this
 machine could have checked but isn't set up for (a target that only builds on another OS is never
 counted).
@@ -721,7 +724,7 @@ hiding an `--allow` that has outlived its reason.
 Under GitHub Actions, findings also become annotations on the lines they name, plus a summary table
 on the run page.
 
-One [backend](/docs/glossary#backend) feature is enabled per binary; `day launch -p <target>` selects it, so the AppKit build
+One [backend](/docs/glossary#backend) feature is enabled per binary; `day launch -t <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
 the per-target build pipelines, and how [resources](/docs/glossary#resource) are packaged are covered in
 [Project structure & builds](/docs/project-structure).
@@ -735,7 +738,7 @@ dayscript](/docs/dayscript).
 
 ## Tests in the app
 
-`day test -p <target>` builds the app, launches it, and runs its `#[day::test]` cases inside
+`day test -t <target>` builds the app, launches it, and runs its `#[day::test]` cases inside
 it: pages driven on the real toolkit, and headless logic in the app's own environment. One line
 per test, the evidence and captures beside the run's screenshots. A test is named after its
 function (`button_press` runs as `button-press`), a GUI case's page shows alone in the app's

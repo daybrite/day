@@ -38,7 +38,7 @@ This guide compares the APIs, state model, packages, and build tools.
 | `res/drawable`, `res/font` | `resource/images/`, `resource/fonts/` — staged into `res/` at build |
 | `strings.xml` + plurals | Fluent `.ftl` + generated `res::str` functions |
 | `@Preview` | none — `day launch` + [dayscript](/docs/dayscript) screenshots |
-| `bundleRelease` + Play Console | `day pack -p android-mdc` → signed `.apk` + `.aab` |
+| `bundleRelease` + Play Console | `day pack -t android-mdc` → signed `.apk` + `.aab` |
 
 ## The same counter in both
 
@@ -489,10 +489,10 @@ debugger and profilers, and Gradle calls back into `day` to rebuild the Rust hal
 
 | Task | Compose | Day |
 |---|---|---|
-| run in dev | Run in Android Studio | `day launch -p android-mdc` |
+| run in dev | Run in Android Studio | `day launch -t android-mdc` |
 | iterate | `@Preview`, Live Edit | `day relaunch --all-running` (no previews) |
-| Play Store build | `bundleRelease` + signing config | `day pack -p android-mdc` → signed `.apk` + `.aab`, apksigner-verified, 16 KB-alignment checked |
-| other platforms | Compose Multiplatform (its own renderer everywhere) | `day pack -p ios-uikit` / `-p macos-appkit` / `-p windows-winui` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` — native widgets on each |
+| Play Store build | `bundleRelease` + signing config | `day pack -t android-mdc` → signed `.apk` + `.aab`, apksigner-verified, 16 KB-alignment checked |
+| other platforms | Compose Multiplatform (its own renderer everywhere) | `day pack -t ios-uikit` / `-t macos-appkit` / `-t windows-winui` / `-t linux-gtk` / `-t harmony-arkui`; `day build -t web-dom` — native widgets on each |
 | UI tests | `createComposeRule`, Espresso | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 | environment check | Android Studio / `doctor` scripts | `day doctor` |
 

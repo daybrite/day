@@ -54,7 +54,7 @@ for _stream in (sys.stdout, sys.stderr):
 # travel with the flag into the passthrough list rather than being classified on its own (the
 # `--env DAY_DEMO_ROUTE=canvas` above is the case that makes this visible).
 VALUE_FLAGS = {
-    "-p", "--platform", "--profile", "--locale", "--env",
+    "-t", "--target", "-p", "--platform", "--profile", "--locale", "--env",
     "--script", "--variant", "--project", "--format",
 }
 
@@ -227,7 +227,7 @@ def main():
     # --- launch ---------------------------------------------------------------------------------
     argv = [str(day), "--project", str(SHOWCASE), "launch"]
     for target in targets:
-        argv += ["-p", target]
+        argv += ["-t", target]
     argv += passthrough
 
     step("Launching showcase: %s" % " ".join(targets))

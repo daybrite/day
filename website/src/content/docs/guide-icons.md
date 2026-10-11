@@ -61,7 +61,7 @@ a design, and `--out preview.svg` saves a preview without requiring a project.
 
 The files in `build/day/host/` are generated and should not be committed. Native projects reference
 them, and build, launch, and packaging commands regenerate them when the source icon or Day
-version changes. `day prepare -p <target>` limits generation to one platform family.
+version changes. `day prepare -t <target>` limits generation to one platform family.
 
 Platform-specific sources override the shared icon: `resource/icons/macos.svg` supplies the macOS
 icon, and `resource/icons/ios/AppIcon.icon/` supplies an Icon Composer bundle for iOS.
@@ -70,7 +70,7 @@ icon, and `resource/icons/ios/AppIcon.icon/` supplies an Icon Composer bundle fo
 
 ## Native projects and CI
 
-`day open -p ios-uikit` prepares assets before opening Xcode; `day open -p android-mdc` does the
+`day open -t ios-uikit` prepares assets before opening Xcode; `day open -t android-mdc` does the
 same for Android Studio. The corresponding VS Code commands also prepare assets first.
 
 CI can check whether generated files are current without writing them:

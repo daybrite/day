@@ -14,8 +14,8 @@ day new app Harmony-Nav-Probe --toolkit harmony-arkui \
   --appid dev.daybrite.navprobe --no-github --no-website --no-input
 cp /path/to/day/toolkits/day-arkui/tests/navigation/app.rs Harmony-Nav-Probe/src/lib.rs
 day patch --project Harmony-Nav-Probe --local /path/to/day
-day build --project Harmony-Nav-Probe -p harmony-arkui
-day launch --project Harmony-Nav-Probe -p harmony-arkui --skip-build --detach
+day build --project Harmony-Nav-Probe -t harmony-arkui
+day launch --project Harmony-Nav-Probe -t harmony-arkui --skip-build --detach
 python3 /path/to/day/toolkits/day-arkui/tests/navigation/emulator.py \
   --project Harmony-Nav-Probe --day /path/to/day/target/debug/day
 ```

@@ -18,7 +18,7 @@ The command runs from the project directory and requires the target’s
 [packaging tools](/docs/system-requirements#optional-packaging-tools). For an Android APK:
 
 ```bash
-day pack -p android-mdc --formats apk
+day pack -t android-mdc --formats apk
 ```
 
 Configure release credentials before distributing the result. Without them, Day can produce a
@@ -102,7 +102,7 @@ configured release credentials when available, or the public development certifi
 
 ### Web
 
-There is no web packaging step. Run `day build -p web-dom` and deploy the generated `dist/`
+There is no web packaging step. Run `day build -t web-dom` and deploy the generated `dist/`
 directory to a static host. It contains the HTML host page, JavaScript shim, stylesheet,
 WebAssembly module, images, and fonts.
 

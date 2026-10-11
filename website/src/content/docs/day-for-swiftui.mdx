@@ -38,7 +38,7 @@ This guide compares the APIs and build tools. Existing SwiftUI views can also be
 | String Catalogs (`.xcstrings`) | Fluent `.ftl` + generated `res::str` functions |
 | asset catalogs | the `resource/` directory, staged per platform |
 | Xcode project + SPM | `Cargo.toml` + `Day.toml`, editable in any editor |
-| Archive → Organizer → notarize / upload | `day pack -p <target>` |
+| Archive → Organizer → notarize / upload | `day pack -t <target>` |
 
 ## The same counter in both
 
@@ -476,12 +476,12 @@ Day's macOS target is an AppKit app: `NSButton`, `NSSplitView` source lists, and
 
 | Task | SwiftUI | Day |
 |---|---|---|
-| run in dev | Xcode Run (⌘R) | `day launch -p macos-appkit` |
+| run in dev | Xcode Run (⌘R) | `day launch -t macos-appkit` |
 | iterate | Previews / rebuild | `day relaunch --all-running` (no previews) |
-| macOS release | Archive → notarize → staple → DMG (your tooling) | `day pack -p macos-appkit` → signed, notarized, stapled `.dmg` |
-| iOS release | Archive → Organizer / `xcodebuild -exportArchive` | `day pack -p ios-uikit` → `.ipa` (App Store Connect export) |
+| macOS release | Archive → notarize → staple → DMG (your tooling) | `day pack -t macos-appkit` → signed, notarized, stapled `.dmg` |
+| iOS release | Archive → Organizer / `xcodebuild -exportArchive` | `day pack -t ios-uikit` → `.ipa` (App Store Connect export) |
 | TestFlight / App Store upload | Organizer or Transporter | upload the `.ipa` with your usual tool; `day pack` stops at the artifact |
-| Android / Windows / Linux / HarmonyOS / web | — | `day pack -p android-mdc` / `-p windows-winui` / `-p linux-gtk` / `-p harmony-arkui`; `day build -p web-dom` |
+| Android / Windows / Linux / HarmonyOS / web | — | `day pack -t android-mdc` / `-t windows-winui` / `-t linux-gtk` / `-t harmony-arkui`; `day build -t web-dom` |
 | UI tests | XCUITest | [dayscript](/docs/dayscript) — one YAML script drives every platform |
 
 Maturity differs by target, and [Platform support](/docs/platforms) lists what each target has

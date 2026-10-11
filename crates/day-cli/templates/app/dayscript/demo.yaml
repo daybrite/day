@@ -1,7 +1,7 @@
 # The starter's walkthrough (https://daybrite.dev/docs/dayscript): drives the running app by
 # element id and route on any target, and doubles as its test.
 #
-#     day launch -p {{first_target}} --script dayscript/demo.yaml
+#     day launch -t {{first_target}} --script dayscript/demo.yaml
 #
 # Steps that need a toolbar or a menu bar carry `skip_on:` for the platforms without one.
 flow:

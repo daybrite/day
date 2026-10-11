@@ -29,11 +29,11 @@ you also need Android Studio 2026.1.4 or newer
 cargo install day-cli cargo-ndk
 day new app my-app --toolkit android-mdc
 cd my-app
-day launch -p android-mdc         # installs on every connected device/emulator, right ABI each
+day launch -t android-mdc         # installs on every connected device/emulator, right ABI each
 ```
 
 ```sh
-day pack -p android-mdc           # release-signed .apk + .aab
+day pack -t android-mdc           # release-signed .apk + .aab
 ```
 
 ## The Gradle project
@@ -60,8 +60,8 @@ dependencies {
 }
 ```
 
-`day open -p android-mdc` opens the project in Android Studio. A build started there packages the
-Rust library from the last `day build`, so run `day build -p android-mdc` after changing Rust code.
+`day open -t android-mdc` opens the project in Android Studio. A build started there packages the
+Rust library from the last `day build`, so run `day build -t android-mdc` after changing Rust code.
 
 ## Caveats
 

@@ -253,7 +253,7 @@ fn call_tool(
             }
             let mut a = vec!["build".to_string()];
             for t in &targets {
-                a.push("-p".into());
+                a.push("-t".into());
                 a.push(t.clone());
             }
             a.push("--profile".into());
@@ -291,7 +291,7 @@ fn call_tool(
                 .into(),
             ];
             for t in &targets {
-                a.push("-p".into());
+                a.push("-t".into());
                 a.push(t.clone());
             }
             a.push("--profile".into());
@@ -327,7 +327,7 @@ fn call_tool(
                 a.push("--all".into());
             } else {
                 for t in &targets {
-                    a.push("-p".into());
+                    a.push("-t".into());
                     a.push(t.clone());
                 }
             }
@@ -380,7 +380,7 @@ fn call_tool(
             let steps_str = serde_json::to_string(&steps).map_err(|e| e.to_string())?;
             let (ok, text) = run_self(
                 project,
-                &["drive", "-p", target, "--steps-json", &steps_str],
+                &["drive", "-t", target, "--steps-json", &steps_str],
             );
             // Lift screenshots out of the drive JSON into MCP image blocks; strip the base64
             // from the text so the transcript stays readable.

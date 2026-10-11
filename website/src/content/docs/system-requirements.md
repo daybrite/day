@@ -267,8 +267,8 @@ emulator -avd <name>
 adb devices                 # confirm it is listed as `device`
 ```
 
-Day can list existing AVDs with `day devices list -p android-mdc` and start one with
-`day devices boot -p android-mdc AVD_NAME --wait`. An AVD stays listed after its system image is
+Day can list existing AVDs with `day devices list -t android-mdc` and start one with
+`day devices boot -t android-mdc AVD_NAME --wait`. An AVD stays listed after its system image is
 removed, so `day devices boot` checks the image first and names the package to reinstall. See
 [Android troubleshooting](/docs/troubleshooting#android-will-not-build-or-find-a-device) if it is not detected. Match the emulator's ABI to an installed Rust target; an x86_64 system image needs
 `x86_64-linux-android`. Set `ANDROID_SERIAL` when more than one device or emulator is attached, so
@@ -288,7 +288,7 @@ xcrun simctl list devices          # what exists, and what is booted
 xcrun simctl boot "iPhone 16 Pro"  # or open Simulator.app
 ```
 
-`day launch -p ios-uikit` installs into a booted simulator, so boot one first. Apps ship to a
+`day launch -t ios-uikit` installs into a booted simulator, so boot one first. Apps ship to a
 physical device through Xcode's normal signing setup.
 
 ## HarmonyOS
@@ -366,7 +366,7 @@ default location:
 mkdir -p ~/ohos/emulator && cd ~/ohos/emulator
 curl -fSLO https://github.com/eclipse-oniro4openharmony/device_board_oniro/releases/download/v6.1/oniro_emulator.zip
 unzip -q oniro_emulator.zip && rm oniro_emulator.zip     # → ~/ohos/emulator/images
-day devices boot -p harmony-arkui                       # --headless for no window
+day devices boot -t harmony-arkui                       # --headless for no window
 ```
 
 The image comes from the
@@ -384,11 +384,11 @@ mkdir -p ~/ohos/ohos-qemu && cd ~/ohos/ohos-qemu
 curl -fSLO https://github.com/harmony-contrib/ohos-qemu/releases/download/v20260919/openharmony-qemu-x86_64-x86_64_virt-phone.tar.gz
 tar xzf openharmony-qemu-x86_64-x86_64_virt-phone.tar.gz
 export DAY_OHOS_EMULATOR=~/ohos/ohos-qemu/openharmony-qemu-x86_64-x86_64_virt-phone/images
-day devices boot -p harmony-arkui --headless
+day devices boot -t harmony-arkui --headless
 ```
 
 Apps built for API 18 install and run on 7.0 unchanged. Boot prints which OpenHarmony came up. Boot returns once the guest has finished starting, and QEMU keeps
-running in the background; `day launch -p harmony-arkui` then installs and starts the app on it.
+running in the background; `day launch -t harmony-arkui` then installs and starts the app on it.
 
 On an x86_64 Linux host, the emulator runs KVM-accelerated when you can open `/dev/kvm`. That
 normally means membership in the `kvm` group:
@@ -414,14 +414,14 @@ render there. It works on a physical device.
 
 ## Web
 
-`web-dom` needs only the wasm target, which the first `day build -p web-dom` adds; to add it
+`web-dom` needs only the wasm target, which the first `day build -t web-dom` adds; to add it
 yourself:
 
 ```bash
 rustup target add wasm32-unknown-unknown
 ```
 
-`day build -p web-dom` writes a self-contained static site, and `day launch -p web-dom` serves it
+`day build -t web-dom` writes a self-contained static site, and `day launch -t web-dom` serves it
 and opens a browser.
 
 ## What your apps require

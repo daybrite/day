@@ -832,7 +832,7 @@ pub fn run(artifact: &Path, opts: &Options) -> Result<i32, String> {
     let day = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut pack = Command::new(&day);
     pack.current_dir(&project_dir)
-        .args(["pack", "-p", target.name, "--profile", &profile])
+        .args(["pack", "-t", target.name, "--profile", &profile])
         .arg("--no-version-in-name");
     // Re-apply the build inputs the artifact recorded. Their defaults are machine-dependent (with
     // no device attached, the ABI set collapses to one), so without this the rebuild packs a

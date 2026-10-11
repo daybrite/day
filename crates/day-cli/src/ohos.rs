@@ -611,7 +611,7 @@ pub fn ohos_target() -> String {
 
 /// The `hdc` executable: on PATH if present, else resolved from the SDK install's sibling
 /// `toolchains/` dir (the public SDK ships it there, next to the `native` NDK), so
-/// `day launch -p harmony-arkui` works from GUI-launched editors whose environment has neither the
+/// `day launch -t harmony-arkui` works from GUI-launched editors whose environment has neither the
 /// variable nor the PATH entry.
 fn hdc_bin() -> &'static str {
     static HDC: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -1585,7 +1585,7 @@ pub fn launch_ohos(
             ),
             None => format!(
                 "no OpenHarmony target reachable (hdc). Boot an emulator \
-                 (`day devices boot -p harmony-arkui`) or attach a device; the default connect key is {}.",
+                 (`day devices boot -t harmony-arkui`) or attach a device; the default connect key is {}.",
                 ohos_target()
             ),
         });

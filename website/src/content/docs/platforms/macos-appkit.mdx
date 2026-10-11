@@ -27,15 +27,15 @@ xcode-select --install
 cargo install day-cli
 day new app my-app --toolkit macos-appkit
 cd my-app
-day launch -p macos-appkit
+day launch -t macos-appkit
 ```
 
 `day doctor --toolkit appkit` turns the AppKit checks into errors and prints setup help for
 anything missing. Packaging produces a `.dmg`:
 
 ```sh
-day pack -p macos-appkit            # without signing config: ad-hoc codesign, marked dev-signed
-day pack -p macos-appkit --formats dmg
+day pack -t macos-appkit            # without signing config: ad-hoc codesign, marked dev-signed
+day pack -t macos-appkit --formats dmg
 ```
 
 Signing and notarization happen when the credentials are configured; see

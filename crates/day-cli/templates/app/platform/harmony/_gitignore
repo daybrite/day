@@ -25,7 +25,7 @@ entry/src/main/ets/daybridge/
 # declarations), staged per-build from the day-arkui crate the app depends on
 # (docs/harmonyos.md): the HarmonyOS counterpart of the Java shim Gradle reads from day-android.
 # The page list and the start-window colors are written with them. Never edited, never
-# checked in; `day prepare -p harmony-arkui` stages them for DevEco Studio on a fresh clone.
+# checked in; `day prepare -t harmony-arkui` stages them for DevEco Studio on a fresh clone.
 entry/src/main/ets/day/
 entry/src/main/cpp/types/libentry/
 entry/src/main/resources/base/profile/main_pages.json

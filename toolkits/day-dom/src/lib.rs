@@ -4926,7 +4926,7 @@ pub fn console_sink(level: log::Level, line: &str) {
 
 /// The level named by `?DAY_LOG=` in the page URL, if any. The web has no process environment for
 /// `DAY_LOG` to live in, so the launch server forwards it as a query parameter (docs/web.md) —
-/// `day launch -p web-dom --env DAY_LOG=debug` reaches this.
+/// `day launch -t web-dom --env DAY_LOG=debug` reaches this.
 pub fn launch_log_level() -> Option<log::LevelFilter> {
     host_env("DAY_LOG").and_then(|v| v.parse().ok())
 }

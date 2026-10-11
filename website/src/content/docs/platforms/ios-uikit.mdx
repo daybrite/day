@@ -26,7 +26,7 @@ xcode-select --install          # plus Xcode itself, with an iOS Simulator runti
 cargo install day-cli
 day new app my-app --toolkit ios-uikit
 cd my-app
-day launch -p ios-uikit          # boots a Simulator and installs
+day launch -t ios-uikit          # boots a Simulator and installs
 ```
 
 `day doctor --toolkit uikit` verifies Xcode, the Simulator runtimes and the Rust iOS targets.
@@ -43,7 +43,7 @@ status and passes `IPHONEOS_DEPLOYMENT_TARGET=<floor>` to xcodebuild. That setti
 Packaging produces a device `.ipa`:
 
 ```sh
-day pack -p ios-uikit
+day pack -t ios-uikit
 ```
 
 With `signing.ios` configured you get a signed App Store export; without it you get an unsigned

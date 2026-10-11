@@ -750,7 +750,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                                 "Warning",
                                 &format!(
                                     "no AVD could be enumerated on this machine; trying {want} \
-                                     anyway — `day devices list -p android-mdc` shows what the \
+                                     anyway — `day devices list -t android-mdc` shows what the \
                                      tools report"
                                 ),
                             );
@@ -767,7 +767,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 }
                 (None, None) => {
                     return Err(CliError::usage(
-                        "name an AVD: `day devices boot -p android-mdc <AVD>`, or --device"
+                        "name an AVD: `day devices boot -t android-mdc <AVD>`, or --device"
                             .to_string(),
                     ));
                 }
@@ -813,7 +813,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                 rotate_android(&serial, o)?;
             }
             // The serial on stdout (status lines go to stderr), so a workflow can capture it:
-            //   SERIAL=$(day devices boot -p android-mdc --device pixel_tablet --wait)
+            //   SERIAL=$(day devices boot -t android-mdc --device pixel_tablet --wait)
             println!("{serial}");
             Ok(0)
         }
@@ -2462,7 +2462,7 @@ fn ohos() -> Report {
         available: true,
         note: None,
         devices,
-        // The bundled Oniro emulator is started by `day devices boot -p harmony-arkui` rather than picked
+        // The bundled Oniro emulator is started by `day devices boot -t harmony-arkui` rather than picked
         // from a list of images, so there is nothing to enumerate here yet.
         bootable: Vec::new(),
     }

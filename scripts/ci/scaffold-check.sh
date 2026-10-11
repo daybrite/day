@@ -217,9 +217,9 @@ SWIFT
     # catalog was generated from a vector cache only a build wrote, so a pack after `day prepare`
     # (whose HarmonyOS staging happened to fill the cache) carried the glyphs and the rebuild's
     # pack carried none (2026-09). Without this step that class of bug is only caught by luck.
-    "$DAY" build -p "$COMBO"
+    "$DAY" build -t "$COMBO"
 
-    "$DAY" pack -p "$COMBO" --profile release --no-version-in-name
+    "$DAY" pack -t "$COMBO" --profile release --no-version-in-name
 
     if [ "$COMBO" = android-mdc ]; then
         # AGP only warns when its strip tool is missing. A rebuild can coincidentally match even
@@ -277,7 +277,7 @@ SWIFT
                 exit 1
             }
             REBUILT="$(dirname "$TOML")"
-            (cd "$REBUILT" && "$DAY" launch -p "$COMBO" --script dayscript/demo.yaml)
+            (cd "$REBUILT" && "$DAY" launch -t "$COMBO" --script dayscript/demo.yaml)
             SHOT="$(find "$REBUILT/build/day/screenshots/$COMBO" -name welcome.png 2>/dev/null | head -1 || true)"
             [ -n "$SHOT" ] || {
                 echo "the demo dayscript left no build/day/screenshots/$COMBO/*/welcome.png under $REBUILT" >&2

@@ -19,9 +19,9 @@ implemented, and the known gaps are listed at the end.
 
 ```bash
 rustup target add wasm32-unknown-unknown   # optional: `day build` adds it when missing
-day build  -p web-dom     # wasm cdylib + host page → build/day/cargo/web-dom/<profile>/dist/
-day launch -p web-dom     # build, serve dist/ on 127.0.0.1, open the default browser
-day launch -p web-dom --locale ar    # locale rides as ?locale= on the URL
+day build  -t web-dom     # wasm cdylib + host page → build/day/cargo/web-dom/<profile>/dist/
+day launch -t web-dom     # build, serve dist/ on 127.0.0.1, open the default browser
+day launch -t web-dom --locale ar    # locale rides as ?locale= on the URL
 ```
 
 The Rust target is the whole toolchain for a UI-only app. An app with the `persistence` feature
@@ -164,7 +164,7 @@ paths (`#mail/inbox/msg-42` works like `navigate("mail/inbox/msg-42")`).
 
 ## dayscript on the web
 
-`day launch -p web-dom --script …` and `day drive` work like every other target. The engine
+`day launch -t web-dom --script …` and `day drive` work like every other target. The engine
 runs inside the wasm; the page opens a WebSocket to the dev server's `/dayscript`, and the
 server bridges it to the plain TCP protocol the runner already speaks (§14.5), so one script
 runs on every platform. The differences from native are all internal:
@@ -349,8 +349,8 @@ The showcase publishes its own web-dom build at
 **`https://showcase.daybrite.dev/webapp/`**, from the `daybrite/Day-Showcase` repository's CI
 rather than from this one, because the app is a separate project; daybrite.dev links to it. This
 repository's `web-dom` job still builds the dist and drives the walkthrough against it, as the wasm
-build test; it just does not publish the result. To see a local build, `day build --platform web-dom`
-in a showcase checkout and serve `build/day/cargo/web-dom/*/dist/`, or `day launch -p web-dom`.
+build test; it just does not publish the result. To see a local build, `day build --target web-dom`
+in a showcase checkout and serve `build/day/cargo/web-dom/*/dist/`, or `day launch -t web-dom`.
 
 Query parameters the host page reads: `theme=light|dark` (else the OS preference),
 `locale=<bcp47>` (else the browser languages), and any app key looked up through `day::env`.

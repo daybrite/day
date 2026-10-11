@@ -343,8 +343,8 @@ in two different directories and compare.
 
 ```sh
 git clone <your-app> app-a && git clone <your-app> app-b
-( cd app-a && day pack -p macos-appkit )
-( cd app-b && day pack -p macos-appkit )
+( cd app-a && day pack -t macos-appkit )
+( cd app-b && day pack -t macos-appkit )
 ```
 
 Two separate directories matter. Building twice in the same place will not catch a build path that
@@ -364,7 +364,7 @@ Set `SOURCE_DATE_EPOCH` to the same value for both builds if you want the archiv
 match a specific date rather than Day's default:
 
 ```sh
-SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) day pack -p android-mdc
+SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) day pack -t android-mdc
 ```
 
 On Apple platforms you can check the build UUID directly, which is the difference diffoscope will

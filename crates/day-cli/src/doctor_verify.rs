@@ -8,7 +8,7 @@
 //! probes (failing fast), then for every combo this host can build, scaffold a fresh app in a
 //! temporary directory, build it, and package it. A combo whose prerequisites are missing is
 //! skipped with doctor's fix line when the selection was automatic, and is an error when the
-//! caller named it with `-p`, because naming a combo asserts it works here.
+//! caller named it with `-t`, because naming a combo asserts it works here.
 //!
 //! The three steps run as sub-processes of a day CLI, the way [`crate::rebuild`] re-invokes
 //! `day pack`: the command exists to exercise the user-facing commands (their argument parsing,
@@ -125,7 +125,7 @@ impl Report {
     }
 }
 
-/// Resolve `-p` into targets: comma- or repeat-separated, deduped, order preserved. `Err` is a
+/// Resolve `-t` into targets: comma- or repeat-separated, deduped, order preserved. `Err` is a
 /// usage error (exit 2): a name that is not a target, or one this host cannot build at all.
 ///
 /// Empty in, empty out: that is the automatic selection, which [`plan`] makes.
@@ -175,7 +175,7 @@ fn plan(
                 Some(Skip::inherent(format!("builds on a {} host", target.host)))
             } else if target.experimental {
                 Some(Skip::inherent(format!(
-                    "experimental (name it with `-p {}` to check it)",
+                    "experimental (name it with `-t {}` to check it)",
                     target.name
                 )))
             } else {
@@ -394,7 +394,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
         // the map.
         eprintln!(
             "error: nothing to check on this {host} host — every combo was skipped.\n       \
-             Run `day doctor` for what is missing, or name a combo with `-p <target>`."
+             Run `day doctor` for what is missing, or name a combo with `-t <target>`."
         );
         for s in &skipped {
             eprintln!("  {DIM}{:<16}{DIM:#} {}", s.target.name, skip_reason(s));
@@ -404,7 +404,7 @@ pub fn run(opts: &Options) -> Result<i32, CliError> {
 
     // `--strict` says every combo this machine could check must be checked, and that verdict is
     // already knowable, so report it now rather than after ten minutes of builds that cannot change
-    // it. (A CI cell naming its combo with `-p` has no skips to trip on; this is the bare-doctor verify
+    // it. (A CI cell naming its combo with `-t` has no skips to trip on; this is the bare-doctor verify
     // path.) The pack stages are the strict skips that can only be judged later.
     let unchecked: Vec<&&Slot> = skipped
         .iter()
@@ -561,7 +561,7 @@ fn check_one(
         &under.bin,
         &[
             "build".into(),
-            "-p".into(),
+            "--target".into(),
             target.name.into(),
             "--profile".into(),
             opts.profile.to_string(),
@@ -601,7 +601,7 @@ fn check_one(
             &under.bin,
             &[
                 "pack".into(),
-                "-p".into(),
+                "--target".into(),
                 target.name.into(),
                 "--profile".into(),
                 opts.profile.to_string(),
@@ -1031,7 +1031,7 @@ mod tests {
             .collect()
     }
 
-    /// `-p …` the way `run` applies it: resolve, then plan.
+    /// `-t …` the way `run` applies it: resolve, then plan.
     fn plan_for(
         host: &str,
         requested: &[&str],

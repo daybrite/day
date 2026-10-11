@@ -56,7 +56,7 @@ Launch your chosen client once and complete its sign-in steps before connecting 
 ```bash
 day new app skycheck --toolkit macos-appkit --no-input
 cd skycheck
-day launch -p macos-appkit
+day launch -t macos-appkit
 ```
 
 The project includes localized strings, a sample UI, `dayscript/demo.yaml`, and an `AGENTS.md`
@@ -208,9 +208,9 @@ flow:
 ```
 
 ```bash
-day launch -p macos-appkit --script dayscript/weather.yaml
-day launch -p macos-appkit --script dayscript/weather.yaml --variant dark --env DAY_THEME=dark
-day launch -p macos-appkit --script dayscript/weather.yaml --variant fr --locale fr
+day launch -t macos-appkit --script dayscript/weather.yaml
+day launch -t macos-appkit --script dayscript/weather.yaml --variant dark --env DAY_THEME=dark
+day launch -t macos-appkit --script dayscript/weather.yaml --variant fr --locale fr
 ```
 
 Each run drives the real app and writes content-checked captures under
@@ -220,7 +220,7 @@ Each run drives the real app and writes content-checked captures under
 language.
 
 You can also record the script instead of writing it:
-`day launch -p macos-appkit --record dayscript/weather.yaml` captures your real taps, typing, and
+`day launch -t macos-appkit --record dayscript/weather.yaml` captures your real taps, typing, and
 navigation into a replayable dayscript while you use the app, rewriting the file continuously so
 it survives a kill. Recording a manual walkthrough is the fastest way to get a first script; add
 the `assert_*` steps by hand afterward.
@@ -254,7 +254,7 @@ jobs:
       - name: Drive the app
         run: |
           xvfb-run -a -s "-screen 0 1000x720x24" \
-            day launch -p linux-gtk --script dayscript/weather.yaml
+            day launch -t linux-gtk --script dayscript/weather.yaml
       - uses: actions/upload-artifact@v4
         with:
           name: screenshots
@@ -291,7 +291,7 @@ for execution and output options.
 - **No Day tools:** check `/mcp`, the `day` executable path, and the absolute project path.
 - **Replaying an existing walkthrough:** use `day launch --script` for saved YAML files.
   Converting YAML to raw MCP steps can lose platform filters or change YAML keys.
-- **Build failure without a useful compiler diagnostic:** run `day --verbose build -p macos-appkit`
+- **Build failure without a useful compiler diagnostic:** run `day --verbose build -t macos-appkit`
   in a terminal. An older scaffold may use APIs that have changed in its resolved Day dependencies;
   check the CLI and dependency versions before diagnosing the MCP connection.
 

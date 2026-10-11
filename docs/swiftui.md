@@ -171,7 +171,7 @@ whose pbxproj references the generated `DayPieces` package directly, the same sh
 incremental build stays warm, and writes it even when nothing contributes Swift: the pbxproj's
 package reference must resolve, so an empty package still exists. xcodebuild compiles and links
 the package with the Runner; the installed binary uses the OS Swift dylibs (macOS ≥ 10.14.4).
-`day pack -p macos-appkit` needs nothing extra: the Swift code is inside the bundle's binary and
+`day pack -t macos-appkit` needs nothing extra: the Swift code is inside the bundle's binary and
 codesign/notarize are unchanged. (The retired bare-cargo build carried its own `swift build`
 prepass and `cargo rustc` link; both went with that path in 2026-08.)
 

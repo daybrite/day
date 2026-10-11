@@ -4,7 +4,7 @@ pluginManagement {
     if (!file("../../build/day/android/gradle-plugin").isDirectory) {
         throw GradleException(
             "day: build/day/android/gradle-plugin is missing. Run `day prepare` or " +
-            "`day build -p android-mdc` in the project root first."
+            "`day build -t android-mdc` in the project root first."
         )
     }
     includeBuild("../../build/day/android/gradle-plugin")

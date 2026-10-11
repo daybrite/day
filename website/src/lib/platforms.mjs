@@ -16,7 +16,7 @@
 
 /**
  * @typedef {object} Platform
- * @property {string}  id        Target key, e.g. `macos-appkit`. Matches `day build -p <id>`, the
+ * @property {string}  id        Target key, e.g. `macos-appkit`. Matches `day build -t <id>`, the
  *                               CI artifact suffix, `src/icons/<id>.svg`, and `--pf-<id>`.
  *                               Exception: a `deviceClass` entry is a capture-only refinement of
  *                               another target and matches only its CI screenshot artifact.

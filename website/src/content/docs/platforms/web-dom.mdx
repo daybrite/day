@@ -31,15 +31,15 @@ rustup target add wasm32-unknown-unknown
 cargo install day-cli
 day new app my-app --toolkit web-dom
 cd my-app
-day launch -p web-dom     # builds, serves over loopback, opens your browser
+day launch -t web-dom     # builds, serves over loopback, opens your browser
 ```
 
-`day build -p web-dom` writes a self-contained `dist/`: `index.html`, the shim, the stylesheet, your
+`day build -t web-dom` writes a self-contained `dist/`: `index.html`, the shim, the stylesheet, your
 `.wasm`, and any bundled images and fonts. There is no `day pack` for web, because `dist/` is
 already the deployable artifact: copy it to any static host.
 
 ```sh
-day build -p web-dom --profile release
+day build -t web-dom --profile release
 # dist/ → your bucket, your CDN, GitHub Pages, anywhere
 ```
 
@@ -65,7 +65,7 @@ Then point `day` at it and run the script:
 export DAY_WEB_DRIVER="node $(day web driver)"
 export DAY_WEB_DRIVER_PLAYWRIGHT=~/.cache/day-webdriver
 export DAY_WEB_DRIVER_BROWSER=chromium   # webkit (the default) or firefox also work
-day launch -p web-dom --script dayscript/walkthrough.yaml
+day launch -t web-dom --script dayscript/walkthrough.yaml
 ```
 
 On Linux use Chromium: Playwright's Linux WebKit has no Origin Private File System, which

@@ -1302,7 +1302,7 @@ fn collect(project: &Project) -> Vec<Finding> {
                     code: "day::lint::stale-manifest",
                     message: format!(
                         "platform/ios/Runner/Info.plist is missing or out of date for {} — run \
-                         `day build -p ios-uikit` to regenerate it, and COMMIT the result: it is \
+                         `day build -t ios-uikit` to regenerate it, and COMMIT the result: it is \
                          a tracked file, so a build that rewrites it leaves the tree dirty and \
                          CI refuses to pack from it (docs/permissions.md)",
                         missing
@@ -1325,7 +1325,7 @@ fn collect(project: &Project) -> Vec<Finding> {
                         code: "day::lint::stale-manifest",
                         message: format!(
                             "platform/ios/Runner/{} is missing or out of date for the localized \
-                             permission reasons — run `day build -p ios-uikit` to regenerate it \
+                             permission reasons — run `day build -t ios-uikit` to regenerate it \
                              and commit the result (docs/permissions.md)",
                             crate::mobile::INFO_PLIST_STRINGS
                         ),

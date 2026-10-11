@@ -2,7 +2,7 @@
 #
 # Each job does what a new user on a stock machine would: `cargo install day-cli` (from crates.io,
 # with the runner's preinstalled Rust), install that combo's toolkit prerequisites, and run
-# `day doctor verify -p <combo> --day-version <v> --strict`, one command that checks the environment (a
+# `day doctor verify -t <combo> --day-version <v> --strict`, one command that checks the environment (a
 # focused `day doctor`, whose checks are errors, so passing means the prerequisites really are
 # complete), scaffolds an app with `day new`, builds it, and packages it. It catches a broken or
 # yanked release, a dependency that stopped compiling, a scaffold that drifted from the API, and
@@ -141,5 +141,5 @@ jobs:
       # --profile release, not doctor-verify's own debug default: the sizes then describe what users
       # actually download, and release is where the full format set exists (`day pack` builds the
       # Play .aab only for release, so a debug run would leave that pipeline unchecked).
-      - name: day doctor verify -p ${{ matrix.combo }} (day ${{ matrix.day-version }})
-        run: day doctor verify -p ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"
+      - name: day doctor verify -t ${{ matrix.combo }} (day ${{ matrix.day-version }})
+        run: day doctor verify -t ${{ matrix.combo }} --day-version ${{ matrix.day-version }} --profile release --strict --dir "${{ runner.temp }}/Day Project Root"

@@ -82,8 +82,8 @@ Debug builds show `debug!` and above; release builds show `info!` and above. Tur
 `DAY_LOG`:
 
 ```sh
-DAY_LOG=debug day launch -p macos-appkit
-day launch -p web-dom --env DAY_LOG=debug     # the web has no environment; this rides the URL
+DAY_LOG=debug day launch -t macos-appkit
+day launch -t web-dom --env DAY_LOG=debug     # the web has no environment; this rides the URL
 ```
 
 <span id="bring-your-own-logger"></span>

@@ -1,9 +1,9 @@
 # The conformance run (docs/testing.md): every `#[day::test]` case the app registers, driven
 # inside the app by its own engine. The runner prints one line per test and writes
 # `conformance.json` and the tests' captures beside this run's screenshots, which is what CI
-# uploads. `day test -p <target>` generates the same step with a filter.
+# uploads. `day test -t <target>` generates the same step with a filter.
 #
-#     day launch -p macos-appkit --script dayscript/conformance.yaml
+#     day launch -t macos-appkit --script dayscript/conformance.yaml
 #
 # The steps are the ones `day test` generates, so CI and a local run start the same way: the
 # app settles, then the run starts. (No `wait_for` on an element: the app's root is a test host

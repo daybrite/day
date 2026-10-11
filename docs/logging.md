@@ -125,11 +125,11 @@ The default maximum level is `Debug` in a debug build and `Info` in a release bu
 `DAY_LOG` takes a level name — `off`, `error`, `warn`, `info`, `debug`, `trace`:
 
 ```sh
-DAY_LOG=debug day launch -p macos-appkit
+DAY_LOG=debug day launch -t macos-appkit
 ```
 
 The web has no process environment, so the launch server forwards it as a query parameter on the
-page URL; `day launch -p web-dom --env DAY_LOG=debug` is the same thing. An app can also move the
+page URL; `day launch -t web-dom --env DAY_LOG=debug` is the same thing. An app can also move the
 level at runtime with `day::set_log_level(log::LevelFilter::Trace)`.
 
 ## Using a different logger
@@ -177,7 +177,7 @@ The per-target filter is the main reason to switch. It turns one backend up with
 the app coming along:
 
 ```sh
-RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -p linux-gtk
+RUST_LOG=warn,day_gtk=debug,my_app=trace day launch -t linux-gtk
 ```
 
 `RUST_LOG` replaces `DAY_LOG` once you do this. `DAY_LOG` is read by Day's logger, and that

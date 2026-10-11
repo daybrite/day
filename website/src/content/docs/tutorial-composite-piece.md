@@ -60,7 +60,7 @@ works as a standalone repo outside the Day workspace. Pass `--id dev.acme.rating
 reverse-DNS id (defaults to `dev.example.<name>`), or `--local <path-to-day-checkout>` if you are
 developing against a local Day clone rather than the published crates. `--composite` forces a
 composite piece even when `--toolkits` is present, and `--no-input` skips the interactive prompts
-(scripts and CI). From `demo/`, `day launch -p <target> --script dayscript/demo.yaml` runs a
+(scripts and CI). From `demo/`, `day launch -t <target> --script dayscript/demo.yaml` runs a
 one-page app that shows the piece on any target, and `--no-demo` skips it. The rest of this
 tutorial walks through what the scaffolder emits and how to flesh it out.
 
@@ -268,7 +268,7 @@ fn review_form() -> impl Piece {
 }
 ```
 
-Run `day launch -p macos-appkit`, then `-p android-mdc`, then `-p linux-gtk`. The same rating
+Run `day launch -t macos-appkit`, then `-t android-mdc`, then `-t linux-gtk`. The same rating
 renders natively on each, drawn by that platform's 2D API from the one `canvas` closure.
 
 ## 6. Going further

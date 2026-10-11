@@ -98,7 +98,7 @@ that work. Look at the last output before deciding that a build has stopped:
 Run one target at a time while diagnosing the problem. For example, on a macOS host:
 
 ```bash
-day build -p macos-appkit
+day build -t macos-appkit
 ```
 
 Use a target configured in your app’s `Day.toml` and supported on your host. If the build succeeds
@@ -151,15 +151,15 @@ Xcode elsewhere, use that installation’s path. See [macOS requirements](/docs/
 For an iOS launch, check the available simulators:
 
 ```bash
-day devices list -p ios-uikit
+day devices list -t ios-uikit
 ```
 
 If none are available, install an iOS Simulator runtime through Xcode’s settings. If one is
 available but stopped, replace `SIMULATOR_ID` with its listed ID:
 
 ```bash
-day devices boot -p ios-uikit SIMULATOR_ID --wait
-day launch -p ios-uikit
+day devices boot -t ios-uikit SIMULATOR_ID --wait
+day launch -t ios-uikit
 ```
 
 A physical iPhone or iPad also needs device setup and signing. See Apple’s
@@ -197,7 +197,7 @@ either way.
 For a launch failure:
 
 ```bash
-day devices list -p android-mdc
+day devices list -t android-mdc
 adb devices
 ```
 
@@ -212,7 +212,7 @@ directory to `PATH`. Interpret its device list as follows:
 | More than one device | Set `ANDROID_SERIAL` to the serial of the device you intend to use. |
 | `device` | The connection is ready; check the subsequent install or launch error. |
 
-You can also boot an existing AVD with `day devices boot -p android-mdc AVD_NAME --wait`, using
+You can also boot an existing AVD with `day devices boot -t android-mdc AVD_NAME --wait`, using
 its name from the Day device list. The emulator’s architecture must match an installed Rust
 target. Android’s [ADB documentation](https://developer.android.com/tools/adb) covers device
 connections and selection in more detail.
@@ -262,7 +262,7 @@ emulator.
 
 ```bash
 day doctor --toolkit harmonyos
-day devices list -p harmony-arkui
+day devices list -t harmony-arkui
 ```
 
 Check `OHOS_NDK_HOME` and the command-line tools installation against the
@@ -302,7 +302,7 @@ These emulator failures have specific causes:
   bash ~/ohos/emulator/images/run.sh --headless   # VNC on port 5900, hdc on 127.0.0.1:55555
   remmina -c vnc://127.0.0.1:5900                  # or any VNC viewer
   hdc tconn 127.0.0.1:55555
-  day launch -p harmony-arkui
+  day launch -t harmony-arkui
   ```
 
   `run.sh` serves VNC on all network interfaces with no password, so anyone who can reach this
@@ -316,7 +316,7 @@ These emulator failures have specific causes:
   server and reconnect with `hdc kill -r` and then `hdc tconn 127.0.0.1:55555`.
 - **The emulator window shows a 640×480 landscape screen although you asked for a phone.** On
   Linux, QEMU's GTK window hands the guest its own 640×480 size, and the guest adopts it over the
-  requested panel. `day devices boot -p harmony-arkui --device phone --headless` keeps the 360×720
+  requested panel. `day devices boot -t harmony-arkui --device phone --headless` keeps the 360×720
   panel, at the cost of having no window; `hdc shell snapshot_display` and `uinput` then reach
   the screen.
 - **`day launch` ends by itself, or `day drive` reports no live session, after a first drive.**
@@ -355,7 +355,7 @@ Do not post private keys, passwords, or signing credentials when asking for help
 Use Day’s local server rather than opening the generated HTML through a `file://` URL:
 
 ```bash
-day launch -p web-dom
+day launch -t web-dom
 ```
 
 If compilation fails, run `day doctor --toolkit dom` and check that the wasm Rust target is
@@ -367,7 +367,7 @@ These are the errors you may meet running the web build's tests and checks:
 
 | Error | Cause and fix |
 |---|---|
-| A scripted run (`day launch -p web-dom --script …`) fails at its first `screenshot` step | A page cannot screenshot itself; the runner needs the headless browser driver. Install Playwright and set `DAY_WEB_DRIVER`, `DAY_WEB_DRIVER_PLAYWRIGHT` and `DAY_WEB_DRIVER_BROWSER` as the [web platform guide](/docs/platforms/web-dom#running-dayscripts) shows. Interactive `day launch` never needs it. |
+| A scripted run (`day launch -t web-dom --script …`) fails at its first `screenshot` step | A page cannot screenshot itself; the runner needs the headless browser driver. Install Playwright and set `DAY_WEB_DRIVER`, `DAY_WEB_DRIVER_PLAYWRIGHT` and `DAY_WEB_DRIVER_BROWSER` as the [web platform guide](/docs/platforms/web-dom#running-dayscripts) shows. Interactive `day launch` never needs it. |
 | A scripted web run stops with `engine connection lost` after the driver prints `Playwright requires Node.js 20 or higher` | An older `node` is first on `PATH`. The OpenHarmony command-line tools bundle Node 18, so sourcing their environment (for `harmony-arkui`) shadows a newer system Node. Run the web script from a shell without it, or name the Node to use in the driver command: `DAY_WEB_DRIVER="/path/to/node $(day web driver)"`. |
 | File-storage steps fail under WebKit on Linux | Playwright's Linux WebKit has no Origin Private File System, which `day-part-fs` needs. Set `DAY_WEB_DRIVER_BROWSER=chromium`. |
 | `cargo check --target wasm32-unknown-unknown` on a Day crate fails in `getrandom` with "The wasm32/64-unknown-unknown are not supported by default" | `day build` routes getrandom to day-dom's entropy bridge with a cfg flag that plain `cargo` does not pass. Pass it yourself: `RUSTFLAGS='--cfg getrandom_backend="custom"' cargo check --target wasm32-unknown-unknown -p <crate>`. The `wasm_js` backend that getrandom's error message suggests needs the wasm-bindgen runtime, which Day's web build does not use. |
@@ -423,7 +423,7 @@ again) gives the app the GPU.
 
 ## A dayscript run fails on Linux
 
-These come from the desktop a scripted run (`day launch -p linux-gtk --script …`) runs on, not from
+These come from the desktop a scripted run (`day launch -t linux-gtk --script …`) runs on, not from
 the script:
 
 | Symptom | Cause and fix |

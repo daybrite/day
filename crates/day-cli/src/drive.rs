@@ -38,7 +38,7 @@ pub fn run(project: &Project, target: &Target, steps_json: &str) -> Result<i32, 
         .map_err(|e| CliError::usage(e.to_string()))?;
     let Some(session) = sessions::find(&project.root, target.name) else {
         return Err(CliError::env(format!(
-            "no live session for {} — `day launch -p {}` first (sessions: build/day/sessions.json)",
+            "no live session for {} — `day launch -t {}` first (sessions: build/day/sessions.json)",
             target.name, target.name
         )));
     };

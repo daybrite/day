@@ -324,7 +324,7 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
         }
         let outputs = v.get("outputs")?.as_object()?;
         let families: Vec<Family> = platforms.iter().flat_map(|p| family_of_target(p)).collect();
-        // A lock written by a narrower `day prepare -p …` lists nothing for a family it never
+        // A lock written by a narrower `day prepare -t …` lists nothing for a family it never
         // rendered, and "every listed output exists" is then vacuously true for it, which is
         // how an app added harmony-arkui after its first prepare built a hap whose
         // `$media:layered_image` did not exist. A requested family with no outputs on record

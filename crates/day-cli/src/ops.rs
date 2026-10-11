@@ -69,7 +69,7 @@ pub(crate) fn cargo_dir(project: &Project, target: &Target, profile: Profile) ->
 
 /// Install the Rust standard library for each of `triples` this toolchain lacks, through
 /// `rustup target add`, before a cross-compile that would otherwise stop at "can't find crate
-/// for `core`" (a fresh install trying `day launch -p web-dom`, 2026-09). Said as a status
+/// for `core`" (a fresh install trying `day launch -t web-dom`, 2026-09). Said as a status
 /// line, since it is a network install. A toolchain without rustup, a distribution's Rust
 /// say, installs nothing here and is left to the build's own error, which names the target
 /// and `day doctor`; a target already installed costs one `rustup target list`.
@@ -950,7 +950,7 @@ pub struct LaunchSpec {
     pub envs: Vec<(String, String)>,
     pub attached: bool,
     /// Device selection, one field per runtime, so a single `day launch` can name a different
-    /// one for each `-p` it was given. Left `None`, a target uses every device of its kind it
+    /// one for each `-t` it was given. Left `None`, a target uses every device of its kind it
     /// can see: right for a capture sweep, wrong when you mean one specific phone.
     ///
     /// The split is not cosmetic: an iOS simulator and an iOS device are different runtimes
@@ -1897,7 +1897,7 @@ mod wait_tests {
     }
 }
 
-/// `day open -p <target>`: open the target's host project in the IDE that owns it. The caller
+/// `day open -t <target>`: open the target's host project in the IDE that owns it. The caller
 /// has already run `crate::icon::ensure`, so the catalogs and media the project references
 /// exist. Xcode and DevEco Studio are macOS applications; Android Studio is opened through
 /// `open -a` on macOS and the `studio` launcher elsewhere.

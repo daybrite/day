@@ -194,11 +194,14 @@ enum Cmd {
     /// Build an app for one or more targets
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Build {
-        /// Targets to build (repeatable)
+        /// Targets to build (repeatable; a toolkit alone, like gtk, means this host's target)
         #[arg(
-            short = 'p',
-            long = "platform",
-            visible_alias = "target",
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg,
             required = true
         )]
         platforms: Vec<String>,
@@ -222,8 +225,16 @@ enum Cmd {
     /// Build and run an app on one or more targets
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Launch {
-        /// Targets to launch (repeatable; default: this host's desktop toolkit)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        /// Targets to launch (repeatable; a toolkit alone, like gtk, means this host's target;
+        /// default: this host's desktop toolkit)
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Clone and run a trusted Git repository; append @REF for a branch, tag, or commit.
         /// Use --project to select an app within the repository
@@ -339,9 +350,12 @@ enum Cmd {
     Pack {
         /// Targets to build (repeatable)
         #[arg(
-            short = 'p',
-            long = "platform",
-            visible_alias = "target",
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg,
             required = true
         )]
         platforms: Vec<String>,
@@ -457,7 +471,14 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/#native-projects-and-ci")]
     Prepare {
         /// Targets to prepare (repeatable; default: all targets in Day.toml)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Check generated files without writing; exit 5 if files are missing or stale
         #[arg(long, conflicts_with = "migrate")]
@@ -470,7 +491,14 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
     Open {
         /// Target to open in Xcode, Android Studio, or DevEco Studio
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platform: String,
     },
     /// Create and prepare app store listings
@@ -501,7 +529,14 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Stop {
         /// Targets to stop (repeatable)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Stop all recorded sessions for this project
         #[arg(long)]
@@ -518,7 +553,14 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/")]
     Relaunch {
         /// Targets to restart (repeatable; omit with --all-running)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Restart all recorded sessions for this project
         #[arg(long)]
@@ -534,7 +576,14 @@ enum Cmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/for-agents/")]
     Drive {
         /// Target with the running app to control
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platform: String,
         /// Dayscript steps as a JSON array
         #[arg(long)]
@@ -543,8 +592,16 @@ enum Cmd {
     /// Run the app's `#[day::test]` tests on a target (docs/testing.md)
     #[command(after_help = "Docs: https://daybrite.dev/docs/testing/")]
     Test {
-        /// Targets to run on (repeatable; default: this host's desktop toolkit)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        /// Targets to run on (repeatable; a toolkit alone, like gtk, means this host's target;
+        /// default: this host's desktop toolkit)
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Test names or globs (`button-*`); none = every test
         #[arg(value_name = "FILTER")]
@@ -648,7 +705,14 @@ pub enum StoreCmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
     Stage {
         /// Target to prepare (default: all store targets)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         target: Option<String>,
         /// Place the listing's screenshots from a gallery index: the site's published
         /// gallery.json by URL, or a local one: the captures the storefront's screenshots tables name
@@ -669,7 +733,14 @@ pub enum StoreCmd {
         #[arg(value_name = "URL|PATH")]
         index: String,
         /// Target to check (default: all store targets)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         target: Option<String>,
         /// The stores' rules to hold them to (default: DAY_STORE_RULES, else store/rules.toml,
         /// else the CLI's own)
@@ -916,10 +987,12 @@ pub enum DevicesCmd {
     List {
         /// Filter by target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(
-            short = 'p',
-            long = "platform",
-            visible_alias = "target",
-            value_name = "TARGET"
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
         )]
         platform: Option<String>,
     },
@@ -930,10 +1003,12 @@ pub enum DevicesCmd {
     Boot {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(
-            short = 'p',
-            long = "platform",
-            visible_alias = "target",
-            value_name = "TARGET"
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
         )]
         platform: String,
         /// Device ID from day devices list (iOS/Android); omit when using --device
@@ -961,10 +1036,12 @@ pub enum DevicesCmd {
     Shutdown {
         /// Device target: ios-uikit, android-mdc, or harmony-arkui
         #[arg(
-            short = 'p',
-            long = "platform",
-            visible_alias = "target",
-            value_name = "TARGET"
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
         )]
         platform: String,
         /// iOS simulator name or UDID, or Android adb serial or AVD name
@@ -976,10 +1053,12 @@ pub enum DevicesCmd {
     Setup {
         /// Device target (android-mdc only)
         #[arg(
-            short = 'p',
-            long = "platform",
-            visible_alias = "target",
-            value_name = "TARGET"
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
         )]
         platform: String,
         /// Profile ID from avdmanager list device, such as pixel_7
@@ -1017,14 +1096,28 @@ pub enum IconCmd {
         /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
         master: Option<PathBuf>,
         /// Targets to build icons for (repeatable; default: all)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
     },
     /// Create a source icon and build its platform icons
     #[command(after_help = "Docs: https://daybrite.dev/docs/guide-icons/")]
     New {
         /// Targets to build icons for (repeatable; default: all)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Integer or text seed (default: random; printed in output)
         #[arg(long)]
@@ -1042,7 +1135,14 @@ pub enum IconCmd {
         /// Source icon (default: resource/icons/icon.svg, day-icon.svg, or icon.png)
         master: Option<PathBuf>,
         /// Targets to check (repeatable; default: all)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
     },
 }
@@ -1095,7 +1195,14 @@ pub enum DoctorCmd {
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#checking-the-machine")]
     Verify {
         /// Targets to check (repeatable or comma-separated; default: available host targets)
-        #[arg(short = 'p', long = "platform", visible_alias = "target")]
+        #[arg(
+            short = 't',
+            long = "target",
+            short_alias = 'p',
+            alias = "platform",
+            value_name = "TARGET",
+            value_parser = crate::targets::parse_arg
+        )]
         platforms: Vec<String>,
         /// Build profile for both compilation and packaging
         #[arg(long, value_enum, default_value = "debug")]
@@ -1176,6 +1283,15 @@ fn command() -> clap::Command {
 pub fn run(snap_scrubbed: &[String]) -> i32 {
     let matches = command().get_matches();
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    // `-p`/`--platform` still parse as hidden aliases of `-t`/`--target`, and say so once per
+    // run: the value is a target, of which the platform is only the first half (DESIGN.md §3).
+    if deprecated_target_flag(
+        std::env::args_os()
+            .skip(1)
+            .map(|a| a.to_string_lossy().into_owned()),
+    ) {
+        eprintln!("warning: --platform (-p) is deprecated; use --target (-t) instead");
+    }
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
     // `DAY_VERBOSE` is the environment spelling of the same switch ("1"/"true" = on): an
     // explicit `--verbose` always wins, and the variable covers the invocations a flag cannot
@@ -1220,6 +1336,24 @@ pub fn run(snap_scrubbed: &[String]) -> i32 {
             e.exit_code()
         }
     }
+}
+
+/// Whether the command line spelled a target flag the deprecated way. Clap does not report
+/// which alias matched, so this reads the raw arguments: `-p`, `-p<value>`, `--platform`, or
+/// `--platform=<value>`, up to a `--` separator. `--platforms` (`day new part`) is another flag.
+fn deprecated_target_flag<I: IntoIterator<Item = String>>(args: I) -> bool {
+    for a in args {
+        if a == "--" {
+            return false;
+        }
+        if a == "--platform" || a.starts_with("--platform=") {
+            return true;
+        }
+        if a.starts_with("-p") && !a.starts_with("--") {
+            return true;
+        }
+    }
+    false
 }
 
 /// The command dispatch. Each arm yields the command's verdict code (usually 0) or a
@@ -1583,7 +1717,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             };
             if names.is_empty() {
                 return Err(CliError::usage(
-                    "no running sessions — `day launch -p <target>` first",
+                    "no running sessions — `day launch -t <target>` first",
                 ));
             }
             let spec = ops::LaunchSpec {
@@ -2143,12 +2277,12 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     let _lock = crate::patch::LockGuard::new(project)?;
                     crate::patch::verify_graph(project).map_err(CliError::usage)?;
                 }
-                // No `-p`: run what this machine natively is. Announced rather than assumed: the
+                // No `-t`: run what this machine natively is. Announced rather than assumed: the
                 // chosen target decides which toolkit gets built, so a silent pick would be a
                 // surprising several-minute build of something the caller did not name.
                 let platforms = if platforms.is_empty() {
                     let default = crate::targets::host_default();
-                    ops::status("Defaulting", &format!("{default} (no --platform given)"));
+                    ops::status("Defaulting", &format!("{default} (no --target given)"));
                     vec![default.to_string()]
                 } else {
                     platforms.clone()
@@ -2164,7 +2298,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     None => scripts.clone(),
                 };
                 let script_mode = !scripts.is_empty();
-                // `--device` names the device for whichever runtime each `-p` is; a runtime's own
+                // `--device` names the device for whichever runtime each `-t` is; a runtime's own
                 // flag, when given, is the more specific answer. On iOS it means a simulator, as it
                 // always has, unless `--ios-device` already chose a physical one.
                 let mut spec = ops::LaunchSpec {
@@ -3054,16 +3188,73 @@ mod error_tests {
         assert!(OutputFormat::from_str("yaml", false).is_err());
     }
 
+    /// `-t`/`--target` is the flag; `-p`/`--platform` still parse, as aliases the help pages
+    /// no longer show. A toolkit alone expands to this host's target for it
+    /// (crate::targets::parse_arg), so `-t dom` is `web-dom` wherever it is typed.
+    #[test]
+    fn target_flag_spellings_and_toolkit_shorthand() {
+        for spelling in ["-t", "--target", "-p", "--platform"] {
+            let cli = Cli::try_parse_from(["day", "build", spelling, "web-dom"]).expect(spelling);
+            match cli.command {
+                Cmd::Build { platforms, .. } => assert_eq!(platforms, ["web-dom"], "{spelling}"),
+                _ => unreachable!("parsed a build command"),
+            }
+        }
+        let cli = Cli::try_parse_from(["day", "launch", "-t", "dom", "--target=uikit", "-tgtk"])
+            .expect("shorthand parses");
+        match cli.command {
+            Cmd::Launch { platforms, .. } => {
+                assert_eq!(&platforms[..2], ["web-dom", "ios-uikit"]);
+                if crate::targets::host_os() != "other" {
+                    assert_eq!(platforms[2], format!("{}-gtk", crate::targets::host_os()));
+                }
+            }
+            _ => unreachable!("parsed a launch command"),
+        }
+        let cli =
+            Cli::try_parse_from(["day", "devices", "list", "-t", "mdc"]).expect("list parses");
+        match cli.command {
+            Cmd::Devices {
+                cmd: DevicesCmd::List { platform, .. },
+            } => assert_eq!(platform.as_deref(), Some("android-mdc")),
+            _ => unreachable!("parsed a devices list command"),
+        }
+        let mut cmd = command();
+        let help = cmd
+            .find_subcommand_mut("launch")
+            .expect("launch exists")
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("--target"), "{help}");
+        assert!(!help.contains("--platform"), "{help}");
+    }
+
+    /// The deprecation warning keys off the raw arguments, since clap does not say which alias
+    /// matched. The scan stops at `--`, and `--platforms` is `day new part`'s own flag.
+    #[test]
+    fn deprecated_target_flag_is_detected_from_raw_arguments() {
+        let used = |a: &[&str]| deprecated_target_flag(a.iter().map(|s| s.to_string()));
+        assert!(used(&["launch", "-p", "web-dom"]));
+        assert!(used(&["launch", "--platform=web-dom"]));
+        assert!(used(&["build", "-pweb-dom", "--profile", "release"]));
+        assert!(used(&["devices", "list", "--platform", "ios-uikit"]));
+        assert!(!used(&["launch", "-t", "web-dom"]));
+        assert!(!used(&["launch", "--target", "web-dom"]));
+        assert!(!used(&["new", "part", "x", "--platforms", "macos"]));
+        assert!(!used(&["launch", "--", "-p"]));
+        assert!(!used(&["launch", "--env", "DAY_THEME=dark"]));
+    }
+
     /// A typo'd `--profile` is a clap parse error. Before the ValueEnum it reached the build
     /// and string-compared its way into the debug branch.
     #[test]
     fn a_profile_typo_fails_argument_parsing() {
         assert!(
-            Cli::try_parse_from(["day", "build", "-p", "macos-appkit", "--profile", "relaese"])
+            Cli::try_parse_from(["day", "build", "-t", "macos-appkit", "--profile", "relaese"])
                 .is_err()
         );
         let cli =
-            Cli::try_parse_from(["day", "build", "-p", "macos-appkit", "--profile", "release"])
+            Cli::try_parse_from(["day", "build", "-t", "macos-appkit", "--profile", "release"])
                 .expect("release parses");
         match cli.command {
             Cmd::Build { profile, .. } => assert_eq!(profile, Profile::Release),
@@ -3071,7 +3262,7 @@ mod error_tests {
         }
     }
 
-    /// `--git` exists so that neither `-p` nor a project on disk is needed. `--dir`
+    /// `--git` exists so that neither `-t` nor a project on disk is needed. `--dir`
     /// without it is meaningless, and clap rejects the pair rather than silently ignoring one.
     #[test]
     fn git_parses_without_a_platform_and_dir_requires_it() {
@@ -3112,7 +3303,7 @@ mod error_tests {
             _ => unreachable!("parsed a launch command"),
         }
         let cli =
-            Cli::try_parse_from(["day", "build", "-p", "macos-appkit", "--day-src", "../day"])
+            Cli::try_parse_from(["day", "build", "-t", "macos-appkit", "--day-src", "../day"])
                 .expect("build");
         match cli.command {
             Cmd::Build { day_src, .. } => assert_eq!(day_src.as_deref(), Some("../day")),

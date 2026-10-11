@@ -71,8 +71,8 @@ string tables, and the `hvigor` config. An app that predates this (2026-09) stil
 own copies under `ets/pages/` and `ets/entryability/`; `day build` leaves those alone and
 prints a note on how to adopt the staged host.
 
-`day open -p harmony-arkui` prepares and opens the staged project in DevEco Studio. Edit
-native source files under `platform/harmony/`, then run `day prepare -p harmony-arkui` again;
+`day open -t harmony-arkui` prepares and opens the staged project in DevEco Studio. Edit
+native source files under `platform/harmony/`, then run `day prepare -t harmony-arkui` again;
 edits made only in the staged copy are overwritten. Each preparation refreshes the source
 copy and removes obsolete resources while keeping hvigor's build and dependency caches.
 Symlinked inputs, including generated icon media, are copied as files so native generators
@@ -210,10 +210,10 @@ SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
 
 ```bash
 cd Day-Showcase
-day build -p harmony-arkui
+day build -t harmony-arkui
 
 # Inspect the prepared native project in DevEco Studio:
-day open -p harmony-arkui
+day open -t harmony-arkui
 ```
 
 For native packaging work after a Day build, run hvigor from the staged project:
@@ -227,7 +227,7 @@ hvigorw assembleHap --mode module -p product=default -p buildMode=debug --no-dae
 Use DevEco Studio's auto-sign configuration when installing on a physical device. Configure
 it in the source host if it must survive the next preparation.
 
-You don't run any of the above by hand; `day launch -p harmony-arkui` does the whole flow
+You don't run any of the above by hand; `day launch -t harmony-arkui` does the whole flow
 (cross-compile → hvigor → sign → install → start), and `day` brings up the emulator too:
 
 The emulator images are a separate download: unpack
@@ -252,15 +252,15 @@ packages (an `Image` kernel) are refused by name: they need `qemu-system-aarch64
 # A native OpenHarmony emulator window (QEMU cocoa on macOS, SDL on Linux, as the Oniro image's own
 # run.sh opens it; no VNC, no password, no DevEco). Point DAY_OHOS_EMULATOR at the Oniro image dir
 # (default ~/ohos/emulator/images). --headless runs without a window, as CI does.
-day devices boot -p harmony-arkui
+day devices boot -t harmony-arkui
 # The same image on a landscape tablet panel. Oniro has no screen of its own: it draws at whatever
 # size QEMU's virtio-gpu is told, so --device names a panel (phone 360x720, tablet 1280x800, or
 # WxH) and --orientation turns it. The guest still calls itself a phone (const.product.devicetype
 # is baked into the image), so this shows the app's wide layout, not the system's tablet behavior.
-day devices boot -p harmony-arkui --device tablet --orientation landscape
+day devices boot -t harmony-arkui --device tablet --orientation landscape
 
 # Then build + install + launch the app on every connected target (see "Multiple devices" below):
-day launch --project Day-Showcase -p harmony-arkui
+day launch --project Day-Showcase -t harmony-arkui
 ```
 
 **Acceleration.** On an x86_64 Linux host the guest runs under KVM when this user can open
@@ -308,7 +308,7 @@ emulator.
 
 ## Multiple devices / architectures
 
-`day launch -p harmony-arkui` enumerates every reachable `hdc` target, queries each one's arch
+`day launch -t harmony-arkui` enumerates every reachable `hdc` target, queries each one's arch
 (`uname -m` → x86_64 emulator / arm64 device), builds a `libentry.so` for **each** arch, and packs
 them all into the one `.hap` (`libs/x86_64/` + `libs/arm64-v8a/`) so it installs on any of them.
 It then installs + starts the app on **every** connected target. Android (`adb`, per-device
@@ -399,7 +399,7 @@ TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmo
 3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
    material), then install/launch it on the Oniro emulator over `hdc` and drive the dayscript
    walkthrough, uploading screenshots for the gallery, like the other targets. CI boots the emulator
-   with `day devices boot -p harmony-arkui --headless` (the same Oniro v6.1 image openharmony-rs's
+   with `day devices boot -t harmony-arkui --headless` (the same Oniro v6.1 image openharmony-rs's
    emulator-action uses) rather than the action itself: the action's QEMU command has **no GPU
    device** (`-nographic`), so the guest has no display: the keyguard never dismisses, `aa start`
    is refused with error 10106102, and screenshots capture nothing. Day's launcher adds
@@ -427,7 +427,7 @@ until diagnosed:
 
 - **The default hdc forward port 55555 is often already occupied**, since GitHub's macOS runners
   hold it, and so do some local services; QEMU then dies instantly ("Could not set up host
-  forwarding rule"), leaving no reachable target and blank screenshot sets. `day devices boot -p harmony-arkui` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
+  forwarding rule"), leaving no reachable target and blank screenshot sets. `day devices boot -t harmony-arkui` probes and slides to the first free port, `tconn`s the chosen key (so device discovery
   finds it), and exports `DAY_OHOS_TARGET` through `GITHUB_ENV` so later CI steps target it too.
 
 - **`ohos.permission.INTERNET` is required for the loopback dayscript socket**; without it in

@@ -1897,7 +1897,7 @@ pub fn launch_ios(
     let sims = booted_sims();
     if sims.is_empty() {
         return Err(
-            "no booted iOS simulator (`day devices boot -p ios-uikit <id>`, or \
+            "no booted iOS simulator (`day devices boot -t ios-uikit <id>`, or \
                     `xcrun simctl boot <device>`); physical devices need code signing and \
                     aren't supported here"
                 .into(),

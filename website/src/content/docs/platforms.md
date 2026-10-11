@@ -134,7 +134,7 @@ and the [HarmonyOS notes](/docs/internal/harmonyos) cover the install. CI allows
 [Tier 3 · Experimental](/docs/platforms#support-tiers)
 The same Rust compiled to WebAssembly drives DOM elements (`<button>`, `<dialog>`,
 `<input type="range">`) that the browser lays out and draws; the build runs through cargo and
-the [`day` CLI](/docs/glossary#day-cli) alone. `day build -p web-dom` emits a self-contained static `dist/` you can host
+the [`day` CLI](/docs/glossary#day-cli) alone. `day build -t web-dom` emits a self-contained static `dist/` you can host
 anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental: most external pieces (web view, map, Lottie, pickers, search field) render
 [placeholders](/docs/glossary#placeholder), there are no file dialogs or context menus, the list is emulated rather than
 recycled, and accessibility is thinner than on native because pieces that realize as `<div>`s
