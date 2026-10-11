@@ -1324,6 +1324,7 @@ fn render_app(
     // Only the host projects the chosen targets need; `day project add-target` materializes the
     // rest from the same template later.
     let mut files = crate::template::filter_for_targets(files, &app.targets);
+    files.retain(|f| !crate::xcode::is_project_file(&f.path));
     // website/ ships by default: two small files that make the shared CI workflow build and
     // deploy a project site (daysite). Opting out is one flag, and adding it back later is
     // copying those two files; nothing else references them.
@@ -1661,6 +1662,7 @@ pub fn add_target(
     project: &crate::meta::Project,
     requested: &[String],
     template: Option<&str>,
+    persist_xcode_project: bool,
 ) -> Result<(), CliError> {
     // Requested targets: repeatable and comma-splittable, validated against the target table.
     let mut wanted: Vec<String> = Vec::new();
@@ -1721,7 +1723,16 @@ pub fn add_target(
     let ctx = template_context(&repl, title, &deps, &all_targets);
 
     let files = load_template(template).map_err(CliError::failure)?;
-    let files = crate::template::platform_files_for_targets(files, &wanted);
+    let mut files = crate::template::platform_files_for_targets(files, &wanted);
+    files.retain(|f| {
+        !crate::xcode::is_project_file(&f.path)
+            || (persist_xcode_project
+                && !project
+                    .root
+                    .join(f.path.split("/DayApp.xcodeproj/").next().unwrap())
+                    .join("DayApp.xcodeproj")
+                    .exists())
+    });
     let rendered = crate::template::render(&files, &ctx).map_err(CliError::failure)?;
 
     // Write the host-project files, never overwriting anything already in the project.
@@ -1736,6 +1747,18 @@ pub fn add_target(
         if let Some(parent) = full.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        let initialized;
+        let content = if template.is_none()
+            && crate::xcode::is_project_file(path)
+            && path.ends_with("project.xcproj")
+        {
+            let platform = path.split('/').nth(1).unwrap();
+            initialized = crate::xcode::initialize_persistent(&project.root, platform, content)
+                .map_err(CliError::failure)?;
+            &initialized
+        } else {
+            content
+        };
         std::fs::write(&full, content)
             .map_err(|e| CliError::failure(format!("writing {}: {e}", full.display())))?;
         written += 1;
@@ -3878,6 +3901,69 @@ mod scaffold_tests {
             "{ci}"
         );
         assert!(!ci.contains("{{"), "an unrendered placeholder in {ci}");
+    }
+
+    #[test]
+    fn apple_projects_are_derived_by_default_and_persisted_only_on_request() {
+        let deps = Deps::Git(None);
+        let spec = AppSpec {
+            repl: Repl::new("fixture", Some("dev.example.fixture")),
+            title: "Fixture".into(),
+            deps: &deps,
+            targets: vec!["macos-appkit".into(), "ios-uikit".into()],
+            template: None,
+            no_website: true,
+            github: false,
+            nested: false,
+            locales: Vec::new(),
+            icon_seed: None,
+        };
+        let files = render_app(&spec, None).unwrap();
+        assert!(!files.iter().any(|(p, _)| crate::xcode::is_project_file(p)));
+        for os in ["macos", "ios"] {
+            assert!(
+                files
+                    .iter()
+                    .any(|(p, _)| p == &format!("platform/{os}/Runner/main.swift"))
+            );
+        }
+        let root = std::env::temp_dir().join(format!("day-persist-xcode-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("resource/locales/fr")).unwrap();
+        std::fs::write(root.join("Day.toml"), "schema = 1\n[app]\nid = 'dev.example.fixture'\ntargets = ['macos-appkit', 'ios-uikit']\n").unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str(&std::fs::read_to_string(root.join("Day.toml")).unwrap())
+                .unwrap(),
+        };
+        add_target(&project, &spec.targets, None, false).unwrap();
+        assert!(!crate::xcode::path(&root, "macos").exists());
+        assert!(!crate::xcode::path(&root, "ios").exists());
+        add_target(&project, &spec.targets, None, true).unwrap();
+        for os in ["macos", "ios"] {
+            let path = crate::xcode::path(&root, os);
+            let doc = crate::xcode::open(&path).unwrap();
+            assert!(doc.project().localizations.supported.contains(&"fr".into()));
+            // Both repeated opt-in and ordinary add-target preserve custom contents exactly.
+            std::fs::write(&path, "// synthetic custom project fixture").unwrap();
+        }
+        add_target(&project, &spec.targets, None, true).unwrap();
+        add_target(&project, &spec.targets, None, false).unwrap();
+        for os in ["macos", "ios"] {
+            assert_eq!(
+                std::fs::read_to_string(crate::xcode::path(&root, os)).unwrap(),
+                "// synthetic custom project fixture"
+            );
+        }
+        let ios = crate::xcode::path(&root, "ios");
+        std::fs::remove_file(&ios).unwrap();
+        std::fs::write(
+            ios.with_file_name("project.pbxproj"),
+            "synthetic legacy override",
+        )
+        .unwrap();
+        add_target(&project, &spec.targets, None, true).unwrap();
+        assert!(!ios.exists(), "never shadow an existing legacy override");
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     /// Declining the repository leaves out everything git reads — `.gitignore` at every depth

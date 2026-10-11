@@ -278,12 +278,31 @@ fn core_group() -> Group {
     }
 }
 
+/// Diagnose the selected toolchain (including DEVELOPER_DIR), not an unused installation.
+fn xcode_probe() -> Probe {
+    let installed = run_line("xcodebuild", &["-version"]);
+    let fix = format!(
+        "select full Xcode 27 or newer with DEVELOPER_DIR or `sudo xcode-select -s /Applications/Xcode.app`; project.xcproj requires Xcode 27+ (selected: {})",
+        installed.as_deref().unwrap_or("unavailable")
+    );
+    Probe::new("xcode", installed.filter(|s| supported_xcode(s)), fix)
+}
+
+fn supported_xcode(version: &str) -> bool {
+    version
+        .strip_prefix("Xcode ")
+        .and_then(|s| s.split(['.', ' ']).next())
+        .and_then(|s| s.parse::<u32>().ok())
+        .is_some_and(|major| major >= 27)
+}
+
 fn appkit_group() -> Group {
     Group {
         id: "appkit",
         label: "macOS · AppKit",
         hosts: &["macos"],
         probes: vec![
+            xcode_probe(),
             Probe::new(
                 "xcode-clang",
                 run_line("xcrun", &["--find", "clang"]),
@@ -297,8 +316,8 @@ fn appkit_group() -> Group {
             )
             .need(Need::BuildOptional),
         ],
-        setup: "macOS desktop (AppKit) builds through the `platform/macos/DayApp.xcodeproj`\n\
-                host project with xcodebuild, which needs a full Xcode (`xcode-select -s\n\
+        setup: "macOS desktop (AppKit) builds through a generated or app-owned Xcode\n\
+                host project with xcodebuild, which needs full Xcode 27 or newer (`xcode-select -s\n\
                 /Applications/Xcode.app`) — the command-line tools alone are not enough. No\n\
                 extra Rust target: the host toolchain builds the staticlib. An app that\n\
                 predates the scaffold adopts it with `day project add-target macos-appkit`.\n\
@@ -313,11 +332,7 @@ fn uikit_group() -> Group {
         label: "iOS · UIKit",
         hosts: &["macos"],
         probes: vec![
-            Probe::new(
-                "xcode",
-                run_line("xcodebuild", &["-version"]),
-                "install Xcode from the App Store (the iOS build drives xcodebuild)",
-            ),
+            xcode_probe(),
             Probe::new(
                 "rust-ios-sim",
                 have_rust_target("aarch64-apple-ios-sim"),
@@ -349,10 +364,8 @@ fn uikit_group() -> Group {
                  later), so simulators run without a window; builds and captures are unaffected",
             )
             .need(Need::Launch),
-            // Orientation (`day devices boot --orientation`, docs/screenshots.md) is the one
-            // thing that needs an Xcode floor rather than just "an Xcode": simulators became
-            // drivable through `devicectl` in 26.6, and there is no other way to turn one
-            // without a GUI session. Advisory, not required; everything else works below it.
+            // Orientation also requires a working CoreDevice installation and a simulator.
+            // Check it separately from the selected Xcode version.
             //
             // This looks for a simulated device rather than asking `--help` or grepping for the
             // `"devices"` key, both of which passed on a CI runner that could not turn a
@@ -383,10 +396,10 @@ fn uikit_group() -> Group {
             .need(Need::Launch),
         ],
         setup: "iOS (UIKit) cross-compiles via an Xcode script phase and runs on the Simulator.\n\
-                Needs: full Xcode (`xcode-select -s /Applications/Xcode.app`), the simulator Rust\n\
+                Needs: full Xcode 27 or newer (`xcode-select -s /Applications/Xcode.app`), the simulator Rust\n\
                 target `rustup target add aarch64-apple-ios-sim`, and a booted simulator to launch\n\
                 (`xcrun simctl boot <device>`). Capturing in a chosen ORIENTATION additionally\n\
-                needs Xcode 27 or newer, which installs the CoreDevice that lets `devicectl` drive\n\
+                needs CoreDevice simulator support, installed by Xcode 27+, so `devicectl` can drive\n\
                 simulators — the macOS version does not affect it. iOS builds only on a macOS\n\
                 host.",
     }
@@ -1646,5 +1659,25 @@ mod tests {
             format!("{}_{}", LIBADWAITA_MIN.0, LIBADWAITA_MIN.1),
             "LIBADWAITA_MIN and day-gtk's libadwaita feature disagree",
         );
+    }
+}
+
+#[cfg(test)]
+mod xcode_version_tests {
+    #[test]
+    fn selected_xcode_must_support_json_projects() {
+        for version in ["Xcode 27", "Xcode 27.2", "Xcode 27.2 beta", "Xcode 28.0"] {
+            assert!(super::supported_xcode(version), "{version}");
+        }
+        for version in [
+            "Xcode 26.6",
+            "Xcode 16.4",
+            "Xcode",
+            "",
+            "clang 27.0",
+            "Xcode beta",
+        ] {
+            assert!(!super::supported_xcode(version), "{version}");
+        }
     }
 }

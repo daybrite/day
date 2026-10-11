@@ -164,6 +164,11 @@ it appends the target to `Day.toml`'s `[app] targets` array (via toml_edit, so y
 and formatting survive) and materializes the target's native host project (`platform/android/`,
 `platform/ios/`, `platform/ohos/`) from the same template, never overwriting existing files.
 Pass the same `--template` the app was created with if it wasn't the built-in one.
+Apple targets keep host sources and `DayApp.xcconfig` under `platform/`, but derive their
+`.xcodeproj` under `build/day/xcode/` when needed. Add `--persist-xcode-project` to
+`add-target` to create a checked-in project for manual customization; existing projects
+always take precedence and are not overwritten. `day open -t ios-uikit` prepares and
+opens the selected project; `--print-path` returns its path without opening the IDE.
 `day project migrate-xcode` moves Xcode build settings into `DayApp.xcconfig` files without
 building the app. `day build` also performs this migration when needed.
 

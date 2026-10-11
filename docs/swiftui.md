@@ -164,11 +164,12 @@ callbacks do not fire inside the hosted view.
 
 ### The macOS leg
 
-macos-appkit builds through the `platform/macos/DayApp.xcodeproj` host project (DESIGN §16.5),
-whose pbxproj references the generated `DayPieces` package directly, the same shape as iOS.
+macos-appkit builds through a derived `build/day/xcode/macos/DayApp.xcodeproj`
+(or a checked-in `platform/macos/DayApp.xcodeproj` override) (DESIGN §16.5),
+whose JSON5 `project.xcproj` (Xcode 27+) references the generated `DayPieces` package directly, the same shape as iOS.
 `day build` regenerates `build/day/macos/DayPieces` (staged shims + generated glue +
 `Package.swift`) before every xcodebuild, touching only files whose bytes changed so the Swift
-incremental build stays warm, and writes it even when nothing contributes Swift: the pbxproj's
+incremental build stays warm, and writes it even when nothing contributes Swift: the host project's
 package reference must resolve, so an empty package still exists. xcodebuild compiles and links
 the package with the Runner; the installed binary uses the OS Swift dylibs (macOS ≥ 10.14.4).
 `day pack -t macos-appkit` needs nothing extra: the Swift code is inside the bundle's binary and

@@ -68,8 +68,8 @@ run them for development even though you ship `linux-gtk` and `linux-qt`.
 
 ## macOS
 
-The required macOS version depends on Xcode: install the newest
-version your macOS supports, and check
+macOS and iOS app builds require **Xcode 27 or newer**. Your macOS version must support
+that Xcode release; check
 [Apple's minimum requirements](https://developer.apple.com/support/xcode/) if you are on an older
 release. Continuous integration builds on the current `macos-latest` runner (Apple silicon).
 
@@ -79,8 +79,8 @@ The GTK, Qt, Android, and web targets need Apple’s command-line development to
 xcode-select --install
 ```
 
-Full Xcode ([App Store](https://apps.apple.com/us/app/xcode/id497799835)) is required for
-`ios-uikit`, whose build runs through `xcodebuild`. Point the command-line tools at it once
+Full Xcode 27 or newer ([App Store](https://apps.apple.com/us/app/xcode/id497799835)) is required for
+`macos-appkit` and `ios-uikit`, whose builds run through `xcodebuild`. Point the command-line tools at it once
 installed:
 
 ```bash
@@ -88,9 +88,13 @@ sudo xcode-select -s /Applications/Xcode.app
 rustup target add aarch64-apple-ios-sim
 ```
 
-A scaffolded app carries `platform/macos/DayApp.xcodeproj`, and `macos-appkit` builds through
-`xcodebuild`, so it wants full Xcode too. (An app that predates the scaffold adopts it with
+Day derives `build/day/xcode/macos/DayApp.xcodeproj` unless an app supplies its own
+`platform/macos/DayApp.xcodeproj`. `macos-appkit` builds through
+`xcodebuild`, so it needs full Xcode 27 or newer too. (An app that predates the scaffold adopts it with
 `day project add-target macos-appkit`.)
+
+Both hosts use the JSON5 `project.xcproj` format introduced in Xcode 27.
+`day doctor --toolkit appkit --toolkit uikit` checks the selected installation.
 
 [Homebrew](https://brew.sh) provides the rest:
 
@@ -278,7 +282,7 @@ A booted emulator is needed only to run an app.
 
 ## iOS
 
-`ios-uikit` builds on a macOS host with full Xcode, as covered above. Xcode installs one iOS
+`ios-uikit` builds on a macOS host with full Xcode 27 or newer, as covered above. Xcode installs one iOS
 simulator runtime; add others from Xcode's settings under *Platforms* (or *Components*, depending
 on your Xcode version); Apple documents the flow in
 [Installing additional simulator runtimes](https://developer.apple.com/documentation/xcode/installing-additional-simulator-runtimes).

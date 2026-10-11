@@ -39,7 +39,7 @@ pub fn xcode_region(tag: &str) -> String {
 
 /// The Day tag for an Xcode region: the inverse of [`xcode_region`], so the survey speaks Day
 /// tags no matter which spelling the file stores.
-fn day_region(region: &str) -> String {
+pub(crate) fn day_region(region: &str) -> String {
     match region {
         "zh-Hans" => "zh-CN".to_string(),
         "zh-Hant" => "zh-TW".to_string(),
@@ -130,7 +130,7 @@ pub fn survey(project_root: &Path) -> LocaleSurvey {
 /// The locale subdirectories of `dir`, or `None` when the directory itself is absent. The
 /// pseudolocales (`-XA`) are a development aid and never join the sync contract, the same
 /// exclusion store.rs applies to listings.
-fn dir_locales(dir: &Path) -> Option<Vec<String>> {
+pub(crate) fn dir_locales(dir: &Path) -> Option<Vec<String>> {
     let entries = std::fs::read_dir(dir).ok()?;
     let mut v: Vec<String> = entries
         .flatten()
@@ -205,6 +205,9 @@ fn pbx_quoted(region: &str) -> String {
 
 /// The iOS project's regions as Day tags, or `None` when there is no iOS host project.
 fn pbx_regions(project_root: &Path) -> Option<Vec<String>> {
+    if crate::xcode::path(project_root, "ios").exists() {
+        return crate::xcode::regions(project_root);
+    }
     let text = std::fs::read_to_string(pbxproj_path(project_root)).ok()?;
     let mut v: Vec<String> = pbx_entries(&text)
         .iter()
@@ -520,9 +523,11 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
         done.extend(crate::store::add_locale(project_root, tag)?);
     }
 
+    done.extend(crate::xcode::edit_region(project_root, tag, true)?);
+
     // Xcode's knownRegions, in its own spelling, inserted before `Base`.
     let pbx = pbxproj_path(project_root);
-    if pbx.is_file() {
+    if pbx.is_file() && !crate::xcode::path(project_root, "ios").exists() {
         let text = std::fs::read_to_string(&pbx).map_err(|e| format!("{}: {e}", pbx.display()))?;
         let region = xcode_region(tag);
         if let Some(updated) = pbx_with_region(&text, &region)? {
@@ -565,8 +570,9 @@ pub fn remove(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
         done.push(format!("removed {rel}/"));
     }
     done.extend(crate::store::remove_locale(project_root, tag)?);
+    done.extend(crate::xcode::edit_region(project_root, tag, false)?);
     let pbx = pbxproj_path(project_root);
-    if pbx.is_file() {
+    if pbx.is_file() && !crate::xcode::path(project_root, "ios").exists() {
         let text = std::fs::read_to_string(&pbx).map_err(|e| format!("{}: {e}", pbx.display()))?;
         let region = xcode_region(tag);
         if let Some(updated) = pbx_without_region(&text, &region) {
@@ -628,7 +634,7 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
                      to store/storefront.toml (the default locale's text is [storefront.metadata])"
                 ),
                 "platform/ios (knownRegions)" => format!(
-                    "add `{tag}` to knownRegions in {PBX_REL} (Xcode spelling: {})",
+                    "run `day localize add {tag}` to update Xcode localizations (legacy knownRegions; Xcode spelling: {})",
                     xcode_region(tag)
                 ),
                 _ => format!("add {tag:?} to the locales array in website/site.toml"),

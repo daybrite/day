@@ -19,11 +19,11 @@ Objective-C shim in between.
 
 ## Getting started
 
-You need Xcode's command-line tools for the linker and system headers; the App Store Xcode is only
-required for `day pack` signing and notarization.
+Install **full Xcode 27 or newer**. The macOS host uses the JSON5 `project.xcproj`
+format and builds through `xcodebuild`; command-line tools alone are insufficient.
 
 ```sh
-xcode-select --install
+sudo xcode-select -s /Applications/Xcode.app
 cargo install day-cli
 day new app my-app --toolkit macos-appkit
 cd my-app
@@ -46,7 +46,7 @@ an artifact with no signature at all.
 When a dependency contributes Swift under `[package.metadata.day.macos]` (the
 [SwiftUI embedding](/docs/internal/swiftui) shim, or an app's own local SwiftPM package),
 `day build` generates a `DayPieces` SwiftPM package under `build/day/macos/`. An app carrying
-the `platform/macos/DayApp.xcodeproj` scaffold builds through xcodebuild, which references that
+the generated `build/day/xcode/macos/DayApp.xcodeproj` (or a checked-in override) builds through xcodebuild, which references that
 package; on the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) `day build` runs
 `swift build` and statically links the result into the cargo binary. An app with no Swift
 contributions needs no Swift toolchain either way.

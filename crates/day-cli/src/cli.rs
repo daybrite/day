@@ -500,6 +500,9 @@ enum Cmd {
             value_parser = crate::targets::parse_arg
         )]
         platform: String,
+        /// Prepare the project and print its path without opening an IDE
+        #[arg(long)]
+        print_path: bool,
     },
     /// Create and prepare app store listings
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#store-listings")]
@@ -973,6 +976,9 @@ pub enum ProjectCmd {
         /// Original project template, if custom (directory or Git URL)
         #[arg(long)]
         template: Option<String>,
+        /// Write an app-owned .xcodeproj under platform/ for manual customization
+        #[arg(long)]
+        persist_xcode_project: bool,
     },
     /// Move Xcode build settings into DayApp.xcconfig files
     #[command(name = "migrate-xcode")]
@@ -1537,9 +1543,20 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             ),
         }),
         Cmd::Project {
-            cmd: ProjectCmd::AddTarget { targets, template },
+            cmd:
+                ProjectCmd::AddTarget {
+                    targets,
+                    template,
+                    persist_xcode_project,
+                },
         } => with_project(cli.project.as_deref(), |project| {
-            crate::new::add_target(project, &targets, template.as_deref()).map(|()| 0)
+            crate::new::add_target(
+                project,
+                &targets,
+                template.as_deref(),
+                persist_xcode_project,
+            )
+            .map(|()| 0)
         }),
         Cmd::Project {
             cmd: ProjectCmd::MigrateXcode,
@@ -2144,6 +2161,24 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                         crate::pieces::stage_android_gradle_plugin(project)
                             .map_err(CliError::build)?;
                     }
+                    for (name, os) in [("macos-appkit", "macos"), ("ios-uikit", "ios")] {
+                        let selected = if platforms.is_empty() {
+                            &project.manifest.app.targets
+                        } else {
+                            &platforms
+                        };
+                        if selected.iter().any(|t| t == name) {
+                            if check {
+                                crate::xcode::check_generated(project, os)
+                                    .map_err(CliError::drift)?;
+                            } else {
+                                let target = crate::external::find_target(project, name)
+                                    .map_err(CliError::usage)?;
+                                crate::ops::native_project(project, target)
+                                    .map_err(CliError::build)?;
+                            }
+                        }
+                    }
                     if cli.format == OutputFormat::Json {
                         println!(
                             "{}",
@@ -2173,7 +2208,10 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 Err(crate::icon::IconError::Other(e)) => Err(CliError::build(e)),
             }
         }),
-        Cmd::Open { platform } => with_project(cli.project.as_deref(), |project| {
+        Cmd::Open {
+            platform,
+            print_path,
+        } => with_project(cli.project.as_deref(), |project| {
             let target =
                 crate::external::find_target(project, &platform).map_err(CliError::usage)?;
             crate::icon::ensure(project, &[target.name]).map_err(CliError::build)?;
@@ -2184,7 +2222,21 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             if target.name == "android-mdc" {
                 crate::pieces::stage_android_gradle_plugin(project).map_err(CliError::build)?;
             }
-            crate::ops::open_native(project, target).map(|()| 0)
+            let (dir, app) =
+                crate::ops::native_project(project, target).map_err(CliError::build)?;
+            if print_path {
+                if cli.format == OutputFormat::Json {
+                    println!(
+                        "{}",
+                        serde_json::json!({"event": "result", "command": "open", "ok": true, "path": dir, "ide": app})
+                    );
+                } else {
+                    println!("{}", dir.display());
+                }
+                Ok(0)
+            } else {
+                crate::ops::open_native(&dir, app).map(|()| 0)
+            }
         }),
         Cmd::Build {
             platforms,

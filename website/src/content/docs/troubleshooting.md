@@ -131,14 +131,14 @@ explains target installation; platform SDKs and linkers are separate requirement
 ## Xcode or the iOS Simulator is not ready
 
 Errors mentioning `xcodebuild`, an invalid developer directory, or a missing Apple SDK often mean
-that full Xcode is absent or the command-line tools point elsewhere. Check:
+that full Xcode 27 or newer is absent or the command-line tools point elsewhere. Check:
 
 ```bash
 xcode-select -p
 xcodebuild -version
 ```
 
-Generated macOS app projects and iOS builds need full Xcode. If Xcode is installed in its usual
+Generated macOS app projects and iOS builds need full Xcode 27 or newer. If Xcode is installed in its usual
 location, select it with:
 
 ```bash

@@ -358,7 +358,7 @@ dependency on `native-tls`/`openssl-sys`: no Android image carries OpenSSL, so t
 library products to link. Xcode is not script-driven like Gradle, so `day build` (ios-uikit) instead
 generates a **local SwiftPM package** at `build/day/ios/DayPieces`. Its `Package.swift` lists every
 piece's `swift-packages` as dependencies and compiles every piece's staged Swift shims (each under a
-per-crate subfolder). The app's checked-in `.xcodeproj` depends on that one local package (the iOS
+per-crate subfolder). The app's generated (or optionally checked-in) `.xcodeproj` depends on that one local package (the iOS
 analog of the checked-in Gradle scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
@@ -373,13 +373,13 @@ in full):
 - `platform = "16.0"` raises the generated package's minimum OS (the max across contributions
   wins). On iOS the CLI conveys it as an `IPHONEOS_DEPLOYMENT_TARGET` command-line setting, which
   reaches the app and package targets without editing the scaffold; ⌘R builds in Xcode need the
-  pbxproj raised by hand.
+  deployment target raised in `DayApp.xcconfig`.
 
 ### macOS Swift (`[package.metadata.day.macos]`)
 
 The macos-appkit leg uses the same table shape: `swift`, `swift-packages` (remote or local),
 `frameworks`, `platform`. `day build` generates `build/day/macos/DayPieces` from the table and
-the `platform/macos/DayApp.xcodeproj` host project's pbxproj references it; xcodebuild compiles
+the selected macOS host project's `project.xcproj` references it (Xcode 27+); xcodebuild compiles
 and links the package with the Runner, the same shape as iOS (the Swift runtime resolves against
 the OS dylibs). `day-piece-swiftui` declares the same shim dir under both tables, one
 `DaySwiftUI.swift` with `#if os(...)` arms.

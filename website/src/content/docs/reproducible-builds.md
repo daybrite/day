@@ -248,7 +248,7 @@ The SBOM lists the inputs; the `.buildinfo` records the tools:
   "tools": [
     { "key": "rust",  "name": "rustc", "version": "rustc 1.97.0 (2d8144b78 2026-07-07)",
       "install": "rustup toolchain install <version> && rustup override set <version>" },
-    { "key": "xcode", "name": "Xcode", "version": "Xcode 26.6",
+    { "key": "xcode", "name": "Xcode", "version": "Xcode 27.2",
       "install": "https://developer.apple.com/download/all/?q=Xcode — install, then sudo xcode-select -s ..." }
   ],
   "artifacts": [

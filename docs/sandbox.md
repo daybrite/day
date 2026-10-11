@@ -59,7 +59,7 @@ error, rather than silently broadening permissions. Generated plists live under
 packaging signatures use this same plan, including ad-hoc signatures. The CLI verifies the
 resulting signature and requested entitlement values after building and packaging.
 
-Use `day build -t macos-appkit` before opening the generated Xcode project: this refreshes
+Use `day open -t macos-appkit` to prepare and open the generated Xcode project; this refreshes
 Day's generated xcconfig. A hand-edited local Xcode configuration can still change IDE build
 settings; inspect the resulting signed artifact when distributing it:
 

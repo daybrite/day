@@ -1,0 +1,96 @@
+{
+  "default-configuration": "Debug",
+  "configurations": [
+    { "name": "Debug", "file": "DayApp.xcconfig" },
+    { "name": "Release", "file": "DayApp.xcconfig" },
+  ],
+  "localizations": { "development": "en" },
+  "packages": [
+    {
+      "kind": "local",
+      "path": "../../build/day/ios/DayPieces",
+    },
+  ],
+  "files": [
+    {
+      "kind": "group",
+      "name": "App",
+      "path": "../..",
+      "children": [
+        { "path": "Cargo.toml" },
+        { "path": "Day.toml" },
+        { "path": "src" },
+        { "path": "resource" },
+      ],
+    },
+    {
+      "kind": "group",
+      "path": "Runner",
+      "children": [
+        { "path": "main.swift", "target-membership": [ "Runner/compile-sources" ] },
+        { "path": "Info.plist" },
+        { "path": "InfoPlist.xcstrings", "target-membership": [ "Runner/resources" ] },
+      ],
+    },
+    { "path": "../../build/day/host/ios/Assets.xcassets", "target-membership": [ "Runner/resources" ] },
+    { "path": "DayApp.xcconfig" },
+    {
+      "kind": "group",
+      "name": "Products",
+      "children": [
+        { "path": "<PRODUCTS>/DayApp.app" },
+      ],
+    },
+  ],
+  "targets": [
+    {
+      "name": "Runner",
+      "id": "Runner",
+      "product": "Products/DayApp.app",
+      "product-type": "application",
+      "build-phases": [
+        {
+          "kind": "script",
+          "name": "Build Rust (day)",
+          "output-paths": [
+            "$(BUILT_PRODUCTS_DIR)/day/libdayapp.a",
+          ],
+          "run-on-every-build": true,
+          "shell": "/bin/sh",
+          "script": "/bin/sh \"$PROJECT_DIR/day-cli.sh\" xcode-backend build\n",
+        },
+        "compile-sources",
+        "frameworks",
+        "resources",
+        {
+          "kind": "script",
+          "name": "Stage Day Strings",
+          "run-on-every-build": true,
+          "shell": "/bin/sh",
+          "script": "/bin/sh \"$PROJECT_DIR/day-cli.sh\" xcode-backend stage-strings\n",
+        },
+      ],
+      "package-product-members": [
+        {
+          "product-name": "DayPieces",
+          "build-phase": { "build-phase": "frameworks" },
+        },
+      ],
+      "build-settings": {
+        "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
+        "INFOPLIST_FILE": "Runner/Info.plist",
+        "OTHER_LDFLAGS": "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/libdayapp.a",
+      },
+    },
+  ],
+  "build-settings": {
+    "ALWAYS_SEARCH_USER_PATHS": "NO",
+    "CLANG_ENABLE_MODULES": "YES",
+    "ENABLE_USER_SCRIPT_SANDBOXING": "NO",
+    "ONLY_ACTIVE_ARCH[config=Debug]": "YES",
+    "SDKROOT": "iphoneos",
+    "SWIFT_OPTIMIZATION_LEVEL[config=Debug]": "-Onone",
+    "SWIFT_OPTIMIZATION_LEVEL[config=Release]": "-O",
+    "SWIFT_VERSION": "5.0",
+  },
+}

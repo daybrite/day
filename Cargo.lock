@@ -563,6 +563,7 @@ dependencies = [
  "toml",
  "toml_edit",
  "ureq",
+ "ycode-project",
 ]
 
 [[package]]
@@ -5404,6 +5405,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ycode-project"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f5e2138e020328b994caffa76a298eec21b2ceb26872a5d9a50dcd7760960b2c"
+dependencies = [
+ "json-five",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "yoke"
 version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5499,7 +5511,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "day-piece-charts"
-version = "0.4.2"

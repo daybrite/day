@@ -3607,7 +3607,7 @@ extra-combo case the design worried about.
 > and localized catalogs. HarmonyOS now merges permissions into its staged native project.
 > `sync_uiappfonts` already set that precedent for
 > `UIAppFonts`. Two alternatives were evaluated and rejected: `INFOPLIST_KEY_*` build settings are
-> consumed only when `GENERATE_INFOPLIST_FILE = YES`, which the scaffold pbxproj sets to `NO`
+> consumed only when `GENERATE_INFOPLIST_FILE = YES`, which the scaffold leaves at its default `NO`
 > (flipping it is a full scaffold rewrite plus a migration); and pointing `INFOPLIST_FILE` at a
 > generated merged plist is architecturally right but breaks the IDE escape hatch — ⌘R in Xcode
 > would produce an app that crashes on first camera use with no signal that `day build` was
@@ -3640,14 +3640,14 @@ reference generically, exactly once:
   under native code ([docs/extending.md](docs/extending.md)).
 - **apple**: the CLI generates a LOCAL SwiftPM package at `build/day/ios/DayPieces` whose
   `Package.swift` lists every piece's `swift-packages` and compiles every piece's staged Swift
-  shims; the checked-in `.xcodeproj` depends on that one package — adding an iOS piece is pure
+  shims; the selected `.xcodeproj` depends on that one package — adding an iOS piece is pure
   `Cargo.toml` data, no `.xcodeproj` edits. (Flutter's generated-plugin-package pattern,
   as designed — under the shipped name `DayPieces`.) `swift-packages` entries may also be **local**
   (`{ path = "…" }`, relative to the declaring crate): the package's transitive SwiftPM
   dependencies come along, and its public SwiftUI views are scanned and exported as typed Rust
   constructors plus generated hosting glue ([docs/swiftui.md](docs/swiftui.md)). A `platform` key raises the
   generated package's floor and the leg's deployment target (conveyed as an xcodebuild
-  command-line setting — the pbxproj is never edited).
+  command-line setting — the host project is never edited).
 - **macos** (2026-08, [docs/swiftui.md](docs/swiftui.md)): the same aggregation for `[package.metadata.day.macos]`,
   scaffold-free because macos-appkit has no scaffold to reference it — the CLI generates
   `build/day/macos/DayPieces` (static library product), builds it with `swift build`, and
@@ -4018,13 +4018,13 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day sign check` / `day sign status <id>` / `day sign apply <artifact>` | validate `Day.toml [signing]` without printing secrets, query a notarization submission, or sign a package that already exists (Android; §16.5 below). A subcommand is required |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day doctor verify [-t <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-t` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: the command installs that day-cli and pins the app it scaffolds to the same one — what the scheduled `doctor-verify.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
-| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host projects (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
+| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host sources (`--persist-xcode-project` opts into an app-owned Apple project) (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
 | `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
-| `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `knownRegions`, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
+| `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `project.xcproj` localizations (legacy `knownRegions`), `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
 | `day screenshot pack --root <tree>… --out <file>` / `day screenshot unpack <file>` | the screenshot bundle ([docs/screenshot-archive.md](docs/screenshot-archive.md)): `pack` writes capture trees as one `screenshots.tar.xz` of uncompressed PNG files (`--index` carries a merged index inside with each capture's archived checksum, `--index-out` writes it with the bundle's facts, `--each <dir>` also writes one bundle per tree); `unpack` checks every file against the bundle's `SHA256SUMS` and writes the tree, each capture as a compact PNG, to `--out`, or with `--check` verifies and writes nothing. Both run outside a project |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
@@ -4108,23 +4108,62 @@ several days — `day doctor verify --day-version` drives both halves through it
 Per target: (1) preflight, (2) conveyance generation from `Day.toml` ([§17.5](#175-metadata-conveyance-daytoml--each-build-system)), (3) the target's
 pipeline — `xcodebuild` for ios; `gradle` for android; hvigor for ohos; cargo + bundle
 assembly for the cargo-driven desktop targets; MSBuild-free cargo + C++/WinRT shim for windows.
-**`macos-appkit` builds through the `platform/macos/` Xcode host project, always** (dual-mode
+**`macos-appkit` builds through an Xcode host project, always** (dual-mode
 2026-08, single-mode later that month — the bare cargo + bundle-assembly path and its
 `DAY_MACOS_XCODE=0` escape hatch were retired, along with the `swift build` prepass that
 statically linked macOS Swift contributions into the cargo binary; those now build inside the
 same xcodebuild run via the generated DayPieces package,
 [§15.2](#152-package-layout-and-aggregation), [docs/swiftui.md](docs/swiftui.md)). The scaffold
-ships by default and an app that predates it adopts it with `day project add-target macos-appkit`
-— without it, `day build -t macos-appkit` fails with that instruction. The build is a real
+keeps its Swift sources and xcconfig under `platform/macos/`; the project itself is generated
+under `build/day/xcode/macos/` unless a persistent override exists. An app missing the host
+sources adopts them with `day project add-target macos-appkit`. The build is a real
 `.app`: bundle identity, compiled appiconset, resources staged into `Contents/Resources` by the
 `day xcode-backend stage-resources` script phase (host-arch by default; `DAY_MACOS_UNIVERSAL=1`
 builds arm64 + x86_64, which needs both Rust stdlibs installed), and `day pack` takes that
 bundle as-is — copy, codesign, dmg, notarize — assembling nothing. The
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
+Both Apple hosts require **Xcode 27 or newer**, checked by `day doctor` for AppKit and
+UIKit against the selected `xcodebuild` (including `DEVELOPER_DIR`). Built-in scaffolds
+and `add-target` omit `.xcodeproj` folders by default. `xcode::ensure` derives JSON5
+`build/day/xcode/<platform>/DayApp.xcodeproj/project.xcproj` from the built-in template,
+rebasing references to app-owned `platform/<platform>/` sources/configuration and generated
+DayPieces/assets. Locales come from `resource/locales/`; `DAY_PROJECT_ROOT` lets script callbacks
+find the app from the generated location, and `DAY_BIN` keeps GUI builds on the preparing CLI.
+Build, launch, archive/unsigned packaging, prepare, and open use the same project selection.
+Generation updates only the document when changed, preserving IDE user state; `prepare --check`
+compares without writing. `day open --print-path` prepares prerequisites and returns the actual
+project location (also as a JSON result); day-vscode uses it rather than assuming a source path.
+`day project add-target --persist-xcode-project` explicitly materializes an app-owned project
+under `platform/`, even for an already-declared target. Existing JSON5 or PBX project folders
+always win, are never overwritten by materialization, and an incomplete override fails clearly.
+Removing that folder opts back into generation. `day lint` validates an absent project using an
+in-memory derived document, so a fresh checkout needs neither generated output nor Xcode.
+Targets still require stable IDs, but the single app target uses
+the readable ID `Runner`; product references use paths and omit optional IDs. Archive
+schemes preserve whichever ID the host declares, including legacy hexadecimal IDs.
+The templates omit upgrade history, unused Base localization, repeated target xcconfigs,
+script environment logging, inferred product file metadata, and default plist-generation
+settings. The Rust archive is force-loaded by full path, so it needs no library search path.
+Explicit compiler, optimization, and sandbox settings remain where defaults change behavior.
+`ycode-project` from marcprux/ycode parses and validates these documents; `day lint`
+checks Runner, Debug/Release configurations, Rust-before-Swift phase ordering, resource
+callbacks, script sandboxing, and generated DayPieces linkage without requiring generated
+files on disk. Invalid JSON5 or broken host contracts are errors; legacy `project.pbxproj`
+is tolerated with a modernization warning. When both exist JSON5 takes precedence.
+Locale edits preserve comments and include the development language in the survey;
+deployment-floor discovery, icon migration, shortcut staging, and archive scheme identity
+also understand JSON5. The navigator uses an explicit App group containing source/configuration
+files, excluding generated build folders: a recursive `../..` file reference from Xcode's
+converter opens DayPieces as a Folder and prevents SwiftPM loading it as a dependency;
+lint detects that conversion hazard. Existing PBX migration remains available only for legacy hosts.
+See [environment requirements](docs/environment.md) and regression tests in
+[`xcode.rs`](crates/day-cli/src/xcode.rs).
+
 Both Xcode scaffolds keep their user-adjustable build settings (signing, deployment target,
-device family) in a committed `DayApp.xcconfig` rather than the pbxproj (2026-08): every build
-configuration's `baseConfigurationReference` points at it, and it `#include?`s two files after
+device family) in a committed `DayApp.xcconfig`: each JSON5 configuration's `file`
+reference points at it, inherited by Runner without duplicate target specializations
+(legacy projects use `baseConfigurationReference`), and it `#include?`s two files after
 its own settings. First a generated `build/day/xcconfig/<platform>.xcconfig` carrying the
 Day.toml-derived bundle id, version, and build number, so Day.toml stays authoritative. Then a
 gitignored `DayApp.local.xcconfig` beside it (2026-09), the per-checkout layer: a developer's
@@ -4601,12 +4640,12 @@ fieldnotes/
     demo.yaml                # starter walkthrough; real apps grow it further
     toolbar-enable.yaml      # a page-declared command's live enablement, kept as a regression check
   platform/                  # only for toolkits with a native host project:
-    ios/                     #   DayApp.xcodeproj + Runner (day root in a view controller),
+    ios/                     #   Runner + DayApp.xcconfig (optional DayApp.xcodeproj) (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4);
                              #   DayApp.xcconfig holds the user-adjustable build settings, and
                              #   `#include?`s a gitignored DayApp.local.xcconfig for per-checkout
                              #   settings such as a signing team
-    macos/                   #   DayApp.xcodeproj + Runner (thin main.swift → day_main),
+    macos/                   #   Runner + DayApp.xcconfig (optional DayApp.xcodeproj) (thin main.swift → day_main),
                              #   same callback phase + `day xcode-backend stage-resources`;
                              #   builds a real .app (debugger/Instruments-ready; §16.5 day build);
                              #   DayApp.xcconfig + DayApp.local.xcconfig, as on ios
@@ -4758,8 +4797,10 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   xcode-backend build`** — arg-less plumbing that reads
   `CONFIGURATION`/`ARCHS`/`BUILT_PRODUCTS_DIR`/`PLATFORM_NAME` from
   Xcode's environment (flutter's `xcode_backend.sh` pattern; a fully-parameterized checked-in
-  invocation would fossilize flags into user projects). `day-cli.sh` sits beside the
-  `.xcodeproj` and is the one place each project resolves the CLI (2026-08): `DAY_BIN`
+  invocation would fossilize flags into user projects). Generated projects call the same
+  script through `$DAY_PROJECT_ROOT/platform/ios/day-cli.sh`; callbacks prefer
+  `DAY_PROJECT_ROOT`, falling back to two parents above `PROJECT_DIR` for persistent hosts.
+  `day-cli.sh` remains in `platform/ios/` and is the one place each project resolves the CLI: `DAY_BIN`
   (exported by `day build`) wins, then `command -v day`, then the standard install locations
   (`~/.cargo/bin`, Homebrew, `/usr/local/bin`), with a named error rather than sh's bare
   `day: command not found`. `day build` runs the cargo half itself before invoking xcodebuild
@@ -4782,7 +4823,7 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   name `libdayapp.a` — Day owns that directory, so the name is Day's, and the app crate's name
   never reaches the Xcode project (renaming an app touches no build setting). The crate-named
   `lib<app>.a` is hard-linked beside it for projects generated before that, which link `-l<app>`.
-  **The template pbxproj sets `ENABLE_USER_SCRIPT_SANDBOXING=NO`** on every configuration (Xcode
+  **The template project.xcproj sets `ENABLE_USER_SCRIPT_SANDBOXING=NO`** on every configuration (Xcode
   15+ defaults it to YES, which blocks the phase from writing `$BUILT_PRODUCTS_DIR` — Flutter's
   templates set exactly this), marks the Day phase `alwaysOutOfDate=1` (cargo's own incrementality
   is the freshness authority), and declares the staged `$(BUILT_PRODUCTS_DIR)/day/libdayapp.a` as
@@ -4874,7 +4915,7 @@ removed each copy:
 |---|---|
 | `[[bin]] name` | dropped — cargo auto-names the binary after the package |
 | `src/main.rs` importing `<crate>::root` | `[lib] name = "dayapp"`, a CONSTANT, so the import never moves |
-| iOS/macOS staticlib `lib<crate>.a` | falls out of the same `[lib] name` — already the `libdayapp.a` the pbxproj links |
+| iOS/macOS staticlib `lib<crate>.a` | falls out of the same `[lib] name` — already the `libdayapp.a` the host project links |
 | Android `day.lib` meta-data | dropped; the cdylib is `libdayapp.so` and `DayActivity` defaults to it |
 | `rootProject.name` | a constant (Gradle shows it in the IDE; nothing reads it) |
 | Android `namespace`, deep-link scheme | the generated `day-app.properties` + a `${dayScheme}` manifest placeholder |
@@ -4917,7 +4958,7 @@ Permission declarations ([docs/permissions.md](docs/permissions.md), added 2026-
 rule but their Apple destinations are CHECKED-IN scaffold files rather than generated ones —
 see the exception note in [§15.2](#152-package-layout-and-aggregation), which also records why the
 `Day-Generated.xcconfig` + `INFOPLIST_KEY_*` route above was evaluated for them and rejected (the
-scaffold pbxproj sets `GENERATE_INFOPLIST_FILE = NO`, and changing that would break running the app
+scaffold uses the default `GENERATE_INFOPLIST_FILE = NO`, and changing that would break running the app
 straight from Xcode).
 
 **`cargo build` works standalone — really.** The shipped mechanism: the app's own `build.rs`
@@ -5874,7 +5915,7 @@ implementation as noted above.
 | DP-2 | style variation surface | `per_toolkit()` values + `style_on` (as specced) vs. only plain `match` | as specced ([§6.2](#62-per-target-variation-pertargett-values-no-macros)) |
 | DP-3 | dayffi payloads | `DayValue` tagged union vs. serialized (JSON/postcard) | `DayValue`, with the JNI packed-frame exception ([§15.3](#153-dayffi-the-c-abi-superseded--never-built)) |
 | DP-4 | `day bindgen` codegen for polyglot stubs | v1 hand-written conventions vs. generator in MVP | hand-written v1; generator M9+ |
-| DP-5 | iOS/macOS project generation | checked-in template `.xcodeproj` (flutter-style) vs. xcodegen/tuist dependency | template (no extra toolchain; scaffold-version handshake [§17.3](#173-daytoml) covers evolution); revisit if pbxproj churn hurts |
+| DP-5 | iOS/macOS project generation | built-in generation vs. external xcodegen/tuist dependency | derive Xcode 27+ JSON5 project.xcproj under build/day/xcode; explicit --persist-xcode-project for app-owned overrides; parse with ycode-project |
 | DP-6 | Windows installer | `.msix` primary + `.msi` (WiX) optional vs. msi-only | msix primary, msi optional; note Azure Trusted Signing onboarding constraints (individual/org verification, subscription) affect who can sign — [§16.5](#165-subcommands)'s provider enum keeps alternatives open |
 | DP-7 | bundling GTK/Qt into macOS/Windows apps for `pack` | support post-MVP vs. never (dev-only combos) | post-MVP support for qt (windeployqt/macdeployqt exist; **LGPL-3** obligations enforced by pack, [§16.5](#165-subcommands)); gtk (**LGPL-2.1+**, different obligations) stays dev-only until demand |
 | DP-8 | web-html layout strategy | day-absolute-positioning (as specced) vs. hybrid with browser flow | start absolute + native `scroll`; evaluate hybrid in the experiment — *outcome (2026-07): `day-dom` shipped exactly this hybrid ([§9](#9-the-eight-toolkits-and-the-extra-combinations), [docs/web.md](docs/web.md))* |
@@ -5965,7 +6006,7 @@ points (DP-16–DP-25)**.
   `day_register_pieces` symbol was a guaranteed duplicate-symbol link failure on static iOS);
   generated aggregator packages (`DayGeneratedPieces` / `day-pieces.gradle.kts`) instead of
   pbxproj mutation and `includeBuild`.
-- **CLI/scaffold**: `ENABLE_USER_SCRIPT_SANDBOXING=NO` + `alwaysOutOfDate` in the pbxproj template
+- **CLI/scaffold**: `ENABLE_USER_SCRIPT_SANDBOXING=NO` + `run-on-every-build` in the JSON5 project template
   (Xcode 15+ blocks the callback otherwise); dayscript port-0 handshake files +
   bind-only-when-invited (five parallel targets collide on loopback; the engine never listens
   uninvited).

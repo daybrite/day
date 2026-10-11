@@ -172,7 +172,7 @@ struct Extracted {
 pub fn ensure_split(project: &Project, platform: &str) -> Result<(), String> {
     let dir = project.root.join("platform").join(platform);
     let pbx_path = dir.join("DayApp.xcodeproj/project.pbxproj");
-    if !pbx_path.exists() {
+    if crate::xcode::path(&project.root, platform).exists() || !pbx_path.exists() {
         return Ok(());
     }
     let xcc_path = dir.join("DayApp.xcconfig");

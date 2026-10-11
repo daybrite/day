@@ -1,10 +1,10 @@
 // Build settings for the Day macOS app, split out of DayApp.xcodeproj so they can be edited
-// and diffed as plain text. Xcode reads this file as the base configuration of the project
-// and the Runner target; values set per-config in Xcode's Build Settings editor and the
-// command-line settings `day build`/`day pack` pass still override anything here.
+// and diffed as plain text. Xcode reads this file as the project base configuration;
+// the Runner target inherits those settings. Values set in Xcode's Build Settings editor
+// and command-line settings from `day build`/`day pack` still override anything here.
 //
 // Any Xcode build setting can be added to this file. To see every setting with its current
-// value, run:  xcodebuild -showBuildSettings -project DayApp.xcodeproj
+// value, prepare/open the project with: day open -t macos-appkit
 // Reference:   https://developer.apple.com/documentation/xcode/build-settings-reference
 
 // ===========================================================================
@@ -15,7 +15,7 @@
 // not run `day build` yet. Change the app id in Day.toml [app] and the version in
 // Cargo.toml [package].
 // The app's name: the .app bundle, the executable, and what Xcode shows.
-// Renaming a fork is this line (plus the id below) and nothing in the pbxproj.
+// Renaming a fork is this line (plus the id below) and nothing in project.xcproj.
 PRODUCT_NAME = {{pascal}}
 // The name on the home screen. The generated include below rewrites it from Day.toml [app]
 // title on every `day build`; this line only carries a checkout that has not built yet.

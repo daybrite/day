@@ -19,9 +19,11 @@ categories = ["development-tools::build-utils", "gui"]
 # constant string can never drift from the staged native name.
 [dependencies]
 # Compiles a bridge crate's generated C/C++ arm (docs/bridge.md). Already the workspace's
-# C compiler driver; day-qt-sys and day-xaml-sys build their shims with it. The floor is the
-# version Cargo.lock resolves, so a downstream build never picks a `cc` older than CI tested.
-cc = "1.6"
+# C compiler driver; day-qt-sys and day-xaml-sys build their shims with it. The floor names a
+# real minor rather than a bare `^1` (what lib.rs flags), and stays low on purpose: an app's
+# committed lock pins its own `cc`, and a floor above that pin fails its build outright
+# (Day-Showcase locks 1.4.0) instead of merely resolving an older version.
+cc = "1.4"
 day-fonts = { workspace = true }
 # Parse app `.ftl` files to extract each message's parameters (§18.5 `res::str`): the same parser
 # `fluent-bundle` (the runtime engine) is built on, so the keys/params we generate match what

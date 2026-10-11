@@ -466,6 +466,15 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
     if project.manifest.shortcuts.is_empty() {
         return Ok(());
     }
+    let json = crate::xcode::path(&project.root, "ios");
+    if json.exists() {
+        crate::xcode::ensure_strings_phase(&json)?;
+        let shim = project.root.join("platform/ios/day-cli.sh");
+        if !shim.exists() {
+            std::fs::write(&shim, DAY_CLI_SHIM).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
     let pbxproj = project
         .root
         .join("platform/ios/DayApp.xcodeproj/project.pbxproj");

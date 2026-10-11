@@ -44,6 +44,8 @@ day-script-proto = { workspace = true }
 plist = "1"
 # HarmonyOS JSON5: round-trip parsing retains comments and whitespace during manifest edits.
 json-five = "=0.3.1"
+# Xcode 27 JSON5 project model and comment-preserving edits (marcprux/ycode).
+ycode-project = "0.1.2"
 sha2 = "0.11"
 # The screenshot bundle (`day screenshot pack` / `unpack`, src/screenshot.rs): a `.tar.xz` of
 # uncompressed PNG files, which an xz window of hundreds of megabytes compresses across captures

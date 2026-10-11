@@ -83,12 +83,15 @@ controls, with links to the platform’s API documentation.
 ### macOS (`macos-appkit`) — [full page](/docs/platforms/macos-appkit)
 [Tier 1 · Supported](/docs/platforms#support-tiers)
 Day drives AppKit directly through `objc2`, with a native menu bar, dialogs, and window
-management. Packaging produces a signed, notarized `.dmg` when credentials are configured
+management. Builds require full **Xcode 27 or newer** for the JSON5 host project.
+Packaging produces a signed, notarized `.dmg` when credentials are configured
 ([packaging](/docs/packaging)).
 
 ### iOS (`ios-uikit`) — [full page](/docs/platforms/ios-uikit)
 [Tier 1 · Supported](/docs/platforms#support-tiers)
-The scaffold is a checked-in Xcode project whose build phase calls back into `day` for the
+Day derives a JSON5 Xcode project under `build/day/xcode/`, requiring **Xcode 27 or newer**.
+A checked-in project remains an optional customization override.
+Its build phase calls back into `day` for the
 Rust static library, so Xcode, `day launch`, and CI all build the same way. Day-to-day
 development targets the Simulator; App Store `.ipa` export exists in `day pack` and needs your
 Apple credentials. Without `signing.ios` configuration, the output is an unsigned device archive

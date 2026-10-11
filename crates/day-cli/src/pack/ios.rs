@@ -129,7 +129,9 @@ pub fn pack(
     crate::ops::apply_determinism(&mut cmd);
     crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
-        .args(["-project", "DayApp.xcodeproj", "-scheme", "Runner"])
+        .arg("-project")
+        .arg(crate::xcode::project_dir(&project.root, "ios"))
+        .args(["-scheme", "Runner"])
         .args(["-configuration", "Release"])
         .args(["-destination", "generic/platform=iOS"])
         .arg("-archivePath")
@@ -320,25 +322,33 @@ pub(crate) fn export_options(
 }
 
 /// `xcodebuild archive` needs a scheme (targets aren't archivable). The scaffold ships none, but
-/// the pbxproj carries stable synthetic ids, so generate a shared Runner scheme on demand, parsing
-/// the native-target id and product name out of the pbxproj.
+/// the host carries a stable Runner id. Read its product and id from project.xcproj when
+/// present, falling back to the legacy PBX host.
 fn ensure_shared_scheme(project: &Project) -> Result<(), String> {
-    let xcodeproj = project.root.join("platform/ios/DayApp.xcodeproj");
+    let xcodeproj = crate::xcode::ensure(project, "ios")?;
     let scheme = xcodeproj.join("xcshareddata/xcschemes/Runner.xcscheme");
     if scheme.exists() {
         return Ok(());
     }
-    let pbxproj = std::fs::read_to_string(xcodeproj.join("project.pbxproj"))
-        .map_err(|e| format!("read pbxproj: {e}"))?;
-    let target_id =
-        find_native_target_id(&pbxproj).ok_or("no PBXNativeTarget found in project.pbxproj")?;
-    let product = pbxproj
-        .lines()
-        .find(|l| l.contains("explicitFileType = wrapper.application"))
-        .and_then(|l| l.split("path = ").nth(1))
-        .and_then(|s| s.split(';').next())
-        .map(str::trim)
-        .ok_or("no application product reference in project.pbxproj")?;
+    let (target_id, product) = if xcodeproj.join("project.xcproj").exists() {
+        crate::xcode::scheme_identity(&xcodeproj.join("project.xcproj"))?
+    } else {
+        let pbxproj = std::fs::read_to_string(xcodeproj.join("project.pbxproj"))
+            .map_err(|e| format!("read pbxproj: {e}"))?;
+        let target_id =
+            find_native_target_id(&pbxproj).ok_or("no PBXNativeTarget found in project.pbxproj")?;
+        let product = pbxproj
+            .lines()
+            .find(|l| l.contains("explicitFileType = wrapper.application"))
+            .and_then(|l| l.split("path = ").nth(1))
+            .and_then(|s| s.split(';').next())
+            .map(str::trim)
+            .ok_or("no application product reference in project.pbxproj")?
+            .to_owned();
+        (target_id, product)
+    };
+    let target_id = xml_attribute(&target_id);
+    let product = xml_attribute(&product);
     std::fs::create_dir_all(scheme.parent().unwrap()).map_err(|e| e.to_string())?;
     let xml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -362,6 +372,15 @@ fn ensure_shared_scheme(project: &Project) -> Result<(), String> {
     std::fs::write(&scheme, xml).map_err(|e| e.to_string())?;
     status("Generated", &format!("{}", scheme.display()));
     Ok(())
+}
+
+fn xml_attribute(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
 }
 
 /// The 24-hex-digit object id of the first PBXNativeTarget (`XXXX /* Name */ = {` whose next line
@@ -438,7 +457,9 @@ fn unsigned_ipa(
     crate::ops::apply_determinism(&mut cmd);
     crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/ios"))
-        .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+        .arg("-project")
+        .arg(crate::xcode::ensure(project, "ios").map_err(PackError::Other)?)
+        .args(["-target", "Runner"])
         .args(["-configuration", "Release", "-sdk", "iphoneos"])
         .args(["-arch", "arm64"])
         .arg(format!("SYMROOT={}", symroot.display()))
@@ -541,6 +562,69 @@ mod tests {
         assert!(plist.contains(
             "<key>dev.example.app</key><string>f33f4b74-2104-48e9-808c-ed82515fa918</string>"
         ));
+    }
+
+    #[test]
+    fn shared_scheme_preserves_readable_and_legacy_json_target_ids() {
+        // Synthetic app fixture; no repository or Git commands are involved.
+        let root = std::env::temp_dir().join(format!("day-scheme-json-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("platform/ios/DayApp.xcodeproj")).unwrap();
+        let project = Project {
+            root: root.clone(),
+            manifest: toml::from_str(
+                "schema = 1\n[app]\nid = 'dev.example.fixture'\ntitle = 'Fixture'\n",
+            )
+            .unwrap(),
+        };
+        let source = crate::template::builtin_app()
+            .into_iter()
+            .find(|f| f.path == "platform/ios/DayApp.xcodeproj/project.xcproj")
+            .unwrap();
+        let json = root.join(&source.path);
+        let scheme =
+            root.join("platform/ios/DayApp.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme");
+        for id in ["Runner", "DA0000000000000000000020"] {
+            let mut doc = ycode_project::ProjectDocument::parse(
+                String::from_utf8(source.bytes.clone()).unwrap(),
+            )
+            .unwrap();
+            doc.set("/targets/0/id", id.into()).unwrap();
+            std::fs::write(&json, doc.source()).unwrap();
+            let _ = std::fs::remove_file(&scheme);
+            ensure_shared_scheme(&project).unwrap();
+            let xml = std::fs::read_to_string(&scheme).unwrap();
+            assert!(xml.contains(&format!("BlueprintIdentifier=\"{id}\"")));
+            assert!(xml.contains("BuildableName=\"DayApp.app\""));
+            // Existing shared schemes, including custom actions, remain untouched.
+            let customized = format!("{xml}<!-- fixture custom action -->");
+            std::fs::write(&scheme, &customized).unwrap();
+            ensure_shared_scheme(&project).unwrap();
+            assert_eq!(std::fs::read_to_string(&scheme).unwrap(), customized);
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn archive_scheme_is_written_beside_the_generated_host() {
+        let root = std::env::temp_dir().join(format!("day-scheme-derived-{}", std::process::id()));
+        let host = root.join("platform/ios");
+        std::fs::create_dir_all(host.join("Runner")).unwrap();
+        for file in ["Runner/main.swift", "Runner/Info.plist", "day-cli.sh"] {
+            std::fs::write(host.join(file), "synthetic fixture").unwrap();
+        }
+        std::fs::write(host.join("DayApp.xcconfig"), "PRODUCT_NAME = Fixture\n").unwrap();
+        let project = Project {
+            root: root.clone(),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'dev.example.fixture'\n").unwrap(),
+        };
+        ensure_shared_scheme(&project).unwrap();
+        assert!(!host.join("DayApp.xcodeproj").exists());
+        let scheme = root
+            .join("build/day/xcode/ios/DayApp.xcodeproj/xcshareddata/xcschemes/Runner.xcscheme");
+        let xml = std::fs::read_to_string(scheme).unwrap();
+        assert!(xml.contains("BlueprintIdentifier=\"Runner\""));
+        assert!(xml.contains("BuildableName=\"Fixture.app\""));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -38,7 +38,7 @@ my-app/
 ├── website/                  # optional app-site scaffold (skip with --no-website)
 ├── .github/workflows/ci.yml  # the shared Day workflow on every target above (skip with --no-github, with .gitignore and the git repository)
 ├── platform/
-│   ├── ios/                  # Xcode scaffold: DayApp.xcodeproj + a thin Swift Runner
+│   ├── ios/                  # Apple host sources: thin Swift Runner + DayApp.xcconfig
 │   └── android/              # Gradle scaffold: settings/app modules, AndroidManifest, theme
 ├── platform/ohos/            # HarmonyOS scaffold: hvigor ArkTS host + sign-hap.mjs
 └── build/day/                # generated: cargo target dirs, staged resources, screenshots
@@ -128,7 +128,7 @@ day build -t ios-uikit
 │                                are scanned and exported as crate::swiftui::… bindings;
 │                                [package.metadata.day.macos] is the appkit twin
 │
-└── xcodebuild  platform/ios/DayApp.xcodeproj  (Runner target, iphonesimulator arm64)
+└── xcodebuild  build/day/xcode/ios/DayApp.xcodeproj  (Runner target, iphonesimulator arm64)
         │
         ├── script phase: "day xcode-backend build"
         │       └── cargo rustc --crate-type staticlib --target aarch64-apple-ios-sim
@@ -144,11 +144,67 @@ xcrun simctl install booted … && simctl launch          (day launch)
 The callback design means opening `platform/ios` in Xcode and pressing Run also works, because the
 build phase calls back into `day` for the Rust half.
 
+### Xcode project format
+
+macOS and iOS hosts use JSON5 `project.xcproj` files requiring **Xcode 27 or newer**.
+By default, no `.xcodeproj` folder is checked in. `day build`, `day launch`, `day pack`,
+`day prepare`, and `day open` derive the project under
+`build/day/xcode/<macos|ios>/DayApp.xcodeproj/`. This folder is disposable and recreated
+when needed; edits to its project document are replaced on the next preparation.
+The Swift sources, `Info.plist`, `day-cli.sh`, and editable `DayApp.xcconfig` remain under
+`platform/<macos|ios>/`. Generated projects derive their locales from `resource/locales/`.
+
+Open a prepared project with:
+
+```sh
+day open -t macos-appkit
+day open -t ios-uikit
+# Generate/prepare it and print the path without opening Xcode:
+day open -t ios-uikit --print-path
+```
+
+VS Code's **Open in Xcode** asks the CLI for this path, so it also works before the first
+build. `--format json` returns the path in an `open` result object for editor integrations.
+
+For targets, build phases, or other project customizations beyond Day's generated layout,
+opt into a persistent project (also works for an already-declared target):
+
+```sh
+day project add-target macos-appkit,ios-uikit --persist-xcode-project
+```
+
+This writes `platform/<macos|ios>/DayApp.xcodeproj/project.xcproj` without overwriting an
+existing project. A checked-in project always takes precedence over generated output;
+Day does not regenerate it. Use `--template` as well for a custom project template.
+To return to automatic generation, first preserve any customizations you need, then
+remove the persistent `.xcodeproj` folder. Ordinary build settings can stay in
+`DayApp.xcconfig` without requiring a persistent project.
+
+Legacy checked-in `project.pbxproj` projects remain supported, with a modernization
+warning from `day lint`. Convert a custom project with Xcode 27:
+
+```sh
+xcodebuild -project platform/macos/DayApp.xcodeproj -convert-project "Xcode Project"
+xcodebuild -project platform/ios/DayApp.xcodeproj -convert-project "Xcode Project"
+```
+
+Review each conversion and remove any obsolete legacy file. If conversion creates a
+recursive `../..` file reference, replace it with an explicit group of app sources:
+otherwise Xcode opens generated DayPieces folders before SwiftPM can load them.
+`day lint` validates persistent projects or derives the default document in memory,
+without requiring generated packages or writing build output.
+
+The templates omit optional product IDs, upgrade history, and duplicated target
+configurations. Xcode still requires a stable target ID; Day uses the readable
+`"id": "Runner"`. Keep it stable when renaming a target, because schemes and other
+projects may reference it. Existing converted hexadecimal IDs remain supported.
+
 ### Xcode build settings
 
 Both Xcode scaffolds keep their editable build settings in a committed
 `platform/<ios|macos>/DayApp.xcconfig` rather than inside the `.xcodeproj`, so they read and diff as
-plain text. Every build configuration uses it as its base configuration, and it ends with two
+plain text. Each project configuration uses it as its base configuration; Runner inherits
+those settings without repeating the configuration entries. The file ends with two
 optional includes:
 
 ```text

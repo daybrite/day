@@ -702,6 +702,15 @@ pub fn migrate(project: &Project) -> Result<(), String> {
     // The host projects: Xcode file references and the Gradle source set.
     let mut rewritten = Vec::new();
     for (platform, host) in [("ios", "ios"), ("macos", "macos")] {
+        let json = crate::xcode::path(root, platform);
+        if json.exists() {
+            if crate::xcode::point_assets_at_host(&json, host)? {
+                rewritten.push(format!(
+                    "platform/{platform}/DayApp.xcodeproj/project.xcproj"
+                ));
+            }
+            continue;
+        }
         let rel = format!("platform/{platform}/DayApp.xcodeproj/project.pbxproj");
         let path = root.join(&rel);
         if let Ok(text) = std::fs::read_to_string(&path) {

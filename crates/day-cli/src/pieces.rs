@@ -1372,7 +1372,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     prune_except(&sources, &expected.into_iter().collect());
 
     // A project declaring no target at all gets day-uikit's floor, the scaffold's value.
-    let pbx = pbxproj_ios_target(project).unwrap_or_else(|| "15.0".into());
+    let pbx = apple_ios_target(project).unwrap_or_else(|| "15.0".into());
     let floor = ios_package_floor(&pbx, pieces.platform.as_deref());
     write_if_changed(
         &pkg_dir.join("Package.swift"),
@@ -1408,17 +1408,20 @@ fn ios_package_floor(app_target: &str, contributed: Option<&str>) -> String {
 
 /// The scaffold's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across every place it can
 /// be set), parsed tolerantly; `None` when nothing declares it. Since the xcconfig split
-/// (§17.4) the setting normally lives in `DayApp.xcconfig`; the pbxproj is still read for
-/// pre-split projects and hand-added per-config overrides. The same line parser serves both
-/// formats (the xcconfig just has no trailing `;`, which the parser already trims).
-fn pbxproj_ios_target(project: &Project) -> Option<String> {
+/// (§17.4) the setting normally lives in `DayApp.xcconfig`. JSON5 Runner/project overrides
+/// take precedence over the legacy file; pre-split PBX hosts remain readable.
+fn apple_ios_target(project: &Project) -> Option<String> {
     [
         "platform/ios/DayApp.xcodeproj/project.pbxproj",
         "platform/ios/DayApp.xcconfig",
     ]
     .iter()
+    .filter(|rel| {
+        !rel.ends_with("project.pbxproj") || !crate::xcode::path(&project.root, "ios").exists()
+    })
     .filter_map(|rel| std::fs::read_to_string(project.root.join(rel)).ok())
     .filter_map(|text| ios_target_from_pbxproj(&text))
+    .chain(crate::xcode::ios_deployment_targets(&project.root))
     .reduce(|a, b| max_platform(&a, &b))
 }
 
@@ -2551,15 +2554,21 @@ mod tests {
     }
 
     #[test]
-    fn ios_target_parses_from_the_scaffold_pbxproj() {
+    fn ios_target_parses_from_the_scaffold_xcconfig() {
         // Since the xcconfig split (§17.4) the scaffold declares the floor in
-        // DayApp.xcconfig (the floor override maxes against that value), and the pbxproj
+        // DayApp.xcconfig (the floor override maxes against that value), and project.xcproj
         // must not redeclare it (a buildSettings value would override the xcconfig, leaving
         // the committed setting dead).
         let root = concat!(env!("CARGO_MANIFEST_DIR"), "/templates/app/platform/ios");
-        let pbx = std::fs::read_to_string(format!("{root}/DayApp.xcodeproj/project.pbxproj"))
-            .expect("template pbxproj");
-        assert_eq!(ios_target_from_pbxproj(&pbx), None);
+        let json =
+            crate::xcode::open(&std::path::Path::new(root).join("DayApp.xcodeproj/project.xcproj"))
+                .unwrap();
+        assert!(
+            !json
+                .project()
+                .build_settings
+                .contains_key("IPHONEOS_DEPLOYMENT_TARGET")
+        );
         let xcc =
             std::fs::read_to_string(format!("{root}/DayApp.xcconfig")).expect("template xcconfig");
         assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("15.0"));

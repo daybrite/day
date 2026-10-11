@@ -763,17 +763,6 @@ pub fn build(
     // build a developer gets pressing Run in Xcode. (The bare-cargo path this replaced was
     // retired 2026-08; the shared artifact stamping below keeps `--skip-build` reuse.)
     let outcome = if target.name == "macos-appkit" {
-        if !project
-            .root
-            .join("platform/macos/DayApp.xcodeproj")
-            .is_dir()
-        {
-            return Err(format!(
-                "macos-appkit builds through the Xcode host project, and this app has no \
-                 platform/macos/DayApp.xcodeproj.\n  {}",
-                "Run `day project add-target macos-appkit` to adopt the scaffold."
-            ));
-        }
         crate::mobile::build_macos_xcode(project, target, profile, start)
     } else {
         build_native(project, target, profile, start)
@@ -1901,46 +1890,57 @@ mod wait_tests {
 /// has already run `crate::icon::ensure`, so the catalogs and media the project references
 /// exist. Xcode and DevEco Studio are macOS applications; Android Studio is opened through
 /// `open -a` on macOS and the `studio` launcher elsewhere.
-pub fn open_native(
+pub fn native_project(
     project: &Project,
     target: &'static crate::targets::Target,
-) -> Result<(), crate::cli::CliError> {
-    let (dir, app): (PathBuf, &str) = match target.name {
-        "ios-uikit" => (project.root.join("platform/ios/DayApp.xcodeproj"), "Xcode"),
-        "macos-appkit" => (
-            project.root.join("platform/macos/DayApp.xcodeproj"),
-            "Xcode",
-        ),
+) -> Result<(PathBuf, &'static str), String> {
+    let pair = match target.name {
+        "ios-uikit" => {
+            crate::mobile::prepare_ios(project)?;
+            (crate::xcode::ensure(project, "ios")?, "Xcode")
+        }
+        "macos-appkit" => {
+            crate::xcconfig::ensure_split(project, "macos")?;
+            crate::xcconfig::write_generated(project, "macos")?;
+            crate::resources::stage(project, target)?;
+            crate::pieces::write_macos_pieces(project)?;
+            (crate::xcode::ensure(project, "macos")?, "Xcode")
+        }
         "android-mdc" => (project.root.join("platform/android"), "Android Studio"),
         "harmony-arkui" => (crate::ohos::staged_harmony_dir(project), "DevEco-Studio"),
-        other => {
-            return Err(crate::cli::CliError::usage(format!(
-                "{other} has no native IDE project to open (Xcode: ios-uikit, macos-appkit; \
-                 Android Studio: android-mdc; DevEco Studio: harmony-arkui)"
-            )));
-        }
+        other => return Err(format!("{other} has no native IDE project to open")),
     };
+    if !pair.0.exists() {
+        return Err(format!(
+            "{} is missing — the {} host was never scaffolded",
+            pair.0.display(),
+            pair.1
+        ));
+    }
+    Ok(pair)
+}
+
+pub fn open_native(dir: &Path, app: &str) -> Result<(), crate::cli::CliError> {
     if !dir.exists() {
         return Err(crate::cli::CliError::usage(format!(
-            "{} is missing — the {app} host project for {} was never scaffolded",
-            dir.display(),
-            target.name
+            "{} is missing — the {app} host project was never scaffolded",
+            dir.display()
         )));
     }
     status(
         "Opening",
-        &format!("{} in {app}", crate::git::display_path(&dir)),
+        &format!("{} in {app}", crate::git::display_path(dir)),
     );
     let ok = if cfg!(target_os = "macos") {
         let mut cmd = Command::new("open");
         if app != "Xcode" {
             cmd.arg("-a").arg(app);
         }
-        cmd.arg(&dir).status().map(|s| s.success()).unwrap_or(false)
+        cmd.arg(dir).status().map(|s| s.success()).unwrap_or(false)
     } else if app == "Android Studio" {
         ["studio", "studio.sh", "studio64"]
             .iter()
-            .any(|bin| Command::new(bin).arg(&dir).spawn().is_ok())
+            .any(|bin| Command::new(bin).arg(dir).spawn().is_ok())
     } else {
         false
     };

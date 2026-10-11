@@ -260,7 +260,7 @@ day localize list
 ```
 
 `add` copies the default locale's Fluent files. It also adds a store listing table, an Xcode
-`knownRegions` entry, and a locale in `website/site.toml` when those files exist. Supported
+persistent `project.xcproj` localization (or a legacy `knownRegions` entry), and a locale in `website/site.toml` when those files exist. Generated Xcode projects derive their locales from the Fluent directories on preparation. Supported
 starter messages receive translations; other app messages keep the copied text under a
 `TODO: translate` comment. Store text is copied without that comment because it may be uploaded.
 

@@ -23,6 +23,31 @@ own native shim (day-xaml-sys, the `day-piece-*`/`day-tweak-*` crates, and the s
 Build scripts emit `cargo:rerun-if-env-changed=` for their overrides, so changing one re-runs
 the affected script instead of keeping stale results.
 
+## macOS and iOS
+
+Building `macos-appkit` or `ios-uikit` requires **full Xcode 27 or newer**. Day's
+macOS and iOS templates use `DayApp.xcodeproj/project.xcproj`, Xcode 27's JSON5
+project format. The project is derived under `build/day/xcode/<platform>/` by default;
+`day project add-target <target> --persist-xcode-project` creates an app-owned override
+under `platform/`. `day open -t <target>` prepares and opens either form.
+Command-line tools alone cannot build these hosts.
+
+Select the installation with `sudo xcode-select -s /Applications/Xcode.app`, or set
+`DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer` for one shell. Run
+`day doctor --toolkit appkit --toolkit uikit` to check the selected Xcode version.
+
+Legacy `project.pbxproj` projects remain supported, but `day lint` warns to modernize:
+
+```sh
+xcodebuild -project platform/macos/DayApp.xcodeproj -convert-project "Xcode Project"
+xcodebuild -project platform/ios/DayApp.xcodeproj -convert-project "Xcode Project"
+```
+
+Review the conversion before removing any remaining legacy file. `day lint` uses
+[ycode](https://github.com/marcprux/ycode) to parse the JSON5 project and validate
+Runner, configurations, Rust/resource callbacks, script sandboxing, and DayPieces
+references. Generated packages and assets need not exist for linting a fresh checkout.
+
 ## Windows
 
 | Variable | Meaning | Fallback when unset |

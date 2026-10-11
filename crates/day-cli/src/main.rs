@@ -56,6 +56,7 @@ mod update;
 mod url_handlers;
 mod web;
 mod xcconfig;
+mod xcode;
 
 fn main() {
     // Before anything else, and while this is the only thread: undo a snap-packaged host's

@@ -45,6 +45,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [search](/docs/internal/search) | searchable() surfaces per platform |
 | [cover](/docs/internal/cover) | fullscreen covers and dismissal control |
 | [inspector](/docs/internal/inspector) | the trailing properties pane: native splits, the compact sheet |
+| [split](/docs/internal/split) | two panes and a dragged divider: native splitters, the composed tier |
 | [focus](/docs/internal/focus) | keyboard focus as a signal: bindings, rules, per-backend map |
 | [cursor](/docs/internal/cursor) | the pointer's shape over a piece: one vocabulary, per-toolkit realization, toolkit-only extras |
 | [list](/docs/internal/list) | the native recycling list: row protocol, heights, selection |

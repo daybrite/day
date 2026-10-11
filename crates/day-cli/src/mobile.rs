@@ -275,8 +275,10 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
     let platform = get("PLATFORM_NAME").unwrap_or_else(|| "iphonesimulator".into());
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
 
-    // platform/ios/ → project root two levels up.
-    let root = project_dir.join("../..");
+    // Generated hosts export the app root; persistent hosts live two levels below it.
+    let root = get("DAY_PROJECT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_dir.join("../.."));
     let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     let profile = if configuration.to_lowercase().contains("release") {
@@ -437,8 +439,11 @@ pub fn xcode_backend_stage_resources() -> Result<(), CliError> {
         ));
     };
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
-    // platform/macos/ → project root two levels up.
-    let project = find_project(Some(&project_dir.join("../..")))
+    // Generated hosts export the app root; persistent hosts live two levels below it.
+    let root = get("DAY_PROJECT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_dir.join("../.."));
+    let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     // Refresh the vector caches (raster + glyph SVGs): cheap and idempotent, and an
     // IDE-initiated build has no earlier `day build` step to have done it.
@@ -494,8 +499,11 @@ pub fn xcode_backend_stage_strings() -> Result<(), CliError> {
         ));
     };
     let project_dir = get("PROJECT_DIR").map(PathBuf::from).unwrap_or_default();
-    // platform/ios/ → project root two levels up.
-    let project = find_project(Some(&project_dir.join("../..")))
+    // Generated hosts export the app root; persistent hosts live two levels below it.
+    let root = get("DAY_PROJECT_ROOT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| project_dir.join("../.."));
+    let project = find_project(Some(&root))
         .map_err(|e| CliError::usage(format!("day xcode-backend: {e}")))?;
     let bundle = PathBuf::from(tbd).join(res);
     crate::shortcuts::stage_ios_strings(&project, &bundle)
@@ -684,6 +692,7 @@ pub fn build_macos_xcode(
     crate::xcconfig::ensure_split(project, "macos")?;
     crate::xcconfig::write_generated(project, "macos")?;
     crate::pieces::write_macos_pieces(project)?;
+    let xcodeproj = crate::xcode::ensure(project, "macos")?;
     // The arch decision below feeds cargo first, then xcodebuild; the phase's own cargo run
     // finds it fresh (cargo_apple_staticlibs).
     let universal = std::env::var("DAY_MACOS_UNIVERSAL").is_ok_and(|v| v == "1");
@@ -703,7 +712,9 @@ pub fn build_macos_xcode(
     crate::ops::apply_determinism(&mut cmd);
     crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/macos"))
-        .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+        .arg("-project")
+        .arg(&xcodeproj)
+        .args(["-target", "Runner"])
         .args(["-configuration", configuration, "-sdk", "macosx"]);
     if universal {
         // Universal (arm64 + x86_64): opt-in, because the cargo half needs both Rust
@@ -1322,6 +1333,7 @@ pub fn build_ios_for(
     // Stage everything xcodebuild needs: the local DayPieces SwiftPM package the .xcodeproj links,
     // the UIAppFonts array, and the permission usage descriptions (docs/permissions.md).
     let floor = prepare_ios(project)?;
+    let xcodeproj = crate::xcode::ensure(project, "ios")?;
     let prov = if physical {
         installed_profile(&apple_app_id(project, "ios-uikit"))
     } else {
@@ -1344,7 +1356,9 @@ pub fn build_ios_for(
         crate::ops::apply_determinism(&mut cmd);
         crate::ops::apply_xcode_hygiene(&mut cmd);
         cmd.current_dir(project.root.join("platform/ios"))
-            .args(["-project", "DayApp.xcodeproj", "-target", "Runner"])
+            .arg("-project")
+            .arg(&xcodeproj)
+            .args(["-target", "Runner"])
             .args([
                 "-configuration",
                 configuration,

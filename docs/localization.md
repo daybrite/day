@@ -319,7 +319,11 @@ screenshot metadata. See [store listings](store.md) and [DayScript](https://dayb
 ## Adding and removing locales
 
 `day localize list` surveys the app root's Fluent directories, the store listing's locale tables, Xcode
-`knownRegions`, and website locale list. `day localize add <tags>` copies the default Fluent
+persistent `project.xcproj` localizations (or legacy `knownRegions`), and website locale list.
+Disposable Xcode projects derive their locales from the Fluent directories when prepared;
+localization commands do not edit build output.
+The JSON5 format requires Xcode 27 or newer. The development language is included in
+the survey even when omitted from `supported`; locale edits preserve project comments. `day localize add <tags>` copies the default Fluent
 files and updates the other surfaces when present. It translates recognized scaffold
 messages where a starter translation exists; the remaining messages need translation.
 Store text is copied verbatim. Existing locale directories are left in place.
