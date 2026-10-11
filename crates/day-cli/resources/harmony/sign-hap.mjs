@@ -28,17 +28,18 @@ if (!unsigned || !signed) {
   process.exit(2);
 }
 
-// Find the SDK's toolchains/lib (release signing material). setup-ohos-sdk puts it next to the NDK
-// (OHOS_NDK_HOME/../toolchains/lib); a full SDK has it under OHOS_BASE_SDK_HOME / DEVECO_SDK_HOME.
+// Find the SDK's toolchains/lib (release signing material): beside the `native` component the
+// CLI hands over as OHOS_SDK_NATIVE (the directory cargo-ohos resolved), else under a full SDK's
+// OHOS_BASE_SDK_HOME / DEVECO_SDK_HOME.
 function findLib() {
   const cands = [];
-  if (process.env.OHOS_NDK_HOME) cands.push(path.join(path.dirname(process.env.OHOS_NDK_HOME), 'toolchains', 'lib'));
+  if (process.env.OHOS_SDK_NATIVE) cands.push(path.join(path.dirname(process.env.OHOS_SDK_NATIVE), 'toolchains', 'lib'));
   if (process.env.OHOS_BASE_SDK_HOME) cands.push(path.join(process.env.OHOS_BASE_SDK_HOME, 'toolchains', 'lib'));
   if (process.env.DEVECO_SDK_HOME) cands.push(path.join(process.env.DEVECO_SDK_HOME, 'default', 'openharmony', 'toolchains', 'lib'));
   for (const c of cands) if (fs.existsSync(path.join(c, 'OpenHarmonyProfileRelease.pem'))) return c;
   throw new Error(
     'sign-hap: could not locate OpenHarmony signing material (OpenHarmonyProfileRelease.pem). ' +
-      'Set OHOS_NDK_HOME, OHOS_BASE_SDK_HOME, or DEVECO_SDK_HOME.',
+      'Set OHOS_SDK_NATIVE, OHOS_BASE_SDK_HOME, or DEVECO_SDK_HOME.',
   );
 }
 

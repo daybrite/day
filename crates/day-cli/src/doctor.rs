@@ -764,7 +764,9 @@ fn harmonyos_group() -> Group {
     use crate::ohos::BinaryFormat;
     let host = host_os();
     let native = BinaryFormat::for_host(host);
-    let ndk = crate::ohos::find_ohos_ndk().ok().map(PathBuf::from);
+    // The SDK's `native` component as cargo-ohos resolves it (ohos.rs), or why it could not.
+    let sdk_native = crate::ohos::sdk_native();
+    let ndk = sdk_native.as_deref().ok().map(PathBuf::from);
     // hdc ships next to the NDK, in the SDK's sibling toolchains/ dir; also accept it on PATH.
     let hdc = crate::ohos::find_tool("hdc").or_else(|| {
         let c = ndk
@@ -793,7 +795,16 @@ fn harmonyos_group() -> Group {
         label: "HarmonyOS · ArkUI",
         hosts: &["any"],
         probes: vec![
-            ndk_probe(ndk.as_deref(), native),
+            Probe::new(
+                "cargo-ohos",
+                run_line("cargo", &["ohos", "--version"]),
+                "cargo install --locked cargo-ohos (or `cargo binstall cargo-ohos`); it finds the \
+                 OpenHarmony SDK and drives the cross-compile",
+            ),
+            ndk_probe(
+                sdk_native.as_ref().map(Path::new).map_err(String::as_str),
+                native,
+            ),
             Probe::new(
                 "rust-ohos",
                 have_rust_target("aarch64-unknown-linux-ohos")
@@ -860,11 +871,15 @@ fn harmonyos_group() -> Group {
         .collect(),
         setup: "HarmonyOS (ArkUI) cross-compiles a Rust cdylib (libentry.so), packages a .hap with\n\
                 hvigor, signs it with node, and installs over hdc. Install:\n\
-                • the OpenHarmony SDK for THIS host OS — its `native` component as OHOS_NDK_HOME, and\n\
-                  the SDK as OHOS_BASE_SDK_HOME in the versioned layout hvigor requires,\n\
-                  <dir>/<api>/{ets,native,toolchains,…} (a symlink `18` → the SDK works). On Linux\n\
-                  the command-line-tools bundle carries it (sdk/default/openharmony); on macOS and\n\
-                  Windows use that host's public SDK. `hdc` lives in its toolchains/ dir\n\
+                • cargo-ohos — `cargo install --locked cargo-ohos` (or `cargo binstall cargo-ohos`).\n\
+                  It finds the OpenHarmony SDK and sets up the cross-compile\n\
+                • the OpenHarmony SDK for THIS host OS — `cargo ohos init sdk --api <level>` downloads\n\
+                  the public one into cargo-ohos's cache, already in the versioned layout hvigor\n\
+                  requires: point OHOS_BASE_SDK_HOME at its <version>/<host> directory. An SDK from\n\
+                  elsewhere (DevEco Studio's, the Linux command-line-tools' sdk/default/openharmony)\n\
+                  works too: its `native` dir as OHOS_SDK_NATIVE, and OHOS_BASE_SDK_HOME at a\n\
+                  <dir>/<api>/{ets,native,toolchains,…} view of it (a symlink `18` → the SDK works).\n\
+                  `hdc` lives in its toolchains/ dir\n\
                 • the OpenHarmony Rust targets — `rustup target add aarch64-unknown-linux-ohos\n\
                   x86_64-unknown-linux-ohos`\n\
                 • hvigor + ohpm — from the OpenHarmony command-line-tools (bundled with DevEco Studio);\n\
@@ -914,37 +929,37 @@ fn emulator_images_probe(dir: &Path) -> Probe {
     }
 }
 
-/// The NDK (`OHOS_NDK_HOME`): present, with a clang this host can run. An SDK for another OS
-/// (the Linux command-line-tools' NDK on a Mac, say) is found but fails to link.
-fn ndk_probe(ndk: Option<&Path>, native: Option<crate::ohos::BinaryFormat>) -> Probe {
-    let fix_missing = "set OHOS_NDK_HOME to the OpenHarmony SDK's `native` dir, from the SDK for this host OS \
-         (see docs/harmonyos.md)";
-    let Some(ndk) = ndk else {
-        return Probe::new("ohos-ndk", None, fix_missing);
+/// The SDK's `native` component (the NDK), as cargo-ohos resolved it (`Err` is its report of
+/// what it tried, or that it is not installed), with a clang this host can run. cargo-ohos
+/// only checks that the toolchain is on disk, so an SDK for another OS (the Linux
+/// command-line-tools' on a Mac, say) is found there but fails to link here.
+fn ndk_probe(native: Result<&Path, &str>, host: Option<crate::ohos::BinaryFormat>) -> Probe {
+    let ndk = match native {
+        Ok(ndk) => ndk,
+        Err(why) => return Probe::new("ohos-ndk", None, why),
     };
-    if !ndk.join("llvm").join("bin").is_dir() {
-        return Probe::new(
-            "ohos-ndk",
-            None,
-            format!("{} has no llvm/bin: {fix_missing}", ndk.display()),
-        );
-    }
     let clang = ndk
         .join("llvm")
         .join("bin")
         .join(crate::ohos::exe_name("clang"));
-    match (crate::ohos::BinaryFormat::of_file(&clang), native) {
+    match (crate::ohos::BinaryFormat::of_file(&clang), host) {
         (Some(found), Some(want)) if found != want => Probe::new(
             "ohos-ndk",
             None,
             format!(
-                "{} is the {} NDK, which this {} host can't run: use the SDK for this host OS",
+                "{} is the {} NDK, which this {} host can't run: use the SDK for this host OS \
+                 (`cargo ohos init sdk` downloads it)",
                 ndk.display(),
                 found.os(),
                 want.os()
             ),
         ),
-        _ => Probe::new("ohos-ndk", Some(ndk.display().to_string()), fix_missing),
+        _ => Probe::new(
+            "ohos-ndk",
+            Some(ndk.display().to_string()),
+            "set OHOS_SDK_NATIVE to the OpenHarmony SDK's `native` dir, from the SDK for this \
+             host OS, or `cargo ohos init sdk --api <level>` (docs/harmonyos.md)",
+        ),
     }
 }
 
@@ -1559,21 +1574,19 @@ mod tests {
     #[test]
     fn ndk_probe_rejects_an_ndk_for_another_host() {
         use crate::ohos::BinaryFormat as F;
-        assert!(ndk_probe(None, Some(F::Elf)).detail.is_none());
+        // cargo-ohos's own report stands as the fix when it found nothing.
+        let p = ndk_probe(
+            Err("cargo-ohos found no OpenHarmony SDK: tried …"),
+            Some(F::Elf),
+        );
+        assert!(p.detail.is_none() && p.fix.starts_with("cargo-ohos found no"));
         let t = Scratch::new("ndk");
         let clang = format!("llvm/bin/{}", crate::ohos::exe_name("clang"));
         t.file(&clang, b"\x7fELF\x02\x01");
-        assert!(ndk_probe(Some(&t.0), Some(F::Elf)).detail.is_some());
-        let p = ndk_probe(Some(&t.0), Some(F::MachO));
+        assert!(ndk_probe(Ok(&t.0), Some(F::Elf)).detail.is_some());
+        let p = ndk_probe(Ok(&t.0), Some(F::MachO));
         assert!(
             p.detail.is_none() && p.fix.contains("Linux NDK"),
-            "{}",
-            p.fix
-        );
-        let empty = Scratch::new("ndk-empty");
-        let p = ndk_probe(Some(&empty.0), Some(F::Elf));
-        assert!(
-            p.detail.is_none() && p.fix.contains("no llvm/bin"),
             "{}",
             p.fix
         );

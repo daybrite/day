@@ -208,8 +208,8 @@ OpenHarmony development certificate:
 ```text
 day build -t harmony-arkui
 │
-├── cargo rustc --crate-type cdylib --target x86_64-unknown-linux-ohos   (emulator; arm64 device)
-│       linker = $OHOS_NDK_HOME/llvm/bin/<triple>-clang
+├── cargo ohos rustc --crate-type cdylib --target x86_64-unknown-linux-ohos   (emulator; arm64 device)
+│       cross environment from the OpenHarmony SDK cargo-ohos resolves (OHOS_SDK_NATIVE)
 │       ────────► platform/ohos/entry/libs/<abi>/libentry.so
 │
 ├── hvigor assembleHap   platform/ohos/   (ohpm install first)

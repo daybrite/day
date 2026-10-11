@@ -21,13 +21,15 @@ shows.
 
 ## Getting started
 
-This toolchain takes the most setup steps of any Day supports. You need the OpenHarmony SDK plus
-the command-line tools (hvigor, `hdc`, the signing tools); `day doctor --toolkit harmonyos`
-checks each piece and prints setup help, and the [HarmonyOS notes](/docs/internal/harmonyos)
-cover the install in detail.
+This toolchain takes the most setup steps of any Day supports. You need
+[`cargo-ohos`](https://crates.io/crates/cargo-ohos), which downloads the OpenHarmony SDK and
+drives the cross-compile, plus the command-line tools (hvigor, `hdc`, the signing tools);
+`day doctor --toolkit harmonyos` checks each piece and prints setup help, and the
+[HarmonyOS notes](/docs/internal/harmonyos) cover the install in detail.
 
 ```sh
-cargo install day-cli
+cargo install --locked day-cli cargo-ohos
+cargo ohos init sdk --api 18
 day new app my-app --toolkit harmony-arkui
 cd my-app
 day build -t harmony-arkui       # cross-compiles, then hvigor → signed .hap

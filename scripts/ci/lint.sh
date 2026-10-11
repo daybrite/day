@@ -90,41 +90,42 @@ app_leg "clippy showcase (mock)" cargo clippy --no-default-features --features m
 
 # 3) Cross-target + feature-gated backends. Each pulls in its toolkit crate (day-android, day-arkui,
 #    day-appkit, …), the crates a host clippy never compiles.
+# The Android and OpenHarmony legs compile C too (bundled SQLite in day-persistence, ring under
+# day-part-http's fallback TLS, napi-ohos), and cc-rs never finds an NDK's cross clang on its own.
+# The same cargo subcommands `day build` drives supply the cross environment here: `cargo ndk-env`
+# prints cargo-ndk's (the compilers, archiver and bindgen args for the NDK it located), and
+# `cargo ohos clippy` runs clippy inside cargo-ohos's. Without the tool, or without an NDK for it
+# to find, the leg skips with the install hint rather than failing, the same posture as a missing
+# rustup target.
+HAVE_ANDROID_ENV=0
 if have_target aarch64-linux-android; then
-  # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and cc-rs
-  # never finds the NDK's API-suffixed clang on its own (`aarch64-linux-android-clang` does not
-  # exist in modern NDKs; the wrappers carry the API level). Derive CC_/AR_ from the NDK, the
-  # same posture as the ohos leg below; a caller's own values win. ANDROID_NDK_HOME first, then
-  # the conventional local installs.
-  ANDROID_NDK="${ANDROID_NDK_HOME:-}"
-  if [ -z "$ANDROID_NDK" ]; then
-    for cand in /opt/homebrew/share/android-ndk "$HOME/Library/Android/sdk/ndk"/* "$HOME/Android/Sdk/ndk"/*; do
-      [ -d "$cand/toolchains/llvm/prebuilt" ] && ANDROID_NDK="$cand"
-    done
-  fi
-  NDK_BIN="$(echo "$ANDROID_NDK"/toolchains/llvm/prebuilt/*/bin)"
-  if [ -x "$NDK_BIN/aarch64-linux-android24-clang" ]; then
-    export CC_aarch64_linux_android="${CC_aarch64_linux_android:-$NDK_BIN/aarch64-linux-android24-clang}"
-    export AR_aarch64_linux_android="${AR_aarch64_linux_android:-$NDK_BIN/llvm-ar}"
+  if ! command -v cargo-ndk >/dev/null 2>&1; then
+    skip "clippy android (mdc)" "cargo install cargo-ndk"
+  # `--platform 24`: the scaffold's minSdk (DayAndroidPlugin.MIN_SDK), the level `day build`
+  # passes cargo-ndk too, so the lint links against the same sysroot the APK ships for.
+  elif NDK_ENV="$(cargo ndk-env -t arm64-v8a --platform 24 2>/dev/null)"; then
+    eval "$NDK_ENV"
+    HAVE_ANDROID_ENV=1
     app_leg "clippy android (mdc)" cargo clippy --target aarch64-linux-android --lib \
       --no-default-features --features mdc -- "${XCROSS[@]}"
   else skip "clippy android (mdc)" "no Android NDK found (set ANDROID_NDK_HOME)"; fi
 else skip "clippy android (mdc)" "rustup target add aarch64-linux-android"; fi
 
-# arkui needs the OpenHarmony NDK for day-arkui-sys's build.rs and ring's C compile. CI exports
-# it; skip (don't fail) when it's absent locally, the same posture as a missing rustup target.
-if have_target aarch64-unknown-linux-ohos && [ -n "${OHOS_NDK_HOME:-}" ]; then
-  # ring's `cc` probe never finds the NDK's wrapper clang on its own (it isn't on PATH and
-  # carries the target triple in its name, not its location); without these the leg dies at
-  # `assert.h` from a host clang told to cross-compile. Derive them from the NDK the caller
-  # already pointed at; a caller's own CC_* values win.
-  export CC_aarch64_unknown_linux_ohos="${CC_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang}"
-  export CXX_aarch64_unknown_linux_ohos="${CXX_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/aarch64-unknown-linux-ohos-clang++}"
-  export AR_aarch64_unknown_linux_ohos="${AR_aarch64_unknown_linux_ohos:-$OHOS_NDK_HOME/llvm/bin/llvm-ar}"
-  app_leg "clippy harmonyos (arkui)" cargo clippy --target aarch64-unknown-linux-ohos --lib \
-    --no-default-features --features arkui -- "${XCROSS[@]}"
-elif have_target aarch64-unknown-linux-ohos; then
-  skip "clippy harmonyos (arkui)" "export OHOS_NDK_HOME to the OpenHarmony NDK native dir"
+if have_target aarch64-unknown-linux-ohos; then
+  if ! command -v cargo-ohos >/dev/null 2>&1; then
+    skip "clippy harmonyos (arkui)" "cargo install --locked cargo-ohos (or cargo binstall cargo-ohos)"
+  # cargo-ohos resolves the SDK (OHOS_SDK_NATIVE, DevEco Studio, or its own `cargo ohos init sdk`
+  # download) and exports it as OHOS_SDK_NATIVE; napi-ohos's build script still reads the NDK as
+  # OHOS_NDK_HOME, the one variable cargo-ohos does not set, so bridge it (crates/day-cli/ohos.rs
+  # does the same for `day build`).
+  elif OHOS_SDK_NATIVE_LINE="$(cargo ohos env --format sh -t aarch64 2>/dev/null | grep '^export OHOS_SDK_NATIVE=')"; then
+    eval "$OHOS_SDK_NATIVE_LINE"
+    export OHOS_NDK_HOME="$OHOS_SDK_NATIVE"
+    app_leg "clippy harmonyos (arkui)" cargo ohos clippy --target aarch64-unknown-linux-ohos --lib \
+      --no-default-features --features arkui -- "${XCROSS[@]}"
+  else
+    skip "clippy harmonyos (arkui)" "no OpenHarmony SDK: cargo ohos init sdk --api 18 --components native,toolchains (or set OHOS_SDK_NATIVE)"
+  fi
 else skip "clippy harmonyos (arkui)" "rustup target add aarch64-unknown-linux-ohos"; fi
 
 if have_target wasm32-unknown-unknown; then
@@ -170,7 +171,8 @@ if [ -d parts ]; then
     [ -f "$dir/Cargo.toml" ] || continue
     P="$(basename "$dir")"
     leg "clippy $P (host)" cargo clippy --locked -p "$P" --all-targets
-    if have_target aarch64-linux-android; then
+    # Under the cargo-ndk environment the mdc leg above imported, so a part's C compiles here too.
+    if [ "$HAVE_ANDROID_ENV" = 1 ]; then
       leg "clippy $P (android)" cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
       # …and again with the staged-bridge cfg, which compiles the other half of a bridged part.
       # A daybridge arm in a staged language (Java/Kotlin/Swift/ArkTS/JS) is behind
@@ -182,7 +184,7 @@ if [ -d parts ]; then
       RUSTFLAGS="$RUSTFLAGS --cfg day_bridge_staged" \
         leg "clippy $P (android, staged bridge)" \
         cargo clippy --locked --target aarch64-linux-android -p "$P" -- "${XCROSS[@]}"
-    else skip "clippy $P (android)" "rustup target add aarch64-linux-android"; fi
+    else skip "clippy $P (android)" "the Android cross environment (see the mdc leg's skip)"; fi
   done
 fi
 

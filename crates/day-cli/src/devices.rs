@@ -2441,8 +2441,9 @@ fn avd_homes() -> Vec<std::path::PathBuf> {
 fn ohos() -> Report {
     if !crate::ohos::hdc_available() {
         return Report::unavailable(
-            "hdc not found — install the OpenHarmony command-line tools, or set OHOS_NDK_HOME so \
-             its sibling toolchains/ dir is found",
+            "hdc not found — install the OpenHarmony command-line tools, or an SDK with its \
+             toolchains component (`cargo ohos init sdk --components native,toolchains`, or \
+             OHOS_SDK_NATIVE at one) so the sibling toolchains/ dir is found",
         );
     }
     let devices = crate::ohos::ohos_devices()

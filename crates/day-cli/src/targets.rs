@@ -10,7 +10,7 @@ pub enum TargetKind {
     Android,
     /// HarmonyOS Next / ArkUI: a Rust cdylib (`libentry.so`) loaded by an ArkTS host and mounted
     /// into a NodeContent, packaged into a `.hap` (see daybrite/Day-Showcase's platform/harmony). Cross-compiled
-    /// with the OpenHarmony NDK (`OHOS_NDK_HOME`); packaged/signed/run via DevEco Studio or hvigor.
+    /// with cargo-ohos against the OpenHarmony SDK it resolves; packaged/signed/run via DevEco Studio or hvigor.
     HarmonyOs,
     /// web-dom (DESIGN.md §9, docs/web.md): a wasm32 cdylib plus the day-dom host page,
     /// assembled into a servable `dist/`; `day launch` serves it over loopback and opens

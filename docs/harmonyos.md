@@ -104,32 +104,43 @@ will resolve from a different directory in the staged project.
 
 ## Local development environment
 
-1. **OpenHarmony SDK / NDK.** Easiest: install the **command-line-tools** (see Build & run), one
-   bundle carrying the NDK + hvigor + ohpm + node + `hdc` + signing material, and point
-   `OHOS_NDK_HOME` at its `sdk/default/openharmony/native`. On a Linux x86_64 host this bundle is
-   the whole toolchain: its SDK tools are native Linux binaries, so the build needs no other
-   download ([System requirements](https://daybrite.dev/docs/system-requirements#on-linux) has
-   the exact commands). On macOS those SDK tools don't run, so take the NDK from the public mac
-   SDK instead. For a Rust-only cross-compile you can also grab just the `native` NDK component
-   from the public SDK (no account needed):
+1. **cargo-ohos.** The cross-compile runs through [cargo-ohos](https://crates.io/crates/cargo-ohos),
+   openharmony-rs's cargo subcommand (the same org as the `ohos-sys` bindings). It locates the
+   OpenHarmony SDK and sets up the linker, the `cc-rs` compilers, bindgen, CMake and pkg-config
+   for the target, so `day build`, the lint script and a bare `cargo ohos clippy` share one cross
+   environment:
 
    ```bash
-   curl -LO https://repo.huaweicloud.com/openharmony/os/6.0-Release/L2-SDK-MAC-M1-PUBLIC.tar.gz
-   # extract → .../ohos-sdk/packages/ohos-sdk/darwin/native-*.zip → unzip → .../native
-   export OHOS_NDK_HOME=/path/to/ohos-sdk/native
+   cargo install --locked cargo-ohos      # or: cargo binstall cargo-ohos (prebuilt binaries)
    ```
 
-2. **Rust OHOS targets** (Tier 2 std via rustup; Homebrew rustc has none):
+2. **OpenHarmony SDK / NDK.** `cargo ohos init sdk` downloads the public SDK (no account needed)
+   into cargo-ohos's cache, where `cargo ohos` finds it with no variable set. The `native`
+   component is the NDK (the cross clang and its sysroot), `toolchains` carries `hdc` and the
+   signing material, and hvigor needs every component:
+
+   ```bash
+   cargo ohos init sdk --api 18                                    # everything, for hvigor too
+   cargo ohos init sdk --api 18 --components native,toolchains     # a Rust-only cross-compile
+   ```
+
+   An SDK from elsewhere works as well: the Linux **command-line-tools** bundle (see Build & run)
+   carries one at `sdk/default/openharmony`, and DevEco Studio installs one. Point
+   `OHOS_SDK_NATIVE` at its `native` directory (cargo-ohos also reads `OHOS_NDK_HOME`,
+   `OHOS_SDK_HOME` and `DEVECO_SDK_HOME`, and finds DevEco Studio's install on macOS by itself).
+   The SDK must be built for this host OS: the Linux bundle's tools don't run on macOS, so take
+   the download or the public mac SDK there.
+
+3. **Rust OHOS targets** (Tier 2 std via rustup; Homebrew rustc has none):
 
    ```bash
    rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
    ```
 
-   The NDK ships the linker wrappers `$OHOS_NDK_HOME/llvm/bin/<target>-clang`; point cargo at them
-   with `CARGO_TARGET_<TARGET>_LINKER`. (`day build` sets this itself, along with `CC_<target>`/
-   `AR_<target>` pointing at the NDK's clang and llvm-ar so `cc-rs` build scripts cross-compile
-   too; the exports only matter if you drive
-   bare cargo.)
+   `day build` adds a missing one itself. The one variable cargo-ohos does not set is
+   `OHOS_NDK_HOME`, which napi-ohos's build script reads for its link search paths: `day build`
+   and `scripts/ci/lint.sh` export it from the SDK cargo-ohos resolved; a bare `cargo ohos build`
+   needs it set by hand.
 
 ## Check your environment first
 
@@ -144,7 +155,8 @@ It checks what the build and launch actually use, on Linux, macOS, and Windows a
 
 | Check | Needed for | What it verifies |
 |---|---|---|
-| `ohos-ndk` | build | `OHOS_NDK_HOME` has `llvm/bin`, and its clang is a binary for this host OS |
+| `cargo-ohos` | build | `cargo ohos --version` runs |
+| `ohos-ndk` | build | cargo-ohos resolves an SDK `native` dir (`cargo ohos env`), and its clang is a binary for this host OS |
 | `rust-ohos` | build | an OHOS Rust target is installed |
 | `ohos-sdk` | build | `OHOS_BASE_SDK_HOME` is set, in the versioned `<dir>/<api>/` layout hvigor requires, holds the API level the current project's `compileSdkVersion` names, and its `toolchains/restool` runs on this host |
 | `hvigorw`, `ohpm` | build | on PATH, including Windows' `.bat`/`.cmd` launchers |
@@ -165,9 +177,10 @@ warning rather than an error, since you only need it if you build for HarmonyOS.
 
 The build has two halves with different tool needs:
 
-1. **The Rust cross-compile** (`libentry.so`) needs only the OpenHarmony **NDK**, the `native`
-   component of the public SDK, which downloads without a Huawei account. Point `OHOS_NDK_HOME` at it.
-   `hdc` (for install/launch) sits in the SDK's sibling `toolchains/` dir; `day` finds it there
+1. **The Rust cross-compile** (`libentry.so`) needs cargo-ohos and the OpenHarmony **NDK**, the
+   `native` component of the public SDK: `cargo ohos init sdk --components native,toolchains`
+   downloads it without a Huawei account, or point `OHOS_SDK_NATIVE` at one you have. `hdc` (for
+   install/launch) sits in the SDK's sibling `toolchains/` dir; `day` finds it there
    automatically, or you can put it on `PATH`.
 2. **Packaging the `.hap`** needs `hvigor` + `ohpm`. These are not in the public SDK; they ship with
    the OpenHarmony **command-line-tools** (bundled with DevEco Studio, or the Linux-x64 bundle at
@@ -180,13 +193,13 @@ whole flow works login-free on macOS and Linux.
 
 **Linux note.** The bundle's `bin/hvigorw` and `bin/ohpm` run directly, using the node under
 `tool/node/bin`; put both directories on `PATH` (Day's signing step runs `node`). Point
-`OHOS_NDK_HOME` at `sdk/default/openharmony/native` and `OHOS_BASE_SDK_HOME` at a versioned view
+`OHOS_SDK_NATIVE` at `sdk/default/openharmony/native` and `OHOS_BASE_SDK_HOME` at a versioned view
 of the same SDK:
 
 ```bash
 C=~/ohos-clt/command-line-tools
 mkdir -p ~/ohos/sdk && ln -sfn $C/sdk/default/openharmony ~/ohos/sdk/18
-export OHOS_NDK_HOME=$C/sdk/default/openharmony/native OHOS_BASE_SDK_HOME=~/ohos/sdk
+export OHOS_SDK_NATIVE=$C/sdk/default/openharmony/native OHOS_BASE_SDK_HOME=~/ohos/sdk
 export PATH=$C/bin:$C/tool/node/bin:$C/sdk/default/openharmony/toolchains:$PATH
 ```
 
@@ -205,8 +218,10 @@ SH
 chmod +x ~/ohos/bin/hvigorw ~/ohos/bin/ohpm
 ```
 
-Point `OHOS_NDK_HOME` at the public mac SDK's `native` dir and `OHOS_BASE_SDK_HOME` at a versioned
-SDK layout (`<dir>/<api>/…`, e.g. a symlink `18 -> .../openharmony`).
+The SDK `cargo ohos init sdk --api 18` downloads is the public mac one, cached already in the
+versioned layout hvigor wants: `cargo ohos` finds its `native` dir by itself, and
+`OHOS_BASE_SDK_HOME` is the `<version>/darwin` directory the download prints
+(`~/Library/Caches/cargo-ohos/ohos-sdk/5.1.0/darwin`, whose `18/` holds the components).
 
 ```bash
 cd Day-Showcase
@@ -387,14 +402,16 @@ packed into the `.hap`.
 
 ## CI
 
-The `harmony-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`macos-14`). The build
+The `harmony-arkui` job in `.github/workflows/ci.yml` runs on every push/PR (`ubuntu-24.04`). The build
 gates **hard** (clippy + cross-compile + `hvigorw assembleHap` + sign + `day doctor`); only the
 emulator boot + walkthrough are best-effort (`continue-on-error` per step) because the GitHub-hosted
 TCG emulator is slow and occasionally flaky. It downloads + caches the OpenHarmony
 **command-line-tools** (~2 GB) and then runs the real build pipeline:
 
 1. clippy the backend for the OHOS target, and cross-compile the full Day app to `libentry.so` for
-   the emulator (x86_64) and device (arm64) using the darwin SDK's NDK clang;
+   the emulator (x86_64) and device (arm64), both through cargo-ohos (pinned, installed with
+   install-action) against the Linux SDK from setup-ohos-sdk, whose `native` component the job
+   hands over as `OHOS_SDK_NATIVE`;
 2. `ohpm install`, then `hvigorw assembleHap`, a full hvigor build of the ArkTS host + `.hap`;
 3. patch + sign the `.hap` with `sign-hap.mjs` (compileSdkType → OpenHarmony + the public release
    material), then install/launch it on the Oniro emulator over `hdc` and drive the dayscript
@@ -410,14 +427,14 @@ Declaring the app OpenHarmony (via the compileSdkType patch) lets it install: th
 enforces app code signing but doesn't trust the public cert, and OpenHarmony's BMS skips code-sign
 verification for OpenHarmony-declared apps on devices without Huawei OH code signing.
 
-The whole job (build gates and emulator screenshots) runs on a single **macOS** runner: the
-x86_64 Oniro guest is TCG-emulated on every GitHub runner, and only the macOS ARM hosts run it
-fast enough for the pipeline (first-boot keyguard render → wake + swipe-unlock → walkthrough);
-the ubuntu hosts never got that far. Build steps gate hard; only the emulator boot + walkthrough
-are per-step best-effort. The setup replicates the validated local macOS flow: the Linux
-command-line-tools (hvigor/ohpm are pure JS) run through node wrapper scripts, the darwin
-API-18 SDK from setup-ohos-sdk supplies the NDK + hdc + the versioned `OHOS_BASE_SDK_HOME`
-view hvigor builds against, and Day's QEMU launcher boots the image. `OHOS_BASE_SDK_HOME`
+The whole job (build gates and emulator screenshots) runs on a single **x86_64 Linux** runner,
+where `/dev/kvm` accelerates the x86_64 Oniro guest (under TCG only the macOS ARM hosts ever
+booted it fast enough, which is where the job used to run). Build steps gate hard; only the
+emulator boot + walkthrough are per-step best-effort. The setup replicates the local flow:
+cargo-ohos drives the cross-compile, the Linux command-line-tools (hvigor/ohpm are pure JS) run
+through node wrapper scripts, the API-18 SDK from setup-ohos-sdk supplies the NDK + hdc + the
+versioned `OHOS_BASE_SDK_HOME` view hvigor builds against, and Day's QEMU launcher boots the
+image. `OHOS_BASE_SDK_HOME`
 must be a **host-platform** SDK: hvigor spawns its native tools (`syscap_tool`, `restool`,
 `es2abc`) directly, so pointing it at the Linux CLT's bundled SDK fails on macOS with
 `spawn ENOEXEC` at `SyscapTransform`.

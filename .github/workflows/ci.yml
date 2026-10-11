@@ -585,12 +585,13 @@ jobs:
         run: |
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
           # bundled SQLite (day-persistence, in the showcase's non-wasm graph) compiles C, and
-          # cc-rs never finds the NDK's API-suffixed clang on its own: the plain
-          # `aarch64-linux-android-clang` name does not exist in modern NDKs. minSdk 24, the
-          # scaffold's own floor (templates/app/platform/android/build.gradle.kts).
-          NDK_BIN="$(echo "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin)"
-          echo "CC_aarch64_linux_android=$NDK_BIN/aarch64-linux-android24-clang" >> "$GITHUB_ENV"
-          echo "AR_aarch64_linux_android=$NDK_BIN/llvm-ar" >> "$GITHUB_ENV"
+          # cc-rs never finds the NDK's clang on its own. cargo-ndk's own environment (the
+          # compilers, archiver and bindgen args for the NDK it located) serves the cross clippy
+          # below, as it serves `day build`; `--platform 24` is the scaffold's minSdk
+          # (DayAndroidPlugin.MIN_SDK), the level the build links against too. `cargo ndk-env`
+          # prints `export K="v"` lines; $GITHUB_ENV takes `K=v`.
+          ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" cargo ndk-env -t arm64-v8a --platform 24 \
+            | sed -n 's/^export \([A-Za-z_][A-Za-z0-9_]*\)="\(.*\)"$/\1=\2/p' >> "$GITHUB_ENV"
       - uses: actions/download-artifact@v8
         with:
           name: day-${{ runner.os == 'macOS' && 'macos' || runner.os == 'Windows' && 'windows' || 'linux' }}-${{ runner.arch == 'ARM64' && 'aarch64' || 'x86_64' }}
@@ -1075,6 +1076,14 @@ jobs:
           targets: aarch64-unknown-linux-ohos,x86_64-unknown-linux-ohos
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # cargo-ohos drives the Rust cross-compile for `day build -t harmony-arkui` (`cargo ohos
+      # rustc`) and the clippy below: it locates the SDK's `native` component and sets the linker,
+      # the cc-rs compilers, bindgen, cmake and pkg-config for the target. Pinned: the tool is
+      # young and its flags still move between releases (install-action falls back to
+      # cargo-binstall's prebuilt binary for it).
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-ohos@0.3.4
       - uses: actions/setup-java@v5
         # java for sign-hap.mjs (signs the provision profile + the .hap via hap-sign-tool).
         with:
@@ -1090,22 +1099,21 @@ jobs:
         id: ohos-sdk
         with:
           version: "5.1.0"
-      - name: Put the OHOS toolchains on PATH + point OHOS_NDK_HOME at the NDK
+      - name: Put the OHOS toolchains on PATH + hand cargo-ohos the SDK
         run: |
           # setup-ohos-sdk's OHOS_NDK_HOME is the per-OS SDK root; the NDK (the llvm cross-compilers
-          # napi-ohos's build script and the cargo linkers need) is its `native` component, exposed as
-          # the `ohos_sdk_native` output (…/native, a sibling of …/toolchains). Pin OHOS_NDK_HOME to it.
+          # and the sysroot) is its `native` component, exposed as the `ohos_sdk_native` output
+          # (…/native, a sibling of …/toolchains). cargo-ohos reads it as OHOS_SDK_NATIVE and
+          # derives the whole cross environment from it — the linkers, the cc-rs compilers and
+          # archiver (bundled SQLite compiles C in the arkui graph), bindgen, cmake, pkg-config —
+          # for `day build`'s `cargo ohos rustc` and the `cargo ohos clippy` below, so nothing of
+          # that is exported by hand (scripts/ci/lint.sh leans on it the same way). napi-ohos's
+          # build script still reads the NDK as OHOS_NDK_HOME, the one name cargo-ohos leaves
+          # unset; `day build` bridges it itself, the clippy step needs it from here.
           NATIVE="${{ steps.ohos-sdk.outputs.ohos_sdk_native }}"
           echo "$(dirname "$NATIVE")/toolchains" >> "$GITHUB_PATH"
+          echo "OHOS_SDK_NATIVE=$NATIVE" >> "$GITHUB_ENV"
           echo "OHOS_NDK_HOME=$NATIVE" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          echo "CARGO_TARGET_X86_64_UNKNOWN_LINUX_OHOS_LINKER=$NATIVE/llvm/bin/x86_64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          # cc-rs never finds the NDK's wrapper clang on its own (not on PATH; scripts/ci/lint.sh
-          # derives the same trio); bundled SQLite (day-persistence) compiles C in the arkui
-          # clippy graph.
-          echo "CC_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang" >> "$GITHUB_ENV"
-          echo "CXX_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/aarch64-unknown-linux-ohos-clang++" >> "$GITHUB_ENV"
-          echo "AR_aarch64_unknown_linux_ohos=$NATIVE/llvm/bin/llvm-ar" >> "$GITHUB_ENV"
       - name: Cache the OpenHarmony command-line-tools (hvigor / ohpm)
         uses: actions/cache@v6
         with:
@@ -1181,7 +1189,7 @@ jobs:
         # `-A missing_const_for_thread_local`: clippy 1.97 false-positives it on this cross-target
         # (flags `thread_local!`s already using `const { … }`); the host clippy job enforces it.
         working-directory: showcase-src
-        run: cargo clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
+        run: cargo ohos clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
   windows-xaml:
     name: day-windows-xaml
     runs-on: windows-2025

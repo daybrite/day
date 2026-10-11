@@ -2450,6 +2450,12 @@ fn parse_abi_list(v: &str) -> Vec<String> {
         .collect()
 }
 
+/// The Android API level the `.so` links against: the scaffold's `minSdk`, which the shared
+/// Gradle plugin sets (`DayAndroidPlugin.MIN_SDK`, toolkits/day-android/gradle-plugin). cargo-ndk
+/// would otherwise link against its own default, API 21, three levels below the floor the APK
+/// declares, so symbols the floor guarantees would still go through the older stubs.
+pub(crate) const ANDROID_MIN_SDK: &str = "24";
+
 /// Cross-compile the app cdylib for every ABI in `abis` into `out/<abi>/lib<name>.so` (one
 /// `cargo ndk -t <abi> …` invocation covering them all).
 fn build_android_so(
@@ -2483,7 +2489,7 @@ fn build_android_so(
         .env("ANDROID_NDK_HOME", &ndk_home);
     crate::ops::apply_app_identity(&mut cmd, project, "android-mdc");
     crate::bridge::apply_staged(&mut cmd, project, "android-mdc");
-    cmd.arg("ndk");
+    cmd.args(["ndk", "--platform", ANDROID_MIN_SDK]);
     for abi in abis {
         cmd.args(["-t", abi]);
     }

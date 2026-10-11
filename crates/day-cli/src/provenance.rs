@@ -279,12 +279,18 @@ fn tool_table(toolkit: &str) -> Vec<(&'static str, &'static str, &'static str)> 
                 "Android NDK",
                 "sdkmanager 'ndk;<version>' — https://developer.android.com/ndk/downloads",
             ),
+            ("cargo-ndk", "cargo-ndk", "cargo install cargo-ndk"),
         ]),
         "arkui" => t.extend([
             (
                 "ohos-sdk",
                 "OpenHarmony SDK",
                 "https://gitee.com/openharmony/docs — see docs/harmonyos.md for the layout",
+            ),
+            (
+                "cargo-ohos",
+                "cargo-ohos",
+                "cargo install --locked cargo-ohos (or cargo binstall cargo-ohos)",
             ),
             (
                 "hvigor",
@@ -344,9 +350,11 @@ pub fn tool_version(key: &str) -> Option<String> {
         "ndk" => std::env::var("ANDROID_NDK_HOME")
             .ok()
             .and_then(|p| ndk_version(&p)),
+        "cargo-ndk" => probe("cargo", &["ndk", "--version"]),
         "ohos-sdk" => std::env::var("OHOS_BASE_SDK_HOME")
             .ok()
             .and_then(|p| ohos_sdk_version(&p)),
+        "cargo-ohos" => probe("cargo", &["ohos", "--version"]),
         "hvigor" => probe("hvigorw", &["--version"]),
         "msvc" => probe("cl", &["/?"]),
         "nsis" => probe("makensis", &["/VERSION"]).or_else(|| probe("makensis", &["-VERSION"])),

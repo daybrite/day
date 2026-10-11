@@ -47,8 +47,9 @@ the affected script instead of keeping stale results.
 
 | Variable | Meaning |
 |---|---|
-| `OHOS_NDK_HOME` | The SDK's `native` dir (cross-linker + shim compiles); set by CI's setup-ohos-sdk |
-| `OHOS_BASE_SDK_HOME` / `OHOS_SDK_HOME` | SDK root(s); also probed for `hap-sign-tool.jar` |
+| `OHOS_SDK_NATIVE` | The SDK's `native` dir (the NDK). Read by cargo-ohos, which drives the cross-compile and also accepts `OHOS_NDK_HOME`, `OHOS_SDK_HOME`, `DEVECO_SDK_HOME`, DevEco Studio's install on macOS, and its own `cargo ohos init sdk` download, in that order. CI hands it setup-ohos-sdk's `native` output |
+| `OHOS_NDK_HOME` | Read by napi-ohos's build script and the C++ shims of pieces; `day build` sets it to the dir cargo-ohos resolved |
+| `OHOS_BASE_SDK_HOME` / `OHOS_SDK_HOME` | SDK root(s) hvigor packages against; also probed for `hap-sign-tool.jar` |
 | `DAY_OHOS_ARCH` | Force the build arch (`device` / `arm64` / `x86_64`). Takes precedence over any connected device, so a `day pack` produces the same hap whether or not an emulator is running; leave it unset to build for each attached target |
 
 ## Rust toolchain

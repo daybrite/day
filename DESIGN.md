@@ -202,7 +202,7 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 | `linux-gtk` | Linux | GTK 4 | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
 | `linux-qt` | Linux | Qt 6 Widgets | shipped; headless walkthrough + pack (flatpak + appimage) in CI |
 | `windows-winui` | Windows | WinUI 3 (`Microsoft.UI.Xaml`, Windows App SDK 2.5.1, hosted in a Win32 window by `DesktopWindowXamlSource`) | shipped; Showcase walkthrough passes; self-contained pack (`.msix` + installer); CI legs written, not yet run on GitHub ([docs/winui.md](docs/winui.md)) |
-| `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile in CI, `.hap` pack, `day devices boot -t harmony-arkui` emulator helpers ([docs/harmonyos.md](docs/harmonyos.md)) |
+| `harmony-arkui` | HarmonyOS | ArkUI (NDK C API) | shipped; cross-compile through cargo-ohos in CI, `.hap` pack, `day devices boot -t harmony-arkui` emulator helpers ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `web-dom` | any modern browser | the DOM (semantic HTML + ARIA) | experimental (2026-07); wasm32 cdylib + JS shim, `day launch` dev server ([docs/web.md](docs/web.md)) |
 
 `windows-xaml` is the same XAML backend built against system XAML (`Windows.UI.Xaml` in XAML
@@ -3963,7 +3963,7 @@ failure · `5` script/assertion failure · `6` signing failure · `10` lint find
   both `day doctor` and actionable failures ("`android-mdc` needs: ANDROID_HOME, JDK 17+ —
   none found; see day doctor"). This bakes in the toolchain knowledge
   this workspace accumulated (JDK-26/Robolectric-class problems, rustup-vs-homebrew Rust for cross-std,
-  cargo-ndk, `aarch64-apple-ios-sim` on Apple Silicon).
+  cargo-ndk and cargo-ohos, `aarch64-apple-ios-sim` on Apple Silicon).
 - **Plumbing tier:** stable, documented, hidden-from-default-help subcommands invoked by build
   systems: the arg-less `day xcode-backend build` / `day gradle-backend build` entrypoints
   (called by the Xcode Run-Script phase and the Gradle task, reading their parameters from the

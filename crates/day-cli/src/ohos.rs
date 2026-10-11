@@ -10,9 +10,10 @@
 //! harmony-contrib/ohos-qemu's `x86_64_virt` (7.0), told apart by [`EmulatorImage`]. Either is a
 //! networked hdc target (KVM-accelerated where `/dev/kvm` exists, i.e. x86_64 Linux CI, else
 //! TCG), so every hdc call carries `-t <connect-key>` (default `127.0.0.1:55555`; override with
-//! `DAY_OHOS_TARGET`). Building a `.hap` needs `hvigor` + `ohpm` on PATH (from the OpenHarmony
-//! command-line-tools), the SDK via `OHOS_BASE_SDK_HOME` / `OHOS_NDK_HOME` (e.g. from
-//! `openharmony-rs/setup-ohos-sdk`), and a JDK for signing. Two OHOS-only quirks the code
+//! `DAY_OHOS_TARGET`). Building a `.hap` needs cargo-ohos (which finds the OpenHarmony SDK's
+//! `native` component and drives the cross-compile, [`sdk_native`]), `hvigor` + `ohpm` on PATH
+//! (from the OpenHarmony command-line-tools), the SDK hvigor packages against via
+//! `OHOS_BASE_SDK_HOME`, and a JDK for signing. Two OHOS-only quirks the code
 //! accounts for (see the CI research): `aa start` exits 0 even when the launch is refused (so we
 //! parse its output for `Error Code:`), and `snapshot_display` writes JPEG (so the screenshot
 //! path prefers `uitest screenCap`, which writes PNG). See docs/harmonyos.md.
@@ -619,8 +620,8 @@ fn hdc_bin() -> &'static str {
         if find_tool("hdc").is_some() {
             return "hdc".into();
         }
-        if let Ok(ndk) = find_ohos_ndk() {
-            let cand = Path::new(&ndk)
+        if let Ok(native) = sdk_native() {
+            let cand = Path::new(native)
                 .parent()
                 .map(|p| p.join("toolchains").join(exe_name("hdc")));
             if let Some(c) = cand
@@ -676,7 +677,7 @@ pub(crate) fn fport_engine(port: u16) {
             // waiting out its connect window on a port nobody listens on.
             eprintln!(
                 "day: cannot forward the dayscript port: running `{}` failed ({e}); put the \
-                 OpenHarmony command-line tools' toolchains dir on PATH or set OHOS_NDK_HOME \
+                 OpenHarmony command-line tools' toolchains dir on PATH or set OHOS_SDK_NATIVE \
                  (`day doctor --toolkit harmonyos`)",
                 hdc_bin()
             );
@@ -830,27 +831,76 @@ pub(crate) fn ohos_build_arches() -> Vec<(&'static str, &'static str)> {
     arches
 }
 
-/// The OpenHarmony NDK (`native` dir) for the cross-linker: `OHOS_NDK_HOME` (set by CI's
-/// setup-ohos-sdk) if present, else a couple of common local install paths (see docs/harmonyos.md:
-/// extract the public SDK's `native` component). Validated by the presence of `llvm/bin`.
-pub(crate) fn find_ohos_ndk() -> Result<String, String> {
-    if let Ok(v) = std::env::var("OHOS_NDK_HOME") {
-        return Ok(v);
-    }
-    let home = home_dir();
-    for cand in [
-        home.join("ohos").join("ndk-extract").join("native"),
-        home.join("ohos-sdk").join("native"),
-    ] {
-        if cand.join("llvm").join("bin").is_dir() {
-            return Ok(cand.to_string_lossy().into_owned());
-        }
-    }
-    Err(
-        "OHOS_NDK_HOME is not set and no OpenHarmony NDK was found — set it to the SDK's `native` \
-         directory (see docs/harmonyos.md)"
-            .into(),
+/// A `cargo ohos …` command: rustup's cargo (Homebrew's ships no OHOS std), with its own bin
+/// dir and `~/.cargo/bin` ahead of PATH so the `cargo-ohos` subcommand resolves even from a
+/// GUI-launched editor whose environment never saw the shell profile.
+///
+/// cargo-ohos owns the whole OpenHarmony cross environment (docs/harmonyos.md): it locates the
+/// SDK's `native` component, and for every wrapped cargo command sets the linker, the cc-rs
+/// compilers and archiver, the bindgen clang args, the CMake toolchain file and pkg-config
+/// sysroot for the target. Day adds only what is Day's: the target directory, the identity and
+/// bridge variables, and `OHOS_NDK_HOME`, which napi-ohos's build script reads under that name.
+pub(crate) fn cargo_ohos() -> Result<Command, String> {
+    let (cargo, bin) = rustup_cargo()?;
+    let mut cmd = Command::new(cargo);
+    cmd.env(
+        "PATH",
+        format!(
+            "{}:{}/.cargo/bin:{}",
+            bin.display(),
+            home_dir().display(),
+            std::env::var("PATH").unwrap_or_default()
+        ),
     )
+    .arg("ohos");
+    Ok(cmd)
+}
+
+/// The OpenHarmony SDK's `native` directory (the NDK: the cross clang and its sysroot; `hdc`
+/// and the signing material sit in the sibling `toolchains/`), as cargo-ohos resolves it:
+/// `OHOS_SDK_NATIVE`, `OHOS_NDK_HOME`, `OHOS_SDK_HOME` or `DEVECO_SDK_HOME`, then DevEco
+/// Studio's install on macOS, then the newest SDK `cargo ohos init sdk` downloaded. Asked once
+/// per process (`cargo ohos env` resolves the SDK and prints the environment; nothing is
+/// built); every consumer here — the libc++ bundling, `hdc`, the dev signing — sees the same
+/// answer the cross-compile does. A failure carries cargo-ohos's own report of what it tried,
+/// or that the tool is not installed.
+pub(crate) fn sdk_native() -> Result<&'static str, String> {
+    static NATIVE: std::sync::OnceLock<Result<String, String>> = std::sync::OnceLock::new();
+    NATIVE
+        .get_or_init(|| {
+            let mut cmd = cargo_ohos()?;
+            // The toolchain file `env` writes lands under the target dir; keep that out of the
+            // caller's cwd (`day doctor` runs anywhere).
+            cmd.args(["env", "--format", "json"])
+                .env("CARGO_TARGET_DIR", std::env::temp_dir().join("day-cargo-ohos"));
+            let out = cmd
+                .output()
+                .map_err(|e| format!("running `cargo ohos env`: {e}"))?;
+            if !out.status.success() {
+                let err = String::from_utf8_lossy(&out.stderr);
+                return Err(if err.contains("no such command") {
+                    "cargo-ohos is not installed — `cargo install --locked cargo-ohos` (or `cargo \
+                     binstall cargo-ohos`); it finds the OpenHarmony SDK and drives the \
+                     cross-compile (docs/harmonyos.md)"
+                        .into()
+                } else {
+                    format!(
+                        "cargo-ohos found no OpenHarmony SDK: {}\n`cargo ohos init sdk --api <level> \
+                         --components native,toolchains` downloads one, or set OHOS_SDK_NATIVE to \
+                         an SDK's `native` dir for this host (docs/harmonyos.md)",
+                        err.trim()
+                    )
+                });
+            }
+            let json: serde_json::Value = serde_json::from_slice(&out.stdout)
+                .map_err(|e| format!("`cargo ohos env` printed no JSON: {e}"))?;
+            json["env"]["CARGO_OHOS_SDK_NATIVE"]
+                .as_str()
+                .map(str::to_owned)
+                .ok_or_else(|| "`cargo ohos env` named no CARGO_OHOS_SDK_NATIVE".to_string())
+        })
+        .as_deref()
+        .map_err(Clone::clone)
 }
 
 /// Keep the two HarmonyOS files that spell out the app's identity in step with Day.toml: the
@@ -1283,12 +1333,11 @@ pub fn build_ohos(
     // 1) Cross-compile the app to a cdylib for each connected target's arch (an emulator is
     //    x86_64, a device arm64; the hap carries both so it installs on either), staging each as
     //    entry/libs/<abi>/libentry.so, the .so the ArkTS host imports (its NAPI module is
-    //    "entry"). Uses the OHOS NDK cross-linker (OHOS_NDK_HOME) + a rustup toolchain (Homebrew
-    //    rustc ships no OHOS std) and `feature_selection("arkui")` (the arkui toolkit feature +
-    //    every standalone piece's `<pkg>/arkui` renderer feature, Tier A.2), exactly like the
-    //    android/iOS legs.
-    let ndk = find_ohos_ndk()?;
-    let (cargo, bin) = rustup_cargo()?;
+    //    "entry"). `cargo ohos rustc` ([`cargo_ohos`]) supplies the OpenHarmony cross
+    //    environment from the SDK it resolved ([`sdk_native`]) over a rustup toolchain, with
+    //    `feature_selection("arkui")` (the arkui toolkit feature + every standalone piece's
+    //    `<pkg>/arkui` renderer feature, Tier A.2), exactly like the android leg's `cargo ndk`.
+    let native = sdk_native()?;
     let name = project.manifest.app.name.clone();
     // Drop any previously staged arch before restaging. hvigor packs whatever `entry/libs` holds,
     // and these directories are never otherwise cleaned, so an earlier x86_64 emulator build left
@@ -1307,57 +1356,29 @@ pub fn build_ohos(
             .join("cargo/harmony-arkui")
             .join(abi)
             .join(profile.as_str());
-        let linker_var = format!(
-            "CARGO_TARGET_{}_LINKER",
-            triple.to_uppercase().replace('-', "_")
+        status(
+            "Building",
+            &format!("{} (cargo ohos rustc {abi})", target.name),
         );
-        status("Building", &format!("{} (cargo cdylib {abi})", target.name));
-        let mut cmd = Command::new(&cargo);
+        let mut cmd = cargo_ohos()?;
+        // cargo-ohos takes its own `--target` and hands the rest to `cargo rustc`, so cargo's
+        // flags (`--config` from the day-src patch included) follow the subcommand.
+        cmd.args(["rustc", "--target", triple]);
         crate::patch::apply_day_src(&mut cmd);
         crate::ops::apply_app_identity(&mut cmd, project, target.name);
         // The hvigor module staged before this build carries every bridged crate's ArkTS arm, so
         // the cfg that switches those arms on rides the same cargo run (docs/bridge.md).
         crate::bridge::apply_staged(&mut cmd, project, "harmony-arkui");
         cmd.current_dir(&project.root)
-            .env(
-                "PATH",
-                format!(
-                    "{}:{}",
-                    bin.display(),
-                    std::env::var("PATH").unwrap_or_default()
-                ),
-            )
             .env("CARGO_TARGET_DIR", &target_dir)
-            .env(&linker_var, format!("{ndk}/llvm/bin/{triple}-clang"))
             // napi-ohos's build script (the NAPI runtime day-arkui registers the ArkTS module
-            // with) reads this variable for its link search paths; export the resolved path so
-            // auto-detected local installs work even when the parent environment (a GUI-launched
-            // editor) never set it.
-            .env("OHOS_NDK_HOME", &ndk)
-            // cc-rs (used by build scripts of C-carrying deps, e.g. ring under day-part-http's
-            // fallback TLS) picks the cross compiler from these per-target vars; without them it
-            // falls back to the host `cc`, which can't target ohos.
-            .env(
-                format!("CC_{}", triple.replace('-', "_")),
-                format!("{ndk}/llvm/bin/{triple}-clang"),
-            )
-            .env(
-                format!("AR_{}", triple.replace('-', "_")),
-                format!("{ndk}/llvm/bin/llvm-ar"),
-            )
-            // bindgen (rquickjs-sys under daybrite/day-lite, its docs/lite.md §13) runs the host
-            // libclang, which inherits neither the CC_* wrapper nor its sysroot, so feed it the
-            // same flags the NDK's `<triple>-clang` wrapper script passes (`-unknown` dropped from
-            // the clang -target, per the wrapper).
-            .env(
-                format!("BINDGEN_EXTRA_CLANG_ARGS_{}", triple.replace('-', "_")),
-                format!(
-                    "--target={} --sysroot={ndk}/sysroot -D__MUSL__",
-                    triple.replace("-unknown", "")
-                ),
-            )
+            // with) reads the NDK under this name for its link search paths, and so do the
+            // C++ shims of pieces (day-piece-camera). cargo-ohos exports the same directory as
+            // OHOS_SDK_NATIVE; this is the one variable it does not spell for us.
+            .env("OHOS_NDK_HOME", native)
+            // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
+            // `[lib]` note in the app Cargo.toml); produces the `lib<name>.so` staged below.
             .args([
-                "rustc",
                 "-p",
                 &name,
                 "--lib",
@@ -1366,13 +1387,11 @@ pub fn build_ohos(
                 "--no-default-features",
                 "--features",
                 &crate::ops::feature_selection(project, "arkui"),
-                "--target",
-                triple,
             ]);
         if profile == Profile::Release {
             cmd.arg("--release");
         }
-        run_logged(&mut cmd, &format!("cargo (ohos {abi})"))?;
+        run_logged(&mut cmd, &format!("cargo ohos rustc ({abi})"))?;
         // The cdylib is `lib<[lib].name>.so` (libentry.so for a crate whose `[lib] name = "entry"`,
         // else lib<crate>.so), so find the single produced .so and stage it as libentry.so.
         let out_dir = target_dir.join(triple).join(profile.as_str());
@@ -1393,7 +1412,7 @@ pub fn build_ohos(
         // bundling). The NDK's per-arch lib dir uses the clang triple (`x86_64-linux-ohos`), not
         // the Rust triple, so drop the `unknown-` vendor field.
         let clang_triple = triple.replace("unknown-", "");
-        let libcxx = PathBuf::from(&ndk)
+        let libcxx = PathBuf::from(native)
             .join("llvm/lib")
             .join(&clang_triple)
             .join("libc++_shared.so");
@@ -1452,7 +1471,7 @@ pub fn build_ohos(
     // 3) Patch + sign the assembled (unsigned) .hap via sign-hap.mjs: it rewrites module.json's
     //    compileSdkType to "OpenHarmony" (so the emulator skips code-sign verification; see the
     //    script) then signs with the OpenHarmony public release material.
-    let hap = sign_hap(project, &harmony, &ndk)?;
+    let hap = sign_hap(project, &harmony, native)?;
     status("Built", &format!("{} → {}", target.name, hap.display()));
     Ok(BuildOutcome {
         target: target.name,
@@ -1501,7 +1520,7 @@ const SIGN_HAP_MJS: &str = include_str!("../resources/harmony/sign-hap.mjs");
 /// hvigor already requires it). The script rewrites module.json's compileSdkType to
 /// "OpenHarmony" so the emulator skips code-sign verification (the public release cert's code
 /// signature is otherwise rejected with 9568393), then signs with the SDK's release material.
-fn sign_hap(project: &Project, harmony: &Path, ndk: &str) -> Result<PathBuf, String> {
+fn sign_hap(project: &Project, harmony: &Path, native: &str) -> Result<PathBuf, String> {
     let build = harmony.join("entry/build");
     // hvigor emits `entry-<product>-unsigned.hap`; fall back to any hap.
     let unsigned = find_hap(&build, |n| n.contains("unsigned"))
@@ -1524,9 +1543,9 @@ fn sign_hap(project: &Project, harmony: &Path, ndk: &str) -> Result<PathBuf, Str
     cmd.arg(&sign)
         .arg(&unsigned)
         .arg(&signed)
-        // The script locates the SDK signing material relative to the NDK (its findLib probes
-        // OHOS_NDK_HOME first), so hand it the resolved path, like the cargo step.
-        .env("OHOS_NDK_HOME", ndk)
+        // The script locates the SDK signing material beside the `native` component (its
+        // findLib probes OHOS_SDK_NATIVE first), so hand it the directory cargo-ohos resolved.
+        .env("OHOS_SDK_NATIVE", native)
         .current_dir(harmony);
     run_logged(&mut cmd, "sign-hap.mjs")?;
     Ok(signed)

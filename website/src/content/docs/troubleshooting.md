@@ -265,8 +265,9 @@ day doctor --toolkit harmonyos
 day devices list -t harmony-arkui
 ```
 
-Check `OHOS_NDK_HOME` and the command-line tools installation against the
-[HarmonyOS requirements](/docs/system-requirements#harmonyos). If doctor passes but the device list
+Check which SDK `cargo ohos env` resolves (`error: no such command: ohos` means `cargo-ohos` is
+not installed: `cargo install --locked cargo-ohos`) and the command-line tools installation
+against the [HarmonyOS requirements](/docs/system-requirements#harmonyos). If doctor passes but the device list
 is empty, finish the emulator or device setup before retrying the launch.
 
 These emulator failures have specific causes:

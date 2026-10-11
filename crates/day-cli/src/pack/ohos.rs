@@ -159,7 +159,8 @@ fn resolve_material(
 
 pub(crate) fn release_sign(m: &OhosMaterial, unsigned: &Path, signed: &Path) -> Result<(), String> {
     let jar = find_hap_sign_tool().ok_or(
-        "hap-sign-tool.jar not found — set OHOS_SDK_HOME/OHOS_NDK_HOME to a full OpenHarmony SDK",
+        "hap-sign-tool.jar not found — set OHOS_BASE_SDK_HOME to a full OpenHarmony SDK, or \
+         download one with `cargo ohos init sdk` (its toolchains component carries the tool)",
     )?;
 
     status("Signing", "hap-sign-tool (release)");
@@ -191,11 +192,17 @@ pub(crate) fn release_sign(m: &OhosMaterial, unsigned: &Path, signed: &Path) -> 
     )
 }
 
-/// hap-sign-tool.jar lives in the SDK's toolchains/lib; probe from the NDK location upward
-/// (OHOS_NDK_HOME points at `<sdk>/native`; toolchains is its sibling).
+/// hap-sign-tool.jar lives in the SDK's toolchains/lib: beside the `native` component cargo-ohos
+/// resolved (toolchains is its sibling), else under the SDK roots hvigor is pointed at.
 fn find_hap_sign_tool() -> Option<PathBuf> {
     let mut roots: Vec<PathBuf> = Vec::new();
-    for var in ["OHOS_SDK_HOME", "OHOS_BASE_SDK_HOME", "OHOS_NDK_HOME"] {
+    if let Some(parent) = crate::ohos::sdk_native()
+        .ok()
+        .and_then(|native| Path::new(native).parent())
+    {
+        roots.push(parent.to_path_buf());
+    }
+    for var in ["OHOS_SDK_HOME", "OHOS_BASE_SDK_HOME"] {
         if let Ok(v) = std::env::var(var) {
             let p = PathBuf::from(v);
             roots.push(p.clone());

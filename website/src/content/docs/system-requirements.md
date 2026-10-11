@@ -296,18 +296,25 @@ physical device through Xcode's normal signing setup.
 HarmonyOS has two halves with different tool needs, which is why a partial install is common. The
 [HarmonyOS platform page](/docs/platforms/harmony-arkui) has the detail.
 
-1. **The Rust cross-compile** needs the OpenHarmony SDK's `native` component (the NDK). Point
-   `OHOS_NDK_HOME` at it, and add the targets:
+1. **The Rust cross-compile** runs through [`cargo-ohos`](https://crates.io/crates/cargo-ohos),
+   which finds the OpenHarmony SDK's `native` component (the NDK) and sets up the cross-compiler
+   for cargo. Install it, download the SDK, and add the targets:
 
    ```bash
+   cargo install --locked cargo-ohos                  # or: cargo binstall cargo-ohos
+   cargo ohos init sdk --api 18                       # the public SDK, no account needed
    rustup target add aarch64-unknown-linux-ohos x86_64-unknown-linux-ohos
    ```
+
+   An SDK you already have works too: point `OHOS_SDK_NATIVE` at its `native` directory.
 
 2. **Packaging the `.hap`** needs `hvigor` and `ohpm`, which are not part of the public SDK. They
    ship with the OpenHarmony **command-line-tools**, bundled with
    [DevEco Studio](https://developer.huawei.com/consumer/en/deveco-studio/) or downloadable on
    their own without an account. Put their `bin/` directory on `PATH`. hvigor builds against the
-   SDK named by `OHOS_BASE_SDK_HOME`, which must use the versioned layout `<dir>/<api>/…`.
+   SDK named by `OHOS_BASE_SDK_HOME`, which must use the versioned layout `<dir>/<api>/…`. The
+   download above already has it: `cargo ohos init sdk` prints the SDK's path, and its
+   `<version>/<host>` directory is the value.
 
 3. **Signing** runs Day's `sign-hap.mjs` under `node`, so `node` must be on `PATH` too.
 
@@ -335,7 +342,7 @@ Then add these to your shell profile:
 
 ```bash
 export OHOS_CLT=$HOME/ohos-clt/command-line-tools
-export OHOS_NDK_HOME=$OHOS_CLT/sdk/default/openharmony/native
+export OHOS_SDK_NATIVE=$OHOS_CLT/sdk/default/openharmony/native
 export OHOS_BASE_SDK_HOME=$HOME/ohos/sdk
 export PATH=$OHOS_CLT/bin:$OHOS_CLT/tool/node/bin:$OHOS_CLT/sdk/default/openharmony/toolchains:$PATH
 ```
@@ -349,9 +356,10 @@ doctor --toolkit harmonyos` should now pass every check.
 
 Use the same Linux command-line-tools bundle for hvigor and ohpm, which are pure JavaScript,
 through the node wrappers in the [HarmonyOS notes](/docs/internal/harmonyos). The bundle's SDK
-tools are Linux binaries, though, so hvigor fails with `spawn ENOEXEC`. Take the NDK, `hdc`, and
-`OHOS_BASE_SDK_HOME` from the macOS public SDK (`L2-SDK-MAC-M1-PUBLIC.tar.gz` under
-[repo.huaweicloud.com/openharmony/os](https://repo.huaweicloud.com/openharmony/os/)) instead.
+tools are Linux binaries, though, so hvigor fails with `spawn ENOEXEC`. Take the SDK from
+`cargo ohos init sdk --api 18` instead: it is the macOS public SDK in the layout hvigor wants, so
+`cargo ohos` finds its NDK by itself, `hdc` sits in its `toolchains/`, and `OHOS_BASE_SDK_HOME` is
+the `<version>/darwin` directory the download prints.
 
 ### Setting up the Oniro emulator
 
