@@ -382,14 +382,17 @@ fn run_on_main(step: Step, budget: Duration, revision: u32) -> Reply {
         Ok(reply) => reply,
         Err(_) => {
             abandoned.store(true, Ordering::SeqCst);
-            Reply::fail(
-                format!(
-                    "main thread did not respond within {:.0}s — raise \
-                     DAY_SCRIPT_MAIN_TIMEOUT_SECS if this machine is just slow",
-                    budget.as_secs_f64()
-                ),
-                false,
-            )
+            Reply {
+                main_thread_stalled: true,
+                ..Reply::fail(
+                    format!(
+                        "main thread did not respond within {:.0}s — raise \
+                         DAY_SCRIPT_MAIN_TIMEOUT_SECS if this machine is just slow",
+                        budget.as_secs_f64()
+                    ),
+                    false,
+                )
+            }
         }
     }
 }

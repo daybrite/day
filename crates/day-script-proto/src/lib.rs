@@ -761,6 +761,11 @@ pub struct Reply {
     /// Unsolicited telemetry on a connection that explicitly enabled `memory_watch`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_sample: Option<Box<MemorySample>>,
+    /// The step never ran: the app's main thread did not pick it up within the engine's
+    /// budget. Every later step would wait the full budget and fail the same way, so a runner
+    /// abandons the flow on this rather than on the error text. Older apps omit it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub main_thread_stalled: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]

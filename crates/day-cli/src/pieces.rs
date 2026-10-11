@@ -897,26 +897,6 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// Stage Day's Gradle plugins without building, for `day prepare`: resolve the day-android crate
-/// the app builds against and put its `gradle-plugin/` in place, so an IDE can sync a fresh clone.
-/// A project without an Android host is left alone.
-pub fn stage_android_gradle_plugin(project: &Project) -> Result<(), String> {
-    if !project
-        .root
-        .join("platform/android/settings.gradle.kts")
-        .is_file()
-    {
-        return Ok(());
-    }
-    let pieces = resolve_android(project, &["mdc"])?;
-    match &pieces.gradle_plugin_dir {
-        Some(src) => {
-            stage_gradle_plugin(src, &project.root.join("build/day/android/gradle-plugin"))
-        }
-        None => Ok(()),
-    }
-}
-
 /// What Gradle writes inside the staged build. Staging neither copies nor prunes these.
 const GRADLE_OUTPUT_DIRS: [&str; 3] = ["build", ".gradle", ".kotlin"];
 

@@ -28,6 +28,7 @@ mod mcp;
 mod meta;
 mod metadata;
 mod mobile;
+mod native_host;
 mod new;
 mod ohos;
 mod ops;

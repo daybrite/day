@@ -435,7 +435,7 @@ need no such gate: cargo compiles them itself.
 | Arm | Adapter lands in | Existing mechanism it rides |
 |---|---|---|
 | `swift` | the generated `DayPieces` SwiftPM module | the Xcode host projects' SwiftPM reference ([docs/swiftui.md](swiftui.md)) |
-| `kotlin`, `java` | a Gradle `srcDirs` entry | the checked-in Gradle host project, JNI, `day-pieces.json` |
+| `kotlin`, `java` | a Gradle `srcDirs` entry | the selected Gradle host project, JNI, `day-pieces.json` |
 | `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor ([docs/harmonyos.md](harmonyos.md)) |
 | `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it ([docs/web.md](web.md)) |
 | `c`, `cpp` | `OUT_DIR/daybridge/<crate>.c` \| `.cpp` | `cc` from the crate's `build.rs` |

@@ -62,17 +62,18 @@ module's exports, so it always matches the `#[napi]` exports the app links. `day
 directory into `build/day/harmony/project/`: the pages and abilities under
 `entry/src/main/ets/day/`, the typings (with their `oh-package.json5`) under
 `entry/src/main/cpp/types/libentry/`, plus the generated page list and start-window colors.
-The staged project is a copy of `platform/harmony/`. Day writes permission strings, shortcut
-labels and profiles, manifest changes, and raw resources into the copy, then runs hvigor
-there. All generated output stays under `build/day/`. What an app checks in is the hvigor
-skeleton: the build profiles,
-`AppScope/app.json5`, `module.json5` (whose `srcEntry` paths name the staged files), the
-string tables, and the `hvigor` config. An app that predates this (2026-09) still carries its
+The CLI derives the hvigor skeleton from its built-in template, including build profiles,
+`AppScope/app.json5`, `module.json5`, string tables and hvigor configuration. New apps need
+no checked-in `platform/harmony/` directory. A customized source host at that path (or the
+legacy `platform/ohos/`) takes precedence. Day writes permission strings, shortcut labels
+and profiles, manifest changes, and raw resources into the staged project, then runs hvigor
+there. All generated output stays under `build/day/`. An app that predates this (2026-09) still carries its
 own copies under `ets/pages/` and `ets/entryability/`; `day build` leaves those alone and
 prints a note on how to adopt the staged host.
 
-`day open -t harmony-arkui` prepares and opens the staged project in DevEco Studio. Edit
-native source files under `platform/harmony/`, then run `day prepare -t harmony-arkui` again;
+`day open -t harmony-arkui` prepares and opens the staged project in DevEco Studio. For
+manual customization, first run `day project add-target harmony-arkui --persist-native-project`,
+edit the resulting files under `platform/harmony/`, then run `day prepare -t harmony-arkui` again;
 edits made only in the staged copy are overwritten. Each preparation refreshes the source
 copy and removes obsolete resources while keeping hvigor's build and dependency caches.
 Symlinked inputs, including generated icon media, are copied as files so native generators

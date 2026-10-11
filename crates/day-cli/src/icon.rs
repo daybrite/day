@@ -1159,7 +1159,7 @@ fn harmony_manifest_rewrites(project: &Project) -> Vec<(String, Vec<u8>)> {
 
 /// `text` with every ability `icon` that names the flat icon pointed at the layered one, or
 /// `None` when nothing needed changing. `startWindowIcon` keeps the flat icon.
-fn rewrite_icon_refs(text: &str) -> Option<String> {
+pub(crate) fn rewrite_icon_refs(text: &str) -> Option<String> {
     let updated = text.replace(
         "\"icon\": \"$media:startIcon\"",
         "\"icon\": \"$media:layered_image\"",

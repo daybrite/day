@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 import PlatformShots from '../../../components/PlatformShots.astro';
 
 `android-mdc` renders [Material Components](https://github.com/material-components/material-components-android)
-widgets over JNI, inside a checked-in Gradle project. The app theme is
+widgets over JNI, inside a generated Gradle project. The app theme is
 `Theme.Material3Expressive.DayNight.NoActionBar`, so light and dark follow the system.
 
 <PlatformShots platform="android-mdc" shots={["home", "controls", "list", "menus"]} />
@@ -38,15 +38,19 @@ day pack -t android-mdc           # release-signed .apk + .aab
 
 ## The Gradle project
 
-`platform/android/` is a standard Gradle project with short scripts. Day's Gradle plugin, applied in
+`day build`, `day prepare`, and `day open` derive a standard Gradle project with short
+scripts under `build/android/`. No checked-in Android build scaffold is required. An existing
+`platform/android/` project takes precedence. Day's Gradle plugin, applied in
 `settings.gradle.kts` and `app/build.gradle.kts`, configures the app module from `Day.toml` and your
 pieces: the application id and version, the SDK levels, the Android Gradle Plugin version, source
 folders, libraries, the merged manifest, release minification, and signing. `day build`,
 `day prepare`, and `day open` put the plugin in place from the version of Day your app builds
 against, so updating Day updates your Android build and these files stay as they are.
 
-Your own settings go in `app/build.gradle.kts`. They apply after Day's plugin, so they take
-precedence:
+To customize the build beyond Day's configuration, first run
+`day project add-target android-mdc --persist-native-project`. Put your settings in the
+resulting `platform/android/app/build.gradle.kts`. They apply after Day's plugin, so they
+take precedence:
 
 ```kotlin
 android {

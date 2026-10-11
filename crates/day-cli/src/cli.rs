@@ -976,9 +976,9 @@ pub enum ProjectCmd {
         /// Original project template, if custom (directory or Git URL)
         #[arg(long)]
         template: Option<String>,
-        /// Write an app-owned .xcodeproj under platform/ for manual customization
-        #[arg(long)]
-        persist_xcode_project: bool,
+        /// Write app-owned native build projects under platform/ for manual customization
+        #[arg(long, visible_alias = "persist-xcode-project")]
+        persist_native_project: bool,
     },
     /// Move Xcode build settings into DayApp.xcconfig files
     #[command(name = "migrate-xcode")]
@@ -1547,14 +1547,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 ProjectCmd::AddTarget {
                     targets,
                     template,
-                    persist_xcode_project,
+                    persist_native_project,
                 },
         } => with_project(cli.project.as_deref(), |project| {
             crate::new::add_target(
                 project,
                 &targets,
                 template.as_deref(),
-                persist_xcode_project,
+                persist_native_project,
             )
             .map(|()| 0)
         }),
@@ -2144,8 +2144,13 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             .iter()
                             .any(|t| t == "harmony-arkui")
                         || platforms.iter().any(|p| p == "harmony-arkui");
-                    if harmony && !check {
-                        crate::ohos::stage_host(project).map_err(CliError::build)?;
+                    if harmony {
+                        if check {
+                            crate::native_host::check(project, "harmony")
+                                .map_err(CliError::drift)?;
+                        } else {
+                            crate::ohos::stage_host(project).map_err(CliError::build)?;
+                        }
                     }
                     // Day's Gradle plugins are staged from the day-android crate the same way, so
                     // Android Studio can sync a fresh clone before its first `day build`.
@@ -2157,9 +2162,14 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                             .iter()
                             .any(|t| t == "android-mdc")
                         || platforms.iter().any(|p| p == "android-mdc");
-                    if android && !check {
-                        crate::pieces::stage_android_gradle_plugin(project)
-                            .map_err(CliError::build)?;
+                    if android {
+                        if check {
+                            crate::native_host::check(project, "android")
+                                .map_err(CliError::drift)?;
+                        } else {
+                            crate::native_host::prepare_android(project)
+                                .map_err(CliError::build)?;
+                        }
                     }
                     for (name, os) in [("macos-appkit", "macos"), ("ios-uikit", "ios")] {
                         let selected = if platforms.is_empty() {
@@ -2217,10 +2227,6 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             crate::icon::ensure(project, &[target.name]).map_err(CliError::build)?;
             if target.name == "harmony-arkui" {
                 crate::ohos::stage_host(project).map_err(CliError::build)?;
-            }
-            // Android Studio syncs through Day's Gradle plugin, staged from the day-android crate.
-            if target.name == "android-mdc" {
-                crate::pieces::stage_android_gradle_plugin(project).map_err(CliError::build)?;
             }
             let (dir, app) =
                 crate::ops::native_project(project, target).map_err(CliError::build)?;

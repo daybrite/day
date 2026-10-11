@@ -176,7 +176,7 @@ fn hms_sdk_available(project: &Project) -> Result<bool, String> {
     if std::env::var("DAY_OHOS_HMS").is_ok_and(|v| v == "1") {
         return Ok(true);
     }
-    let path = project.root.join("platform/harmony/build-profile.json5");
+    let path = crate::native_host::harmony_source(project).join("build-profile.json5");
     let profile = match std::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => "{}".into(),
@@ -327,7 +327,7 @@ pub fn apply_staged(cmd: &mut std::process::Command, project: &Project, target_n
 /// A project that wires Kotlin some other way says so with `day: kotlin-ok` in the same file; the
 /// check is a guard against a silent failure, not a claim to know every Gradle setup.
 pub fn android_compiles_kotlin(project: &Project) -> bool {
-    let gradle = project.root.join("platform/android/app/build.gradle.kts");
+    let gradle = crate::native_host::android_dir(project).join("app/build.gradle.kts");
     std::fs::read_to_string(gradle)
         .map(|t| gradle_compiles_kotlin(&t))
         .unwrap_or(false)
@@ -456,7 +456,7 @@ pub fn link_help(missing: &[(String, String)]) -> String {
 /// hits it once recognizes it wherever it appears.
 pub fn kotlin_plugin_help(crates: &[String]) -> String {
     format!(
-        "{} declare(s) a Kotlin bridge arm, but platform/android/app/build.gradle.kts applies no \
+        "{} declare(s) a Kotlin bridge arm, but the selected Android Gradle project applies no \
          Kotlin plugin. Gradle would compile the generated Kotlin into nothing and the first call \
          would fail on the device with ClassNotFoundException, so `day build` refuses it.\n\
          \n\
@@ -466,7 +466,8 @@ pub fn kotlin_plugin_help(crates: &[String]) -> String {
          and the same JNI binding, and `.java` compiles in every Android project with no plugin at \
          all. This is what the shipped parts do (docs/bridge.md).\n\
          \n\
-         2. Apply the Kotlin plugin in platform/android/app/build.gradle.kts:\n\
+         2. Run `day project add-target android-mdc --persist-native-project` if using a generated \
+         project, then apply the Kotlin plugin in platform/android/app/build.gradle.kts:\n\
          \n\
          \x20      plugins {{\n\
          \x20          id(\"dev.daybrite.day.android\")\n\

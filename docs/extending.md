@@ -359,7 +359,7 @@ library products to link. Xcode is not script-driven like Gradle, so `day build`
 generates a **local SwiftPM package** at `build/day/ios/DayPieces`. Its `Package.swift` lists every
 piece's `swift-packages` as dependencies and compiles every piece's staged Swift shims (each under a
 per-crate subfolder). The app's generated (or optionally checked-in) `.xcodeproj` depends on that one local package (the iOS
-analog of the checked-in Gradle scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
+analog of the Gradle host scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
 Two further keys are shared with the macOS table below ([docs/swiftui.md](swiftui.md) covers them

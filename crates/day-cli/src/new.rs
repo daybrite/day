@@ -1324,7 +1324,9 @@ fn render_app(
     // Only the host projects the chosen targets need; `day project add-target` materializes the
     // rest from the same template later.
     let mut files = crate::template::filter_for_targets(files, &app.targets);
-    files.retain(|f| !crate::xcode::is_project_file(&f.path));
+    files.retain(|f| {
+        !crate::xcode::is_project_file(&f.path) && !crate::native_host::is_scaffold_file(&f.path)
+    });
     // website/ ships by default: two small files that make the shared CI workflow build and
     // deploy a project site (daysite). Opting out is one flag, and adding it back later is
     // copying those two files; nothing else references them.
@@ -1662,7 +1664,7 @@ pub fn add_target(
     project: &crate::meta::Project,
     requested: &[String],
     template: Option<&str>,
-    persist_xcode_project: bool,
+    persist_native_project: bool,
 ) -> Result<(), CliError> {
     // Requested targets: repeatable and comma-splittable, validated against the target table.
     let mut wanted: Vec<String> = Vec::new();
@@ -1722,11 +1724,28 @@ pub fn add_target(
     let all_targets: Vec<String> = existing.iter().chain(new_targets.iter()).cloned().collect();
     let ctx = template_context(&repl, title, &deps, &all_targets);
 
-    let files = load_template(template).map_err(CliError::failure)?;
+    let mut files = load_template(template).map_err(CliError::failure)?;
+    // A lean custom template (such as Appfair) can omit generated native projects entirely.
+    // Opting into persistence still materializes those projects from Day's built-in defaults.
+    let mut builtin_projects = std::collections::HashSet::new();
+    if persist_native_project {
+        for file in crate::template::builtin_app() {
+            if (crate::native_host::is_scaffold_file(&file.path)
+                || crate::xcode::is_project_file(&file.path))
+                && !files.iter().any(|f| f.path == file.path)
+            {
+                builtin_projects.insert(file.path.clone());
+                files.push(file);
+            }
+        }
+    }
     let mut files = crate::template::platform_files_for_targets(files, &wanted);
     files.retain(|f| {
+        if crate::native_host::is_scaffold_file(&f.path) {
+            return persist_native_project;
+        }
         !crate::xcode::is_project_file(&f.path)
-            || (persist_xcode_project
+            || (persist_native_project
                 && !project
                     .root
                     .join(f.path.split("/DayApp.xcodeproj/").next().unwrap())
@@ -1748,7 +1767,7 @@ pub fn add_target(
             let _ = std::fs::create_dir_all(parent);
         }
         let initialized;
-        let content = if template.is_none()
+        let content = if (template.is_none() || builtin_projects.contains(path))
             && crate::xcode::is_project_file(path)
             && path.ends_with("project.xcproj")
         {
@@ -3904,13 +3923,18 @@ mod scaffold_tests {
     }
 
     #[test]
-    fn apple_projects_are_derived_by_default_and_persisted_only_on_request() {
+    fn native_projects_are_derived_by_default_and_persisted_only_on_request() {
         let deps = Deps::Git(None);
         let spec = AppSpec {
             repl: Repl::new("fixture", Some("dev.example.fixture")),
             title: "Fixture".into(),
             deps: &deps,
-            targets: vec!["macos-appkit".into(), "ios-uikit".into()],
+            targets: vec![
+                "macos-appkit".into(),
+                "ios-uikit".into(),
+                "android-mdc".into(),
+                "harmony-arkui".into(),
+            ],
             template: None,
             no_website: true,
             github: false,
@@ -3919,7 +3943,10 @@ mod scaffold_tests {
             icon_seed: None,
         };
         let files = render_app(&spec, None).unwrap();
-        assert!(!files.iter().any(|(p, _)| crate::xcode::is_project_file(p)));
+        assert!(
+            !files.iter().any(|(p, _)| crate::xcode::is_project_file(p)
+                || crate::native_host::is_scaffold_file(p))
+        );
         for os in ["macos", "ios"] {
             assert!(
                 files
@@ -3938,7 +3965,15 @@ mod scaffold_tests {
         add_target(&project, &spec.targets, None, false).unwrap();
         assert!(!crate::xcode::path(&root, "macos").exists());
         assert!(!crate::xcode::path(&root, "ios").exists());
-        add_target(&project, &spec.targets, None, true).unwrap();
+        for platform in ["android", "harmony"] {
+            assert!(!root.join("platform").join(platform).exists());
+        }
+        // A lean custom template has no native projects; persistence fills those from Day.
+        let template = root.join("lean-template");
+        std::fs::create_dir_all(&template).unwrap();
+        add_target(&project, &spec.targets, template.to_str(), true).unwrap();
+        assert!(root.join("platform/android/settings.gradle.kts").is_file());
+        assert!(root.join("platform/harmony/build-profile.json5").is_file());
         for os in ["macos", "ios"] {
             let path = crate::xcode::path(&root, os);
             let doc = crate::xcode::open(&path).unwrap();
@@ -3988,11 +4023,7 @@ mod scaffold_tests {
         };
         let with = render_app(&spec(true), None).expect("renders");
         let with_paths = paths(&with);
-        for expected in [
-            ".gitignore",
-            ".github/workflows/ci.yml",
-            "platform/harmony/.gitignore",
-        ] {
+        for expected in [".gitignore", ".github/workflows/ci.yml"] {
             assert!(
                 with_paths.iter().any(|p| p == expected),
                 "{expected} missing"
@@ -4005,7 +4036,7 @@ mod scaffold_tests {
                 "{path} in a scaffold without a repository"
             );
         }
-        assert_eq!(without.len() + 3, with.len(), "{:?}", paths(&without));
+        assert_eq!(without.len() + 2, with.len(), "{:?}", paths(&without));
         let readme = |rendered: &[(String, Vec<u8>)]| -> String {
             let (_, bytes) = rendered
                 .iter()
@@ -4042,7 +4073,10 @@ mod scaffold_tests {
         let rendered = render_app(&spec, None).expect("renders");
         let paths: Vec<&str> = rendered.iter().map(|(p, _)| p.as_str()).collect();
         assert!(paths.contains(&".gitignore"), "{paths:?}");
-        assert!(paths.contains(&"platform/harmony/.gitignore"), "{paths:?}");
+        assert!(
+            !paths.iter().any(|p| p.starts_with("platform/harmony/")),
+            "{paths:?}"
+        );
         assert!(
             !paths.iter().any(|p| p.starts_with(".github/")),
             "{paths:?}"

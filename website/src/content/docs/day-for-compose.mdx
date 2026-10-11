@@ -383,7 +383,7 @@ camera = "Scan shelf barcodes to add albums."
 
 </Compare>
 
-A Gradle project still exists (`platform/android/` is a host that loads the Rust `cdylib`), but
+A Gradle project still exists (Day derives `build/android/` to load the Rust `cdylib`), but
 it isn't where configuration lives. `Day.toml` declares identity, version, window, and permissions
 once; `day build` writes the manifest entries (and the iOS plist keys, and the HarmonyOS profile)
 from it. A dependency with native platform code declares its Java sources, Gradle dependencies, and
@@ -482,8 +482,9 @@ title = "Field Notes Mobile"        # only Android sees this
 id = "dev.example.fieldnotes.mac"   # only the macOS target sees this
 ```
 
-Android Studio still works when you want it: opening `platform/android/` gives you the
-debugger and profilers, and Gradle calls back into `day` to rebuild the Rust half.
+Android Studio still works when you want it: `day open -t android-mdc` prepares and opens
+the selected Gradle project with its debugger and profilers. Run `day build -t android-mdc`
+after changing Rust code; Studio packages the last built Rust library.
 
 ## Building and shipping
 

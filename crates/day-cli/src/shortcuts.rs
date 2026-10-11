@@ -221,12 +221,9 @@ fn android_values_dir(locale: &str) -> String {
 /// builds that have resources to stage, and clears its own files first because builds with
 /// no resources don't.
 pub fn sync_android(project: &Project) -> Result<(), String> {
-    let manifest = project
-        .root
-        .join("platform/android/app/src/main/AndroidManifest.xml");
-    if !manifest.exists() {
-        return Ok(());
-    }
+    let text = crate::native_host::android_manifest(project)?;
+    let manifest =
+        crate::native_host::android_dir(project).join("app/src/main/AndroidManifest.xml");
     let res = project.root.join("build/day/android/res");
     // Remove every file this sync owns, then regenerate: a shortcut removed from Day.toml
     // must not linger in a res tree the image stage had no reason to wipe.
@@ -240,8 +237,6 @@ pub fn sync_android(project: &Project) -> Result<(), String> {
     if shortcuts.is_empty() {
         return Ok(());
     }
-    let text =
-        std::fs::read_to_string(&manifest).map_err(|e| format!("{}: {e}", manifest.display()))?;
     let scheme = android_scheme(&text).ok_or_else(|| {
         format!(
             "[[shortcuts]] needs a deep-link scheme, and {} has no android:scheme in an \
@@ -311,10 +306,7 @@ pub fn android_manifest_fragment(project: &Project) -> Option<String> {
     if project.manifest.shortcuts.is_empty() {
         return None;
     }
-    let manifest = project
-        .root
-        .join("platform/android/app/src/main/AndroidManifest.xml");
-    let text = std::fs::read_to_string(manifest).ok()?;
+    let text = crate::native_host::android_manifest(project).ok()?;
     let activity = android_launcher_activity(&text)?;
     Some(format!(
         "<!-- Day.toml [[shortcuts]] — merged into the launcher activity by name. -->\n\

@@ -319,7 +319,7 @@ verify UI changes on every target you touched. The canonical loop: edit → `day
 - ❌ Passing a `String`/value where dynamic content is wanted. ✅ Pass `move || …sig.get()…`.
 - ❌ Wrapping `Signal` in `Rc`/`Arc`. ✅ It is `Copy`; move it directly.
 - ❌ Omitting `.id(...)` on Pieces you need to test/script/deep-link.
-- ❌ Hand-editing generated `platform/ios/*.xcodeproj` or `platform/android`. ✅ Edit `Day.toml`/Rust.
+- ❌ Hand-editing generated projects under `build/day/xcode/`, `build/android/`, or `build/day/harmony/project/`. ✅ Edit `Day.toml`/Rust.
 - ❌ Concluding a target works from `cargo build`. ✅ `day launch -p <target>` (and `--script` to assert).
 - ❌ Declaring a UI change done without looking at it. ✅ `day_drive`/`day drive` → `screenshot` → inspect.
 - ❌ Hard-coded pixel font sizes for shipping text. ✅ Semantic `Font` styles (accessibility-scaled).

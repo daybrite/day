@@ -1906,7 +1906,10 @@ pub fn native_project(
             crate::pieces::write_macos_pieces(project)?;
             (crate::xcode::ensure(project, "macos")?, "Xcode")
         }
-        "android-mdc" => (project.root.join("platform/android"), "Android Studio"),
+        "android-mdc" => (
+            crate::native_host::prepare_android(project)?,
+            "Android Studio",
+        ),
         "harmony-arkui" => (crate::ohos::staged_harmony_dir(project), "DevEco-Studio"),
         other => return Err(format!("{other} has no native IDE project to open")),
     };

@@ -49,6 +49,12 @@ the command errors naming what is missing.
 [System requirements](/docs/system-requirements#setting-up-the-oniro-emulator) has the download, the
 QEMU install, and KVM setup.
 
+Day derives the hvigor project under `build/day/harmony/project/`; no checked-in build
+scaffold is required. `day open -t harmony-arkui` prepares and opens it in DevEco Studio.
+For custom native configuration, `day project add-target harmony-arkui --persist-native-project`
+creates an editable `platform/harmony/` override. Day stages that override for builds,
+so edit its source files rather than the disposable project under `build/`.
+
 ## Caveats
 
 The widget vocabulary is implemented; platform integration is partial:

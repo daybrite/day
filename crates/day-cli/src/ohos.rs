@@ -1288,12 +1288,19 @@ fn sync_ohos_shortcuts(project: &Project) -> Result<(), String> {
 /// provides the inputs; all Day-generated ArkTS, resources and manifest edits go to the copy.
 /// Native caches survive preparation. Removed source files and generated resources do not.
 pub fn stage_host(project: &Project) -> Result<(), String> {
-    let source = harmony_dir(project);
-    if !source.join("build-profile.json5").exists() {
-        return Ok(());
-    }
+    let source = crate::native_host::ensure_harmony_source(project)?;
     let harmony = staged_harmony_dir(project);
     staging::sync(&source, &harmony)?;
+    if source != harmony_dir(project) {
+        crate::icon::ensure(project, &["harmony-arkui"])?;
+        let media = project.root.join("build/day/host/harmony/media");
+        for relative in [
+            "AppScope/resources/base/media",
+            "entry/src/main/resources/base/media",
+        ] {
+            staging::sync(&media, &harmony.join(relative))?;
+        }
+    }
     crate::pieces::write_ohos_pieces(project, &harmony)?;
     let target = crate::external::find_target(project, "harmony-arkui")?;
     crate::resources::stage(project, target)?;
@@ -1313,16 +1320,6 @@ pub fn build_ohos(
     profile: Profile,
     start: std::time::Instant,
 ) -> Result<BuildOutcome, String> {
-    let harmony = harmony_dir(project);
-    if !harmony.join("build-profile.json5").exists() {
-        return Err(format!(
-            "harmony-arkui: no ArkTS host project at {} — a HarmonyOS app needs a `platform/harmony/` \
-             hvigor project, the one `day new` scaffolds (`day project add-target harmony-arkui`). See \
-             docs/harmonyos.md.",
-            harmony.display()
-        ));
-    }
-
     // 0) Stage the framework's ArkTS host (docs/harmonyos.md) and every standalone piece's ArkTS
     //    into the project, and regenerate the aggregator the host page registers
     //    (docs/extending.md). Before the cargo leg, because hvigor compiles whatever is on disk

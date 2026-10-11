@@ -66,10 +66,19 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
     // AGP otherwise chooses its own default NDK, which need not be installed even when
     // cargo-ndk just built successfully. In that case it only warns and packages unstripped .so files.
     // Keep this machine-local path in generated configuration, also read by Android Studio.
-    let ndk = std::path::absolute(crate::mobile::find_ndk()?).map_err(|e| e.to_string())?;
+    // Preparation also runs on hosts without an Android SDK (for example template CI).
+    // Real builds have already required the NDK in cargo-ndk; Studio may choose its default
+    // until one is installed. Never bake an unavailable local path into generated settings.
+    let ndk_property = crate::mobile::find_ndk()
+        .ok()
+        .map(std::path::absolute)
+        .transpose()
+        .map_err(|e| e.to_string())?
+        .map(|ndk| format!("ndkPath={}\n", properties_value(&ndk.to_string_lossy())))
+        .unwrap_or_default();
     let content = format!(
         "applicationId={}\nnamespace={}\nversionCode={}\nversionName={}\ntitle={}\nscheme={}\n\
-         windowWidth={}\nwindowHeight={}\nwindowMinWidth={}\nwindowMinHeight={}\nndkPath={}\n",
+         windowWidth={}\nwindowHeight={}\nwindowMinWidth={}\nwindowMinHeight={}\n{}",
         resolved.id,
         resolved.id,
         resolved.build.min(i32::MAX as u64),
@@ -80,7 +89,7 @@ pub(crate) fn write_app_properties(project: &Project) -> Result<(), String> {
         win.height.round() as i64,
         win.min_width.round() as i64,
         win.min_height.round() as i64,
-        properties_value(&ndk.to_string_lossy()),
+        ndk_property,
     );
     let path = dir.join("day-app.properties");
     // Content-hashed write: only touch the file when it changed (keeps Gradle up-to-date checks warm).
@@ -159,7 +168,7 @@ pub fn pack(
     if formats.iter().any(|f| f == "aab") && opts.profile == Profile::Release {
         status("Building", "android-mdc (gradle bundleRelease)");
         let day_bin = std::env::current_exe().map_err(|e| PackError::Other(e.to_string()))?;
-        let android_dir = project.root.join("platform/android");
+        let android_dir = crate::native_host::ensure_android(project).map_err(PackError::Other)?;
         let mut cmd = Command::new(gradle_program(&android_dir));
         cmd.current_dir(&android_dir)
             .env("DAY_BIN", &day_bin)
@@ -183,9 +192,7 @@ pub fn pack(
             cmd.env("ANDROID_HOME", day_toolchain::android_sdk_dir());
         }
         run_tool(&mut cmd, "gradle bundleRelease").map_err(PackError::Other)?;
-        let aab = project
-            .root
-            .join("platform/android/app/build/outputs/bundle/release/app-release.aab");
+        let aab = android_dir.join("app/build/outputs/bundle/release/app-release.aab");
         if !aab.exists() {
             return Err(PackError::Other(format!(
                 "gradle bundleRelease produced no aab at {}",
@@ -318,9 +325,8 @@ fn find_output(
     if conventional.exists() {
         return Ok(conventional.to_path_buf());
     }
-    let dir = project
-        .root
-        .join("platform/android/app/build/outputs/apk")
+    let dir = crate::native_host::android_dir(project)
+        .join("app/build/outputs/apk")
         .join(profile.as_str());
     std::fs::read_dir(&dir)
         .ok()

@@ -39,8 +39,8 @@ my-app/
 ├── .github/workflows/ci.yml  # the shared Day workflow on every target above (skip with --no-github, with .gitignore and the git repository)
 ├── platform/
 │   ├── ios/                  # Apple host sources: thin Swift Runner + DayApp.xcconfig
-│   └── android/              # Gradle scaffold: settings/app modules, AndroidManifest, theme
-├── platform/ohos/            # HarmonyOS scaffold: hvigor ArkTS host + sign-hap.mjs
+│   └── macos/                # Apple host sources: thin Swift Runner + DayApp.xcconfig
+├── build/android/            # generated Gradle host, caches and APK/AAB outputs
 └── build/day/                # generated: cargo target dirs, staged resources, screenshots
 ```
 
@@ -51,10 +51,11 @@ my-app/
   `artifact`, `build`) can be overridden per platform (`[app.ios]`), per
   [toolkit](/docs/glossary#toolkit) (`[app.qt]`), or per target (`[app.macos-appkit]`); the platform
   scaffolds read the resolved values at build time.
-- The scaffolds are host projects. `platform/ios`, `platform/android`, and `platform/ohos` contain no
-  app logic. Each is a minimal native shell that loads the Rust library and hands it the root view.
-  They rarely change.
-- Generated files are written to `build/day/`: Cargo target directories (one per target and profile,
+- Native hosts load the Rust library and provide its root view. Apple keeps its Swift sources
+  under `platform/`. Apple project documents, Android Gradle scaffolds and HarmonyOS hvigor
+  scaffolds are derived by default. `day project add-target <target> --persist-native-project`
+  creates an app-owned override under `platform/` when manual customization is needed.
+- Generated files are written to `build/` (mostly `build/day/`): Cargo target directories (one per target and profile,
   so parallel builds never contend), staged resources, packed artifacts, and
   [dayscript](/docs/glossary#dayscript) screenshots all live under one ignorable directory.
 - `website/site.toml` enables a localized app website in the shared Actions workflow.
@@ -240,25 +241,27 @@ day build -t android-mdc
 │                                   (each piece's Java dirs, Gradle deps, Maven repos,
 │                                    manifest permissions — read generically by Day's Gradle plugin)
 │
-└── gradle assembleDebug   platform/android/
+└── gradle assembleDebug   build/android/
         │
         ├── sourceSets: the day-android Java shim + piece Java + jniLibs + assets/
         ├── aapt2: staged resource/images → res/drawable* → R.drawable ids
         └── Material 3 theme + DayActivity host (loads the .so, calls nativeStart)
         ▼
-platform/android/app/build/outputs/apk/debug/app-debug.apk
+build/android/app/build/outputs/apk/debug/app-debug.apk
         ▼
 adb install … && am start DayActivity                   (day launch)
 ```
 
+An existing `platform/android/` Gradle project takes precedence over the generated default.
+`day open -t android-mdc` prepares and opens the selected project in Android Studio.
 Day's Gradle plugin configures that project from `build/day/android/`
 ([The Gradle project](/docs/platforms/android-mdc#the-gradle-project)). A build started from Android
 Studio packages the Rust `.so` from the last `day build`.
 
 ### HarmonyOS: `harmony-arkui`
 
-The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS host project in
-`platform/ohos/`, a cross-compiled NAPI library, and a post-build signing step with the public
+The newest pipeline follows the Android shape with HarmonyOS tooling: an ArkTS host project
+derived under `build/day/harmony/project/`, a cross-compiled NAPI library, and a post-build signing step with the public
 OpenHarmony development certificate:
 
 ```text
@@ -266,9 +269,9 @@ day build -t harmony-arkui
 │
 ├── cargo ohos rustc --crate-type cdylib --target x86_64-unknown-linux-ohos   (emulator; arm64 device)
 │       cross environment from the OpenHarmony SDK cargo-ohos resolves (OHOS_SDK_NATIVE)
-│       ────────► platform/ohos/entry/libs/<abi>/libentry.so
+│       ────────► build/day/harmony/project/entry/libs/<abi>/libentry.so
 │
-├── hvigor assembleHap   platform/ohos/   (ohpm install first)
+├── hvigor assembleHap   build/day/harmony/project/   (ohpm install first)
 │       ├── compiles the ArkTS host (Index.ets mounts Day via a NodeContent slot)
 │       ├── packs libentry.so + resources/rawfile/day/ (staged images & assets)
 │       └── → entry-default-unsigned.hap
@@ -276,7 +279,7 @@ day build -t harmony-arkui
 └── sign-hap.mjs         patch compileSdkType → "OpenHarmony", sign with the SDK's
         │                public release material (no developer account required)
         ▼
-platform/ohos/entry/build/…/my-app-signed.hap
+build/day/harmony/project/entry/build/…/my-app-signed.hap
         ▼
 hdc install … && aa start EntryAbility                  (day launch)
 ```

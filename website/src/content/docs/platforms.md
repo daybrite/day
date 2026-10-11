@@ -99,7 +99,7 @@ with an `-unsigned.ipa` filename. Physical-device debugging gets less use than t
 
 ### Android (`android-mdc`) — [full page](/docs/platforms/android-mdc)
 [Tier 1 · Supported](/docs/platforms#support-tiers)
-Day renders Material Components widgets over JNI, with a checked-in Gradle project and the same
+Day renders Material Components widgets over JNI, with a generated Gradle project and the same
 callback-build pattern. `day launch` installs on every connected device/emulator at once, each
 with the right ABI. Accessibility annotations are partial
 ([details](/docs/accessibility#current-limits)), and process-death restoration is a cold

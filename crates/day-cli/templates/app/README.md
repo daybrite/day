@@ -34,9 +34,9 @@ cargo build --no-default-features --features appkit    # or gtk / qt / uikit / m
 - `dayscript/demo.yaml` — a [dayscript](https://daybrite.dev/docs/dayscript) walkthrough that
   drives every feature this app ships, and doubles as its UI test:
   `day launch -t {{first_target}} --script dayscript/demo.yaml`.
-- `platform/` — native host sources and configuration (Swift / Gradle / hvigor);
-  `day build` keeps their identity in sync with `Day.toml`. Apple `.xcodeproj` folders
-  are generated under `build/day/xcode/` by default.
+- `platform/` — app-owned native sources and configuration. Day derives Apple projects
+  under `build/day/xcode/`, Android Gradle projects under `build/android/`, and HarmonyOS
+  hvigor projects under `build/day/harmony/project/`.
 - `Day.toml` — app metadata + the target list.
 - `.github/workflows/ci.yml` — builds and tests every target above on each push through the
   shared [Day workflow](https://daybrite.dev/docs/github-actions), and attaches packages to a
@@ -48,4 +48,9 @@ macOS and iOS builds require full **Xcode 27 or newer**. Their host projects use
 `build/day/xcode/<platform>/DayApp.xcodeproj/project.xcproj` (generated JSON5); `day doctor` checks the selected Xcode
 and `day lint` validates the project wiring. Open a prepared Apple project with
 `day open -t macos-appkit` or `day open -t ios-uikit`. For manual project customization,
-`day project add-target <target> --persist-xcode-project` creates a persistent override.
+`day project add-target <target> --persist-native-project` creates a persistent override.
+
+Android and HarmonyOS need no checked-in build scaffold. `day open -t android-mdc` or
+`day open -t harmony-arkui` prepares their generated project and opens its IDE.
+`day project add-target <target> --persist-native-project` creates an editable override
+under `platform/`; existing customized projects continue to work.

@@ -903,9 +903,26 @@ fn run_scripts_inner(
         // A gate token nothing can match is a typo, reported once per token: `only_on: [iso]`
         // would otherwise drop the step on every target without a word.
         let mut warned_gates: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Set once the engine reports that the app's main thread stopped picking up steps.
+        // That is not a failed assertion but a dead UI: every step after it would wait the
+        // engine's full budget (30 s) and fail the same way, so a 900-step walkthrough spends
+        // hours timing out one step at a time (the Day-Showcase macos-appkit leg did exactly
+        // that until the job limit cancelled it). The flow is abandoned instead, after a stack
+        // sample of the stuck app, and the run goes on to terminate it and start the next.
+        let mut main_thread_stalled = false;
         for (index, entry) in steps.into_iter().enumerate() {
             let mut op = entry.step.op().to_string();
             let step = entry.to_value();
+            if main_thread_stalled {
+                let remaining = planned - index;
+                run.steps_aborted += remaining;
+                eprintln!(
+                    "  {WARN}–{WARN:#} abandoning {} — the app's main thread is not responding; \
+                     {remaining} steps not run",
+                    script.display()
+                );
+                break;
+            }
             if stop_on_failure && run.steps_failed > failures_before_script {
                 let remaining = planned - index;
                 run.steps_aborted += remaining;
@@ -1146,6 +1163,12 @@ fn run_scripts_inner(
                 }
                 let err = reply.error.as_deref().unwrap_or("failed");
                 eprintln!("  {ERROR}✗{ERROR:#} {op} {detail} — {err}");
+                // The flag is the contract; the text match covers an app built on a day
+                // revision that predates it (CI builds the app and the CLI separately).
+                if reply.main_thread_stalled || err.starts_with("main thread did not respond") {
+                    main_thread_stalled = true;
+                    sample_stalled_app(project, target, &dir);
+                }
             }
             if op == "tests" && ok {
                 print_test_listing(&reply);
@@ -1479,6 +1502,82 @@ fn write_gallery(root: &Path) {
          </style><h1>day screenshots — {shots} captures</h1>{body}"
     );
     let _ = std::fs::write(root.join("index.html"), html);
+}
+
+/// Record where a desktop app whose main thread stopped answering is stuck, before the run
+/// terminates it: `sample` (macOS) writes every thread's call graph to `main-thread-stall.txt`
+/// beside the variant's captures, and the main thread's frames are echoed into the log. The one
+/// place the cause of a stall is visible is the process's stack at the time, and the process is
+/// gone a moment later. Nothing is recorded off macOS, where no such tool is on every runner.
+fn sample_stalled_app(project: &Project, target: &Target, dir: &Path) {
+    if target.kind != TargetKind::Desktop || !cfg!(target_os = "macos") {
+        return;
+    }
+    let pattern = desktop_pattern(&crate::ops::build_root(project), target.name);
+    let pid = Command::new("pgrep")
+        .args(["-f", &pattern])
+        .output()
+        .ok()
+        .and_then(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .next()
+                .map(str::trim)
+                .map(str::to_string)
+        });
+    let Some(pid) = pid.filter(|p| !p.is_empty()) else {
+        eprintln!("  {WARN}▸{WARN:#} no app process to sample (it may already have exited)");
+        return;
+    };
+    let file = dir.join("main-thread-stall.txt");
+    let _ = std::fs::create_dir_all(dir);
+    // Two seconds of samples, enough to show a blocked thread; `-mayDie` keeps going if the
+    // process ends mid-sample. Bounded by `sample` itself; it never waits on the app.
+    let ran = Command::new("sample")
+        .args([pid.as_str(), "2", "-mayDie", "-file"])
+        .arg(&file)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let text = match std::fs::read_to_string(&file) {
+        Ok(text) if ran => text,
+        _ => {
+            eprintln!("  {WARN}▸{WARN:#} could not sample pid {pid}");
+            return;
+        }
+    };
+    eprintln!(
+        "  {WARN}▸{WARN:#} main thread stalled in pid {pid}; stacks in {}",
+        file.display()
+    );
+    for line in main_thread_frames(&text) {
+        eprintln!("      {line}");
+    }
+}
+
+/// The main thread's call graph from a `sample` report: the first thread block after
+/// "Call graph:", trimmed to the frames that say where it is (the report's own indentation
+/// kept), capped so the log shows the head of the stack and not every frame of a deep one.
+fn main_thread_frames(report: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_graph = false;
+    for line in report.lines() {
+        if !in_graph {
+            in_graph = line.starts_with("Call graph:");
+            continue;
+        }
+        if line.trim().is_empty() {
+            if !out.is_empty() {
+                break;
+            }
+            continue;
+        }
+        out.push(line.trim_end().to_string());
+        if out.len() >= 40 {
+            break;
+        }
+    }
+    out
 }
 
 /// Quote a literal for use inside the extended regular expression `pkill -f` takes. The project
@@ -1922,6 +2021,107 @@ mod gate_tests {
         assert_eq!(run.retryable_failed, 0);
         assert!(run.screenshots.is_empty());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// A reply carrying `main_thread_stalled` ends the flow whatever its `on_failure`: the app's
+    /// UI is gone, so the remaining steps could only time out one by one. The runner may also
+    /// be driving an app built before the flag existed, so the error text alone must do too.
+    #[test]
+    fn a_stalled_main_thread_abandons_the_rest_of_the_flow() {
+        use std::io::{BufRead, Write};
+        for (name, reply) in [
+            (
+                "flag",
+                "{\"ok\":false,\"retryable\":false,\"error\":\"fixture stall\",\"main_thread_stalled\":true}",
+            ),
+            (
+                "text",
+                "{\"ok\":false,\"retryable\":false,\"error\":\"main thread did not respond within 30s — raise DAY_SCRIPT_MAIN_TIMEOUT_SECS if this machine is just slow\"}",
+            ),
+        ] {
+            let root =
+                std::env::temp_dir().join(format!("day-flow-stall-{}-{name}", std::process::id()));
+            std::fs::create_dir_all(&root).unwrap();
+            let script = root.join("flow.yaml");
+            std::fs::write(
+                &script,
+                "on_failure: continue\nflow:\n- wait_for: { id: nav }\n- tap: { id: must-not-run }\n- screenshot: never\n",
+            )
+            .unwrap();
+            let project = crate::meta::Project {
+                root: root.clone(),
+                manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+            };
+            let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut seen = Vec::new();
+                loop {
+                    let mut line = String::new();
+                    match reader.read_line(&mut line) {
+                        Ok(0) => break,
+                        Err(e)
+                            if e.kind() == std::io::ErrorKind::ConnectionReset
+                                && line.is_empty() =>
+                        {
+                            break;
+                        }
+                        Ok(_) => {}
+                        Err(e) => panic!("fixture request read failed: {e}"),
+                    }
+                    let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                    seen.push(request["step"]["op"].as_str().unwrap().to_string());
+                    writeln!(stream, "{reply}").unwrap();
+                }
+                seen
+            });
+            let run = super::run_scripts(
+                &project,
+                crate::targets::find("macos-appkit").unwrap(),
+                port,
+                "fixture-token",
+                &[script],
+                None,
+                None,
+                None,
+                true,
+                false,
+                false,
+                false,
+            )
+            .unwrap();
+            let seen = server.join().unwrap();
+            assert_eq!(
+                seen,
+                ["wait_for"],
+                "{name}: no step is sent after the stall"
+            );
+            assert_eq!(run.steps_failed, 1, "{name}");
+            assert_eq!(run.retryable_failed, 0, "{name}");
+            assert_eq!(run.steps_aborted, 2, "{name}");
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    /// The excerpt the log gets from a `sample` report: the first thread after the call-graph
+    /// header, stopping at the blank line that separates it from the next thread.
+    #[test]
+    fn the_main_thread_block_is_what_the_log_shows() {
+        let report = "Sampling process 42 for 2 seconds\nCall graph:\n    2 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    + 2 start  (in dyld)\n    +   2 main  (in Showcase)\n\n    2 Thread_2\n    + 2 thread_start\n\nTotal number in stack: 4\n";
+        assert_eq!(
+            super::main_thread_frames(report),
+            [
+                "    2 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)",
+                "    + 2 start  (in dyld)",
+                "    +   2 main  (in Showcase)",
+            ]
+        );
+        assert!(super::main_thread_frames("no graph here").is_empty());
     }
 
     #[test]

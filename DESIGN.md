@@ -3111,6 +3111,18 @@ failure; a stopped flow does not repeatedly dispatch its failed action. The CLI'
 regression test covers stop/continue behavior, and the engine's mock test checks that taps wait
 for enabled state and native settling before dispatching exactly once.
 
+A stalled main thread ends a flow whatever its `on_failure`. When the engine's dispatch budget
+(30 s, `DAY_SCRIPT_MAIN_TIMEOUT_SECS`) passes without the app's main thread picking the step up,
+the reply carries `main_thread_stalled` (older apps: the runner also recognizes the error text),
+and the runner abandons the remaining steps as aborted rather than sending each one into the
+same 30 s wait — a 900-step walkthrough otherwise spends hours failing one step at a time, which
+is how the Day-Showcase macos-appkit leg ran into its job limit (2026-10-11, two apps in one
+sweep whose main threads stopped inside a window-server call). Before the run terminates the
+app, a desktop target on macOS is stack-sampled (`sample`) into `main-thread-stall.txt` beside
+the variant's captures, with the main thread's frames echoed into the log, so the stall's cause
+is on record once the process is gone. `a_stalled_main_thread_abandons_the_rest_of_the_flow`
+covers both the flag and the text path.
+
 Harmony's CLI owns one `hilog -P <app-pid>` reader per device, resolving the pid after launch.
 Replacing or terminating the run kills and reaps that reader and unregisters its host pid.
 It never clears device-wide logs or falls back to unfiltered output when pid lookup fails.
@@ -4018,7 +4030,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day sign check` / `day sign status <id>` / `day sign apply <artifact>` | validate `Day.toml [signing]` without printing secrets, query a notarization submission, or sign a package that already exists (Android; §16.5 below). A subcommand is required |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day doctor verify [-t <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-t` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: the command installs that day-cli and pins the app it scaffolds to the same one — what the scheduled `doctor-verify.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
-| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host sources (`--persist-xcode-project` opts into an app-owned Apple project) (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
+| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host sources (`--persist-native-project` opts into an app-owned Apple, Android or HarmonyOS project) (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
 | `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
@@ -4205,8 +4217,18 @@ gitignores the HarmonyOS links. Every `day build`/`launch`/`pack` calls `crate::
 first (a no-op while the lock vouches for the master and the generator), and so does the Xcode
 target's "Build Rust (day)" phase, so a GUI build never compiles a stale catalog.
 
-For `harmony-arkui`, `day prepare` (and every build) copies the source host from
-`platform/harmony/` (or legacy `platform/ohos/`) into `build/day/harmony/project/`.
+Android and HarmonyOS build scaffolds are derived by default: `day new` and ordinary
+`day project add-target` omit the built-in Gradle/hvigor files. The CLI embeds those templates
+and regenerates them when preparing, building, launching or opening an IDE. App-owned source
+files beyond the built-in scaffold are retained by custom templates; use
+`day project add-target <target> --persist-native-project` to materialize editable native
+configuration beside them. This flag also covers Apple projects; `--persist-xcode-project`
+remains a compatible alias. Existing native projects always take precedence. Generated
+projects are disposable, and `day clean` removes them along with other build output.
+
+For `harmony-arkui`, the built-in scaffold is rendered into `build/day/harmony/template/`
+then staged into `build/day/harmony/project/`. A checked-in `platform/harmony/` (or legacy
+`platform/ohos/`) replaces the built-in input. An incomplete override is reported, not replaced.
 The framework's ArkTS host, pieces and bridges, raw assets, fonts, localized permission
 strings and shortcut resources are generated there. Identity, permission and shortcut
 manifest changes apply only to the copy. hvigor, dev signing, release signing, and
@@ -4222,8 +4244,16 @@ external paths. `ohos::staging::tests` covers Git cleanliness, localized permiss
 shortcuts, resource removal, cache retention, symlink isolation, legacy layouts and the
 release-signing input path. See [docs/harmonyos.md](docs/harmonyos.md).
 
-For `android-mdc`, `day prepare`, `day open`, and
-every build stage Day's Gradle plugins from day-android into `build/day/android/gradle-plugin` the
+For `android-mdc`, the default Gradle root is `build/android/`. Its depth matches
+`platform/android/`, preserving relative paths understood by existing versions of Day's
+Gradle plugin. A source Gradle settings/build file or AndroidManifest selects the persistent
+`platform/android/` override. Builds and packaging discover APKs/AABs under the selected
+root. Generation refreshes template inputs without touching Gradle caches; unchanged files
+retain their mtimes. `day prepare --check` checks generated template inputs without writing.
+Regression tests in `native_host::tests` and `new::tests` cover derivation, drift checks,
+regeneration and opt-in persistence.
+
+`day prepare`, `day open`, and every Android build stage Day's Gradle plugins from day-android into `build/day/android/gradle-plugin` the
 same way (§17.4), so Android Studio can sync a fresh clone. `day open -t <target>` prepares, then
 opens the target's host project in its IDE (Xcode, Android Studio, DevEco Studio).
 

@@ -2610,7 +2610,7 @@ pub fn build_android(
     };
     status("Building", &format!("{} (gradle {task})", target.name));
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
-    let android_dir = project.root.join("platform/android");
+    let android_dir = crate::native_host::ensure_android(project)?;
     let mut cmd = Command::new(crate::pack::android::gradle_program(&android_dir));
     cmd.current_dir(&android_dir)
         .env("DAY_BIN", &day_bin)
@@ -2662,9 +2662,8 @@ pub fn build_android(
         Profile::Release => "app-release.apk",
         Profile::Debug => "app-debug.apk",
     };
-    let apk_dir = project
-        .root
-        .join("platform/android/app/build/outputs/apk")
+    let apk_dir = android_dir
+        .join("app/build/outputs/apk")
         .join(profile.as_str());
     // An unsigned release build is emitted as `app-release-unsigned.apk`; fall back to whatever
     // single .apk the build produced rather than assuming the signed name.
