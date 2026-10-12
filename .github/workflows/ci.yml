@@ -572,7 +572,7 @@ jobs:
           if [ "${{ matrix.toolkit }}" = gtk ]; then
             sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev
           else
-            sudo apt-get install -y qt6-base-dev qt6-webengine-dev
+            sudo apt-get install -y qt6-base-dev libqt6svg6 qt6-webengine-dev
           fi
       # The android backend links through the NDK, so the cross-clippy and the scaffold build need
       # cargo-ndk, but not Gradle, which only the packaging step uses.
@@ -887,7 +887,7 @@ jobs:
           # the base DejaVu set, which covers Arabic but not Han), so without it the zh-CN
           # walkthrough variants render every Chinese glyph as a tofu box on both toolkits.
           case "${{ matrix.toolkit }}" in
-            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-webengine-dev pkg-config fonts-noto-cjk ;;
+            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev libqt6svg6 qt6-webengine-dev pkg-config fonts-noto-cjk ;;
             # dbus supplies `dbus-run-session`: GTK's file dialogs are portal-backed and a
             # runner has no session bus, so `day launch` starts a private one. Without it GTK
             # reaches the portal through a NULL GDBusConnection and segfaults on the 2nd dialog.

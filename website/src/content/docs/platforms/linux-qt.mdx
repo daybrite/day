@@ -25,7 +25,7 @@ Qt 6 development packages and `pkg-config` are the requirement; `build.rs` build
 `moc`.
 
 ```sh
-sudo apt install qt6-base-dev pkg-config      # Debian/Ubuntu
+sudo apt install qt6-base-dev libqt6svg6 pkg-config      # Debian/Ubuntu
 sudo dnf install qt6-qtbase-devel pkgconf     # Fedora
 brew install qt pkg-config                    # macOS, for the macos-qt dev combo
 
@@ -34,6 +34,10 @@ day new app my-app --toolkit linux-qt
 cd my-app
 day launch -t linux-qt
 ```
+
+The Qt SVG runtime (`libqt6svg6` on Debian/Ubuntu) renders bundled vector icons and Day’s
+shared symbol fallbacks. Without it, symbols missing from the desktop icon theme and Qt’s
+built-in icon set display their text labels, even on icon-only buttons.
 
 Two optional modules enable two pieces; without a module the build still succeeds and the piece
 degrades:

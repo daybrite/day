@@ -157,7 +157,7 @@ builds on Ubuntu 24.04.
 ```bash
 # Debian / Ubuntu
 sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
-sudo apt install qt6-base-dev pkg-config                      # linux-qt
+sudo apt install qt6-base-dev libqt6svg6 pkg-config                      # linux-qt
 sudo apt install qemu-system-x86 qemu-system-gui unzip       # harmony-arkui (emulator)
 ```
 

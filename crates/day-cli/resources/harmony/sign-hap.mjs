@@ -30,11 +30,22 @@ if (!unsigned || !signed) {
 
 // Find the SDK's toolchains/lib (release signing material): beside the `native` component the
 // CLI hands over as OHOS_SDK_NATIVE (the directory cargo-ohos resolved), else under a full SDK's
-// OHOS_BASE_SDK_HOME / DEVECO_SDK_HOME.
+// OHOS_BASE_SDK_HOME / DEVECO_SDK_HOME. A `native` standing alone (cargo-ohos's own download, or
+// one unpacked for an engine's toolchain requirement) has no sibling, so the base SDK is the
+// fallback, and that root is versioned in hvigor's current layout (`<base>/<api>/toolchains`,
+// which `day doctor` reports as the API levels it holds): try the newest level first.
 function findLib() {
   const cands = [];
   if (process.env.OHOS_SDK_NATIVE) cands.push(path.join(path.dirname(process.env.OHOS_SDK_NATIVE), 'toolchains', 'lib'));
-  if (process.env.OHOS_BASE_SDK_HOME) cands.push(path.join(process.env.OHOS_BASE_SDK_HOME, 'toolchains', 'lib'));
+  if (process.env.OHOS_BASE_SDK_HOME) {
+    const base = process.env.OHOS_BASE_SDK_HOME;
+    cands.push(path.join(base, 'toolchains', 'lib'));
+    let levels = [];
+    try {
+      levels = fs.readdirSync(base).filter((n) => /^\d+$/.test(n)).map(Number).sort((a, b) => b - a);
+    } catch {}
+    for (const level of levels) cands.push(path.join(base, String(level), 'toolchains', 'lib'));
+  }
   if (process.env.DEVECO_SDK_HOME) cands.push(path.join(process.env.DEVECO_SDK_HOME, 'default', 'openharmony', 'toolchains', 'lib'));
   for (const c of cands) if (fs.existsSync(path.join(c, 'OpenHarmonyProfileRelease.pem'))) return c;
   throw new Error(

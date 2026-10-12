@@ -532,7 +532,7 @@ fn qt_group() -> Group {
                 run_line("pkg-config", &["--modversion", "Qt6Widgets"])
                     .or_else(|| run_line("qmake6", &["-query", "QT_VERSION"]))
                     .or_else(|| run_line("qmake", &["-query", "QT_VERSION"])),
-                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev` · MSYS2 mingw-w64-qt6-base)",
+                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev libqt6svg6` · MSYS2 mingw-w64-qt6-base)",
             ),
             // Optional: like glib-compile-resources, `rcc` staging is best-effort; a miss skips
             // the qresource blob (day loads images from the filesystem roots), so it's a warning,
@@ -568,7 +568,7 @@ fn qt_group() -> Group {
         ],
         setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
-                • Linux  — `apt install qt6-base-dev qt6-webengine-dev pkg-config`\n\
+                • Linux  — `apt install qt6-base-dev libqt6svg6 qt6-webengine-dev pkg-config`\n\
                 • Windows— MSYS2: `pacman -S mingw-w64-x86_64-qt6-base` (ARM64 hosts: the\n\
                   CLANGARM64 environment's `mingw-w64-clang-aarch64-qt6-base`), plus a GNU Rust\n\
                   toolchain — MSVC cannot link MSYS2's import libraries, and the C++ shim is built\n\

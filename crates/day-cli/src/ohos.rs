@@ -856,6 +856,47 @@ pub(crate) fn cargo_ohos() -> Result<Command, String> {
     Ok(cmd)
 }
 
+/// The shared runtime libraries a cross-compile for `triple` links and the hap must carry, as
+/// cargo-ohos reports them (`runtime_libraries` in `cargo ohos env --format json`: the C++
+/// standard library of the toolchain that compiled, `(soname, path)`). With the SDK's own clang
+/// that is `libc++_shared.so`; with an external LLVM (`--llvm`, `CARGO_OHOS_DOWNLOAD_PREBUILT`,
+/// which SpiderMonkey's prebuilt archives are built with) it is that toolchain's `libc++.so`,
+/// whose ABI namespace differs from the SDK's, so staging the SDK copy instead leaves the hap
+/// failing to load with "symbol not found". Empty when cargo-ohos predates the field, and the
+/// caller falls back to the SDK's `libc++_shared.so`.
+pub(crate) fn runtime_libraries(triple: &str) -> Vec<(String, PathBuf)> {
+    let Ok(mut cmd) = cargo_ohos() else {
+        return Vec::new();
+    };
+    cmd.args(["env", "--target", triple, "--format", "json"])
+        .env(
+            "CARGO_TARGET_DIR",
+            std::env::temp_dir().join("day-cargo-ohos"),
+        );
+    let Ok(out) = cmd.output() else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let Ok(json) = serde_json::from_slice::<serde_json::Value>(&out.stdout) else {
+        return Vec::new();
+    };
+    json["runtime_libraries"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|lib| {
+            let path = PathBuf::from(lib["path"].as_str()?);
+            let soname = lib["soname"]
+                .as_str()
+                .map(str::to_owned)
+                .or_else(|| path.file_name().map(|n| n.to_string_lossy().into_owned()))?;
+            Some((soname, path))
+        })
+        .collect()
+}
+
 /// The OpenHarmony SDK's `native` directory (the NDK: the cross clang and its sysroot; `hdc`
 /// and the signing material sit in the sibling `toolchains/`), as cargo-ohos resolves it:
 /// `OHOS_SDK_NATIVE`, `OHOS_NDK_HOME`, `OHOS_SDK_HOME` or `DEVECO_SDK_HOME`, then DevEco
@@ -1411,12 +1452,23 @@ pub fn build_ohos(
         // libentry.so so hvigor packs it into the hap (the exact analogue of the Android jniLibs
         // bundling). The NDK's per-arch lib dir uses the clang triple (`x86_64-linux-ohos`), not
         // the Rust triple, so drop the `unknown-` vendor field.
+        // cargo-ohos names the exact runtime libraries of the toolchain that compiled (an
+        // external LLVM ships `libc++.so` with another ABI namespace than the SDK's
+        // `libc++_shared.so`; see `runtime_libraries`); only an older cargo-ohos leaves the
+        // SDK-path guess below to do the work.
+        let reported = runtime_libraries(triple);
+        for (soname, path) in &reported {
+            std::fs::copy(path, libs.join(soname))
+                .map_err(|e| format!("stage {soname} from {}: {e}", path.display()))?;
+        }
         let clang_triple = triple.replace("unknown-", "");
         let libcxx = PathBuf::from(native)
             .join("llvm/lib")
             .join(&clang_triple)
             .join("libc++_shared.so");
-        if libcxx.exists() {
+        if !reported.is_empty() {
+            // Staged above.
+        } else if libcxx.exists() {
             std::fs::copy(&libcxx, libs.join("libc++_shared.so"))
                 .map_err(|e| format!("stage libc++_shared.so: {e}"))?;
         } else {
@@ -1683,13 +1735,15 @@ fn install_and_start(
         ) {
             install_log = combined(&out);
         }
-        if bundle_installed_on(bundle, key) {
-            installed = true;
+        // The bundle manager's free-space check (9568288, MSG_ERR_INSTALL_DISK_MEM_INSUFFICIENT)
+        // answers the same on every try, so retrying only spends the timeouts. Checked before
+        // the `bm dump` gate: a reinstall it refused leaves the previous copy listed, and that
+        // copy must not pass for the build that was just made.
+        if install_log.contains(INSTALL_DISK_SPACE_CODE) {
             break;
         }
-        // The bundle manager's free-space check (9568288, MSG_ERR_INSTALL_DISK_MEM_INSUFFICIENT)
-        // answers the same on every try, so retrying only spends the timeouts.
-        if install_log.contains(INSTALL_DISK_SPACE_CODE) {
+        if bundle_installed_on(bundle, key) {
+            installed = true;
             break;
         }
         if attempt < 10 {
