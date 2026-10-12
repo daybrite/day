@@ -559,6 +559,20 @@ fn norm(s: &str) -> String {
     day_fluent::strip_isolates(s)
 }
 
+/// Hosts that present frames of their own (`day_spec::capture::register_hold`) must have them
+/// on screen before a capture checkpoint is requested: a frame that lands after the checkpoint
+/// commits is not in the capture, and the fence for this revision does not rearm.
+fn hosts_settled() -> Result<(), Reply> {
+    if day_spec::capture::holds_settled() {
+        Ok(())
+    } else {
+        Err(Reply {
+            capture_pending: true,
+            ..Reply::fail("waiting for a host's pending frame", true)
+        })
+    }
+}
+
 fn exec(step: Step, revision: u32) -> Reply {
     use day_spec::Event;
     use day_spec::present::PresentResult;
@@ -1465,6 +1479,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
                 }
+                hosts_settled()?;
                 let readiness = with_tree(|t| t.prepare_snapshot(None, revision))
                     .map_err(|e| Reply::fail(format!("sample_pixel readiness: {e}"), false))?;
                 if readiness == day_spec::capture::Readiness::Pending {
@@ -1686,6 +1701,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 if !with_tree(|t| t.ui_idle()) {
                     return Err(Reply::fail("ui transitions still settling", true));
                 }
+                hosts_settled()?;
                 let root = match window.as_deref() {
                     Some(key) => Some(
                         day_core::windows::window_root_by_key(key)

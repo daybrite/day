@@ -159,6 +159,17 @@ step; they do not authorize a stale capture.
 | UIKit / iOS | In-process capture uses `afterScreenUpdates: true`; external `simctl` capture keeps its existing transition check and capture semantics |
 | XAML / Windows (XAML and WinUI) | Shared CompositionTarget/DwmFlush checkpoint; WinUI also selects a fresh WGC frame |
 
+A host that paints outside the toolkit's frame on every platform — an offscreen engine
+presented through a Day canvas, whose frames arrive after an asynchronous read-back and
+decode — is invisible to all of these checkpoints: they see a committed frame, not that the
+host's latest frame was in it. Such a host registers a capture hold
+(`day_spec::capture::register_hold`, a `fn() -> bool` read on the UI thread) answering
+whether every frame it owes is on screen; `screenshot` and `sample_pixel` wait while any hold
+says no, before requesting the checkpoint, with the same 16 ms polling and the step's deadline.
+A hold is a statement about frames in flight, not about page content: a continuously
+animating host keeps a capture waiting until the step times out, which is the failure such a
+script should see. The Servo adapter of `day-piece-webview` is the first host to register one.
+
 `Ready` acknowledges a platform render checkpoint; it does not claim that a vsync callback
 proves physical display presentation. `OnCapture` delegates freshness to a synchronous native
 capture and does not authorize skipping waits for an unrelated external capture. Pending

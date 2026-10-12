@@ -447,6 +447,11 @@ this still cannot hold every later screenshot. The web view
 piece arms four animation frames in the page (enough to put the commit through the
 compositor's pipeline), lets any CSS transition run out, and polls for the result.
 
+The Rust-side counterpart, for a piece that presents frames through a Day canvas on any
+toolkit, is a capture hold: `day_spec::capture::register_hold(fn() -> bool)`, answering whether
+every frame the host owes is on screen, which `screenshot` and `sample_pixel` wait on before the
+toolkit's checkpoint ([docs/window-image.md](window-image.md)).
+
 The same table carries the raw HarmonyOS permissions a crate needs, the counterpart of Android's
 `[package.metadata.day.android] permissions`. It is for the `system_grant` ones, which no prompt
 covers and no platform-neutral `[package.metadata.day.permissions]` name maps to:

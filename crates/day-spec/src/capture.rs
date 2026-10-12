@@ -55,6 +55,38 @@ impl Fence {
     }
 }
 
+/// Whether a host that presents frames of its own has every frame it owes on screen.
+///
+/// A renderer that paints outside the toolkit's frame — an offscreen engine presented through
+/// a canvas, its frames arriving after an asynchronous read-back and decode — is invisible to
+/// the toolkit's checkpoint: the checkpoint sees a committed frame, not that the host's latest
+/// frame was in it. A capture taken then shows the canvas as it was, or empty. Such a host
+/// registers one hold ([`register_hold`]); the dayscript capture steps wait, bounded by the
+/// step's timeout, while any hold answers `false`, before they request the checkpoint at all.
+/// Called on the UI thread, so the hold may read UI-thread state.
+pub type Hold = fn() -> bool;
+
+static HOLDS: std::sync::Mutex<Vec<Hold>> = std::sync::Mutex::new(Vec::new());
+
+/// Register a capture hold for the life of the process. Register once per host: every
+/// registration is consulted on every capture.
+pub fn register_hold(hold: Hold) {
+    HOLDS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .push(hold);
+}
+
+/// Whether every registered hold has settled. Holds run outside the registry's lock, so a
+/// hold may register another.
+pub fn holds_settled() -> bool {
+    let holds = HOLDS
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
+    holds.iter().all(|hold| hold())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -70,6 +102,17 @@ mod tests {
         f.complete(2, Ok(()));
         assert_eq!(f.poll(), Ok(Readiness::Ready));
         assert!(!f.begin(2));
+    }
+    #[test]
+    fn a_hold_defers_captures_until_it_settles() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        static SETTLED: AtomicBool = AtomicBool::new(false);
+        // Other tests in this process may have registered nothing; before any hold, settled.
+        assert!(holds_settled());
+        register_hold(|| SETTLED.load(Ordering::Relaxed));
+        assert!(!holds_settled());
+        SETTLED.store(true, Ordering::Relaxed);
+        assert!(holds_settled());
     }
     #[test]
     fn errors_and_windows_are_independent() {
