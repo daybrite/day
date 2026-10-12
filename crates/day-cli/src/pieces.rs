@@ -117,6 +117,9 @@ pub struct AndroidPieces {
     /// build log shows which crate contributed what.
     #[serde(rename = "manifestComponents")]
     pub manifest_components: Vec<String>,
+    /// An enabled engine requires untagged native heap pointers (Android 11+).
+    #[serde(rename = "disableNativeHeapPointerTagging")]
+    pub disable_native_heap_pointer_tagging: bool,
 }
 
 // --- `cargo metadata` JSON (only the fields we need) ---
@@ -168,9 +171,9 @@ struct AndroidMeta {
     #[serde(default)]
     res: StringOrVec,
     #[serde(default, rename = "gradle-dependencies")]
-    gradle_dependencies: Vec<String>,
+    gradle_dependencies: Vec<PackageString>,
     #[serde(default, rename = "gradle-repositories")]
-    gradle_repositories: Vec<String>,
+    gradle_repositories: Vec<PackageString>,
     #[serde(default)]
     permissions: Vec<String>,
     /// R8/ProGuard rule files (relative to the crate), one per component that needs its Java
@@ -183,6 +186,8 @@ struct AndroidMeta {
     /// fully-qualified, since the overlay merges into an app whose package it cannot know.
     #[serde(default, rename = "manifest-components")]
     manifest_components: StringOrVec,
+    #[serde(default, rename = "disable-native-heap-pointer-tagging")]
+    disable_native_heap_pointer_tagging: Option<PackageFeatureGate>,
 }
 
 /// Accept `java = "platform/android/java"` or `java = ["a", "b"]`.
@@ -631,6 +636,16 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
         let Some(android) = piece_meta::<AndroidMeta>(pkg, "android") else {
             continue;
         };
+        let enabled = meta
+            .resolve
+            .as_ref()
+            .and_then(|r| r.nodes.iter().find(|n| n.id == pkg.id))
+            .map(|n| n.features.as_slice())
+            .unwrap_or_default();
+        pieces.disable_native_heap_pointer_tagging |= android
+            .disable_native_heap_pointer_tagging
+            .as_ref()
+            .is_some_and(|gate| gate.enabled(enabled));
         let crate_dir = Path::new(&pkg.manifest_path)
             .parent()
             .unwrap_or(Path::new("."));
@@ -665,14 +680,22 @@ pub fn resolve_android(project: &Project, features: &[&str]) -> Result<AndroidPi
                 pieces.res_src_dirs.push(abs);
             }
         }
-        for dep in android.gradle_dependencies {
-            if !pieces.dependencies.contains(&dep) {
-                pieces.dependencies.push(dep);
+        for dep in android
+            .gradle_dependencies
+            .iter()
+            .filter_map(|entry| entry.enabled_name(enabled))
+        {
+            if !pieces.dependencies.iter().any(|existing| existing == dep) {
+                pieces.dependencies.push(dep.to_owned());
             }
         }
-        for repo in android.gradle_repositories {
-            if !pieces.repositories.contains(&repo) {
-                pieces.repositories.push(repo);
+        for repo in android
+            .gradle_repositories
+            .iter()
+            .filter_map(|entry| entry.enabled_name(enabled))
+        {
+            if !pieces.repositories.iter().any(|existing| existing == repo) {
+                pieces.repositories.push(repo.to_owned());
             }
         }
         for perm in android.permissions {
@@ -879,7 +902,7 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     if let Some(frag) = crate::documents::android(project) {
         components.push(frag);
     }
-    if entries.is_empty() && components.is_empty() {
+    if entries.is_empty() && components.is_empty() && !pieces.disable_native_heap_pointer_tagging {
         let _ = std::fs::remove_file(&overlay);
     } else {
         // A scaffold generated before manifest-components existed gates the overlay on the
@@ -899,8 +922,15 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
                  `if (pieceManifest.exists())` or the components will not be merged."
             );
         }
-        std::fs::write(&overlay, pieces_manifest(&entries, &components))
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            &overlay,
+            pieces_manifest(
+                &entries,
+                &components,
+                pieces.disable_native_heap_pointer_tagging,
+            ),
+        )
+        .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -1018,6 +1048,7 @@ fn read_manifest_components(paths: &[String]) -> Result<Vec<String>, String> {
 fn pieces_manifest(
     permissions: &[crate::permissions::AndroidRaw],
     components: &[String],
+    disable_pointer_tagging: bool,
 ) -> String {
     let mut s = String::from(
         "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n\
@@ -1039,8 +1070,12 @@ fn pieces_manifest(
             )),
         }
     }
-    if !components.is_empty() {
-        s.push_str("    <application>\n");
+    if !components.is_empty() || disable_pointer_tagging {
+        s.push_str(if disable_pointer_tagging {
+            "    <application android:allowNativeHeapPointerTagging=\"false\">\n"
+        } else {
+            "    <application>\n"
+        });
         for frag in components {
             for line in frag.lines() {
                 if line.trim().is_empty() {
@@ -1133,14 +1168,14 @@ impl SwiftPackage {
     }
 }
 
-/// A system library, optionally requiring a feature of the declaring Cargo package.
+/// A string contribution, optionally requiring a feature of its declaring Cargo package.
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum AppleLibrary {
+enum PackageString {
     Name(String),
     Conditional { name: String, feature: String },
 }
-impl AppleLibrary {
+impl PackageString {
     fn enabled_name(&self, features: &[String]) -> Option<&str> {
         match self {
             Self::Name(name) => Some(name),
@@ -1149,14 +1184,14 @@ impl AppleLibrary {
     }
 }
 
-/// Explicit opt-in to experimental archive loading, optionally gated on a package feature.
+/// Explicit opt-in to a package contribution, optionally gated on its Cargo feature.
 #[derive(Deserialize)]
 #[serde(untagged)]
-enum AppleFeatureGate {
+enum PackageFeatureGate {
     Always(bool),
     Feature { feature: String },
 }
-impl AppleFeatureGate {
+impl PackageFeatureGate {
     fn enabled(&self, features: &[String]) -> bool {
         match self {
             Self::Always(enabled) => *enabled,
@@ -1180,11 +1215,11 @@ struct AppleMeta {
     frameworks: Vec<String>,
     /// System libraries required at the final Xcode link, such as c++ or z.
     #[serde(default)]
-    libraries: Vec<AppleLibrary>,
+    libraries: Vec<PackageString>,
     #[serde(default, rename = "linker-options")]
-    linker_options: Vec<AppleLibrary>,
+    linker_options: Vec<PackageString>,
     #[serde(default, rename = "selective-archive-loading")]
-    selective_archive_loading: Option<AppleFeatureGate>,
+    selective_archive_loading: Option<PackageFeatureGate>,
     /// The minimum platform version this contribution needs (e.g. `"16.0"`). The generated
     /// package's floor (and the leg's deployment target) is the max across contributions.
     #[serde(default)]
@@ -2496,7 +2531,7 @@ mod tests {
     fn overlay_without_components_is_unchanged() {
         // The pre-existing shape: permissions only, no <application> element at all. Guards the
         // compatibility surface: every checked-out app's scaffold already merges this file.
-        let xml = pieces_manifest(&[raw("android.permission.INTERNET")], &[]);
+        let xml = pieces_manifest(&[raw("android.permission.INTERNET")], &[], false);
         assert!(xml.contains("<uses-permission android:name=\"android.permission.INTERNET\" />"));
         assert!(!xml.contains("<application"));
         assert!(xml.trim_end().ends_with("</manifest>"));
@@ -2508,6 +2543,7 @@ mod tests {
         let xml = pieces_manifest(
             &[raw("android.permission.RECEIVE_BOOT_COMPLETED")],
             &[frag.to_string()],
+            false,
         );
         assert!(xml.contains("    <application>\n"));
         assert!(xml.contains("    </application>\n"));
@@ -2524,8 +2560,52 @@ mod tests {
     }
 
     #[test]
+    fn android_maven_contributions_follow_the_declaring_feature() {
+        let meta: AndroidMeta = serde_json::from_value(serde_json::json!({
+            "gradle-dependencies": ["fixture:always:1", {"name":"fixture:optional:1", "feature":"engine"}],
+            "gradle-repositories": [{"name":"https://fixture.invalid/maven", "feature":"engine"}]
+        })).unwrap();
+        let names = |features: &[String]| {
+            meta.gradle_dependencies
+                .iter()
+                .filter_map(|entry| entry.enabled_name(features))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(names(&[]), ["fixture:always:1"]);
+        assert_eq!(
+            names(&["engine".into()]),
+            ["fixture:always:1", "fixture:optional:1"]
+        );
+        assert!(meta.gradle_repositories[0].enabled_name(&[]).is_none());
+        assert_eq!(
+            meta.gradle_repositories[0].enabled_name(&["engine".into()]),
+            Some("https://fixture.invalid/maven")
+        );
+    }
+
+    #[test]
+    fn pointer_tagging_opt_out_is_feature_gated_and_emits_an_application_without_components() {
+        let meta: AndroidMeta = serde_json::from_value(serde_json::json!({
+            "disable-native-heap-pointer-tagging": { "feature": "servo" }
+        }))
+        .unwrap();
+        let gate = meta.disable_native_heap_pointer_tagging.unwrap();
+        assert!(!gate.enabled(&[]));
+        assert!(gate.enabled(&["servo".into()]));
+        assert!(
+            pieces_manifest(&[], &[], true)
+                .contains("android:allowNativeHeapPointerTagging=\"false\"")
+        );
+        assert!(!pieces_manifest(&[], &[], false).contains("allowNativeHeapPointerTagging"));
+    }
+
+    #[test]
     fn components_alone_still_produce_an_overlay() {
-        let xml = pieces_manifest(&[], &["<service android:name=\"a.B\" />".to_string()]);
+        let xml = pieces_manifest(
+            &[],
+            &["<service android:name=\"a.B\" />".to_string()],
+            false,
+        );
         assert!(xml.contains("<service android:name=\"a.B\" />"));
         assert!(!xml.contains("<uses-permission"));
     }

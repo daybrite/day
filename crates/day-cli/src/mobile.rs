@@ -2630,8 +2630,9 @@ fn build_android_so(
     for abi in abis {
         cmd.args(["-t", abi]);
     }
-    cmd.arg("-o")
-        .arg(out)
+    // Stage the selected archive ourselves below. The cargo-ndk output path retained a
+    // newer native archive when switching back to a cached Servo flavor.
+    cmd
         // `rustc --crate-type cdylib` so the app lib's manifest can stay rlib-only (see the
         // `[lib]` note in the app Cargo.toml); produces the same `lib<name>.so` this expects.
         // `--features` = `mdc` + every standalone piece's `<pkg>/mdc` renderer feature (Tier
@@ -2661,6 +2662,10 @@ fn build_android_so(
     // and an x86 emulator accumulates one ABI per run, and those must survive each other.
     let built = format!("lib{}.so", project.lib_name());
     for abi in abis {
+        let triple =
+            android_abi_triple(abi).ok_or_else(|| format!("unsupported Android ABI {abi}"))?;
+        let source = target_dir.join(triple).join(profile.as_str()).join(&built);
+        stage_android_app_lib(&source, &out.join(abi).join(&built))?;
         let Ok(entries) = std::fs::read_dir(out.join(abi)) else {
             continue;
         };
@@ -2673,8 +2678,97 @@ fn build_android_so(
                 let _ = std::fs::remove_file(&path);
             }
         }
+        stage_android_cxx(&ndk_home, out, abi, &built)?;
     }
     Ok(())
+}
+
+/// The selected flavor/profile is authoritative even when its cached artifact is older
+/// than the file staged by the previous build. Never use destination freshness to choose it.
+fn stage_android_app_lib(source: &Path, destination: &Path) -> Result<(), String> {
+    let parent = destination
+        .parent()
+        .ok_or("Android staging path has no parent")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    std::fs::copy(source, destination).map_err(|e| format!("stage {}: {e}", source.display()))?;
+    Ok(())
+}
+
+/// Copy the NDK C++ runtime only when the final app actually links it. Bundled C++ engines
+/// can request the shared runtime without passing cargo-ndk's --link-libcxx-shared flag.
+fn stage_android_cxx(ndk: &Path, out: &Path, abi: &str, built: &str) -> Result<(), String> {
+    let app = std::fs::File::open(out.join(abi).join(built)).map_err(|e| e.to_string())?;
+    let cache = object::read::ReadCache::new(app);
+    let needs = match object::File::parse(&cache).map_err(|e| e.to_string())? {
+        object::File::Elf32(file) => elf_needs_cxx(&file),
+        object::File::Elf64(file) => elf_needs_cxx(&file),
+        _ => return Err("Android app library is not ELF".into()),
+    }
+    .map_err(|e| e.to_string())?;
+    if !needs {
+        return Ok(());
+    }
+    let triple = match abi {
+        "arm64-v8a" => "aarch64-linux-android",
+        "armeabi-v7a" => "arm-linux-androideabi",
+        "x86" => "i686-linux-android",
+        "x86_64" => "x86_64-linux-android",
+        _ => return Err(format!("unsupported Android ABI {abi}")),
+    };
+    let prebuilt = ndk.join("toolchains/llvm/prebuilt");
+    let runtime = std::fs::read_dir(&prebuilt)
+        .map_err(|e| format!("{}: {e}", prebuilt.display()))?
+        .filter_map(Result::ok)
+        .map(|entry| {
+            entry
+                .path()
+                .join("sysroot/usr/lib")
+                .join(triple)
+                .join("libc++_shared.so")
+        })
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            format!(
+                "app needs libc++_shared.so but it is missing in {} for {abi}",
+                ndk.display()
+            )
+        })?;
+    std::fs::copy(runtime, out.join(abi).join("libc++_shared.so"))
+        .map_err(|e| format!("stage Android C++ runtime: {e}"))?;
+    Ok(())
+}
+
+fn elf_needs_cxx<'data, Elf, R>(
+    file: &object::read::elf::ElfFile<'data, Elf, R>,
+) -> Result<bool, String>
+where
+    Elf: object::read::elf::FileHeader,
+    R: object::read::ReadRef<'data>,
+{
+    use object::read::elf::Dyn;
+    let endian = file.endian();
+    let sections = file.elf_section_table();
+    let Some((entries, strings_index)) = sections
+        .dynamic(endian, file.data())
+        .map_err(|e| e.to_string())?
+    else {
+        return Ok(false);
+    };
+    let strings = sections
+        .strings(endian, file.data(), strings_index)
+        .map_err(|e| e.to_string())?;
+    for entry in entries {
+        if entry.tag32(endian) == Some(object::elf::DT_NEEDED)
+            && let Some(index) = entry.val32(endian)
+            && strings
+                .get(index)
+                .map_err(|_| "invalid ELF dynamic string")?
+                == b"libc++_shared.so"
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// The Android SDK root: `ANDROID_HOME`, else `ANDROID_SDK_ROOT`, else the platform default,
@@ -3590,5 +3684,103 @@ mod apple_link_root_tests {
         assert!(apple_link_root(true, "__text", "_DayView_fixture"));
         assert!(!apple_link_root(true, "__text", "__Rordinary_rust"));
         assert!(!apple_link_root(false, "__text", "_LZ4_compress"));
+    }
+}
+
+#[cfg(test)]
+mod android_cxx_tests {
+    use super::*;
+
+    // Minimal synthetic ELF64: null, dynamic, and string-table sections. The runtime name
+    // exists even in the no-dependency fixture, so a raw byte search would fail this test.
+    fn fixture(needs_runtime: bool) -> Vec<u8> {
+        let mut bytes = vec![0; 64 + 3 * 64 + 32];
+        let strings = b"\0libc++_shared.so\0";
+        bytes.extend(strings);
+        bytes[..7].copy_from_slice(b"\x7fELF\x02\x01\x01");
+        let put16 =
+            |b: &mut Vec<u8>, at, value: u16| b[at..at + 2].copy_from_slice(&value.to_le_bytes());
+        let put32 =
+            |b: &mut Vec<u8>, at, value: u32| b[at..at + 4].copy_from_slice(&value.to_le_bytes());
+        let put64 =
+            |b: &mut Vec<u8>, at, value: u64| b[at..at + 8].copy_from_slice(&value.to_le_bytes());
+        put16(&mut bytes, 16, 3); // ET_DYN
+        put16(&mut bytes, 18, 183); // AArch64
+        put32(&mut bytes, 20, 1);
+        put64(&mut bytes, 40, 64); // section table
+        put16(&mut bytes, 52, 64);
+        put16(&mut bytes, 58, 64);
+        put16(&mut bytes, 60, 3);
+        put16(&mut bytes, 62, 2);
+        put32(&mut bytes, 128 + 4, object::elf::SHT_DYNAMIC);
+        put64(&mut bytes, 128 + 24, 256);
+        put64(&mut bytes, 128 + 32, 32);
+        put32(&mut bytes, 128 + 40, 2);
+        put64(&mut bytes, 128 + 56, 16);
+        put32(&mut bytes, 192 + 4, object::elf::SHT_STRTAB);
+        put64(&mut bytes, 192 + 24, 288);
+        put64(&mut bytes, 192 + 32, strings.len() as u64);
+        put64(
+            &mut bytes,
+            256,
+            if needs_runtime {
+                u64::from(object::elf::DT_NEEDED)
+            } else {
+                u64::from(object::elf::DT_SONAME)
+            },
+        );
+        put64(&mut bytes, 264, 1);
+        bytes
+    }
+
+    #[test]
+    fn switching_flavors_replaces_a_newer_staged_library_with_the_selected_cached_one() {
+        let root = std::env::temp_dir().join(format!("day-android-flavor-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let selected = root.join("cached-servo.so");
+        let staged = root.join("jni/libapp.so");
+        std::fs::write(&selected, fixture(true)).unwrap();
+        let old = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&selected)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(old))
+            .unwrap();
+        std::fs::create_dir_all(staged.parent().unwrap()).unwrap();
+        std::fs::write(&staged, fixture(false)).unwrap();
+        assert!(std::fs::metadata(&staged).unwrap().modified().unwrap() > old);
+        stage_android_app_lib(&selected, &staged).unwrap();
+        let bytes = std::fs::read(staged).unwrap();
+        let file =
+            object::read::elf::ElfFile64::<object::Endianness>::parse(bytes.as_slice()).unwrap();
+        assert!(
+            elf_needs_cxx(&file).unwrap(),
+            "staging retained the native flavor instead of Servo"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn stages_only_an_actual_dynamic_cxx_dependency_and_requires_the_runtime() {
+        let root = std::env::temp_dir().join(format!("day-android-cxx-{}", std::process::id()));
+        let ndk = root.join("ndk");
+        let out = root.join("out");
+        let lib = out.join("arm64-v8a/libfixture.so");
+        let runtime = ndk.join("toolchains/llvm/prebuilt/fixture/sysroot/usr/lib/aarch64-linux-android/libc++_shared.so");
+        std::fs::create_dir_all(lib.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(runtime.parent().unwrap()).unwrap();
+        std::fs::write(&lib, fixture(false)).unwrap();
+        stage_android_cxx(&ndk, &out, "arm64-v8a", "libfixture.so").unwrap();
+        assert!(!out.join("arm64-v8a/libc++_shared.so").exists());
+        std::fs::write(&lib, fixture(true)).unwrap();
+        assert!(stage_android_cxx(&ndk, &out, "arm64-v8a", "libfixture.so").is_err());
+        std::fs::write(&runtime, b"synthetic runtime bytes").unwrap();
+        stage_android_cxx(&ndk, &out, "arm64-v8a", "libfixture.so").unwrap();
+        assert_eq!(
+            std::fs::read(out.join("arm64-v8a/libc++_shared.so")).unwrap(),
+            b"synthetic runtime bytes"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

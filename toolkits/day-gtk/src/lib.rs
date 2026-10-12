@@ -16,6 +16,9 @@
 #[path = "../../share-windows.rs"]
 mod share_windows;
 
+#[cfg(target_os = "macos")]
+mod snapshot_macos;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -8072,6 +8075,10 @@ fn report_content_size(w: &adw::ApplicationWindow, target: Option<NodeId>) {
 /// Render a widget subtree to PNG (the dayscript screenshot seam — see `snapshot_window`
 /// for why no main-loop iteration may happen here).
 fn snapshot_widget(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
+    #[cfg(target_os = "macos")]
+    if let Ok(png) = snapshot_macos::snapshot(widget) {
+        return Ok(png);
+    }
     let w = widget.width() as f64;
     let h = widget.height() as f64;
     if w <= 0.0 || h <= 0.0 {

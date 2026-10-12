@@ -3376,6 +3376,13 @@ of channels and spells every entry `gallery/…`, so daysite rewrites each repub
 linked the release channel's images, and daybrite.dev dropped every app whose release channel had
 none).
 
+Development stand-ins such as `macos-gtk` and `macos-qt` are excluded from this unified
+index by default. A comparison website can opt in with `include-targets = ["macos-gtk", "macos-qt"]`
+under `[gallery]` in `website/site.toml`. Entries must name known Day targets;
+the opt-in affects screenshot publication, not the app's build matrix. Tool output such as
+`_drive` is never publishable. The resulting index remains authoritative for daysite's image
+copying, so these explicitly included targets reach both the gallery and its public index.
+
 A shot **with** a `title:` is gallery-curated: the daysite gallery shows the curated set when
 one exists, and untitled captures stay machine-readable in the index. Curation governs the PAGE
 only — daysite publishes every capture the index describes either way, and rebuilds the index it
@@ -4925,8 +4932,20 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   `day build` compiles the Rust `.so` with cargo-ndk into `build/day/jniLibs` before Gradle runs,
   and the plugin adds that directory as a jniLibs source directory (**never** `src/main/jniLibs`,
   which pollutes the source tree and breaks up-to-date checks). A build started from Android
-  Studio packages the `.so` the last `day build` compiled. A tested Gradle/AGP version matrix is
-  published.
+  Studio packages the `.so` the last `day build` compiled. Day stages the selected flavor/profile's
+  archive regardless of destination mtime: switching to an older cached flavor must replace the
+  previous build's newer file. After pruning stale ABI libraries,
+  Day inspects the app ELF dynamic dependencies. If it needs `libc++_shared.so`, Day stages
+  that ABI's runtime from the selected NDK beside the app library; a missing required runtime
+  fails the build. Apps without that dependency do not ship it. A package can additionally declare
+  `[package.metadata.day.android].disable-native-heap-pointer-tagging = { feature = "servo" }`
+  (or a boolean). Only an enabled contribution emits
+  `android:allowNativeHeapPointerTagging="false"` on the overlay's application. This process-wide
+  Android compatibility exception accommodates engines that encode pointers in JS values;
+  native builds keep Android's default tagging. It is not a general memory-safety fix.
+  Android Maven dependency and repository contributions also accept `{ name, feature }` entries;
+  disabled engine features therefore contribute neither their Java libraries nor repositories.
+  A tested Gradle/AGP version matrix is published.
   The scaffold also commits `gradle/wrapper/gradle-wrapper.properties`, pinning the Gradle version
   the app builds with; `day build` runs the app's own `./gradlew` when it has one and falls back to
   `gradle` on PATH otherwise, so the CLI and an IDE build with the same Gradle. Only the properties
@@ -6911,7 +6930,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `tests` | — | the registered `#[day::test]` cases (name, kind, what each proves) in the reply's `data` ([docs/testing.md](docs/testing.md)) |
 | `run_tests` | `filter?`, `shots?`, `timeout_secs?`, `case_timeout_secs?` | run the matching cases as one main-loop task, each drive op the dayscript step it names, each GUI case's page shown alone by the app's `test_host`, a panic or a case past its limit (30 s default, `0` none) failing that case only; retryable while running; the reply's `data` is the report the runner prints and writes as `conformance.json` ([docs/testing.md](docs/testing.md)) |
 | `assert_no_placeholders` | `allow?` | fails if any kind rendered a `⟨kind⟩` placeholder — the one gap no screenshot or other assertion can see. `allow` is the per-target ledger; the generated [docs/coverage-matrix.md](docs/coverage-matrix.md) is its static twin |
-| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; a device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json; the retired `store` key is stripped with a warning |
+| `screenshot` | name, `window?`, `title?`, `caption?`, `source?` | waits for `ui_idle`; `window` captures the secondary window opened under that key ([docs/windows.md](docs/windows.md)). Desktop captures in-process; macOS GTK first captures the composited native window and crops to the widget so embedded Cocoa views are included (GTK widget rendering remains the offscreen fallback). A device or simulator uses the platform's screen capture, falling back to the in-process one ([docs/window-image.md](docs/window-image.md)). On Android, window checks before and after capture refuse ANR/crash dialogs and failed probes; emulators first try dismissal. Unsafe device captures fall back to the app view, and total capture failure fails the step without retaining a stale PNG. `title`/`caption` (plain string or locale-keyed map) and `source` are runner-side gallery metadata (§14.7) — stripped before the engine, folded into the target's gallery.json; the retired `store` key is stripped with a warning |
 | `pause` | `secs` | demos only |
 | `size_class` | `width`, `height?` | REPORT a size class the window is not actually at, so a nav host re-presents and a piece reading `day::size_class()` rebuilds. Changes no pixels — a screenshot after it shows the new layout at the old size. `width: auto` restores what the backend reports ([docs/size-classes.md](docs/size-classes.md)) |
 | `resize` | `width`, `height`, or `auto` | `size_class`'s complement: change the window's REAL geometry. Runner-side first (a device's window belongs to the system — android-mdc drives `adb shell wm size`), then the engine half waits for the app to report the new class. A target with no host-side lever FAILS the step rather than passing one that moved nothing ([docs/size-classes.md](docs/size-classes.md)) |

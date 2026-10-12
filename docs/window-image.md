@@ -82,6 +82,7 @@ no window on screen yet, a zero-size window, a compositor that declined.
 |---|---|
 | macOS (AppKit) | `CGWindowListCreateImage`, cropped to the content view; `cacheDisplayInRect` into an `NSBitmapImageRep` when the window server declines |
 | iOS (UIKit) | `UIGraphicsImageRenderer` + `drawViewHierarchyInRect:afterScreenUpdates:` |
+| macOS (GTK) | Window-server image cropped to the GTK widget, including Cocoa child views; GTK widget rendering when the window server declines |
 | Linux (GTK) | `GtkWidgetPaintable` rendered through the window's own `GskRenderer` |
 | Qt | `QWidget::grab()` |
 | Windows (XAML) | `PrintWindow` with `PW_RENDERFULLCONTENT`, `BitBlt` from the screen as a fallback |

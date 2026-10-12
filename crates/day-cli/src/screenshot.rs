@@ -31,8 +31,8 @@ use sha2::Digest as _;
 use crate::meta::Project;
 use crate::term::BOLD;
 
-/// Capture directories that are development stand-ins (macos-gtk exercises linux-gtk's
-/// toolkit) or tool droppings, never publication targets.
+/// Development stand-ins are excluded unless the website explicitly includes them.
+/// Tool droppings (`_drive`) are always excluded.
 const SKIP_DIRS: &[&str] = &[
     "_drive",
     "macos-gtk",
@@ -659,6 +659,37 @@ fn site_host(project_root: &Path) -> Option<(String, String)> {
     Some((origin, base))
 }
 
+/// A comparison gallery may deliberately publish a development toolkit on its host OS.
+/// Keep the usual publication defaults for every site that does not opt in.
+fn gallery_included_targets(project_root: &Path) -> Result<Vec<String>, String> {
+    #[derive(Default, Deserialize)]
+    struct Gallery {
+        #[serde(default, rename = "include-targets")]
+        include_targets: Vec<String>,
+    }
+    #[derive(Deserialize)]
+    struct Site {
+        #[serde(default)]
+        gallery: Gallery,
+    }
+    let path = project_root.join("website/site.toml");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let site: Site = toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    for target in &site.gallery.include_targets {
+        if crate::targets::find(target).is_none() {
+            return Err(format!(
+                "{}: gallery.include-targets contains unknown target {target:?}",
+                path.display()
+            ));
+        }
+    }
+    Ok(site.gallery.include_targets)
+}
+
 /// The app's default locale for normalizing plain-string titles: `en` when the app has it,
 /// else its first translation locale, else `en`.
 fn default_locale(project_root: &Path) -> String {
@@ -748,6 +779,7 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
         .clone()
         .unwrap_or_else(|| roots[0].join("gallery.json"));
     let host = site_host(&project.root);
+    let included_targets = gallery_included_targets(&project.root)?;
     let fallback_locale = default_locale(&project.root);
 
     // Collect per target, first tree wins on a (target, variant, file) collision.
@@ -764,7 +796,10 @@ pub fn index(project: &Project, opts: &IndexOptions) -> Result<PathBuf, String> 
             let Some(target) = t.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            if !tdir.is_dir() || SKIP_DIRS.contains(&target.as_str()) {
+            if !tdir.is_dir()
+                || target == "_drive"
+                || (SKIP_DIRS.contains(&target.as_str()) && !included_targets.contains(&target))
+            {
                 continue;
             }
             // The target's index, and each device profile's own (`<target>/<device>/
@@ -2118,6 +2153,68 @@ fn embeds_icc_profile(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gallery_publishes_development_targets_only_when_explicitly_included() {
+        let root = std::env::temp_dir().join(format!("day-gallery-opt-in-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("website")).unwrap();
+        std::fs::write(
+            root.join("Day.toml"),
+            "schema = 1\n[app]\nid = 'dev.example.gallery'\ntargets = ['macos-appkit']\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = 'gallery-fixture'\nversion = '1.0.0'\n",
+        )
+        .unwrap();
+        let project = crate::meta::find_project(Some(&root)).unwrap();
+        let shots = root.join("shots");
+        let png = encode_png(1, 1, "rgb", &[0, 0, 0]).unwrap();
+        for target in ["macos-appkit", "macos-gtk", "macos-qt", "_drive"] {
+            let variant = shots.join(target).join("default");
+            std::fs::create_dir_all(&variant).unwrap();
+            std::fs::write(variant.join("fixture.png"), &png).unwrap();
+        }
+        let out = root.join("gallery.json");
+        let opts = IndexOptions {
+            screenshot_paths: vec![shots],
+            out: Some(out.clone()),
+        };
+        let indexed_targets = || {
+            index(&project, &opts).unwrap();
+            let doc: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+            doc["platforms"].clone()
+        };
+        assert_eq!(indexed_targets(), serde_json::json!(["macos-appkit"]));
+        std::fs::write(
+            root.join("website/site.toml"),
+            "[gallery]\ninclude-targets = ['macos-gtk', 'macos-qt']\n",
+        )
+        .unwrap();
+        let targets = indexed_targets();
+        for target in ["macos-appkit", "macos-gtk", "macos-qt"] {
+            assert!(
+                targets
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!(target))
+            );
+        }
+        assert_eq!(targets.as_array().unwrap().len(), 3);
+        std::fs::write(
+            root.join("website/site.toml"),
+            "[gallery]\ninclude-targets = ['_drive']\n",
+        )
+        .unwrap();
+        assert!(
+            index(&project, &opts)
+                .unwrap_err()
+                .contains("unknown target")
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn screenshot_lint_reads_shared_scalar_and_mapping_forms_with_bom() {

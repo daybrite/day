@@ -207,6 +207,8 @@ gradle-repositories = ["https://jitpack.io"]                  # → extra Maven 
 permissions = ["android.permission.INTERNET"]                 # → <uses-permission> in the manifest
 proguard = ["platform/android/proguard-rules.pro"]                     # → R8 keep rules (see below)
 manifest-components = ["platform/android/components.xml"]              # → <receiver>/<service> (see below)
+# Rare compatibility exception; active only when this package's Cargo feature is enabled.
+disable-native-heap-pointer-tagging = { feature = "servo" }
 ```
 
 `day build` (for `android-mdc`) runs `cargo metadata`, walks the app's dependency closure, collects
@@ -251,6 +253,23 @@ declared in the manifest, or Android never instantiates it. `manifest-components
 holding only the elements that belong inside `<application>` (`day build` adds the `<manifest>`
 and `<application>` wrapper), and every class must be fully qualified, since the overlay merges
 into an app whose package the part cannot know:
+
+Both `gradle-dependencies` and `gradle-repositories` accept plain strings or
+`{ name = "...", feature = "servo" }` entries, checked against the declaring package's resolved
+Cargo features. Use these gates for engine-only Java libraries and repositories.
+
+An engine that encodes native pointers into JavaScript values may require
+`disable-native-heap-pointer-tagging = { feature = "servo" }` (a boolean is also accepted).
+The CLI checks the declaring package's resolved features before emitting
+`android:allowNativeHeapPointerTagging="false"`. This is process-wide, including other
+libraries in the app, and is a compatibility workaround rather than a memory-safety fix.
+Leave it absent unless the engine requires it. Android may remove this escape hatch on
+future hardware. Native-only builds keep the platform default.
+
+After building each Android ABI, the CLI inspects the app ELF's `DT_NEEDED` entries and
+ships the selected NDK's `libc++_shared.so` when required. No runtime is added when the app
+does not link it; missing required runtime files fail the build before packaging.
+
 
 ```xml
 <!-- platform/android/components.xml -->
