@@ -6,6 +6,48 @@
   "type": "object",
   "required": ["app"],
   "properties": {
+    "android": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Policy and resource customization of the generated Android host. Persistent Gradle projects retain their own configuration.",
+      "properties": {
+        "cleartext-traffic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow HTTP to all hosts. Defaults to Android\u2019s secure policy."
+        },
+        "cleartext-domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Exact HTTP host exceptions; other hosts keep the cleartext-traffic policy."
+        },
+        "edge-to-edge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Day\u2019s immersive Android chrome."
+        },
+        "resource-overlays": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "App-relative Android res directories copied over generated resources in order. Retain custom XML here instead of a whole Gradle project."
+        }
+      }
+    },
+    "harmony": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vendor": {
+          "type": "string",
+          "description": "Publisher vendor in HarmonyOS AppScope/app.json5."
+        }
+      }
+    },
     "url_schemes": {
       "type": "array",
       "description": "Additional external URL schemes delivered to on_open_url before route fallback.",

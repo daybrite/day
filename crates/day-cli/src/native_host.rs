@@ -43,11 +43,34 @@ pub fn harmony_source(project: &Project) -> PathBuf {
 }
 
 pub fn ensure_android(project: &Project) -> Result<PathBuf, String> {
+    warn_ignored_android_config(project);
     let dir = android_dir(project);
     if dir == project.root.join("build/android") {
         write_default(project, "android", &dir, false)?;
     }
     Ok(dir)
+}
+
+fn ignored_android_config(project: &Project) -> Option<String> {
+    let config = &project.manifest.android;
+    let configured = config.declared
+        || config.cleartext_traffic
+        || config.edge_to_edge
+        || !config.cleartext_domains.is_empty()
+        || !config.resource_overlays.is_empty();
+    (configured && android_dir(project) == project.root.join("platform/android")).then(|| {
+        format!(
+            "{} has a persistent Gradle project: Day.toml [android] settings are not applied; \
+             configure that native project directly or migrate to a generated host (docs/native-project-migration.md)",
+            project.root.display()
+        )
+    })
+}
+
+fn warn_ignored_android_config(project: &Project) {
+    if let Some(warning) = ignored_android_config(project) {
+        eprintln!("day: warning: {warning}");
+    }
 }
 
 pub fn ensure_harmony_source(project: &Project) -> Result<PathBuf, String> {
@@ -67,6 +90,7 @@ pub fn ensure_harmony_source(project: &Project) -> Result<PathBuf, String> {
 
 pub fn check(project: &Project, platform: &str) -> Result<(), String> {
     let dir = if platform == "android" {
+        warn_ignored_android_config(project);
         let dir = android_dir(project);
         if dir == project.root.join("platform/android") {
             return Ok(());
@@ -111,7 +135,7 @@ fn rendered(project: &Project, platform: &str) -> Result<Vec<(String, Vec<u8>)>,
         .into_iter()
         .filter(|f| f.path.starts_with(&prefix) && !f.path.ends_with("_gitignore"))
         .collect();
-    crate::template::render(&files, &context).map(|files| {
+    let files = crate::template::render(&files, &context).map(|files| {
         files
             .into_iter()
             .map(|(path, bytes)| {
@@ -127,12 +151,152 @@ fn rendered(project: &Project, platform: &str) -> Result<Vec<(String, Vec<u8>)>,
                 };
                 (path.strip_prefix(&prefix).unwrap().to_owned(), bytes)
             })
-            .collect()
-    })
+            .collect::<Vec<_>>()
+    })?;
+    if platform == "android" {
+        customize_android(project, files)
+    } else {
+        Ok(files)
+    }
+}
+
+fn xml(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
+fn read_resources(
+    root: &Path,
+    dir: &Path,
+    files: &mut Vec<(String, Vec<u8>)>,
+) -> Result<(), String> {
+    for entry in std::fs::read_dir(dir).map_err(|e| format!("{}: {e}", dir.display()))? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        let kind = entry.file_type().map_err(|e| e.to_string())?;
+        if kind.is_symlink() {
+            return Err(format!(
+                "{}: Android resource overlays must contain regular files, not symlinks",
+                path.display()
+            ));
+        }
+        if kind.is_dir() {
+            read_resources(root, &path, files)?;
+        } else if kind.is_file() {
+            files.push((
+                path.strip_prefix(root)
+                    .unwrap()
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+                std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn customize_android(
+    project: &Project,
+    files: Vec<(String, Vec<u8>)>,
+) -> Result<Vec<(String, Vec<u8>)>, String> {
+    use std::collections::BTreeMap;
+    let config = &project.manifest.android;
+    let mut files: BTreeMap<_, _> = files.into_iter().collect();
+    for overlay in &config.resource_overlays {
+        let path = Path::new(overlay);
+        if path.as_os_str().is_empty()
+            || path
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+        {
+            return Err(format!(
+                "android.resource-overlays must be relative directories within the app: {overlay:?}"
+            ));
+        }
+        let root = project.root.join(path);
+        let canonical = root
+            .canonicalize()
+            .map_err(|e| format!("{}: {e}", root.display()))?;
+        if !canonical.starts_with(project.root.canonicalize().map_err(|e| e.to_string())?) {
+            return Err(format!(
+                "Android resource overlay escapes the app: {overlay:?}"
+            ));
+        }
+        let mut resources = Vec::new();
+        read_resources(&root, &root, &mut resources)?;
+        for (path, bytes) in resources {
+            files.insert(format!("app/src/main/res/{path}"), bytes);
+        }
+    }
+    let manifest = files
+        .get_mut("app/src/main/AndroidManifest.xml")
+        .ok_or("Android template is missing app/src/main/AndroidManifest.xml")?;
+    let mut text = String::from_utf8(manifest.clone()).map_err(|e| e.to_string())?;
+    let mut attributes = String::new();
+    if config.cleartext_traffic {
+        attributes.push_str(" android:usesCleartextTraffic=\"true\"");
+    }
+    if !config.cleartext_domains.is_empty() {
+        attributes.push_str(" android:networkSecurityConfig=\"@xml/day_network_security\"");
+        let mut network = format!(
+            "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<network-security-config>\n  <base-config cleartextTrafficPermitted=\"{}\" />\n  <domain-config cleartextTrafficPermitted=\"true\">\n",
+            config.cleartext_traffic
+        );
+        for domain in &config.cleartext_domains {
+            if domain.is_empty()
+                || domain
+                    .bytes()
+                    .any(|b| !(b.is_ascii_alphanumeric() || b".-:".contains(&b)))
+            {
+                return Err(format!(
+                    "android.cleartext-domains expects hostnames or IP addresses, not URLs: {domain:?}"
+                ));
+            }
+            network.push_str(&format!(
+                "    <domain includeSubdomains=\"false\">{}</domain>\n",
+                xml(domain)
+            ));
+        }
+        network.push_str("  </domain-config>\n</network-security-config>\n");
+        files.insert(
+            "app/src/main/res/xml/day_network_security.xml".into(),
+            network.into_bytes(),
+        );
+    }
+    text = text.replacen("<application", &format!("<application{attributes}"), 1);
+    if config.edge_to_edge {
+        text = text.replace("</application>", "    <meta-data android:name=\"dev.daybrite.day.EDGE_TO_EDGE\" android:value=\"true\" />\n    </application>");
+    }
+    files.insert("app/src/main/AndroidManifest.xml".into(), text.into_bytes());
+    Ok(files.into_iter().collect())
 }
 
 fn write_default(project: &Project, platform: &str, dir: &Path, check: bool) -> Result<(), String> {
-    for (relative, bytes) in rendered(project, platform)? {
+    let files = rendered(project, platform)?;
+    if platform == "android" {
+        let resources = dir.join("app/src/main/res");
+        if resources.is_dir() {
+            let mut existing = Vec::new();
+            read_resources(&resources, &resources, &mut existing)?;
+            for (relative, _) in existing {
+                let relative = format!("app/src/main/res/{relative}");
+                if !files.iter().any(|(path, _)| path == &relative) {
+                    if check {
+                        return Err(format!(
+                            "{} is stale — run `day prepare`",
+                            dir.join(&relative).display()
+                        ));
+                    }
+                    std::fs::remove_file(dir.join(&relative)).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+    }
+    for (relative, bytes) in files {
         let file = dir.join(relative);
         if std::fs::read(&file).ok().as_deref() == Some(bytes.as_slice()) {
             continue;
@@ -150,8 +314,8 @@ fn write_default(project: &Project, platform: &str, dir: &Path, check: bool) -> 
     Ok(())
 }
 
-/// A missing persistent manifest uses the current default, even before preparation (lint and
-/// shortcut planning are read-only). Existing app-owned manifests are never replaced here.
+/// Read the persistent manifest or render the generated host's template without writing files.
+/// Existing app-owned manifests are never replaced here.
 pub fn android_manifest(project: &Project) -> Result<String, String> {
     let path = android_dir(project).join("app/src/main/AndroidManifest.xml");
     if android_dir(project) == project.root.join("platform/android") {
@@ -161,7 +325,7 @@ pub fn android_manifest(project: &Project) -> Result<String, String> {
     let bytes = &files
         .iter()
         .find(|(p, _)| p == "app/src/main/AndroidManifest.xml")
-        .unwrap()
+        .ok_or("Android template is missing app/src/main/AndroidManifest.xml")?
         .1;
     String::from_utf8(bytes.clone()).map_err(|e| e.to_string())
 }
@@ -201,6 +365,38 @@ mod tests {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0.root);
         }
+    }
+
+    #[test]
+    fn persistent_android_warns_even_for_explicit_default_policy() {
+        let mut fixture = Fixture::new();
+        let p = &mut fixture.0;
+        let dir = p.root.join("platform/android");
+        std::fs::create_dir_all(&dir).unwrap();
+        let settings = dir.join("settings.gradle");
+        std::fs::write(&settings, "synthetic persistent settings").unwrap();
+        assert!(ignored_android_config(p).is_none());
+        p.manifest = toml::from_str(
+            "schema = 1\n[app]\nid = 'dev.example.fixture'\n[android]\ncleartext-traffic = false\n",
+        )
+        .unwrap();
+        let warning = ignored_android_config(p).unwrap();
+        assert!(warning.contains("[android] settings are not applied"));
+        assert_eq!(ensure_android(p).unwrap(), dir);
+        check(p, "android").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(&settings).unwrap(),
+            "synthetic persistent settings"
+        );
+        std::fs::remove_file(settings).unwrap();
+        assert!(ignored_android_config(p).is_none());
+    }
+
+    #[test]
+    fn missing_android_template_manifest_returns_an_error() {
+        let fixture = Fixture::new();
+        let error = customize_android(&fixture.0, Vec::new()).unwrap_err();
+        assert!(error.contains("Android template is missing"));
     }
 
     #[test]
@@ -282,6 +478,68 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(p.root.join("platform/ohos/build-profile.json5")).unwrap(),
             "synthetic customized project"
+        );
+    }
+    #[test]
+    fn android_policy_and_overlays_survive_generation_and_removed_inputs_are_pruned() {
+        let mut fixture = Fixture::new();
+        let p = &mut fixture.0;
+        p.manifest.android = toml::from_str(
+            r#"
+cleartext-domains = ["127.0.0.1"]
+edge-to-edge = true
+resource-overlays = ["platform/android/res"]
+"#,
+        )
+        .unwrap();
+        let resources = p.root.join("platform/android/res/values");
+        std::fs::create_dir_all(&resources).unwrap();
+        std::fs::write(
+            resources.join("styles.xml"),
+            "<resources><!-- custom theme fixture --></resources>",
+        )
+        .unwrap();
+        std::fs::write(resources.join("colors.xml"), "<resources/>").unwrap();
+        let dir = ensure_android(p).unwrap();
+        assert_eq!(dir, p.root.join("build/android"));
+        let manifest = android_manifest(p).unwrap();
+        assert!(manifest.contains("dev.daybrite.day.EDGE_TO_EDGE"));
+        assert!(manifest.contains("@xml/day_network_security"));
+        let policy =
+            std::fs::read_to_string(dir.join("app/src/main/res/xml/day_network_security.xml"))
+                .unwrap();
+        assert!(policy.contains("<base-config cleartextTrafficPermitted=\"false\""));
+        assert!(policy.contains("includeSubdomains=\"false\">127.0.0.1</domain>"));
+        let output = dir.join("app/src/main/res/values/styles.xml");
+        assert_eq!(
+            std::fs::read(output).unwrap(),
+            std::fs::read(resources.join("styles.xml")).unwrap()
+        );
+        std::fs::remove_file(resources.join("colors.xml")).unwrap();
+        assert!(check(p, "android").unwrap_err().contains("stale"));
+        assert!(
+            dir.join("app/src/main/res/values/colors.xml").exists(),
+            "check is read-only"
+        );
+        p.manifest.android.cleartext_domains.clear();
+        p.manifest.android.cleartext_traffic = true;
+        ensure_android(p).unwrap();
+        assert!(
+            !dir.join("app/src/main/res/xml/day_network_security.xml")
+                .exists()
+        );
+        assert!(!dir.join("app/src/main/res/values/colors.xml").exists());
+        assert!(
+            android_manifest(p)
+                .unwrap()
+                .contains("android:usesCleartextTraffic=\"true\"")
+        );
+        check(p, "android").unwrap();
+        p.manifest.android.resource_overlays = vec!["../outside".into()];
+        assert!(
+            ensure_android(p)
+                .unwrap_err()
+                .contains("relative directories")
         );
     }
 }

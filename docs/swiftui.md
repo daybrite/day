@@ -202,9 +202,10 @@ skips are reported as build warnings with the reason.
 
 If a provider is not found, check three things: (1) the class name must be exactly
 `@objc(DayView_<name>)`, with dots mapped to underscores; (2) the file's dir or package must be
-declared under `[package.metadata.day.ios/macos]`; (3) stripping, where on macOS the
-`-force_load` covers this, and on iOS you check `nm <app> | grep DayView_` and file a bug if the
-class is absent.
+declared under `[package.metadata.day.ios/macos]`; (3) stripping. Apple hosts force-load the
+Rust archive by default. Experimental selective archive loading instead retains discovered
+exports; see [the opt-in policy](extending.md#apple-build-dependency-tools). Check
+`nm <app> | grep DayView_` and file a bug if the class is absent.
 
 ## v1 limits
 

@@ -80,6 +80,9 @@ Symlinked inputs, including generated icon media, are copied as files so native 
 cannot write through to their sources. The old `platform/ohos/` source layout also works.
 Flavors use `build/day/flavors/<name>/harmony/project/`.
 
+Set `[harmony] vendor = "your-publisher"` in `Day.toml` to customize the vendor in
+AppScope metadata without retaining a project skeleton.
+
 Keep native module dependencies and custom build-script paths relative to the native host,
 or use absolute paths for external tools. A path that climbs out of `platform/harmony/`
 will resolve from a different directory in the staged project.

@@ -341,7 +341,15 @@ swift-packages = [                                           # SwiftPM package d
   { url = "https://github.com/airbnb/lottie-ios", from = "4.5.0", products = ["Lottie"] },
 ]
 frameworks = ["WebKit"]                                      # system frameworks to link
+libraries = ["sqlite3", { name = "c++", feature = "servo" }]    # system libraries
 ```
+
+`libraries` links system libraries through SwiftPM's `.linkedLibrary`. A string always applies;
+an entry with `name` and `feature` applies only when Cargo resolves that feature on the declaring
+package. Build-flavor features participate in contribution discovery as well as compilation.
+This keeps an optional engine's C++/zlib link requirements out of native-only builds. The same
+fields apply to `[package.metadata.day.macos]`. Names contain ASCII letters, digits, `_`, `+`,
+or `-`; paths and linker command fragments are rejected.
 
 `frameworks` links system frameworks via the generated package's `linkerSettings`. A piece that
 drives a class from an unlinked framework (e.g. a hand-rolled `WKWebView`) declares it here instead of
@@ -747,3 +755,63 @@ launcher does not apply these defaults, because a Flatpak takes its toolkit from
 plugins, and the bundled library looks for plugins only beside itself. Qt Multimedia's GStreamer
 backend then finds no elements and crashes, so the crate selects Qt's FFmpeg backend, whose codec
 libraries linuxdeploy does bundle.
+
+## Apple build dependency tools
+
+Apple Cargo builds use a sanitized `PATH` to avoid inheriting Xcode's SDK compiler paths.
+Dependencies that need additional tools can set `DAY_BUILD_TOOL_PATH` to a colon-separated
+list of directories. These follow the selected Rust toolchain and Cargo bin directory and
+precede `/usr/bin`, `/bin`, `/usr/sbin`, and `/sbin`. The macOS build forwards this value to
+its Xcode script callback. For a direct Xcode build, set it as a user build setting.
+
+For example, a Homebrew Python used by a dependency's code generator:
+
+```sh
+DAY_BUILD_TOOL_PATH="$(brew --prefix python@3.12)/libexec/bin" day build -t macos-appkit
+```
+
+This is explicit build configuration; Day does not install tools or inherit arbitrary
+compiler directories from an IDE's `PATH`.
+
+Apple contributions can also declare `linker-options`, with the same string or `{ name,
+feature }` forms as `libraries`. Each entry is one argument to the native linker, such as
+`{ name = "-no_fixup_chains", feature = "servo" }` for SpiderMonkey's tagged static pointers.
+Options must start with `-` and contain only ASCII letters, digits, `_`, and `-`.
+A macOS flavor's `MACOSX_DEPLOYMENT_TARGET` environment entry also reaches Xcode as a build
+setting, so Rust and the final app agree on the flavor's minimum OS version.
+
+Derived Apple hosts link through `day/dayapp-link.rsp`, generated beside the Rust archive.
+By default, it passes `-force_load` for the complete archive, preserving the established linking
+behavior. The default path does not inspect archive symbols.
+
+An Apple contribution can opt into experimental selective archive loading:
+
+```toml
+[package.metadata.day.macos]
+selective-archive-loading = { feature = "servo" }
+```
+
+The feature belongs to the declaring Cargo package. Only packages in the app's resolved
+dependency closure participate. An omitted or `false` setting keeps the default; `true` opts in
+unconditionally. Any enabled contribution selects this policy for the **complete app archive**
+on that Apple platform. Build-flavor features participate in the decision.
+
+In selective mode, Day reads Mach-O symbols and retains `linkme` sections, global static
+constructor entries, and unmangled FFI exports from Rust object files. Other archive members
+are selected through normal references. This lets the experimental Servo integration link
+without force-loading overlapping bundled LZ4 implementations. Symbol retention uses section,
+object-file, and mangling conventions; compatibility with arbitrary native libraries, LTO,
+and compiler versions is not established. A successful link alone does not prove that overlapping
+library implementations are interchangeable.
+
+Selective loading currently requires a single architecture. Day rejects universal inputs
+before symbol scanning: combining roots from different slices can require an x86_64-only
+symbol in the arm64 link, or vice versa. Architecture-specific response files and universal
+integration tests are required before that mode can support universal builds. Default
+`-force_load` builds continue to support universal archives.
+
+Persistent host projects can retain their existing `-force_load` setting for default builds.
+To honor selective-loading metadata, replace it with
+`@"$(BUILT_PRODUCTS_DIR)/day/dayapp-link.rsp"` in `OTHER_LDFLAGS` and declare that response file
+as an output of the Rust build phase. The generated file selects the policy on each build, so
+disabling the feature restores `-force_load` without leaving selective symbol flags behind.

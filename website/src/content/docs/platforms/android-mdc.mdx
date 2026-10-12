@@ -47,6 +47,23 @@ folders, libraries, the merged manifest, release minification, and signing. `day
 `day prepare`, and `day open` put the plugin in place from the version of Day your app builds
 against, so updating Day updates your Android build and these files stay as they are.
 
+Common native customizations belong in `Day.toml`:
+
+```toml
+[android]
+cleartext-domains = ["127.0.0.1"] # HTTP for these exact hosts; HTTPS elsewhere
+# cleartext-traffic = true        # apps intentionally accepting HTTP from any host
+edge-to-edge = true
+resource-overlays = ["platform/android/res"]
+```
+
+An overlay is a native Android `res/` directory. Keep custom `values/styles.xml`, color
+palettes and other native resources there. Day copies them over the generated defaults;
+later overlays win, and deleted files disappear on the next preparation. These settings
+apply to the generated host. Existing persistent Gradle projects keep their own settings.
+Preparation and build warn when an `[android]` table is present but a persistent host takes
+precedence, including when the table explicitly sets default values such as `false`.
+
 To customize the build beyond Day's configuration, first run
 `day project add-target android-mdc --persist-native-project`. Put your settings in the
 resulting `platform/android/app/build.gradle.kts`. They apply after Day's plugin, so they

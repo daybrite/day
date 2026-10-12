@@ -2867,6 +2867,9 @@ label(tr("app-title"))                        // dynamic-key escape hatch
   bundle, plus a `set_formatter` hook so plain number interpolations localize; fr/de
   digit-grouping and plural-rules conformance is pinned by `crates/day-l10n/tests/intl.rs`, and
   `day lint` flags `.ftl` references to unregistered functions and invalid format options.
+- ICU4X runtime requirements accept 2.1 and newer compatible 2.x releases so an optional
+  embedded Servo engine can resolve SpiderMonkey's ICU 2.1 constraints. Day has no Servo
+  dependency; details and locale-data behavior are in [docs/localization.md](docs/localization.md).
 - `IntoText` is a two-level design (a naive flat impl set is uncompilable — two closure blankets
   distinguished only by `Fn::Output` overlap): a sealed `TextValue` (String, `&'static str`, Cow,
   `LocalizedText`) plus exactly one closure blanket `impl<F: Fn() -> T, T: TextValue> IntoText for F`,
@@ -3701,6 +3704,13 @@ rules, a different JVM toolchain), and never as a wholesale conversion. Module s
 fix `@objc` class-name collisions, which live in a process-global namespace; that stays a naming
 rule, and is why [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) derives every bridge name mechanically.
 
+Apple contribution metadata includes `libraries` alongside `frameworks`. Libraries can be
+conditional on a feature of the declaring Cargo package. `linker-options` uses the same gating
+for native linker options. Discovery includes active build-flavor
+features. This carries optional native dependencies through Cargo staticlibs into Xcode's final
+link without linking them in default builds. See [docs/extending.md](docs/extending.md) and
+`pieces::apple_library_tests` for the contract and regression test.
+
 ### §15.3 dayffi: the C ABI (superseded — never built)
 
 > [!WARNING]
@@ -4135,6 +4145,20 @@ builds arm64 + x86_64, which needs both Rust stdlibs installed), and `day pack` 
 bundle as-is — copy, codesign, dmg, notarize — assembling nothing. The
 Xcode/Gradle projects **call back** into the arg-less plumbing entrypoints ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)) for the Rust
 staticlib/dylib, so builds started from Xcode/Android Studio are first-class and never stale.
+Derived Apple hosts link the staged Rust archive through `dayapp-link.rsp`, which preserves
+`-force_load` by default without inspecting archive symbols. An active Apple contribution may
+explicitly enable experimental `selective-archive-loading`, optionally gated on a feature of
+its declaring package. Only that mode scans each architecture's Mach-O symbols for registration,
+constructor, and Rust FFI roots and resolves other archive objects normally. This opt-in applies
+to the complete app archive; it is not a general compatibility guarantee for bundled libraries
+or LTO. Selective mode rejects multiple architecture inputs until per-architecture roots
+are supported; default force-loading still accepts universal archives. `pieces::apple_library_tests` and `mobile::apple_link_root_tests` cover selection and the
+default path. Persistent overrides need the response-file flag only to use the opt-in policy;
+[docs/extending.md](docs/extending.md) documents the contract.
+Apple Cargo builds sanitize Xcode's compiler environment. `DAY_BUILD_TOOL_PATH` adds explicit
+build-dependency tool directories ahead of system tools, after the Rust toolchain. The macOS
+CLI forwards it into Xcode's build callback, so code generators can use a current Python.
+See [docs/extending.md](docs/extending.md#apple-build-dependency-tools).
 Both Apple hosts require **Xcode 27 or newer**, checked by `day doctor` for AppKit and
 UIKit against the selected `xcodebuild` (including `DEVELOPER_DIR`). Built-in scaffolds
 and `add-target` omit `.xcodeproj` folders by default. `xcode::ensure` derives JSON5
@@ -4250,6 +4274,9 @@ Gradle plugin. A source Gradle settings/build file or AndroidManifest selects th
 `platform/android/` override. Builds and packaging discover APKs/AABs under the selected
 root. Generation refreshes template inputs without touching Gradle caches; unchanged files
 retain their mtimes. `day prepare --check` checks generated template inputs without writing.
+Manifest policy and migration requirements are described in §17.3 and
+[docs/native-project-migration.md](docs/native-project-migration.md).
+
 Regression tests in `native_host::tests` and `new::tests` cover derivation, drift checks,
 regeneration and opt-in persistence.
 
@@ -4780,8 +4807,9 @@ deployment-target = "15.0"                # day-uikit's floor; the scaffold's xc
 capabilities = []                   # entitlements toggles understood by the generator
 
 [android]
-min-sdk = 24
-target-sdk = 35                     # edge-to-edge is mandatory at 35 — see §7.7 inset policy
+cleartext-domains = ["127.0.0.1"]    # exact-host HTTP exceptions in generated hosts
+edge-to-edge = true                 # see §7.7 inset policy
+resource-overlays = ["platform/android/res"]
 
 [windows]
 app-sdk = "2.5"                     # WinAppSDK release pin (§9); designed, not read yet: day-toolchain pins 2.5.1
@@ -4805,6 +4833,21 @@ provider = "trusted-signing"        # §16.5 sign — provider enum
 [dependencies]                      # Day Piece packages needing native aggregation (§15.2)
 # (cargo deps remain in Cargo.toml; this section only exists for overrides/pins of piece metadata)
 ```
+
+`Day.toml [android]` carries HTTP policy (`cleartext-traffic`, default false;
+`cleartext-domains`, exact-host exceptions), `edge-to-edge`, and `resource-overlays`.
+The previously sketched `min-sdk` and `target-sdk` keys remain unimplemented design options;
+they are not accepted by the manifest parser and are omitted from the example above.
+Overlays are app-relative native Android `res/` directories; later files replace earlier
+files and the default theme without retaining Gradle configuration. Generation compares
+and prunes the generated resource tree, so removing an overlay cannot leave a stale policy
+or theme behind. Source overlays stay app-owned. These options configure generated hosts;
+a persistent Gradle project owns its own settings. Preparation and builds warn when an
+explicit `[android]` table is ignored, including explicit default values. `[harmony] vendor` sets the publisher
+in staged AppScope metadata, including when the input host is persistent.
+
+The migration procedure and required framework/CLI-first release ordering are documented in
+[docs/native-project-migration.md](docs/native-project-migration.md).
 
 Principles: **derive, don't restate** — anything expressible in `Cargo.toml` stays in
 `Cargo.toml` (`name`/`version` come from `[package]`); **base + overrides** — per-platform

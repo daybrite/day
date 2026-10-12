@@ -146,6 +146,8 @@ struct Resolve {
 struct Node {
     id: String,
     #[serde(default)]
+    features: Vec<String>,
+    #[serde(default)]
     deps: Vec<Dep>,
 }
 #[derive(Deserialize)]
@@ -372,8 +374,14 @@ fn cargo_metadata_inner(
     } else {
         cmd.arg("--no-default-features");
     }
-    if !features.is_empty() {
-        cmd.arg("--features").arg(features.join(","));
+    let mut enabled: Vec<_> = features.iter().map(|f| (*f).to_owned()).collect();
+    if !all_features {
+        enabled.extend(crate::flavor::inputs().features.iter().cloned());
+    }
+    enabled.sort();
+    enabled.dedup();
+    if !enabled.is_empty() {
+        cmd.arg("--features").arg(enabled.join(","));
     }
     let out = cmd.output().map_err(|e| format!("cargo metadata: {e}"))?;
     if !out.status.success() {
@@ -1125,6 +1133,38 @@ impl SwiftPackage {
     }
 }
 
+/// A system library, optionally requiring a feature of the declaring Cargo package.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AppleLibrary {
+    Name(String),
+    Conditional { name: String, feature: String },
+}
+impl AppleLibrary {
+    fn enabled_name(&self, features: &[String]) -> Option<&str> {
+        match self {
+            Self::Name(name) => Some(name),
+            Self::Conditional { name, feature } => features.contains(feature).then_some(name),
+        }
+    }
+}
+
+/// Explicit opt-in to experimental archive loading, optionally gated on a package feature.
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum AppleFeatureGate {
+    Always(bool),
+    Feature { feature: String },
+}
+impl AppleFeatureGate {
+    fn enabled(&self, features: &[String]) -> bool {
+        match self {
+            Self::Always(enabled) => *enabled,
+            Self::Feature { feature } => features.contains(feature),
+        }
+    }
+}
+
 /// The `[package.metadata.day.ios]` / `[package.metadata.day.macos]` table, as declared by a piece
 /// crate, or by the app itself (the app crate is in its own dependency closure, which is how an
 /// app contributes Swift sources and packages).
@@ -1138,6 +1178,13 @@ struct AppleMeta {
     /// hand-`#[link]`.
     #[serde(default)]
     frameworks: Vec<String>,
+    /// System libraries required at the final Xcode link, such as c++ or z.
+    #[serde(default)]
+    libraries: Vec<AppleLibrary>,
+    #[serde(default, rename = "linker-options")]
+    linker_options: Vec<AppleLibrary>,
+    #[serde(default, rename = "selective-archive-loading")]
+    selective_archive_loading: Option<AppleFeatureGate>,
     /// The minimum platform version this contribution needs (e.g. `"16.0"`). The generated
     /// package's floor (and the leg's deployment target) is the max across contributions.
     #[serde(default)]
@@ -1154,6 +1201,9 @@ struct ApplePieces {
     packages: Vec<SwiftPackage>,
     /// System frameworks the app links (deduped).
     frameworks: Vec<String>,
+    libraries: Vec<String>,
+    linker_options: Vec<String>,
+    selective_archive_loading: bool,
     /// The max `platform` floor across contributions (`None` = every contribution is fine with
     /// the leg's default).
     platform: Option<String>,
@@ -1186,7 +1236,11 @@ fn resolve_apple(
     platform_key: &str,
 ) -> Result<ApplePieces, String> {
     let meta = cargo_metadata_for_contributions(project, features)?;
-    let in_closure = closure(&meta);
+    collect_apple(&meta, platform_key)
+}
+
+fn collect_apple(meta: &Metadata, platform_key: &str) -> Result<ApplePieces, String> {
+    let in_closure = closure(meta);
 
     let mut pieces = ApplePieces::default();
     let mut seen_dirs = HashSet::new();
@@ -1248,6 +1302,50 @@ fn resolve_apple(
                 );
             }
         }
+        let features = meta
+            .resolve
+            .as_ref()
+            .and_then(|r| r.nodes.iter().find(|n| n.id == pkg.id))
+            .map(|n| n.features.as_slice())
+            .unwrap_or_default();
+        pieces.selective_archive_loading |= apple
+            .selective_archive_loading
+            .as_ref()
+            .is_some_and(|gate| gate.enabled(features));
+        for option in &apple.linker_options {
+            if let Some(name) = option.enabled_name(features) {
+                if !name.starts_with('-')
+                    || !name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || "_-".contains(c))
+                {
+                    return Err(format!(
+                        "{} has invalid Apple linker option {name:?}",
+                        pkg.name
+                    ));
+                }
+                if !pieces.linker_options.iter().any(|n| n == name) {
+                    pieces.linker_options.push(name.to_owned());
+                }
+            }
+        }
+        for library in &apple.libraries {
+            if let Some(name) = library.enabled_name(features) {
+                if !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "_+-".contains(c))
+                    || name.is_empty()
+                {
+                    return Err(format!(
+                        "{} has invalid Apple library name {name:?}",
+                        pkg.name
+                    ));
+                }
+                if !pieces.libraries.iter().any(|n| n == name) {
+                    pieces.libraries.push(name.to_owned());
+                }
+            }
+        }
         for fw in apple.frameworks {
             if !pieces.frameworks.contains(&fw) {
                 pieces.frameworks.push(fw);
@@ -1261,6 +1359,14 @@ fn resolve_apple(
         }
     }
     Ok(pieces)
+}
+
+pub(crate) fn apple_selective_archive_loading(
+    project: &Project,
+    feature: &str,
+    platform: &str,
+) -> Result<bool, String> {
+    Ok(resolve_apple(project, &[feature], platform)?.selective_archive_loading)
 }
 
 /// Generate the local `DayPieces` SwiftPM package (Package.swift + staged Swift shims + generated
@@ -1823,7 +1929,10 @@ fn package_swift(
         .collect();
     // System frameworks link on the target (`.linkedFramework`), so a piece can declare `frameworks =
     // ["WebKit"]` instead of `dlopen`ing or hand-`#[link]`ing them; they reach the app via DayPieces.
-    let linker: String = if pieces.frameworks.is_empty() {
+    let linker: String = if pieces.frameworks.is_empty()
+        && pieces.libraries.is_empty()
+        && pieces.linker_options.is_empty()
+    {
         String::new()
     } else {
         let fws: String = pieces
@@ -1831,7 +1940,17 @@ fn package_swift(
             .iter()
             .map(|f| format!(".linkedFramework(\"{f}\"), "))
             .collect();
-        format!(", linkerSettings: [{fws}]")
+        let libs: String = pieces
+            .libraries
+            .iter()
+            .map(|l| format!(".linkedLibrary(\"{l}\"), "))
+            .collect();
+        let opts: String = pieces
+            .linker_options
+            .iter()
+            .map(|o| format!(".unsafeFlags([\"-Xlinker\", \"{o}\"]), "))
+            .collect();
+        format!(", linkerSettings: [{fws}{libs}{opts}]")
     };
     // App images (§18.3) staged as a `.process`ed asset catalog next to the shims; app fonts
     // (§18.4) as a `.copy`d directory (font files must reach the bundle byte-identical).
@@ -2697,5 +2816,74 @@ mod tests {
         assert!(link_java_files(&project, &[]).expect("empty").is_none());
         assert!(!root.exists());
         let _ = std::fs::remove_dir_all(&base);
+    }
+}
+
+#[cfg(test)]
+mod apple_library_tests {
+    use super::*;
+    #[test]
+    fn selective_loading_requires_an_active_contribution_on_this_platform() {
+        // Synthetic Cargo metadata: an unrelated workspace member must not opt the app in.
+        let mut fixture = serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":"/fixture/app/Cargo.toml"},
+                {"id":"engine", "name":"engine", "manifest_path":"/fixture/engine/Cargo.toml",
+                 "metadata":{"day":{"macos":{"selective-archive-loading":{"feature":"servo"}}}}},
+                {"id":"unused", "name":"unused", "manifest_path":"/fixture/unused/Cargo.toml",
+                 "metadata":{"day":{"macos":{"selective-archive-loading":true}}}}
+            ],
+            "resolve":{"root":"app", "nodes":[
+                {"id":"app", "features":["servo"], "deps":[{"pkg":"engine"}]},
+                {"id":"engine", "features":[]},
+                {"id":"unused", "features":[]}
+            ]}
+        });
+        let selected = |value: &serde_json::Value, platform| {
+            collect_apple(&serde_json::from_value(value.clone()).unwrap(), platform)
+                .unwrap()
+                .selective_archive_loading
+        };
+        assert!(!selected(&fixture, "macos"));
+        fixture["resolve"]["nodes"][1]["features"] = serde_json::json!(["servo"]);
+        assert!(selected(&fixture, "macos"));
+        assert!(!selected(&fixture, "ios"));
+        fixture["packages"][1]["metadata"]["day"]["macos"] = serde_json::json!({});
+        assert!(!selected(&fixture, "macos"));
+        fixture["packages"][1]["metadata"]["day"]["macos"]["selective-archive-loading"] =
+            false.into();
+        assert!(!selected(&fixture, "macos"));
+        fixture["packages"][1]["metadata"]["day"]["macos"]["selective-archive-loading"] =
+            true.into();
+        assert!(selected(&fixture, "macos"));
+        fixture["resolve"]["nodes"][0]["deps"] = serde_json::json!([]);
+        assert!(!selected(&fixture, "macos"));
+    }
+
+    #[test]
+    fn optional_engine_libraries_follow_resolved_package_features() {
+        let apple: AppleMeta = serde_json::from_value(serde_json::json!({
+            "libraries": ["sqlite3", {"name":"c++", "feature":"servo"}, {"name":"z", "feature":"servo"}]
+        })).unwrap();
+        let native: Vec<_> = apple
+            .libraries
+            .iter()
+            .filter_map(|l| l.enabled_name(&[]))
+            .collect();
+        assert_eq!(native, ["sqlite3"]);
+        let features = vec!["appkit".into(), "servo".into()];
+        let servo: Vec<_> = apple
+            .libraries
+            .iter()
+            .filter_map(|l| l.enabled_name(&features))
+            .collect();
+        assert_eq!(servo, ["sqlite3", "c++", "z"]);
+        let pieces = ApplePieces {
+            libraries: servo.into_iter().map(str::to_owned).collect(),
+            ..Default::default()
+        };
+        let package = package_swift(&pieces, "macos", ".macOS(\"13.0\")", false, false, false);
+        assert!(package.contains(".linkedLibrary(\"c++\")"));
+        assert!(package.contains(".linkedLibrary(\"z\")"));
     }
 }

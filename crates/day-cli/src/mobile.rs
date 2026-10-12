@@ -165,6 +165,17 @@ pub(crate) fn cargo_apple_staticlibs(
     target_dir_name: &str,
     run: &dyn Fn(&mut Command, &str) -> Result<(), String>,
 ) -> Result<Vec<PathBuf>, String> {
+    // Reject the unsupported policy before compiling two large engine archives.
+    if triples.len() > 1 {
+        let platform = if toolkit_feature == "appkit" {
+            "macos"
+        } else {
+            "ios"
+        };
+        if crate::pieces::apple_selective_archive_loading(project, toolkit_feature, platform)? {
+            validate_selective_architectures(triples.len())?;
+        }
+    }
     let (cargo, bin) = rustup_cargo()?;
     crate::ops::ensure_rust_targets(triples)?;
     let name = project.manifest.app.name.clone();
@@ -216,9 +227,10 @@ pub(crate) fn cargo_apple_staticlibs(
         cmd.current_dir(&project.root)
             .env(
                 "PATH",
-                format!(
-                    "{}:{home}/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                    bin.display()
+                apple_build_path(
+                    &bin,
+                    &home,
+                    std::env::var_os("DAY_BUILD_TOOL_PATH").as_deref(),
                 ),
             )
             .env("CARGO_TARGET_DIR", &target_dir);
@@ -389,6 +401,10 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         }
     };
     staged.map_err(|e| CliError::build(format!("day xcode-backend: {e}")))?;
+    let selective =
+        crate::pieces::apple_selective_archive_loading(&project, toolkit_feature, xc_platform)
+            .map_err(CliError::build)?;
+    stage_apple_link_response(&dest, &arch_libs, selective).map_err(CliError::build)?;
     // Stage assets/ into the app bundle (§18.1's copy-phase mechanism). Recursive: assets are
     // a tree (§18.5), and `resource("web/minisite/index.html")` resolves the same relative
     // path inside the bundle.
@@ -674,6 +690,100 @@ fn cargo_ahead_of_xcodebuild(
     .map(|_| ())
 }
 
+/// Retain registration sections and Rust-exported FFI entry points, without force-loading
+/// bundled C archives (which may contain alternative definitions of the same library).
+fn apple_link_root(rust_object: bool, section: &str, symbol: &str) -> bool {
+    (section.starts_with("__linkm") || section == "__mod_init_func")
+        || (rust_object && !symbol.starts_with("__R") && !symbol.starts_with("__ZN"))
+}
+
+fn validate_selective_architectures(count: usize) -> Result<(), String> {
+    if count != 1 {
+        return Err(
+            "experimental selective Apple archive loading requires a single architecture; \
+             universal builds need architecture-specific symbol roots, which are not yet supported. \
+             Build one architecture at a time or disable the package feature that opts into \
+             selective-archive-loading"
+                .into(),
+        );
+    }
+    Ok(())
+}
+fn stage_apple_link_response(
+    archive: &Path,
+    inputs: &[PathBuf],
+    selective: bool,
+) -> Result<(), String> {
+    use object::{Object, ObjectSection, ObjectSymbol};
+    // Response-file quoting protects spaces, quotes, and backslashes in the app's path.
+    let path = archive
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let response = archive.with_file_name("dayapp-link.rsp");
+    if !selective {
+        // Preserve the established policy without inspecting symbols. Separate -Xlinker
+        // arguments also preserve commas in paths, which -Wl,-force_load,<path> cannot.
+        return std::fs::write(
+            response,
+            format!("-Xlinker -force_load -Xlinker \"{path}\"\n"),
+        )
+        .map_err(|e| e.to_string());
+    }
+    validate_selective_architectures(inputs.len())?;
+    eprintln!("day: experimental selective Apple archive loading enabled by package metadata");
+    let mut roots = std::collections::BTreeSet::new();
+    for input in inputs {
+        let file = std::fs::File::open(input).map_err(|e| e.to_string())?;
+        let cache = object::read::ReadCache::new(file);
+        let ar = object::read::archive::ArchiveFile::parse(&cache).map_err(|e| e.to_string())?;
+        for member in ar.members() {
+            let member = member.map_err(|e| e.to_string())?;
+            let (offset, size) = member.file_range();
+            // compiler_builtins can include LLVM bitcode, which contains no AppKit registration.
+            let Ok(obj) = object::File::parse(cache.range(offset, size)) else {
+                continue;
+            };
+            let rust_object = member.name().ends_with(b".rcgu.o");
+            for symbol in obj.symbols().filter(|s| s.is_global() && !s.is_undefined()) {
+                let Ok(name) = symbol.name() else {
+                    continue;
+                };
+                let section = symbol
+                    .section_index()
+                    .and_then(|i| obj.section_by_index(i).ok());
+                let section = section.as_ref().and_then(|s| s.name().ok()).unwrap_or("");
+                if apple_link_root(rust_object, section, name) {
+                    roots.insert(name.to_owned());
+                }
+            }
+        }
+    }
+    let mut args = roots
+        .into_iter()
+        .map(|s| format!("-Wl,-u,{s}\n"))
+        .collect::<String>();
+    args.push_str(&format!("\"{path}\"\n"));
+    std::fs::write(response, args).map_err(|e| e.to_string())
+}
+
+/// Optional dependency tool directories precede system tools without inheriting Xcode's PATH.
+fn apple_build_path(
+    bin: &std::path::Path,
+    home: &str,
+    extra: Option<&std::ffi::OsStr>,
+) -> std::ffi::OsString {
+    let mut paths = vec![
+        bin.to_path_buf(),
+        std::path::PathBuf::from(home).join(".cargo/bin"),
+    ];
+    if let Some(extra) = extra {
+        paths.extend(std::env::split_paths(extra));
+    }
+    paths.extend(["/usr/bin", "/bin", "/usr/sbin", "/sbin"].map(std::path::PathBuf::from));
+    std::env::join_paths(paths).unwrap_or_else(|_| "/usr/bin:/bin:/usr/sbin:/sbin".into())
+}
+
 pub fn build_macos_xcode(
     project: &Project,
     target: &'static Target,
@@ -709,6 +819,12 @@ pub fn build_macos_xcode(
         &format!("{} (xcodebuild {configuration}, macosx)", target.name),
     );
     let mut cmd = Command::new("xcodebuild");
+    if let Some(path) = std::env::var_os("DAY_BUILD_TOOL_PATH") {
+        cmd.arg(format!("DAY_BUILD_TOOL_PATH={}", path.to_string_lossy()));
+    }
+    if let Some(floor) = crate::flavor::inputs().env.get("MACOSX_DEPLOYMENT_TARGET") {
+        cmd.arg(format!("MACOSX_DEPLOYMENT_TARGET={floor}"));
+    }
     crate::ops::apply_determinism(&mut cmd);
     crate::ops::apply_xcode_hygiene(&mut cmd);
     cmd.current_dir(project.root.join("platform/macos"))
@@ -3386,5 +3502,82 @@ targets = ["ios-uikit"]
             "the uikit fallback root was not staged"
         );
         let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod apple_build_tool_tests {
+    use super::apple_build_path;
+    use std::{ffi::OsStr, path::Path};
+    #[test]
+    fn dependency_tools_are_explicit_and_keep_rust_first() {
+        let actual = apple_build_path(
+            Path::new("/fixture/rust/bin"),
+            "/fixture/home",
+            Some(OsStr::new("/fixture/python/bin:/fixture/llvm/bin")),
+        );
+        let paths: Vec<_> = std::env::split_paths(&actual).collect();
+        assert_eq!(
+            paths,
+            [
+                "/fixture/rust/bin",
+                "/fixture/home/.cargo/bin",
+                "/fixture/python/bin",
+                "/fixture/llvm/bin",
+                "/usr/bin",
+                "/bin",
+                "/usr/sbin",
+                "/sbin"
+            ]
+            .map(std::path::PathBuf::from)
+        );
+        let default = apple_build_path(Path::new("/fixture/rust/bin"), "/fixture/home", None);
+        assert!(!default.to_string_lossy().contains("python"));
+    }
+}
+
+#[cfg(test)]
+mod apple_link_root_tests {
+    use super::{apple_link_root, stage_apple_link_response};
+    #[test]
+    fn selective_loading_rejects_universal_inputs_before_scanning_or_writing() {
+        // Synthetic paths need not exist: validation must precede archive scanning and IO.
+        let inputs = ["fixture-arm64.a".into(), "fixture-x86_64.a".into()];
+        let error = stage_apple_link_response(std::path::Path::new("fixture.a"), &inputs, true)
+            .unwrap_err();
+        assert!(error.contains("single architecture"));
+        assert!(error.contains("architecture-specific symbol roots"));
+    }
+    #[test]
+    fn default_loading_replaces_stale_selective_flags_without_scanning_symbols() {
+        let root = std::env::temp_dir().join(format!("day archive,policy {}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let archive = root.join("libdayapp.a");
+        let response = root.join("dayapp-link.rsp");
+        // Synthetic invalid archive proves the default path does not use symbol heuristics.
+        std::fs::write(&archive, b"fixture, not a Mach-O archive").unwrap();
+        std::fs::write(&response, "-Wl,-u,_stale_fixture\n").unwrap();
+        stage_apple_link_response(&archive, std::slice::from_ref(&archive), false).unwrap();
+        let args = std::fs::read_to_string(&response).unwrap();
+        assert_eq!(
+            args,
+            format!("-Xlinker -force_load -Xlinker \"{}\"\n", archive.display())
+        );
+        // Default loading must remain available for universal archives too.
+        stage_apple_link_response(&archive, &[archive.clone(), archive.clone()], false).unwrap();
+        assert_eq!(std::fs::read_to_string(&response).unwrap(), args);
+        assert!(stage_apple_link_response(&archive, std::slice::from_ref(&archive), true).is_err());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn keeps_registrations_and_ffi_without_forcing_bundled_c_objects() {
+        assert!(apple_link_root(true, "__linkme123", "__Rrenderer"));
+        assert!(apple_link_root(true, "__linkm2123", "__Rdupcheck"));
+        assert!(apple_link_root(true, "__mod_init_func", "__Rresource_ctor"));
+        assert!(apple_link_root(true, "__text", "_day_main"));
+        assert!(apple_link_root(true, "__text", "_DayView_fixture"));
+        assert!(!apple_link_root(true, "__text", "__Rordinary_rust"));
+        assert!(!apple_link_root(false, "__text", "_LZ4_compress"));
     }
 }

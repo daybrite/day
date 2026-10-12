@@ -6,11 +6,112 @@
   "type": "object",
   "required": ["app"],
   "properties": {
+    "android": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Policy and resource customization of the generated Android host. Persistent Gradle projects retain their own configuration.",
+      "properties": {
+        "cleartext-traffic": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow HTTP to all hosts. Defaults to Android\u2019s secure policy."
+        },
+        "cleartext-domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true,
+          "description": "Exact HTTP host exceptions; other hosts keep the cleartext-traffic policy."
+        },
+        "edge-to-edge": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable Day\u2019s immersive Android chrome."
+        },
+        "resource-overlays": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "App-relative Android res directories copied over generated resources in order. Retain custom XML here instead of a whole Gradle project."
+        }
+      }
+    },
+    "harmony": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vendor": {
+          "type": "string",
+          "description": "Publisher vendor in HarmonyOS AppScope/app.json5."
+        }
+      }
+    },
     "url_schemes": {
       "type": "array",
       "description": "Additional external URL schemes delivered to on_open_url before route fallback.",
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*$" },
       "uniqueItems": true
+    },
+    "sandbox": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "macos-appkit": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "App Sandbox entitlements for both macos-appkit builds and packages. Off by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "network-client": {
+              "type": "boolean",
+              "default": false
+            },
+            "network-server": {
+              "type": "boolean",
+              "default": false
+            },
+            "camera": {
+              "type": "boolean",
+              "default": false
+            },
+            "microphone": {
+              "type": "boolean",
+              "default": false
+            },
+            "location": {
+              "type": "boolean",
+              "default": false
+            },
+            "bluetooth": {
+              "type": "boolean",
+              "default": false
+            },
+            "bookmarks": {
+              "type": "boolean",
+              "default": true
+            },
+            "development-network-server": {
+              "type": "boolean",
+              "default": true,
+              "description": "Allow the dayscript listener in Debug only."
+            },
+            "user-selected-files": {
+              "type": "string",
+              "enum": [
+                "none",
+                "read-only",
+                "read-write"
+              ],
+              "default": "read-write"
+            }
+          }
+        }
+      }
     },
     "schema": {
       "type": "integer",
@@ -30,6 +131,10 @@
         "title": {
           "type": "string",
           "description": "Display title (window / app store). Default: the crate name."
+        },
+        "artifact": {
+          "type": "string",
+          "description": "Filename stem shared by every packaged artifact, before the -<target> suffix (day-showcase → day-showcase-macos-appkit.dmg). Default: a slug of `title`. Overridden per run by `day pack --artifact-name`."
         },
         "build": {
           "type": "integer",
@@ -58,6 +163,7 @@
         "properties": {
           "id": { "type": "string" },
           "title": { "type": "string" },
+          "artifact": { "type": "string" },
           "build": { "type": "integer", "minimum": 1 }
         },
         "additionalProperties": false
@@ -69,6 +175,53 @@
       "properties": {
         "width": { "type": "number", "default": 480 },
         "height": { "type": "number", "default": 640 }
+      },
+      "additionalProperties": false
+    },
+    "screenshots": {
+      "type": "object",
+      "description": "What a scripted run (day launch --script) captures desktop-class targets at: the desktop toolkits and web-dom. Phones and tablets capture their device's own panel. Every key is optional; day launch --capture-size and the DAY_CAPTURE_SIZE environment variable override it for one run.",
+      "properties": {
+        "desktop-size": {
+          "type": "string",
+          "pattern": "^([0-9]+[xX×][0-9]+|window)$",
+          "default": "2560x1600",
+          "description": "The capture's size in pixels, <width>x<height>. The default is a size the Mac App Store accepts (1280x800, 1440x900, 2560x1600, 2880x1800). \"window\" captures at the app's own [window] size and the host display's scale."
+        },
+        "desktop-scale": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0.5,
+          "maximum": 4,
+          "description": "The scale the capture is rendered at. The window is desktop-size divided by this, in points: 1280x800 by default."
+        }
+      },
+      "additionalProperties": false
+    },
+    "store": {
+      "type": "object",
+      "description": "Where the app is listed (docs/store.md, Listed apps). A store id here means the listing is live: the project site shows that store's badge and links to it.",
+      "properties": {
+        "apple-app-id": {
+          "type": "string",
+          "description": "The App Store's numeric app id: the id… in https://apps.apple.com/app/id6802801331."
+        },
+        "google-play-id": {
+          "type": "string",
+          "description": "The Google Play listing's application id (the id= in the Play URL), usually the app's own [app] id."
+        }
+      },
+      "additionalProperties": false
+    },
+    "web": {
+      "type": "object",
+      "description": "How the web-dom build presents itself on a home screen (docs/web.md, Home screen and offline): the web app manifest's colors, display mode, and short name. Every key is optional.",
+      "properties": {
+        "short-name": { "type": "string", "description": "The name under the home-screen icon (about twelve characters). Default: the store name, or its leading words that fit." },
+        "theme-color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Browser chrome color for an installed launch, light appearance. Default #ffffff." },
+        "theme-color-dark": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "The same for a dark appearance. Default #000000." },
+        "background-color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$", "description": "Splash background while the app loads. Default: the light theme color." },
+        "display": { "type": "string", "enum": ["standalone", "minimal-ui", "browser", "fullscreen"], "default": "standalone", "description": "How much browser chrome an installed launch shows." }
       },
       "additionalProperties": false
     },

@@ -285,6 +285,10 @@ Azerbaijani use Turkic folding. Matching does not remove accents: `é` and `e` r
 
 ## Locale data
 
+The runtime accepts ICU4X 2.1 and newer compatible 2.x releases. Servo 0.6's SpiderMonkey
+integration pins several components to 2.1; apps embedding it resolve that compatible set.
+This does not add Servo to Day's dependency graph.
+
 ICU4X components use compiled locale data independently of the app's Fluent locale list.
 Changing that list changes the app's translations, not the embedded ICU data selection.
 Unused components can be removed by the linker. Builds that supply custom baked data can

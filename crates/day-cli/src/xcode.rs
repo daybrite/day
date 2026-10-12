@@ -77,6 +77,18 @@ fn derived_document(root: &Path, platform: &str) -> Result<ProjectDocument, Stri
                 .into();
         }
     }
+    // Older single-language hosts have no string catalog. Preparation creates it when
+    // translations require it; never give Xcode a resources entry for a missing input.
+    if !root
+        .join(format!("platform/{platform}/Runner/InfoPlist.xcstrings"))
+        .exists()
+    {
+        for group in value["files"].as_array_mut().unwrap() {
+            if let Some(children) = group["children"].as_array_mut() {
+                children.retain(|file| file["path"] != "InfoPlist.xcstrings");
+            }
+        }
+    }
     configure_identity(root, platform, &mut value);
     // GUI builds should use the same CLI that prepared the host (including VS Code's managed
     // CLI), not an older installation found by the shell wrapper's PATH fallback.
@@ -636,6 +648,17 @@ mod tests {
             std::fs::remove_file(pbx).unwrap();
             assert!(ensure(&project, platform).is_err());
         }
+    }
+
+    #[test]
+    fn derived_host_references_a_string_catalog_only_when_it_exists() {
+        let fixture = Fixture::new();
+        let has_catalog = |doc: &ProjectDocument| doc.source().contains("InfoPlist.xcstrings");
+        assert!(!has_catalog(&derived_document(&fixture.0, "ios").unwrap()));
+        let catalog = fixture.0.join("platform/ios/Runner/InfoPlist.xcstrings");
+        std::fs::create_dir_all(catalog.parent().unwrap()).unwrap();
+        std::fs::write(&catalog, "{}").unwrap();
+        assert!(has_catalog(&derived_document(&fixture.0, "ios").unwrap()));
     }
 
     #[test]

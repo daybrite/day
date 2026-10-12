@@ -124,6 +124,7 @@ export const groups = [
       'Platform backends, the extension model for writing your own Pieces, per-backend support matrices, API conventions, and tooling.',
     docs: [
       ['sandbox', 'macOS App Sandbox, entitlements, and persistent file access'],
+      ['native-project-migration', 'generated native projects: migration procedure and release ordering'],
       ['harmonyos', 'OpenHarmony toolchain setup and quirks'],
       ['winui', 'the `windows-winui` target — the XAML backend on WinUI 3 and the Windows App SDK'],
       ['web', 'the `web-dom` backend — wasm build, dayscript bridge, static hosting'],

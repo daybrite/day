@@ -918,7 +918,10 @@ fn sync_ohos_identity(project: &Project) -> Result<(), String> {
     if app_json.exists() {
         let text = std::fs::read_to_string(&app_json)
             .map_err(|e| format!("{}: {e}", app_json.display()))?;
-        let out = replace_json5_string(&text, "bundleName", &resolved.id)?;
+        let mut out = replace_json5_string(&text, "bundleName", &resolved.id)?;
+        if let Some(vendor) = &project.manifest.harmony.vendor {
+            out = replace_json5_string(&out, "vendor", vendor)?;
+        }
         if out != text {
             std::fs::write(&app_json, out).map_err(|e| format!("{}: {e}", app_json.display()))?;
         }

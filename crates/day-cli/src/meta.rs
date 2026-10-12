@@ -73,6 +73,40 @@ pub struct Manifest {
     /// and short name. Every key has a default, so the table is optional.
     #[serde(default)]
     pub web: Web,
+    /// Native Android policy and resource overlays for the generated Gradle host.
+    #[serde(default)]
+    #[serde(deserialize_with = "deserialize_android")]
+    pub android: Android,
+    #[serde(default)]
+    pub harmony: Harmony,
+}
+
+/// Settings that previously required an app-owned Android project. Resource overlays contain
+/// native Android XML (themes, palettes, etc.), relative to the app, and replace default files.
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
+pub struct Android {
+    // Track an explicit table even when it only sets false/default values.
+    #[serde(skip)]
+    pub(crate) declared: bool,
+    pub cleartext_traffic: bool,
+    pub cleartext_domains: Vec<String>,
+    pub edge_to_edge: bool,
+    pub resource_overlays: Vec<String>,
+}
+
+fn deserialize_android<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Android, D::Error> {
+    let mut android = Android::deserialize(deserializer)?;
+    android.declared = true;
+    Ok(android)
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Harmony {
+    pub vendor: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]

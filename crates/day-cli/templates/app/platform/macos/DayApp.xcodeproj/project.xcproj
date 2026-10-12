@@ -53,6 +53,7 @@
           "name": "Build Rust (day)",
           "output-paths": [
             "$(BUILT_PRODUCTS_DIR)/day/libdayapp.a",
+            "$(BUILT_PRODUCTS_DIR)/day/dayapp-link.rsp",
           ],
           "run-on-every-build": true,
           "shell": "/bin/sh",
@@ -79,7 +80,7 @@
         "ASSETCATALOG_COMPILER_APPICON_NAME": "AppIcon",
         "COMBINE_HIDPI_IMAGES": "YES",
         "INFOPLIST_FILE": "Runner/Info.plist",
-        "OTHER_LDFLAGS": "-Wl,-force_load,$(BUILT_PRODUCTS_DIR)/day/libdayapp.a",
+        "OTHER_LDFLAGS": "@\"$(BUILT_PRODUCTS_DIR)/day/dayapp-link.rsp\"",
       },
     },
   ],
