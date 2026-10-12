@@ -1818,6 +1818,11 @@ through window creation.
 > disabled one), `Role::{Tab, TabList}` and `A11yProps::selected` name it to assistive tech,
 > and `NativeSnapshot::checked` reads it back. Qt parks the nav host's sidebar page under its
 > `QTabWidget` instead of hiding it at tab 0, so native tab indices are destination indices.
+> AppKit pins secondary-window client coordinates below the native title/toolbar at creation,
+> then re-pins all members and reports usable sizes after grouping adds the tab strip.
+> These transitions cannot depend on a subsequent `windowDidResize` notification: otherwise
+> live document controls remain focusable but draw underneath the native chrome.
+> `native_document_layout` checks the client origin before and after native grouping.
 > See [navigation](docs/navigation.md#document-tabs)
 > and [document-window lifecycle](docs/windows.md#document-window-tabs).
 
@@ -4203,6 +4208,11 @@ The templates omit upgrade history, unused Base localization, repeated target xc
 script environment logging, inferred product file metadata, and default plist-generation
 settings. The Rust archive is force-loaded by full path, so it needs no library search path.
 Explicit compiler, optimization, and sandbox settings remain where defaults change behavior.
+Both generated Runner hosts select `SWIFT_VERSION = 6.0`. This is the Swift language
+mode, not the compiler version: newer Xcode toolchains still supply their current compiler.
+Omitting the setting fails in Xcode 27.2 with an unsupported empty language version; there
+is no automatic latest-language-mode default. SwiftPM dependencies retain the language
+modes selected by their own manifests.
 `ycode-project` from marcprux/ycode parses and validates these documents; `day lint`
 checks Runner, Debug/Release configurations, Rust-before-Swift phase ordering, resource
 callbacks, script sandboxing, and generated DayPieces linkage without requiring generated
@@ -7241,7 +7251,12 @@ Scope cleanup tolerates core thread-local teardown. Apple reads balance scoped a
 persistence, error presentation and window choice remain app policy. Temporary cache entries
 are not persistent grants; staging retention and multi-process desktop activation are explicit
 limitations. Windows GTK/Qt get development registry files; macOS GTK/Qt get development
-bundles, without extending Day's redistribution packer to bundle those toolkits.
+bundles, without extending Day's redistribution packer to bundle those toolkits. The development
+launcher preserves the original Cargo executable when its display title differs only by case
+(for example, `skipjack` / `Skipjack`) or resolves to the same filesystem path; alias creation
+must never unlink that artifact on a case-insensitive volume. Other display titles use a
+hard link beside the executable. `title_alias_preserves_case_only_build_artifacts` covers
+this launch-and-bundle contract.
 
 Regression coverage: `day-core` documents queue/lifetime tests, `day-pieces` bounded reads,
 and `day-cli` document manifest/escaping/preservation tests. Platform-native activation is

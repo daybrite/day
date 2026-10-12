@@ -84,3 +84,7 @@ harness = false
 [[test]]
 name = "native_list_scroll"
 harness = false
+
+[[test]]
+name = "native_document_layout"
+harness = false

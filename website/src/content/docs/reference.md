@@ -128,7 +128,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | Page | Covers |
 |---|---|
 | [sandbox](/docs/internal/sandbox) | macOS App Sandbox, entitlements, and persistent file access |
-| [native-project-migration](/docs/internal/native-project-migration) | generated native projects: workspace adoption and retained customizations |
+| [native-project-migration](/docs/internal/native-project-migration) | generated native projects: migration procedure and release ordering |
 | [harmonyos](/docs/internal/harmonyos) | OpenHarmony toolchain setup and quirks |
 | [winui](/docs/internal/winui) | the `windows-winui` target — the XAML backend on WinUI 3 and the Windows App SDK |
 | [web](/docs/internal/web) | the `web-dom` backend — wasm build, dayscript bridge, static hosting |

@@ -47,7 +47,7 @@ MACOSX_DEPLOYMENT_TARGET = 13.0
 // ===========================================================================
 //INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity
 //INFOPLIST_KEY_NSHumanReadableCopyright = Copyright 2026 My Company
-//SWIFT_VERSION = 6.0
+// The generated Xcode project selects Swift 6 language mode.
 //SWIFT_STRICT_CONCURRENCY = complete
 //OTHER_SWIFT_FLAGS = $(inherited) -warnings-as-errors
 //GCC_PREPROCESSOR_DEFINITIONS = $(inherited) MY_FLAG=1

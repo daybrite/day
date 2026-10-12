@@ -9508,10 +9508,9 @@ impl Toolkit for AppKit {
             self.cascade = Some(unsafe { window.cascadeTopLeftFromPoint(from) });
         }
         window_chrome::place(&window, options.placement);
-        if window_chrome::is_overlay(&window) {
-            // The first report of the title bar's height, before any resize sends one.
-            let _ = pin_below_title_bar(&window);
-        }
+        // Secondary windows need the same initial client-coordinate pinning as the
+        // primary. Native document pages may move here before any resize notification.
+        let _ = pin_below_title_bar(&window);
         if !options.start_hidden {
             window.makeKeyAndOrderFront(None);
         }
@@ -9551,6 +9550,18 @@ impl Toolkit for AppKit {
             }
             for (i, window) in windows.iter().enumerate() {
                 group.insertWindow_atIndex(window, i as isize);
+            }
+        }
+        // Adding/showing a native tab strip changes contentLayoutRect without necessarily
+        // resizing the window. Re-pin every member and tell the layout tree its usable size.
+        for window in &windows {
+            if let Some(size) = pin_below_title_bar(window) {
+                let node = window
+                    .delegate()
+                    .and_then(|d| d.downcast::<DayWinDelegate>().ok())
+                    .and_then(|d| d.ivars().node)
+                    .unwrap_or(WINDOW_NODE);
+                emit(node, Event::WindowResized(size));
             }
         }
     }

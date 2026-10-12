@@ -808,6 +808,38 @@ fn apply_mingw_registration_guard(cmd: &mut Command, target: &Target) {
     cmd.env("RUSTFLAGS", rustflags);
 }
 
+/// Preserve the Cargo executable when its display title differs only by case. On the
+/// default macOS filesystem those spellings name the same file; removing the old alias
+/// would otherwise remove the build artifact before it can be launched or bundled.
+fn desktop_title_alias(binary: &Path, title: &str) -> PathBuf {
+    let Some(dir) = binary.parent() else {
+        return binary.to_owned();
+    };
+    if title.is_empty()
+        || title.contains('/')
+        || binary
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case(title))
+    {
+        return binary.to_owned();
+    }
+    let link = dir.join(title);
+    // realpath also catches equivalent Unicode spellings on filesystems that normalize names.
+    if std::fs::canonicalize(&link)
+        .ok()
+        .zip(std::fs::canonicalize(binary).ok())
+        .is_some_and(|(alias, original)| alias == original)
+    {
+        return binary.to_owned();
+    }
+    let _ = std::fs::remove_file(&link);
+    if std::fs::hard_link(binary, &link).is_ok() {
+        link
+    } else {
+        binary.to_owned()
+    }
+}
+
 /// The per-kind native build pipelines (the pre-dispatch body of [`build`]).
 fn build_native(
     project: &Project,
@@ -1210,22 +1242,7 @@ pub fn desktop_launch_plan(
             .title
             .clone()
             .unwrap_or_else(|| project.manifest.app.name.clone());
-        match outcome.artifact.parent() {
-            Some(dir) if !title.is_empty() && !title.contains('/') => {
-                let link = dir.join(&title);
-                if link != outcome.artifact {
-                    let _ = std::fs::remove_file(&link);
-                    if std::fs::hard_link(&outcome.artifact, &link).is_ok() {
-                        link
-                    } else {
-                        outcome.artifact.clone()
-                    }
-                } else {
-                    outcome.artifact.clone()
-                }
-            }
-            _ => outcome.artifact.clone(),
-        }
+        desktop_title_alias(&outcome.artifact, &title)
     } else {
         outcome.artifact.clone()
     };
@@ -1608,6 +1625,30 @@ pub(crate) fn headless_wrap(
 #[cfg(test)]
 mod build_root_tests {
     use super::*;
+
+    #[test]
+    fn title_alias_preserves_case_only_build_artifacts() {
+        let tmp = std::env::temp_dir().join(format!("day-title-alias-{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let binary = tmp.join("skipjack");
+        std::fs::write(&binary, b"synthetic executable fixture").unwrap();
+        let alias = desktop_title_alias(&binary, "Skipjack");
+        assert_eq!(
+            std::fs::read(&alias).unwrap(),
+            b"synthetic executable fixture"
+        );
+        assert!(
+            binary.is_file(),
+            "creating an alias must preserve the build artifact"
+        );
+        let alias = desktop_title_alias(&binary, "Browser Fixture");
+        assert_eq!(
+            std::fs::read(&alias).unwrap(),
+            std::fs::read(&binary).unwrap()
+        );
+        assert_eq!(desktop_title_alias(&binary, "../escape"), binary);
+        std::fs::remove_dir_all(tmp).unwrap();
+    }
 
     #[test]
     fn build_title_uses_resolved_app_metadata() {

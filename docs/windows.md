@@ -426,6 +426,12 @@ it rejects dead nodes, cycles, and window roots. `WindowHandle::set_content_scop
 ambient and command lookup to the retained document. A mutable `DocumentWindow` context moves
 its toolbar contributions with it, including nested-navigation visibility gates.
 
+AppKit initializes each secondary window's content coordinates below its title/toolbar before
+mounting the document. Grouping windows updates that offset for the native tab strip and reports
+the resulting usable size to Day, even when AppKit sends no resize notification. Overlay windows
+retain their full content coordinates and report the chrome inset as safe area instead. The
+`native_document_layout` test checks initial and grouped window geometry.
+
 Native activation selects the document without echoing a focus request to the toolkit. Order is
 read on focus, close request, and completed close. Each detached group's order is merged into its
 existing positions in `TabSet`; observation does not merge detached groups back together. There

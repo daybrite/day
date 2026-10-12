@@ -227,6 +227,11 @@ need no Apple account. A device build takes the team from the local file, which 
 covers, so a fork signs with its own team and its own bundle id without editing a tracked file.
 Settings that `day build` and `day pack` pass on the command line override all three.
 
+The generated macOS and iOS Runner projects use Swift 6 language mode (`SWIFT_VERSION = 6.0`).
+Xcode still supplies its current Swift compiler; the language mode controls source compatibility
+and concurrency checking. Xcode 27.2 rejects an omitted language version, so Day sets it
+explicitly. SwiftPM packages use the language modes selected by their own manifests.
+
 ### Android: `android-mdc`
 
 On Android, `day` runs Cargo first, then hands Gradle a project whose source sets already point at
