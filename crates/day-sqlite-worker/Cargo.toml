@@ -27,4 +27,4 @@ license.workspace = true
 log = { workspace = true }
 
 [build-dependencies]
-cc = "1"
+cc = { workspace = true }

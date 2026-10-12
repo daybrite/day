@@ -24,7 +24,7 @@ day-spec = { workspace = true }
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 linkme = { workspace = true }
-gtk4 = { version = "0.11", features = ["v4_10"] }
+gtk4 = { workspace = true, features = ["v4_10"] }
 # Canvas text (docs/fonts.md, DESIGN §11): a Pango layout drawn through cairo — family, weight,
 # slant, shaping and BiDi, where cairo's own "toy" text API has none. The C library is already
 # linked (gtk4.pc requires pangocairo); this is only the binding, from the same gtk-rs release.
@@ -38,14 +38,14 @@ libadwaita = { version = "0.9", features = ["v1_5"] }
 # Dock icon (§18.2): GTK4 has no NSApplication integration, so on macOS the app icon is applied
 # straight through AppKit (an unbundled binary otherwise shows the generic exe icon in the Dock).
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6.5"
-objc2-core-foundation = "0.3.2"
-objc2-core-graphics = "0.3.2"
-objc2-foundation = { version = "0.3.2", features = ["NSString"] }
-objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSResponder", "NSImage"] }
+objc2 = { workspace = true }
+objc2-core-foundation = { workspace = true, default-features = true }
+objc2-core-graphics = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSString"] }
+objc2-app-kit = { workspace = true, features = ["NSApplication", "NSResponder", "NSImage"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
+windows = { workspace = true, features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
 
 # `dlsym` for GTK 4.14's `gtk_accessible_announce` (docs/accessibility.md): the binding is pinned
 # at its v4_10 level, so the library on the machine decides at run time whether the call exists.

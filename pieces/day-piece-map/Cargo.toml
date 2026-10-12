@@ -67,16 +67,16 @@ day-reactive = { workspace = true }
 linkme = { workspace = true }
 day-appkit = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
-objc2 = { version = "0.6.5", optional = true }
-objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSView", "NSResponder"] }
-objc2-ui-kit = { version = "0.3.2", optional = true, features = ["UIView", "UIResponder"] }
-objc2-core-location = { version = "0.3.2", optional = true, default-features = false, features = ["CLLocation"] }
+objc2 = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSView", "NSResponder"] }
+objc2-ui-kit = { workspace = true, optional = true, features = ["UIView", "UIResponder"] }
+objc2-core-location = { workspace = true, optional = true, default-features = false, features = ["CLLocation"] }
 
 # MKCoordinateRegion / MKCoordinateSpan / MKPointAnnotation are cross-platform in this crate; only the
 # MKMapView struct is macOS-gated (added by the appkit feature). CLLocationCoordinate2D comes from
 # objc2-core-location, which map-kit's `objc2-core-location` feature also pulls.
 [dependencies.objc2-map-kit]
-version = "0.3.2"
+workspace = true
 optional = true
 default-features = false
 features = ["MKGeometry", "MKPointAnnotation", "MKAnnotation", "MKShape", "objc2-core-location"]

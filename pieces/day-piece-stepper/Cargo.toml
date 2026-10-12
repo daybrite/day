@@ -47,13 +47,13 @@ day-macros = { workspace = true, optional = true }
 day-appkit = { workspace = true, optional = true }
 day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
-gtk4 = { version = "0.11", optional = true }
-objc2 = { version = "0.6.5", optional = true }
-objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSControl", "NSStepper", "NSTextField", "NSView", "NSResponder", "NSFont"] }
-objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString"] }
+gtk4 = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSControl", "NSStepper", "NSTextField", "NSView", "NSResponder", "NSFont"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSString"] }
 
 [build-dependencies]
-cc = "1"
+cc = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

@@ -33,14 +33,14 @@ day-reactive = { workspace = true }
 day-pieces = { workspace = true, features = ["model"], optional = true }
 day-spec = { workspace = true, optional = true }
 
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 day-macros = { workspace = true }
 # The real-driver tests open the produced files directly to verify what was stored (the same
 # crate the driver itself uses, so this adds no dependency edge).
-rusqlite = { version = "0.40", features = ["bundled"] }
+rusqlite = { workspace = true, features = ["bundled"] }
 # The UI-integration test drives a mock-toolkit list against a live container (the same harness
 # day-model's dev-deps use).
 day-core = { workspace = true }
@@ -52,7 +52,7 @@ day-spec = { workspace = true }
 # raw-wasm pipeline).
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 # `functions` registers `day_fold` (exact Unicode case folding for CI predicates) at open.
-rusqlite = { version = "0.40", optional = true, features = ["functions"] }
+rusqlite = { workspace = true, optional = true, features = ["functions"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 day-sqlite-worker = { workspace = true, optional = true }

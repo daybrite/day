@@ -59,15 +59,15 @@ day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
-gtk4 = { version = "0.11", optional = true }
-objc2 = { version = "0.6.5", optional = true }
-objc2-app-kit = { version = "0.3.2", optional = true, features = [
+gtk4 = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = [
     "NSProgressIndicator",
     "NSView",
     "NSResponder",
     "NSCell",
 ] }
-objc2-ui-kit = { version = "0.3.2", optional = true, features = [
+objc2-ui-kit = { workspace = true, optional = true, features = [
     "UIActivityIndicatorView",
     "UIView",
     "UIResponder",
@@ -75,7 +75,7 @@ objc2-ui-kit = { version = "0.3.2", optional = true, features = [
 
 [build-dependencies]
 day-toolchain = { workspace = true }
-cc = "1"
+cc = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

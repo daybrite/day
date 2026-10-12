@@ -12,7 +12,7 @@ description = "Tweak: AppKit bezel styles for Day buttons — the smallest possi
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-appkit = { workspace = true, optional = true }
-objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSButton", "NSControl", "NSView", "NSResponder", "NSButtonCell", "NSCell"] }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSButton", "NSControl", "NSView", "NSResponder", "NSButtonCell", "NSCell"] }
 
 [features]
 appkit = ["dep:day-appkit", "dep:objc2-app-kit"]

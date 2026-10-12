@@ -33,9 +33,9 @@ day-async = { workspace = true }
 # tree, so only idna's adapter, form_urlencoded and url arrive), HTTP dates for cookies and
 # Retry-After, the public suffix list for cookie domain safety, and the Digest hashes.
 url = "2"
-httpdate = "1"
+httpdate = { workspace = true }
 psl = "2"
-sha2 = "0.11"
+sha2 = { workspace = true }
 md-5 = "0.11"
 
 [build-dependencies]
@@ -43,9 +43,9 @@ day-build = { workspace = true }
 
 # macOS/iOS: URLSession through objc2, with a session delegate per client (src/apple.rs).
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6.5"
-block2 = "0.6.2"
-objc2-foundation = { version = "0.3.2", features = [
+objc2 = { workspace = true }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true, features = [
     "block2",
     "NSArray",
     "NSDate",
@@ -71,7 +71,7 @@ objc2-foundation = { version = "0.3.2", features = [
 ] }
 # Server trust (SecTrust: the chain and the platform verdict) and client identities
 # (SecPKCS12Import), both already part of every Apple app's Security framework.
-objc2-security = { version = "0.3.2", default-features = false, features = [
+objc2-security = { workspace = true, default-features = false, features = [
     "std",
     "objc2",
     "SecBase",
@@ -80,7 +80,7 @@ objc2-security = { version = "0.3.2", default-features = false, features = [
     "SecImportExport",
     "SecTrust",
 ] }
-objc2-core-foundation = { version = "0.3.2", default-features = false, features = [
+objc2-core-foundation = { workspace = true, default-features = false, features = [
     "std",
     "objc2",
     "CFArray",
@@ -98,7 +98,7 @@ day-android = { workspace = true }
 # Linux desktop: the system's libcurl, opened with dlopen at run time (src/linux.rs), so the
 # binary links no HTTP or TLS library of its own and a system without libcurl reports Unavailable.
 [target.'cfg(all(target_os = "linux", not(target_env = "ohos")))'.dependencies]
-libc = "0.2"
+libc = { workspace = true }
 
 # --- Android backend contribution (docs/extending.md) ---
 [package.metadata.day.android]
@@ -113,7 +113,7 @@ gradle-dependencies = ["com.squareup.okhttp3:okhttp:4.12.0"]
 
 [dev-dependencies]
 # The libcurl transport's tests also run on macOS, against the system's libcurl.
-libc = "0.2"
+libc = { workspace = true }
 
 [features]
 default = []

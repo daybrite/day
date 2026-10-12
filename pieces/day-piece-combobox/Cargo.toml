@@ -58,14 +58,14 @@ day-qt = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
-gtk4 = { version = "0.11", optional = true }
-objc2 = { version = "0.6.5", optional = true }
-objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSComboBox", "NSTextField", "NSControl", "NSView", "NSResponder"] }
-objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString", "NSNotification"] }
+gtk4 = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSComboBox", "NSTextField", "NSControl", "NSView", "NSResponder"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSString", "NSNotification"] }
 
 [build-dependencies]
 day-toolchain = { workspace = true }
-cc = "1"
+cc = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

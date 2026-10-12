@@ -33,10 +33,10 @@ day-reactive = { workspace = true }
 linkme = { workspace = true }
 day-appkit = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
-objc2 = { version = "0.6.5", optional = true }
-objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString"] }
-objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSView", "NSResponder"] }
-objc2-ui-kit = { version = "0.3.2", optional = true, features = ["UIView", "UIResponder"] }
+objc2 = { workspace = true, optional = true }
+objc2-foundation = { workspace = true, optional = true, features = ["NSString"] }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSView", "NSResponder"] }
+objc2-ui-kit = { workspace = true, optional = true, features = ["UIView", "UIResponder"] }
 
 [dev-dependencies]
 day-mock = { workspace = true }

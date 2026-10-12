@@ -29,8 +29,8 @@ log = { workspace = true }
 
 # Apple: AVFAudio's engine, player nodes, formats and PCM buffers, reached from Rust through objc2.
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
-objc2 = "0.6.5"
-objc2-avf-audio = { version = "0.3.2", features = [
+objc2 = { workspace = true }
+objc2-avf-audio = { workspace = true, features = [
     "AVAudioBuffer",
     "AVAudioEngine",
     "AVAudioFormat",
@@ -46,7 +46,7 @@ objc2-avf-audio = { version = "0.3.2", features = [
 
 # Windows: XAudio2 2.9, which ships with Windows 10 (xaudio2_9.dll, linked raw-dylib by the crate).
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
+windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Media_Audio",
     "Win32_Media_Audio_XAudio2",

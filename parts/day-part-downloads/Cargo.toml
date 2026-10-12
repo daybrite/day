@@ -20,8 +20,8 @@ day-part-http = { workspace = true }
 day-async = { workspace = true }
 # The system tier's Android and HarmonyOS arms (src/bridge.rs, docs/bridge.md "Streams").
 day-bridge = { workspace = true }
-sha2 = "0.11"
-httpdate = "1"
+sha2 = { workspace = true }
+httpdate = { workspace = true }
 
 [build-dependencies]
 day-build = { workspace = true }
@@ -29,9 +29,9 @@ day-build = { workspace = true }
 # The system tier on macOS and iOS: a background URLSession (src/apple.rs), which Foundation runs
 # out of process so a transfer continues while the app is suspended or gone.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6.5"
-block2 = "0.6.2"
-objc2-foundation = { version = "0.3.2", features = [
+objc2 = { workspace = true }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true, features = [
     "block2",
     "NSArray",
     "NSBundle",
@@ -53,7 +53,7 @@ day-android = { workspace = true }
 # The system tier on Windows: the Background Intelligent Transfer Service (src/windows.rs), the
 # same crate day-part-wakelock already brings.
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = [
+windows = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Networking_BackgroundIntelligentTransferService",
     "Win32_System_Com",
@@ -61,4 +61,4 @@ windows = { version = "0.62", features = [
 
 # Free space before a transfer starts (statvfs).
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }

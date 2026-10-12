@@ -29,8 +29,8 @@ slotmap = { workspace = true }
 # pipe under `day launch`, logcat on Android, Xcode's console) and enables VT processing on legacy
 # Windows consoles. It is also already in the tree via day-cli/clap, so it costs no new toolchain.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-anstyle = "1"
-anstream = "1"
+anstyle = { workspace = true }
+anstream = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

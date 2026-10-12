@@ -34,18 +34,18 @@ day-pieces = { workspace = true }
 # Localize the AppKit-built menu chrome (default menu + standard App menu About/Quit).
 day-l10n = { workspace = true }
 linkme = { workspace = true }
-objc2 = "0.6.5"
-objc2-uniform-type-identifiers = "0.3.2"
-block2 = "0.6.2"
-dispatch2 = "0.3.1"
-objc2-core-foundation = { version = "0.3.2", features = ["CFCGTypes"] }
-objc2-core-graphics = { version = "0.3.2", features = ["CGImage"] }
-objc2-quartz-core = { version = "0.3.2", features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink"] }
-objc2-foundation = { version = "0.3.2", features = ["NSLocale",
+objc2 = { workspace = true }
+objc2-uniform-type-identifiers = { workspace = true }
+block2 = { workspace = true }
+dispatch2 = { workspace = true }
+objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
+objc2-core-graphics = { workspace = true, features = ["CGImage"] }
+objc2-quartz-core = { workspace = true, features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink"] }
+objc2-foundation = { workspace = true, features = ["NSLocale",
     "NSString", "NSUndoManager", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",
     "NSObject", "NSArray", "NSURL", "NSProcessInfo", "NSUserDefaults",
 ] }
-objc2-app-kit = { version = "0.3.2", features = [
+objc2-app-kit = { workspace = true, features = [
     "objc2-core-graphics", "objc2-uniform-type-identifiers", "NSRunningApplication",
     "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSButton", "NSScreen",
     "NSTextField", "NSSecureTextField", "NSTextContent", "NSSlider", "NSSwitch", "NSCell", "NSText", "NSGraphics", "NSBox",

@@ -31,8 +31,8 @@ day-core = { workspace = true }
 
 # macOS + iOS store into NSUserDefaults: pure objc2 Foundation, no Java shim or Day runtime.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6.5"
-objc2-foundation = { version = "0.3.2", features = ["NSUserDefaults", "NSString"] }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSUserDefaults", "NSString"] }
 
 # Android reads/writes SharedPreferences through a Java shim + day-android's cached JVM/Context. This
 # is the one platform where the headless crate rides on the day runtime (like the pieces' Android

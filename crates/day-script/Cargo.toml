@@ -14,13 +14,13 @@ day-core = { workspace = true }
 day-fluent = { workspace = true }
 day-reactive = { workspace = true }
 day-spec = { workspace = true }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 day-script-proto = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }
 # Only to write the PNGs the in-engine reader (src/png.rs) is tested against; the engine itself
 # reads them with its own few hundred lines, since it is linked into every app.
-png = "0.18"
+png = { workspace = true }
 day-pieces = { workspace = true, features = ["conformance"] }

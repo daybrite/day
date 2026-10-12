@@ -289,6 +289,13 @@ dependencies used by published packages (`day-fonts`, `day-vector`, `day-toolcha
 crates.io requires them, and Cargo cannot inherit a dependency requirement from `[workspace.package]`. Releases update
 the shared package version and these five requirements; member manifests need no version edits.
 
+Repeated third-party dependencies also share version requirements in `[workspace.dependencies]`,
+including the Apple bindings, GTK/Windows bindings, serialization, database, and build helpers.
+Members inherit with `workspace = true` while retaining their feature, optional, and target
+settings. The native shims share `cc = "1"`; `day-build` retains its documented, explicit
+`cc = "1.4"` minimum. Standalone apps and generated app templates have independent workspaces
+and therefore declare their own dependency versions.
+
 **Target strings** are the canonical identifiers everywhere: `Day.toml` `targets:`, `day launch
 --target`, CI job names, screenshot directory names, `PerTarget` style values. The toolkit half
 also exists alone (`uikit`, `mdc`, `appkit`, `gtk`, `qt`, `winui`, `xaml`, `arkui`, `mock`) for
@@ -2209,10 +2216,12 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -t web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
 
-Apple bindings use `objc2` 0.6.5, the `objc2-*` framework crates 0.3.2, `block2`
-0.6.2, and `dispatch2` 0.3.1 as minimum compatible versions. These requirements apply
-to the toolkits, native pieces, parts, and tweaks; Cargo may select later compatible
-patch releases. `Cargo.lock` records the versions validated together.
+Apple binding versions (`objc2`, the `objc2-*` framework crates, `block2`, and
+`dispatch2`) are declared once in the root `Cargo.toml` under `[workspace.dependencies]`.
+Toolkits, native pieces, parts, and tweaks inherit them with `workspace = true`, keeping
+features, optional dependencies, and platform conditions in each consuming crate. Bindings
+whose consumers disable default features also disable them at workspace scope; consumers
+that need defaults explicitly enable them. `Cargo.lock` records the versions validated together.
 
 Per-toolkit notes beyond pane's baseline (the day-new duties):
 

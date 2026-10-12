@@ -22,8 +22,8 @@ clap = { version = "4.6", features = ["derive", "wrap_help"] }
 # vocabulary clap already uses (so our output shares its color system); `anstream`'s print macros
 # strip the escapes when stdout/stderr isn't a color terminal (NO_COLOR, pipes, files, dumb/legacy
 # consoles). Both are already in the tree via clap, so naming them adds no new compiled crates.
-anstyle = "1"
-anstream = "1"
+anstyle = { workspace = true }
+anstream = { workspace = true }
 # `day new app` templates (templates/app/, embedded so a fresh `cargo install day-cli` scaffolds
 # offline): handlebars renders {{name}}/{{id}}/… in both file contents and paths; include_dir bakes
 # the template tree into the binary.
@@ -35,11 +35,11 @@ include_dir = "0.7"
 inquire = "0.9"
 # Day.toml (the project manifest): `toml` parses it via serde; `toml_edit` (the library under
 # cargo-edit/cargo itself) performs format- and comment-preserving edits (`day project add-target`).
-toml = "1.1"
+toml = { workspace = true }
 toml_edit = "0.25"
-serde = { version = "1", features = ["derive"] }
-serde_norway = "0.9"
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_norway = { workspace = true }
+serde_json = { workspace = true }
 # Shared dayscript types and YAML grammar, without the embedded engine/runtime graph.
 day-script-proto = { workspace = true }
 # Merge generated App Sandbox entitlements with custom XML or binary property lists.
@@ -48,14 +48,14 @@ plist = "1"
 json-five = "=0.3.1"
 # Xcode 27 JSON5 project model and comment-preserving edits (marcprux/ycode).
 ycode-project = "0.1.2"
-sha2 = "0.11"
+sha2 = { workspace = true }
 # The screenshot bundle (`day screenshot pack` / `unpack`, src/screenshot.rs): a `.tar.xz` of
 # uncompressed PNG files, which an xz window of hundreds of megabytes compresses across captures
 # to a tenth of what the PNG files compress to alone. `png` decodes captures and writes them
 # back (it is already compiled for day-vector's rasterizer); `liblzma` is the xz implementation,
 # linked statically, so a site build or a store queue unpacks with the CLI alone. The tar
 # layer is a hundred lines of its own, since ustar is simple and the archive needs no more.
-png = "0.18"
+png = { workspace = true }
 liblzma = { version = "0.4", default-features = false, features = ["static"] }
 # The vector engine behind `day icon build` and resource/vectors staging (docs/icons.md,
 # docs/vectors.md): SVG parse/raster + the platform icon-format writers.
@@ -80,4 +80,4 @@ day-build = { workspace = true }
 
 # Ctrl-C child cleanup uses POSIX signals only (Windows relies on console propagation).
 [target.'cfg(unix)'.dependencies]
-libc = "0.2"
+libc = { workspace = true }

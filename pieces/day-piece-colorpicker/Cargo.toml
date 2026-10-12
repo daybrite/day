@@ -65,16 +65,16 @@ day-uikit = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }
-gtk4 = { version = "0.11", optional = true }
-objc2 = { version = "0.6.5", optional = true }
-objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSColor", "NSColorPanel", "NSColorSpace", "NSColorWell", "NSControl", "NSPanel", "NSView", "NSWindow", "NSResponder"] }
-objc2-ui-kit = { version = "0.3.2", optional = true, features = ["UIColor", "UIColorWell", "UIControl", "UIView", "UIResponder"] }
-objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString"] }
-objc2-core-foundation = { version = "0.3.2", optional = true, features = ["CFCGTypes"] }
+gtk4 = { workspace = true, optional = true }
+objc2 = { workspace = true, optional = true }
+objc2-app-kit = { workspace = true, optional = true, features = ["NSColor", "NSColorPanel", "NSColorSpace", "NSColorWell", "NSControl", "NSPanel", "NSView", "NSWindow", "NSResponder"] }
+objc2-ui-kit = { workspace = true, optional = true, features = ["UIColor", "UIColorWell", "UIControl", "UIView", "UIResponder"] }
+objc2-foundation = { workspace = true, optional = true, features = ["NSString"] }
+objc2-core-foundation = { workspace = true, default-features = true, optional = true, features = ["CFCGTypes"] }
 
 [build-dependencies]
 day-toolchain = { workspace = true }
-cc = "1"
+cc = { workspace = true }
 
 [dev-dependencies]
 day-mock = { workspace = true }

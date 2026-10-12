@@ -32,4 +32,4 @@ fluent-syntax = "0.12"
 # Read the crate's own Cargo.toml for `[package.metadata.day.ios/macos].swift-packages`; the
 # SwiftUI bindings (docs/swiftui.md) derive from the same declaration `day build` stages and
 # links, rather than restating the package list in build.rs. Same version day-cli already uses.
-toml = "1.1"
+toml = { workspace = true }

@@ -24,14 +24,14 @@ license.workspace = true
 [dependencies]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6.5"
-objc2-foundation = { version = "0.3.2", features = ["NSProcessInfo", "NSString"] }
-libc = "0.2"
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSProcessInfo", "NSString"] }
+libc = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6.5"
-objc2-ui-kit = { version = "0.3.2", features = ["UIDevice"] }
-objc2-foundation = { version = "0.3.2", features = ["NSString"] }
+objc2 = { workspace = true }
+objc2-ui-kit = { workspace = true, features = ["UIDevice"] }
+objc2-foundation = { workspace = true, features = ["NSString"] }
 
 # Android reads Build.* through a Java shim + day-android's re-exported JVM. Build fields are static
 # (no Context needed), but the crate still rides the Day runtime for its attached JNIEnv.

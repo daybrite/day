@@ -26,11 +26,11 @@ license.workspace = true
 day-bridge = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6.5"
-objc2-ui-kit = { version = "0.3.2", features = ["UIApplication", "UIResponder"] }
+objc2 = { workspace = true }
+objc2-ui-kit = { workspace = true, features = ["UIApplication", "UIResponder"] }
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62", features = ["Win32_System_Power"] }
+windows = { workspace = true, features = ["Win32_System_Power"] }
 
 # Android's Java arm is called through JNI, so the generated code needs day-android's cached JVM and
 # activity, like day-part-haptics.

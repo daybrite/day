@@ -182,6 +182,42 @@ day-xaml = { path = "toolkits/day-xaml" }
 day-xaml-sys = { path = "toolkits/day-xaml-sys" }
 day-arkui = { path = "toolkits/day-arkui" }
 day-dom = { path = "toolkits/day-dom" }
+# Repeated third-party dependencies share versions here. Consumers retain their own
+# features, optional flags, and target conditions. day-build keeps its documented cc 1.4
+# minimum; the native shims inherit the broader cc 1 requirement.
+anstream = "1"
+anstyle = "1"
+cc = "1"
+gtk4 = "0.11"
+httpdate = "1"
+png = "0.18"
+rusqlite = "0.40"
+serde = "1"
+serde_json = "1"
+serde_norway = "0.9"
+sha2 = "0.11"
+toml = "1.1"
+uuid = { version = "1", default-features = false }
+windows = "0.62"
+# Apple runtime and framework binding versions are shared by every workspace member.
+# Feature selections and optional/target gating stay in the consuming crates. Bindings with
+# lean consumers disable defaults here; consumers needing defaults opt back in explicitly.
+block2 = "0.6.2"
+dispatch2 = "0.3.1"
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-avf-audio = "0.3.2"
+objc2-core-foundation = { version = "0.3.2", default-features = false }
+objc2-core-graphics = "0.3.2"
+objc2-core-location = { version = "0.3.2", default-features = false }
+objc2-core-motion = { version = "0.3.2", default-features = false }
+objc2-foundation = "0.3.2"
+objc2-map-kit = { version = "0.3.2", default-features = false }
+objc2-quartz-core = "0.3.2"
+objc2-security = { version = "0.3.2", default-features = false }
+objc2-ui-kit = "0.3.2"
+objc2-uniform-type-identifiers = "0.3.2"
+objc2-user-notifications = "0.3.2"
 # The HarmonyOS backend's platform bindings (docs/harmonyos.md): openharmony-rs's raw NDK
 # bindings (ArkUI's node API, OH_Drawing, the image kit, rawfile, VSync, UDMF, hilog) and
 # ohos-rs's NAPI runtime, which registers `libentry.so`'s ArkTS module and marshals its exports.

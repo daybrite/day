@@ -32,8 +32,8 @@ license.workspace = true
 # and day-part-network keep. Unlike an authorization read, position updates need a delegate, so this
 # arm defines one with `objc2::define_class!`.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6.5"
-objc2-foundation = { version = "0.3.2", features = ["NSObject"] }
+objc2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSObject"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
