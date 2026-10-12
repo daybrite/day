@@ -33,8 +33,8 @@ license.workspace = true
 # Apple: `objc2` for the runtime (class! / msg_send!), `block2` for the completion handlers the
 # request APIs take. No objc2-* framework wrappers; see the dependency note above.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6"
-block2 = "0.6"
+objc2 = "0.6.5"
+block2 = "0.6.2"
 
 # Android calls its own Java shim through day-android's cached JVM/Context, the one platform where
 # this headless crate rides on the day runtime (like day-part-http and day-part-sensors).

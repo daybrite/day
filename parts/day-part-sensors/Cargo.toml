@@ -24,8 +24,8 @@ license.workspace = true
 [dependencies]
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6"
-objc2-core-motion = { version = "0.3", default-features = false, features = [
+objc2 = "0.6.5"
+objc2-core-motion = { version = "0.3.2", default-features = false, features = [
     "std",
     "CMMotionManager",
     "CMAccelerometer",

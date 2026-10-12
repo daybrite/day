@@ -22,14 +22,14 @@ day-pieces = { workspace = true }
 linkme = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6"
-block2 = "0.6"
-dispatch2 = "0.3"
-objc2-foundation = { version = "0.3", features = ["NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
-objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
-objc2-core-graphics = { version = "0.3", features = ["CGContext", "CGGradient", "CGColorSpace"] }
-objc2-quartz-core = { version = "0.3", features = ["CADisplayLink"] }
-objc2-ui-kit = { version = "0.3", features = [
+objc2 = "0.6.5"
+block2 = "0.6.2"
+dispatch2 = "0.3.1"
+objc2-foundation = { version = "0.3.2", features = ["NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
+objc2-core-foundation = { version = "0.3.2", features = ["CFCGTypes"] }
+objc2-core-graphics = { version = "0.3.2", features = ["CGContext", "CGGradient", "CGColorSpace"] }
+objc2-quartz-core = { version = "0.3.2", features = ["CADisplayLink"] }
+objc2-ui-kit = { version = "0.3.2", features = [
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
     "UIScene", "UIWindowScene", "UISceneSession", "UISceneConfiguration", "UISceneOptions", "UISceneDefinitions",
     # The scene's own geometry (docs/size-classes.md) — iOS 26 deprecated

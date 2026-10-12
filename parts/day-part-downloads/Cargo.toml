@@ -29,9 +29,9 @@ day-build = { workspace = true }
 # The system tier on macOS and iOS: a background URLSession (src/apple.rs), which Foundation runs
 # out of process so a transfer continues while the app is suspended or gone.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6"
-block2 = "0.6"
-objc2-foundation = { version = "0.3", features = [
+objc2 = "0.6.5"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", features = [
     "block2",
     "NSArray",
     "NSBundle",

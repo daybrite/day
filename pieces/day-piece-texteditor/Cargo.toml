@@ -58,11 +58,11 @@ day-xaml-sys = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 day-dom = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
-objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", optional = true, features = ["NSAttributedString", "NSColor", "NSFont", "NSFontManager", "NSParagraphStyle", "NSScrollView", "NSText", "NSTextField", "NSTextView", "NSTextStorage", "NSTextContainer", "NSLayoutManager", "NSControl", "NSView", "NSResponder", "NSStringDrawing"] }
-objc2-ui-kit = { version = "0.3", optional = true, features = ["NSParagraphStyle", "NSText", "UIColor", "UIFont", "UIFontDescriptor", "UIResponder", "UIScrollView", "UITextView", "UITextInput", "UIView"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSAttributedString", "NSObject", "NSString", "NSValue", "NSDictionary", "NSArray", "NSGeometry", "NSNotification"] }
-objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
+objc2 = { version = "0.6.5", optional = true }
+objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSAttributedString", "NSColor", "NSFont", "NSFontManager", "NSParagraphStyle", "NSScrollView", "NSText", "NSTextField", "NSTextView", "NSTextStorage", "NSTextContainer", "NSLayoutManager", "NSControl", "NSView", "NSResponder", "NSStringDrawing"] }
+objc2-ui-kit = { version = "0.3.2", optional = true, features = ["NSParagraphStyle", "NSText", "UIColor", "UIFont", "UIFontDescriptor", "UIResponder", "UIScrollView", "UITextView", "UITextInput", "UIView"] }
+objc2-foundation = { version = "0.3.2", optional = true, features = ["NSAttributedString", "NSObject", "NSString", "NSValue", "NSDictionary", "NSArray", "NSGeometry", "NSNotification"] }
+objc2-core-foundation = { version = "0.3.2", optional = true, features = ["CFCGTypes"] }
 
 [build-dependencies]
 day-toolchain = { workspace = true }

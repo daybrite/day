@@ -12,7 +12,7 @@ description = "Tweak: native slider tick marks (and snapping) across seven toolk
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-appkit = { workspace = true, optional = true }
-objc2-app-kit = { version = "0.3", optional = true, features = ["NSSlider", "NSSliderCell", "NSControl", "NSView", "NSResponder", "NSCell", "NSActionCell"] }
+objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSSlider", "NSSliderCell", "NSControl", "NSView", "NSResponder", "NSCell", "NSActionCell"] }
 day-gtk = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
 day-android = { workspace = true, optional = true }

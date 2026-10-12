@@ -29,8 +29,8 @@ log = { workspace = true }
 
 # Apple: AVFAudio's engine, player nodes, formats and PCM buffers, reached from Rust through objc2.
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
-objc2 = "0.6"
-objc2-avf-audio = { version = "0.3", features = [
+objc2 = "0.6.5"
+objc2-avf-audio = { version = "0.3.2", features = [
     "AVAudioBuffer",
     "AVAudioEngine",
     "AVAudioFormat",

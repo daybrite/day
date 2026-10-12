@@ -36,8 +36,8 @@ day-core = { workspace = true }
 day-reactive = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = [
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", features = [
     "NSString",
     "NSArray",
     "NSDictionary",
@@ -46,7 +46,7 @@ objc2-foundation = { version = "0.3", features = [
 # The typed wrapper rather than raw `msg_send!`: UserNotifications has enough classes in play
 # (center, content, trigger, request, sound) that hand-rolled selectors would be the riskier
 # budget, the same call day-part-haptics makes for objc2-app-kit.
-objc2-user-notifications = { version = "0.3", features = [
+objc2-user-notifications = { version = "0.3.2", features = [
     "UNUserNotificationCenter",
     "UNNotificationContent",
     "UNNotificationRequest",
@@ -61,7 +61,7 @@ objc2-user-notifications = { version = "0.3", features = [
 # The delegate's two callbacks take completion-handler blocks. Without them a notification posted
 # while the app is in the foreground is silently suppressed by iOS, the reason "Post" appeared to
 # do nothing in the running app.
-block2 = "0.6"
+block2 = "0.6.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }

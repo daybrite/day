@@ -13,7 +13,7 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-spec = { workspace = true }
 day-appkit = { workspace = true, optional = true }
-objc2-app-kit = { version = "0.3", optional = true, features = [
+objc2-app-kit = { version = "0.3.2", optional = true, features = [
     "NSOutlineView",
     "NSTableView",
     "NSScrollView",

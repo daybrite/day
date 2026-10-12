@@ -2209,6 +2209,11 @@ Shared mechanics came from pane's working code; every FFI choice below now runs 
 | `day-dom` | plain `extern "C"` imports to an ES-module JS shim (`crates/day-cli/resources/web/shim.js`, embedded in the CLI; `wasm32-unknown-unknown`, no wasm-bindgen) | `<div id="day-root">` | experimental ([docs/web.md](docs/web.md)); `day build\|launch -t web-dom` |
 | `day-mock` | — | — | shipped; the headless test double ([§3.2](#32-crates)) |
 
+Apple bindings use `objc2` 0.6.5, the `objc2-*` framework crates 0.3.2, `block2`
+0.6.2, and `dispatch2` 0.3.1 as minimum compatible versions. These requirements apply
+to the toolkits, native pieces, parts, and tweaks; Cargo may select later compatible
+patch releases. `Cargo.lock` records the versions validated together.
+
 Per-toolkit notes beyond pane's baseline (the day-new duties):
 
 - **a11y ([§13](#13-accessibility)):** UIKit/AppKit: `NSAccessibility`/`UIAccessibility` protocols (mostly free on

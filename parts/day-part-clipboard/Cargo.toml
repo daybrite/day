@@ -24,14 +24,14 @@ license.workspace = true
 [dependencies]
 
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", features = ["NSPasteboard"] }
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSPasteboard"] }
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2-ui-kit = { version = "0.3", features = ["UIPasteboard"] }
-objc2 = "0.6"
-objc2-foundation = { version = "0.3", features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
+objc2-ui-kit = { version = "0.3.2", features = ["UIPasteboard"] }
+objc2 = "0.6.5"
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
 
 # Android reads ClipboardManager through a Java shim + day-android's cached JVM/Context. This is the
 # one platform where the headless crate rides on the day runtime (like the pieces' Android backends).

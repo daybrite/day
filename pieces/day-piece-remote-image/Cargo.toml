@@ -60,11 +60,11 @@ day-android = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
-objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder", "NSImage", "NSColor", "NSBezierPath", "NSGraphics"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSData", "NSGeometry"] }
-objc2-core-foundation = { version = "0.3", optional = true, features = ["CFCGTypes"] }
-objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder", "UIImage", "UIImageView", "UIColor"] }
+objc2 = { version = "0.6.5", optional = true }
+objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSView", "NSResponder", "NSImage", "NSColor", "NSBezierPath", "NSGraphics"] }
+objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString", "NSData", "NSGeometry"] }
+objc2-core-foundation = { version = "0.3.2", optional = true, features = ["CFCGTypes"] }
+objc2-ui-kit = { version = "0.3.2", optional = true, features = ["UIView", "UIResponder", "UIImage", "UIImageView", "UIColor"] }
 
 [build-dependencies]
 day-toolchain = { workspace = true }

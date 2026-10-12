@@ -12,8 +12,8 @@ description = "Tweak: a native hover/long-press tooltip on any piece — AppKit,
 day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-appkit = { workspace = true, optional = true }
-objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSString"] }
+objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSView", "NSResponder"] }
+objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString"] }
 day-gtk = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true, features = ["v4_10"] }
 day-android = { workspace = true, optional = true }

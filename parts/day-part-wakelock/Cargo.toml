@@ -26,8 +26,8 @@ license.workspace = true
 day-bridge = { workspace = true }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6"
-objc2-ui-kit = { version = "0.3", features = ["UIApplication", "UIResponder"] }
+objc2 = "0.6.5"
+objc2-ui-kit = { version = "0.3.2", features = ["UIApplication", "UIResponder"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["Win32_System_Power"] }

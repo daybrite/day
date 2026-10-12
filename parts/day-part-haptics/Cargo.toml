@@ -25,8 +25,8 @@ license.workspace = true
 
 # iOS: UIKit's feedback generators. MainThreadMarker/MainThreadOnly come from objc2.
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2 = "0.6"
-objc2-ui-kit = { version = "0.3", features = [
+objc2 = "0.6.5"
+objc2-ui-kit = { version = "0.3.2", features = [
     "UIFeedbackGenerator",
     "UIImpactFeedbackGenerator",
     "UINotificationFeedbackGenerator",
@@ -35,7 +35,7 @@ objc2-ui-kit = { version = "0.3", features = [
 
 # macOS: AppKit's NSHapticFeedbackManager (the trackpad's Force Touch haptics).
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2-app-kit = { version = "0.3", features = ["NSHapticFeedback"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSHapticFeedback"] }
 
 # Android plays through Vibrator/VibrationEffect from a Java shim + day-android's cached JVM/Context.
 # This is the one platform where the headless crate rides on the day runtime (like the pieces' Android

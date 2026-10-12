@@ -46,11 +46,11 @@ day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }
 gtk4 = { version = "0.11", optional = true }
-block2 = { version = "0.6", optional = true }
-objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", optional = true, features = ["NSView", "NSResponder", "NSScrollView", "NSClipView"] }
-objc2-ui-kit = { version = "0.3", optional = true, features = ["UIView", "UIResponder", "UIScrollView", "UIControl", "UIRefreshControl"] }
-objc2-foundation = { version = "0.3", optional = true, features = ["NSString", "NSNotification"] }
+block2 = { version = "0.6.2", optional = true }
+objc2 = { version = "0.6.5", optional = true }
+objc2-app-kit = { version = "0.3.2", optional = true, features = ["NSView", "NSResponder", "NSScrollView", "NSClipView"] }
+objc2-ui-kit = { version = "0.3.2", optional = true, features = ["UIView", "UIResponder", "UIScrollView", "UIControl", "UIRefreshControl"] }
+objc2-foundation = { version = "0.3.2", optional = true, features = ["NSString", "NSNotification"] }
 
 [dev-dependencies]
 day-mock = { workspace = true }

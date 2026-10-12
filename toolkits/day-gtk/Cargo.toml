@@ -38,11 +38,11 @@ libadwaita = { version = "0.9", features = ["v1_5"] }
 # Dock icon (§18.2): GTK4 has no NSApplication integration, so on macOS the app icon is applied
 # straight through AppKit (an unbundled binary otherwise shows the generic exe icon in the Dock).
 [target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "0.6"
-objc2-core-foundation = "0.3"
-objc2-core-graphics = "0.3"
-objc2-foundation = { version = "0.3", features = ["NSString"] }
-objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSImage"] }
+objc2 = "0.6.5"
+objc2-core-foundation = "0.3.2"
+objc2-core-graphics = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = ["NSString"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSResponder", "NSImage"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.62", features = ["ApplicationModel_DataTransfer", "Foundation", "Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_UI_Input_KeyboardAndMouse"] }
