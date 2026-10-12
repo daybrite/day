@@ -709,6 +709,16 @@ fn validate_selective_architectures(count: usize) -> Result<(), String> {
     }
     Ok(())
 }
+/// The archive's path as the clang response file carries it: quoted, with the backslashes
+/// and quotes that quoting makes special escaped. A Windows path's separators are escaped
+/// too, so the staging function and its tests share this one spelling.
+fn apple_response_quoted(archive: &Path) -> String {
+    let path = archive
+        .to_string_lossy()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    format!("\"{path}\"")
+}
 fn stage_apple_link_response(
     archive: &Path,
     inputs: &[PathBuf],
@@ -716,17 +726,14 @@ fn stage_apple_link_response(
 ) -> Result<(), String> {
     use object::{Object, ObjectSection, ObjectSymbol};
     // Response-file quoting protects spaces, quotes, and backslashes in the app's path.
-    let path = archive
-        .to_string_lossy()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
+    let quoted = apple_response_quoted(archive);
     let response = archive.with_file_name("dayapp-link.rsp");
     if !selective {
         // Preserve the established policy without inspecting symbols. Separate -Xlinker
         // arguments also preserve commas in paths, which -Wl,-force_load,<path> cannot.
         return std::fs::write(
             response,
-            format!("-Xlinker -force_load -Xlinker \"{path}\"\n"),
+            format!("-Xlinker -force_load -Xlinker {quoted}\n"),
         )
         .map_err(|e| e.to_string());
     }
@@ -763,7 +770,7 @@ fn stage_apple_link_response(
         .into_iter()
         .map(|s| format!("-Wl,-u,{s}\n"))
         .collect::<String>();
-    args.push_str(&format!("\"{path}\"\n"));
+    args.push_str(&format!("{quoted}\n"));
     std::fs::write(response, args).map_err(|e| e.to_string())
 }
 
@@ -3538,7 +3545,7 @@ mod apple_build_tool_tests {
 
 #[cfg(test)]
 mod apple_link_root_tests {
-    use super::{apple_link_root, stage_apple_link_response};
+    use super::{apple_link_root, apple_response_quoted, stage_apple_link_response};
     #[test]
     fn selective_loading_rejects_universal_inputs_before_scanning_or_writing() {
         // Synthetic paths need not exist: validation must precede archive scanning and IO.
@@ -3559,9 +3566,13 @@ mod apple_link_root_tests {
         std::fs::write(&response, "-Wl,-u,_stale_fixture\n").unwrap();
         stage_apple_link_response(&archive, std::slice::from_ref(&archive), false).unwrap();
         let args = std::fs::read_to_string(&response).unwrap();
+        // The expected spelling escapes a Windows temp path's separators, as the file does.
         assert_eq!(
             args,
-            format!("-Xlinker -force_load -Xlinker \"{}\"\n", archive.display())
+            format!(
+                "-Xlinker -force_load -Xlinker {}\n",
+                apple_response_quoted(&archive)
+            )
         );
         // Default loading must remain available for universal archives too.
         stage_apple_link_response(&archive, &[archive.clone(), archive.clone()], false).unwrap();
