@@ -2963,7 +2963,9 @@ pub(crate) fn request_pump() {
 }
 
 pub fn has_tree() -> bool {
-    TREE.with(|t| t.borrow().is_some())
+    // Native resize/layout callbacks can ask while a Toolkit call already borrows the tree.
+    // A busy tree is installed, not absent; this presence probe must not borrow it again.
+    !tree_absent()
 }
 
 /// The enqueue-only event sink installed into every backend (§8.3). May be invoked

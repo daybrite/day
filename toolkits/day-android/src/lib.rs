@@ -464,6 +464,9 @@ mod imp {
         /// carrying a bridge-assigned cell id would widen the wire for a case never observed.
         static LIST_SOURCES: std::cell::RefCell<std::collections::HashMap<i64, ListSource>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
+        /// Latest logical row of a physical holder; invalidates deferred binds on recycle.
+        static LIST_BINDINGS: std::cell::RefCell<std::collections::HashMap<(i64, i32), (usize, u64)>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
         static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
         /// A realized NAV_MENU's rows, by its own view ptr: `(node, joined titles, joined icons)`.
@@ -665,7 +668,34 @@ mod imp {
             let raw = gref.as_obj().as_raw() as RawHandle;
             let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
             if let Some(source) = source {
-                (source.bind_row)(position as usize, raw);
+                let index = position as usize;
+                if index >= (source.len)() {
+                    return;
+                }
+                let token = (source.token_at)(index);
+                LIST_BINDINGS.with(|m| m.borrow_mut().insert((host_id, hash), (index, token)));
+                if day_core::try_with_tree(|_| ()).is_some() {
+                    (source.bind_row)(index, raw);
+                } else {
+                    // DayFixed.measure can make RecyclerView bind during Day's layout borrow.
+                    // Core refuses reentry, but RecyclerView considers that empty holder bound
+                    // and need not ask again. Retain the JNI cell and retry on the next UI turn,
+                    // rejecting a stale row or disposed list before touching it.
+                    <Android as Platform>::post(Box::new(move || {
+                        if !LIST_BINDINGS
+                            .with(|m| m.borrow().get(&(host_id, hash)) == Some(&(index, token)))
+                        {
+                            return;
+                        }
+                        let current = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+                        if let Some(current) = current
+                            && index < (current.len)()
+                            && (current.token_at)(index) == token
+                        {
+                            (current.bind_row)(index, gref.as_obj().as_raw() as RawHandle);
+                        }
+                    }));
+                }
             } else {
                 let entry = TREE_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
                 if let Some((source, tokens, _)) = entry
@@ -694,6 +724,7 @@ mod imp {
                 .dcall(&cell, "hashCode", "()I", &[])
                 .and_then(|v| v.i())
                 .unwrap_or(0);
+            LIST_BINDINGS.with(|m| m.borrow_mut().remove(&(host_id, hash)));
             let gref = LIST_CELLS.with(|m| {
                 m.borrow()
                     .get(&host_id)
@@ -1109,6 +1140,7 @@ mod imp {
             S::Tinted(c) => (3, c),
             // Kind 4 drops Material's 88 dp minimum width and its wide insets (docs/buttons.md).
             S::Compact => (4, day_spec::Color::CLEAR),
+            S::Plain => (5, day_spec::Color::CLEAR),
         };
         let _ = env.dcall_static(
             BRIDGE,
@@ -1362,6 +1394,7 @@ mod imp {
             LIST_SOURCES.with(|m| m.borrow_mut().clear());
             LIST_NODE.with(|m| m.borrow_mut().clear());
             LIST_CELLS.with(|m| m.borrow_mut().clear());
+            LIST_BINDINGS.with(|m| m.borrow_mut().clear());
             LIST_SELECTED.with(|m| m.borrow_mut().clear());
             NAV_MENU_ROWS.with(|m| m.borrow_mut().clear());
             NAV_SUITES.with(|m| m.borrow_mut().clear());
@@ -3813,6 +3846,7 @@ mod imp {
                 LIST_CELLS.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
+                LIST_BINDINGS.with(|m| m.borrow_mut().retain(|(host, _), _| *host != nid));
                 LIST_SELECTED.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });

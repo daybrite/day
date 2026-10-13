@@ -142,6 +142,16 @@ colors.
 
 ## Backend contract
 
+`.plain()` requests a borderless native action button for toolbar commands and list
+accessories. AppKit removes the NSButton bezel; UIKit uses its system button; Android
+uses Material's theme-resolved text-button colors with compact horizontal insets;
+GTK applies `flat`. Native press, focus, accessibility and disabled behavior remain.
+Qt, XAML and web currently use their automatic style as a fallback; ArkUI's automatic
+style is already transparent. `.plain()` and `.compact()` are mutually exclusive style
+requests: the last one wins. Android plain already includes compact horizontal sizing.
+Switching away from a tinted or plain style restores the original Material foreground
+and icon state colors as well as its background.
+
 `ButtonProps` seeds the title, optional `Icon`, `icon_only`, enabled state, and style. Plain
 buttons continue to send `ButtonPatch::Title`. Icon buttons send `ButtonPatch::Content`,
 which updates their title and icon together and invalidates their measured size. The

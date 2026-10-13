@@ -73,6 +73,11 @@ reuse pools.
 
 ### Asynchronous row images
 
+Android row binding can reenter during a DayFixed measurement while the Day tree is busy.
+The adapter retains the cell and posts a deferred bind with a row-token/lifetime check;
+RecyclerView otherwise keeps the empty holder as already bound. This matters for lists
+first opened in a cover, before any later search or reload has occurred.
+
 Keep the image view mounted and bind its source to the current item's loaded image or a
 bundled placeholder. When a cell is rebound, cancel its previous request and associate the
 result with the requested URL or item key. Check that identity before displaying a result;
@@ -242,6 +247,11 @@ backend builds it: the host carries `role="listbox"` and the tab stop, cells car
 and `aria-selected`, and the shim routes the keys into `day_dom_list_key`. Focus sits on the host
 rather than a row, because rows are recycled as the list scrolls and focus parked on one would
 evaporate under it.
+
+UIKit table lists recycle hidden cells in `didEndDisplaying` and rebind them in `willDisplay`,
+so removed rows stop answering element-id lookups and redisplayed rows regain their ids.
+Reloads are deferred outside the tree borrow: UIKit may retire cells synchronously inside
+`reloadData`, and recycling must be able to access Day's tree at that point.
 
 ## Programmatic scrolling
 

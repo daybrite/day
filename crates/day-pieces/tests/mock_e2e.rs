@@ -4170,6 +4170,55 @@ fn a_tint_overrides_prominent_and_stays_native() {
 }
 
 #[test]
+fn plain_decorated_button_keeps_native_activation_and_disabled_gate() {
+    let enabled = Signal::new(true);
+    let clicks = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = clicks.clone();
+    let probe = boot(move || {
+        button("Synthetic toolbar action")
+            .icon(Symbol::Back)
+            .icon_only()
+            .padding(4.0)
+            .plain()
+            .enabled(enabled)
+            .action(move || count.set(count.get() + 1))
+    });
+    let buttons = probe.find_by_kind("day.button");
+    day_core::with_tree(|_| assert!(day_core::has_tree()));
+    assert_eq!(buttons.len(), 1);
+    let node = NodeId(buttons[0].1.node);
+    probe.emit(node, Event::Pressed);
+    flush_sync();
+    assert_eq!(clicks.get(), 1);
+    enabled.set(false);
+    flush_sync();
+    probe.emit(node, Event::Pressed);
+    flush_sync();
+    assert_eq!(clicks.get(), 1);
+}
+
+#[test]
+fn inspector_list_can_own_its_bounded_scroll_view() {
+    let probe = boot(|| {
+        inspector(Signal::new(true), label("Synthetic content"), || {
+            list(items(|| (0..100).collect::<Vec<_>>(), |n| *n), |n| {
+                label(move || n.get().to_string())
+            })
+            .row_height(RowHeight::Uniform(44.0))
+            .grow()
+        })
+        .padding(4.0)
+        .scrollable(false)
+        .grow()
+    });
+    assert_eq!(probe.find_by_kind("day.list").len(), 1);
+    assert!(
+        probe.find_by_kind("day.scroll").is_empty(),
+        "list must not sit in an unbounded outer scroller"
+    );
+}
+
+#[test]
 fn with_environment_provides_to_descendants_only() {
     #[derive(Clone)]
     struct Tint(u32);

@@ -6227,6 +6227,44 @@ mod imp {
         }
 
         unsafe impl UITableViewDelegate for DayListData {
+            #[unsafe(method(tableView:didEndDisplayingCell:forRowAtIndexPath:))]
+            fn did_end_displaying(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                cell: &objc2_ui_kit::UITableViewCell,
+                _ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let source = self.ivars().source.borrow().clone();
+                    if let Some(source) = source {
+                        let content = cell.contentView();
+                        (source.recycle)(Retained::as_ptr(&content) as RawHandle);
+                    }
+                });
+            }
+
+            #[unsafe(method(tableView:willDisplayCell:forRowAtIndexPath:))]
+            fn will_display(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                cell: &objc2_ui_kit::UITableViewCell,
+                ip: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    let source = self.ivars().source.borrow().clone();
+                    if let Some(source) = source {
+                        let row = unsafe { ip.row() };
+                        if row >= 0 && (row as usize) < (source.len)() {
+                            let content = cell.contentView();
+                            (source.bind_row)(
+                                row as usize,
+                                Retained::as_ptr(&content) as RawHandle,
+                            );
+                        }
+                    }
+                });
+            }
+
             #[unsafe(method(tableView:heightForRowAtIndexPath:))]
             fn height_for_row(
                 &self,
@@ -6962,7 +7000,7 @@ mod imp {
         unsafe {
             let config = match style {
                 // The plain system button hugs its title already, so Compact is Automatic.
-                S::Automatic | S::Compact => {
+                S::Automatic | S::Compact | S::Plain => {
                     btn.setConfiguration(None);
                     btn.setTitle_forState(Some(&NSString::from_str(title)), UIControlState::Normal);
                     return;
@@ -9910,13 +9948,15 @@ mod imp {
                     }
 
                     Some(ListPatch::Reload) => {
-                        LIST_STATE.with(|m| {
-                            if let Some((table, _)) = m.borrow().get(&ptr_of(h)) {
-                                // reloadData: numberOfRows reads the snapshot only, cellForRow is
-                                // deferred — safe inside a with_tree borrow.
+                        let key = ptr_of(h);
+                        // reloadData can synchronously retire cells. Their recycle callbacks
+                        // need the tree borrow to park ids, just as realization needs it to bind.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                            if let Some((table, _)) = entry {
                                 unsafe { table.reloadData() };
                             }
-                        });
+                        }));
                     }
                     Some(ListPatch::ScrollToEnd) => {
                         LIST_STATE.with(|m| {

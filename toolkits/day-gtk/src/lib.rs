@@ -414,6 +414,7 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
         )
     };
     btn.remove_css_class("suggested-action");
+    btn.remove_css_class("flat");
     // Drop any tint class from a previous style, so a patch cannot leave two fills fighting.
     for c in btn.css_classes() {
         if c.starts_with("day-tint-") {
@@ -447,6 +448,7 @@ fn apply_button_style(btn: &gtk4::Button, style: day_spec::props::ButtonStyleSpe
             btn.add_css_class(&class);
         }
         // A GtkButton hugs a one-glyph title already.
+        S::Plain => btn.add_css_class("flat"),
         S::Bordered | S::Automatic | S::Compact => {}
     }
     let key = btn.as_ptr() as usize;

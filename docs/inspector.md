@@ -10,6 +10,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Inspector (`inspector`)
 
+Panels containing a native `list` or their own scrolling content should use
+`.scrollable(false)`. The default wraps the panel in a scroll view for property forms;
+disabling that wrapper gives a recycling list a bounded viewport in both desktop panes
+and compact sheets, avoiding nested scrolling and unbounded measurement.
+
 > **Status: implemented** (2026-08). Native trailing pane on macos-appkit (a real inspector
 > `NSSplitViewItem`), gtk (a `GtkPaned`, panel at the end), qt (the nav `QSplitter`
 > mirrored), and xaml (`SplitView`, pane placed right); composed pane + compact sheet on

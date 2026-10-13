@@ -1042,6 +1042,30 @@ toolkit without changing existing event routing. The button gesture diagnostic r
 in `crates/day-pieces/tests/button_gesture_warning.rs` covers direct and wrapped buttons,
 ordinary label gestures, and the native action path.
 
+`Button::plain()` and its decorated builder request `ButtonStyleSpec::Plain`, a native
+borderless action style for toolbars and list accessories. AppKit removes the bezel,
+UIKit retains the plain system button, Material supplies text-button state colors and
+compact horizontal insets, and GTK uses its flat style. Other backends may retain their
+automatic native appearance (see [buttons](docs/buttons.md)). Styling never replaces the
+native button or its activation path. Android retains the original foreground/icon colors
+alongside background and metrics so a later style patch restores all state lists.
+
+`Inspector::scrollable(false)` omits its automatic scrolling wrapper in native panes,
+composed panes, and compact sheets. Panels owning a recycling list receive the finite
+viewport directly; the default remains scrollable for existing property forms. See
+[inspector](docs/inspector.md).
+
+The `has_tree()` presence probe treats a borrowed tree as installed. Native resize and
+layout callbacks may query it while a toolkit call holds the tree; probing must not
+reborrow or panic. The native-button mock regression exercises the nested probe.
+
+Android RecyclerView may request a row while DayFixed measures it inside Day's layout
+borrow. The adapter defers that bind to the next UI turn, retaining its JNI cell reference
+and checking list lifetime and the row token before retrying. Otherwise RecyclerView can
+cache an empty holder indefinitely on the first presentation of a modal library. The
+Skipjack `dayscript/library.yaml` first-open flow exercises this path without warming up
+another list or forcing a search reload first.
+
 AppKit shares one application-menu builder between startup defaults and reactive custom bars.
 It supplies About, optional Settings, native Services, Hide App (⌘H), Hide Others (⌥⌘H),
 Show All, and Quit. Hide targets `NSApplication`, so it hides the app without closing windows
@@ -2372,8 +2396,12 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > emulation on web-dom. Recycled-row ids gained the reactive `.id_of` decorator (a build-time
 > keyed id goes stale when a cell rebinds); since 2026-09 a pooled cell's ids are **parked** on
 > recycle and **restored** on its next bind, because a rebind to unchanged row content writes
-> no signal and so re-set nothing (`day-pieces/tests/list_recycled_ids.rs`). **Programmatic
-> row scrolling** followed
+> no signal and so re-set nothing (`day-pieces/tests/list_recycled_ids.rs`). UIKit pairs
+> `didEndDisplaying` recycling with `willDisplay` rebinding for table lists, so removed rows
+> stop answering element-id lookups and redisplayed cells regain their ids. Table reloads run
+> outside the tree borrow so synchronous retirement can park ids. Day-Hub's iOS
+> `dayscript/hub.yaml` exercises repository addition/removal and the corresponding row ids.
+> **Programmatic row scrolling** followed
 > (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
 > Native AppKit drops also schedule a table reload and retile after the drop callback,

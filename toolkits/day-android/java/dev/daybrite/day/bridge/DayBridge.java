@@ -1100,6 +1100,8 @@ public final class DayBridge {
 
     /** Each button's stock metrics {minWidth, minimumWidth, paddingStart, paddingEnd}, so a
      *  later style patch away from Compact can put them back. */
+    private static final java.util.WeakHashMap<View, android.content.res.ColorStateList> buttonTextColors = new java.util.WeakHashMap<>();
+    private static final java.util.WeakHashMap<View, android.content.res.ColorStateList> buttonIconColors = new java.util.WeakHashMap<>();
     static final java.util.WeakHashMap<View, int[]> buttonMetrics = new java.util.WeakHashMap<>();
 
     public static void setButtonContent(View view, String title, String iconName, boolean iconOnly) {
@@ -1120,6 +1122,8 @@ public final class DayBridge {
     public static View makeButton(final long id, String title) {
         final MaterialButton b = new MaterialButton(ctx); // M3 filled button (Expressive shape/motion)
         buttonTints.put(b, b.getBackgroundTintList());
+        buttonTextColors.put(b, b.getTextColors());
+        buttonIconColors.put(b, b.getIconTint());
         buttonMetrics.put(b, new int[] {
                 b.getMinWidth(), b.getMinimumWidth(), b.getPaddingStart(), b.getPaddingEnd() });
         b.setText(title);
@@ -1169,7 +1173,7 @@ public final class DayBridge {
         if (!(v instanceof MaterialButton)) return;
         MaterialButton b = (MaterialButton) v;
         int[] stock = buttonMetrics.get(b);
-        if (kind == 4) {
+        if (kind == 4 || kind == 5) {
             float d = ctx.getResources().getDisplayMetrics().density;
             b.setMinWidth(0);
             b.setMinimumWidth(0);
@@ -1179,7 +1183,18 @@ public final class DayBridge {
             b.setMinimumWidth(stock[1]);
             b.setPadding(stock[2], b.getPaddingTop(), stock[3], b.getPaddingBottom());
         }
+        if (kind == 5) {
+            // Use the theme's text-button state colors, including disabled and pressed states.
+            MaterialButton text = new MaterialButton(ctx, null,
+                androidx.appcompat.R.attr.borderlessButtonStyle);
+            b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(android.graphics.Color.TRANSPARENT));
+            b.setTextColor(text.getTextColors());
+            b.setIconTint(text.getIconTint());
+            return;
+        }
         if (kind != 3) {
+            b.setTextColor(buttonTextColors.get(b));
+            b.setIconTint(buttonIconColors.get(b));
             // Back to what the theme dressed it in (see buttonTints), not to no tint at all.
             b.setBackgroundTintList(buttonTints.get(b));
             return;

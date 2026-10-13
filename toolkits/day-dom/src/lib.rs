@@ -357,7 +357,7 @@ fn apply_button_style(el: u32, style: ButtonStyleSpec) {
             s(el, "--day-tint-fg", &css(ButtonStyleSpec::on_tint(c)));
             class(el, "tinted", true);
         }
-        ButtonStyleSpec::Automatic => {}
+        ButtonStyleSpec::Automatic | ButtonStyleSpec::Plain => {}
     }
 }
 

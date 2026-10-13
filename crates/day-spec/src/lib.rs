@@ -5377,6 +5377,8 @@ pub mod props {
         /// whose buttons already hug their title (AppKit, UIKit's plain button, Qt) draws its
         /// ordinary button.
         Compact,
+        /// Borderless native action button; compact horizontal insets on Material.
+        Plain,
     }
 
     impl ButtonStyleSpec {

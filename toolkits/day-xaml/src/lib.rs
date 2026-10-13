@@ -932,7 +932,7 @@ fn apply_button_style(h: *mut c_void, style: day_spec::props::ButtonStyleSpec) {
     };
     let (kind, fill) = match style {
         // A XAML Button pads a one-glyph title modestly; Compact takes the stock look.
-        S::Automatic | S::Compact => (0, day_spec::Color::CLEAR),
+        S::Automatic | S::Compact | S::Plain => (0, day_spec::Color::CLEAR),
         S::Bordered => (1, day_spec::Color::CLEAR),
         S::Prominent => (2, day_spec::Color::CLEAR),
         S::Tinted(c) => (3, c),

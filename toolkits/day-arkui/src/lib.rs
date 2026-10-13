@@ -1019,7 +1019,7 @@ mod imp {
             .unwrap_or(false);
         let (fill, ink, border) = match style {
             _ if selected => (0xFF33_7DFF, 0xFFFF_FFFF, 0.0),
-            S::Automatic | S::Compact => (0, 0xFF33_7DFF, 0.0),
+            S::Automatic | S::Compact | S::Plain => (0, 0xFF33_7DFF, 0.0),
             S::Bordered => (0, 0xFF33_7DFF, 1.0),
             S::Prominent => (0xFF33_7DFF, 0xFFFF_FFFF, 0.0),
             S::Tinted(c) => (argb(c), argb(S::on_tint(c)), 0.0),

@@ -36,6 +36,7 @@ pub const INSPECTOR_WIDTH: f64 = 280.0;
 pub struct Inspector<V: Binding<bool>> {
     visible: V,
     width: f64,
+    scrollable: bool,
     edge: PaneEdge,
     sheet_done: TextSource,
     content: AnyPiece,
@@ -51,6 +52,7 @@ pub fn inspector<V: Binding<bool>, C: Piece, P: Piece>(
     Inspector {
         visible,
         width: INSPECTOR_WIDTH,
+        scrollable: true,
         edge: PaneEdge::Trailing,
         // A language-neutral glyph, because day carries no "Done" in its own catalog; apps
         // localize with `.sheet_done(…)`.
@@ -65,6 +67,13 @@ impl<V: Binding<bool>> Inspector<V> {
     /// pane has a user-draggable divider this is the initial width, not a limit.
     pub fn width(mut self, width: f64) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Wrap the panel in a scroll view (default true). Disable for panels that own a
+    /// recycling list or their own scroller so they receive a bounded viewport.
+    pub fn scrollable(mut self, scrollable: bool) -> Self {
+        self.scrollable = scrollable;
         self
     }
 
@@ -86,11 +95,15 @@ impl<V: Binding<bool>> Inspector<V> {
 /// [`Inspector`]'s builders, forwarded through `Decorated` (docs/api-style.md).
 pub trait InspectorBuilder: Sized {
     fn width(self, width: f64) -> Self;
+    fn scrollable(self, scrollable: bool) -> Self;
     fn sheet_done<M>(self, t: impl IntoText<M>) -> Self;
     fn edge(self, edge: PaneEdge) -> Self;
 }
 
 impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
+    fn scrollable(self, scrollable: bool) -> Self {
+        Inspector::scrollable(self, scrollable)
+    }
     fn width(self, width: f64) -> Self {
         Inspector::width(self, width)
     }
@@ -103,6 +116,9 @@ impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
 }
 
 impl<Inner: InspectorBuilder + Piece> InspectorBuilder for Decorated<Inner> {
+    fn scrollable(self, scrollable: bool) -> Self {
+        self.map_inner(|inner| inner.scrollable(scrollable))
+    }
     fn width(self, width: f64) -> Self {
         self.map_inner(|inner| inner.width(width))
     }
@@ -135,10 +151,19 @@ fn compact(window: RNode) -> bool {
 // Native: the toolkit's own trailing-pane container (`Cap::Inspector == Native`)
 // ---------------------------------------------------------------------------
 
+fn panel_content(panel: AnyPiece, scrollable: bool) -> AnyPiece {
+    if scrollable {
+        scroll(panel).any()
+    } else {
+        panel
+    }
+}
+
 fn build_native<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -> RNode {
     let Inspector {
         visible,
         width,
+        scrollable,
         edge,
         content,
         panel,
@@ -174,7 +199,7 @@ fn build_native<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -> 
     let _ = content.build(&mut ccx);
     let panel_pane = pane(node, true, &sizes);
     let mut pcx = BuildCx::new(panel_pane);
-    let _ = scroll(panel()).build(&mut pcx);
+    let _ = panel_content(panel(), scrollable).build(&mut pcx);
 
     // Signal → native pane, as a targeted patch (no rebuild). The layout cell keeps the
     // pre-report fallback split in step.
@@ -367,6 +392,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
     let Inspector {
         visible,
         width,
+        scrollable,
         edge: inspector_edge,
         sheet_done,
         content,
@@ -383,7 +409,12 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         return row((
             when(
                 move || lead_visible.read(),
-                move || row((scroll(lead_panel()).width(width), divider())),
+                move || {
+                    row((
+                        panel_content(lead_panel(), scrollable).width(width),
+                        divider(),
+                    ))
+                },
             ),
             content.grow(),
         ))
@@ -406,7 +437,11 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
             // A hairline divider, then the panel filling the rest of the pane, both the
             // pane's full height.
             column((when(show_pane, move || {
-                row((divider().width(1.0).grow_h(), scroll(side_panel()).grow())).grow()
+                row((
+                    divider().width(1.0).grow_h(),
+                    panel_content(side_panel(), scrollable).grow(),
+                ))
+                .grow()
             }),))
             .grow(),
             // The compact home: a fullscreen sheet. Unrouted, because the inspector is chrome,
@@ -422,7 +457,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
                             .id("day-inspector-done"),
                     ))
                     .padding(Insets::symmetric(12.0, 8.0)),
-                    scroll(sheet_panel()).grow(),
+                    panel_content(sheet_panel(), scrollable).grow(),
                 ))
             })
             .unrouted(),

@@ -763,6 +763,13 @@ impl Button {
         self
     }
 
+    /// Borderless native action button for toolbars and list-row accessories.
+    /// Preserves native interaction, focus, disabled rendering, and accessibility.
+    pub fn plain(mut self) -> Self {
+        self.native_style = day_spec::props::ButtonStyleSpec::Plain;
+        self
+    }
+
     /// Mark this button as the current choice among its peers: a document tab, one view of a
     /// switcher. The platform draws its own checked or selected look (an NSButton's on state,
     /// `UIButton.isSelected`, GTK's `:checked`, a checked `QPushButton`, a checked
@@ -792,6 +799,7 @@ pub trait ButtonBuilder: Sized {
     fn prominent(self) -> Self;
     fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self;
     fn compact(self) -> Self;
+    fn plain(self) -> Self;
     /// The selected state, including through decorations. See [`Button::selected`].
     fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self;
 }
@@ -823,6 +831,9 @@ impl ButtonBuilder for Button {
     }
     fn compact(self) -> Self {
         Button::compact(self)
+    }
+    fn plain(self) -> Self {
+        Button::plain(self)
     }
     fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self {
         Button::selected(self, v)
@@ -856,6 +867,9 @@ impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
     }
     fn compact(self) -> Self {
         self.map_inner(ButtonBuilder::compact)
+    }
+    fn plain(self) -> Self {
+        self.map_inner(ButtonBuilder::plain)
     }
     fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self {
         self.map_inner(|p| p.selected(v))

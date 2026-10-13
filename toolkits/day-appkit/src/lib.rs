@@ -4766,12 +4766,13 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
         // Reset first, so a patch from one style to another leaves nothing of the old one.
         btn.setKeyEquivalent(&NSString::from_str(""));
         btn.setBezelColor(None);
+        btn.setBordered(!matches!(style, S::Plain));
         match style {
             S::Prominent => btn.setKeyEquivalent(&NSString::from_str("\r")),
             S::Tinted(c) => btn.setBezelColor(Some(&nscolor(c))),
             // Bordered is the stock NSButton look already; Automatic asks for nothing, and an
             // NSButton hugs a one-glyph title already, so Compact asks for nothing either.
-            S::Bordered | S::Automatic | S::Compact => {}
+            S::Bordered | S::Automatic | S::Compact | S::Plain => {}
         }
     }
     BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));
