@@ -20,7 +20,7 @@ project settings they use.
 for example `day help icon new`. A target flag is `-t` or `--target`. It takes a target name such
 as `macos-gtk`, or a toolkit alone, which means that toolkit on this machine: `-t gtk` is
 `macos-gtk` on a Mac and `linux-gtk` on Linux, and `-t dom` is `web-dom` everywhere. The older
-`-p` and `--platform` spellings still work and print a deprecation warning.
+`-p` and `--platform` spellings are no longer accepted; use `-t` or `--target`.
 `icon`, `sign`, and `project` require a subcommand; bare `day doctor` runs quick toolchain checks.
 `day doctor verify` builds and packages test apps and can take several minutes.
 

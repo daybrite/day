@@ -2488,9 +2488,11 @@ void day_qt_post(void (*cb)(void *), void *data) {
     QMetaObject::invokeMethod(
         qApp, [cb, data]() { cb(data); }, Qt::QueuedConnection);
 }
-// General delayed work on the application thread (not the display-frame scheduler).
+// General delayed work on the application thread (not the display-frame scheduler). Precise:
+// Qt's default picks a coarse timer for delays of two seconds and more, which may fire up to
+// five percent early, and day::sleep promises at least its delay.
 void day_qt_post_delayed(int ms, void (*cb)(void *), void *data) {
-    QTimer::singleShot(ms, qApp, [cb, data]() { cb(data); });
+    QTimer::singleShot(ms, Qt::PreciseTimer, qApp, [cb, data]() { cb(data); });
 }
 
 // One pump per native window. Qt uses platform vsync where available and owns any fallback;

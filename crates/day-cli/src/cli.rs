@@ -198,8 +198,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg,
             required = true
@@ -230,8 +228,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -352,8 +348,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg,
             required = true
@@ -474,8 +468,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -491,8 +483,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -532,8 +522,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -556,8 +544,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -579,8 +565,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -597,8 +581,6 @@ enum Cmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -708,8 +690,6 @@ pub enum StoreCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -736,8 +716,6 @@ pub enum StoreCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -988,8 +966,6 @@ pub enum DevicesCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1004,8 +980,6 @@ pub enum DevicesCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1037,8 +1011,6 @@ pub enum DevicesCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1054,8 +1026,6 @@ pub enum DevicesCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1098,8 +1068,6 @@ pub enum IconCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1112,8 +1080,6 @@ pub enum IconCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1137,8 +1103,6 @@ pub enum IconCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1197,8 +1161,6 @@ pub enum DoctorCmd {
         #[arg(
             short = 't',
             long = "target",
-            short_alias = 'p',
-            alias = "platform",
             value_name = "TARGET",
             value_parser = crate::targets::parse_arg
         )]
@@ -1282,15 +1244,6 @@ fn command() -> clap::Command {
 pub fn run(snap_scrubbed: &[String]) -> i32 {
     let matches = command().get_matches();
     let mut cli = Cli::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
-    // `-p`/`--platform` still parse as hidden aliases of `-t`/`--target`, and say so once per
-    // run: the value is a target, of which the platform is only the first half (DESIGN.md §3).
-    if deprecated_target_flag(
-        std::env::args_os()
-            .skip(1)
-            .map(|a| a.to_string_lossy().into_owned()),
-    ) {
-        eprintln!("warning: --platform (-p) is deprecated; use --target (-t) instead");
-    }
     // `--verbose`: make the tool-runner helpers forward every sub-command's raw output (ops.rs).
     // `DAY_VERBOSE` is the environment spelling of the same switch ("1"/"true" = on): an
     // explicit `--verbose` always wins, and the variable covers the invocations a flag cannot
@@ -1335,24 +1288,6 @@ pub fn run(snap_scrubbed: &[String]) -> i32 {
             e.exit_code()
         }
     }
-}
-
-/// Whether the command line spelled a target flag the deprecated way. Clap does not report
-/// which alias matched, so this reads the raw arguments: `-p`, `-p<value>`, `--platform`, or
-/// `--platform=<value>`, up to a `--` separator. `--platforms` (`day new part`) is another flag.
-fn deprecated_target_flag<I: IntoIterator<Item = String>>(args: I) -> bool {
-    for a in args {
-        if a == "--" {
-            return false;
-        }
-        if a == "--platform" || a.starts_with("--platform=") {
-            return true;
-        }
-        if a.starts_with("-p") && !a.starts_with("--") {
-            return true;
-        }
-    }
-    false
 }
 
 /// The command dispatch. Each arm yields the command's verdict code (usually 0) or a
@@ -3072,7 +3007,7 @@ mod error_tests {
                 "--out",
                 "preview.svg",
             ],
-            vec!["day", "icon", "check", "-p", "web-dom"],
+            vec!["day", "icon", "check", "-t", "web-dom"],
             vec!["day", "sign", "check"],
             vec!["day", "sign", "status", "submission-id"],
             vec!["day", "doctor"],
@@ -3089,7 +3024,7 @@ mod error_tests {
                 "day",
                 "devices",
                 "boot",
-                "-p",
+                "-t",
                 "harmony-arkui",
                 "--headless",
                 "--wait",
@@ -3232,12 +3167,11 @@ mod error_tests {
         assert!(OutputFormat::from_str("yaml", false).is_err());
     }
 
-    /// `-t`/`--target` is the flag; `-p`/`--platform` still parse, as aliases the help pages
-    /// no longer show. A toolkit alone expands to this host's target for it
+    /// A toolkit alone expands to this host's target for it
     /// (crate::targets::parse_arg), so `-t dom` is `web-dom` wherever it is typed.
     #[test]
     fn target_flag_spellings_and_toolkit_shorthand() {
-        for spelling in ["-t", "--target", "-p", "--platform"] {
+        for spelling in ["-t", "--target"] {
             let cli = Cli::try_parse_from(["day", "build", spelling, "web-dom"]).expect(spelling);
             match cli.command {
                 Cmd::Build { platforms, .. } => assert_eq!(platforms, ["web-dom"], "{spelling}"),
@@ -3273,20 +3207,41 @@ mod error_tests {
         assert!(!help.contains("--platform"), "{help}");
     }
 
-    /// The deprecation warning keys off the raw arguments, since clap does not say which alias
-    /// matched. The scan stops at `--`, and `--platforms` is `day new part`'s own flag.
     #[test]
-    fn deprecated_target_flag_is_detected_from_raw_arguments() {
-        let used = |a: &[&str]| deprecated_target_flag(a.iter().map(|s| s.to_string()));
-        assert!(used(&["launch", "-p", "web-dom"]));
-        assert!(used(&["launch", "--platform=web-dom"]));
-        assert!(used(&["build", "-pweb-dom", "--profile", "release"]));
-        assert!(used(&["devices", "list", "--platform", "ios-uikit"]));
-        assert!(!used(&["launch", "-t", "web-dom"]));
-        assert!(!used(&["launch", "--target", "web-dom"]));
-        assert!(!used(&["new", "part", "x", "--platforms", "macos"]));
-        assert!(!used(&["launch", "--", "-p"]));
-        assert!(!used(&["launch", "--env", "DAY_THEME=dark"]));
+    fn every_target_command_rejects_removed_platform_aliases() {
+        fn check(cmd: &clap::Command) -> usize {
+            let mut checked = 0;
+            if cmd
+                .get_arguments()
+                .any(|arg| arg.get_long() == Some("target"))
+            {
+                for args in [
+                    vec!["--platform", "web-dom"],
+                    vec!["--platform=web-dom"],
+                    vec!["-p", "web-dom"],
+                    vec!["-pweb-dom"],
+                ] {
+                    let error = cmd
+                        .clone()
+                        .try_get_matches_from(
+                            std::iter::once(cmd.get_name()).chain(args.iter().copied()),
+                        )
+                        .unwrap_err();
+                    assert_eq!(
+                        error.kind(),
+                        clap::error::ErrorKind::UnknownArgument,
+                        "{} {args:?}: {error}",
+                        cmd.get_name()
+                    );
+                }
+                checked += 1;
+            }
+            checked + cmd.get_subcommands().map(check).sum::<usize>()
+        }
+        assert!(check(&command()) > 0);
+        // Part scaffolding selects operating systems, not build targets.
+        Cli::try_parse_from(["day", "new", "part", "fixture", "--platforms", "macos"])
+            .expect("the distinct --platforms option still works");
     }
 
     /// A typo'd `--profile` is a clap parse error. Before the ValueEnum it reached the build
@@ -3388,7 +3343,7 @@ mod error_tests {
         let cli = Cli::try_parse_from([
             "day",
             "build",
-            "-p",
+            "-t",
             "macos-appkit",
             "--day-src",
             "https://github.com/daybrite/day.git@main",

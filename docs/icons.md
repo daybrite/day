@@ -150,7 +150,10 @@ opens the project in one step.
 Keep the master artwork in `resource/icons/`, remove obsolete generated copies and their
 references from custom native projects, then run `day prepare`. Generated hosts already
 use the current asset paths. Day does not read old icon lockfiles or rewrite native projects
-to migrate them. See [native-project migration](native-project-migration.md).
+to migrate them. Launchers and Linux/MSIX packaging no longer search old per-platform
+export directories under `resource/icons/`. They use generated output, with app-owned
+PNG/ICO files directly under `resource/icons/` as the fallback.
+See [native-project migration](native-project-migration.md).
 
 ## Engine
 

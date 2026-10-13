@@ -4449,7 +4449,13 @@ impl Platform for Xaml {
 
     fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
         // The timer door behind `day::sleep` (docs/async.md): a Win32 timer on the UI thread's
-        // message queue (the shim hops there first), no helper thread.
+        // message queue (the shim hops there first), no helper thread. `SetTimer` caps a delay
+        // at USER_TIMER_MAXIMUM (0x7FFFFFFF ms); a longer one runs as a chain of timers.
+        const STEP: u32 = 0x7FFF_FFFF;
+        if ms > STEP {
+            Self::post_delayed(STEP, Box::new(move || Self::post_delayed(ms - STEP, f)));
+            return;
+        }
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
         unsafe { ffi::day_xaml_post_delayed(ms, run_posted, data) };
     }

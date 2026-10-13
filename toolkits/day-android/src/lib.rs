@@ -5126,19 +5126,18 @@ mod imp {
         fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
             // The timer door behind `day::sleep` (docs/async.md): the main `Handler`'s
             // `postDelayed`, which hands the token back through `nativeRunPosted` exactly like
-            // `postMain`. No helper thread; Java's delay is an `int`, so a longer one clamps.
+            // `postMain`. No helper thread; the delay travels as a `long`, whole.
             let token = Box::into_raw(Box::new(f)) as i64;
-            let delay = i32::try_from(ms).unwrap_or(i32::MAX);
             with_env(|env| {
                 let cls = BRIDGE_CLASS
                     .get()
                     .expect("day-android: bridge class not cached");
-                let sig = "(JI)V".parse::<RuntimeMethodSignature>().expect("sig");
+                let sig = "(JJ)V".parse::<RuntimeMethodSignature>().expect("sig");
                 let res = env.call_static_method(
                     &**cls,
                     JNIString::from("postMainDelayed"),
                     MethodSignature::from(&sig),
-                    &[JValue::Long(token), JValue::Int(delay)],
+                    &[JValue::Long(token), JValue::Long(i64::from(ms))],
                 );
                 if res.is_err() {
                     env.exception_describe();

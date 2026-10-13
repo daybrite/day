@@ -4361,10 +4361,15 @@ impl Platform for Qt {
     fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
         // The timer door behind `day::sleep` (docs/async.md): `QTimer::singleShot` on the
         // application object, which Qt runs in the application thread wherever it was armed.
-        // No helper thread. Qt's delay is an `int`, so a longer one clamps.
+        // No helper thread. Qt's delay is an `int`; a longer one runs as a chain of timers,
+        // so the whole delay is honored.
+        const STEP: u32 = c_int::MAX as u32;
+        if ms > STEP {
+            Self::post_delayed(STEP, Box::new(move || Self::post_delayed(ms - STEP, f)));
+            return;
+        }
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
-        let delay = c_int::try_from(ms).unwrap_or(c_int::MAX);
-        unsafe { ffi::day_qt_post_delayed(delay, run_posted, data) };
+        unsafe { ffi::day_qt_post_delayed(ms as c_int, run_posted, data) };
     }
 }
 

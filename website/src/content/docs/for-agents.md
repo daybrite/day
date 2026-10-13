@@ -48,7 +48,7 @@ nothing diffs or rebuilds it.
    labels). Provider data (tickers, product names) stays verbatim.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
    them.
-7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -p <target>`
+7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -t <target>`
    and, for assertions, `day launch -t <target> --script <dayscript.yaml>`.
 
 ## Setup (canonical)
@@ -320,7 +320,7 @@ verify UI changes on every target you touched. The canonical loop: edit → `day
 - ❌ Wrapping `Signal` in `Rc`/`Arc`. ✅ It is `Copy`; move it directly.
 - ❌ Omitting `.id(...)` on Pieces you need to test/script/deep-link.
 - ❌ Hand-editing generated projects under `build/day/xcode/`, `build/android/`, or `build/day/harmony/project/`. ✅ Edit `Day.toml`/Rust.
-- ❌ Concluding a target works from `cargo build`. ✅ `day launch -p <target>` (and `--script` to assert).
+- ❌ Concluding a target works from `cargo build`. ✅ `day launch -t <target>` (and `--script` to assert).
 - ❌ Declaring a UI change done without looking at it. ✅ `day_drive`/`day drive` → `screenshot` → inspect.
 - ❌ Hard-coded pixel font sizes for shipping text. ✅ Semantic `Font` styles (accessibility-scaled).
 

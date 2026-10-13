@@ -402,8 +402,8 @@ enum BlockingInner<T> {
         detached: bool,
     },
     /// No thread will run it (the web, or a synchronous test harness): it runs at the first
-    /// poll, on the polling thread.
-    Inline(Option<Box<dyn FnOnce() -> T>>),
+    /// poll, on the polling thread. `Send` so the future is, like the pooled one.
+    Inline(Option<Box<dyn FnOnce() -> T + Send>>),
 }
 
 impl<T> Future for Blocking<T> {
@@ -757,6 +757,15 @@ mod blocking_tests {
         assert_eq!(sum, (0..limit * 8).sum::<usize>());
         assert!(peak.load(Ordering::SeqCst) <= limit, "{peak:?} > {limit}");
         assert!(blocking_threads() <= limit);
+    }
+
+    #[test]
+    fn the_future_is_send_for_a_send_value() {
+        let _turn = turn();
+        fn assert_send<T: Send>(_: &T) {}
+        let fut = spawn_blocking(|| String::from("sent"));
+        assert_send(&fut);
+        assert_eq!(block_on(fut), Ok(String::from("sent")));
     }
 
     #[test]

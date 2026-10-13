@@ -162,7 +162,7 @@ notifications section can hide itself.
   channel's sound, and its `didReceive` delivers taps. If you install your own
   `UNUserNotificationCenterDelegate`, you take that job over.
 - `day launch` runs an unbundled binary, and `UNUserNotificationCenter` does not exist without a
-  bundle identifier; the crate reports `Unsupported` rather than crashing. Run `day pack -p
+  bundle identifier; the crate reports `Unsupported` rather than crashing. Run `day pack -t
   macos-appkit` and launch the `.app` to see real notifications in the dev loop.
 
 ## Reference

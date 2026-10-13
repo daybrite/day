@@ -54,7 +54,7 @@ for _stream in (sys.stdout, sys.stderr):
 # travel with the flag into the passthrough list rather than being classified on its own (the
 # `--env DAY_DEMO_ROUTE=canvas` above is the case that makes this visible).
 VALUE_FLAGS = {
-    "-t", "--target", "-p", "--platform", "--profile", "--locale", "--env",
+    "-t", "--target", "--profile", "--locale", "--env",
     "--script", "--variant", "--project", "--format",
 }
 

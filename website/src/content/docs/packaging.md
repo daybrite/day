@@ -245,7 +245,7 @@ anything, so a bad identity or an out-of-order nested signature fails with the a
 `certificate_sha256` is the signing certificate itself, the same field the Android path reports.
 
 Signing an Apple package needs macOS: `codesign`, `security` and `ditto` ship with Xcode. `.dmg`
-and `.pkg` are named as not-yet-implemented rather than refused as unknown; `day pack -p
+and `.pkg` are named as not-yet-implemented rather than refused as unknown; `day pack -t
 macos-appkit` signs and notarizes those during the build.
 
 ## Signing tiers

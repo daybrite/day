@@ -100,7 +100,7 @@ pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, Stri
         "macos-gtk" | "macos-qt" | "windows-gtk" | "windows-qt" => {
             return Err(format!(
                 "pack for {} means bundling the toolkit into the package — deferred (DESIGN.md \
-                 DP-7). Pack the platform-native target instead, or `day launch -p {}` for development.",
+                 DP-7). Pack the platform-native target instead, or `day launch -t {}` for development.",
                 target.name, target.name
             ));
         }

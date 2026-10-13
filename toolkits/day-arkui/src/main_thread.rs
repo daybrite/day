@@ -72,6 +72,12 @@ thread_local! {
 /// JS thread (a hop through [`post`] from anywhere else), so a sleep costs no helper thread.
 /// When the runtime offers no timer (no environment yet), the job runs on the next post.
 pub fn post_delayed(ms: u32, job: Job) {
+    // A JS timer delay is a signed 32-bit count; a longer one runs as a chain of timers.
+    const STEP: u32 = i32::MAX as u32;
+    if ms > STEP {
+        post_delayed(STEP, Box::new(move || post_delayed(ms - STEP, job)));
+        return;
+    }
     post(Box::new(move || {
         let ticket = NEXT_DELAYED.with(|n| {
             let t = n.get();

@@ -232,7 +232,7 @@ prints one line per test:
 
 A failed test fails the run the way a failed script step does (exit 5). With no `--project`,
 `day test` runs the project in the current directory; from the `day` checkout,
-`cargo run -q -p day-cli -- --project apps/conformance test -p <target>` runs Day's own cases.
+`cargo run -q -p day-cli -- --project apps/conformance test -t <target>` runs Day's own cases.
 `--shots` is `on-failure` by default: a failing test's `failed.png` shows what the screen held
 when the assertion failed.
 

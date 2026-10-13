@@ -272,33 +272,19 @@ pub use day_build::sanitize_ident;
 
 /// Resolve the platform-appropriate app icon from the project's `icons/` directory (§18.2): the
 /// largest file of the wanted type in the first candidate subdirectory that has one. The convention
-/// matches a per-platform icon export set (`icons/{macos,linux,windows,png}/…`), falling back to
-/// any icon at the `icons/` root.
+/// prefers generated platform icons, falling back to app-owned files at `resource/icons/`.
 pub fn app_icon(project: &Project, toolkit: &'static str) -> Option<PathBuf> {
-    // The generated set under build/day/host (`day prepare`, run by every build) comes first;
-    // the legacy export tree under resource/icons/ is the fallback for a project that has not
-    // migrated.
     let host = project.root.join(crate::icon::HOST_DIR);
-    let icons = project.resource_root().join("icons");
     // Windows taskbar icons are .ico; everything else takes a PNG (dock, icon theme, dialogs).
     let (subdirs, ext): (&[&str], &str) = match toolkit {
-        "xaml" | "winui" => (&["windows", ""], "ico"),
-        _ if cfg!(target_os = "macos") => (&["macos", "png", ""], "png"),
-        _ => (&["linux", "png", ""], "png"),
+        "xaml" | "winui" => (&["windows"], "ico"),
+        _ if cfg!(target_os = "macos") => (&["macos", "png"], "png"),
+        _ => (&["linux", "png"], "png"),
     };
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    for sub in subdirs {
-        if !sub.is_empty() {
-            dirs.push(host.join(sub));
-        }
-    }
-    for sub in subdirs {
-        dirs.push(if sub.is_empty() {
-            icons.clone()
-        } else {
-            icons.join(sub)
-        });
-    }
+    let dirs = subdirs
+        .iter()
+        .map(|sub| host.join(sub))
+        .chain(std::iter::once(project.resource_root().join("icons")));
     for dir in dirs {
         let mut best: Option<(u64, PathBuf)> = None;
         let Ok(entries) = std::fs::read_dir(&dir) else {
@@ -669,6 +655,50 @@ mod vector_tests {
 #[cfg(test)]
 mod tests {
     use super::DEFAULT_ICONS;
+
+    #[test]
+    fn app_icons_prefer_generated_files_and_ignore_old_export_directories() {
+        let root = std::env::temp_dir().join(format!("day-icon-lookup-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: crate::meta::parse_manifest(
+                "schema = 1\n[app]\nid = 'dev.test.icons'\n",
+                "[package]\nname = 'icons'\nversion = '0.1.0'\n",
+                None,
+            )
+            .unwrap(),
+        };
+        for (toolkit, family, extension) in [
+            (
+                "gtk",
+                if cfg!(target_os = "macos") {
+                    "macos"
+                } else {
+                    "linux"
+                },
+                "png",
+            ),
+            ("winui", "windows", "ico"),
+        ] {
+            let write = |relative: &str| {
+                let path = root.join(relative);
+                std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                std::fs::write(&path, "synthetic icon lookup fixture").unwrap();
+                path
+            };
+            write(&format!("resource/icons/{family}/old.{extension}"));
+            write(&format!("resource/icons/png/old.{extension}"));
+            assert_eq!(super::app_icon(&project, toolkit), None);
+            let source = write(&format!("resource/icons/icon.{extension}"));
+            assert_eq!(super::app_icon(&project, toolkit), Some(source.clone()));
+            let generated = write(&format!("build/day/host/{family}/icon.{extension}"));
+            assert_eq!(super::app_icon(&project, toolkit), Some(generated.clone()));
+            std::fs::remove_file(generated).unwrap();
+            assert_eq!(super::app_icon(&project, toolkit), Some(source));
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     /// Guards the embedded files: each entry must be a real PNG whose IHDR pixel size matches
     /// its declared hicolor size (a mismatched size directory breaks the icon-theme lookup).

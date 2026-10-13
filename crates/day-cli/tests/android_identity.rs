@@ -84,8 +84,8 @@ esac
         let calls = root.join("adb-calls");
         std::fs::write(&calls, "").unwrap();
         for args in [
-            vec!["launch", "-p", "android-mdc", "--skip-build", "--detach"],
-            vec!["stop", "-p", "android-mdc"],
+            vec!["launch", "-t", "android-mdc", "--skip-build", "--detach"],
+            vec!["stop", "-t", "android-mdc"],
         ] {
             let mut cmd = Command::new(env!("CARGO_BIN_EXE_day"));
             cmd.arg("--project").arg(root);

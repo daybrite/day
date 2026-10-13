@@ -63,10 +63,11 @@ mod general {
             day_core::sleep(120).await;
             #[cfg(not(target_arch = "wasm32"))]
             if !synchronous_backend() {
-                // Coarse native timers may fire a few percent early; never this early.
+                // Every backend's timer fires at or after its delay; the one millisecond of
+                // slack covers the timer's clock and `Instant` ticking apart.
                 let slept = started.elapsed();
                 t.check(
-                    slept >= std::time::Duration::from_millis(100),
+                    slept >= std::time::Duration::from_millis(119),
                     &format!("a 120 ms sleep resolved after {slept:?}"),
                 )?;
             }

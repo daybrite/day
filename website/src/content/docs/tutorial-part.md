@@ -462,7 +462,7 @@ receiver) is the reference. The table also takes `res` (piece-shipped Android re
 `gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for classes native code
 reaches by name); see the [extending reference](/docs/internal/extending).
 
-When you run `day build -p android-mdc`, the CLI runs `cargo metadata`, walks the app's entire
+When you run `day build -t android-mdc`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks
 into `build/day/android/day-pieces.json`, plus a generated overlay manifest for the permissions. The
 app's Gradle project reads that file through Day's Gradle plugin (a loop over the JSON, with no per-part

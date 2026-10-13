@@ -909,24 +909,14 @@ fn refresh_bundle_date(app: &Path) {
 // ios-uikit build + launch (porcelain side)
 // ---------------------------------------------------------------------------
 
-/// Keep the app Info.plist's `UIAppFonts` array in sync with the project's `fonts/` directory
-/// (§18.4). iOS resolves the listed paths relative to the main bundle; the files themselves ride
-/// the DayPieces resource bundle (`DayPieces_DayPieces.bundle/fonts/…`, staged by
-/// `write_ios_pieces`), and day-uikit also registers them with CoreText at launch, so a plist
-/// that iOS declines to honor still resolves. The managed key is rewritten (or removed) on every
-/// build; idempotent, so a committed plist only changes when `fonts/` changes.
-/// The committed iOS Info.plist: the scaffold's app target is Runner/ (older scaffolds used
-/// DayApp/). `None` when the app ships no iOS platform dir.
+/// The app-owned plist for Day's iOS Runner host.
 pub(crate) fn ios_info_plist(project: &Project) -> Option<PathBuf> {
-    [
-        "platform/ios/Runner/Info.plist",
-        "platform/ios/DayApp/Info.plist",
-    ]
-    .iter()
-    .map(|rel| project.root.join(rel))
-    .find(|p| p.exists())
+    let path = project.root.join("platform/ios/Runner/Info.plist");
+    path.is_file().then_some(path)
 }
 
+/// Keep `UIAppFonts` in sync with the fonts staged in the DayPieces resource bundle.
+/// The managed key is rewritten or removed only when its value changes.
 pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
     let Some(plist) = ios_info_plist(project) else {
         return Ok(());
@@ -956,17 +946,6 @@ pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
     Ok(())
 }
 
-/// The app Info.plist of the scaffold's app target (older scaffolds used `DayApp/`).
-pub(crate) fn app_info_plist(project: &Project) -> Option<std::path::PathBuf> {
-    [
-        "platform/ios/Runner/Info.plist",
-        "platform/ios/DayApp/Info.plist",
-    ]
-    .iter()
-    .map(|rel| project.root.join(rel))
-    .find(|p| p.exists())
-}
-
 /// Write the `NS…UsageDescription` keys for the app's declared permissions (docs/permissions.md).
 ///
 /// iOS reads these at prompt time, and an app that touches a gated API without the matching key is
@@ -977,17 +956,16 @@ pub(crate) fn app_info_plist(project: &Project) -> Option<std::path::PathBuf> {
 /// keys, never from a state file: on a fresh clone the table alone still knows which keys are Day's
 /// to write and to remove. A key outside that set (one a developer added by hand) is never
 /// touched, which is the escape hatch for anything Day doesn't model yet.
-pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<(), String> {
-    let Some(plist) = app_info_plist(project) else {
+fn sync_ios_usage_descriptions(project: &Project) -> Result<(), String> {
+    let Some(plist) = ios_info_plist(project) else {
         return Ok(());
     };
-    let platform = if macos { "macos" } else { "ios" };
     let contributed = crate::pieces::contributed_permissions(project, &["uikit"]);
-    let plan = crate::permissions::resolve_project(project, platform, &contributed)
+    let plan = crate::permissions::resolve_project(project, "ios", &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
 
-    let want = crate::permissions::apple_keys(&plan, macos);
-    let mut managed = crate::permissions::apple_managed_keys(macos);
+    let want = crate::permissions::apple_keys(&plan, false);
+    let mut managed = crate::permissions::apple_managed_keys(false);
     managed.extend(plan.raw_apple.keys().cloned());
     let remove: std::collections::BTreeSet<String> = managed
         .difference(&want.keys().cloned().collect())
@@ -1016,15 +994,12 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
         }
     }
 
-    // The translations, beside the plist (docs/permissions.md, "Localized reasons").
-    if !macos {
-        sync_info_plist_strings(
-            &plist,
-            &plan.default_locale,
-            &crate::permissions::apple_keys_localized(&plan, macos),
-        )?;
-    }
-    Ok(())
+    // The translations beside the plist (docs/permissions.md, "Localized reasons").
+    sync_info_plist_strings(
+        &plist,
+        &plan.default_locale,
+        &crate::permissions::apple_keys_localized(&plan, false),
+    )
 }
 
 /// The string catalog beside the plist: `InfoPlist.xcstrings`, where Xcode 15+ reads the
@@ -1068,7 +1043,7 @@ pub(crate) const INFO_PLIST_STRINGS: &str = "InfoPlist.xcstrings";
 /// Day.toml-derived value into this tracked file made every `[window]` edit dirty the working
 /// tree, and a build that dirties the tree is one CI will not pack from.
 pub(crate) fn sync_window_keys(project: &Project) -> Result<(), String> {
-    let Some(plist) = app_info_plist(project) else {
+    let Some(plist) = ios_info_plist(project) else {
         return Ok(());
     };
     let before =
@@ -1296,13 +1271,13 @@ pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
     crate::resources::stage(project, target)?;
     let floor = crate::pieces::write_ios_pieces(project)?;
     sync_uiappfonts(project)?;
-    sync_usage_descriptions(project, false)?;
+    sync_ios_usage_descriptions(project)?;
     // Day.toml [window] → the minimum-size keys day-uikit reads back, and the iPad orientation
     // set iPadOS 26 wants declared (docs/size-classes.md).
     sync_window_keys(project)?;
     // Day.toml [[shortcuts]] → UIApplicationShortcutItems, through the same plist editor as
     // the keys above; localized titles are staged into the bundle by the `stage-strings`
-    // script phase, which older scaffolds get injected here.
+    // script phase in the native host.
     if let Some(plist) = ios_info_plist(project) {
         crate::shortcuts::sync_ios(project, &plist)?;
         crate::documents::sync_apple(project, &plist, true)?;
@@ -3453,6 +3428,30 @@ mod xcode_setting_tests {
 mod prepare_ios_tests {
     use super::prepare_ios;
     use crate::meta::Project;
+
+    #[test]
+    fn plist_lookup_uses_only_the_current_runner_layout() {
+        let root = std::env::temp_dir().join(format!("day-ios-plist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let project = Project {
+            root: root.clone(),
+            manifest: crate::meta::parse_manifest(
+                "schema = 1\n[app]\nid = 'dev.test.plist'\n",
+                "[package]\nname = 'plist'\nversion = '0.1.0'\n",
+                None,
+            )
+            .unwrap(),
+        };
+        let old = root.join("platform/ios/DayApp/Info.plist");
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(old, "synthetic obsolete plist fixture").unwrap();
+        assert!(super::ios_info_plist(&project).is_none());
+        let current = root.join("platform/ios/Runner/Info.plist");
+        std::fs::create_dir_all(current.parent().unwrap()).unwrap();
+        std::fs::write(&current, "synthetic Runner plist fixture").unwrap();
+        assert_eq!(super::ios_info_plist(&project), Some(current));
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     /// The iOS staging step stages the glyph catalog's inputs itself, from a tree nothing has
     /// built yet. `day pack` reaches `prepare_ios` without `ops::build`, so a catalog written

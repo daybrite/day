@@ -1284,7 +1284,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         // Has a build actually written the declarations into the checked-in iOS manifest? The
         // Android overlay is gitignored and regenerated every build, so there is nothing stale to
         // find there; checking it would only produce false alarms on a fresh clone.
-        if let Some(plist) = crate::mobile::app_info_plist(project)
+        if let Some(plist) = crate::mobile::ios_info_plist(project)
             && let Ok(text) = std::fs::read_to_string(&plist)
             && let Ok(plan) = crate::permissions::resolve_project(project, "ios", &[])
         {

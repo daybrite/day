@@ -313,7 +313,7 @@ public final class DayBridge {
     }
 
     /** The timer door behind day::sleep (docs/async.md): postMain after `ms` on the main Handler. */
-    public static void postMainDelayed(final long token, final int ms) {
+    public static void postMainDelayed(final long token, final long ms) {
         main.postDelayed(new Runnable() {
             public void run() { nativeRunPosted(token); }
         }, ms);
