@@ -37,7 +37,6 @@ pub struct Staged {
 
 impl Staged {
     /// Whether this build stages nothing: the common case, and what callers short-circuit on.
-    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.swift.is_empty() && self.jvm.is_empty() && self.js.is_empty() && self.arkts.is_empty()
     }

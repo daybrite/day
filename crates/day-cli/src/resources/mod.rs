@@ -28,8 +28,6 @@ pub mod qt; // qresource_path is read by ops::launch
 mod xaml;
 
 /// A single declared resource file: its lookup `name` and on-disk source `path`.
-// Fields are consumed by the per-toolkit stagers (some still landing).
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ResourceFile {
     /// Lookup name. For images this is the file stem (no extension, `@2x`/`@3x` stripped); for data
@@ -80,8 +78,6 @@ impl ResourceSet {
     }
 }
 
-/// Collect the data-asset tree under `dir`: every non-hidden file, recursively, named by its
-/// `/`-relative path (`rel` is the prefix so far, `""` at the root).
 /// Copy every piece-contributed asset tree into `dst/<crate-name>/`, the directory layout
 /// [`ResourceSet::scan`] names them by. For the stagers that copy the assets tree wholesale (the
 /// Apple bundles, the web dist, the Linux and Windows packages) rather than walking a
@@ -99,6 +95,8 @@ pub fn stage_piece_assets(
     Ok(())
 }
 
+/// Collect the data-asset tree under `dir`: every non-hidden file, recursively, named by its
+/// `/`-relative path (`rel` is the prefix so far, `""` at the root).
 fn scan_data_tree(dir: &std::path::Path, rel: &str, out: &mut Vec<ResourceFile>) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;

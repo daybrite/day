@@ -267,8 +267,6 @@ opt-level = 3
 opt-level = 3
 [profile.dev.package.crc32fast]
 opt-level = 3
-[profile.dev.package.zstd-sys]
-opt-level = 3
 
 [profile.release]
 # `fat` rather than `thin` for reproducibility (DESIGN.md §20.3). ThinLTO makes an internal symbol

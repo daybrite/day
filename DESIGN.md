@@ -3452,6 +3452,8 @@ per capture tree sits beside the merged bundle, for someone who wants one platfo
 > replaced a raw-pixel Zstandard stream (`screenshots.frames.zst`, 2026-10-02 to 2026-10-03) and
 > the earlier `screenshots.zip` of PNG files; neither is read any more. The format and the
 > measurements behind it are in [docs/screenshot-archive.md](docs/screenshot-archive.md).
+> Debug profile overrides optimize the active PNG/DEFLATE codec dependencies; the retired
+> Zstandard codec has no dependency or profile override.
 >
 > **Normalized captures (2026-10).** The runner rewrites each capture it saves as 8-bit RGB
 > (RGBA when a pixel is translucent) with an `sRGB` chunk and no other ancillary chunk, keeping
