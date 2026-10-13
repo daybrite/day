@@ -163,7 +163,10 @@ who removed animations gets what a scripted run gets.
 The dayscript step `a11y_audit: { id? }` walks Day's id'd nodes, reads each widget's actual
 native state (`Toolkit::read_native`, whose accessibility group this uses), and diffs identifier
 + label + value + explicit-role against Day's stored expectation. Backends that can't read their
-native tree (`found=false`) skip. The Apple targets read it from NSAccessibility /
+native tree (`found=false`) skip. Nodes reported natively hidden (`visible=false`) also skip:
+retained navigation panes can omit accessibility metadata while offscreen. Unknown visibility
+does not exempt a node. Navigate to a pane before auditing its metadata; use `assert_native`
+to check visibility itself. The Apple targets read it from NSAccessibility /
 UIAccessibility (→ Day `Role`), the web from the ARIA attributes on the element (`role`,
 `aria-label`, `aria-valuetext` or else `aria-description`, `id`), Qt from the widget's
 `QAccessibleInterface` and `objectName`, Windows from the automation peer and

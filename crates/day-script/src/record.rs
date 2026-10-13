@@ -951,6 +951,10 @@ mod tests {
                 index: 2,
             },
             Step::NavBack { native: false },
+            Step::SizeClass {
+                width: "compact".into(),
+                height: Some("regular".into()),
+            },
         ];
         let yaml = steps_to_yaml(&steps);
         let back = steps_from_yaml(&yaml).expect("re-parse");
@@ -980,8 +984,10 @@ mod tests {
             "demo.yaml carries `screenshot: welcome` as a scalar"
         );
         assert!(
-            steps.iter().any(|s| matches!(s, Step::SizeClass { .. })),
-            "demo.yaml drives the adaptive navigation"
+            steps
+                .iter()
+                .any(|s| matches!(s, Step::Navigate { route } if route == "items")),
+            "demo.yaml navigates to the Items smoke test"
         );
         let reparsed = steps_from_yaml(&steps_to_yaml(&steps)).expect("re-parse");
         assert_eq!(format!("{steps:?}"), format!("{reparsed:?}"));

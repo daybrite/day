@@ -2023,57 +2023,14 @@ fn exec(step: Step, revision: u32) -> Reply {
                     ));
                 }
                 let mut fails = Vec::new();
-                let mut checked = 0usize;
                 for (nid, _kind, expected, actual) in &rows {
-                    if !actual.found {
-                        continue; // backend can't read its native a11y tree (non-apple); skip
-                    }
-                    checked += 1;
-                    if actual.identifier.as_deref() != Some(nid.as_str()) {
-                        fails.push(format!(
-                            "{nid}: native identifier {:?} ≠ {nid:?}",
-                            actual.identifier
-                        ));
-                    }
-                    // Role: audit only explicit (user-set) roles, the canvas/custom cases where
-                    // Day itself applies a role. Native controls own their roles (Day's job
-                    // is to not break them, §13), and those vary per platform, so we don't diff
-                    // the kind-default. Compare only when the native role also maps to a known Role.
-                    if expected.role != day_spec::Role::None
-                        && actual.role != day_spec::Role::None
-                        && !role_eq(expected.role, actual.role)
-                    {
-                        fails.push(format!(
-                            "{nid}: role {:?} ≠ expected {:?}",
-                            actual.role, expected.role
-                        ));
-                    }
-                    if let Some(lbl) = &expected.label
-                        && actual.label.as_deref() != Some(lbl.as_str())
-                    {
-                        fails.push(format!(
-                            "{nid}: label {:?} ≠ expected {lbl:?}",
-                            actual.label
-                        ));
-                    }
-                    if let Some(val) = &expected.value
-                        && actual.value.as_deref() != Some(val.as_str())
-                    {
-                        fails.push(format!(
-                            "{nid}: value {:?} ≠ expected {val:?}",
-                            actual.value
-                        ));
-                    }
+                    audit_a11y_node(nid, expected, actual, &mut fails);
                 }
                 if !fails.is_empty() {
                     return Err(Reply::fail(
                         format!("a11y_audit: {}", fails.join("; ")),
                         false,
                     ));
-                }
-                if checked == 0 {
-                    // No node could be read natively; treat as unsupported, not a pass/fail.
-                    return Ok(Reply::ok());
                 }
                 Ok(Reply::ok())
             }
@@ -2082,6 +2039,54 @@ fn exec(step: Step, revision: u32) -> Reply {
     let mut reply = result.unwrap_or_else(|r| r);
     reply.fast_animations = Some(day_core::testing::fast_animations());
     reply
+}
+
+/// Compare readable, shown native accessibility nodes. Hidden navigation panes may retain
+/// widgets whose platform accessibility nodes omit their metadata until shown again.
+fn audit_a11y_node(
+    nid: &str,
+    expected: &day_spec::A11yProps,
+    actual: &day_spec::NativeSnapshot,
+    fails: &mut Vec<String>,
+) {
+    if !actual.found || actual.visible == Some(false) {
+        return;
+    }
+    if actual.identifier.as_deref() != Some(nid) {
+        fails.push(format!(
+            "{nid}: native identifier {:?} ≠ {nid:?}",
+            actual.identifier
+        ));
+    }
+    // Role: audit only explicit (user-set) roles, the canvas/custom cases where
+    // Day itself applies a role. Native controls own their roles (Day's job
+    // is to not break them, §13), and those vary per platform, so we don't diff
+    // the kind-default. Compare only when the native role also maps to a known Role.
+    if expected.role != day_spec::Role::None
+        && actual.role != day_spec::Role::None
+        && !role_eq(expected.role, actual.role)
+    {
+        fails.push(format!(
+            "{nid}: role {:?} ≠ expected {:?}",
+            actual.role, expected.role
+        ));
+    }
+    if let Some(lbl) = &expected.label
+        && actual.label.as_deref() != Some(lbl.as_str())
+    {
+        fails.push(format!(
+            "{nid}: label {:?} ≠ expected {lbl:?}",
+            actual.label
+        ));
+    }
+    if let Some(val) = &expected.value
+        && actual.value.as_deref() != Some(val.as_str())
+    {
+        fails.push(format!(
+            "{nid}: value {:?} ≠ expected {val:?}",
+            actual.value
+        ));
+    }
 }
 
 /// Two roles match for audit purposes; `Heading` levels are ignored (the native role carries
@@ -2149,6 +2154,56 @@ pub fn b64decode(s: &str) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a11y_audit_checks_metadata_when_visible_or_visibility_is_unknown() {
+        // Synthetic snapshots model an Android list parked behind a compact detail pane.
+        let expected = day_spec::A11yProps {
+            label: Some("Fixture list".into()),
+            ..Default::default()
+        };
+        let mut actual = day_spec::NativeSnapshot {
+            found: true,
+            identifier: Some("fixture-list".into()),
+            visible: Some(false),
+            ..Default::default()
+        };
+        let mut fails = Vec::new();
+        audit_a11y_node("fixture-list", &expected, &actual, &mut fails);
+        assert!(
+            fails.is_empty(),
+            "hidden panes need not expose their labels"
+        );
+
+        for visible in [Some(true), None] {
+            actual.visible = visible;
+            fails.clear();
+            audit_a11y_node("fixture-list", &expected, &actual, &mut fails);
+            assert_eq!(
+                fails.len(),
+                1,
+                "missing labels must still fail: {visible:?}"
+            );
+            assert!(fails[0].contains("label None"));
+        }
+
+        actual.visible = Some(true);
+        actual.label = expected.label.clone();
+        fails.clear();
+        audit_a11y_node("fixture-list", &expected, &actual, &mut fails);
+        assert!(
+            fails.is_empty(),
+            "the list exposes its label when shown again"
+        );
+
+        actual.label = None;
+        actual.found = false;
+        audit_a11y_node("fixture-list", &expected, &actual, &mut fails);
+        assert!(
+            fails.is_empty(),
+            "unreadable accessibility nodes remain unsupported"
+        );
+    }
 
     #[test]
     fn dialog_steps_hold_requests_until_an_explicit_response() {

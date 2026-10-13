@@ -3033,7 +3033,10 @@ canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.g
   unimplemented.
 - **Verification is automated**: the dayscript `a11y_audit` step ([§14](#14-scripting-dayscript), [Appendix C](#appendix-c--dayscript-reference-v1)) walks the
   *native* accessibility tree in-process and diffs it against day-core's expectations — nothing in
-  CI trusts `set_a11y` blindly.
+  CI trusts `set_a11y` blindly. The audit skips nodes explicitly reported hidden by the native
+  backend, because retained navigation panes may omit accessibility metadata while offscreen.
+  Unknown visibility still audits; `assert_native` checks visibility itself. The day-script
+  regression covers hidden, visible, unknown-visibility, and unreadable snapshots.
 - Reality check per toolkit lives in [§9](#9-the-eight-toolkits-and-the-extra-combinations); the honest summary: primary combinations have first-class
   native a11y; `macos-gtk`/`windows-gtk` currently have none (GTK's AccessKit backend exists as of
   4.18 but isn't in default builds), which is precisely why they're secondary. Qt is solid on all
@@ -4824,6 +4827,9 @@ and deletes its own item without platform-specific conditions or disturbing save
 also audits native accessibility metadata on the welcome and editor screens. Short source comments
 explain scope ownership, recycled rows, deselection, keyed editors, and Settings placement, with
 links to the corresponding published guides and detailed references.
+The recorder's template regression parses and round-trips this smoke test, including its
+Items route and scalar screenshot syntax. Size-class serialization is covered by a separate
+recorder fixture, so the starter does not need adaptive-layout test steps.
 
 Rust code layout: the app has a **lib crate** named `dayapp` shared by desktop `main.rs` and
 mobile hosts. Cargo's default library type is `rlib`; the mobile build pipeline requests
