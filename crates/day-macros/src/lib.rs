@@ -4,7 +4,8 @@
 //! Compile-time macros for Day.
 //!
 //! [`build_path!`]: SVG path data in, a `PathBuilder` method chain out. [`Observable`]
-//! (`#[derive]`): a struct in, typed per-field accessors for day-model out.
+//! (`#[derive]`): a struct in, typed per-field accessors for day-model out, with
+//! [`observable_impls!`] as the same expansion for derives layered on it.
 
 mod obs;
 mod svg;
@@ -183,22 +184,35 @@ fn compile_error(message: &str) -> TokenStream {
 /// `store.elem(id).name()`, nested `item.address().city()`), `Identified` from the field marked
 /// `#[obs(key)]` (always explicit), and `OBSERVED_FIELDS`. `#[obs(skip)]` leaves a field out,
 /// with no accessor, path or trigger.
+///
+/// `#[model(…)]` attributes are accepted, so a struct can swap this derive for day-persistence's
+/// `Model` per target: `#[model(id)]` marks the key and the rest is ignored.
 #[proc_macro_derive(Observable, attributes(obs, model))]
 pub fn observable(input: TokenStream) -> TokenStream {
     obs::observable(input)
 }
 
-/// A persistable model: everything [`macro@Observable`] generates, plus `impl
-/// day_persistence::Model`: table name, column list, row↔struct mappers and the default row.
-/// See day-persistence's crate docs and `docs/persistence.md`.
+/// Everything [`macro@Observable`] generates, for a struct that is described rather than
+/// derived: the hook for a derive layered on `Observable`.
 ///
-/// `#[model(id)]` marks the key (it is `#[obs(key)]` too). Field options: `column = "…"`,
-/// `unique`, `index`, `transient` (observable, never stored), `with = Codec`, `json`. Struct
-/// options: `table = "…"` (snake_cased struct name otherwise), `index("a", "b")` for
-/// composites. `#[obs(skip)]` removes a field from both halves.
-#[proc_macro_derive(Model, attributes(model, obs))]
-pub fn model(input: TokenStream) -> TokenStream {
-    obs::model(input)
+/// ```ignore
+/// observable_impls! {
+///     struct Trip {
+///         #[obs(key)]
+///         id: u32,
+///         name: String,
+///     }
+/// }
+/// ```
+///
+/// The struct itself is not emitted, only the impls, so the input lists exactly the fields to
+/// observe. A derive with its own attribute grammar restates the struct this way and expands to
+/// this macro instead of generating the accessors a second time. day-persistence's
+/// `#[derive(Model)]` does (docs/persistence.md): it marks its `#[model(id)]` field as the key,
+/// leaves out relation markers, and adds the schema impls beside the result.
+#[proc_macro]
+pub fn observable_impls(input: TokenStream) -> TokenStream {
+    obs::observable(input)
 }
 
 /// Mark a function that builds a [`Case`](../day_core/conformance/struct.Case.html) as a Day

@@ -442,7 +442,7 @@ pub enum WasmCc {
     /// A wasm-capable clang found outside PATH. Callers export it as
     /// `CC_wasm32_unknown_unknown` on the cargo child process for cc-rs to use it.
     Fallback(PathBuf),
-    /// No compiler with the backend anywhere; a `persistence` web build will fail in cc-rs.
+    /// No compiler with the backend anywhere; a day-persistence web build will fail in cc-rs.
     Missing,
 }
 

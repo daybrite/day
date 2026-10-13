@@ -12,10 +12,11 @@ repository.workspace = true
 license.workspace = true
 
 [features]
-# The built-in rusqlite driver with a bundled SQLite: the default engine. `system` links the
-# OS's libsqlite3 instead (leave `bundled` off); `cipher` swaps the bundled engine for SQLCipher
-# with vendored crypto. Trait-only consumers (codec impls in pieces) use default-features=false.
-default = ["driver-rusqlite", "bundled"]
+# The built-in rusqlite driver with a bundled SQLite, and `list(query, row)`: what an app gets
+# from a bare dependency line. `system` links the OS's libsqlite3 instead (leave `bundled`
+# off); `cipher` swaps the bundled engine for SQLCipher with vendored crypto. Trait-only
+# consumers (a codec impl, an alternative driver) use default-features = false.
+default = ["driver-rusqlite", "bundled", "pieces"]
 # Native: rusqlite over the chosen engine. Web: day-sqlite-worker, the same vendored SQLite
 # running against OPFS in the day-sql worker, reached synchronously over the SharedArrayBuffer
 # channel (docs/persistence.md, docs/web.md).
@@ -25,19 +26,26 @@ system = []
 cipher = ["rusqlite?/bundled-sqlcipher-vendored-openssl"]
 # `list(query, row)`: Query as a day-pieces row source, emitting animatable row deltas.
 pieces = ["dep:day-pieces", "dep:day-spec"]
+# Column codecs for day-piece-datetime's `DayDate` and `DayTime` (docs/persistence.md): the
+# canonical `INTEGER` forms plus the `datetime::{Iso8601, EpochSeconds, EpochMillis}` codecs.
+datetime = ["dep:day-piece-datetime"]
 
 [dependencies]
 day-async = { workspace = true }
 day-model = { workspace = true }
 day-reactive = { workspace = true }
+# `#[derive(Model)]`, re-exported beside the trait of the same name, and day-macros'
+# `observable_impls!`, which that derive expands to for its observable half.
+day-persistence-macros = { workspace = true }
+day-macros = { workspace = true }
 day-pieces = { workspace = true, features = ["model"], optional = true }
 day-spec = { workspace = true, optional = true }
+day-piece-datetime = { workspace = true, optional = true }
 
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-day-macros = { workspace = true }
 # The real-driver tests open the produced files directly to verify what was stored (the same
 # crate the driver itself uses, so this adds no dependency edge).
 rusqlite = { workspace = true, features = ["bundled"] }

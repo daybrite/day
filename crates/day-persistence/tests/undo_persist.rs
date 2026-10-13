@@ -4,9 +4,8 @@
 //! Undo against the container: the plan's exit assertions. An undone delete is one INSERT, a
 //! sixty-move drag is one UPDATE, and the agreement property holds with undos interleaved.
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{Fetch, ModelContainer, Pred, Recorder, Sort, Sqlite, Value, schema};
+use day_persistence::{Fetch, Model, ModelContainer, Pred, Recorder, Sort, Sqlite, Value, schema};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

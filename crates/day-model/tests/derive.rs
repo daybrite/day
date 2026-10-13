@@ -186,3 +186,62 @@ fn a_structural_change_wakes_the_list_but_not_a_field_reader() {
     flush_sync();
     assert_eq!(list_runs.get(), bl + 1);
 }
+
+/// What a derive layered on `Observable` expands to: the struct is written by hand and
+/// `observable_impls!` is handed only the fields to observe. `shadow` is left out of the
+/// description, so it gets nothing, exactly as `#[obs(skip)]` would have left it.
+#[derive(Clone, Default, PartialEq, Debug)]
+pub struct Described {
+    pub id: u64,
+    pub title: String,
+    pub shadow: u8,
+}
+
+day_macros::observable_impls! {
+    struct Described {
+        #[obs(key)]
+        id: u64,
+        title: String,
+    }
+}
+
+#[test]
+fn a_described_struct_gets_what_the_derive_gives() {
+    assert_eq!(Described::OBSERVED_FIELDS, ["id", "title"]);
+    let store = Store::new(Keyed::new(vec![Described {
+        id: 7,
+        title: "seven".into(),
+        shadow: 1,
+    }]));
+    store.elem(7u64).title().write("VII".into());
+    assert_eq!(
+        store.elem(7u64).title().with(|v| v.cloned()),
+        Some("VII".to_string())
+    );
+}
+
+/// A struct that derives day-persistence's `Model` where it is stored can derive `Observable`
+/// where it is not, behind `cfg_attr`, without restating itself: `#[model(…)]` is accepted,
+/// its `id` is the key, and the rest is another derive's grammar.
+#[derive(Observable, Clone, Default, PartialEq, Debug)]
+#[model(table = "tracks", index("title", "plays"))]
+pub struct Track {
+    #[model(id)]
+    pub id: u32,
+    #[model(unique, column = "name")]
+    pub title: String,
+    #[model(transient)]
+    pub plays: u32,
+}
+
+#[test]
+fn model_attributes_are_tolerated_and_id_is_the_key() {
+    assert_eq!(Track::OBSERVED_FIELDS, ["id", "title", "plays"]);
+    let store = Store::new(Keyed::new(vec![Track {
+        id: 3,
+        title: "three".into(),
+        plays: 0,
+    }]));
+    store.elem(3).plays().write(9);
+    assert_eq!(store.elem(3).plays().with(|v| v.copied()), Some(9));
+}

@@ -3,6 +3,11 @@
 
 //! SQLite persistence for the observable model (docs/persistence.md).
 //!
+//! An app depends on this crate directly, beside the `day` facade with its `model` feature on,
+//! and starts a model module with `use day_persistence::prelude::*`. The crate is built on the
+//! framework's public API and nothing in the framework depends on it; `#[derive(Model)]` comes
+//! from day-persistence-macros and the web engine from day-sqlite-worker.
+//!
 //! The engine owns the data; memory holds a working set. A [`ModelContainer`] opens a
 //! database through a pluggable [`SqliteDriver`], creates or migrates each model's table,
 //! and stops: no rows are read at open, so opening a million-row store costs the same as
@@ -78,6 +83,25 @@ pub use rusqlite_driver::Sqlite;
     target_os = "unknown"
 ))]
 pub use rusqlite_driver::WebStorage;
+
+/// The derive for the [`Model`] trait (the two share a name, so `use day_persistence::Model`
+/// brings both): everything `#[derive(Observable)]` generates plus the schema half.
+/// `#[model(id)]` marks the key; docs/persistence.md lists the field and struct options.
+pub use day_persistence_macros::Model;
+
+// `#[derive(Model)]` expands its observable half to this (day-macros' `observable_impls!`),
+// reached by this crate's name so a model crate needs no day-macros dependency of its own.
+#[doc(hidden)]
+pub use day_macros::observable_impls as __observable_impls;
+
+/// What a model module starts from: `use day_persistence::prelude::*;` beside the app's `use
+/// day::prelude::*;`. The container, the `Model` trait and its derive, the relation markers,
+/// the drivers and `schema!`.
+pub mod prelude {
+    #[cfg(feature = "driver-rusqlite")]
+    pub use crate::Sqlite;
+    pub use crate::{DeleteRule, Many, Model, ModelContainer, One, Recorder, Secret, schema};
+}
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -4265,3 +4289,103 @@ mod pieces_glue {
 
 #[cfg(feature = "pieces")]
 pub use pieces_glue::QueryConn;
+
+// ---------------------------------------------------------------------------
+// Date and time codecs (feature `datetime`; docs/persistence.md)
+// ---------------------------------------------------------------------------
+
+/// Column codecs for day-piece-datetime's [`DayDate`](day_piece_datetime::DayDate) and
+/// [`DayTime`](day_piece_datetime::DayTime), for `#[derive(Model)]` fields.
+///
+/// Canonical, what a bare field of the type stores: `DayDate` → `INTEGER` epoch days,
+/// `DayTime` → `INTEGER` seconds-of-day: the same numeric interchange forms the pickers
+/// already speak across native boundaries, and both sort chronologically as plain integers.
+///
+/// Named, picked per field with `#[model(with = …)]`: [`Iso8601`](datetime::Iso8601) stores
+/// `TEXT` in the form `Display` writes (readable in any sqlite tool, and lexicographic order
+/// is chronological order, ISO-8601's design goal); [`EpochSeconds`](datetime::EpochSeconds)
+/// and [`EpochMillis`](datetime::EpochMillis) store the `INTEGER` a server that speaks Unix
+/// time expects, midnight-of-day for a `DayDate`.
+///
+/// The impls live here rather than in the piece because one of the two crates has to own
+/// them, and this is the one that depends on the other.
+#[cfg(feature = "datetime")]
+pub mod datetime {
+    use crate::{ColumnValue, DbError, DbErrorKind, SqlType, Value, ValueCodec};
+    use day_piece_datetime::{DayDate, DayTime};
+
+    impl ColumnValue for DayDate {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(&self) -> Value {
+            Value::Int(self.to_epoch_days())
+        }
+        fn from_sqlite_value(v: Value) -> Result<Self, DbError> {
+            Ok(DayDate::from_epoch_days(v.as_int()?))
+        }
+    }
+
+    impl ColumnValue for DayTime {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(&self) -> Value {
+            Value::Int(self.seconds_of_day())
+        }
+        fn from_sqlite_value(v: Value) -> Result<Self, DbError> {
+            Ok(DayTime::from_seconds_of_day(v.as_int()?))
+        }
+    }
+
+    /// `TEXT` in the `Display` form: `YYYY-MM-DD` for a date, `HH:MM[:SS]` for a time.
+    pub struct Iso8601;
+
+    impl ValueCodec<DayDate> for Iso8601 {
+        const SQL_TYPE: SqlType = SqlType::Text;
+        fn to_sqlite_value(v: &DayDate) -> Value {
+            Value::Text(v.to_string())
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayDate, DbError> {
+            let s = v.as_text()?;
+            DayDate::parse_iso(s).ok_or_else(|| {
+                DbError::new(DbErrorKind::Decode, format!("not an ISO-8601 date: {s:?}"))
+            })
+        }
+    }
+
+    impl ValueCodec<DayTime> for Iso8601 {
+        const SQL_TYPE: SqlType = SqlType::Text;
+        fn to_sqlite_value(v: &DayTime) -> Value {
+            Value::Text(v.to_string())
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayTime, DbError> {
+            let s = v.as_text()?;
+            DayTime::parse_iso(s).ok_or_else(|| {
+                DbError::new(DbErrorKind::Decode, format!("not an ISO-8601 time: {s:?}"))
+            })
+        }
+    }
+
+    /// `INTEGER` seconds since 1970-01-01T00:00Z; midnight of the day, for a [`DayDate`].
+    pub struct EpochSeconds;
+
+    impl ValueCodec<DayDate> for EpochSeconds {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(v: &DayDate) -> Value {
+            Value::Int(v.to_epoch_days() * 86_400)
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayDate, DbError> {
+            Ok(DayDate::from_epoch_days(v.as_int()?.div_euclid(86_400)))
+        }
+    }
+
+    /// `INTEGER` milliseconds since the same epoch, for interop that expects it.
+    pub struct EpochMillis;
+
+    impl ValueCodec<DayDate> for EpochMillis {
+        const SQL_TYPE: SqlType = SqlType::Integer;
+        fn to_sqlite_value(v: &DayDate) -> Value {
+            Value::Int(v.to_epoch_days() * 86_400_000)
+        }
+        fn from_sqlite_value(v: Value) -> Result<DayDate, DbError> {
+            Ok(DayDate::from_epoch_days(v.as_int()?.div_euclid(86_400_000)))
+        }
+    }
+}

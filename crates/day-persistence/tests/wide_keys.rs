@@ -5,10 +5,9 @@
 //! tests round-trip files, fold to correctly-typed parameters, merge another connection's
 //! writes, and refuse the shapes SQLite's rowid-backed indexes cannot address.
 
-use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
 use day_persistence::{
-    ModelContainer, Recorder, Sqlite, SqliteConnection, SqliteDriver, Value, schema,
+    Model, ModelContainer, Recorder, Sqlite, SqliteConnection, SqliteDriver, Value, schema,
 };
 use day_reactive::Binding;
 

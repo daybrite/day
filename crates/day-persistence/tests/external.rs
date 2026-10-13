@@ -6,9 +6,10 @@
 //! field announcements, structural inserts and deletes, live-query deltas) and never echoes
 //! them back to the file.
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{ModelContainer, Recorder, Sqlite, SqliteConnection, SqliteDriver, schema};
+use day_persistence::{
+    Model, ModelContainer, Recorder, Sqlite, SqliteConnection, SqliteDriver, schema,
+};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

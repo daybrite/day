@@ -11,9 +11,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
-use day_persistence::{Many, ModelContainer, One, Sqlite, schema};
+use day_persistence::{Many, Model, ModelContainer, One, Sqlite, schema};
 use day_reactive::Binding;
 
 /// A container over a traced connection, so tests can count the requeries a change costs.

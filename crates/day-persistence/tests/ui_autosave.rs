@@ -6,9 +6,8 @@
 //! row label follows) headlessly.
 
 use day_core::AnyPiece;
-use day_macros::Model;
 use day_model::{Keyed, Op, Store};
-use day_persistence::{ModelContainer, Sqlite, schema};
+use day_persistence::{Model, ModelContainer, Sqlite, schema};
 use day_pieces::prelude::*;
 use day_reactive::flush_sync;
 use day_spec::{Size, WindowOptions};

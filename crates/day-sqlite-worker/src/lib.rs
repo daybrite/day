@@ -6,15 +6,20 @@
 //! The vendored amalgamation compiles with no libc and no wasm-bindgen: `vendor/shim` renames
 //! every libc symbol it needs onto the freestanding C subset compiled beside it, and the
 //! handful of Rust-side shims in this file (allocator, UTC localtime, entropy, abort). The
-//! only imports the wasm module gains are `day_dom_now_ms`/`day_dom_entropy` and, for the
-//! worker instance, the ten `day_sql_fs_*` OPFS primitives, all provided by day-cli's shim
-//! pages, so the module instantiates in Day's raw-wasm pipeline.
+//! only imports the wasm module gains are `day_sql_*`: time, entropy and a log line, the
+//! three channel calls, and, for the worker instance, the ten `day_sql_fs_*` OPFS primitives.
+//!
+//! The browser half ships with the crate, so nothing in the Day host page knows about SQL.
+//! `[package.metadata.day.web]` (docs/web.md) declares `web/day-sql.js`, a web module the
+//! page imports before it instantiates the app: it supplies those imports and boots
+//! `web/day-sql-worker.js` beside it. The module instantiates in Day's raw-wasm pipeline.
 //!
 //! One wasm, two instantiations. The **app instance** may use [`Connection::open_memory`]
-//! in-process (`:memory:` engines never touch a file). The **worker instance** services the
-//! SharedArrayBuffer channel: the worker page copies each request into wasm memory and calls
-//! [`day_sql_exec`], which runs it against real OPFS files through the day-opfs VFS and
-//! returns the reply bytes. The [`protocol`] module is the wire format both sides share.
+//! in-process (`:memory:` engines never touch a file) and reaches file databases through
+//! `channel`. The **worker instance** services the SharedArrayBuffer channel: the worker
+//! page copies each request into wasm memory and calls [`day_sql_exec`], which runs it
+//! against real OPFS files through the day-opfs VFS and returns the reply bytes. The
+//! [`protocol`] module is the wire format both sides share.
 //!
 //! Everything (VFS, connection layer, worker loop) compiles and unit-tests on native hosts
 //! against an in-memory OPFS fake; only the browser glue is wasm-specific.
@@ -51,15 +56,15 @@ mod os {
     mod imp {
         #[link(wasm_import_module = "env")]
         unsafe extern "C" {
-            fn day_dom_now_ms() -> f64;
-            fn day_dom_entropy(buf: *mut u8, len: usize);
+            fn day_sql_now_ms() -> f64;
+            fn day_sql_entropy(buf: *mut u8, len: usize);
             fn day_sql_log(msg: *const u8, len: usize);
         }
         pub fn now_ms() -> f64 {
-            unsafe { day_dom_now_ms() }
+            unsafe { day_sql_now_ms() }
         }
         pub fn entropy(buf: &mut [u8]) {
-            unsafe { day_dom_entropy(buf.as_mut_ptr(), buf.len()) }
+            unsafe { day_sql_entropy(buf.as_mut_ptr(), buf.len()) }
         }
         /// A traced statement, to the worker page's console (`[day-sql]` lines in devtools).
         pub fn log_line(s: &str) {
@@ -93,6 +98,44 @@ mod os {
     }
 
     pub(crate) use imp::*;
+}
+
+// -------------------------------------------------------------------------------------------
+// The page side of the channel (web/day-sql.js)
+// -------------------------------------------------------------------------------------------
+
+/// The app instance's end of the SharedArrayBuffer channel: one synchronous round trip of
+/// [`protocol`] bytes to the worker instance. Implemented by `web/day-sql.js`, the web module
+/// this crate ships; a driver encodes a [`protocol::Req`], calls, and decodes the reply.
+#[cfg(all(target_family = "wasm", target_os = "unknown"))]
+pub mod channel {
+    #[link(wasm_import_module = "env")]
+    unsafe extern "C" {
+        /// 1 while the day-sql worker is up and the SharedArrayBuffer channel is live.
+        fn day_sql_ready() -> i32;
+        /// Send one request; answers the reply's byte length, or -1 with no channel.
+        fn day_sql_call(req: *const u8, len: usize) -> f64;
+        /// Copy the staged reply (`day_sql_call`'s length) into `dst`.
+        fn day_sql_reply(dst: *mut u8);
+    }
+
+    /// Whether the worker is up. False without cross-origin isolation (COOP/COEP), where the
+    /// page cannot share memory with a worker at all.
+    pub fn ready() -> bool {
+        unsafe { day_sql_ready() == 1 }
+    }
+
+    /// One round trip: the encoded request in, the encoded reply out. `None` when there is no
+    /// channel, or when the worker stopped answering.
+    pub fn call(req: &[u8]) -> Option<Vec<u8>> {
+        let len = unsafe { day_sql_call(req.as_ptr(), req.len()) };
+        if len < 0.0 {
+            return None;
+        }
+        let mut reply = vec![0u8; len as usize];
+        unsafe { day_sql_reply(reply.as_mut_ptr()) };
+        Some(reply)
+    }
 }
 
 // -------------------------------------------------------------------------------------------

@@ -1,10 +1,9 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 //! Failure injection over the real engine: cache/transaction retry contracts.
-use day_macros::Model;
 use day_persistence::{
-    Capabilities, DbError, ModelContainer, Row, Sqlite, SqliteConnection, SqliteDriver, Value,
-    schema,
+    Capabilities, DbError, Model, ModelContainer, Row, Sqlite, SqliteConnection, SqliteDriver,
+    Value, schema,
 };
 use day_reactive::Binding;
 use std::{cell::Cell, rc::Rc};

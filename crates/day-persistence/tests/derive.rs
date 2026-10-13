@@ -4,7 +4,6 @@
 //! `#[derive(Model)]`: the generated schema half, checked without a database, and one
 //! container round-trip through the Recorder to show the derive and the runtime agree.
 
-use day_macros::Model;
 use day_model::Op;
 use day_persistence::{
     ColumnValue, DbError, Model, ModelContainer, Recorder, SqlType, Value, ValueCodec, schema,

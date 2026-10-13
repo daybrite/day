@@ -50,10 +50,10 @@ fi
 # --features day-pieces/dyn-registry: no member turns the dynamic piece registry on now that its
 # consumer, day-lite, lives in its own repository, so without the flag its tests never run.
 # Exercise the optional HTTP provider as well as the default native transport.
-# Enable persistence's list adapter explicitly too: the workspace has no app enabling it,
-# and live-query/list regression tests must run on every native CI host.
+# Enable persistence's date and time codecs explicitly too: they are opt-in and no member
+# turns them on, so without the flag their tests never run.
 exec cargo test --locked --workspace --no-fail-fast \
-    --features day-pieces/dyn-registry,day-persistence/pieces,day-part-http/reqwest \
+    --features day-pieces/dyn-registry,day-persistence/datetime,day-part-http/reqwest \
     $windows_excludes \
     --exclude day-appkit \
     --exclude day-gtk \

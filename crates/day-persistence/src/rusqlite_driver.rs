@@ -604,13 +604,14 @@ impl SqliteConnection for RusqliteConn {
 // The web leg (wasm32-unknown-unknown): the synchronous channel to the day-sql worker.
 //
 // OPFS's only random-access synchronous API (`createSyncAccessHandle`) exists solely in
-// dedicated workers, so the engine runs in day-cli's day-sql worker (the same wasm module,
-// instantiated there) and this side is a proxy. Each call encodes one request in
-// day-sqlite-worker's protocol, hands it to the shim, and the main thread blocks the few
-// microseconds until the worker's reply lands back through the SharedArrayBuffer. Fully
-// synchronous from Rust's point of view, fully durable at commit, one code path with every
-// other platform. The channel needs cross-origin isolation (COOP/COEP; `day launch` serves
-// it, see docs/web.md); without it File opens fail loudly and capabilities say durable: false.
+// dedicated workers, so the engine runs in day-sqlite-worker's day-sql worker (the same wasm
+// module, instantiated there) and this side is a proxy. Each call encodes one request in
+// day-sqlite-worker's protocol, hands it to that crate's channel, and the main thread blocks
+// the few microseconds until the worker's reply lands back through the SharedArrayBuffer.
+// Fully synchronous from Rust's point of view, fully durable at commit, one code path with
+// every other platform. The channel needs cross-origin isolation (COOP/COEP; `day launch`
+// serves it, see docs/web.md); without it File opens fail loudly and capabilities say
+// durable: false.
 // ---------------------------------------------------------------------------
 
 #[cfg(all(target_family = "wasm", target_os = "unknown"))]
@@ -621,34 +622,20 @@ mod web {
     pub(super) mod channel {
         use super::*;
 
-        #[link(wasm_import_module = "env")]
-        unsafe extern "C" {
-            /// 1 while the day-sql worker is up and the SharedArrayBuffer channel is live.
-            fn day_dom_sql_ready() -> i32;
-            /// Send one request; answers the reply's byte length, or -1 with no channel.
-            fn day_dom_sql_call(req: *const u8, len: usize) -> f64;
-            /// Copy the staged reply (`day_dom_sql_call`'s length) into `dst`.
-            fn day_dom_sql_reply(dst: *mut u8);
-        }
-
         pub(crate) fn ready() -> bool {
-            unsafe { day_dom_sql_ready() == 1 }
+            day_sqlite_worker::channel::ready()
         }
 
         /// One round trip. Worker-reported SQL errors come back as [`DbError`]s here, so
         /// callers only ever match the success variants.
         pub(crate) fn call(req: &WReq) -> Result<WReply, DbError> {
-            let bytes = protocol::encode_req(req);
-            let len = unsafe { day_dom_sql_call(bytes.as_ptr(), bytes.len()) };
-            if len < 0.0 {
+            let Some(reply) = day_sqlite_worker::channel::call(&protocol::encode_req(req)) else {
                 return Err(DbError::new(
                     DbErrorKind::Unsupported,
                     "no SQL worker — file databases on the web need the day-sql worker, \
                      which needs cross-origin isolation (COOP/COEP headers; docs/web.md)",
                 ));
-            }
-            let mut reply = vec![0u8; len as usize];
-            unsafe { day_dom_sql_reply(reply.as_mut_ptr()) };
+            };
             match protocol::decode_reply(&reply) {
                 Ok(WReply::Err(m)) => Err(DbError::driver(m)),
                 Ok(r) => Ok(r),

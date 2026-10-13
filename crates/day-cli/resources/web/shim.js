@@ -1060,26 +1060,9 @@ const env = {
     }
     return clipboardMirror != null ? 1 : 0;
   },
-  // Host services shared with the day-sql worker instance (day-sqlite-worker crate).
+  // Host services: wall-clock time and entropy (day-dom's `getrandom` bridge, docs/web.md).
   day_dom_now_ms: () => Date.now(),
   day_dom_entropy: (p, n) => crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, p, n)),
-  // The day-sql channel (see above). The reply is staged; a second call copies it out.
-  day_dom_sql_ready: () => (sqlReady ? 1 : 0),
-  day_dom_sql_call: (p, n) => sqlCall(new Uint8Array(wasm.memory.buffer, p, n).slice()),
-  day_dom_sql_reply: (p) => { new Uint8Array(wasm.memory.buffer, p, sqlReplyBuf.length).set(sqlReplyBuf); sqlReplyBuf = null; },
-  // day_sql_fs_*: the OPFS primitives the worker instance implements. The app instance links
-  // them (same module) but never calls them, so every arm here just refuses.
-  day_sql_fs_open: () => -1,
-  day_sql_fs_read: () => -1,
-  day_sql_fs_write: () => -1,
-  day_sql_fs_truncate: () => -1,
-  day_sql_fs_size: () => -1,
-  day_sql_fs_flush: () => -1,
-  day_sql_fs_close: () => 0,
-  day_sql_fs_delete: () => -1,
-  day_sql_fs_exists: () => 0,
-  day_sql_fs_list: () => 0,
-  day_sql_log: () => 0,
   // Save flow: bytes must be copied out before this call returns (Rust frees them after).
   day_dom_present_save: (req, json, len, bytes, blen) =>
     presentSave(req, JSON.parse(str(json, len)), new Uint8Array(wasm.memory.buffer, bytes, blen).slice()),
@@ -2561,18 +2544,6 @@ function replay(canvas, ops, strs, w, h) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// The day-sql channel (docs/persistence.md): synchronous SQLite over the day-sql worker.
-// The worker holds databases on OPFS sync access handles; this side writes a request into a
-// SharedArrayBuffer and spins the few microseconds until the reply state flips, so wasm's
-// day_dom_sql_call is fully synchronous. Needs cross-origin isolation (the day server sends
-// COOP/COEP); without it sqlReady stays false and file databases refuse loudly in Rust.
-// ---------------------------------------------------------------------------
-
-const SQL_STATE = 0, SQL_LEN = 1, SQL_TOTAL = 2;
-const SQL_IDLE = 0, SQL_REQ = 1, SQL_REQ_ACK = 2, SQL_REPLY = 3, SQL_REPLY_ACK = 4;
-const SQL_DATA_OFF = 16, SQL_SAB_SIZE = (1 << 22) + SQL_DATA_OFF;
-let sqlI = null, sqlB = null, sqlCap = 0, sqlReady = false, sqlReplyBuf = null;
 // Owned byte transport for day-part-clipboard; callbacks consume day_dom_alloc buffers.
 function clipResult(req,status,bytes=new Uint8Array()) {
   const p = bytes.length ? wasm.day_dom_alloc(bytes.length) : 0;
@@ -2596,80 +2567,6 @@ let modifierMask = 0;
 const trackModifiers = (e) => {
   modifierMask = (e.shiftKey ? 1 : 0) | ((e.metaKey || e.ctrlKey) ? 2 : 0) | (e.altKey ? 4 : 0);
 };
-
-async function startSqlWorker(module) {
-  if (!crossOriginIsolated || typeof SharedArrayBuffer === 'undefined') return;
-  try {
-    const sab = new SharedArrayBuffer(SQL_SAB_SIZE);
-    const worker = new Worker('day-sql-worker.js');
-    const ready = new Promise((resolve) => {
-      worker.onmessage = (e) => {
-        if (e.data === 'ready') { sqlReady = true; }
-        else { sqlReady = false; console.error('day-sql worker:', e.data); }
-        resolve();
-      };
-      setTimeout(resolve, 20000);
-    });
-    worker.postMessage({ sab, module });
-    await ready;
-    if (sqlReady) {
-      sqlI = new Int32Array(sab);
-      sqlB = new Uint8Array(sab, SQL_DATA_OFF);
-      sqlCap = sqlB.length;
-      // On the way out (reload, navigation), tell the worker to close its OPFS handles so
-      // the next page load can acquire them immediately (state 9 = quit).
-      addEventListener('pagehide', () => {
-        Atomics.store(sqlI, SQL_STATE, 9);
-        Atomics.notify(sqlI, SQL_STATE);
-      });
-    }
-  } catch (e) {
-    console.error('day-sql worker failed to start', e);
-    sqlReady = false;
-  }
-}
-
-// Spin until the state word equals v. Bounded: a wedged worker downgrades the channel
-// instead of hanging the page.
-function sqlSpin(v) {
-  const deadline = performance.now() + 20000;
-  while (Atomics.load(sqlI, SQL_STATE) !== v) {
-    if (performance.now() > deadline) { sqlReady = false; return false; }
-  }
-  return true;
-}
-
-function sqlCall(req) {
-  if (!sqlReady) return -1;
-  sqlI[SQL_TOTAL] = req.length;
-  let off = 0;
-  for (;;) {
-    const n = Math.min(sqlCap, req.length - off);
-    sqlB.set(req.subarray(off, off + n));
-    sqlI[SQL_LEN] = n;
-    off += n;
-    Atomics.store(sqlI, SQL_STATE, SQL_REQ);
-    Atomics.notify(sqlI, SQL_STATE);
-    if (off >= req.length) break;
-    if (!sqlSpin(SQL_REQ_ACK)) return -1;
-  }
-  if (!sqlSpin(SQL_REPLY)) return -1;
-  const total = sqlI[SQL_TOTAL];
-  sqlReplyBuf = new Uint8Array(total);
-  let got = 0;
-  for (;;) {
-    const n = sqlI[SQL_LEN];
-    sqlReplyBuf.set(sqlB.subarray(0, n), got);
-    got += n;
-    if (got >= total) break;
-    Atomics.store(sqlI, SQL_STATE, SQL_REPLY_ACK);
-    Atomics.notify(sqlI, SQL_STATE);
-    if (!sqlSpin(SQL_REPLY)) return -1;
-  }
-  Atomics.store(sqlI, SQL_STATE, SQL_IDLE);
-  Atomics.notify(sqlI, SQL_STATE);
-  return total;
-}
 
 // ---------------------------------------------------------------------------
 // Dialogs (docs/dialogs.md): <dialog>-backed alert/confirm/sheet/prompt.
@@ -2788,13 +2685,16 @@ async function boot(wasmUrl) {
 
   // Streaming instantiation needs the server to answer `application/wasm`; fall back to a
   // buffered instantiate so the page also works on static hosts with looser MIME tables.
-  // daybridge (docs/bridge.md): each bridged crate's web arm ships as its own ES module beside
-  // this shim, rather than being hand-written into it. `day build` lists them in
-  // `window.__DAY_BRIDGES`; each exports `register(rt)` returning the imports it implements, which
-  // join `env` before instantiation. A name collision between two crates is impossible (every
-  // import is `day_bridge_<crate>_<fn>`), but a module that fails to load must not take the app
-  // down with it, so a failure is logged and its arm stays unimplemented.
-  // The runtime a bridge module gets. `exports` is a lazy accessor because the instance is bound
+  // Web modules (docs/web.md): a crate's browser half ships as its own ES module beside this
+  // shim, rather than being hand-written into it. `day build` lists them in
+  // `window.__DAY_MODULES`: the daybridge web arms it generates (docs/bridge.md) and the modules
+  // crates declare in `[package.metadata.day.web]`. Each may export `register(rt)`, returning the
+  // wasm imports it implements, which join `env` before instantiation, and `start(rt, module)`,
+  // which gets the compiled app module and is awaited before the app's entry point runs. A
+  // bridge import cannot collide with another crate's (every one is `day_bridge_<crate>_<fn>`),
+  // and a module that fails to load must not take the page down silently, so a failure is
+  // logged and its imports stay unimplemented.
+  // The runtime a module gets. `exports` is a lazy accessor because the instance is bound
   // only after every module has registered; an asynchronous arm's completion (docs/bridge.md
   // "Callbacks") reaches wasm through it, handing strings and bytes over as (ptr, len) pairs it
   // allocated with `intoWasm` / `bytesIntoWasm`.
@@ -2824,27 +2724,35 @@ async function boot(wasmUrl) {
     },
     exports: () => wasm,
   };
-  for (const url of window.__DAY_BRIDGES ?? []) {
+  const starters = [];
+  for (const url of window.__DAY_MODULES ?? []) {
     try {
       const mod = await import(url);
-      Object.assign(env, mod.register(bridgeRt));
+      if (mod.register) Object.assign(env, mod.register(bridgeRt));
+      if (mod.start) starters.push([url, mod.start]);
     } catch (e) {
-      console.error(`day-bridge: ${url} failed to load`, e);
+      console.error(`day: web module ${url} failed to load`, e);
     }
   }
 
-  // One compile serves both instantiations: the compiled module is structured-cloneable, so
-  // the day-sql worker gets it over postMessage instead of compiling the bytes again. The
-  // worker is kicked first and awaited just before day_dom_main: by the time app code can
-  // open a database, the channel is either up or definitively absent, so Rust needs no async
-  // path.
+  // The compiled module is structured-cloneable, so a web module that runs the app's wasm a
+  // second time (day-sqlite-worker's SQL worker does) gets it from `start` instead of compiling
+  // the bytes again. Every `start` is kicked before instantiation and awaited just before
+  // day_dom_main: by the time app code runs, whatever a module boots is either up or
+  // definitively absent, so Rust needs no async path to find out.
   let module;
   try {
     module = await WebAssembly.compileStreaming(fetch(wasmUrl));
   } catch {
     module = await WebAssembly.compile(await (await fetch(wasmUrl)).arrayBuffer());
   }
-  const sqlBoot = startSqlWorker(module);
+  const started = Promise.all(starters.map(async ([url, start]) => {
+    try {
+      await start(bridgeRt, module);
+    } catch (e) {
+      console.error(`day: web module ${url} failed to start`, e);
+    }
+  }));
   wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
 
   // Installed PWA file handling (Chromium). Other browsers retain the ordinary picker.
@@ -2932,7 +2840,7 @@ async function boot(wasmUrl) {
       for (const line of scriptOutbox.splice(0)) scriptWs.send(line);
     });
     scriptWs.addEventListener('message', (ev) => {
-      // Lines can arrive while boot still awaits the day-sql worker below, before
+      // Lines can arrive while boot still awaits the web modules below, before
       // day_dom_main, when the engine cannot take them. Queue until the app starts.
       if (!appStarted) { scriptInbox.push(String(ev.data)); return; }
       const [p, l] = intoWasm(String(ev.data));
@@ -2940,7 +2848,7 @@ async function boot(wasmUrl) {
     });
   }
 
-  await sqlBoot;
+  await started;
   wasm.day_dom_main();
   appStarted = true;
   for (const line of scriptInbox.splice(0)) {

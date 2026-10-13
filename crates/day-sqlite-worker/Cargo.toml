@@ -17,7 +17,8 @@ license.workspace = true
 # The SQLite engine day-persistence uses on web-dom (docs/persistence.md): the vendored
 # amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the synchronous
 # OPFS access-handle imports the day-sql worker page provides, and the statement protocol the
-# main thread speaks to it over the SharedArrayBuffer channel. One wasm, two instantiations:
+# main thread speaks to it over the SharedArrayBuffer channel. The browser half ships here
+# too, under web/ (see [package.metadata.day.web] below). One wasm, two instantiations:
 # the app instance uses only `Connection` on `:memory:` databases; the worker instance runs
 # `day_sql_exec` against real OPFS files. Compiles and tests on native hosts too (the OPFS
 # imports swap for an in-memory fake), so the whole engine path is unit-testable without a
@@ -28,3 +29,10 @@ log = { workspace = true }
 
 [build-dependencies]
 cc = { workspace = true }
+
+# The crate's browser half (docs/web.md "Web modules"). `day build -t web-dom` stages both files
+# beside each other and the host page imports the module before it instantiates the app: it
+# supplies the `day_sql_*` imports and starts the worker.
+[package.metadata.day.web]
+modules = ["web/day-sql.js"]
+files = ["web/day-sql-worker.js"]

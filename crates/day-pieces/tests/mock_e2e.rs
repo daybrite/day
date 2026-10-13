@@ -10151,3 +10151,49 @@ fn document_tabs_observe_native_order_on_focus_and_close_without_frames() {
     native.set(false);
     flush_sync();
 }
+
+#[test]
+fn sidebar_artwork_keeps_color_when_discovered_and_cells_are_recycled() {
+    // Synthetic resource names and downloaded paths; the mock does not read image files.
+    let icon = Signal::new("fixture-glyph".to_owned());
+    let probe = boot(move || {
+        nav(Signal::new("fixture".to_owned()))
+            .style(NavStyle::Sidebar)
+            .section("Fixture feeds")
+            .collapsed_sections(Signal::new(std::collections::HashSet::new()))
+            .items(
+                move || vec![icon.get()],
+                |name| {
+                    item("fixture".to_owned(), "Fixture feed")
+                        .icon(name.clone())
+                        .badge_icon(name.clone())
+                },
+            )
+            .destination(|_| label("Fixture detail"))
+    });
+    let host = probe.find_by_kind("day.tree")[0].0;
+    let header = probe.tree_children(host, None)[0];
+    let token = probe.tree_children(host, Some(header))[0];
+    let cell = MockHandle(9001);
+    probe.tree_bind(host, token, cell);
+    let assert_mode = |name: &str, template: bool| {
+        let images = probe.find_by_kind("day.image");
+        assert_eq!(images.len(), 2, "leading and trailing icons");
+        for (_, image) in images {
+            assert_eq!(image.text, name);
+            assert_eq!(image.flag, template, "{name}");
+        }
+    };
+    assert_mode("fixture-glyph", true);
+    for name in [
+        "/tmp/fixture-artwork.png",
+        "/tmp/fixture-new-artwork.png",
+        "fixture-glyph",
+    ] {
+        icon.set(name.to_owned());
+        flush_sync();
+        probe.tree_bind(host, token, cell);
+        flush_sync();
+        assert_mode(name, !std::path::Path::new(name).is_absolute());
+    }
+}

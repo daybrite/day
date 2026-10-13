@@ -24,8 +24,8 @@ day launch -t web-dom     # build, serve dist/ on 127.0.0.1, open the default br
 day launch -t web-dom --locale ar    # locale rides as ?locale= on the URL
 ```
 
-The Rust target is the whole toolchain for a UI-only app. An app with the `persistence` feature
-also needs a C compiler with a wasm32 backend: day-persistence's web driver compiles the bundled
+The Rust target is the whole toolchain for a UI-only app. An app that depends on day-persistence
+also needs a C compiler with a wasm32 backend: its web driver compiles the bundled
 SQLite to WebAssembly ([docs/persistence.md](persistence.md)). Open-source LLVM clang has the
 backend; Apple's Xcode clang does not, so `day build` probes plain `clang`, then Homebrew LLVM
 (`brew install llvm` is enough; the keg is probed directly, without any PATH setup), then
@@ -53,9 +53,8 @@ index.html                        app.wasm (Rust cdylib)
   (`<div>`, `<button>`, `<input>`, `<select>`, `<progress>`, `<img>`, `<canvas>`, `<dialog>`…);
   layout stays day-core-owned `position:absolute` frames, with two exceptions below.
 - **`crates/day-cli/resources/web/`** — `shim.js` (the DOM half: element table, event dispatch,
-  canvas replay, dialogs, text measurement, the day-sql channel), `day-sql-worker.js` (SQLite
-  over OPFS for day-persistence, [docs/persistence.md](persistence.md)), `day.css` (control
-  styling, light + dark via CSS
+  canvas replay, dialogs, text measurement, and the loader for [web modules](#web-modules)),
+  `day.css` (control styling, light + dark via CSS
   custom properties), `index.html` (fetches and instantiates the wasm). The trio lives in the CLI
   rather than beside the toolkit because `day build` embeds it with `include_str!` (so an
   installed CLI needs no source checkout) and `include_str!` may not reach outside its own
@@ -113,6 +112,46 @@ same reason: they follow the font instead of pinning a desktop row size onto a t
 
 Canvas draw-op text is the exception, because it renders in the app's coordinate space, where
 scaling text but not geometry would corrupt drawings.
+
+## Web modules
+
+The shim implements day-dom's imports. A crate whose wasm half needs JavaScript of its own
+ships it as ES modules, which the page imports before it instantiates the app. Two things
+produce them:
+
+- **daybridge** generates one per bridged crate from its `js` arms ([docs/bridge.md](bridge.md)).
+- **`[package.metadata.day.web]`** names hand-written files, for a browser half a bridge cannot
+  express: a worker, a synchronous channel, imports under the crate's own names.
+
+```toml
+[package.metadata.day.web]
+modules = ["web/day-sql.js"]        # imported by the page
+files = ["web/day-sql-worker.js"]   # staged beside the modules, loaded by them
+```
+
+Paths are relative to the crate root. `day build -t web-dom` reads the table from every crate
+the wasm build links (the dependency graph filtered to `wasm32-unknown-unknown`, so a crate an
+app keeps behind `cfg(not(target_arch = "wasm32"))` contributes nothing) and stages each
+crate's files flat into `dist/modules/<crate>/`,
+so a module reaches a sibling with `new URL('./day-sql-worker.js', import.meta.url)` and two
+crates' files never meet. A path that is not a file, or two files of one name in one crate,
+fails the build. The module URLs join the generated bridge modules in `window.__DAY_MODULES`.
+
+A module may export either or both of:
+
+| Export | Called | Purpose |
+|---|---|---|
+| `register(rt)` | before instantiation | returns an object of wasm imports, merged into `env` |
+| `start(rt, module)` | once the app's wasm is compiled, before instantiation | gets the compiled `WebAssembly.Module`; the returned promise is awaited before the app's entry point runs |
+
+`rt` is the runtime a bridge arm gets (`str`, `mem`, `bytes`, `intoWasm`, `bytesIntoWasm`,
+`exports`, `dom`). `start` exists so that whatever a module boots is up, or known to be absent,
+by the time Rust runs, which keeps the Rust side synchronous. A module that fails to load or to
+start is logged to the console; an import it would have supplied is then missing, and the page
+reports that it could not start.
+
+[day-sqlite-worker](persistence.md#the-web) is the reference: its module supplies the
+`day_sql_*` imports and starts the SQL worker.
 
 ## The main loop, timers, and `day::sleep`
 

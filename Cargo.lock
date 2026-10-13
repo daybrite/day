@@ -448,7 +448,6 @@ dependencies = [
  "day-model",
  "day-part-clipboard",
  "day-part-prefs",
- "day-persistence",
  "day-pieces",
  "day-qt",
  "day-reactive",
@@ -902,6 +901,8 @@ dependencies = [
  "day-macros",
  "day-mock",
  "day-model",
+ "day-persistence-macros",
+ "day-piece-datetime",
  "day-pieces",
  "day-reactive",
  "day-spec",
@@ -910,6 +911,10 @@ dependencies = [
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "day-persistence-macros"
+version = "0.5.1"
 
 [[package]]
 name = "day-piece-activity"
@@ -1008,7 +1013,6 @@ dependencies = [
  "day-gtk",
  "day-macros",
  "day-mock",
- "day-persistence",
  "day-pieces",
  "day-qt",
  "day-reactive",

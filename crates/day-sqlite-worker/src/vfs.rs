@@ -27,9 +27,9 @@ use crate::os;
 pub(crate) mod fsx {
     #[cfg(all(target_family = "wasm", target_os = "unknown"))]
     mod imp {
-        // Implemented by day-sql-worker.js over FileSystemSyncAccessHandle (day-cli resource).
-        // The main app instance links these too (same wasm module) but never calls them; its
-        // shim provides loud stubs.
+        // Implemented by web/day-sql-worker.js over FileSystemSyncAccessHandle. The main app
+        // instance links these too (same wasm module) but never calls them; web/day-sql.js
+        // gives it stubs that refuse.
         #[link(wasm_import_module = "env")]
         unsafe extern "C" {
             fn day_sql_fs_open(name: *const u8, name_len: usize, create: i32) -> i32;

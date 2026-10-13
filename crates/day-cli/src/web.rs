@@ -26,10 +26,6 @@ use crate::targets::Target;
 const HOST_INDEX: &str = include_str!("../resources/web/index.html");
 const HOST_SHIM: &str = include_str!("../resources/web/shim.js");
 const HOST_CSS: &str = include_str!("../resources/web/day.css");
-// The day-sql worker page (docs/persistence.md): SQLite over OPFS sync access handles,
-// serving the main thread over the SharedArrayBuffer channel. Embedded like the shim, and
-// only useful because the server sends COOP/COEP (SharedArrayBuffer needs isolation).
-const HOST_SQL_WORKER: &str = include_str!("../resources/web/day-sql-worker.js");
 // The DAY_WEB_DRIVER page-driver (`day web driver`, docs/web.md): the Playwright browser
 // day-cli spawns for scripted web runs. Embedded like the shim, so the driver protocol
 // (screenshot + quit on the control port) always matches the CLI that speaks it. CI installs
@@ -75,7 +71,7 @@ pub fn build_web(
         cmd.arg("--release");
     }
     cmd.args(["--crate-type", "cdylib"]);
-    // A `persistence` app compiles the bundled SQLite through cc-rs, whose default `clang`
+    // An app with day-persistence compiles the bundled SQLite through cc-rs, whose default `clang`
     // cannot emit wasm on a Mac (Apple's has no wasm32 backend). Resolve a capable compiler
     // the same way doctor reports it and export it; a set CC variable is cc-rs's to honor,
     // and a Missing resolution is not an error here: a UI-only app compiles no C at all.
@@ -101,7 +97,8 @@ pub fn build_web(
     } else {
         // Debug keeps the `name` section (browser backtraces read it) but drops DWARF, which
         // no browser reads and which multiplies the module several times over; the page and
-        // the day-sql worker each decode this module, so its size is boot time twice.
+        // day-sqlite-worker's day-sql worker each decode this module, so its size is boot
+        // time twice.
         //
         // Known limit: a debug persistence app can die opening its store on WebKit only, with
         // "RangeError: Maximum call stack size exceeded" from the day-sql worker. Unoptimized
@@ -115,8 +112,8 @@ pub fn build_web(
     if !out.success() {
         return Err(format!(
             "cargo build failed for {} — see the cargo output above; `day doctor --toolkit dom` \
-             checks the toolchain (the wasm32-unknown-unknown rustup target; with `persistence`, \
-             a wasm-capable clang)",
+             checks the toolchain (the wasm32-unknown-unknown rustup target; with \
+             day-persistence, a wasm-capable clang)",
             target.name
         ));
     }
@@ -131,12 +128,12 @@ pub fn build_web(
     let dist = cargo_dir.join("dist");
     std::fs::create_dir_all(&dist).map_err(|e| format!("dist dir: {e}"))?;
     std::fs::write(dist.join("shim.js"), HOST_SHIM).map_err(|e| format!("shim: {e}"))?;
-    // daybridge web arms (docs/bridge.md): one ES module per bridged crate, listed for the shim to
-    // import and merge into the wasm imports before instantiation.
-    let bridges = crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web"))?;
+    // Web modules (docs/web.md): the ES modules the shim imports and merges into the wasm imports
+    // before instantiation. daybridge generates one per bridged crate (docs/bridge.md); a crate
+    // with a hand-written browser half declares its own in `[package.metadata.day.web]`.
+    let mut modules = crate::bridge::write_js(&dist, &crate::bridge::stage(project, "web"))?;
+    modules.extend(stage_web_modules(project, &dist)?);
     std::fs::write(dist.join("day.css"), HOST_CSS).map_err(|e| format!("css: {e}"))?;
-    std::fs::write(dist.join("day-sql-worker.js"), HOST_SQL_WORKER)
-        .map_err(|e| format!("sql worker: {e}"))?;
     std::fs::copy(&wasm, dist.join("app.wasm")).map_err(|e| format!("{}: {e}", wasm.display()))?;
 
     // Vector glyphs (docs/vectors.md): the SVG is what day-dom asks for and what the browser
@@ -188,7 +185,7 @@ pub fn build_web(
         .map(|n| format!("\"{n}\""))
         .collect::<Vec<_>>()
         .join(",");
-    let bridges_json = bridges
+    let modules_json = modules
         .iter()
         .map(|m| format!("\"{m}\""))
         .collect::<Vec<_>>()
@@ -223,7 +220,7 @@ pub fn build_web(
             )
             .replace("<!--day:head-->", &head_tags(&home, &icons))
             .replace("[/*day:vectors*/]", &format!("[{vectors_json}]"))
-            .replace("[/*day:bridges*/]", &format!("[{bridges_json}]")),
+            .replace("[/*day:modules*/]", &format!("[{modules_json}]")),
     )
     .map_err(|e| format!("index: {e}"))?;
     // Bundled images, flat under assets/images/, the paths day-dom writes into `src` attrs.
@@ -603,6 +600,44 @@ fn text_escape(s: &str) -> String {
 
 fn attr_escape(s: &str) -> String {
     text_escape(s).replace('"', "&quot;")
+}
+
+/// Stage every crate's `[package.metadata.day.web]` files under `dist/modules/<crate>/`, flat,
+/// and return the module URLs for the shim to import (docs/web.md "Web modules"). One
+/// directory per crate is what lets a module name a sibling relative to itself, and keeps two
+/// crates' files apart. A crate that stops contributing loses its directory on the next build.
+fn stage_web_modules(project: &Project, dist: &Path) -> Result<Vec<String>, String> {
+    let root = dist.join("modules");
+    // The SQL worker used to be a host file at the dist root; day-sqlite-worker ships it now.
+    let _ = std::fs::remove_file(dist.join("day-sql-worker.js"));
+    let contributions = crate::pieces::contributed_web(project)?;
+    if contributions.is_empty() {
+        let _ = std::fs::remove_dir_all(&root);
+        return Ok(Vec::new());
+    }
+    let mut expected = std::collections::HashSet::new();
+    let mut urls = Vec::new();
+    for c in &contributions {
+        let dir = root.join(&c.krate);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for (src, is_module) in c
+            .modules
+            .iter()
+            .map(|m| (m, true))
+            .chain(c.files.iter().map(|f| (f, false)))
+        {
+            // `contributed_web` only returns paths that are files, so each has a name.
+            let name = src.file_name().unwrap_or_default();
+            let dest = dir.join(name);
+            crate::pieces::copy_if_changed(src, &dest)?;
+            if is_module {
+                urls.push(format!("./modules/{}/{}", c.krate, name.to_string_lossy()));
+            }
+            expected.insert(dest);
+        }
+    }
+    crate::pieces::prune_except(&root, &expected);
+    Ok(urls)
 }
 
 /// Every file under `dist` as `(relative path with '/' separators, bytes)`, sorted by path:

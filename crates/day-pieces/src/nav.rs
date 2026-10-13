@@ -832,6 +832,26 @@ fn sidebar_rows<K: Route>(rows: NavRows<K>) -> Vec<SidebarRow<K>> {
     result
 }
 fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool) -> AnyPiece {
+    // Downloaded artwork keeps its colors. Rebuild when a recycled row switches between
+    // a bundled placeholder and a local file: template is a realization-time property.
+    when(
+        move || {
+            slot.field(|r| {
+                let name = if trailing { &r.badge_icon } else { &r.icon };
+                name.as_deref()
+                    .is_some_and(|name| std::path::Path::new(name).is_absolute())
+            })
+        },
+        move || sidebar_image_view(slot, trailing, false),
+    )
+    .otherwise(move || sidebar_image_view(slot, trailing, true))
+    .any()
+}
+fn sidebar_image_view<K: Route>(
+    slot: ItemSlot<SidebarRow<K>, String>,
+    trailing: bool,
+    template: bool,
+) -> AnyPiece {
     piece_fn(move |cx| {
         // A template glyph (docs/vectors.md): untinted, it draws in the row's own foreground
         // and follows the theme, as the native nav-menu rows draw theirs. As authored, the
@@ -840,7 +860,7 @@ fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool
         // cell holding this row has no native view yet.
         let tint_of = move || slot.field(|r| if trailing { r.badge_tint } else { r.tint });
         let seed = day_reactive::untrack(tint_of);
-        let node = image(move || {
+        let image = image(move || {
             day_spec::ImageSource::Named(slot.field(|r| {
                 if trailing {
                     r.badge_icon.clone()
@@ -850,9 +870,8 @@ fn sidebar_image<K: Route>(slot: ItemSlot<SidebarRow<K>, String>, trailing: bool
                 .unwrap_or_default()
             }))
         })
-        .template()
-        .initial_tint(seed)
-        .build(cx);
+        .initial_tint(seed);
+        let node = if template { image.template() } else { image }.build(cx);
         bind(tint_of, move |tint| {
             with_tree(|t| {
                 t.patch(

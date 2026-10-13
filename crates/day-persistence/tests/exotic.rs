@@ -5,9 +5,8 @@
 //! and megabyte payloads, malformed FTS syntax, sentinel keys, container churn: the places a
 //! design is usually under-specified, pinned as behavior.
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{GeoRect, ModelContainer, Sqlite, schema};
+use day_persistence::{GeoRect, Model, ModelContainer, Sqlite, schema};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

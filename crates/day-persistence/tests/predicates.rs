@@ -6,10 +6,10 @@
 //! in-memory rule too (a comparison against NULL is UNKNOWN, not false), and a predicate
 //! whose SQL form would select different rows says so through `sql_exact`.
 
-use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
 use day_persistence::{
-    Fetch, ModelContainer, One, Pred, Recorder, RowView, Sqlite, Value, compare_values, schema,
+    Fetch, Model, ModelContainer, One, Pred, Recorder, RowView, Sqlite, Value, compare_values,
+    schema,
 };
 use day_reactive::Binding;
 

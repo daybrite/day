@@ -4,9 +4,8 @@
 //! The real driver, on real files: rows survive a reopen, hand-made tables coexist, backups
 //! open clean, and lightweight migration closes column gaps without losing data.
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{ModelContainer, Sqlite, schema};
+use day_persistence::{Model, ModelContainer, Sqlite, schema};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

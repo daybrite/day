@@ -4,8 +4,9 @@
 // The day-sql worker (docs/persistence.md, docs/web.md): SQLite over real OPFS, serving the
 // main thread synchronously.
 //
-// This is the second instantiation of the app's wasm module: the day-sqlite-worker crate
-// linked into it exports `day_sql_exec`, and everything UI-shaped is stubbed out. OPFS sync
+// This is the worker half of day-sqlite-worker, started by `day-sql.js` beside it. It is the
+// second instantiation of the app's wasm module: the day-sqlite-worker crate linked into it
+// exports `day_sql_exec`, and everything UI-shaped is stubbed out. OPFS sync
 // access handles exist only in workers like this one, so file I/O here is plain synchronous
 // JS (`day_sql_fs_*` below), and the main thread reaches the engine over a SharedArrayBuffer:
 // it writes a request, `Atomics.notify`, and spins the few microseconds until the reply state
@@ -270,11 +271,14 @@ onmessage = async (e) => {
     I = new Int32Array(sab);
     B = new Uint8Array(sab, DATA_OFF);
     CAP = B.length;
-    // Stub every UI-shaped import: this instance only ever runs the engine path.
+    // Stub every UI-shaped import: this instance only ever runs the engine path. Time and
+    // entropy stay real under both the engine's names and day-dom's, whose `getrandom` bridge
+    // is linked into the same module.
+    const now = () => Date.now();
+    const entropy = (p, n) => crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, p, n));
+    const host = { day_sql_now_ms: now, day_sql_entropy: entropy, day_dom_now_ms: now, day_dom_entropy: entropy };
     const env = new Proxy(fsEnv, {
-      get: (t, k) => t[k] ?? ((k === 'day_dom_now_ms') ? () => Date.now()
-        : (k === 'day_dom_entropy') ? (p, n) => crypto.getRandomValues(new Uint8Array(wasm.memory.buffer, p, n))
-          : () => 0),
+      get: (t, k) => t[k] ?? host[k] ?? (() => 0),
     });
     // The page compiled the module once; this instantiation is cheap. Import modules besides
     // `env` (unreached wasm-bindgen placeholders a dependency drags in; see the page shim's

@@ -19,6 +19,11 @@
 #
 # So both directions are checked. The rule to remember when writing shim code: a verb the shim
 # defines is called through `env.`, and a verb Rust exports is called through `wasm.`.
+#
+# A crate that ships its own browser half (`[package.metadata.day.web]`, docs/web.md "Web
+# modules") holds the same two contracts with its own scripts, so each such crate is checked the
+# same way: every import its Rust declares must be named by one of its modules, whose `register`
+# is what puts it on `env`, and every `wasm.name(...)` its scripts call must be an export.
 
 import os
 import re
@@ -82,6 +87,39 @@ for path in import_sources:
 missing_imports = sorted(imports - provided)
 missing_exports = sorted(n for n in called if n.startswith("day_") and n not in exports)
 
+# Crates with a browser half of their own.
+module_problems = []
+module_crates = 0
+for group in ("crates", "pieces", "parts", "tweaks"):
+    base = os.path.join(ROOT, group)
+    for name in sorted(os.listdir(base)) if os.path.isdir(base) else []:
+        manifest = os.path.join(base, name, "Cargo.toml")
+        try:
+            toml = open(manifest, encoding="utf-8").read()
+        except OSError:
+            continue
+        table = re.search(r"^\[package\.metadata\.day\.web\]\n(.*?)(?=^\[|\Z)", toml, re.S | re.M)
+        if not table:
+            continue
+        module_crates += 1
+        listed = lambda key: re.findall(
+            r'"([^"]+)"', (re.search(rf"^{key}\s*=\s*\[(.*?)\]", table.group(1), re.S | re.M) or [""] * 2)[1]
+        )
+        read = lambda rel: open(os.path.join(base, name, rel), encoding="utf-8").read()
+        modules = "\n".join(read(rel) for rel in listed("modules"))
+        scripts = modules + "\n".join(read(rel) for rel in listed("files"))
+        declared = set()
+        for path in rust_files(os.path.join(group, name, "src")):
+            for blk in re.findall(r'extern\s+"C"\s*\{(.*?)\n\s*\}', open(path, encoding="utf-8").read(), re.S):
+                declared |= {n for n in re.findall(r"\bfn\s+(\w+)\s*\(", blk) if n.startswith("day_")}
+        supplied = set(re.findall(r"^\s+(day_\w+)\s*[:(]", modules, re.M))
+        for n in sorted(declared - supplied):
+            module_problems.append(
+                f"{name}: no web module supplies `{n}` — Rust imports it, so the module fails to instantiate"
+            )
+        for n in sorted(set(re.findall(r"wasm\.(day_\w+)\s*\(", scripts)) - exports):
+            module_problems.append(f"{name}: a web script calls `wasm.{n}(...)` but no Rust code exports it")
+
 for name in missing_imports:
     print(f"shim.js provides no `{name}` — Rust imports it, so the module fails to instantiate")
 for name in missing_exports:
@@ -90,9 +128,12 @@ for name in missing_exports:
         f"({'it is an env import — call it as `env.' + name + '(...)`' if name in provided else 'no such export'})"
     )
 
-n = len(missing_imports) + len(missing_exports)
+for line in module_problems:
+    print(line)
+
+n = len(missing_imports) + len(missing_exports) + len(module_problems)
 print(
     f"web shim ABI: {len(imports)} import(s), {len([c for c in called if c.startswith('day_')])} "
-    f"export call(s) — {n} problem(s)"
+    f"export call(s), {module_crates} crate(s) with web modules — {n} problem(s)"
 )
 sys.exit(1 if n else 0)

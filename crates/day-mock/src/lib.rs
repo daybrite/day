@@ -1180,6 +1180,8 @@ impl Toolkit for MockToolkit {
             // The probe records which pixels were asked for, so a test can assert that a name
             // resolved, that bytes arrived, or that two nodes share one decode (docs/images.md).
             w.text = describe_image_source(&p.source);
+            // Image probes expose template mode for artwork/glyph regression tests.
+            w.flag = p.template;
             detail = format!(" source={}", w.text);
         } else if let Some(p) = props.downcast_ref::<ProgressProps>() {
             // `flag` records indeterminate-ness; `value` the determinate fraction.

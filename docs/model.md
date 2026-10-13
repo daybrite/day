@@ -53,6 +53,24 @@ that is not its key would make inference a trap, and a keyed collection over a s
 `#[obs(key)]` is a compile error naming `Identified`. And field ids come from field **names**,
 so no hand-assigned index can ever collide.
 
+A derive layered on `Observable` does not generate the accessors a second time. It restates
+the struct with the fields to observe and expands to `day_macros::observable_impls!`, which
+emits the same impls the derive does without the struct itself:
+
+```rust
+day_macros::observable_impls! {
+    struct Item {
+        #[obs(key)]
+        id: u32,
+        name: String,
+    }
+}
+```
+
+[day-persistence](persistence.md)'s `#[derive(Model)]` is built this way. `Observable` also
+accepts that derive's `#[model(…)]` attributes and reads `#[model(id)]` as the key, so one
+struct can derive `Model` on the targets that store it and `Observable` on the rest.
+
 ## Keys and ids
 
 A key field is an integer, a `Uuid`, or a `String`, whatever implements `AsKey`. Integers are

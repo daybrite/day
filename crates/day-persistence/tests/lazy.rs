@@ -7,9 +7,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{DEFAULT_CACHE_LIMIT, ModelContainer, Sqlite, schema};
+use day_persistence::{DEFAULT_CACHE_LIMIT, Model, ModelContainer, Sqlite, schema};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

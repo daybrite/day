@@ -323,7 +323,7 @@ pub(crate) fn cargo_metadata_for_contributions(
 }
 
 pub(crate) fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Metadata, String> {
-    cargo_metadata_inner(project, features, false)
+    cargo_metadata_inner(project, features, false, None)
 }
 
 /// `cargo metadata --all-features`, the form external-toolkit discovery needs: a toolkit crate
@@ -331,13 +331,17 @@ pub(crate) fn cargo_metadata(project: &Project, features: &[&str]) -> Result<Met
 /// unactivated optional deps from `packages` under any narrower flag set (verified empirically:
 /// only `--all-features` lists them). Feature-closure consumers keep the precise form above.
 pub(crate) fn cargo_metadata_all_features(project: &Project) -> Result<Metadata, String> {
-    cargo_metadata_inner(project, &[], true)
+    cargo_metadata_inner(project, &[], true, None)
 }
 
+/// `platform` narrows the resolve graph to one target triple (`--filter-platform`). Without it
+/// the graph is every platform's at once, which suits contributions keyed by toolkit feature;
+/// one keyed by target instead (the web modules) needs the dependencies that target links.
 fn cargo_metadata_inner(
     project: &Project,
     features: &[&str],
     all_features: bool,
+    platform: Option<&str>,
 ) -> Result<Metadata, String> {
     let manifest = project.root.join("Cargo.toml");
     // Resolve cargo the way the build commands do (day_toolchain: RUSTUP_HOME-aware, plus the
@@ -387,6 +391,9 @@ fn cargo_metadata_inner(
     enabled.dedup();
     if !enabled.is_empty() {
         cmd.arg("--features").arg(enabled.join(","));
+    }
+    if let Some(platform) = platform {
+        cmd.args(["--filter-platform", platform]);
     }
     let out = cmd.output().map_err(|e| format!("cargo metadata: {e}"))?;
     if !out.status.success() {
@@ -830,6 +837,115 @@ pub fn contributed_assets(
     out.sort();
     out.dedup();
     out
+}
+
+/// The `[package.metadata.day.web]` table: the browser half a crate ships for web-dom
+/// (docs/web.md "Web modules").
+#[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
+struct WebMeta {
+    /// ES modules (paths relative to the crate root) the host page imports before it
+    /// instantiates the app. A module may export `register(rt)`, returning wasm imports, and
+    /// `start(rt, module)`, awaited before the app's entry point runs.
+    #[serde(default)]
+    modules: Vec<String>,
+    /// Other files staged beside the modules, for them to load by relative URL: a worker
+    /// script, a data file.
+    #[serde(default)]
+    files: Vec<String>,
+}
+
+/// One crate's browser half, as declared in `[package.metadata.day.web]`.
+#[derive(Debug, PartialEq)]
+pub(crate) struct WebContribution {
+    /// The declaring crate's name, which is also the directory its files stage under.
+    pub krate: String,
+    /// The ES modules the page imports, as absolute source paths.
+    pub modules: Vec<std::path::PathBuf>,
+    /// The files staged beside them, as absolute source paths.
+    pub files: Vec<std::path::PathBuf>,
+}
+
+/// Every browser half the app's dependency closure declares, sorted by crate name.
+///
+/// The closure is the wasm target's, not every platform's: an app that keeps a crate out of
+/// its web build with a `cfg(not(target_arch = "wasm32"))` dependency table does not link that
+/// crate's wasm half, so the page must not import its browser half either.
+pub(crate) fn contributed_web(project: &Project) -> Result<Vec<WebContribution>, String> {
+    let mut features = vec!["dom".to_string()];
+    features.extend(feature_union(project, "dom"));
+    let refs: Vec<&str> = features.iter().map(String::as_str).collect();
+    web_contributions(&cargo_metadata_inner(
+        project,
+        &refs,
+        false,
+        Some("wasm32-unknown-unknown"),
+    )?)
+}
+
+/// A declaration that cannot be staged fails the build here. The page would otherwise meet it
+/// as a wasm import nobody supplies, and refuse to start with nothing naming the crate.
+fn web_contributions(meta: &Metadata) -> Result<Vec<WebContribution>, String> {
+    let reachable = closure(meta);
+    let mut out = Vec::new();
+    for pkg in meta.packages.iter().filter(|p| reachable.contains(&p.id)) {
+        let Some(table) = pkg
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("day"))
+            .and_then(|d| d.get("web"))
+        else {
+            continue;
+        };
+        let declared: WebMeta = serde_json::from_value(table.clone()).map_err(|e| {
+            format!(
+                "{}: invalid [package.metadata.day.web]: {e}",
+                pkg.manifest_path
+            )
+        })?;
+        let crate_dir = Path::new(&pkg.manifest_path)
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
+        // Everything stages flat into one directory per crate, so a module reaches its
+        // siblings by `new URL('./name', import.meta.url)`; two files of one name would
+        // overwrite each other there.
+        let mut names = HashSet::new();
+        let mut resolve = |key: &str, rels: &[String]| -> Result<Vec<std::path::PathBuf>, String> {
+            let mut paths = Vec::new();
+            for rel in rels {
+                let path = crate_dir.join(rel);
+                let name = path.file_name().map(|n| n.to_os_string());
+                if !path.is_file() || name.is_none() {
+                    return Err(format!(
+                        "{}: [package.metadata.day.web].{key} names \"{rel}\", which is not a file",
+                        pkg.manifest_path
+                    ));
+                }
+                if !names.insert(name) {
+                    return Err(format!(
+                        "{}: [package.metadata.day.web] names two files called \"{}\"; they \
+                         stage into one directory",
+                        pkg.manifest_path,
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ));
+                }
+                paths.push(path);
+            }
+            Ok(paths)
+        };
+        let modules = resolve("modules", &declared.modules)?;
+        let files = resolve("files", &declared.files)?;
+        if !modules.is_empty() || !files.is_empty() {
+            out.push(WebContribution {
+                krate: pkg.name.clone(),
+                modules,
+                files,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.krate.cmp(&b.krate));
+    Ok(out)
 }
 
 /// Every `[package.metadata.day.permissions].uses` in the app's dependency closure, as
@@ -2495,6 +2611,65 @@ mod tests {
         assert!(dest.join("build.gradle.kts").is_file());
         assert!(!dest.join("src/main/java/A.java").exists());
         assert!(!dest.join("src/main/java/Stale.java").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn web_contributions_follow_the_closure_and_refuse_what_cannot_be_staged() {
+        let tmp = std::env::temp_dir().join(format!("day-web-meta-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("engine/web")).unwrap();
+        std::fs::create_dir_all(tmp.join("engine/alt")).unwrap();
+        std::fs::write(tmp.join("engine/web/page.js"), "export {}").unwrap();
+        std::fs::write(tmp.join("engine/web/worker.js"), "").unwrap();
+        std::fs::write(tmp.join("engine/alt/worker.js"), "").unwrap();
+        let manifest = |krate: &str| tmp.join(krate).join("Cargo.toml").display().to_string();
+        let mut data = serde_json::json!({
+            "packages": [
+                {"id":"app", "name":"app", "manifest_path":manifest("app")},
+                {"id":"engine", "name":"engine", "manifest_path":manifest("engine"),
+                 "metadata":{"day":{"web":{
+                     "modules":["web/page.js"], "files":["web/worker.js"]
+                 }}}},
+                {"id":"unused", "name":"unused", "manifest_path":manifest("unused"),
+                 "metadata":{"day":{"web":{"modules":["missing.js"]}}}}
+            ],
+            "resolve":{"root":"app", "nodes":[
+                {"id":"app", "deps":[{"pkg":"engine"}]}, {"id":"engine", "deps":[]}
+            ]}
+        });
+        let collect = |v: &serde_json::Value| {
+            super::web_contributions(&serde_json::from_value(v.clone()).unwrap())
+        };
+        // The unreachable crate's table is never read, missing file and all.
+        assert_eq!(
+            collect(&data).unwrap(),
+            [super::WebContribution {
+                krate: "engine".into(),
+                modules: vec![tmp.join("engine/web/page.js")],
+                files: vec![tmp.join("engine/web/worker.js")],
+            }]
+        );
+
+        let web = "/packages/1/metadata/day/web";
+        *data.pointer_mut(&format!("{web}/modules/0")).unwrap() = "web/gone.js".into();
+        let err = collect(&data).unwrap_err();
+        assert!(
+            err.contains("modules") && err.contains("web/gone.js"),
+            "{err}"
+        );
+        *data.pointer_mut(&format!("{web}/modules/0")).unwrap() = "web/page.js".into();
+
+        // Same file name from two directories: they would overwrite each other once staged.
+        data.pointer_mut(&format!("{web}/files"))
+            .unwrap()
+            .as_array_mut()
+            .unwrap()
+            .push("alt/worker.js".into());
+        assert!(collect(&data).unwrap_err().contains("two files"));
+
+        *data.pointer_mut(web).unwrap() = serde_json::json!({"scripts":[]});
+        assert!(collect(&data).unwrap_err().contains("invalid"));
         let _ = std::fs::remove_dir_all(&tmp);
     }
 

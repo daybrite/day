@@ -102,7 +102,7 @@ the architecture-level view and the rationale.
 | app lifecycle | [docs/lifecycle.md](docs/lifecycle.md) | [§8.1](#81-the-toolkit-trait), [§9](#9-the-eight-toolkits-and-the-extra-combinations) |
 | async — `day::task`/`TaskHandle`, `Resource`/`Load`, the runtime-quarantine policy | [docs/async.md](docs/async.md) | [§4.5](#45-async) |
 | observable model — per-property `Store`/`Keyed`/`Elem`/`Field`, `#[derive(Observable)]`, the change log | [docs/model.md](docs/model.md) | [Addendum](#addendum-2026-08-22--day-model-per-property-observation) |
-| persistence — `ModelContainer`, `#[derive(Model)]`, SQLite drivers/engines, migrations, codecs | [docs/persistence.md](docs/persistence.md) | [Addendum](#addendum-2026-08-22--day-persistence-sqlite-storage-for-the-model) |
+| persistence — `ModelContainer`, `#[derive(Model)]`, SQLite drivers/engines, migrations, codecs; a crate beside the facade, with its derive and its web scripts | [docs/persistence.md](docs/persistence.md) | [Addendum](#addendum-2026-08-22--day-persistence-sqlite-storage-for-the-model) |
 | tweaks — per-toolkit configuration of built-ins | [docs/tweaks.md](docs/tweaks.md) | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
@@ -375,8 +375,9 @@ Day runtime dependencies), and `day-cli` (the `day` binary).
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, integer/`Uuid`/`String` keys behind `ModelId<M>`, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive, uuid |
-| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)): `ModelContainer`, the `Model` derive's trait half, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), attached external databases (`attach_database`, `external = "alias"` models over tables the container never migrates, swapped in place for a downloaded update) and value links across them (`link(…)`, relations without a key), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
-| `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), and the statement protocol the main thread speaks over the SharedArrayBuffer channel; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)); an app depends on it directly, beside the facade, and nothing in the framework depends on it: `ModelContainer`, the `Model` trait with its derive re-exported under the same name, a `prelude`, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), attached external databases (`attach_database`, `external = "alias"` models over tables the container never migrates, swapped in place for a downloaded update) and value links across them (`link(…)`, relations without a key), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
+| `day-persistence-macros` | `#[derive(Model)]` (same no-syn construction as day-macros): the `#[model(…)]` grammar and the schema half; it expands to day-macros' `observable_impls!` for the observable half | — (proc-macro) |
+| `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), the statement protocol the main thread speaks over the SharedArrayBuffer channel, and the browser half itself: `web/day-sql.js` and `web/day-sql-worker.js`, declared in `[package.metadata.day.web]` ([§15.2](#152-package-layout-and-aggregation)) so the host page carries no SQL; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
 | `day-spec` | `Toolkit` + `Platform` traits, renderer `Registry`, `Event`, typed props/patches, `A11yProps`, `DrawOp` + `Paint`/gradients, `MenuItem`, presentation types, `Cap`/`Support`, `Lifecycle`, `WindowOptions`, piece `kinds` | day-geometry |
 | `day-core` | `Piece` trait + `AnyPiece`, `BuildCx`, the realized tree, the mounter, the layout engine (+ measure cache) and `Layout` trait, the event pump, focus, navigation host, list plumbing, menus, presentation, lifecycle, the `resource()` runtime | day-reactive, day-geometry, day-spec |
@@ -2611,6 +2612,11 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   presentations are still flat. The AppKit outline used the row's NSString as its item
 >   identity and `NSOutlineView` matches items with `isEqual:`, so a header titled like an item
 >   collapsed onto it and wore its icon; rows are keyed by index (an `NSNumber`) now.
+>   Sidebar icons supplied as absolute local paths retain their authored colors; bundled
+>   glyphs remain templates (with optional row tint). Composed tree/list cells rebuild the
+>   image when reuse or asynchronous discovery switches between these source classes,
+>   because template rendering is established when the image is realized. This also applies
+>   to trailing badge images; explicit tints still request monochrome rendering.
 > - **The content list** *(2026-08)* — `nav(…).content_list(build)` adds the Mail shape's
 >   middle column as a third pane role: `Pane::List`, one resident page whose content follows
 >   the app's signals. `Cap::NavContentList` carries where it lands — `Native` on macos-appkit
@@ -3654,6 +3660,11 @@ backends = ["appkit", "dom"]               # backends this crate carries a rende
 assets = ["web"]                           # data-asset dirs staged into every app under the
                                            # crate's name (docs/extending.md)
 
+[package.metadata.day.web]
+modules = ["web/day-sql.js"]               # ES modules the web-dom host page imports before it
+                                           # instantiates the app (docs/web.md "Web modules")
+files = ["web/day-sql-worker.js"]          # staged beside them, for the modules to load
+
 [package.metadata.day.permissions]
 uses = ["camera"]                          # PORTABLE permissions this crate needs (docs/permissions.md)
 
@@ -3682,6 +3693,16 @@ value = "ffmpeg"
 > inner piece is an optional dependency behind the outer one's backend feature, so without it its
 > frameworks, Java, ArkTS, permissions and assets never reached the app
 > ([docs/extending.md](docs/extending.md)).
+
+> [!NOTE]
+> **Web modules (2026-10).** `[package.metadata.day.web]` is how a crate ships a hand-written
+> browser half. `day build -t web-dom` reads it from the crates the wasm build links, stages each
+> crate's files flat into `dist/modules/<crate>/`, and lists the modules in
+> `window.__DAY_MODULES`, the list the generated
+> daybridge arms already rode. The shim imports each before instantiation: `register(rt)` returns
+> wasm imports, and `start(rt, module)` gets the compiled app module and is awaited before the
+> app's entry point. day-sqlite-worker is the first user; the SQL channel and worker script moved
+> out of day-cli's host page into it ([docs/web.md](docs/web.md)).
 
 > [!NOTE]
 > **Localized reasons (2026-09).** A reason is a catalog message (`permission_<name>` in
@@ -5476,8 +5497,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    Native `.inc` fragments are excluded because platform identifiers trigger false positives.
    Local validation and CI share `bash scripts/ci/host-clippy.sh`, which denies warnings and
    lints all targets (including tests) in the default members, CLI/dayscript, dynamic piece
-   registry, model/persistence with the live-list adapter enabled, and the HTTP part with its
-   opt-in reqwest provider. Model/persistence are
+   registry, model/persistence (with its derive crate and the opt-in date and time codecs), and
+   the HTTP part with its opt-in reqwest provider. Model/persistence are
    explicitly selected because they are outside `default-members`; app dependency checks
    do not lint their regression tests. Platform-specific lint commands remain in the backend
    jobs. Run the host script before declaring Rust changes complete; builds and tests alone
@@ -6393,6 +6414,21 @@ independent generalization check — including a hand-written `Binding` for one 
 Day-Showcase gained a Model page with walkthrough coverage.
 
 ## Addendum (2026-08-22) — day-persistence: SQLite storage for the model
+
+> [!IMPORTANT]
+> **Decoupled from the facade (2026-10-13).** Four statements below describe the first shape
+> and no longer hold. The `day` facade has no `persistence`, `sqlite-system` or `sqlite-cipher`
+> feature and re-exports nothing: an app depends on `day-persistence` directly, picks the
+> engine with that crate's `system`/`cipher` features, and writes `use
+> day_persistence::prelude::*`. `#[derive(Model)]` lives in `crates/day-persistence-macros`
+> and expands to day-macros' `observable_impls!` for its observable half; day-macros keeps
+> `Observable`, which still accepts `#[model(…)]` and reads only `id`. The `DayDate`/`DayTime`
+> codecs are day-persistence's `datetime` feature, not a feature of day-piece-datetime. The
+> day-sql channel and worker script ship in `crates/day-sqlite-worker/web/` and reach the page
+> through `[package.metadata.day.web]`. The result is three crates that use the framework's
+> public API and that nothing in the framework depends on, so they can move to a repository of
+> their own; [docs/persistence.md](docs/persistence.md) "The crate's boundary" lists the API
+> they use.
 
 Adopted as phase 2 of the same plan: the change log, folded into SQL.
 [docs/persistence.md](docs/persistence.md) is normative. The API vocabulary is deliberately

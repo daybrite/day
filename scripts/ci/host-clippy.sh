@@ -11,9 +11,10 @@ cargo clippy --locked --all-targets "$@"
 # No workspace member enables dyn-registry; its consumer (day-lite) is a separate repo.
 cargo clippy --locked -p day-cli -p day-script -p day-pieces \
     --features day-pieces/dyn-registry --all-targets "$@"
-# Persistence and model are outside default-members. Include the live-list adapter and
-# worker regression tests, which an app dependency's backend lint does not compile.
-cargo clippy --locked -p day-model -p day-persistence \
-    --features day-persistence/pieces --all-targets "$@"
+# Persistence and model are outside default-members, and no member depends on persistence, so
+# an app dependency's backend lint never compiles its tests. The live-list adapter is a default
+# feature; the date and time codecs are opt-in, so name them.
+cargo clippy --locked -p day-model -p day-persistence -p day-persistence-macros \
+    --features day-persistence/datetime --all-targets "$@"
 # Validate both native/default routing and the opt-in HTTP/WebSocket provider.
 cargo clippy --locked -p day-part-http --features reqwest --all-targets "$@"

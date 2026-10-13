@@ -6,9 +6,8 @@
 
 #![cfg(feature = "cipher")]
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{DbErrorKind, ModelContainer, Secret, Sqlite, schema};
+use day_persistence::{DbErrorKind, Model, ModelContainer, Secret, Sqlite, schema};
 use day_reactive::Binding;
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]
@@ -17,6 +16,14 @@ struct Note {
     #[model(id)]
     id: u32,
     title: String,
+}
+
+/// A stored row's title. Open reads no rows, so the read faults the row in first.
+fn title_of(container: &ModelContainer, id: u32) -> String {
+    container
+        .get::<Note>(id)
+        .map(|note| note.title().peek())
+        .unwrap_or_default()
 }
 
 fn temp_db(name: &str) -> std::path::PathBuf {
@@ -69,7 +76,7 @@ fn an_encrypted_file_opens_with_its_key_and_refuses_others() {
         schema![Note],
     )
     .expect("reopen");
-    assert_eq!(container.cache::<Note>().elem(1).title().peek(), "secret");
+    assert_eq!(title_of(&container, 1), "secret");
     let _ = std::fs::remove_file(&path);
 }
 
@@ -93,7 +100,7 @@ fn encrypt_open_decrypt_round_trips() {
         let container =
             ModelContainer::open(Sqlite::at(&encrypted).key(Secret::new("k1")), schema![Note])
                 .expect("open encrypted copy");
-        assert_eq!(container.cache::<Note>().elem(1).title().peek(), "travels");
+        assert_eq!(title_of(&container, 1), "travels");
         // …and comes back out as plaintext.
         container.decrypt_to(&decrypted).expect("decrypt_to");
     }
@@ -101,7 +108,7 @@ fn encrypt_open_decrypt_round_trips() {
     assert!(head.starts_with(b"SQLite format 3"), "plaintext again");
     let container =
         ModelContainer::open(Sqlite::at(&decrypted), schema![Note]).expect("open decrypted");
-    assert_eq!(container.cache::<Note>().elem(1).title().peek(), "travels");
+    assert_eq!(title_of(&container, 1), "travels");
 
     for p in [plain, encrypted, decrypted] {
         let _ = std::fs::remove_file(&p);
@@ -128,6 +135,6 @@ fn rekey_changes_the_key_in_place() {
     let container =
         ModelContainer::open(Sqlite::at(&path).key(Secret::new("new key")), schema![Note])
             .expect("new key works");
-    assert_eq!(container.cache::<Note>().elem(1).title().peek(), "kept");
+    assert_eq!(title_of(&container, 1), "kept");
     let _ = std::fs::remove_file(&path);
 }

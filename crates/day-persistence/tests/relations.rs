@@ -5,7 +5,6 @@
 //! rules that flow through the normal pipeline, ordered to-many over a visible order field,
 //! and the SQL-level clauses that hold another process to the same rules.
 
-use day_macros::Model;
 use day_model::{ModelId, Op, Uuid};
 use day_persistence::{
     DbErrorKind, DeleteRule, Many, Model, ModelContainer, One, Sqlite, SqliteConnection,

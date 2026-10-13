@@ -1,9 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 #![cfg(not(target_arch = "wasm32"))]
-use day_macros::Model;
 use day_persistence::{
-    DatabaseWorker, DbError, DbErrorKind, ModelContainer, Sqlite, WorkerOptions, schema,
+    DatabaseWorker, DbError, DbErrorKind, Model, ModelContainer, Sqlite, WorkerOptions, schema,
 };
 use day_reactive::Binding;
 use std::{

@@ -1133,13 +1133,13 @@ fn dom_group() -> Group {
                 have_wasm_cc(),
                 "install a clang with the wasm32 backend (`brew install llvm`, or a swift.org \
                  toolchain — `day build` finds either), or point CC_wasm32_unknown_unknown at \
-                 one; needed only when the app enables `persistence` (docs/web.md)",
+                 one; needed only when the app depends on day-persistence (docs/web.md)",
             )
             .need(Need::BuildOptional),
         ],
         setup: "web-dom (docs/web.md) compiles the app's lib crate to WebAssembly and pairs it with\n\
                 the host page embedded in the CLI. The Rust target is the whole toolchain for a\n\
-                UI-only app: `rustup target add wasm32-unknown-unknown`. The `persistence` feature\n\
+                UI-only app: `rustup target add wasm32-unknown-unknown`. An app with day-persistence\n\
                 also compiles the bundled SQLite to wasm, which needs a clang with the wasm32\n\
                 backend — Apple's has none. `day build` probes plain `clang`, then Homebrew LLVM\n\
                 and swift.org toolchains, exporting what it finds; a set CC_wasm32_unknown_unknown\n\

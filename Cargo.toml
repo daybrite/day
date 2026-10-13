@@ -25,6 +25,7 @@ members = [
     "crates/day-vector",
     "crates/day-model",
     "crates/day-persistence",
+    "crates/day-persistence-macros",
     "crates/day-sqlite-worker",
     "crates/day-macros",
     "crates/day",
@@ -130,9 +131,9 @@ day-script-proto = { path = "crates/day-script-proto", version = "0.5.1" }
 day-vector = { path = "crates/day-vector", version = "0.5.1" }
 day-model = { path = "crates/day-model" }
 day-macros = { path = "crates/day-macros" }
-# default-features = false so trait-only and engine-agnostic consumers can inherit without an
-# engine choice; consumers wanting the default engine say `default-features = true`.
-day-persistence = { path = "crates/day-persistence", default-features = false }
+# day-persistence itself has no entry: no member depends on it (docs/persistence.md "The crate's
+# boundary"). These two are its own halves, the derive and the web engine.
+day-persistence-macros = { path = "crates/day-persistence-macros" }
 day-sqlite-worker = { path = "crates/day-sqlite-worker" }
 day = { path = "crates/day" }
 day-piece-combobox = { path = "pieces/day-piece-combobox" }

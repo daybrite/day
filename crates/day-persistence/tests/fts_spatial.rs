@@ -5,10 +5,9 @@
 //! `matches`/`within`/`rank` predicates, index-follows-edit correctness, and the capability
 //! refusal at open.
 
-use day_macros::Model;
 use day_model::Op;
 use day_persistence::{
-    Capabilities, DbError, DbErrorKind, GeoRect, ModelContainer, Sqlite, SqliteConnection,
+    Capabilities, DbError, DbErrorKind, GeoRect, Model, ModelContainer, Sqlite, SqliteConnection,
     SqliteDriver, rank, schema,
 };
 use day_reactive::Binding;

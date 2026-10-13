@@ -4,10 +4,9 @@
 //! Many-to-many: a generated join table whose rows are keyed by the pair, so memberships
 //! fold to SQL, undo, merge and animate through the same machinery every other row uses.
 
-use day_macros::Model;
 use day_model::{Op, Uuid};
 use day_persistence::{
-    DbErrorKind, Many, ModelContainer, Sqlite, SqliteConnection, SqliteDriver, Value, schema,
+    DbErrorKind, Many, Model, ModelContainer, Sqlite, SqliteConnection, SqliteDriver, Value, schema,
 };
 
 // A note-taking app: notes carry tags, tags carry notes, and neither owns the other.

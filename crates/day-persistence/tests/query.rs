@@ -9,9 +9,10 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
-use day_macros::Model;
 use day_model::Op;
-use day_persistence::{Fetch, ModelContainer, QueryEvents, Recorder, Sort, Sqlite, Value, schema};
+use day_persistence::{
+    Fetch, Model, ModelContainer, QueryEvents, Recorder, Sort, Sqlite, Value, schema,
+};
 use day_reactive::{Binding, Signal};
 
 #[derive(Model, Clone, Default, PartialEq, Debug)]

@@ -4,10 +4,9 @@
 //! An attached, externally owned database beside the container's own: models over its tables
 //! as they are, links by value across the two, and the swap a downloaded update makes.
 
-use day_macros::Model;
 use day_model::Op;
 use day_persistence::{
-    Linked, ModelContainer, Schema, Sqlite, SqliteConnection, SqliteDriver, Value, schema,
+    Linked, Model, ModelContainer, Schema, Sqlite, SqliteConnection, SqliteDriver, Value, schema,
 };
 use day_reactive::Binding;
 

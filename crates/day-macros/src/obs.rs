@@ -1,7 +1,8 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! `#[derive(Observable)]` and `#[derive(Model)]`: the day-model and day-persistence derives.
+//! `#[derive(Observable)]`: the day-model derive, and `observable_impls!`, the same expansion
+//! for a struct that is described rather than derived.
 //!
 //! For `struct Item { id: u32, name: String, … }`, `Observable` generates:
 //!
@@ -11,22 +12,26 @@
 //! - an `ItemFields` trait with one accessor per field, implemented for every
 //!   `Source<Item>`, so `store.name()`, `store.elem(id).name()` and `item.address().city()`
 //!   all work;
+//! - `impl day_model::ApplyField for Item`, the typed path undo replays through;
 //! - `Item::OBSERVED_FIELDS`, so a test can assert what is observable without reflection.
 //!
-//! `#[obs(skip)]` leaves a field out entirely: it gets no accessor, path or trigger and, under
-//! `Model`, no column. A field the change log cannot name could never mark its row dirty, so
-//! persisting it would silently lose edits.
+//! `#[obs(skip)]` leaves a field out entirely: it gets no accessor, path or trigger.
 //!
-//! `Model` implies `Observable` and adds the schema half (docs/persistence.md): `impl
-//! day_persistence::Model` with the table name, column list, row↔struct mappers and the default
-//! row. `#[model(id)]` marks the key (it is `#[obs(key)]` too); field options are `column =
-//! "…"`, `unique`, `index`, `transient` (observable, never stored), `with = Codec` and `json`;
-//! struct options are `table = "…"` and `index("a", "b")` for composites.
+//! `#[model(…)]` attributes are accepted and all but ignored: `#[model(id)]` marks the key, the
+//! same as `#[obs(key)]`, and nothing else is read. They belong to day-persistence's `Model`
+//! derive; tolerating them here is what lets one struct derive `Model` where it is stored and
+//! `Observable` where it is not, behind `cfg_attr`, without restating its fields.
+//!
+//! `observable_impls! { struct Item { #[obs(key)] id: u32, name: String } }` emits the same
+//! impls without the struct itself. It is the hook for a derive layered on `Observable`: such a
+//! derive owns its own attribute grammar, restates the struct with only the fields it wants
+//! observed, and expands to this macro, so the accessors have one implementation. day-persistence's
+//! `#[derive(Model)]` is built that way (docs/persistence.md).
 //!
 //! Field ids come from field names (`day_model::field_id`), so no index can be duplicated by
-//! hand. Generated paths say `day_model::…` / `day_persistence::…` unqualified: the crates
-//! depend on nothing that could shadow them, and the `day` facade's prelude re-exports both
-//! names, so a direct dependency and `use day::prelude::*` both resolve them.
+//! hand. Generated paths say `day_model::…` unqualified: the crate depends on nothing that could
+//! shadow it, and the `day` facade's prelude re-exports the name, so a direct dependency and
+//! `use day::prelude::*` both resolve it.
 //!
 //! Same construction as [`crate::build_path!`], with neither syn nor quote. A derive that needs
 //! field names and type tokens never has to understand a type, only re-emit it.
@@ -35,10 +40,6 @@ use proc_macro::{Delimiter, TokenStream, TokenTree};
 
 pub(crate) fn observable(input: TokenStream) -> TokenStream {
     finish(expand_observable(input))
-}
-
-pub(crate) fn model(input: TokenStream) -> TokenStream {
-    finish(expand_model(input))
 }
 
 fn finish(result: Result<String, String>) -> TokenStream {
@@ -58,60 +59,10 @@ struct FieldDef {
     ty: String,
     key: bool,
     skip: bool,
-    // The #[model(…)] half; inert under a bare Observable.
-    column: Option<String>,
-    unique: bool,
-    indexed: bool,
-    transient: bool,
-    with: Option<String>,
-    json: bool,
-    /// `#[model(relation(…))]`: a `Many<T>` marker field. It gets no column or plain accessor;
-    /// the Model derive emits a `RelationRef` accessor and the wiring instead.
-    relation: Option<RelationAttr>,
-    /// `#[model(link(…))]`: a `Linked<T>` marker field, a relation by value rather than by
-    /// key, across databases (docs/persistence.md). It gets no column or accessor; the Model
-    /// derive emits the predicate builder and the `LinkDef`.
-    link: Option<LinkAttr>,
-}
-
-/// The parsed `link(target = T, local = "column", remote = "column")`.
-struct LinkAttr {
-    target: String,
-    local: String,
-    remote: String,
-}
-
-/// The parsed `relation(target = T, inverse = "…", delete = "…", ordered = "…", join = "…")`.
-struct RelationAttr {
-    target: String,
-    inverse: Option<String>,
-    delete: String,
-    ordered: Option<String>,
-    join: Option<String>,
-}
-
-impl FieldDef {
-    fn column_name(&self) -> &str {
-        self.column.as_deref().unwrap_or(&self.name)
-    }
-    fn persisted(&self) -> bool {
-        !self.skip && !self.transient && self.relation.is_none() && self.link.is_none()
-    }
-    fn nullable(&self) -> bool {
-        self.ty == "Option" || self.ty.starts_with("Option <")
-    }
 }
 
 struct StructDef {
     name: String,
-    table: Option<String>,
-    /// `external = "alias"`: the table lives in a database ATTACHed under `alias`, managed by
-    /// someone else, so it is read-only and gets neither DDL nor a migration.
-    external: Option<String>,
-    composites: Vec<Vec<String>>,
-    fts: Vec<String>,
-    fts_tokenize: Option<String>,
-    spatial: Option<(String, String)>,
     fields: Vec<FieldDef>,
 }
 
@@ -127,58 +78,13 @@ fn expand_observable(input: TokenStream) -> Result<String, String> {
     Ok(emit_observable(&def))
 }
 
-fn expand_model(input: TokenStream) -> Result<String, String> {
-    let def = parse_struct(input)?;
-    let keys: Vec<&FieldDef> = def.fields.iter().filter(|f| f.key).collect();
-    let key = match keys.as_slice() {
-        [k] => *k,
-        [] => {
-            return Err(format!(
-                "Model: `{}` needs exactly one field marked #[model(id)]",
-                def.name
-            ));
-        }
-        _ => {
-            return Err(format!(
-                "Model: `{}` marks more than one field as the id",
-                def.name
-            ));
-        }
-    };
-    if key.transient || key.skip {
-        return Err(format!(
-            "Model: `{}`'s id field cannot be transient or skipped",
-            def.name
-        ));
-    }
-    if key.with.is_some() || key.json {
-        // The key's stored form must match its `Key` form: the fold's WHERE parameters and
-        // external-merge decoding both derive it from the key kind, not from a codec.
-        return Err(format!(
-            "Model: `{}`'s id field takes no codec — integer, Uuid and String keys store \
-             in their canonical forms",
-            def.name
-        ));
-    }
-
-    let mut out = emit_observable(&def);
-    out.push_str(&emit_model(&def, key)?);
-    Ok(out)
-}
-
 // ---------------------------------------------------------------------------
 // Emission
 // ---------------------------------------------------------------------------
 
 fn emit_observable(def: &StructDef) -> String {
     let name = &def.name;
-    // Relation marker fields observe through their RelationRef accessor (Model-emitted), not
-    // a plain Field: a `Many` holds nothing a Field could usefully bind.
-    let observed: Vec<&FieldDef> = def
-        .fields
-        .iter()
-        .filter(|f| !f.skip && f.relation.is_none() && f.link.is_none())
-        .collect();
+    let observed: Vec<&FieldDef> = def.fields.iter().filter(|f| !f.skip).collect();
     let mut out = String::new();
 
     // The key, if one was marked. Without one the struct still observes; putting it in a
@@ -264,426 +170,19 @@ fn emit_observable(def: &StructDef) -> String {
     out
 }
 
-/// The schema half. Every generated expression goes through `day_persistence::` paths and the
-/// field's type: the derive never guesses a SQL type, it asks `ColumnValue::SQL_TYPE` (or
-/// the named codec's) at compile time.
-fn emit_model(def: &StructDef, key: &FieldDef) -> Result<String, String> {
-    let name = &def.name;
-    let bare_table = def.table.clone().unwrap_or_else(|| snake_case(name));
-    // An external table is addressed through its database alias everywhere SQL names it
-    // (the fault SELECT, predicates, the FTS shadow `alias.table_fts`), which is what one
-    // qualified `TABLE` constant gives every existing code path at once.
-    let table = match &def.external {
-        Some(alias) => format!("{alias}.{bare_table}"),
-        None => bare_table,
-    };
-    let persisted: Vec<&FieldDef> = def.fields.iter().filter(|f| f.persisted()).collect();
-    for f in def.fields.iter().filter(|f| f.link.is_some()) {
-        let l = f.link.as_ref().expect("filtered");
-        if !persisted.iter().any(|p| p.column_name() == l.local) {
-            return Err(format!(
-                "Model: link(…) on `{}` names local = {:?}, which is not a persisted column of `{name}`",
-                f.name, l.local
-            ));
-        }
-    }
-
-    let mut columns = String::new();
-    for f in &persisted {
-        let sql = sql_type_expr(f);
-        columns.push_str(&format!(
-            "        day_persistence::ColumnDef {{ name: \"{}\", field: \"{}\", sql: {sql}, \
-             not_null: {}, unique: {}, indexed: {} }},\n",
-            f.column_name(),
-            f.name,
-            !f.nullable(),
-            f.unique,
-            f.indexed,
-        ));
-    }
-
-    // fts()/spatial() name COLUMNS; a typo would silently index nothing, so check now.
-    let column_names: Vec<&str> = persisted.iter().map(|f| f.column_name()).collect();
-    for c in &def.fts {
-        if !column_names.contains(&c.as_str()) {
-            return Err(format!(
-                "Model: fts(…) names `{c}`, which is not a persisted column of `{name}`"
-            ));
-        }
-    }
-    if let Some((lat, lon)) = &def.spatial {
-        for c in [lat, lon] {
-            if !column_names.contains(&c.as_str()) {
-                return Err(format!(
-                    "Model: spatial(…) names `{c}`, which is not a persisted column of `{name}`"
-                ));
-            }
-        }
-    }
-
-    let composites = def
-        .composites
-        .iter()
-        .map(|cols| {
-            format!(
-                "&[{}]",
-                cols.iter()
-                    .map(|c| format!("\"{c}\""))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let mut to_row = String::new();
-    for f in &persisted {
-        to_row.push_str(&format!("            {},\n", encode_expr(f)));
-    }
-
-    let mut from_row = String::new();
-    for f in &def.fields {
-        if let Some(i) = persisted.iter().position(|p| p.name == f.name) {
-            from_row.push_str(&format!("            {}: {},\n", f.name, decode_expr(f, i)));
-        } else {
-            from_row.push_str(&format!(
-                "            {}: ::core::default::Default::default(),\n",
-                f.name
-            ));
-        }
-    }
-
-    // Typed column refs: `Trip::name()` in a predicate, beside `trip.name()` the binding.
-    // Inherent fns without a receiver never collide with the Fields trait's methods (which
-    // take self): method-call syntax finds the trait, path syntax finds these.
-    let mut cols = String::new();
-    for f in &persisted {
-        let encode = match codec(f) {
-            Some(codec) => format!(
-                "<{codec} as day_persistence::ValueCodec<{}>>::to_sqlite_value",
-                f.ty
-            ),
-            None => format!("day_persistence::encode_column::<{}>", f.ty),
-        };
-        cols.push_str(&format!(
-            "    pub fn {}() -> day_persistence::Col<{}> {{\n\
-             \x20       day_persistence::Col::new(\"{}\", \"{}\", \"{table}\", {encode})\n\
-             \x20   }}\n",
-            f.name,
-            f.ty,
-            f.column_name(),
-            f.name,
-        ));
-    }
-    // The static relation reference, for predicates. The instance accessor of the same name
-    // lives on the Relations trait and takes `self`, so path syntax finds this one and
-    // method-call syntax finds that one, the rule `Trip::name()` already relies on.
-    for f in def.fields.iter().filter(|f| f.relation.is_some()) {
-        let r = f.relation.as_ref().expect("filtered");
-        cols.push_str(&format!(
-            "    pub fn {}() -> day_persistence::RelationCol<{name}, {}> {{\n\
-             \x20       day_persistence::RelationCol::new(\"{}\", \"{table}\", \
-             <{} as day_persistence::Model>::TABLE)\n\
-             \x20   }}\n",
-            f.name, r.target, f.name, r.target,
-        ));
-    }
-    // A link's predicate builder is a plain RelationCol: the container resolves the
-    // (owner, field) pair to the link's join condition at compile time, so `any`/`none`/
-    // `is_empty`/`count_ge` read exactly as they do across a keyed relation.
-    for f in def.fields.iter().filter(|f| f.link.is_some()) {
-        let l = f.link.as_ref().expect("filtered");
-        cols.push_str(&format!(
-            "    pub fn {}() -> day_persistence::RelationCol<{name}, {}> {{\n\
-             \x20       day_persistence::RelationCol::new(\"{}\", \"{table}\", \
-             <{} as day_persistence::Model>::TABLE)\n\
-             \x20   }}\n",
-            f.name, l.target, f.name, l.target,
-        ));
-    }
-    if !def.fts.is_empty() {
-        cols.push_str(&format!(
-            "    pub fn fts() -> day_persistence::FtsRef {{\n\
-             \x20       day_persistence::FtsRef {{ columns: <{name} as day_persistence::Model>::FTS_COLUMNS }}\n\
-             \x20   }}\n"
-        ));
-    }
-    if let Some((lat, lon)) = &def.spatial {
-        cols.push_str(&format!(
-            "    pub fn geo() -> day_persistence::GeoRef {{\n\
-             \x20       day_persistence::GeoRef {{ lat: \"{lat}\", lon: \"{lon}\" }}\n\
-             \x20   }}\n"
-        ));
-    }
-    let col_impl = format!("#[allow(dead_code)]\nimpl {name} {{\n{cols}}}\n");
-
-    // Relations: the const table, the wiring, and the RelationRef accessor trait.
-    let rels: Vec<(&FieldDef, &RelationAttr)> = def
-        .fields
-        .iter()
-        .filter_map(|f| f.relation.as_ref().map(|r| (f, r)))
-        .collect();
-    let delete_expr = |d: &str| match d {
-        "cascade" => "day_persistence::DeleteRule::Cascade",
-        "deny" => "day_persistence::DeleteRule::Deny",
-        _ => "day_persistence::DeleteRule::Nullify",
-    };
-    let opt_str = |o: &Option<String>| match o {
-        Some(s) => format!("Some(\"{s}\")"),
-        None => "None".into(),
-    };
-    let relations_const = if rels.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "    const RELATIONS: &'static [day_persistence::RelationDef] = &[\n{}    ];\n",
-            rels.iter()
-                .map(|(f, r)| format!(
-                    "        day_persistence::RelationDef {{ field: \"{}\", target_table: \
-                     <{} as day_persistence::Model>::TABLE, inverse: \"{}\", delete: {}, \
-                     ordered: {}, join: {} }},\n",
-                    f.name,
-                    r.target,
-                    r.inverse.as_deref().unwrap_or(""),
-                    delete_expr(&r.delete),
-                    opt_str(&r.ordered),
-                    opt_str(&r.join),
-                ))
-                .collect::<String>()
-        )
-    };
-    let wire_fn = if rels.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "    fn wire(reg: &mut day_persistence::Registrar<'_>) {{\n{}    }}\n",
-            rels.iter()
-                .map(|(f, r)| match (&r.join, &r.inverse) {
-                    (Some(join), _) => format!(
-                        "        day_persistence::wire_join::<Self, {}>(reg, \"{}\", \
-                         \"{join}\", {}, {});\n",
-                        r.target,
-                        f.name,
-                        opt_str(&r.ordered),
-                        delete_expr(&r.delete),
-                    ),
-                    (None, Some(inverse)) => format!(
-                        "        day_persistence::wire_to_many::<Self, {}>(reg, \"{}\", \
-                         \"{inverse}\", {}, {});\n",
-                        r.target,
-                        f.name,
-                        delete_expr(&r.delete),
-                        opt_str(&r.ordered),
-                    ),
-                    (None, None) => String::new(), // refused at parse time
-                })
-                .collect::<String>()
-        )
-    };
-    let rel_trait = if rels.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "#[allow(non_camel_case_types)]\n\
-             pub trait {name}Relations: day_model::Source<{name}> + Sized {{\n{}}}\n\
-             impl<S: day_model::Source<{name}>> {name}Relations for S {{}}\n",
-            rels.iter()
-                .map(|(f, r)| format!(
-                    "    fn {}(self) -> day_persistence::RelationRef<Self, {name}, {}> {{\n\
-                     \x20       day_persistence::RelationRef::new(day_model::project(\
-                     self, \"{}\", |s| &s.{}, |s| &mut s.{}))\n\
-                     \x20   }}\n",
-                    f.name, r.target, f.name, f.name, f.name
-                ))
-                .collect::<String>()
-        )
-    };
-
-    let fts_const = if def.fts.is_empty() {
-        String::new()
-    } else {
-        let tokenize = match &def.fts_tokenize {
-            Some(t) => format!(
-                "    const FTS_TOKENIZE: Option<&'static str> = Some(\"{}\");\n",
-                t.replace('\\', "\\\\").replace('"', "\\\"")
-            ),
-            None => String::new(),
-        };
-        format!(
-            "    const FTS_COLUMNS: &'static [&'static str] = &[{}];\n{tokenize}",
-            def.fts
-                .iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ")
-        )
-    };
-    let links: Vec<(&FieldDef, &LinkAttr)> = def
-        .fields
-        .iter()
-        .filter_map(|f| f.link.as_ref().map(|l| (f, l)))
-        .collect();
-    let links_const = if links.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "    const LINKS: &'static [day_persistence::LinkDef] = &[\n{}    ];\n",
-            links
-                .iter()
-                .map(|(f, l)| format!(
-                    "        day_persistence::LinkDef {{ field: \"{}\", local: \"{}\", \
-                     target_table: <{} as day_persistence::Model>::TABLE, remote: \"{}\" }},\n",
-                    f.name, l.local, l.target, l.remote
-                ))
-                .collect::<String>()
-        )
-    };
-    let external_const = if def.external.is_some() {
-        "    const EXTERNAL: bool = true;\n".to_string()
-    } else {
-        String::new()
-    };
-    let spatial_const = match &def.spatial {
-        None => String::new(),
-        Some((lat, lon)) => format!(
-            "    const SPATIAL: Option<day_persistence::SpatialCols> = \
-             Some(day_persistence::SpatialCols {{ lat: \"{lat}\", lon: \"{lon}\" }});\n"
-        ),
-    };
-
-    let key_sql = sql_type_expr(key);
-    Ok(col_impl
-        + &rel_trait
-        + &format!(
-            "impl day_persistence::Model for {name} {{\n\
-         \x20   const TABLE: &'static str = \"{table}\";\n\
-         \x20   const KEY: &'static str = \"{key_col}\";\n\
-         \x20   const KEY_SQL: day_persistence::SqlType = {key_sql};\n\
-         \x20   const COLUMNS: &'static [day_persistence::ColumnDef] = &[\n{columns}    ];\n\
-         \x20   const COMPOSITE_INDEXES: &'static [&'static [&'static str]] = &[{composites}];\n\
-         {fts_const}{spatial_const}{relations_const}{links_const}{external_const}\
-         \x20   fn to_row(&self) -> Vec<day_persistence::Value> {{\n\
-         \x20       vec![\n{to_row}        ]\n\
-         \x20   }}\n\
-         \x20   fn from_row(row: &dyn day_persistence::Row) -> \
-         Result<Self, day_persistence::DbError> {{\n\
-         \x20       Ok(Self {{\n{from_row}        }})\n\
-         \x20   }}\n\
-         \x20   fn default_row() -> Vec<day_persistence::Value> {{\n\
-         \x20       day_persistence::Model::to_row(&<Self as ::core::default::Default>::default())\n\
-         \x20   }}\n\
-         {wire_fn}\
-         }}\n",
-            key_col = key.column_name(),
-        ))
-}
-
-fn sql_type_expr(f: &FieldDef) -> String {
-    match codec(f) {
-        Some(codec) => format!(
-            "<{codec} as day_persistence::ValueCodec<{}>>::SQL_TYPE",
-            f.ty
-        ),
-        None => format!("<{} as day_persistence::ColumnValue>::SQL_TYPE", f.ty),
-    }
-}
-
-fn encode_expr(f: &FieldDef) -> String {
-    match codec(f) {
-        Some(codec) => format!(
-            "<{codec} as day_persistence::ValueCodec<{}>>::to_sqlite_value(&self.{})",
-            f.ty, f.name
-        ),
-        None => format!(
-            "day_persistence::ColumnValue::to_sqlite_value(&self.{})",
-            f.name
-        ),
-    }
-}
-
-/// A stored NULL decodes as the field's `Default`, which is what makes an added column's old
-/// rows readable before their backfill, matching the model's deleted-row semantics.
-fn decode_expr(f: &FieldDef, i: usize) -> String {
-    let read = format!("day_persistence::Row::get(row, {i}usize)");
-    match codec(f) {
-        Some(codec) => format!(
-            "match {read} {{\n\
-             \x20               day_persistence::Value::Null => ::core::default::Default::default(),\n\
-             \x20               v => <{codec} as day_persistence::ValueCodec<{}>>::from_sqlite_value(v)?,\n\
-             \x20           }}",
-            f.ty
-        ),
-        None => format!(
-            "match {read} {{\n\
-             \x20               day_persistence::Value::Null => ::core::default::Default::default(),\n\
-             \x20               v => <{} as day_persistence::ColumnValue>::from_sqlite_value(v)?,\n\
-             \x20           }}",
-            f.ty
-        ),
-    }
-}
-
-fn codec(f: &FieldDef) -> Option<String> {
-    if let Some(with) = &f.with {
-        Some(with.clone())
-    } else if f.json {
-        Some("day_persistence::Json".into())
-    } else {
-        None
-    }
-}
-
-fn snake_case(name: &str) -> String {
-    let mut out = String::with_capacity(name.len() + 4);
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i > 0 {
-                out.push('_');
-            }
-            out.extend(ch.to_lowercase());
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 // ---------------------------------------------------------------------------
 // Parsing
 // ---------------------------------------------------------------------------
 
-/// The whole derive input: struct-level `#[model(…)]` options, the name, and the fields.
+/// The whole input: the name and the fields. Attributes on the struct itself belong to other
+/// derives and are stepped over.
 fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
     let tokens: Vec<TokenTree> = input.into_iter().collect();
 
-    let mut table = None;
-    let mut external = None;
-    let mut composites = Vec::new();
-    let mut fts = Vec::new();
-    let mut fts_tokenize = None;
-    let mut spatial = None;
     let mut i = 0;
     while i < tokens.len() {
         match &tokens[i] {
             TokenTree::Ident(id) if id.to_string() == "struct" => break,
-            TokenTree::Punct(p) if p.as_char() == '#' => {
-                if let Some(TokenTree::Group(g)) = tokens.get(i + 1) {
-                    if let Some(items) = attr_items(g, "model") {
-                        parse_struct_options(
-                            items,
-                            &mut table,
-                            &mut external,
-                            &mut composites,
-                            &mut fts,
-                            &mut fts_tokenize,
-                            &mut spatial,
-                        )?;
-                    }
-                    i += 2;
-                    continue;
-                }
-                return Err("malformed attribute on the struct".into());
-            }
             _ => i += 1,
         }
     }
@@ -704,12 +203,6 @@ fn parse_struct(input: TokenStream) -> Result<StructDef, String> {
 
     Ok(StructDef {
         name,
-        table,
-        external,
-        composites,
-        fts,
-        fts_tokenize,
-        spatial,
         fields: parse_fields(body)?,
     })
 }
@@ -732,325 +225,6 @@ fn attr_items(bracket: &proc_macro::Group, name: &str) -> Option<Vec<Vec<TokenTr
             Some(items)
         }
         _ => None,
-    }
-}
-
-fn parse_struct_options(
-    items: Vec<Vec<TokenTree>>,
-    table: &mut Option<String>,
-    external: &mut Option<String>,
-    composites: &mut Vec<Vec<String>>,
-    fts: &mut Vec<String>,
-    fts_tokenize: &mut Option<String>,
-    spatial: &mut Option<(String, String)>,
-) -> Result<(), String> {
-    for item in items {
-        match item.as_slice() {
-            [TokenTree::Ident(id), TokenTree::Group(g)]
-                if id.to_string() == "fts" && g.delimiter() == Delimiter::Parenthesis =>
-            {
-                // Column literals, plus an optional `tokenize = "…"` naming the FTS5
-                // tokenizer (e.g. "unicode61 remove_diacritics 2").
-                let mut fts_items = vec![Vec::new()];
-                for tt in g.stream() {
-                    match &tt {
-                        TokenTree::Punct(p) if p.as_char() == ',' => fts_items.push(Vec::new()),
-                        _ => fts_items.last_mut().expect("never empty").push(tt.clone()),
-                    }
-                }
-                for item in fts_items.into_iter().filter(|i| !i.is_empty()) {
-                    match item.as_slice() {
-                        [TokenTree::Literal(lit)] => fts.push(string_literal(lit)?),
-                        [
-                            TokenTree::Ident(k),
-                            TokenTree::Punct(eq),
-                            TokenTree::Literal(lit),
-                        ] if k.to_string() == "tokenize" && eq.as_char() == '=' => {
-                            *fts_tokenize = Some(string_literal(lit)?);
-                        }
-                        other => {
-                            return Err(format!(
-                                "fts(…) expects column string literals and an optional \
-                                 tokenize = \"…\", found `{}`",
-                                tokens_text(other)
-                            ));
-                        }
-                    }
-                }
-            }
-            [TokenTree::Ident(id), TokenTree::Group(g)]
-                if id.to_string() == "spatial" && g.delimiter() == Delimiter::Parenthesis =>
-            {
-                let mut lat = None;
-                let mut lon = None;
-                let inner: Vec<TokenTree> = g.stream().into_iter().collect();
-                let mut j = 0;
-                while j + 2 < inner.len() + 1 {
-                    match (&inner.get(j), &inner.get(j + 1), &inner.get(j + 2)) {
-                        (
-                            Some(TokenTree::Ident(k)),
-                            Some(TokenTree::Punct(eq)),
-                            Some(TokenTree::Literal(lit)),
-                        ) if eq.as_char() == '=' => {
-                            match k.to_string().as_str() {
-                                "lat" => lat = Some(string_literal(lit)?),
-                                "lon" => lon = Some(string_literal(lit)?),
-                                other => {
-                                    return Err(format!(
-                                        "spatial(…) takes lat = \"…\" and lon = \"…\", found `{other}`"
-                                    ));
-                                }
-                            }
-                            j += 3;
-                            if matches!(inner.get(j), Some(TokenTree::Punct(p)) if p.as_char() == ',')
-                            {
-                                j += 1;
-                            }
-                        }
-                        _ => return Err("spatial(…) takes lat = \"…\" and lon = \"…\"".into()),
-                    }
-                }
-                match (lat, lon) {
-                    (Some(lat), Some(lon)) => *spatial = Some((lat, lon)),
-                    _ => return Err("spatial(…) needs BOTH lat = \"…\" and lon = \"…\"".into()),
-                }
-            }
-            [
-                TokenTree::Ident(id),
-                TokenTree::Punct(eq),
-                TokenTree::Literal(lit),
-            ] if id.to_string() == "table" && eq.as_char() == '=' => {
-                *table = Some(string_literal(lit)?);
-            }
-            [
-                TokenTree::Ident(id),
-                TokenTree::Punct(eq),
-                TokenTree::Literal(lit),
-            ] if id.to_string() == "external" && eq.as_char() == '=' => {
-                let alias = string_literal(lit)?;
-                if alias.is_empty() || !alias.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-                {
-                    return Err(format!(
-                        "external = {alias:?} must be a plain SQL schema name (letters, digits, `_`)"
-                    ));
-                }
-                *external = Some(alias);
-            }
-            [TokenTree::Ident(id), TokenTree::Group(g)]
-                if id.to_string() == "index" && g.delimiter() == Delimiter::Parenthesis =>
-            {
-                let mut cols = Vec::new();
-                for tt in g.stream() {
-                    match &tt {
-                        TokenTree::Literal(lit) => cols.push(string_literal(lit)?),
-                        TokenTree::Punct(p) if p.as_char() == ',' => {}
-                        other => {
-                            return Err(format!(
-                                "index(…) expects string literals, found `{other}`"
-                            ));
-                        }
-                    }
-                }
-                composites.push(cols);
-            }
-            other => {
-                return Err(format!(
-                    "unknown #[model] option on the struct: `{}` (supported: table = \"…\", external = \"alias\", index(\"a\", \"b\"), fts(\"a\", \"b\"), spatial(lat = \"…\", lon = \"…\"))",
-                    tokens_text(other)
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-fn parse_field_options(items: Vec<Vec<TokenTree>>, f: &mut FieldDef) -> Result<(), String> {
-    for item in items {
-        match item.as_slice() {
-            [TokenTree::Ident(id)] => match id.to_string().as_str() {
-                "id" => f.key = true,
-                "unique" => f.unique = true,
-                "index" => f.indexed = true,
-                "transient" => f.transient = true,
-                "json" => f.json = true,
-                other => {
-                    return Err(format!(
-                        "unknown #[model] option on field `{}`: `{other}` (supported: id, unique, index, transient, json, column = \"…\", with = Codec)",
-                        f.name
-                    ));
-                }
-            },
-            [
-                TokenTree::Ident(id),
-                TokenTree::Punct(eq),
-                TokenTree::Literal(lit),
-            ] if id.to_string() == "column" && eq.as_char() == '=' => {
-                f.column = Some(string_literal(lit)?);
-            }
-            [TokenTree::Ident(id), TokenTree::Punct(eq), rest @ ..]
-                if id.to_string() == "with" && eq.as_char() == '=' && !rest.is_empty() =>
-            {
-                f.with = Some(tokens_text(rest));
-            }
-            [TokenTree::Ident(id), TokenTree::Group(g)]
-                if id.to_string() == "relation" && g.delimiter() == Delimiter::Parenthesis =>
-            {
-                f.relation = Some(parse_relation(g, &f.name)?);
-            }
-            [TokenTree::Ident(id), TokenTree::Group(g)]
-                if id.to_string() == "link" && g.delimiter() == Delimiter::Parenthesis =>
-            {
-                f.link = Some(parse_link(g, &f.name)?);
-            }
-            other => {
-                return Err(format!(
-                    "unknown #[model] option on field `{}`: `{}`",
-                    f.name,
-                    tokens_text(other)
-                ));
-            }
-        }
-    }
-    Ok(())
-}
-
-/// `relation(target = Type, inverse = "field", delete = "…", ordered = "field", join = "table")`.
-fn parse_relation(g: &proc_macro::Group, field: &str) -> Result<RelationAttr, String> {
-    let mut items = vec![Vec::new()];
-    for tt in g.stream() {
-        match &tt {
-            TokenTree::Punct(p) if p.as_char() == ',' => items.push(Vec::new()),
-            _ => items.last_mut().expect("never empty").push(tt),
-        }
-    }
-    items.retain(|i| !i.is_empty());
-
-    let (mut target, mut inverse, mut delete, mut ordered, mut join) =
-        (None, None, None, None, None);
-    for item in items {
-        match item.as_slice() {
-            [TokenTree::Ident(k), TokenTree::Punct(eq), rest @ ..]
-                if eq.as_char() == '=' && !rest.is_empty() =>
-            {
-                match k.to_string().as_str() {
-                    "target" => target = Some(tokens_text(rest)),
-                    "inverse" => inverse = Some(literal_str(rest, field)?),
-                    "delete" => delete = Some(literal_str(rest, field)?),
-                    "ordered" => ordered = Some(literal_str(rest, field)?),
-                    "join" => join = Some(literal_str(rest, field)?),
-                    other => {
-                        return Err(format!(
-                            "relation(…) on `{field}`: unknown option `{other}` (supported: \
-                             target = Type, inverse = \"field\", delete = \"…\", \
-                             ordered = \"field\", join = \"table\")"
-                        ));
-                    }
-                }
-            }
-            // Bare `ordered`, the join form: the position lives on the membership row, so
-            // there is no child field to name (one child can sit at different positions
-            // under different parents).
-            [TokenTree::Ident(k)] if k.to_string() == "ordered" => {
-                ordered = Some("position".into());
-            }
-            other => {
-                return Err(format!(
-                    "relation(…) on `{field}`: expected `name = …`, found `{}`",
-                    tokens_text(other)
-                ));
-            }
-        }
-    }
-    let Some(target) = target else {
-        return Err(format!("relation(…) on `{field}` needs target = Type"));
-    };
-    let delete = delete.unwrap_or_else(|| "nullify".into());
-    if !["nullify", "cascade", "deny"].contains(&delete.as_str()) {
-        return Err(format!(
-            "relation(…) on `{field}`: delete = {delete:?} — nullify, cascade, or deny"
-        ));
-    }
-    if inverse.is_none() && join.is_none() {
-        return Err(format!(
-            "relation(…) on `{field}` needs inverse = \"field\" (the target's One<…> field) \
-             — or join = \"table\" for a many-to-many"
-        ));
-    }
-    Ok(RelationAttr {
-        target,
-        inverse,
-        delete,
-        ordered,
-        join,
-    })
-}
-
-/// `link(target = Type, local = "column", remote = "column")` is a relation matched by value:
-/// rows of `Type` whose `remote` column equals this row's `local` column. No foreign key and
-/// no wiring, which is what lets it cross into an `external` table SQLite cannot constrain.
-fn parse_link(g: &proc_macro::Group, field: &str) -> Result<LinkAttr, String> {
-    let mut items = vec![Vec::new()];
-    for tt in g.stream() {
-        match &tt {
-            TokenTree::Punct(p) if p.as_char() == ',' => items.push(Vec::new()),
-            _ => items.last_mut().expect("never empty").push(tt),
-        }
-    }
-    items.retain(|i| !i.is_empty());
-    let (mut target, mut local, mut remote) = (None, None, None);
-    for item in items {
-        match item.as_slice() {
-            [TokenTree::Ident(k), TokenTree::Punct(eq), rest @ ..]
-                if eq.as_char() == '=' && !rest.is_empty() =>
-            {
-                match k.to_string().as_str() {
-                    "target" => target = Some(tokens_text(rest)),
-                    "local" => local = Some(literal_str(rest, field)?),
-                    "remote" => remote = Some(literal_str(rest, field)?),
-                    other => {
-                        return Err(format!(
-                            "link(…) on `{field}`: unknown option `{other}` (supported: \
-                             target = Type, local = \"column\", remote = \"column\")"
-                        ));
-                    }
-                }
-            }
-            other => {
-                return Err(format!(
-                    "link(…) on `{field}`: expected `name = …`, found `{}`",
-                    tokens_text(other)
-                ));
-            }
-        }
-    }
-    match (target, local, remote) {
-        (Some(target), Some(local), Some(remote)) => Ok(LinkAttr {
-            target,
-            local,
-            remote,
-        }),
-        _ => Err(format!(
-            "link(…) on `{field}` needs target = Type, local = \"column\", and remote = \"column\""
-        )),
-    }
-}
-
-fn literal_str(rest: &[TokenTree], field: &str) -> Result<String, String> {
-    match rest {
-        [TokenTree::Literal(l)] => string_literal(l),
-        other => Err(format!(
-            "relation(…) on `{field}`: expected a string literal, found `{}`",
-            tokens_text(other)
-        )),
-    }
-}
-
-fn string_literal(lit: &proc_macro::Literal) -> Result<String, String> {
-    let s = lit.to_string();
-    if s.len() >= 2 && s.starts_with('"') && s.ends_with('"') {
-        Ok(s[1..s.len() - 1].to_string())
-    } else {
-        Err(format!("expected a string literal, found `{s}`"))
     }
 }
 
@@ -1100,10 +274,11 @@ fn parse_fields(body: TokenStream) -> Result<Vec<FieldDef>, String> {
 fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
     let mut i = 0;
     let mut f = FieldDef::default();
-    let mut deferred: Vec<Vec<Vec<TokenTree>>> = Vec::new();
 
-    // Attributes and doc comments. `#[model(…)]` items need the field name for their errors,
-    // so they are parsed after it is known.
+    // Attributes and doc comments. `#[obs(…)]` is this derive's own. `#[model(…)]` belongs to
+    // day-persistence's `Model` derive and is tolerated here so a struct can swap derives per
+    // target (docs/persistence.md): its `id` marks the key, and the rest is ignored. Any other
+    // attribute is another macro's business.
     while i < chunk.len() {
         match &chunk[i] {
             TokenTree::Punct(p) if p.as_char() == '#' => {
@@ -1124,7 +299,9 @@ fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
                             }
                         }
                     } else if let Some(items) = attr_items(g, "model") {
-                        deferred.push(items);
+                        f.key |= items.iter().any(|item| {
+                            matches!(item.as_slice(), [TokenTree::Ident(id)] if id.to_string() == "id")
+                        });
                     }
                     i += 2;
                     continue;
@@ -1163,8 +340,5 @@ fn parse_one(chunk: &[TokenTree]) -> Result<FieldDef, String> {
         return Err(format!("field `{}` has no type", f.name));
     }
 
-    for items in deferred {
-        parse_field_options(items, &mut f)?;
-    }
     Ok(f)
 }

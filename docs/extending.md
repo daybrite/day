@@ -498,6 +498,25 @@ shim); it `import`s the SwiftPM product and returns a native `UIView` that Rust 
 `Retained::from_raw`. See `platform/ios/swift/DayLottie.swift` and `src/lib-uikit.rs` in
 [day-piece-lottie](https://github.com/daybrite/day-piece-lottie).
 
+### Web scripts (`[package.metadata.day.web]`)
+
+A crate's web half is usually Rust over day-dom, or a [daybridge](bridge.md) `js` arm. When it
+needs hand-written JavaScript the page must load before the app starts (a worker, a synchronous
+channel, wasm imports under the crate's names), the crate ships the files and declares them:
+
+```toml
+[package.metadata.day.web]
+modules = ["web/day-sql.js"]        # ES modules the host page imports
+files = ["web/day-sql-worker.js"]   # staged beside them, loaded by the modules
+```
+
+`day build -t web-dom` stages them under `dist/modules/<crate>/` for every crate the wasm build
+links. A module exports `register(rt)`, which returns wasm imports, and optionally
+`start(rt, module)`, which the page awaits before the app's entry point.
+[docs/web.md](web.md#web-modules) has the contract; `crates/day-sqlite-worker` is the
+reference, and `scripts/ci/web-shim-abi.py` checks that a crate's modules supply every import
+its Rust declares.
+
 ### The Android bridging contract
 
 These are the guarantees a part or piece can rely on when its Rust calls its Java sidecar (all
@@ -678,7 +697,7 @@ above) and `com.airbnb.android:lottie` (Gradle). Its Swift and Java shims each w
 `LottieAnimationView` behind a flat C ABI / static method. It is also the reference for an external
 repository: bare canonical `git = "https://github.com/daybrite/day.git"` dependencies with no ref (so
 the consuming app's `Cargo.lock` picks one day revision for the whole graph), a
-`[package.metadata.day] compat = "0.4"` line naming the day minor it was tested against, a `demo/`
+`[package.metadata.day] compat = "0.5"` line naming the day minor it was tested against, a `demo/`
 app whose dayscript is the on-device test, and a headless `model` module tested on the host. In
 this tree, `scripts/ci/scaffold-check.sh` keeps `swift-packages` exercised on the ios-uikit leg
 with a fixture piece that pulls swift-collections.

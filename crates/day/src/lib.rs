@@ -112,14 +112,6 @@ pub mod model {
     pub use day_model::*;
 }
 
-/// SQLite persistence for the observable model (docs/persistence.md): `ModelContainer`,
-/// `#[derive(Model)]`, drivers and codecs. The engine is a facade feature: bundled by
-/// default, `sqlite-system` or `sqlite-cipher` instead.
-#[cfg(feature = "persistence")]
-pub mod persistence {
-    pub use day_persistence::*;
-}
-
 /// Wire an [`model::UndoStack`] to the platform: native fronts (the stock Edit menu, ⌘Z,
 /// iOS's three-finger gestures) where the toolkit has them, and the stack's own signals for
 /// the app's buttons everywhere (docs/model.md). One call, after the stack exists.
@@ -312,7 +304,7 @@ pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
 
 /// The `log` crate itself, for an app that needs more than the macros (a `LevelFilter`, a custom
 /// `log::Log`). Re-exported by name so `use day::prelude::*` is enough, the same rule the model
-/// and persistence re-exports follow.
+/// re-export follows.
 pub use ::log;
 /// Raise or lower the level Day's default logger emits, at runtime. `DAY_LOG` sets it at startup
 /// on native targets; the web launch path reads `?DAY_LOG=` from the page URL.
@@ -550,16 +542,6 @@ pub mod prelude {
     pub use ::day_model::{Elem, Field, Key, Keyed, ModelId, Source, Store, Uuid};
     #[cfg(feature = "model")]
     pub use day_macros::Observable;
-    // Persistence (docs/persistence.md). Same by-NAME rule: `#[derive(Model)]`'s generated
-    // code says `day_persistence::…`.
-    #[cfg(feature = "persistence")]
-    pub use ::day_persistence;
-    #[cfg(feature = "persistence")]
-    pub use ::day_persistence::{
-        DeleteRule, Many, Model, ModelContainer, One, Recorder, Secret, Sqlite, schema,
-    };
-    #[cfg(feature = "persistence")]
-    pub use day_macros::Model;
     pub use day_spec::Point;
     // Logging (docs/logging.md): `info!`/`warn!`/`error!`/`debug!`/`trace!` with no setup and no
     // `log` dependency in the app's own Cargo.toml. These are `log`'s macros, so an app that later

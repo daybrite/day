@@ -6,9 +6,9 @@
 //! and reloads rather than mis-narrate). Ends with the end-to-end agreement test: a long
 //! random edit stream against a live container, mirrored purely from the delta feed.
 
-use day_macros::Model;
 use day_persistence::{
-    Delta, Fetch, ModelContainer, Pred, QueryEvents, ResultSet, SetChange, Sort, Sqlite, schema,
+    Delta, Fetch, Model, ModelContainer, Pred, QueryEvents, ResultSet, SetChange, Sort, Sqlite,
+    schema,
 };
 use day_reactive::Binding;
 

@@ -23,17 +23,22 @@ accumulated changes fold into the smallest statement list that expresses them: t
 keystrokes into one field are one `UPDATE`, a row inserted and then filled is one `INSERT`, and
 a row deleted is one `DELETE` no matter what preceded it.
 
-Enable it with the `day` facade's `persistence` feature (implies `model`):
+It is its own crate, beside the `day` facade rather than behind one of its features. An app
+depends on both, with the facade's `model` feature on:
 
 ```toml
-day = { version = "0.2", features = ["persistence"] }   # bundled SQLite, the default engine
+day = { git = "https://github.com/daybrite/day.git", features = ["model"] }
+day-persistence = { git = "https://github.com/daybrite/day.git" }   # bundled SQLite, the default engine
 ```
 
-A cargo feature selects the engine: `sqlite-system` links the OS's libsqlite3 instead of
-compiling the bundled one; `sqlite-cipher` builds SQLCipher with vendored crypto. `use
-day::prelude::*` brings `Model` (the derive and the trait), `ModelContainer`, `Sqlite`,
-`Recorder`, `Secret`, the `schema!` macro, and the `day_persistence` crate name the derive's
-generated code resolves against. The full API is `day::persistence::*`.
+The crate's features select the engine: `system` links the OS's libsqlite3 instead of
+compiling the bundled one (turn `bundled` off with `default-features = false`); `cipher` builds
+SQLCipher with vendored crypto. `use day_persistence::prelude::*` brings `Model` (the derive
+and the trait), `ModelContainer`, `Sqlite`, `Recorder`, `Secret`, the relation markers and the
+`schema!` macro; the full API is `day_persistence::*`. The derive's generated code names
+`day_persistence` and `day_model`, which the direct dependency and `use day::prelude::*`
+resolve. [The crate's boundary](#the-crates-boundary) lists everything it takes from the
+framework.
 
 The synchronous container API works on web-dom: `:memory:` databases run in-process, and a file database
 lives in the browser's origin-private file system, held by the day-sql worker and reached
@@ -51,7 +56,7 @@ and the web transport. Merely putting a synchronous container call in `day::task
 move it off the UI thread.
 
 ```rust,ignore
-use day::persistence::DatabaseWorker;
+use day_persistence::DatabaseWorker;
 
 let worker = DatabaseWorker::open(move || {
     ModelContainer::open(Sqlite::at(path), schema![Trip, Lodging])
@@ -209,9 +214,9 @@ otherwise. `#[obs(skip)]` removes a field from both halves; a field the change l
 could never mark its row dirty, so persisting it would silently lose edits.
 
 `derive(Model)` compiles on every target, the web included. A build that keeps its web tier
-on plain stores can swap the derive instead: `Observable` accepts `#[model(…)]`,
-reads `#[model(id)]` as the key, and ignores the schema half (the Showcase's Query page keeps
-its ten-thousand-row demo in memory this way):
+on plain stores, without day-persistence in that target's graph at all, can swap the derive
+instead: `Observable` accepts `#[model(…)]`, reads `#[model(id)]` as the key, and ignores the
+rest (the Showcase's Query page keeps its ten-thousand-row demo in memory this way):
 
 ```rust
 #[cfg_attr(not(target_arch = "wasm32"), derive(Model))]
@@ -377,10 +382,11 @@ Implement it on a unit struct and select it per field with `#[model(with = …)]
 is sugar for the built-in `Json` codec. `Option` handling belongs to the framework: an impl
 never sees `NULL` and cannot disagree about it.
 
-[day-piece-datetime](datepicker.md) ships the date and time impls behind its `persistence`
-feature: `DayDate` and `DayTime` canonically as `INTEGER` (epoch days, seconds-of-day), plus
-`Iso8601` (`TEXT`, lexicographic order is chronological order), `EpochSeconds` and
-`EpochMillis` for interop that expects Unix time.
+The `datetime` feature adds the impls for [day-piece-datetime](datepicker.md)'s types:
+`DayDate` and `DayTime` canonically as `INTEGER` (epoch days, seconds-of-day), plus the
+`day_persistence::datetime` codecs `Iso8601` (`TEXT`, lexicographic order is chronological
+order), `EpochSeconds` and `EpochMillis` for interop that expects Unix time. They live in this
+crate because one of the two has to own them, and this is the one that depends on the other.
 
 ## Queries
 
@@ -511,7 +517,7 @@ the one read-side consequence of deferring writes. The 600-edit agreement test i
 `tests/liveset.rs` pins the property the deltas must hold: a mirror maintained purely from
 the deltas lands, id for id, where a fresh fetch does.
 
-`list(query, row)` (facade feature `persistence`) makes a query a row source: the query
+`list(query, row)` (feature `pieces`, on by default) makes a query a row source: the query
 holds ids, and rows fault in as the list binds them, a window at a time
 (`Query::materialize(range)` is the same path, callable directly), so showing row 40,000 of
 a large result costs one windowed `SELECT` rather than 40,000 resident rows. Bound rows stay
@@ -622,7 +628,7 @@ so its typing is not yet in the change log or the file.
 
 ## Encryption
 
-With the `sqlite-cipher` engine, `.key(Secret::new(…))` opens an encrypted database; a wrong or
+With the `cipher` engine, `.key(Secret::new(…))` opens an encrypted database; a wrong or
 missing key is `DbErrorKind::BadKey` at open, not a decode error later. `rekey` re-encrypts in
 place; `encrypt_to`/`decrypt_to` write converted copies (SQLCipher's own export path; the
 conversion cannot happen in place). Day does not store the key: it arrives as a `Secret` that
@@ -868,7 +874,8 @@ to the browser console as `[day-sql]` lines instead of calling `f` (`:memory:` d
 
 OPFS, the browser's origin-private file system, exposes its only synchronous random-access
 API inside dedicated workers, so on web-dom the engine runs in one: the **day-sql worker**, a
-second instantiation of the app's own wasm module that day-cli's host page spawns at boot.
+second instantiation of the app's own wasm module, started at boot by the web module
+`day-sqlite-worker` ships (below).
 Every `SqliteConnection` call crosses a SharedArrayBuffer as one request; the main thread
 blocks until the reply state flips (with a bounded timeout), and the worker flushes to storage
 before answering, so a commit that returned has landed and `capabilities().durable` is true.
@@ -889,3 +896,57 @@ What the page must provide:
 `export_db` for handing bytes to a download (flush first, so the image includes the current
 turn). Database names are the "paths" the rest of the app already uses; `Sqlite::at("a.db")`
 on the web opens the pool entry named `a.db`.
+
+The browser half belongs to the engine crate, not to the Day host page. `day-sqlite-worker`
+declares it in its manifest ([docs/web.md](web.md#web-modules)):
+
+```toml
+[package.metadata.day.web]
+modules = ["web/day-sql.js"]        # the page side: the channel and the wasm imports
+files = ["web/day-sql-worker.js"]   # the worker: the OPFS pool and the serve loop
+```
+
+`day build -t web-dom` stages both under `dist/modules/day-sqlite-worker/`. The page imports
+`day-sql.js` before it instantiates the app; the module's `register` supplies every `day_sql_*`
+import the crate declares, and its `start` boots the worker with the compiled module and
+resolves once the channel is up or definitively absent, which the page awaits before the app's
+entry point runs. Every name on that boundary belongs to the crate:
+
+| Direction | Names | Implemented by |
+|---|---|---|
+| wasm imports, both instances | `day_sql_now_ms`, `day_sql_entropy`, `day_sql_log` | both scripts |
+| wasm imports, the channel | `day_sql_ready`, `day_sql_call`, `day_sql_reply` | `day-sql.js` |
+| wasm imports, the VFS | `day_sql_fs_open`, `_read`, `_write`, `_truncate`, `_size`, `_flush`, `_close`, `_delete`, `_exists`, `_list` | `day-sql-worker.js`; `day-sql.js` gives the app instance stubs that refuse |
+| wasm exports | `day_sql_alloc`, `day_sql_exec` | the crate, called by `day-sql-worker.js` |
+
+Because the scripts and the Rust that calls them ship in one crate at one revision, the
+channel's state words, chunking and reply framing can change without a matching CLI release.
+
+## The crate's boundary
+
+`day-persistence` is built on the framework's public API, and the dependency runs one way: an
+app names the crate in its `Cargo.toml`, and the web host learns about its browser half from
+the crate's manifest. It lives in the Day repository today and can move to a repository of its
+own with no change to the framework. Three crates make it up: `day-persistence`,
+`day-persistence-macros` (the `Model` derive) and `day-sqlite-worker` (the web engine and its
+browser half).
+
+What it takes from the framework:
+
+| From | What | For |
+|---|---|---|
+| `day-model` | `Store`, `Keyed`, `Elem`, `Field`, `Source`, `Key`, `ModelId`, `Uuid`, `Identified`, `ApplyField`, `project`, `field_id` | the working set is an ordinary store |
+| `day-model` | `install_change_sink`, `remove_change_sink`, `Change`, `Op`, `STRUCTURE`, `record_capture_active`, `with_author`, `announce` | watching the change log, and telling its own faults and merges apart from the app's edits |
+| `day-model` | `UndoStack` | persisted undo |
+| `day-reactive` | `Signal`, `Scope`, `bind`, `batch`, `tls_group`, `on_turn_end` | the end-of-turn flush and live-query invalidation |
+| `day-async` | `oneshot` | `DatabaseWorker` replies |
+| `day-macros` | `observable_impls!` | the observable half of `#[derive(Model)]` |
+| `day-pieces`, `day-spec` (feature `pieces`) | `RowSource`, `RowConn`, `ModelSlot`, `props::RowDelta` | `list(query, row)` |
+| `day-piece-datetime` (feature `datetime`) | `DayDate`, `DayTime` | the date and time codecs |
+| the web-dom host | `[package.metadata.day.web]` | staging the engine's browser half |
+
+`#[derive(Model)]` generates its schema half itself and hands the observable half to
+day-macros: it restates the struct with only the fields to observe and expands to
+`observable_impls!`, so the accessors have one implementation. `Observable` accepting
+`#[model(…)]` (see [Declaring a model](#declaring-a-model)) is the one place the framework
+reads that attribute, and it reads only `id`.

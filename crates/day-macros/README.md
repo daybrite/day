@@ -13,9 +13,9 @@ on this crate.
   than on every draw, and malformed data is a compile error naming the offending character.
 - `#[derive(Observable)]` gives a struct typed per-field accessors on every store that
   holds it, so a view can observe `store.name()` instead of the whole record.
-- `#[derive(Model)]` adds the persistence half: table name, columns, and the row mappers
-  that `day-persistence` needs, with `#[model(…)]` attributes for keys, indexes, and
-  codecs.
+- `observable_impls!` emits the same accessors for a struct that is described rather than
+  derived. A derive layered on `Observable` expands to it, which is how `#[derive(Model)]`
+  in `day-persistence` gets its observable half.
 - `#[day::test]` marks a function that builds a conformance `Case` as a Day test, so
   `day test` and the mock harness find it.
 
