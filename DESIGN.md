@@ -3545,7 +3545,8 @@ Two package kinds share the mechanism:
   under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, sound
-  (bundled clips played once or looped through each platform's low-latency engine, [docs/sound.md](docs/sound.md)), wakelock
+  (bundled clips played once or looped through each platform's low-latency engine; libpulse and the
+  part's own mixer on Linux, [docs/sound.md](docs/sound.md)), wakelock
   (keeping the screen on, [docs/wakelock.md](docs/wakelock.md)), deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
   plus the build-time declarations each platform requires, [docs/permissions.md](docs/permissions.md)), location
@@ -3660,6 +3661,10 @@ uses = ["camera"]                          # PORTABLE permissions this crate nee
 toolkit = "qt"
 library-prefix = "libExampleEngine"        # selected only when the packed binary links it
 id = "org.example.Engine.BaseApp"
+
+[package.metadata.day.flatpak]
+finish-args = ["--socket=pulseaudio"]      # sandbox permissions the crate needs at run time, added
+                                           # to the manifest of any app that depends on it
 
 [[package.metadata.day.appimage.env]]      # an AppImage launcher default for one toolkit (docs/extending.md);
 toolkit = "qt"                             # set only when the user's environment leaves it unset
@@ -4536,7 +4541,8 @@ The two Linux formats are siblings, and the split is where the toolkit comes fro
 time (`org.gnome.Platform` / `org.kde.Platform`), which keeps the bundle app-only and Qt's LGPL
 obligations satisfied by the runtime's relinkable shared libs; icons are generated at the
 freedesktop policy sizes. Dependency-declared Flatpak bases are selected by matching their library
-prefixes against the packed binary's `DT_NEEDED` list
+prefixes against the packed binary's `DT_NEEDED` list, and dependency-declared sandbox permissions
+(`finish-args`, such as the sound part's `--socket=pulseaudio`) are added to the manifest's own
 (see [the metadata contract](docs/extending.md#flatpak-dependencies)). The **`.appimage`** carries its toolkit
 inside, so it runs on a machine with nothing installed, which is what a one-line
 `curl … | bash` launcher needs (daybrite/actions ships one per release). Day stages the AppDir
@@ -7029,7 +7035,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `submit` | `id` | delivers `Event::Submitted` — the scripted stand-in for Enter in a `text_area` `.on_submit` (or a field's return key) |
 | `set_value` | `id`, `value` | sliders et al. |
 | `toggle` | `id`, `value?` | omitted value = flip |
-| `select` | `id`, `index` | pickers/tabs/list selection |
+| `select` | `id`, `index`, `if_present?` | pickers/tabs/list selection; `if_present: true` skips an absent element once UI transitions settle, for a control only some layouts have (a phone's pane switcher) |
 | `activate` | `id`, `index` | invoke a list row without changing selection; out-of-range indices are ignored |
 | `reorder` | `id`, `from`, `to` | drag-reorder a list row through the guard → commit seam ([docs/list.md](docs/list.md)); a guard denial fails the step, non-retryably |
 | `delete_row` | `id`, `row` | delete a list row through the same guard → commit path a native swipe takes ([docs/list.md](docs/list.md)); a guard refusal fails the step, non-retryably |

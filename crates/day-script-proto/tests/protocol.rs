@@ -57,6 +57,21 @@ fn old_requests_keep_their_behavioral_defaults() {
     assert!(
         matches!(tap, Step::Tap { if_present: false, repeat: None, at: None, modifiers, .. } if modifiers.is_empty())
     );
+    // `select` gained `if_present` after it shipped: an older script means "must exist", and a
+    // step that does not ask for it keeps the wire form older engines read.
+    let select: Step =
+        serde_json::from_value(json!({"op":"select","id":"fixture","index":1})).unwrap();
+    assert!(matches!(
+        select,
+        Step::Select {
+            if_present: false,
+            ..
+        }
+    ));
+    assert_eq!(
+        serde_json::to_value(select).unwrap(),
+        json!({"op":"select","id":"fixture","index":1})
+    );
     let run: Step = serde_json::from_value(json!({"op":"run_tests"})).unwrap();
     assert!(
         matches!(run, Step::RunTests { shots: ShotPolicy::OnFailure, filter, timeout_secs: None, case_timeout_secs: None } if filter.is_empty())

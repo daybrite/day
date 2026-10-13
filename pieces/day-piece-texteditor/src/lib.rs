@@ -187,6 +187,17 @@ pub struct TextEditor {
 /// [`TextEditor::highlight_limit`].
 pub const HIGHLIGHT_LIMIT: usize = 512 * 1024;
 
+/// The narrowest an editor answers a width proposal with, given its `max_lines` (every arm's
+/// `measure` goes through this, so the toolkits agree). An editor that wraps keeps 120 points
+/// to wrap in. A [`TextEditor::single_line`] one (a band of exactly one line) is a styled
+/// text field, usually one of several controls on a row, and gives way the way a text field
+/// does, down to the width of a few characters.
+// Each arm is compiled for its own toolkit only, so a build with none (the mock) never calls it.
+#[allow(dead_code)]
+pub(crate) fn width_floor(max_lines: u32) -> f64 {
+    if max_lines == 1 { 48.0 } else { 120.0 }
+}
+
 /// `text_editor(doc)`: the platform's rich-text view over a [`StyledText`] signal.
 pub fn text_editor(doc: Signal<StyledText>) -> TextEditor {
     // web-dom's registry is populated at runtime (no `linkme` on wasm), and a constructor always
@@ -399,6 +410,9 @@ impl Piece for TextEditor {
         // is compared against to decide whether the text changed at all (which decides between
         // replacing the document and repainting its attributes).
         let native_text = Rc::new(RefCell::new(initial.text.clone()));
+        // The dayscript probe starts with the text the editor is built with: the bind below
+        // reports changes only, and a read-only editor (a response body) never has one.
+        with_tree(|t| t.set_probe_value(node, 0.0, initial.text.clone()));
 
         // App writes → the native view.
         {
@@ -1173,6 +1187,16 @@ pub mod conformance {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_single_line_gives_way_like_a_field_and_a_wrapping_editor_keeps_room() {
+        // The band is what says "single line": `.single_line()` pins it to exactly one.
+        assert_eq!(width_floor(1), 48.0);
+        // Unbounded (0), the default band, and a capped multi-line editor all wrap.
+        for max_lines in [0, 3, 12] {
+            assert_eq!(width_floor(max_lines), 120.0, "max_lines {max_lines}");
+        }
+    }
 
     #[test]
     fn diff_recovers_a_keystroke() {

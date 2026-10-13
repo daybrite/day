@@ -138,6 +138,17 @@ impl Piece for When {
     }
 }
 
+/// Build a row's pieces in a scope of their own, inside the scope that owns the row's slot.
+///
+/// Disposal runs children first, and a scope frees its signals before it runs its cleanups. A
+/// row's teardown reaches back through the slot (a text field seals the edit in progress with
+/// `Binding::write_teardown`, and a model slot resolves its row through its key signal), so
+/// the slot has to outlive every cleanup the row registered. With the row one scope down, its
+/// cleanups run while the slot's signals still stand.
+fn in_row_scope<R>(build: impl FnOnce() -> R) -> R {
+    Scope::child().enter(build)
+}
+
 /// A `Copy` handle to one keyed item's state: the unified `each`/`list` contract (§5.4).
 pub struct ItemSlot<T: 'static, K: 'static> {
     sig: Signal<T>,
@@ -408,7 +419,7 @@ where
                         let built = scope.enter(|| {
                             let slot = conn.slot_at(index)?;
                             let mut cx = BuildCx::new(anchor);
-                            Some((slot, build_row(slot).build(&mut cx)))
+                            Some((slot, in_row_scope(|| build_row(slot).build(&mut cx))))
                         });
                         match built {
                             Some((slot, root)) => next.push(EachRow {
@@ -927,7 +938,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                             return Rc::new(|_: usize| {}) as Rc<dyn Fn(usize)>;
                         };
                         let mut rowcx = BuildCx::new(anchor);
-                        build_row(slot).build(&mut rowcx);
+                        in_row_scope(|| build_row(slot).build(&mut rowcx));
                         // Rebind on recycle: point the slot at the cell's new row.
                         Rc::new(move |i: usize| conn.rebind(&slot, i)) as Rc<dyn Fn(usize)>
                     });

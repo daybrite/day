@@ -35,7 +35,7 @@
 //! | Android | SoundPool with game audio attributes | the stream repeats |
 //! | web | Web Audio | the source node repeats its buffer |
 //! | Windows | XAudio2 | the voice repeats its buffer |
-//! | Linux | libcanberra, loaded at run time | emulated: a libpulse stream fed the clip round and round, or a long file of repeats |
+//! | Linux | libpulse (PulseAudio, and PipeWire's Pulse layer), loaded at run time, with the part's own mixer | emulated: the mixer wraps the clip |
 //! | HarmonyOS | SoundPool with the game stream usage | the stream repeats |
 //!
 //! Like haptics, every call is fire-and-forget and best effort: none returns an error or panics. A
@@ -64,7 +64,12 @@ pub const MIN_REPEAT_MS: u64 = 40;
 
 /// The sample rate the engines that take raw samples run at: the canonical clip's own.
 #[cfg_attr(
-    not(any(target_os = "ios", target_os = "macos", target_os = "windows")),
+    not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    )),
     allow(dead_code)
 )]
 const RATE: u32 = 44_100;
@@ -77,7 +82,7 @@ const RECENT: usize = 64;
 pub struct Play {
     /// 0 (silent) to 1 (as recorded), scaled by the master [`volume`].
     pub volume: f32,
-    /// −1 (left) to 1 (right). Best effort: Windows and Linux play every clip centered.
+    /// −1 (left) to 1 (right). Best effort: Windows plays every clip centered.
     pub pan: f32,
     /// When every voice is busy, the oldest voice with the lowest priority stops for this clip;
     /// a clip below the priority of everything playing is skipped instead.
@@ -148,7 +153,7 @@ fn state() -> MutexGuard<'static, State> {
 }
 
 /// Whether this platform has a sound engine. It reports whether the engine can be reached (on
-/// Linux, whether libcanberra is installed), not whether a speaker is plugged in.
+/// Linux, whether libpulse is installed), not whether a speaker is plugged in.
 pub fn is_supported() -> bool {
     imp::supported()
 }
@@ -266,7 +271,7 @@ impl Loop {
     }
 
     /// Move the loop across the stereo field, −1 (left) to 1 (right). Best effort, like
-    /// [`Play::pan`]: Windows and Linux play every loop centered.
+    /// [`Play::pan`]: Windows plays every loop centered.
     pub fn set_pan(&self, pan: f32) {
         if !pan.is_finite() {
             return;
@@ -421,7 +426,12 @@ fn warn_once(path: &str, why: &str) {
 
 /// A clip's samples, mono at [`RATE`]: what the engines that take raw samples play.
 #[cfg_attr(
-    not(any(target_os = "ios", target_os = "macos", target_os = "windows")),
+    not(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "windows",
+        all(target_os = "linux", not(target_env = "ohos"))
+    )),
     allow(dead_code)
 )]
 fn load(path: &str) -> Option<Vec<f32>> {
@@ -438,59 +448,144 @@ fn load(path: &str) -> Option<Vec<f32>> {
     }
 }
 
-/// A loop for an engine that can only play a file from its start to its end (libcanberra, where
-/// Linux has no libpulse to stream through): the clip laid end to end in one long file, so every
-/// repeat inside it is sample-exact, and the engine is asked for the file again only when it
-/// runs out.
+/// A software mixer, for an engine that gives the part one stream of samples and nothing else
+/// (Linux). Every clip and every loop sounding is a [`Voice`](mixer::Voice); the engine's thread
+/// asks for the next few milliseconds and gets all of them summed, each at its own volume and
+/// place in the stereo field.
 #[cfg(any(all(target_os = "linux", not(target_env = "ohos")), test))]
-mod unrolled {
-    /// The file runs at least this long, in whole repeats of the clip. Longer means the engine
-    /// is asked again less often; shorter means a smaller file in the cache.
-    pub const SECS: usize = 20;
+mod mixer {
+    use std::sync::Arc;
 
-    /// The file fades in over this long and out over this long, and the next playing of it
-    /// starts this long before the last one ends, so the two cross over without a click however
-    /// late the engine starts the new one.
-    pub const EDGE_MS: usize = 80;
+    use super::VOICES;
 
-    /// `samples` (mono, at `rate`) as that file: canonical 16-bit PCM WAV bytes, with how many
-    /// frames it holds and how many of them each fade covers. `None` for an empty clip.
-    pub fn file(samples: &[f32], rate: u32) -> Option<(Vec<u8>, usize, usize)> {
-        if samples.is_empty() || rate == 0 {
-            return None;
+    /// The left and right gains for a volume and a pan: full on both sides when centered, and
+    /// one side falling to nothing as the sound moves to the other.
+    pub fn gains(volume: f32, pan: f32) -> (f32, f32) {
+        (volume * (1.0 - pan).min(1.0), volume * (1.0 + pan).min(1.0))
+    }
+
+    /// One sound in the mix.
+    pub struct Voice {
+        /// The loop's id, or 0 for a clip played once.
+        pub id: i32,
+        pub looping: bool,
+        pub samples: Arc<Vec<f32>>,
+        /// The next sample to play.
+        pub at: usize,
+        /// The gains it was last mixed at and the gains it should reach. A change is eased across
+        /// one [`Mix::render`] rather than stepped, because a step in level is a click.
+        pub now: (f32, f32),
+        pub want: (f32, f32),
+        /// Fading to nothing over the next render and leaving the mix after it: a stopped loop,
+        /// or a clip whose voice was taken for another.
+        pub ending: bool,
+        pub priority: i32,
+        /// Its place in the order voices started, for "the oldest".
+        pub started: u64,
+    }
+
+    /// Everything sounding now.
+    #[derive(Default)]
+    pub struct Mix {
+        pub voices: Vec<Voice>,
+        next: u64,
+    }
+
+    impl Mix {
+        fn add(&mut self, id: i32, samples: Arc<Vec<f32>>, gains: (f32, f32), priority: i32) {
+            self.next += 1;
+            self.voices.push(Voice {
+                id,
+                looping: id != 0,
+                samples,
+                at: 0,
+                now: gains,
+                want: gains,
+                ending: false,
+                priority,
+                started: self.next,
+            });
         }
-        let repeats = (SECS * rate as usize).div_ceil(samples.len()).max(1);
-        let frames = samples.len() * repeats;
-        // A clip too short to hold both fades gets shorter ones.
-        let edge = (EDGE_MS * rate as usize / 1000).min(frames / 4);
-        let bytes = u32::try_from(frames * 2).ok()?;
-        let mut out = Vec::with_capacity(44 + frames * 2);
-        out.extend(b"RIFF");
-        out.extend((36 + bytes).to_le_bytes());
-        out.extend(b"WAVEfmt ");
-        out.extend(16u32.to_le_bytes());
-        out.extend(1u16.to_le_bytes()); // PCM
-        out.extend(1u16.to_le_bytes()); // mono
-        out.extend(rate.to_le_bytes());
-        out.extend((rate * 2).to_le_bytes());
-        out.extend(2u16.to_le_bytes());
-        out.extend(16u16.to_le_bytes());
-        out.extend(b"data");
-        out.extend(bytes.to_le_bytes());
-        for i in 0..frames {
-            let gain = if edge == 0 {
-                1.0
-            } else if i < edge {
-                i as f32 / edge as f32
-            } else if i >= frames - edge {
-                (frames - 1 - i) as f32 / edge as f32
-            } else {
-                1.0
-            };
-            let sample = samples[i % samples.len()] * gain;
-            out.extend(((sample * 32_767.0) as i16).to_le_bytes());
+
+        /// Add a clip to play once. With [`VOICES`] clips already sounding, the oldest of the
+        /// lowest priority fades out for it, unless everything sounding outranks it, in which
+        /// case it is not played. False when it was not added.
+        pub fn play(&mut self, samples: Arc<Vec<f32>>, gains: (f32, f32), priority: i32) -> bool {
+            if samples.is_empty() {
+                return false;
+            }
+            let clips = |v: &&mut Voice| !v.looping && !v.ending;
+            if self.voices.iter_mut().filter(clips).count() >= VOICES {
+                let Some(weakest) = self
+                    .voices
+                    .iter_mut()
+                    .filter(clips)
+                    .min_by_key(|v| (v.priority, v.started))
+                else {
+                    return false;
+                };
+                if weakest.priority > priority {
+                    return false;
+                }
+                weakest.ending = true;
+            }
+            self.add(0, samples, gains, priority);
+            true
         }
-        Some((out, frames, edge))
+
+        /// Add loop `id`, which wraps from its last sample to its first until it is stopped.
+        pub fn loop_start(&mut self, id: i32, samples: Arc<Vec<f32>>, gains: (f32, f32)) {
+            if !samples.is_empty() {
+                self.add(id, samples, gains, i32::MAX);
+            }
+        }
+
+        fn looping(&mut self, id: i32) -> Option<&mut Voice> {
+            self.voices
+                .iter_mut()
+                .find(|v| v.looping && v.id == id && !v.ending)
+        }
+
+        pub fn loop_set(&mut self, id: i32, gains: (f32, f32)) {
+            if let Some(v) = self.looping(id) {
+                v.want = gains;
+            }
+        }
+
+        pub fn loop_stop(&mut self, id: i32) {
+            if let Some(v) = self.looping(id) {
+                v.ending = true;
+            }
+        }
+
+        /// The next `out.len() / 2` frames of everything sounding, as interleaved 16-bit stereo,
+        /// advancing every voice by that much and dropping the ones that finished.
+        pub fn render(&mut self, out: &mut [i16]) {
+            let frames = out.len() / 2;
+            let mut sum = vec![0.0f32; frames * 2];
+            for v in &mut self.voices {
+                let (from, to) = (v.now, if v.ending { (0.0, 0.0) } else { v.want });
+                for i in 0..frames {
+                    if v.at == v.samples.len() {
+                        if !v.looping {
+                            break;
+                        }
+                        v.at = 0;
+                    }
+                    let t = i as f32 / frames as f32;
+                    let sample = v.samples[v.at];
+                    v.at += 1;
+                    sum[2 * i] += sample * (from.0 + (to.0 - from.0) * t);
+                    sum[2 * i + 1] += sample * (from.1 + (to.1 - from.1) * t);
+                }
+                v.now = to;
+            }
+            self.voices
+                .retain(|v| !v.ending && (v.looping || v.at < v.samples.len()));
+            for (o, s) in out.iter_mut().zip(sum) {
+                *o = (s.clamp(-1.0, 1.0) * 32_767.0) as i16;
+            }
+        }
     }
 }
 
@@ -1453,32 +1548,109 @@ mod tests {
         assert_eq!(same, vec![0.3]);
     }
 
+    /// `n` samples at `level`, as a clip.
+    fn flat(n: usize, level: f32) -> std::sync::Arc<Vec<f32>> {
+        std::sync::Arc::new(vec![level; n])
+    }
+
+    /// One render of `frames` frames, as (left, right) pairs in −1…1.
+    fn render(mix: &mut mixer::Mix, frames: usize) -> Vec<(f32, f32)> {
+        let mut out = vec![0i16; frames * 2];
+        mix.render(&mut out);
+        out.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|f| (f[0] as f32 / 32_767.0, f[1] as f32 / 32_767.0))
+            .collect()
+    }
+
     #[test]
-    fn an_unrolled_loop_repeats_the_clip_exactly_and_fades_only_at_its_ends() {
-        // A 4-sample clip at 1 kHz: 20 s of it is 5,000 repeats, and each fade is 80 frames.
-        let clip = [0.5f32, 1.0, -0.5, -1.0];
-        let (bytes, frames, edge) = unrolled::file(&clip, 1_000).unwrap();
-        assert_eq!((frames, edge), (20_000, 80));
-        let pcm = wav::decode(&bytes).unwrap();
-        assert_eq!((pcm.rate, pcm.samples.len()), (1_000, 20_000));
-        // Past the fade-in, every repeat is the clip itself.
+    fn the_mixer_sums_voices_at_their_volume_and_pan_and_drops_a_clip_when_it_ends() {
+        assert_eq!(mixer::gains(0.5, 0.0), (0.5, 0.5));
+        assert_eq!(mixer::gains(1.0, -1.0), (1.0, 0.0));
+        assert_eq!(mixer::gains(0.8, 0.5), (0.4, 0.8));
+
+        let mut mix = mixer::Mix::default();
+        assert!(mix.play(flat(6, 0.5), mixer::gains(1.0, 0.0), 0));
+        assert!(mix.play(flat(2, 0.25), mixer::gains(1.0, 1.0), 0));
         assert!(
-            close(&pcm.samples[80..84], &clip),
-            "{:?}",
-            &pcm.samples[80..84]
+            !mix.play(flat(0, 0.0), (1.0, 1.0), 0),
+            "an empty clip is not a voice"
         );
-        assert!(close(&pcm.samples[10_000..10_004], &clip));
-        // The ends are silent and the fades are monotonic in level.
-        assert_eq!(pcm.samples[0], 0.0);
-        assert!(pcm.samples[frames - 1].abs() < 1e-3);
-        assert!(pcm.samples[41].abs() < pcm.samples[81].abs());
-        // A clip longer than the target is played once; an empty one has no file.
-        let long = vec![0.25f32; 30_000];
-        assert_eq!(unrolled::file(&long, 1_000).unwrap().1, 30_000);
-        assert!(unrolled::file(&[], 44_100).is_none());
-        // A clip too short for both fades still gets a file, with shorter fades.
-        let (_, frames, edge) = unrolled::file(&[0.1; 3], 1).unwrap();
-        assert_eq!((frames, edge), (21, 0));
+        let got = render(&mut mix, 4);
+        // The centered clip on both sides; the clip panned right adds to the right only, and
+        // only for its two samples.
+        assert!(close(&[got[0].0, got[0].1], &[0.5, 0.75]), "{got:?}");
+        assert!(close(&[got[1].0, got[1].1], &[0.5, 0.75]));
+        assert!(close(&[got[2].0, got[2].1], &[0.5, 0.5]));
+        assert_eq!(mix.voices.len(), 1, "the short clip is gone");
+        let got = render(&mut mix, 4);
+        assert!(close(&[got[1].0, got[2].0, got[3].0], &[0.5, 0.0, 0.0]));
+        assert!(mix.voices.is_empty());
+        // A mix that would pass full scale is held to it.
+        mix.play(flat(4, 1.0), (1.0, 1.0), 0);
+        mix.play(flat(4, 1.0), (1.0, 1.0), 0);
+        assert!(close(&[render(&mut mix, 1)[0].0], &[1.0]));
+    }
+
+    #[test]
+    fn a_mixed_loop_wraps_exactly_eases_to_a_new_volume_and_fades_out_when_stopped() {
+        let mut mix = mixer::Mix::default();
+        let ramp = std::sync::Arc::new(vec![0.1f32, 0.2, 0.3]);
+        mix.loop_start(7, ramp, mixer::gains(1.0, 0.0));
+        let left: Vec<f32> = render(&mut mix, 8).iter().map(|f| f.0).collect();
+        assert!(
+            close(&left, &[0.1, 0.2, 0.3, 0.1, 0.2, 0.3, 0.1, 0.2]),
+            "the last sample runs into the first: {left:?}"
+        );
+        assert_eq!(mix.voices.len(), 1, "a loop does not end");
+
+        // A new volume is reached across one render, not stepped to.
+        let mut mix = mixer::Mix::default();
+        mix.loop_start(7, flat(1, 1.0), mixer::gains(1.0, 0.0));
+        mix.loop_set(7, mixer::gains(0.5, 0.0));
+        mix.loop_set(8, mixer::gains(0.0, 0.0)); // no such loop: nothing happens
+        let left: Vec<f32> = render(&mut mix, 4).iter().map(|f| f.0).collect();
+        assert!(close(&left, &[1.0, 0.875, 0.75, 0.625]), "{left:?}");
+        assert!(close(&[render(&mut mix, 1)[0].0], &[0.5]));
+
+        // Stopping fades to nothing over one render, then the voice is gone.
+        mix.loop_stop(7);
+        let left: Vec<f32> = render(&mut mix, 4).iter().map(|f| f.0).collect();
+        assert!(close(&left, &[0.5, 0.375, 0.25, 0.125]), "{left:?}");
+        assert!(mix.voices.is_empty());
+        assert!(close(&[render(&mut mix, 1)[0].0], &[0.0]));
+    }
+
+    #[test]
+    fn a_ninth_clip_takes_the_oldest_lowest_priority_voice_and_never_a_loop() {
+        let mut mix = mixer::Mix::default();
+        mix.loop_start(1, flat(100, 0.0), (1.0, 1.0));
+        for priority in [5, 1, 1, 5, 5, 5, 5, 5] {
+            assert!(mix.play(flat(100, 0.0), (1.0, 1.0), priority));
+        }
+        // Below everything sounding: not played.
+        assert!(!mix.play(flat(100, 0.0), (1.0, 1.0), 0));
+        assert_eq!(mix.voices.iter().filter(|v| v.ending).count(), 0);
+        // At the lowest priority sounding: the older of the two priority-1 clips makes way.
+        assert!(mix.play(flat(100, 0.0), (1.0, 1.0), 1));
+        let ending: Vec<u64> = mix
+            .voices
+            .iter()
+            .filter(|v| v.ending)
+            .map(|v| v.started)
+            .collect();
+        assert_eq!(
+            ending,
+            vec![3],
+            "the loop started first; the clips after it"
+        );
+        render(&mut mix, 4);
+        assert_eq!(mix.voices.iter().filter(|v| !v.looping).count(), VOICES);
+        assert!(
+            mix.voices.iter().any(|v| v.looping),
+            "the loop kept its voice"
+        );
     }
 
     /// The plays of this test's own clips among [`recent`], which every test shares.

@@ -403,7 +403,7 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
         .with(|m| {
             m.with(key(h), |st| {
                 let (_, nat_w, _, _) = st.textview.measure(gtk4::Orientation::Horizontal, -1);
-                let avail_w = p.width.unwrap_or(nat_w as f64).max(120.0);
+                let avail_w = p.width.unwrap_or(nat_w as f64).max(width_floor(st.max_lines));
                 let (_, nat_h, _, _) = st
                     .textview
                     .measure(gtk4::Orientation::Vertical, avail_w as i32);
@@ -418,7 +418,7 @@ fn measure(_backend: &mut Gtk, h: &gtk4::Widget, p: Proposal) -> Size {
         })
         .unwrap_or_else(|| {
             let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
-            Size::new(p.width.unwrap_or(nat_w as f64).max(120.0), 88.0)
+            Size::new(p.width.unwrap_or(nat_w as f64).max(width_floor(0)), 88.0)
         })
 }
 

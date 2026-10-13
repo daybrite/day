@@ -224,9 +224,11 @@ fn update(_backend: &mut ArkUi, h: &AHandle, patch: &EditorPatch) {
 /// The band is what the piece promises (`min_lines`..`max_lines`); the ArkTS side fills the
 /// frame (`Index.ets`) and scrolls inside it.
 fn measure(_backend: &mut ArkUi, h: &AHandle, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
+    let wanted_w = p.width.unwrap_or(320.0);
+    let avail_w = wanted_w.max(width_floor(0));
     BAND.with(|t| {
         t.with(key(h), |&mut (base, min_lines, max_lines)| {
+            let avail_w = wanted_w.max(width_floor(max_lines));
             let line_h = base * 1.4 + 4.0;
             let lines = text_of(h).lines().count().max(1) as f64;
             let min_h = f64::from(min_lines) * line_h;

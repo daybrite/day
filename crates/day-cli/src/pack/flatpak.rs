@@ -76,9 +76,9 @@ pub fn pack(
     super::linux::stage_exports(project, &stage, &id, &title, &id).map_err(PackError::Other)?;
 
     // --- manifest -------------------------------------------------------------
-    let requirements =
+    let needs =
         crate::pieces::resolve_flatpak(project, target.toolkit).map_err(PackError::Other)?;
-    let base = select_base(&requirements, target, &outcome.artifact).map_err(PackError::Other)?;
+    let base = select_base(&needs.bases, target, &outcome.artifact).map_err(PackError::Other)?;
     if let Some((id, version)) = &base {
         status(
             "Packing",
@@ -88,7 +88,7 @@ pub fn pack(
     let manifest_path = work.join(format!("{id}.yml"));
     std::fs::write(
         &manifest_path,
-        manifest_yaml(target, &id, &name, base.as_ref()),
+        manifest_yaml(target, &id, &name, base.as_ref(), &needs.finish_args),
     )
     .map_err(|e| PackError::Other(e.to_string()))?;
 
@@ -160,11 +160,23 @@ pub(crate) fn runtime_for(target: &Target) -> (&'static str, String) {
     }
 }
 
+/// The sandbox permissions every Day app's Flatpak has: a display, the GPU, and the network.
+const FINISH_ARGS: [&str; 5] = [
+    "--share=ipc",
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--device=dri",
+    "--share=network",
+];
+
+/// `finish_args` are the permissions the app's dependencies declared
+/// (`[package.metadata.day.flatpak] finish-args`), added after [`FINISH_ARGS`].
 pub(crate) fn manifest_yaml(
     target: &Target,
     id: &str,
     name: &str,
     base: Option<&(String, String)>,
+    finish_args: &[String],
 ) -> String {
     let (runtime, runtime_version) = runtime_for(target);
     let sdk = runtime.replace(".Platform", ".Sdk");
@@ -177,6 +189,19 @@ pub(crate) fn manifest_yaml(
             )
         })
         .unwrap_or_default();
+    let mut finish = String::new();
+    for arg in FINISH_ARGS {
+        finish.push_str(&format!("  - {arg}\n"));
+    }
+    for arg in finish_args {
+        if !FINISH_ARGS.contains(&arg.as_str()) {
+            // Quoted, because a value may hold a `:` or a `#` that bare YAML would read.
+            finish.push_str(&format!(
+                "  - {}\n",
+                serde_json::to_string(arg).expect("string")
+            ));
+        }
+    }
     format!(
         r#"id: {id}
 runtime: {runtime}
@@ -190,12 +215,7 @@ build-options:
   no-debuginfo: true
   strip: false
 finish-args:
-  - --share=ipc
-  - --socket=fallback-x11
-  - --socket=wayland
-  - --device=dri
-  - --share=network
-modules:
+{finish}modules:
   - name: {name}
     buildsystem: simple
     build-commands:
@@ -338,6 +358,7 @@ mod tests {
             "dev.x.app",
             "app",
             None,
+            &[],
         );
         assert!(gtk.contains("runtime: org.gnome.Platform"));
         assert!(gtk.contains("sdk: org.gnome.Sdk"));
@@ -347,12 +368,19 @@ mod tests {
             "dev.x.app",
             "app",
             Some(&("org.example.Browser.BaseApp".into(), "1".into())),
+            &[],
         );
         assert!(qt.contains("runtime: org.kde.Platform"));
         assert!(qt.contains("base: \"org.example.Browser.BaseApp\""));
         assert!(qt.contains("command: dev.x.app"));
         // An app without a matching base requirement keeps only its runtime.
-        let lean = manifest_yaml(targets::find("linux-qt").unwrap(), "dev.x.app", "app", None);
+        let lean = manifest_yaml(
+            targets::find("linux-qt").unwrap(),
+            "dev.x.app",
+            "app",
+            None,
+            &[],
+        );
         assert!(lean.contains("runtime: org.kde.Platform"));
         assert!(!lean.contains("base:"));
         // Both manifests must be valid YAML and skip the debuginfo split (its eu-strip
@@ -361,7 +389,34 @@ mod tests {
             let parsed: serde_json::Value = serde_norway::from_str(manifest).unwrap();
             assert_eq!(parsed["build-options"]["no-debuginfo"], true);
             assert_eq!(parsed["build-options"]["strip"], false);
+            assert_eq!(
+                parsed["finish-args"],
+                serde_json::json!(FINISH_ARGS),
+                "with no dependency asking for more, the sandbox has only the defaults"
+            );
         }
+    }
+
+    #[test]
+    fn manifest_adds_the_permissions_dependencies_declare() {
+        // What day-part-sound declares, a value YAML would misread bare, and one of the
+        // defaults again, which is not listed twice.
+        let declared = [
+            "--filesystem=xdg-music:ro".to_string(),
+            "--share=network".to_string(),
+            "--socket=pulseaudio".to_string(),
+        ];
+        let manifest = manifest_yaml(
+            targets::find("linux-gtk").unwrap(),
+            "dev.x.app",
+            "app",
+            None,
+            &declared,
+        );
+        let parsed: serde_json::Value = serde_norway::from_str(&manifest).unwrap();
+        let mut want: Vec<&str> = FINISH_ARGS.to_vec();
+        want.extend(["--filesystem=xdg-music:ro", "--socket=pulseaudio"]);
+        assert_eq!(parsed["finish-args"], serde_json::json!(want));
     }
 
     #[test]

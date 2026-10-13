@@ -166,7 +166,9 @@ reads a `TextChanged` as the view's own report, which a synthesized one is not, 
 sends `Event::Custom` tagged `day_core::SYNTHESIZED_TEXT` first and the piece writes that text
 as the app would, which paints the view through a document patch. The `TextChanged` that
 follows is the echo it already ignores. The probe behind `assert_text` is kept current on both
-paths, so a walkthrough can read an editor back the way it reads a field.
+paths, and it starts with the text the editor is built over, so a walkthrough can read an
+editor back the way it reads a field, a read-only one included (a response body never has an
+edit to report).
 
 ### Two patches, and why
 
@@ -409,7 +411,13 @@ that an app's write goes out as `SetDocument`.
 
 **A single line** (`.single_line()`) is a styled `text_field`: it never wraps and scrolls
 sideways under the caret, Enter runs `.on_submit(f)` and inserts nothing, and a pasted newline
-becomes a space (same byte length, so the edit's offsets hold). Every arm turns the key off at
+becomes a space (same byte length, so the edit's offsets hold). It also measures like a field.
+An editor that wraps answers a width proposal with at least 120 points, room to wrap in; a
+single line gives way down to 48, so it can share a row with a switch, a name and a button
+without pushing the row past its container (`width_floor`, the one rule every arm's `measure`
+goes through). Its height is its one line at any width: the AppKit arm measures a wrapping
+editor by bounding the text container to the proposed width, and skips that for a single line,
+whose container stays unbounded so that a value wider than the field stays on the line. Every arm turns the key off at
 the source and reports it: `insertNewline:` through `doCommandBySelector:` on AppKit,
 `shouldChangeTextInRange:` on UIKit, a capture-phase key controller on GTK, `keyPressEvent` in
 the Qt shim, the IME's Done action and a hardware Enter on Android, `KeyDown` on XAML

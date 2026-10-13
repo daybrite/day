@@ -832,7 +832,22 @@ fn exec(step: Step, revision: u32) -> Reply {
                 emit(&id, Event::ListActivated(index))?;
                 Ok(Reply::ok())
             }
-            Step::Select { id, index } => {
+            Step::Select {
+                id,
+                index,
+                if_present,
+            } => {
+                if if_present {
+                    // Absent only counts once the UI has settled: a control still being
+                    // built is one to wait for, not one to skip (the same rule as `tap`).
+                    day_reactive::flush_sync();
+                    if !with_tree(|t| t.ui_idle()) {
+                        return Err(Reply::fail("ui transitions still settling", true));
+                    }
+                    if with_tree(|t| t.find_by_id(&id)).is_none() {
+                        return Ok(Reply::ok());
+                    }
+                }
                 emit(&id, Event::SelectionChanged(index))?;
                 Ok(Reply::ok())
             }

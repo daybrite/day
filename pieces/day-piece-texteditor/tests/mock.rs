@@ -630,3 +630,25 @@ fn code_mode_keeps_the_indentation_after_enter_and_closes_a_bracket() {
         "and the caret goes back between the pair: {log:?}"
     );
 }
+
+/// The text dayscript's `assert_text` reads for an editor: what the editor was built with,
+/// before any change. A read-only editor never has a change to report.
+#[test]
+fn an_editor_built_over_text_answers_for_it_before_any_edit() {
+    let probe_text = || {
+        day_core::with_tree(|t| t.find_by_id("ed").and_then(|n| t.node_probe(n)))
+            .map(|p| p.text)
+            .unwrap_or_default()
+    };
+    let (_probe, text, _node) = boot_text(|text| {
+        text.set("{\"ok\": true}".into());
+        text_editor_text(text).editable(false).id("ed").any()
+    });
+    flush_sync();
+    assert_eq!(probe_text(), "{\"ok\": true}");
+
+    // And it still follows a write.
+    text.set("changed".into());
+    flush_sync();
+    assert_eq!(probe_text(), "changed");
+}

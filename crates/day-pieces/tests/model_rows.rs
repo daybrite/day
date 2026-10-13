@@ -11,10 +11,10 @@ use std::rc::Rc;
 use day_core::AnyPiece;
 use day_macros::Observable;
 use day_mock::{MockHandle, MockProbe, MockToolkit};
-use day_model::{Keyed, Store};
+use day_model::{Keyed, Op, Store};
 use day_pieces::prelude::*;
-use day_reactive::flush_sync;
-use day_spec::{Size, WindowOptions};
+use day_reactive::{Signal, flush_sync};
+use day_spec::{Event, NodeId, Size, WindowOptions};
 
 #[derive(Observable, Clone, Default, PartialEq, Debug)]
 pub struct Row {
@@ -322,5 +322,74 @@ fn a_cell_label_edit_re_lays_out_its_cell() {
     assert!(
         count(&probe, "set_frame") > frames,
         "the patched cell was re-laid-out (its label's frame follows its text)"
+    );
+}
+
+/// A text field bound through a row's slot seals the edit in progress when it is torn down
+/// (`Binding::write_teardown`), and it resolves its row through the slot to do so. The slot
+/// therefore has to outlive the row's own cleanups, whichever way the row goes: removed from
+/// the store while the user is typing in it, or closed along with the view around it.
+#[test]
+fn a_field_torn_down_mid_edit_seals_through_a_slot_that_still_stands() {
+    let store = Store::new(Keyed::new(vec![
+        Row {
+            id: 1,
+            name: "one".into(),
+            done: false,
+        },
+        Row {
+            id: 2,
+            name: "two".into(),
+            done: false,
+        },
+    ]));
+    let shown = Signal::new(true);
+    let probe = boot(move || {
+        when(
+            move || shown.get(),
+            move || {
+                each(store.rows(move || store.keys()), |slot: ModelSlot<Row>| {
+                    text_field(slot.name())
+                })
+            },
+        )
+        .any()
+    });
+    let field = |index: usize| NodeId(probe.find_by_kind("day.text_field")[index].1.node);
+    assert_eq!(probe.find_by_kind("day.text_field").len(), 2);
+
+    // Typing opens a session on row 1; removing the row disposes the field mid-session.
+    probe.emit(field(0), Event::TextChanged("typing".into()));
+    flush_sync();
+    let ((), changes) = day_model::record_changes(|| {
+        store.restructure("remove", Op::Delete, 1u32, |k| {
+            k.remove(1);
+        });
+        flush_sync();
+    });
+    assert_eq!(
+        probe.find_by_kind("day.text_field").len(),
+        1,
+        "the rest of the turn ran: the surviving row is the one on screen"
+    );
+    assert!(
+        changes.iter().all(|c| c.label == "remove"),
+        "the removal is all that was recorded; the gone row's edit left nothing"
+    );
+
+    // Typing in the row that stays, then closing the list around it: the edit is in the
+    // store, sealed as one change.
+    probe.emit(field(0), Event::TextChanged("kept".into()));
+    flush_sync();
+    let ((), changes) = day_model::record_changes(|| {
+        shown.set(false);
+        flush_sync();
+    });
+    assert!(probe.find_by_kind("day.text_field").is_empty());
+    assert_eq!(store.elem(2u32).name().peek(), "kept");
+    assert_eq!(
+        changes.iter().filter(|c| c.label == "name").count(),
+        1,
+        "the teardown sealed the session into one record"
     );
 }

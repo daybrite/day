@@ -32,7 +32,8 @@ cd my-app
 day launch -t linux-gtk
 ```
 
-Add `libwebkitgtk-6.0-dev` if you use the web view piece. `day doctor --toolkit gtk` probes
+Add `libwebkitgtk-6.0-dev` if you use the web view piece. Sound effects play through libpulse,
+which a desktop already has ([system requirements](/docs/system-requirements#optional-sound-effects)). `day doctor --toolkit gtk` probes
 GTK 4, libadwaita, `glib-compile-resources`, and the packaging tools (`flatpak-builder`,
 `linuxdeploy`, `linuxdeploy-plugin-gtk`); it does not check WebKitGTK.
 

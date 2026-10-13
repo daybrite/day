@@ -130,8 +130,8 @@ ffmpeg -i in.ogg -ac 1 -ar 44100 -c:a pcm_s16le -map_metadata -1 out.wav
   so a burst of the same sound (a streak of bricks, a deal of cards) stays crisp rather than piling
   up into one loud smear.
 - **Volume.** A play's volume is multiplied by the master volume; a result of 0 plays nothing.
-- **Pan.** Apple platforms, Android, HarmonyOS and the web place a clip or a loop across the
-  stereo field. Windows and Linux play every one centered.
+- **Pan.** Apple platforms, Android, HarmonyOS, Linux and the web place a clip or a loop across
+  the stereo field. Windows plays every one centered.
 - **Other audio.** Sound effects mix with music and podcasts from other apps rather than
   interrupting them. On iOS they follow the Silent switch.
 
@@ -145,31 +145,9 @@ ffmpeg -i in.ogg -ac 1 -ar 44100 -c:a pcm_s16le -map_metadata -1 out.wav
 | HarmonyOS | `SoundPool` with `STREAM_USAGE_GAME` | loads in the background from the app's raw files | native: a stream played with `loop: -1` |
 | web | Web Audio | fetches and decodes each clip; the audio context starts on the page's first tap or key press, as browsers require | native: a source node with `loop` set |
 | Windows | XAudio2 | a mastering voice in the game-effects category, 8 source voices for clips and 4 for loops | native: the buffer's `LoopCount` is `XAUDIO2_LOOP_INFINITE` |
-| Linux (GTK, Qt) | libcanberra, loaded at run time | the desktop's event-sound service; each clip is cached under `$XDG_CACHE_HOME/day-part-sound/` for it to read | emulated, as described below |
+| Linux (GTK, Qt) | libpulse, loaded at run time, with the part's own mixer | reaches PulseAudio and PipeWire's Pulse layer; the stream is open only while something sounds | emulated: the mixer wraps the clip from its last sample to its first |
 
-Every native loop repeats sample-exactly inside the engine. libcanberra plays a file from its
-start to its end and has no call to repeat one or to change a playing sound, so on Linux the part
-emulates a loop, in one of two ways. Pan is not applied in either, as for clips.
-
-**A stream of its own.** Where `libpulse-simple.so.0` can be loaded and a server answers, the loop
-is a playback stream fed by a thread that writes the clip's samples round and round, 20 ms at a
-time. That covers PulseAudio and PipeWire desktops, which is where libcanberra plays through the
-same server. Every repeat is sample-exact, a new volume is applied to the samples as they are
-written and eases in over one write, and a stopped loop's stream is flushed and closed. The
-stream holds 100 ms, so a volume change is heard within about that. The library is loaded at run
-time like libcanberra, and the part has no build-time dependency on it.
-
-**A long file through libcanberra.** On a desktop without libpulse (ALSA only), the part falls
-back to what libcanberra can do:
-
-- The clip is written end to end into one file of at least 20 seconds (`<clip>.loop.wav`, beside
-  its plain file in the cache), with an 80 ms fade at each end. Every repeat inside that file is
-  sample-exact, and libcanberra streams it from disk.
-- A helper thread asks for the file again 80 ms before it runs out, so the two playings cross
-  over their fades. The two are not phase-aligned, so a steady tone dips for about 100 ms at each
-  crossover, once every 20 seconds or so, and the loop's first 80 ms fade in.
-- `Loop::set_volume` cancels the loop and starts the file again at the new volume, so the loop
-  restarts from the top of the clip.
+Every native loop repeats sample-exactly inside the engine. [Linux](#linux) mixes in software.
 
 On Apple platforms a route change (headphones, a new output device) stops the engine. The part
 starts it again on the next call that makes sound and puts every loop back on its node, so a
@@ -177,14 +155,55 @@ loop that was the only sound stays silent until then.
 
 Where loading happens in the background (Android, HarmonyOS, the web), a clip played before it is
 ready is skipped, because a late sound effect is worse than none; `preload` when a screen opens
-avoids that. On Linux, `is_supported()` is false when libcanberra is not installed, and the part
-has no build-time dependency on it.
+avoids that.
 
 The part has no cargo features: the engine is chosen by `#[cfg(target_os)]` and, for Android,
 HarmonyOS and the web, by the daybridge arms in `src/lib.rs` ([bridge.md](bridge.md)). On Apple
 platforms it links `AVFAudio` through `[package.metadata.day.ios]` and
 `[package.metadata.day.macos]` ([extending.md](extending.md)). No platform asks the user for a
 permission to play sound.
+
+### Linux
+
+The part plays through **libpulse**, the client library of the PulseAudio sound server. PipeWire
+speaks the same protocol through its Pulse layer (`pipewire-pulse`), so the one library reaches
+the sound server on every current desktop. It is the only audio library the part uses on Linux.
+
+libpulse's simple API offers a stream to write samples into, so the part mixes in software. One
+thread owns one stereo stream at 44.1 kHz. Each clip and each loop sounding is a voice in the
+mix: every 10 ms the thread sums them, each at its own volume and pan, and writes the result.
+
+- **Latency.** The stream holds 50 ms, so a clip is heard, and a stopped loop goes silent, within
+  about that.
+- **Voices and priority.** The mixer keeps the same rules as the native engines: eight clip
+  voices, the oldest of the lowest priority making way for a ninth, and four loop voices.
+- **Loops.** A loop is a voice that wraps from its last sample to its first, so every repeat is
+  sample-exact. This is the one platform where the part does the looping itself.
+- **Changes.** A new loop volume or pan is eased in across one 10 ms write, and a stopped loop
+  or a displaced clip fades out across one, because a step in level is a click.
+- **The stream.** It opens when the first sound plays and closes two seconds after the last one
+  ends. A quiet app holds no connection, and a run of taps shares one.
+- **Without a server.** When no sound server answers, clips are dropped and a held loop is tried
+  again every few seconds.
+
+**What a machine needs.** `libpulse-simple.so.0` at run time. Desktop installs carry it: it is
+in `libpulse0` on Debian and Ubuntu, `pulseaudio-libs` on Fedora, and `libpulse` on Arch. The
+part loads it with `dlopen`, so the app has no build-time dependency on it, starts without it,
+and reports `is_supported()` false there. A minimal container or CI image may need the package
+installed:
+
+```sh
+sudo apt install libpulse0        # Debian / Ubuntu
+```
+
+**In a Flatpak.** The sandbox has no route to the sound server unless the manifest asks for one.
+The part declares `finish-args = ["--socket=pulseaudio"]` in its
+`[package.metadata.day.flatpak]` table, and `day pack` adds that to the manifest of any app that
+depends on it ([extending.md](extending.md#flatpak-dependencies)). The GNOME and KDE runtimes
+both ship libpulse. That socket carries recording as well as playback, which is how Flatpak
+defines it.
+
+**In an AppImage.** The AppImage uses the host's libpulse, like any other app on the machine.
 
 ## Checking it
 

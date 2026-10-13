@@ -2136,6 +2136,9 @@ impl<S: Source<T>, T: 'static, V: Clone + Default + 'static> Field<S, T, V> {
         let mut parts = Vec::new();
         Source::<V>::components(self, &mut parts);
         let open = PREVIEWS.with(|p| p.borrow_mut().remove(&parts));
+        // A session whose row was deleted meanwhile (a field torn down with its row) ends
+        // here with nothing to record: there is no value left for the change to describe.
+        let open = open.filter(|_| self.with_untracked(|s| s.is_some()));
         match open {
             None => self.update(move |slot| *slot = v),
             Some(prior) => {

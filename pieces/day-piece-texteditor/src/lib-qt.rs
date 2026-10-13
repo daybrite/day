@@ -352,13 +352,14 @@ fn update(_backend: &mut Qt, h: &QtHandle, patch: &EditorPatch) {
 }
 
 fn measure(_backend: &mut Qt, h: &QtHandle, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
     let (min_lines, max_lines) = STATE
         .with(|t| t.with(h.0 as usize, |st| (st.min_lines, st.max_lines)))
         .unwrap_or((3, 0));
+    let floor = width_floor(max_lines);
+    let avail_w = p.width.unwrap_or(320.0).max(floor);
     let (mut w, mut hh) = (0.0, 0.0);
     unsafe { day_texteditor_measure(h.0, avail_w, min_lines, max_lines, &mut w, &mut hh) };
-    Size::new(w.max(120.0), hh.max(24.0))
+    Size::new(w.max(floor), hh.max(24.0))
 }
 
 fn release(_backend: &mut Qt, h: &QtHandle) {

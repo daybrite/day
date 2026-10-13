@@ -329,10 +329,12 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &EditorPatch) {
 /// its own content, but a JNI measure per layout pass is the expensive way to ask; the band is
 /// what the piece promises, and the EditText scrolls inside it.
 fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
+    let wanted_w = p.width.unwrap_or(320.0);
+    let avail_w = wanted_w.max(width_floor(0));
     STATE
         .with(|t| {
             t.with(key(h), |st| {
+                let avail_w = wanted_w.max(width_floor(st.max_lines));
                 let line_h = st.base_points * 1.4 + 4.0;
                 let lines = st.text.lines().count().max(1) as f64;
                 let min_h = f64::from(st.min_lines) * line_h;

@@ -190,6 +190,11 @@ pub enum Step {
     Select {
         id: String,
         index: i64,
+        /// Skip an absent element after UI transitions settle, as `tap`'s does. For a
+        /// control that only some layouts have: the pane switcher a phone shows where a wide
+        /// window shows both panes.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        if_present: bool,
     },
     /// Drag-reorder a list row programmatically: row `from` drops at row `to` through the same
     /// guard → commit path a native drag takes (docs/list.md); the app's `reorder_guard` may

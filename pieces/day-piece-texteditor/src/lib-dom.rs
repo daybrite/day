@@ -173,11 +173,13 @@ fn update(backend: &mut Dom, h: &DomHandle, patch: &EditorPatch) {
 /// A growing leaf: take the proposed width, and a height from the content, clamped to the line
 /// band. Past `max_lines` the element scrolls, which is what the band promises.
 fn measure(_backend: &mut Dom, h: &DomHandle, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
+    let wanted_w = p.width.unwrap_or(320.0);
+    let avail_w = wanted_w.max(width_floor(0));
     let line_h = FONT_SIZE * 1.4;
     STATE
         .with(|t| {
             t.with(h.0 as usize, |st| {
+                let avail_w = wanted_w.max(width_floor(st.max_lines));
                 let pad = 2.0 * PAD;
                 let min_h = f64::from(st.min_lines.max(1)) * line_h + pad;
                 let max_h = if st.max_lines > 0 {

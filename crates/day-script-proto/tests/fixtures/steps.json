@@ -12,7 +12,7 @@
   {"op":"set_value","id":"fixture","value":0.25},
   {"op":"toggle","id":"fixture","value":false},
   {"op":"activate","id":"fixture","index":2},
-  {"op":"select","id":"fixture","index":-1},
+  {"op":"select","id":"fixture","index":-1,"if_present":true},
   {"op":"reorder","id":"fixture","from":2,"to":0},
   {"op":"undo"},
   {"op":"redo"},

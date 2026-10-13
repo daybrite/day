@@ -206,6 +206,18 @@ sudo apt install libgtk-4-media-gstreamer gstreamer1.0-plugins-good gstreamer1.0
 Ubuntu's desktop install does not include it. To check a particular file or URL, run
 `gst-discoverer-1.0 <url>`: any "Missing plugins" it lists is what the player lacks.
 
+## Optional: sound effects
+
+[`day-part-sound`](/docs/internal/sound) plays through libpulse on the Linux desktop toolkits,
+which reaches both PulseAudio and PipeWire. The build needs nothing extra. At run time the part
+loads `libpulse-simple.so.0`, which a desktop install already has. A minimal container or CI
+image may need it installed; without it the app runs and stays silent.
+
+```bash
+sudo apt install libpulse0          # Debian / Ubuntu
+sudo dnf install pulseaudio-libs    # Fedora
+```
+
 ## Optional: packaging tools
 
 These are needed only to produce an installable artifact with `day pack`. [Packaging &

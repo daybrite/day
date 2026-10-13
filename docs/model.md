@@ -167,11 +167,19 @@ The costs land where they should: a field edit patches only the control showing 
 projection reads re-runs only the projection and reloads natively; and a cell scrolled across the whole collection leaves no claims behind.
 `day-pieces/tests/model_rows.rs` measures all three.
 
+A row's slot outlives the row's own teardown. `each` and `list` build a row's pieces in a scope
+nested inside the one that owns the slot, and disposal runs the inner scope first, so a cleanup
+the row registered still reaches its row through the slot. The case that needs it is a text
+field removed mid-edit: it seals the edit in progress on the way out (`write_teardown`), whether
+the row was deleted under it or the view around it closed.
+
 ## Deleted rows
 
 Reading a field of a deleted row returns the field's `Default` (never a panic), and
 `elem.exists()` is the **tracked** guard: it re-runs its reader when the row is deleted or comes
-back. A write to a gone row is a silent no-op and announces nothing.
+back. A write to a gone row is a silent no-op and announces nothing, and that includes the
+commit that would seal a preview session: a field deleted mid-edit ends its session with no
+record, since there is no value left for a change to describe.
 
 ```rust
 when(move || it.exists(), page(it), gone_notice())

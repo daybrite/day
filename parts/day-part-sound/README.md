@@ -30,7 +30,7 @@ mono, 44.1 kHz plays everywhere without conversion.
 | Android | SoundPool with game audio attributes | native |
 | web | Web Audio | native |
 | Windows | XAudio2 | native |
-| Linux | libcanberra, loaded at run time | emulated: a libpulse stream fed the clip round and round |
+| Linux | libpulse (PulseAudio, PipeWire), loaded at run time, with the part's own mixer | the mixer wraps the clip |
 | HarmonyOS | SoundPool with the game stream usage | native |
 
 Every call is fire-and-forget: none returns an error or panics, and a platform without an engine

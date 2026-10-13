@@ -725,7 +725,11 @@ operation. The core registry does not interpret that name or its payload.
 
 ## Flatpak dependencies
 
-A dependency can declare the Flatpak base its native library requires:
+A dependency can declare what it needs of an app's Flatpak: a base its native library requires,
+and sandbox permissions it uses at run time. Both live in `[package.metadata.day.flatpak]`, and
+either may be given alone.
+
+### Bases
 
 ```toml
 [[package.metadata.day.flatpak.bases]]
@@ -746,6 +750,28 @@ requirements stop packaging with an error. Malformed declarations also fail pack
 If `version` is omitted, it follows the selected runtime version, including `DAY_KDE_RUNTIME`
 or `DAY_GNOME_RUNTIME` overrides. Engine IDs, prefixes, and version pins belong to the declaring
 crate; Day only resolves and renders the declarations.
+
+### Sandbox permissions
+
+Every Day app's Flatpak has a display, the GPU and the network: `--share=ipc`,
+`--socket=fallback-x11`, `--socket=wayland`, `--device=dri` and `--share=network`. A dependency
+that reaches further declares the `finish-args` it needs:
+
+```toml
+[package.metadata.day.flatpak]
+finish-args = ["--socket=pulseaudio"]
+```
+
+That is `day-part-sound`'s declaration: its Linux engine reaches the sound server through
+libpulse, and a sandbox has no route to that server without the socket
+([sound.md](sound.md#linux)).
+
+`day pack` collects the entries from the same dependency graph as the bases and adds them to the
+manifest after the defaults, sorted and without repeats, so the manifest is the same on every
+build. An app that does not depend on the crate does not get the permission. Each entry is one
+`--option[=value]` word as `flatpak build-finish` spells it; anything else stops packaging with an
+error. A permission widens what the app can touch for every user who installs it, so declare the
+narrowest one that works.
 
 When running Day's full lint script against an external crate under development, set
 `DAY_LINT_LOCAL_CHECKOUTS` to its checkout path. Multiple paths are separated by newlines.

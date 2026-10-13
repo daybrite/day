@@ -131,12 +131,14 @@ fn event_to_step(id: Option<&str>, ev: &Event) -> Option<Step> {
         Event::SelectionChanged(index) => id.map(|id| Step::Select {
             id: id.to_string(),
             index: *index,
+            if_present: false,
         }),
         // Playback drives a toggle through `select` (index = the bool as 0/1), the pattern
         // Day-Skies' weather.yaml uses, so a recorded toggle replays without a `toggle` step.
         Event::ToggleChanged(on) => id.map(|id| Step::Select {
             id: id.to_string(),
             index: *on as i64,
+            if_present: false,
         }),
         // The settled value of a slider, not the drag. `ValueChanged` fires on every tick (a
         // drag from 1 to 100 and back to 50 would write a hundred steps and print a hundred
@@ -408,7 +410,7 @@ fn echo_action(step: &Step, label: Option<&str>, recording: bool) {
         Step::Activate { id, index } => {
             let _ = write!(line, "activate {id} = {index}");
         }
-        Step::Select { id, index } => {
+        Step::Select { id, index, .. } => {
             let _ = write!(line, "select {id} = {index}");
         }
         Step::SetValue { id, value } => {
@@ -949,6 +951,7 @@ mod tests {
             Step::Select {
                 id: "size".into(),
                 index: 2,
+                if_present: false,
             },
             Step::NavBack { native: false },
             Step::SizeClass {
@@ -1218,7 +1221,8 @@ mod tests {
             &Event::SelectionChanged(1),
             &Step::Select {
                 id: "picker".into(),
-                index: 1
+                index: 1,
+                if_present: false,
             },
             Some("picker")
         ));

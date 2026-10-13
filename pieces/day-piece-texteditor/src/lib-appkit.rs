@@ -145,7 +145,6 @@ impl EdTarget {
 struct EdState {
     tv: Retained<NSTextView>,
     placeholder: Retained<NSTextField>,
-    #[allow(dead_code)]
     target: Retained<EdTarget>,
     base: Font,
     line_h: f64,
@@ -505,10 +504,12 @@ fn update(backend: &mut AppKit, h: &Retained<NSView>, patch: &EditorPatch) {
 }
 
 fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
+    let wanted_w = p.width.unwrap_or(320.0);
+    let avail_w = wanted_w.max(width_floor(0));
     STATE
         .with(|t| {
             t.with(key(h), |st| {
+                let avail_w = wanted_w.max(width_floor(st.max_lines));
                 let pad = 2.0 * INSET;
                 let min_h = (st.min_lines as f64) * st.line_h + pad;
                 let max_h = if st.max_lines > 0 {
@@ -516,6 +517,13 @@ fn measure(_backend: &mut AppKit, h: &Retained<NSView>, p: Proposal) -> Size {
                 } else {
                     f64::MAX
                 };
+                // One line is one line at any width. Its container is unbounded and does not
+                // track the view (`make`), which is what keeps a long value on that line; the
+                // wrapped measure below would bound the container and switch the tracking
+                // back on, and from then on a value wider than the field wraps under itself.
+                if st.target.ivars().single_line {
+                    return Size::new(avail_w, min_h.ceil());
+                }
                 let (Some(tc), Some(lm)) =
                     (unsafe { st.tv.textContainer() }, unsafe { st.tv.layoutManager() })
                 else {

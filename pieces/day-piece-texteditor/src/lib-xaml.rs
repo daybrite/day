@@ -321,10 +321,10 @@ fn update(_backend: &mut Xaml, h: &WinHandle, patch: &EditorPatch) {
 }
 
 fn measure(_backend: &mut Xaml, h: &WinHandle, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
     let (min_lines, max_lines) = STATE
         .with(|t| t.with(h.0 as usize, |st| (st.min_lines, st.max_lines)))
         .unwrap_or((3, 0));
+    let avail_w = p.width.unwrap_or(320.0).max(width_floor(max_lines));
     let (mut w, mut hh) = (0.0, 0.0);
     unsafe { day_xaml_measure(h.0, avail_w, f64::MAX, &mut w, &mut hh) };
     // The control reports its content height; the band is the piece's own promise, and past

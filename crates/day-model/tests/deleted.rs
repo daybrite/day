@@ -116,3 +116,37 @@ fn a_write_to_a_gone_row_is_a_silent_no_op() {
     });
     assert!(log.is_empty(), "nothing to write to, so nothing announced");
 }
+
+#[test]
+fn committing_a_session_for_a_deleted_row_records_nothing() {
+    let store = store();
+    let name = store.elem(7).name();
+    // A field mid-edit: the preview opens a session that a commit would seal.
+    name.write_preview("typing".into());
+    store.restructure("remove", Op::Delete, 7, |k| {
+        k.remove(7);
+    });
+
+    // The field is torn down with its row and seals on the way out. There is no value left
+    // for a change to describe, so the session ends without one.
+    let ((), changes) = day_model::record_changes(|| name.write_commit("typed".into()));
+    assert!(
+        changes.is_empty(),
+        "no record for a row that is gone: {} announced",
+        changes.len()
+    );
+
+    // The session is closed, not parked: the key coming back starts clean.
+    store.restructure("push", Op::Insert, 7, |k| {
+        k.push(Item {
+            id: 7,
+            name: "back".into(),
+        })
+    });
+    let ((), changes) = day_model::record_changes(|| name.write("edited".into()));
+    assert_eq!(
+        changes.len(),
+        1,
+        "a plain write to the returned row records once"
+    );
+}

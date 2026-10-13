@@ -14,7 +14,8 @@ license.workspace = true
 # (an audio engine is an OS concern, not a widget-toolkit one), so there are no backend features:
 #   iOS, macOS: AVAudioEngine + AVAudioPlayerNode pool (src/apple.rs; iOS in the `.ambient` session)
 #   Windows:    XAudio2 (src/windows.rs)
-#   Linux:      libcanberra, loaded at run time, and libpulse-simple for loops (src/linux.rs)
+#   Linux:      libpulse (PulseAudio, PipeWire's Pulse layer), loaded at run time, with the
+#               part's own mixer (src/linux.rs)
 #   Android:    SoundPool, Java arm in src/lib.rs (docs/bridge.md)
 #   HarmonyOS:  SoundPool, ArkTS arm in src/lib.rs
 #   web:        Web Audio, JavaScript arm in src/lib.rs
@@ -59,6 +60,12 @@ windows = { workspace = true, features = [
 # Context, like day-part-haptics.
 [target.'cfg(target_os = "android")'.dependencies]
 day-android = { workspace = true }
+
+# A Flatpak's sandbox has no route to the sound server unless its manifest asks for one, so
+# `day pack` adds this to the finish-args of any app that depends on this crate
+# (docs/extending.md "Flatpak dependencies"). The socket carries playback and recording alike.
+[package.metadata.day.flatpak]
+finish-args = ["--socket=pulseaudio"]
 
 # The Xcode host projects drive the final link and read no Rust link metadata, so the generated
 # DayPieces package declares the framework AVAudioEngine lives in.

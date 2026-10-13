@@ -422,6 +422,23 @@ when the device grants access only to the `render` group and the desktop's own s
 remote session. Adding yourself to the group (`sudo usermod -aG render $USER`, then log in
 again) gives the app the GPU.
 
+## An app is silent on Linux
+
+`day-part-sound` reaches the sound server through libpulse, which serves PulseAudio and
+PipeWire alike. Three things can leave it silent:
+
+- **libpulse is not installed.** `day_part_sound::is_supported()` is false. This is usual in a
+  minimal container. Install `libpulse0` (Debian, Ubuntu) or `pulseaudio-libs` (Fedora).
+- **No sound server is running.** The library loads but nothing answers, which is the case on
+  a CI runner. `pactl info` reports the server when there is one. On a PipeWire desktop the
+  `pipewire-pulse` service provides it.
+- **A Flatpak built by hand lacks the audio socket.** `day pack` adds `--socket=pulseaudio` for
+  any app that depends on the part. A manifest written by hand needs the same line under
+  `finish-args`.
+
+Run with `DAY_LOG=debug` to see each `play` and `loop` call arrive, and a
+`no sound server answered` line when the connection fails.
+
 ## A dayscript run fails on Linux
 
 These come from the desktop a scripted run (`day launch -t linux-gtk --script …`) runs on, not from

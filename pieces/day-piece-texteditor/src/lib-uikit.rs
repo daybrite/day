@@ -496,9 +496,11 @@ fn update(_backend: &mut Uikit, h: &Retained<UIView>, patch: &EditorPatch) {
 }
 
 fn measure(_backend: &mut Uikit, h: &Retained<UIView>, p: Proposal) -> Size {
-    let avail_w = p.width.unwrap_or(320.0).max(120.0);
+    let wanted_w = p.width.unwrap_or(320.0);
+    let avail_w = wanted_w.max(width_floor(0));
     STATE.with(|t| {
         t.with(key(h), |st| {
+            let avail_w = wanted_w.max(width_floor(st.max_lines));
             let pad = 2.0 * INSET;
             let min_h = (st.min_lines as f64) * st.line_h + pad;
             let max_h = if st.max_lines > 0 {

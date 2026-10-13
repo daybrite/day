@@ -436,24 +436,35 @@ pub(crate) struct FlatpakBase {
 }
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
 struct FlatpakMeta {
+    #[serde(default)]
     bases: Vec<FlatpakBase>,
+    /// Sandbox permissions the crate needs at run time, as `flatpak build-finish` spells them
+    /// (`--socket=pulseaudio`).
+    #[serde(default)]
+    finish_args: Vec<String>,
 }
 
-pub(crate) fn resolve_flatpak(
-    project: &Project,
-    toolkit: &str,
-) -> Result<Vec<FlatpakBase>, String> {
+/// What an app's dependencies ask of its Flatpak.
+#[derive(Debug, Default)]
+pub(crate) struct FlatpakNeeds {
+    pub bases: Vec<FlatpakBase>,
+    /// Sorted and without repeats, so the manifest is the same on every build.
+    pub finish_args: Vec<String>,
+}
+
+pub(crate) fn resolve_flatpak(project: &Project, toolkit: &str) -> Result<FlatpakNeeds, String> {
     let mut features = vec![toolkit.to_string()];
     features.extend(feature_union(project, toolkit));
     let refs: Vec<_> = features.iter().map(String::as_str).collect();
-    flatpak_bases(&cargo_metadata(project, &refs)?)
+    flatpak_needs(&cargo_metadata(project, &refs)?)
 }
 
-fn flatpak_bases(meta: &Metadata) -> Result<Vec<FlatpakBase>, String> {
+fn flatpak_needs(meta: &Metadata) -> Result<FlatpakNeeds, String> {
     let reachable = closure(meta);
     let mut bases = Vec::new();
+    let mut finish_args = std::collections::BTreeSet::new();
     for pkg in &meta.packages {
         if !reachable.contains(&pkg.id) {
             continue;
@@ -486,8 +497,25 @@ fn flatpak_bases(meta: &Metadata) -> Result<Vec<FlatpakBase>, String> {
             }
             bases.push(base);
         }
+        for arg in declared.finish_args {
+            // One `--option[=value]` word each: the manifest lists them, and flatpak-builder
+            // hands each to `flatpak build-finish` as an argument.
+            if !arg.starts_with("--")
+                || arg.len() < 3
+                || arg.chars().any(|c| c.is_whitespace() || c.is_control())
+            {
+                return Err(format!(
+                    "{}: Flatpak finish-args entry {arg:?} is not one `--option[=value]` word",
+                    pkg.manifest_path
+                ));
+            }
+            finish_args.insert(arg);
+        }
     }
-    Ok(bases)
+    Ok(FlatpakNeeds {
+        bases,
+        finish_args: finish_args.into_iter().collect(),
+    })
 }
 
 /// A dependency's default for one variable in a toolkit's AppImage launcher.
@@ -2400,11 +2428,38 @@ mod tests {
             ]}
         });
         let collect = |v: &serde_json::Value| {
-            super::flatpak_bases(&serde_json::from_value(v.clone()).unwrap())
+            super::flatpak_needs(&serde_json::from_value(v.clone()).unwrap())
         };
-        let bases = collect(&data).unwrap();
-        assert_eq!(bases.len(), 1);
-        assert_eq!(bases[0].id, "org.example.BaseApp");
+        let needs = collect(&data).unwrap();
+        assert_eq!(needs.bases.len(), 1);
+        assert_eq!(needs.bases[0].id, "org.example.BaseApp");
+        assert!(needs.finish_args.is_empty());
+        // Sandbox permissions are collected across the closure, sorted and without repeats;
+        // a crate may declare them with no base at all.
+        data["packages"][0]["metadata"] = serde_json::json!({"day":{"flatpak":{
+            "finish-args":["--socket=pulseaudio", "--talk-name=org.example.Player"]
+        }}});
+        data["packages"][1]["metadata"]["day"]["flatpak"]["finish-args"] =
+            serde_json::json!(["--socket=pulseaudio"]);
+        let needs = collect(&data).unwrap();
+        assert_eq!(needs.bases.len(), 1);
+        assert_eq!(
+            needs.finish_args,
+            ["--socket=pulseaudio", "--talk-name=org.example.Player"]
+        );
+        for bad in [
+            "socket=pulseaudio",
+            "--",
+            "--socket=pulseaudio --share=network",
+        ] {
+            data["packages"][0]["metadata"]["day"]["flatpak"]["finish-args"] =
+                serde_json::json!([bad]);
+            assert!(
+                collect(&data).unwrap_err().contains("finish-args"),
+                "{bad:?} must be refused"
+            );
+        }
+        data["packages"][0]["metadata"] = serde_json::Value::Null;
         data["packages"][1]["metadata"]["day"]["flatpak"]["bases"][0]["library-prefix"] = "".into();
         assert!(collect(&data).unwrap_err().contains("must not be empty"));
         data["packages"][1]["metadata"]["day"]["flatpak"] = serde_json::json!({"unknown":true});
