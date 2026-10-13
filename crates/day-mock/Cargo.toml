@@ -10,3 +10,4 @@ license.workspace = true
 
 [dependencies]
 day-spec = { workspace = true }
+day-async = { workspace = true }

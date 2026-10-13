@@ -4446,4 +4446,11 @@ impl Platform for Xaml {
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
         unsafe { ffi::day_xaml_post(run_posted, data) };
     }
+
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        // The timer door behind `day::sleep` (docs/async.md): a Win32 timer on the UI thread's
+        // message queue (the shim hops there first), no helper thread.
+        let data = Box::into_raw(Box::new(f)) as *mut c_void;
+        unsafe { ffi::day_xaml_post_delayed(ms, run_posted, data) };
+    }
 }

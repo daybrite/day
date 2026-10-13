@@ -1,6 +1,6 @@
 ---
 title: "Async without a runtime"
-description: "day::task futures on the main thread with no tokio: how background work returns to the UI through Setter and on_main."
+description: "day::task futures on the main thread with no tokio: spawn_blocking for work that blocks, sleep on the toolkit's timer, and how a thread's results return to the UI through Setter and on_main."
 ---
 
 <!--
@@ -14,8 +14,10 @@ Use `day::task` to await work without blocking the interface. Its futures run on
 loop, so they can read and write signals before and after an `.await`. Day provides this
 executor itself; apps do not need Tokio to use it.
 
-Use a worker thread for CPU-heavy or blocking work. Return its results to the UI through
-`Setter` or `on_main`, because signals cannot move between threads.
+Use `day::spawn_blocking` for CPU-heavy or blocking work: it runs the job on a pool thread and
+resolves back in the task, where the result goes into a signal like any other value. A worker
+thread of your own returns its results through `Setter` or `on_main`, because signals cannot
+move between threads.
 
 For app examples, see [HTTP requests](https://daybrite.dev/docs/guide-http) and
 [Local storage](https://daybrite.dev/docs/guide-storage). This reference covers task lifetimes,
@@ -51,6 +53,52 @@ loop returns without `WillTerminate`. New tasks submitted during shutdown are dr
 polling, and late wakes are ignored. This does not wait for detached worker threads or cancel
 already accepted database writes; the owning service's shutdown must drain those writes.
 OS process kills without a lifecycle notification cannot run this cleanup.
+
+## `spawn_blocking`
+
+```rust
+day::task(async move {
+    let parsed = day::spawn_blocking(move || parse_feed(&bytes)).await; // a pool thread
+    match parsed {                                                     // the UI thread again
+        Ok(Ok(feed)) => items.set(feed.items),
+        Ok(Err(e)) => status.set(e.to_string()),
+        Err(e) => status.set(e.to_string()),                           // panicked, or never ran
+    }
+});
+```
+
+`spawn_blocking(job)` takes a `Send` closure and returns a future for its value. The job runs on
+Day's blocking pool: process-wide, started by the first job, at most `day::blocking_limit()`
+threads (the machine's parallelism, between four and thirty-two), idle threads leaving after a
+few seconds. Jobs beyond the limit queue in order. The future resolves to
+`Err(BlockingError::Panicked)` when the job panicked and `Err(BlockingError::Closed)` when no
+pool thread could ever run it.
+
+Dropping the future before the job starts cancels it: the job never runs, which is what a
+timeout racing a slow read wants. Dropping it while the job runs lets the job finish and
+discards the value, since a blocking call cannot be interrupted. `Blocking::detach` keeps the
+job without the value, for work whose effect is its own completion callback.
+
+Use it for a file read, a parse, a hash, a database open, or a `block_on` into a runtime some
+dependency insists on. It is not a replacement for `DatabaseWorker`, which keeps one
+connection with ordered writes and reactive reads ([docs/persistence.md](persistence.md)), nor
+for work that reports progress partway: that wants a channel, not polling. A part that
+exposes a future should await `spawn_blocking` rather than start a thread, so its test's
+`block_on` and an app's `day::task` get the same behavior.
+
+On the web there is no thread, so the job runs inline at the future's first poll. Keep web jobs
+short, or branch on `cfg!(target_arch = "wasm32")`. The mock toolkit runs jobs inline as well,
+because its posts run on the test thread (`day_async::set_blocking_inline`).
+
+## `sleep`
+
+`day::sleep(ms)` resolves after at least `ms` milliseconds, on the UI thread. It is the
+toolkit's own timer, not a parked thread: `dispatch_after` on Apple, `Handler.postDelayed` on
+Android, `g_timeout_add` on GTK, `QTimer::singleShot` on Qt, a Win32 `SetTimer` on XAML, and
+`setTimeout` on ArkUI and the web. A loop that ticks every second, a debounce, or a timeout raced
+against a fetch costs nothing but the timer. Dropping the sleep (aborting its task) lets the
+native timer fire into nothing. The platform may round a short delay up: Windows timers tick
+every ten milliseconds or so.
 
 ## `Resource` and `Load` (day::reactive)
 
@@ -98,6 +146,9 @@ particular executor:
 2. **`day::task` is the only executor for signal-touching futures.** Its futures run on the UI
    thread, so after an `.await` they read and write signals directly, without a `Setter` or
    marshaling. Futures that never touch signals may run anywhere.
+   **Blocking work inside such a future goes through `day::spawn_blocking`**, never a
+   `std::thread::spawn` plus a oneshot of your own, and never inline: a parse or a file read in
+   a `day::task` body stalls the interface for its whole duration.
 3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
    plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
    (so a part never calls `on_main` itself, per [docs/http.md](http.md)'s contract).
@@ -133,6 +184,20 @@ particular executor:
   delay and `unschedule(id)` forgets it, so a part's time limits and backoff wait there instead of
   parking a thread each. day-part-http's total-time limits and question timeouts, and
   day-part-downloads' retry backoff, use it. The web has no threads, so a timer never fires there.
+  It stays separate from `day::sleep`'s native timer because a part must work in a plain binary
+  and under `cargo test`, where no backend has installed a timer door.
+- `day-async` holds the blocking pool behind `spawn_blocking` (2026-10): a `VecDeque` of jobs, a
+  `Condvar`, and threads that start on demand up to `blocking_limit()` and exit after two idle
+  seconds. A job is the user's closure under `catch_unwind`, delivering through a `oneshot`; a
+  cancelled flag, set by the future's `Drop`, skips a job that has not started. day-part-fs's
+  async operations run on it, detached. `blocking_threads()` reports the live count.
+- `day::sleep` rides `Platform::post_delayed`, which every backend implements with the loop's
+  own timer; the trait default (a thread that sleeps and posts) logs once when a backend without
+  one falls back to it. The conformance app's headless cases `sleep-*`,
+  `an-aborted-task-never-wakes-from-its-sleep` and `*-blocking-*` run on every toolkit in CI
+  ([docs/testing.md](testing.md)) and prove the timer resolves after its delay, in delay order,
+  yields on zero, and that blocking jobs leave the UI thread, resolve on it, report panics and
+  honor cancellation.
 
 ## Test hooks
 

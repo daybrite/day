@@ -115,21 +115,22 @@ pub fn list(dir: &str) -> ListResult {
     Ok(names)
 }
 
-// Async twins: a spawned thread per operation, like day-part-http's non-Apple targets. Storage
-// operations are short and the callers are UI actions, so a pool would be over-machinery.
+// Async twins: each operation is a job on day-async's blocking pool (docs/async.md), detached
+// because the completion callback is the result. The pool is bounded, so a burst of saves
+// queues rather than starting a thread apiece.
 
 pub fn read_async(path: String, on_done: Box<dyn FnOnce(BytesResult) + Send>) {
-    std::thread::spawn(move || on_done(read(&path)));
+    day_async::spawn_blocking(move || on_done(read(&path))).detach();
 }
 
 pub fn write_async(path: String, bytes: Vec<u8>, on_done: Box<dyn FnOnce(UnitResult) + Send>) {
-    std::thread::spawn(move || on_done(write(&path, &bytes)));
+    day_async::spawn_blocking(move || on_done(write(&path, &bytes))).detach();
 }
 
 pub fn remove_async(path: String, on_done: Box<dyn FnOnce(UnitResult) + Send>) {
-    std::thread::spawn(move || on_done(remove(&path)));
+    day_async::spawn_blocking(move || on_done(remove(&path))).detach();
 }
 
 pub fn list_async(dir: String, on_done: Box<dyn FnOnce(ListResult) + Send>) {
-    std::thread::spawn(move || on_done(list(&dir)));
+    day_async::spawn_blocking(move || on_done(list(&dir))).detach();
 }

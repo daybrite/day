@@ -10192,6 +10192,20 @@ impl Platform for AppKit {
         dispatch2::DispatchQueue::main().exec_async(move || ffi_guard::contain((), f));
     }
 
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        // The timer door behind `day::sleep` (docs/async.md): `dispatch_after` on the main
+        // queue, so a sleep is a dispatch timer rather than a parked helper thread. Contained
+        // like `post`. A delay too large for dispatch's clock runs at the far horizon instead.
+        let when =
+            dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(u64::from(ms)))
+                .unwrap_or(dispatch2::DispatchTime::FOREVER);
+        if let Err(e) = dispatch2::DispatchQueue::main().after(when, move || {
+            ffi_guard::contain((), f);
+        }) {
+            log::error!("day-appkit: dispatch_after refused a timer: {e:?}");
+        }
+    }
+
     fn locale_hints(&self) -> Vec<String> {
         // The user's ordered language preference from Settings ("fr-FR", "en-US", …), which is
         // the ambient locale Day negotiates its catalogs against (§12.2, docs/localization.md).

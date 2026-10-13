@@ -2853,6 +2853,34 @@ void day_xaml_post(void (*cb)(void*), void* data) {
     // Otherwise the app is ending; the post has nowhere to run.
 }
 
+// The timer door behind day::sleep (docs/async.md). A thread-less Win32 timer belongs to the
+// queue of the thread that armed it, so the arming itself rides day_xaml_post to the UI thread;
+// WM_TIMER then runs the callback from the message pump. One-shot: the timer dies as it fires.
+struct DelayedPost { void (*cb)(void*); void* data; unsigned ms; };
+static std::map<UINT_PTR, DelayedPost*> g_delayed; // UI thread only
+static void CALLBACK day_xaml_delayed_fire(HWND, UINT, UINT_PTR id, DWORD) {
+    KillTimer(nullptr, id);
+    auto it = g_delayed.find(id);
+    if (it == g_delayed.end()) return;
+    DelayedPost* p = it->second;
+    g_delayed.erase(it);
+    p->cb(p->data);
+    delete p;
+}
+void day_xaml_post_delayed(unsigned ms, void (*cb)(void*), void* data) {
+    auto* p = new DelayedPost{ cb, data, ms };
+    day_xaml_post([](void* raw) {
+        auto* p = static_cast<DelayedPost*>(raw);
+        UINT_PTR id = SetTimer(nullptr, 0, p->ms, day_xaml_delayed_fire);
+        if (!id) { // no timer to be had: now beats never
+            p->cb(p->data);
+            delete p;
+            return;
+        }
+        g_delayed[id] = p;
+    }, p);
+}
+
 // One-shot CompositionTarget callbacks on the XAML UI thread. Revoke before entering Rust,
 // so a continuing client may subscribe to the next frame, and cancellation cannot double-revoke.
 static std::map<unsigned long long, winrt::event_token> g_frame_requests;

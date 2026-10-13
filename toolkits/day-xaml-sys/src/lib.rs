@@ -235,6 +235,8 @@ unsafe extern "C" {
     pub fn day_xaml_request_frame(token: u64, cb: extern "C" fn(u64, f64));
     pub fn day_xaml_cancel_frame(token: u64);
     pub fn day_xaml_post(cb: extern "C" fn(*mut c_void), data: *mut c_void);
+    /// Run `cb(data)` on the UI thread after `ms` milliseconds (a `SetTimer` armed there).
+    pub fn day_xaml_post_delayed(ms: u32, cb: extern "C" fn(*mut c_void), data: *mut c_void);
 
     // containers
     pub fn day_xaml_container_new() -> *mut c_void;

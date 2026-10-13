@@ -7707,11 +7707,21 @@ pub trait Platform: Toolkit {
     fn post(f: Box<dyn FnOnce() + Send>);
 
     /// Post `f` onto the native main loop after (at least) `ms` milliseconds: the timer
-    /// door behind `day::sleep` (docs/async.md). The default spawns a helper thread that
-    /// sleeps and rides [`Platform::post`] home, which is correct on every threaded
-    /// platform with zero backend code; a single-threaded host (web) overrides it with
-    /// the platform's timer.
+    /// door behind `day::sleep` (docs/async.md). Every shipped backend overrides it with the
+    /// loop's own timer (`dispatch_after`, `Handler.postDelayed`, `g_timeout_add`,
+    /// `QTimer::singleShot`, `SetTimer`, `setTimeout`), so a sleep costs no thread. The
+    /// default is the fallback for a backend without one: a helper thread that sleeps the
+    /// whole delay and rides [`Platform::post`] home. It is correct, but a thread per sleep
+    /// adds up under a ticking loop, so the first use says so once in the log.
     fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        static SAID: std::sync::Once = std::sync::Once::new();
+        SAID.call_once(|| {
+            log::warn!(
+                "day: {} has no native timer door; `day::sleep` falls back to a helper thread \
+                 per delay (implement `Platform::post_delayed`)",
+                Self::TARGET
+            );
+        });
         std::thread::spawn(move || {
             std::thread::sleep(std::time::Duration::from_millis(u64::from(ms)));
             Self::post(f);

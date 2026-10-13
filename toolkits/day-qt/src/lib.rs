@@ -4357,6 +4357,15 @@ impl Platform for Qt {
         let data = Box::into_raw(Box::new(f)) as *mut c_void;
         unsafe { ffi::day_qt_post(run_posted, data) };
     }
+
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        // The timer door behind `day::sleep` (docs/async.md): `QTimer::singleShot` on the
+        // application object, which Qt runs in the application thread wherever it was armed.
+        // No helper thread. Qt's delay is an `int`, so a longer one clamps.
+        let data = Box::into_raw(Box::new(f)) as *mut c_void;
+        let delay = c_int::try_from(ms).unwrap_or(c_int::MAX);
+        unsafe { ffi::day_qt_post_delayed(delay, run_posted, data) };
+    }
 }
 
 // Bitmap handles in reactive state can outlive the toolkit's thread-local registry at Quit.

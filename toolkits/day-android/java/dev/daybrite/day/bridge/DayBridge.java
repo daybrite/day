@@ -312,6 +312,13 @@ public final class DayBridge {
         });
     }
 
+    /** The timer door behind day::sleep (docs/async.md): postMain after `ms` on the main Handler. */
+    public static void postMainDelayed(final long token, final int ms) {
+        main.postDelayed(new Runnable() {
+            public void run() { nativeRunPosted(token); }
+        }, ms);
+    }
+
     /**
      * Frame clock (§8.4): schedule one Choreographer frame callback (called on the UI thread, so
      * getInstance() yields the UI thread's Choreographer). One-shot; day-core re-arms while a

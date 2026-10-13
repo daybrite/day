@@ -677,6 +677,7 @@ version = "0.5.1"
 name = "day-mock"
 version = "0.5.1"
 dependencies = [
+ "day-async",
  "day-spec",
 ]
 
@@ -754,6 +755,9 @@ dependencies = [
 [[package]]
 name = "day-part-fs"
 version = "0.5.1"
+dependencies = [
+ "day-async",
+]
 
 [[package]]
 name = "day-part-haptics"

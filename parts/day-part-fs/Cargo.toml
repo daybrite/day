@@ -18,3 +18,4 @@ license.workspace = true
 # waits: the day-part-http rule); the async calls work everywhere.
 
 [dependencies]
+day-async = { workspace = true }

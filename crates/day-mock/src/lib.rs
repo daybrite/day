@@ -363,6 +363,9 @@ impl MockToolkit {
         VIEWPORT_ROWS.with(|r| r.set(0));
         VIEWPORTS.with(|v| v.borrow_mut().clear());
         NATIVE_EVENTS.with(|q| q.borrow_mut().clear());
+        // Posts run on the calling thread here (see `Platform::post`), so a wake from a pool
+        // thread would have no loop to land on: blocking jobs run inline, like the web's.
+        day_async::set_blocking_inline(true);
         let state = Rc::new(RefCell::new(MockState::default()));
         (
             MockToolkit {

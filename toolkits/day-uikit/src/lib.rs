@@ -13105,6 +13105,20 @@ mod imp {
             dispatch2::DispatchQueue::main().exec_async(f);
         }
 
+        fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+            // The timer door behind `day::sleep` (docs/async.md): `dispatch_after` on the main
+            // queue, no helper thread. The closure is app code inside dispatch's C frame, so it
+            // runs contained (§8.5).
+            let when =
+                dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(u64::from(ms)))
+                    .unwrap_or(dispatch2::DispatchTime::FOREVER);
+            if let Err(e) = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), f);
+            }) {
+                log::error!("day-uikit: dispatch_after refused a timer: {e:?}");
+            }
+        }
+
         fn locale_hints(&self) -> Vec<String> {
             // The user's ordered language preference from Settings ("fr-FR", "en-US", …), which is
             // the ambient locale Day negotiates its catalogs against (§12.2, docs/localization.md).

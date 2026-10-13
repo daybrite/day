@@ -8641,6 +8641,23 @@ impl Platform for Gtk {
             gtk4::glib::ControlFlow::Break
         });
     }
+
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+        // The timer door behind `day::sleep` (docs/async.md): a GLib timeout source on the
+        // default context, at `post`'s priority and with its thread rules (a source always
+        // queues, whoever adds it). No helper thread; the closure runs contained like a post.
+        let mut once = Some(f);
+        gtk4::glib::timeout_add_full(
+            std::time::Duration::from_millis(u64::from(ms)),
+            gtk4::glib::Priority::DEFAULT,
+            move || {
+                if let Some(f) = once.take() {
+                    ffi_guard::contain((), f);
+                }
+                gtk4::glib::ControlFlow::Break
+            },
+        );
+    }
 }
 
 use day_spec::WindowOptions;

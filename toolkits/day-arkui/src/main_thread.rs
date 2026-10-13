@@ -11,7 +11,7 @@
 use std::sync::{Mutex, OnceLock};
 use std::thread::ThreadId;
 
-use napi_ohos::bindgen_prelude::Function;
+use napi_ohos::bindgen_prelude::{FnArgs, Function, JsObjectValue, Unknown};
 use napi_ohos::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
 use napi_ohos::{Env, Status};
 
@@ -58,6 +58,62 @@ pub fn post(job: Job) {
         }
         None => PENDING.lock().unwrap_or_else(|e| e.into_inner()).push(job),
     }
+}
+
+thread_local! {
+    /// Jobs waiting on a `setTimeout`, by ticket: the JS callback carries the ticket only.
+    static DELAYED: std::cell::RefCell<std::collections::HashMap<u64, Job>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+    static NEXT_DELAYED: std::cell::Cell<u64> = const { std::cell::Cell::new(1) };
+}
+
+/// Run `job` on the JS thread after (at least) `ms` milliseconds: the timer door behind
+/// `day::sleep` (docs/async.md). The timer is the host runtime's own `setTimeout`, armed on the
+/// JS thread (a hop through [`post`] from anywhere else), so a sleep costs no helper thread.
+/// When the runtime offers no timer (no environment yet), the job runs on the next post.
+pub fn post_delayed(ms: u32, job: Job) {
+    post(Box::new(move || {
+        let ticket = NEXT_DELAYED.with(|n| {
+            let t = n.get();
+            n.set(t.wrapping_add(1).max(1));
+            t
+        });
+        DELAYED.with(|d| d.borrow_mut().insert(ticket, job));
+        if arm_timeout(ticket, ms).is_none()
+            && let Some(job) = DELAYED.with(|d| d.borrow_mut().remove(&ticket))
+        {
+            log::warn!("day-arkui: no setTimeout for a delayed post; running it now");
+            day_spec::ffi_guard::contain((), job);
+        }
+    }));
+}
+
+/// `globalThis.setTimeout(handler, ms)`, as napi types it.
+type SetTimeout<'a> = Function<'a, FnArgs<(Function<'a, (), ()>, f64)>, Unknown<'a>>;
+
+/// `globalThis.setTimeout(fire(ticket), ms)` on the JS thread; `None` when any step fails.
+fn arm_timeout(ticket: u64, ms: u32) -> Option<()> {
+    let env = crate::host_api::env()?;
+    let fire = env
+        .create_function_from_closure("dayDelayed", move |_| {
+            if let Some(job) = DELAYED.with(|d| d.borrow_mut().remove(&ticket)) {
+                // Timer callbacks run app code inside the runtime's frame: contained, like a post.
+                day_spec::ffi_guard::contain((), job);
+            }
+            Ok(())
+        })
+        .ok()?;
+    let set_timeout: SetTimeout<'_> = env
+        .get_global()
+        .ok()?
+        .get_named_property_unchecked("setTimeout")
+        .ok()?;
+    set_timeout
+        .call(FnArgs {
+            data: (fire, f64::from(ms)),
+        })
+        .ok()?;
+    Some(())
 }
 
 /// A job for the JS thread from the JS thread: the closure never changes threads, so it need

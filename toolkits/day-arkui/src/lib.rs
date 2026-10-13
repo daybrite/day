@@ -4182,6 +4182,10 @@ mod imp {
         fn post(f: Box<dyn FnOnce() + Send>) {
             crate::main_thread::post(f);
         }
+
+        fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
+            crate::main_thread::post_delayed(ms, f);
+        }
     }
 
     /// Map a day slider value into ArkUI's default 0..100 range.

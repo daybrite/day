@@ -27,6 +27,11 @@ day_reactive::tls_root! {
     windows: crate::windows::TlsGroupSlots,
 }
 
+/// The blocking pool (docs/async.md): `spawn_blocking` runs a job on a worker thread and
+/// resolves on the awaiting side; std-only, so it lives in day-async and is re-exported here.
+pub use day_async::{
+    Blocking, BlockingError, blocking_inline, blocking_limit, blocking_threads, spawn_blocking,
+};
 /// Re-exported so every crate above day-core can reach it without taking a direct
 /// day-reactive dependency (see day-reactive for what it does and why Android needs it).
 pub use day_reactive::tls_group;
@@ -864,10 +869,7 @@ pub fn launch_with<P: Platform>(
             // Day's own event path once the native loop starts (delayed past first allocation
             // so snapshots see a laid-out window). Precursor of dayscript (§14).
             if let Ok(spec) = std::env::var("DAY_AUTODRIVE") {
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(800));
-                    day_reactive::on_main(move || autodrive(&spec));
-                });
+                day_reactive::on_main_delayed(800, move || autodrive(&spec));
             }
         }),
     );

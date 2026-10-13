@@ -356,35 +356,13 @@ impl FileUrl {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use std::sync::{Arc, Mutex};
-            use std::task::{Poll, Waker};
-            type Reply = (Option<std::io::Result<Vec<u8>>>, Option<Waker>);
-            let state: Arc<Mutex<Reply>> = Arc::new(Mutex::new((None, None)));
-            let worker = state.clone();
+            // A job on the blocking pool (docs/async.md): a panicking or never-run job is an
+            // I/O error here, like a worker that failed to start was.
             let file = self.clone();
-            std::thread::Builder::new()
-                .name("day-file-read".into())
-                .spawn(move || {
-                    let result = file.read_bounded(limit);
-                    let waker = {
-                        let mut state = worker.lock().unwrap();
-                        state.0 = Some(result);
-                        state.1.take()
-                    };
-                    if let Some(waker) = waker {
-                        waker.wake();
-                    }
-                })?;
-            std::future::poll_fn(move |cx| {
-                let mut state = state.lock().unwrap();
-                if let Some(result) = state.0.take() {
-                    Poll::Ready(result)
-                } else {
-                    state.1 = Some(cx.waker().clone());
-                    Poll::Pending
-                }
-            })
-            .await
+            match day_core::spawn_blocking(move || file.read_bounded(limit)).await {
+                Ok(result) => result,
+                Err(e) => Err(std::io::Error::other(e)),
+            }
         }
     }
     #[cfg(not(target_arch = "wasm32"))]

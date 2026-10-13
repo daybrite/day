@@ -121,10 +121,13 @@ and the process environment are all absent. Three substitutions make Day code ru
 
 - `Platform::post` queues a microtask; `Toolkit::request_frame` uses cancellable `requestAnimationFrame`
   (animation clocks tick per frame, and CSS transitions carry opacity/transform/color).
-- `Platform::post_delayed(ms, f)` (new with this backend, default = thread + sleep on native)
-  is `setTimeout` here. It backs **`day::sleep(ms)`**, the awaitable timer for
-  `day::task` flows. Use it instead of `std::thread::sleep` for fake-work delays and it works
-  on every backend ([docs/async.md](async.md)).
+- `Platform::post_delayed(ms, f)` (new with this backend; every native toolkit now has its own
+  timer behind it too) is `setTimeout` here. It backs **`day::sleep(ms)`**, the awaitable timer
+  for `day::task` flows. Use it instead of `std::thread::sleep` for fake-work delays and it
+  works on every backend ([docs/async.md](async.md)).
+- `day::spawn_blocking(job)` has no thread to use, so the job runs inline at the future's first
+  poll. Keep web jobs short, or branch on `cfg!(target_arch = "wasm32")` and use the platform's
+  own async API ([docs/async.md](async.md)).
 - The launch locale reaches localization through `set_launch_locale` (the `?locale=` query
   parameter, else the browser's language list) because there is no `DAY_LOCALE` environment
   variable to read.

@@ -421,13 +421,17 @@ Two structural rules carried over from pane, both still enforced:
   re-enters through the backend's main-loop scheduling, checks generation liveness, and silently
   no-ops (with a once-per-callsite debug log) if the signal's scope has been disposed — async
   results racing disposal are an expected, defined event. `Signal` itself never crosses threads.
-- Background work is plain threads (`std::thread::spawn`, or whatever executor the app brings);
-  results re-enter via `Setter` or `day_reactive::on_main(f)` where `f: FnOnce() + Send` (so it
-  cannot capture a `Signal`; capture a `Setter`). Backends implement the main-loop post
-  (`Platform::post`) over `dispatch_async` / `Handler.post` / `g_idle_add` /
-  `QMetaObject::invokeMethod` / `DispatcherQueue.TryEnqueue` / `uv_async_send`. (The designed
-  `day::task::spawn` async executor was **not implemented** — threads + `Setter` cover the real
-  apps, including the network parts.)
+- Background work is a `day::spawn_blocking(job)` awaited from a `day::task` flow (a `Send`
+  job on day-async's bounded pool, its value delivered back on the UI thread; §4.5), or a plain
+  thread (`std::thread::spawn`, or whatever executor the app brings) whose results re-enter via
+  `Setter` or `day_reactive::on_main(f)` where `f: FnOnce() + Send` (so it cannot capture a
+  `Signal`; capture a `Setter`). Backends implement the main-loop post (`Platform::post`) over
+  `dispatch_async` / `Handler.post` / `g_idle_add` / `QMetaObject::invokeMethod` /
+  `DispatcherQueue.TryEnqueue` / `uv_async_send`, and the timer door behind `day::sleep`
+  (`Platform::post_delayed`) over the same loop's timer (`dispatch_after` /
+  `Handler.postDelayed` / `g_timeout_add` / `QTimer::singleShot` / `SetTimer` /
+  `setTimeout`), so neither a post nor a sleep costs a thread. (The designed `day::task::spawn`
+  async executor shipped later as `day::task`, §4.5.)
 - **One turn state machine**, referenced by every other section (ratification: DP-17):
 
   1. A native callback (event, timer, `on_main` delivery) opens a **batch**; handler closures run;
@@ -629,6 +633,17 @@ boundary ([§3.3](#33-threading-model-and-the-turn-state-machine)).
 > `day_part_http::FetchFuture` inside (the cancel matrix in [docs/http.md](docs/http.md)). The pre-`Resource`
 > idiom (thread + `Setter`) remains valid for callback-style parts; [docs/async.md](docs/async.md) carries the
 > full policy, including the app-private tokio-quarantine rule the Matrix client models.
+>
+> **Revised 2026-10:** two additions, both std-only. `day::spawn_blocking(job)` (day-async's
+> bounded pool, re-exported through day-core and the facade) runs a `Send` job on a worker
+> thread and resolves on the awaiting side, cancelling a job its future drops before it
+> starts; it replaces the thread-plus-oneshot helpers the apps had each written, and
+> day-part-fs's thread-per-operation. And `day::sleep` stopped costing a thread: every
+> backend overrides `Platform::post_delayed` with the loop's own timer (`dispatch_after`,
+> `Handler.postDelayed`, `g_timeout_add`, `QTimer::singleShot`, `SetTimer`, `setTimeout`), the
+> trait default (thread + sleep + post) remaining a logged fallback. The mock runs both inline.
+> The conformance app's headless cases `sleep-*`, `*-blocking-*` and
+> `an-aborted-task-never-wakes-from-its-sleep` prove them on every toolkit ([docs/testing.md](docs/testing.md)).
 
 ```rust
 // two-closure shape (leptos-style), as shipped in day-reactive (`day::reactive::Resource` —
@@ -1756,10 +1771,11 @@ pub trait Platform: Toolkit {
     const TOOLKIT: &'static str;   // "appkit"
     fn run(self, options: WindowOptions, ready: Box<dyn FnOnce(Self, Self::Handle, Size)>);
     fn post(f: Box<dyn FnOnce() + Send>);          // the one cross-thread door (§3.3)
-    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) { … } // timers; default = thread +
-                                                   // sleep + post; single-threaded hosts (web)
-                                                   // override with a native timer. Backs
-                                                   // `day::sleep(ms)` (docs/async.md).
+    fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) { … } // the timer door behind
+                                                   // `day::sleep(ms)` (docs/async.md): every
+                                                   // backend overrides it with the loop's own
+                                                   // timer; the default (thread + sleep + post)
+                                                   // is a logged fallback for backends without one.
     fn locale_hints(&self) -> Vec<String> { … }    // ORDERED OS preference list (fluent-langneg)
 }
 ```
