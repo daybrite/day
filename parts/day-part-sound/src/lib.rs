@@ -12,19 +12,31 @@
 //! day_part_sound::play(&TAP);
 //! ```
 //!
+//! A clip can also repeat until it is told to stop: an engine hum, a siren, rain. [`play_loop`]
+//! returns a [`Loop`], and the clip sounds for as long as that handle lives.
+//!
+//! ```no_run
+//! use day_part_sound::{AssetName, Play};
+//!
+//! const HUM: AssetName = AssetName::from_static("sounds/hum.wav");
+//! let hum = day_part_sound::play_loop(&HUM, Play::at(0.5));
+//! hum.set_volume(0.2);
+//! drop(hum); // the hum stops
+//! ```
+//!
 //! A clip is an ordinary data asset under the app's `resource/assets/` (docs/resources.md), named
 //! by its generated `res::assets::…` constant or by path. The format is WAV. The canonical clip,
 //! 16-bit PCM, mono, 44.1 kHz, plays everywhere as it is; other PCM layouts (stereo, 8-, 24- and
 //! 32-bit, float, another rate) are converted on load where an engine takes raw samples.
 //!
-//! | Platform | Engine |
-//! |---|---|
-//! | iOS, macOS | AVAudioEngine and a pool of AVAudioPlayerNodes (iOS in the `.ambient` session) |
-//! | Android | SoundPool with game audio attributes |
-//! | web | Web Audio |
-//! | Windows | XAudio2 |
-//! | Linux | libcanberra, loaded at run time |
-//! | HarmonyOS | SoundPool with the game stream usage |
+//! | Platform | Engine | Loops |
+//! |---|---|---|
+//! | iOS, macOS | AVAudioEngine and a pool of AVAudioPlayerNodes (iOS in the `.ambient` session) | the node repeats its buffer |
+//! | Android | SoundPool with game audio attributes | the stream repeats |
+//! | web | Web Audio | the source node repeats its buffer |
+//! | Windows | XAudio2 | the voice repeats its buffer |
+//! | Linux | libcanberra, loaded at run time | emulated: a libpulse stream fed the clip round and round, or a long file of repeats |
+//! | HarmonyOS | SoundPool with the game stream usage | the stream repeats |
 //!
 //! Like haptics, every call is fire-and-forget and best effort: none returns an error or panics. A
 //! clip that is missing or unreadable is logged once and stays silent, and so does a platform with
@@ -32,6 +44,7 @@
 //! interrupting it, and on iOS the Silent switch silences it.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::marker::PhantomData;
 use std::sync::{Mutex, MutexGuard};
 
 pub use day_spec::AssetName;
@@ -39,6 +52,10 @@ pub use day_spec::AssetName;
 /// At most this many clips sound at once. Past it, the oldest voice with the lowest priority stops
 /// for the new clip.
 pub const VOICES: usize = 8;
+
+/// At most this many loops sound at once ([`play_loop`]). Starting another stops the oldest. Loops
+/// have voices of their own, so they neither take one of the [`VOICES`] nor lose theirs to a clip.
+pub const LOOPS: usize = 4;
 
 /// A clip asked for again sooner than this after it last started is skipped, so a burst of the
 /// same sound (a streak of bricks, a deal of cards) stays crisp instead of piling up into one loud
@@ -98,6 +115,21 @@ struct State {
     played: VecDeque<String>,
     /// Clips already reported missing or unreadable, so each is logged once.
     warned: BTreeSet<String>,
+    /// The loops asked for and not yet stopped, oldest first.
+    loops: Vec<Looping>,
+    /// The id the last loop was given; ids are never reused while the process lives.
+    next_loop: i32,
+}
+
+/// One loop: what the app asked for, and what the engine was last told.
+struct Looping {
+    id: i32,
+    path: String,
+    volume: f32,
+    pan: f32,
+    /// The volume and pan the engine is sounding it at, or `None` while it is silent (sound is
+    /// off, or the volume came to zero). [`retune`] moves this toward what the app asked for.
+    told: Option<(f32, f32)>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -106,6 +138,8 @@ static STATE: Mutex<State> = Mutex::new(State {
     last: BTreeMap::new(),
     played: VecDeque::new(),
     warned: BTreeSet::new(),
+    loops: Vec::new(),
+    next_loop: 0,
 });
 
 fn state() -> MutexGuard<'static, State> {
@@ -165,10 +199,11 @@ pub fn play_with(clip: &AssetName, opts: Play) {
     imp::play(path, volume, pan, opts.priority);
 }
 
-/// The master volume, 0 to 1, that every play is scaled by.
+/// The master volume, 0 to 1, that every play is scaled by. A loop already sounding follows it.
 pub fn set_volume(volume: f32) {
     if volume.is_finite() {
         state().volume = volume.clamp(0.0, 1.0);
+        retune();
     }
 }
 
@@ -176,19 +211,25 @@ pub fn volume() -> f32 {
     state().volume
 }
 
-/// The app's sound switch: while off, [`play`] does nothing. On by default.
+/// The app's sound switch: while off, [`play`] does nothing and every loop is silent. A loop
+/// started or still held while sound is off begins when it comes back on. On by default.
 pub fn set_enabled(on: bool) {
     state().enabled = on;
+    retune();
 }
 
 pub fn is_enabled() -> bool {
     state().enabled
 }
 
-/// Stop everything playing and release every loaded clip (a game's page closing).
+/// Stop everything playing, loops included, and release every loaded clip (a game's page
+/// closing). A [`Loop`] still held afterwards is spent: it reports that it is not playing, and
+/// dropping it does nothing.
 pub fn unload_all() {
     imp::unload_all();
-    state().last.clear();
+    let mut s = state();
+    s.last.clear();
+    s.loops.clear();
 }
 
 /// The clips most recently played, oldest first: what a test or a walkthrough log checks. A clip
@@ -196,6 +237,168 @@ pub fn unload_all() {
 /// platform could sound it.
 pub fn recent() -> Vec<String> {
     state().played.iter().cloned().collect()
+}
+
+/// A clip repeating until it is stopped ([`play_loop`]). Dropping the handle stops it, so a loop
+/// lasts exactly as long as whatever owns it: a field of a game's state, a value in an `Option`
+/// that a pause sets to `None`.
+///
+/// The handle belongs to the UI thread, where the engines live, so it is neither `Send` nor
+/// `Sync`.
+#[must_use = "a loop stops as soon as its handle is dropped"]
+#[derive(Debug)]
+pub struct Loop {
+    id: i32,
+    _ui_thread: PhantomData<*const ()>,
+}
+
+impl Loop {
+    /// Change the loop's volume, 0 to 1, scaled by the master [`volume`]. At zero the loop is
+    /// silent but still held, and a later volume starts it again from the top of the clip.
+    pub fn set_volume(&self, volume: f32) {
+        if !volume.is_finite() {
+            return;
+        }
+        if let Some(l) = state().loops.iter_mut().find(|l| l.id == self.id) {
+            l.volume = volume.clamp(0.0, 1.0);
+        }
+        retune();
+    }
+
+    /// Move the loop across the stereo field, −1 (left) to 1 (right). Best effort, like
+    /// [`Play::pan`]: Windows and Linux play every loop centered.
+    pub fn set_pan(&self, pan: f32) {
+        if !pan.is_finite() {
+            return;
+        }
+        if let Some(l) = state().loops.iter_mut().find(|l| l.id == self.id) {
+            l.pan = pan.clamp(-1.0, 1.0);
+        }
+        retune();
+    }
+
+    /// Whether the loop is still held: not stopped by [`unload_all`], and not displaced by a
+    /// newer loop past [`LOOPS`]. It says nothing about whether a speaker is sounding it.
+    pub fn is_playing(&self) -> bool {
+        state().loops.iter().any(|l| l.id == self.id)
+    }
+
+    /// Stop the loop now. The same as dropping the handle, for a call site that reads better
+    /// saying so.
+    pub fn stop(self) {}
+}
+
+impl Drop for Loop {
+    fn drop(&mut self) {
+        let removed = {
+            let mut s = state();
+            s.loops
+                .iter()
+                .position(|l| l.id == self.id)
+                .map(|i| s.loops.remove(i))
+        };
+        if let Some(l) = removed
+            && l.told.is_some()
+        {
+            imp::loop_stop(l.id);
+        }
+    }
+}
+
+/// Play `clip` over and over until the returned [`Loop`] is dropped. `opts` gives the volume
+/// and the pan; a loop has no priority, because loops have voices of their own ([`LOOPS`]) that
+/// no other clip can take.
+///
+/// The clip repeats from its last sample straight to its first, so author it to close: whole
+/// cycles of a tone, or a recording cut where the level and the slope match. A loop obeys the
+/// master [`volume`] and the [`set_enabled`] switch as they change. Where clips load in the
+/// background (Android, HarmonyOS, the web) a loop asked for early starts once its clip is
+/// ready; a one-shot would have been skipped, but a loop is still wanted then.
+pub fn play_loop(clip: &AssetName, opts: Play) -> Loop {
+    let path = clip.as_str();
+    let volume = if opts.volume.is_finite() {
+        opts.volume.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let pan = if opts.pan.is_finite() {
+        opts.pan.clamp(-1.0, 1.0)
+    } else {
+        0.0
+    };
+    let (id, displaced) = {
+        let mut s = state();
+        s.next_loop = s.next_loop.checked_add(1).unwrap_or(1);
+        let id = s.next_loop;
+        let displaced = (s.loops.len() >= LOOPS).then(|| s.loops.remove(0));
+        s.loops.push(Looping {
+            id,
+            path: path.to_owned(),
+            volume,
+            pan,
+            told: None,
+        });
+        (id, displaced)
+    };
+    if let Some(old) = displaced
+        && old.told.is_some()
+    {
+        imp::loop_stop(old.id);
+    }
+    log::debug!(target: "day_part_sound", "loop {path}");
+    retune();
+    Loop {
+        id,
+        _ui_thread: PhantomData,
+    }
+}
+
+/// The clips looping now, oldest first: what a test or a walkthrough checks. A loop counts here
+/// from [`play_loop`] until it stops, whether or not the platform could sound it.
+pub fn loops() -> Vec<String> {
+    state().loops.iter().map(|l| l.path.clone()).collect()
+}
+
+/// What an engine is asked to do to one loop.
+enum Tune {
+    Start(i32, String, f32, f32),
+    Set(i32, f32, f32),
+    Stop(i32),
+}
+
+/// Bring every loop's engine voice in line with what is wanted now: the app's volume for it
+/// times the master volume, or silence while sound is off. A loop whose volume comes to zero is
+/// stopped in the engine rather than played at nothing, and started again when it has a volume.
+fn retune() {
+    let tunes: Vec<Tune> = {
+        let mut s = state();
+        let (enabled, master) = (s.enabled, s.volume);
+        let mut tunes = Vec::new();
+        for l in &mut s.loops {
+            let volume = if enabled {
+                (l.volume * master).min(1.0)
+            } else {
+                0.0
+            };
+            let want = (volume > 0.0).then_some((volume, l.pan));
+            match (l.told, want) {
+                (None, Some((v, p))) => tunes.push(Tune::Start(l.id, l.path.clone(), v, p)),
+                (Some(_), None) => tunes.push(Tune::Stop(l.id)),
+                (Some(was), Some((v, p))) if was != (v, p) => tunes.push(Tune::Set(l.id, v, p)),
+                _ => {}
+            }
+            l.told = want;
+        }
+        tunes
+    };
+    // The engines are called with the lock released, as `play_with` calls them.
+    for tune in tunes {
+        match tune {
+            Tune::Start(id, path, volume, pan) => imp::loop_start(id, &path, volume, pan),
+            Tune::Set(id, volume, pan) => imp::loop_set(id, volume, pan),
+            Tune::Stop(id) => imp::loop_stop(id),
+        }
+    }
 }
 
 /// Log a clip's problem the first time it comes up.
@@ -235,6 +438,62 @@ fn load(path: &str) -> Option<Vec<f32>> {
     }
 }
 
+/// A loop for an engine that can only play a file from its start to its end (libcanberra, where
+/// Linux has no libpulse to stream through): the clip laid end to end in one long file, so every
+/// repeat inside it is sample-exact, and the engine is asked for the file again only when it
+/// runs out.
+#[cfg(any(all(target_os = "linux", not(target_env = "ohos")), test))]
+mod unrolled {
+    /// The file runs at least this long, in whole repeats of the clip. Longer means the engine
+    /// is asked again less often; shorter means a smaller file in the cache.
+    pub const SECS: usize = 20;
+
+    /// The file fades in over this long and out over this long, and the next playing of it
+    /// starts this long before the last one ends, so the two cross over without a click however
+    /// late the engine starts the new one.
+    pub const EDGE_MS: usize = 80;
+
+    /// `samples` (mono, at `rate`) as that file: canonical 16-bit PCM WAV bytes, with how many
+    /// frames it holds and how many of them each fade covers. `None` for an empty clip.
+    pub fn file(samples: &[f32], rate: u32) -> Option<(Vec<u8>, usize, usize)> {
+        if samples.is_empty() || rate == 0 {
+            return None;
+        }
+        let repeats = (SECS * rate as usize).div_ceil(samples.len()).max(1);
+        let frames = samples.len() * repeats;
+        // A clip too short to hold both fades gets shorter ones.
+        let edge = (EDGE_MS * rate as usize / 1000).min(frames / 4);
+        let bytes = u32::try_from(frames * 2).ok()?;
+        let mut out = Vec::with_capacity(44 + frames * 2);
+        out.extend(b"RIFF");
+        out.extend((36 + bytes).to_le_bytes());
+        out.extend(b"WAVEfmt ");
+        out.extend(16u32.to_le_bytes());
+        out.extend(1u16.to_le_bytes()); // PCM
+        out.extend(1u16.to_le_bytes()); // mono
+        out.extend(rate.to_le_bytes());
+        out.extend((rate * 2).to_le_bytes());
+        out.extend(2u16.to_le_bytes());
+        out.extend(16u16.to_le_bytes());
+        out.extend(b"data");
+        out.extend(bytes.to_le_bytes());
+        for i in 0..frames {
+            let gain = if edge == 0 {
+                1.0
+            } else if i < edge {
+                i as f32 / edge as f32
+            } else if i >= frames - edge {
+                (frames - 1 - i) as f32 / edge as f32
+            } else {
+                1.0
+            };
+            let sample = samples[i % samples.len()] * gain;
+            out.extend(((sample * 32_767.0) as i16).to_le_bytes());
+        }
+        Some((out, frames, edge))
+    }
+}
+
 /// Milliseconds on a clock that only moves forward, for the repeat check. The web has no clock in
 /// wasm's `std` (`Instant::now` aborts there), so its arm keeps the same rule in JavaScript.
 #[cfg(not(target_arch = "wasm32"))]
@@ -254,7 +513,9 @@ fn now_ms() -> Option<u64> {
 }
 
 // ---------------------------------------------------------------------------
-// Per-platform engines. Each exposes `supported`, `preload`, `play` and `unload_all`.
+// Per-platform engines. Each exposes `supported`, `preload`, `play`, `unload_all`, and the three
+// loop calls `loop_start`, `loop_set` and `loop_stop`, which name a loop by the id `play_loop`
+// gave it. `loop_stop` runs from `Loop`'s destructor, so it must be safe during thread teardown.
 // ---------------------------------------------------------------------------
 
 #[cfg(any(target_os = "ios", target_os = "macos"))]
@@ -296,6 +557,18 @@ mod imp {
     pub fn unload_all() {
         super::unload_native();
     }
+
+    pub fn loop_start(id: i32, path: &str, volume: f32, pan: f32) {
+        super::loop_start_native(id, path, volume, pan);
+    }
+
+    pub fn loop_set(id: i32, volume: f32, pan: f32) {
+        super::loop_set_native(id, volume, pan);
+    }
+
+    pub fn loop_stop(id: i32) {
+        super::loop_stop_native(id);
+    }
 }
 
 day_bridge::bridge! {
@@ -306,6 +579,10 @@ day_bridge::bridge! {
         fn preload_native(path: &str);
         fn play_native(path: &str, volume: f32, pan: f32, priority: i32);
         fn unload_native();
+        /// Repeat the clip as loop `id` until `loop_stop_native(id)`, starting once it is loaded.
+        fn loop_start_native(id: i32, path: &str, volume: f32, pan: f32);
+        fn loop_set_native(id: i32, volume: f32, pan: f32);
+        fn loop_stop_native(id: i32);
         /// Whether the engine can be reached at all.
         fn ready_native() -> Result<bool, day_bridge::Error>;
     }
@@ -314,13 +591,21 @@ day_bridge::bridge! {
     // into memory once and mixes up to `maxStreams` of them, stopping the lowest priority first.
     // Clips come straight from the APK's assets (data assets are its `assets/` root), which aapt
     // stores uncompressed for `.wav`, as `openFd` needs. Nothing here is reachable from Rust.
+    //
+    // A loop is a stream played with `loop = -1` at the highest priority, so no one-shot takes its
+    // stream; the pool has `VOICES + LOOPS` streams for the same reason. SoundPool keeps playing
+    // while the app is in the background, which a one-shot outlives by a moment and a loop by
+    // however long the app stays there, so loop streams pause with the activity and resume with it.
     #[day_bridge::impl(java, platforms = [android])]
     java!(
         prelude = r#"
+            import android.app.Activity;
+            import android.app.Application;
             import android.content.Context;
             import android.content.res.AssetFileDescriptor;
             import android.media.AudioAttributes;
             import android.media.SoundPool;
+            import android.os.Bundle;
             import android.util.Log;
             import dev.daybrite.day.bridge.DayBridge;
             import java.util.HashMap;
@@ -331,23 +616,100 @@ day_bridge::bridge! {
             private static final HashMap<String, Integer> ids = new HashMap<>();
             private static final HashSet<Integer> loaded = new HashSet<>();
 
+            /** One loop: what was asked for, and the stream sounding it (0 until its clip loads). */
+            private static final class Looping {
+                String path;
+                float volume;
+                float pan;
+                int stream;
+            }
+
+            private static final HashMap<Integer, Looping> loops = new HashMap<>();
+            private static boolean watching = false;
+
             private static SoundPool pool() {
                 if (pool == null) {
                     AudioAttributes attrs = new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_GAME)
                             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                             .build();
-                    pool = new SoundPool.Builder().setMaxStreams(8).setAudioAttributes(attrs).build();
+                    // Eight streams for clips and four for loops (VOICES + LOOPS).
+                    pool = new SoundPool.Builder().setMaxStreams(12).setAudioAttributes(attrs).build();
                     // Loading is asynchronous; a clip plays only once SoundPool says it is ready.
                     pool.setOnLoadCompleteListener((p, id, status) -> {
                         if (status == 0) {
                             synchronized (loaded) {
                                 loaded.add(id);
                             }
+                            // A loop asked for before its clip was ready starts now.
+                            synchronized (loops) {
+                                for (Looping l : loops.values()) {
+                                    Integer sound = ids.get(l.path);
+                                    if (sound != null && sound == id) {
+                                        start(l);
+                                    }
+                                }
+                            }
                         }
                     });
+                    watch();
                 }
                 return pool;
+            }
+
+            /** Pause the loops while no activity is in front, and resume them when one is. */
+            private static void watch() {
+                Context ctx = DayBridge.ctx;
+                if (watching || ctx == null || !(ctx.getApplicationContext() instanceof Application)) {
+                    return;
+                }
+                watching = true;
+                ((Application) ctx.getApplicationContext()).registerActivityLifecycleCallbacks(
+                        new Application.ActivityLifecycleCallbacks() {
+                            @Override public void onActivityCreated(Activity a, Bundle b) {}
+                            @Override public void onActivityStarted(Activity a) {}
+                            @Override public void onActivityStopped(Activity a) {}
+                            @Override public void onActivitySaveInstanceState(Activity a, Bundle b) {}
+                            @Override public void onActivityDestroyed(Activity a) {}
+
+                            @Override public void onActivityResumed(Activity a) {
+                                synchronized (loops) {
+                                    for (Looping l : loops.values()) {
+                                        if (l.stream != 0 && pool != null) {
+                                            pool.resume(l.stream);
+                                        }
+                                    }
+                                }
+                            }
+
+                            @Override public void onActivityPaused(Activity a) {
+                                synchronized (loops) {
+                                    for (Looping l : loops.values()) {
+                                        if (l.stream != 0 && pool != null) {
+                                            pool.pause(l.stream);
+                                        }
+                                    }
+                                }
+                            }
+                        });
+            }
+
+            /** Start `l`'s stream if its clip has loaded and it has none yet. Call with `loops` held. */
+            private static void start(Looping l) {
+                Integer sound = ids.get(l.path);
+                if (pool == null || sound == null || sound == 0 || l.stream != 0) {
+                    return;
+                }
+                boolean ready;
+                synchronized (loaded) {
+                    ready = loaded.contains(sound);
+                }
+                if (!ready) {
+                    return;
+                }
+                float left = l.volume * Math.min(1f, 1f - l.pan);
+                float right = l.volume * Math.min(1f, 1f + l.pan);
+                l.stream = pool.play(sound, left, right, Integer.MAX_VALUE, -1, 1f);
             }
 
             public static void preload_native(String path) {
@@ -382,7 +744,51 @@ day_bridge::bridge! {
                 pool.play(id, left, right, priority, 0, 1f);
             }
 
+            public static void loop_start_native(int id, String path, float volume, float pan) {
+                Looping l = new Looping();
+                l.path = path;
+                l.volume = volume;
+                l.pan = pan;
+                // Loading it (when nothing has yet) ends in the listener above, which starts it.
+                preload_native(path);
+                synchronized (loops) {
+                    loops.put(id, l);
+                    start(l);
+                }
+            }
+
+            public static void loop_set_native(int id, float volume, float pan) {
+                synchronized (loops) {
+                    Looping l = loops.get(id);
+                    if (l == null) {
+                        return;
+                    }
+                    l.volume = volume;
+                    l.pan = pan;
+                    if (l.stream != 0 && pool != null) {
+                        pool.setVolume(l.stream, volume * Math.min(1f, 1f - pan), volume * Math.min(1f, 1f + pan));
+                    }
+                }
+            }
+
+            public static void loop_stop_native(int id) {
+                synchronized (loops) {
+                    Looping l = loops.remove(id);
+                    if (l != null && l.stream != 0 && pool != null) {
+                        pool.stop(l.stream);
+                    }
+                }
+            }
+
             public static void unload_native() {
+                synchronized (loops) {
+                    for (Looping l : loops.values()) {
+                        if (l.stream != 0 && pool != null) {
+                            pool.stop(l.stream);
+                        }
+                    }
+                    loops.clear();
+                }
                 if (pool != null) {
                     for (int id : ids.values()) {
                         if (id != 0) {
@@ -405,6 +811,9 @@ day_bridge::bridge! {
     // HarmonyOS: SoundPool from the Media Kit, the system's engine for short sounds, with the game
     // stream usage. Clips come from the rawfile store, where `day build` stages data assets under
     // `day/`. SoundPool exists only in ArkTS.
+    //
+    // A loop is a stream played with `loop: -1`. `play` answers with the stream id later, so a loop
+    // stopped or retuned before the answer arrives is settled when it does.
     #[day_bridge::impl(arkts, platforms = [ohos])]
     arkts!(
         prelude = r#"
@@ -418,13 +827,60 @@ day_bridge::bridge! {
             const dayIds: Map<string, number> = new Map<string, number>();
             const dayLoading: Set<string> = new Set<string>();
 
+            // One loop: what was asked for, and the stream sounding it (0 until `play` answers).
+            class DayLooping {
+                path: string = '';
+                volume: number = 0;
+                pan: number = 0;
+                stream: number = 0;
+                starting: boolean = false;
+            }
+
+            const dayLoops: Map<number, DayLooping> = new Map<number, DayLooping>();
+
+            // Start loop `id` if its clip has loaded and it has no stream yet.
+            function dayStartLoop(id: number): void {
+                const l = dayLoops.get(id);
+                const pool = dayPool;
+                if (!l || !pool || l.stream !== 0 || l.starting) {
+                    return;
+                }
+                const sound = dayIds.get(l.path);
+                if (sound === undefined) {
+                    return;
+                }
+                const params: media.PlayParameters = {
+                    loop: -1,
+                    rate: 0,
+                    leftVolume: l.volume * Math.min(1, 1 - l.pan),
+                    rightVolume: l.volume * Math.min(1, 1 + l.pan),
+                    priority: 100,
+                };
+                l.starting = true;
+                pool.play(sound, params).then((stream: number) => {
+                    l.starting = false;
+                    if (dayLoops.get(id) !== l) {
+                        // Stopped while `play` was on its way.
+                        pool.stop(stream);
+                        return;
+                    }
+                    l.stream = stream;
+                    // The volume may have moved since `params` was read.
+                    pool.setVolume(stream, l.volume * Math.min(1, 1 - l.pan), l.volume * Math.min(1, 1 + l.pan));
+                }).catch((e: Error) => {
+                    l.starting = false;
+                    console.warn(`day-part-sound: ${l.path}: ${e.message}`);
+                });
+            }
+
             function dayMakePool(): Promise<media.SoundPool> {
                 if (!dayPoolMaking) {
                     const info: audio.AudioRendererInfo = {
                         usage: audio.StreamUsage.STREAM_USAGE_GAME,
                         rendererFlags: 1,
                     };
-                    dayPoolMaking = media.createSoundPool(8, info).then((pool: media.SoundPool) => {
+                    // Eight streams for clips and four for loops (VOICES + LOOPS).
+                    dayPoolMaking = media.createSoundPool(12, info).then((pool: media.SoundPool) => {
                         dayPool = pool;
                         return pool;
                     });
@@ -442,6 +898,12 @@ day_bridge::bridge! {
                     const fd = await ctx.resourceManager.getRawFd('day/' + path);
                     const id: number = await pool.load(fd.fd, fd.offset, fd.length);
                     dayIds.set(path, id);
+                    // A loop asked for before its clip was ready starts now.
+                    dayLoops.forEach((l: DayLooping, loop: number) => {
+                        if (l.path === path) {
+                            dayStartLoop(loop);
+                        }
+                    });
                 }).catch((e: Error) => {
                     console.warn(`day-part-sound: ${path}: ${e.message}`);
                 }).finally(() => {
@@ -467,13 +929,53 @@ day_bridge::bridge! {
                 });
             }
 
+            export function loop_start_native(id: number, path: string, volume: number, pan: number): void {
+                const l = new DayLooping();
+                l.path = path;
+                l.volume = volume;
+                l.pan = pan;
+                dayLoops.set(id, l);
+                if (dayIds.has(path) && dayPool) {
+                    dayStartLoop(id);
+                } else {
+                    // Loading it ends in `preload_native`'s continuation, which starts it.
+                    preload_native(path);
+                }
+            }
+
+            export function loop_set_native(id: number, volume: number, pan: number): void {
+                const l = dayLoops.get(id);
+                if (!l) {
+                    return;
+                }
+                l.volume = volume;
+                l.pan = pan;
+                if (l.stream !== 0 && dayPool) {
+                    dayPool.setVolume(l.stream, volume * Math.min(1, 1 - pan), volume * Math.min(1, 1 + pan));
+                }
+            }
+
+            export function loop_stop_native(id: number): void {
+                const l = dayLoops.get(id);
+                dayLoops.delete(id);
+                if (l && l.stream !== 0 && dayPool) {
+                    dayPool.stop(l.stream);
+                }
+            }
+
             export function unload_native(): void {
                 const pool = dayPool;
                 if (pool) {
+                    dayLoops.forEach((l: DayLooping) => {
+                        if (l.stream !== 0) {
+                            pool.stop(l.stream);
+                        }
+                    });
                     dayIds.forEach((id: number) => {
                         pool.unload(id);
                     });
                 }
+                dayLoops.clear();
                 dayIds.clear();
             }
 
@@ -487,13 +989,19 @@ day_bridge::bridge! {
     // each play a new AudioBufferSourceNode through a gain and a panner. Browsers start a context
     // suspended until the page is touched, so the first gesture resumes it; a clip due before then
     // is skipped. wasm's `std` has no clock, so the repeat check lives here.
+    //
+    // A loop is a source node with `loop` set, kept with its gain and panner so its volume and pan
+    // can move. A page keeps its audio when its tab is hidden, so while a loop is sounding the
+    // context is suspended with the tab and resumed with it.
     #[day_bridge::impl(js, platforms = [web])]
     js!(r#"
         const dayBuffers = new Map();
         const dayPending = new Set();
         const dayLast = new Map();
         const dayVoices = [];
+        const dayLoops = new Map();
         let dayCtx = null;
+        let dayHidden = false;
 
         function dayContext() {
             if (dayCtx === null) {
@@ -510,8 +1018,58 @@ day_bridge::bridge! {
                 for (const type of ["pointerdown", "keydown", "touchend"]) {
                     window.addEventListener(type, unlock, { capture: true });
                 }
+                document.addEventListener("visibilitychange", () => {
+                    if (document.hidden && dayLoops.size > 0 && dayCtx.state === "running") {
+                        dayHidden = true;
+                        dayCtx.suspend();
+                    } else if (!document.hidden && dayHidden) {
+                        dayHidden = false;
+                        dayCtx.resume();
+                    }
+                });
             }
             return dayCtx;
+        }
+
+        // Route `source` to the speakers through a gain and, where the browser has one, a panner.
+        function dayRoute(ctx, source, volume, pan) {
+            const gain = ctx.createGain();
+            gain.gain.value = volume;
+            source.connect(gain);
+            let panner = null;
+            if (ctx.createStereoPanner) {
+                panner = ctx.createStereoPanner();
+                panner.pan.value = pan;
+                gain.connect(panner);
+                panner.connect(ctx.destination);
+            } else {
+                gain.connect(ctx.destination);
+            }
+            return { gain, panner };
+        }
+
+        // Start loop `id` if its clip has been decoded and it has no source yet.
+        function dayStartLoop(id) {
+            const ctx = dayContext();
+            const l = dayLoops.get(id);
+            if (!ctx || !l || l.source) {
+                return;
+            }
+            const buffer = dayBuffers.get(l.path);
+            if (!buffer) {
+                return;
+            }
+            if (ctx.state !== "running" && !dayHidden) {
+                ctx.resume();
+            }
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.loop = true;
+            const route = dayRoute(ctx, source, l.volume, l.pan);
+            l.source = source;
+            l.gain = route.gain;
+            l.panner = route.panner;
+            source.start();
         }
 
         export function preload_native(path) {
@@ -523,7 +1081,15 @@ day_bridge::bridge! {
             fetch("assets/data/" + encodeURI(path))
                 .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error("HTTP " + r.status))))
                 .then((bytes) => ctx.decodeAudioData(bytes))
-                .then((buffer) => dayBuffers.set(path, buffer))
+                .then((buffer) => {
+                    dayBuffers.set(path, buffer);
+                    // A loop asked for before its clip was decoded starts now.
+                    for (const [id, l] of dayLoops) {
+                        if (l.path === path) {
+                            dayStartLoop(id);
+                        }
+                    }
+                })
                 .catch((e) => console.warn("day-part-sound: " + path + ": " + e))
                 .finally(() => dayPending.delete(path));
         }
@@ -562,17 +1128,7 @@ day_bridge::bridge! {
             }
             const source = ctx.createBufferSource();
             source.buffer = buffer;
-            const gain = ctx.createGain();
-            gain.gain.value = volume;
-            source.connect(gain);
-            if (ctx.createStereoPanner) {
-                const panner = ctx.createStereoPanner();
-                panner.pan.value = pan;
-                gain.connect(panner);
-                panner.connect(ctx.destination);
-            } else {
-                gain.connect(ctx.destination);
-            }
+            dayRoute(ctx, source, volume, pan);
             const voice = { source, priority };
             dayVoices.push(voice);
             source.onended = () => {
@@ -584,11 +1140,50 @@ day_bridge::bridge! {
             source.start();
         }
 
+        export function loop_start_native(id, path, volume, pan) {
+            dayLoops.set(id, { path, volume, pan, source: null, gain: null, panner: null });
+            if (dayBuffers.has(path)) {
+                dayStartLoop(id);
+            } else {
+                // Decoding it ends in `preload_native`'s continuation, which starts it.
+                preload_native(path);
+            }
+        }
+
+        export function loop_set_native(id, volume, pan) {
+            const l = dayLoops.get(id);
+            if (!l) {
+                return;
+            }
+            l.volume = volume;
+            l.pan = pan;
+            if (l.gain) {
+                l.gain.gain.value = volume;
+            }
+            if (l.panner) {
+                l.panner.pan.value = pan;
+            }
+        }
+
+        export function loop_stop_native(id) {
+            const l = dayLoops.get(id);
+            dayLoops.delete(id);
+            if (l && l.source) {
+                l.source.stop();
+            }
+        }
+
         export function unload_native() {
             for (const voice of dayVoices) {
                 voice.source.stop();
             }
             dayVoices.length = 0;
+            for (const l of dayLoops.values()) {
+                if (l.source) {
+                    l.source.stop();
+                }
+            }
+            dayLoops.clear();
             dayBuffers.clear();
         }
 
@@ -606,6 +1201,15 @@ day_bridge::bridge! {
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn unload_native() {}
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn loop_start_native(_id: i32, _path: &str, _volume: f32, _pan: f32) {}
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn loop_set_native(_id: i32, _volume: f32, _pan: f32) {}
+
+    #[day_bridge::impl(rust, platforms = [other])]
+    fn loop_stop_native(_id: i32) {}
 
     #[day_bridge::impl(rust, platforms = [other])]
     fn ready_native() -> Result<bool, day_bridge::Error> {
@@ -849,6 +1453,34 @@ mod tests {
         assert_eq!(same, vec![0.3]);
     }
 
+    #[test]
+    fn an_unrolled_loop_repeats_the_clip_exactly_and_fades_only_at_its_ends() {
+        // A 4-sample clip at 1 kHz: 20 s of it is 5,000 repeats, and each fade is 80 frames.
+        let clip = [0.5f32, 1.0, -0.5, -1.0];
+        let (bytes, frames, edge) = unrolled::file(&clip, 1_000).unwrap();
+        assert_eq!((frames, edge), (20_000, 80));
+        let pcm = wav::decode(&bytes).unwrap();
+        assert_eq!((pcm.rate, pcm.samples.len()), (1_000, 20_000));
+        // Past the fade-in, every repeat is the clip itself.
+        assert!(
+            close(&pcm.samples[80..84], &clip),
+            "{:?}",
+            &pcm.samples[80..84]
+        );
+        assert!(close(&pcm.samples[10_000..10_004], &clip));
+        // The ends are silent and the fades are monotonic in level.
+        assert_eq!(pcm.samples[0], 0.0);
+        assert!(pcm.samples[frames - 1].abs() < 1e-3);
+        assert!(pcm.samples[41].abs() < pcm.samples[81].abs());
+        // A clip longer than the target is played once; an empty one has no file.
+        let long = vec![0.25f32; 30_000];
+        assert_eq!(unrolled::file(&long, 1_000).unwrap().1, 30_000);
+        assert!(unrolled::file(&[], 44_100).is_none());
+        // A clip too short for both fades still gets a file, with shorter fades.
+        let (_, frames, edge) = unrolled::file(&[0.1; 3], 1).unwrap();
+        assert_eq!((frames, edge), (21, 0));
+    }
+
     /// The plays of this test's own clips among [`recent`], which every test shares.
     fn mine(names: &[&AssetName]) -> usize {
         recent()
@@ -901,6 +1533,92 @@ mod tests {
         assert_eq!(mine(&[&other]), 1);
     }
 
+    #[test]
+    fn loops_last_as_long_as_their_handles_and_follow_the_switch_and_the_volume() {
+        let _shared = exclusive();
+        let hum = AssetName::from_static("sounds/test-hum.wav");
+        let siren = AssetName::from_static("sounds/test-siren.wav");
+        let told = |path: &str| {
+            state()
+                .loops
+                .iter()
+                .find(|l| l.path == path)
+                .and_then(|l| l.told)
+        };
+        assert!(loops().is_empty());
+        let a = play_loop(&hum, Play::at(0.5));
+        assert_eq!(loops(), vec!["sounds/test-hum.wav"]);
+        assert!(a.is_playing());
+        assert_eq!(told(hum.as_str()), Some((0.5, 0.0)));
+        assert_eq!(mine(&[&hum]), 0, "a loop is not a play");
+
+        // The handle's volume and pan, then the master volume, reach the engine.
+        a.set_volume(0.8);
+        a.set_pan(-2.0);
+        assert_eq!(told(hum.as_str()), Some((0.8, -1.0)));
+        a.set_volume(f32::NAN);
+        assert_eq!(
+            told(hum.as_str()),
+            Some((0.8, -1.0)),
+            "a NaN volume is ignored"
+        );
+        set_volume(0.5);
+        assert_eq!(told(hum.as_str()), Some((0.4, -1.0)));
+        set_volume(1.0);
+
+        // Silence (the switch, or a zero volume) stops the engine's voice and keeps the loop.
+        set_enabled(false);
+        assert_eq!(told(hum.as_str()), None);
+        let b = play_loop(&siren, Play::default());
+        assert_eq!(
+            told(siren.as_str()),
+            None,
+            "started silent while sound is off"
+        );
+        assert_eq!(loops().len(), 2);
+        set_enabled(true);
+        assert_eq!(told(hum.as_str()), Some((0.8, -1.0)));
+        assert_eq!(told(siren.as_str()), Some((1.0, 0.0)));
+        a.set_volume(0.0);
+        assert_eq!(told(hum.as_str()), None);
+        assert!(a.is_playing(), "silent, and still held");
+
+        // Dropping a handle stops its loop and no other.
+        drop(a);
+        assert_eq!(loops(), vec!["sounds/test-siren.wav"]);
+        b.stop();
+        assert!(loops().is_empty());
+    }
+
+    #[test]
+    fn a_loop_past_the_limit_displaces_the_oldest_and_unloading_spends_every_handle() {
+        let _shared = exclusive();
+        let names = ["a", "b", "c", "d", "e"].map(|n| format!("sounds/test-loop-{n}.wav"));
+        let held: Vec<Loop> = names
+            .iter()
+            .map(|n| play_loop(&AssetName::dynamic(n.clone()), Play::default()))
+            .collect();
+        assert_eq!(loops(), names[1..].to_vec(), "the first of five made room");
+        assert!(!held[0].is_playing());
+        assert!(held[4].is_playing());
+        // Ids are not reused, so a spent handle never stops a later loop.
+        drop(held);
+        assert!(loops().is_empty());
+
+        let kept = play_loop(&AssetName::dynamic(names[0].clone()), Play::default());
+        unload_all();
+        assert!(loops().is_empty());
+        assert!(!kept.is_playing());
+        let next = play_loop(&AssetName::dynamic(names[1].clone()), Play::default());
+        drop(kept);
+        assert_eq!(
+            loops(),
+            vec![names[1].clone()],
+            "the spent handle stopped nothing"
+        );
+        drop(next);
+    }
+
     // Every entry point must be safe to call on any host, with or without an engine.
     #[test]
     fn nothing_panics() {
@@ -908,6 +1626,10 @@ mod tests {
         let _ = is_supported();
         preload(&[AssetName::from_static("sounds/missing.wav")]);
         play(&AssetName::from_static("sounds/missing.wav"));
+        let missing = play_loop(&AssetName::from_static("sounds/missing.wav"), Play::at(0.3));
+        missing.set_volume(0.6);
+        missing.set_pan(0.5);
         unload_all();
+        drop(missing);
     }
 }

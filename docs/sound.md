@@ -1,6 +1,6 @@
 ---
 title: "Sound effects"
-description: "Short sound clips via day-part-sound: bundled WAV files played through each platform's low-latency engine."
+description: "Short sound clips via day-part-sound: bundled WAV files played once or looped through each platform's low-latency engine."
 ---
 
 <!--
@@ -11,7 +11,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Sound effects
 
 `day-part-sound` plays short clips bundled with the app (a tap, a chime, a card sliding onto a
-pile) through each platform's low-latency engine. It is a headless part in `parts/`, like
+pile) through each platform's low-latency engine, once or as a [loop](#loops) that repeats until
+it is stopped. It is a headless part in `parts/`, like
 `day-part-haptics`, and the two are meant to be used together: a game pairs each haptic phrase
 with a clip, and the player turns either off in its settings.
 
@@ -31,12 +32,16 @@ day_part_sound::play_with(&res::assets::sounds::win_wav, Play { volume: 0.8, pan
 |---|---|
 | `play(&clip)` | play at full volume, centered |
 | `play_with(&clip, Play { volume, pan, priority })` | play at a volume from 0 to 1, a pan from −1 (left) to 1 (right), and a priority |
+| `play_loop(&clip, Play { volume, pan, .. })` | repeat the clip until the `Loop` it returns is dropped |
+| `Loop::set_volume(v)` / `Loop::set_pan(p)` | change a loop while it sounds |
+| `Loop::is_playing()` / `Loop::stop()` | whether the loop is still held, and stopping it by name |
 | `preload(&[clip, …])` | load clips now, so their first play is immediate |
-| `unload_all()` | release every loaded clip, for a screen that is closing |
-| `set_volume(v)` / `volume()` | the master volume every play is scaled by |
+| `unload_all()` | stop everything, loops included, and release every loaded clip, for a screen that is closing |
+| `set_volume(v)` / `volume()` | the master volume every play and every loop is scaled by |
 | `set_enabled(on)` / `is_enabled()` | a switch for all sound, for an app-wide setting |
 | `is_supported()` | whether this platform has a sound engine Day can reach |
 | `recent()` | the clips most recently played, oldest first, for tests and walkthroughs |
+| `loops()` | the clips looping now, oldest first, for tests and walkthroughs |
 
 Every call is fire-and-forget. None returns an error or panics, and none blocks on audio: a
 missing or unreadable clip is logged once and stays silent, and so does a platform without an
@@ -46,6 +51,57 @@ A clip is named by its generated `res::assets::…` constant ([resources.md](res
 path with `AssetName::from_static("sounds/tap.wav")` where a `const` needs one. Games Fair keeps
 its cues as statics that pair a clip with a haptic phrase; its `gamekit/src/chrome.rs` is a worked
 example.
+
+## Loops
+
+A clip that should keep sounding (an engine hum, a siren, rain) is a loop. `play_loop` starts it
+and returns a `Loop`; the clip repeats for as long as that value lives and stops when it is
+dropped.
+
+```rust
+use day_part_sound::{Loop, Play};
+
+struct Race {
+    engine: Option<Loop>,
+}
+
+impl Race {
+    fn start(&mut self) {
+        self.engine = Some(day_part_sound::play_loop(&res::assets::sounds::engine_wav, Play::at(0.6)));
+    }
+    fn throttle(&self, level: f32) {
+        if let Some(engine) = &self.engine {
+            engine.set_volume(0.3 + 0.7 * level);
+        }
+    }
+    fn pause(&mut self) {
+        self.engine = None; // the engine stops
+    }
+}
+```
+
+Tying the sound to a value means it ends with whatever owns that value: a paused game sets an
+`Option` to `None`, and a page that closes drops its state. Replacing one loop with another is an
+assignment, which starts the new loop and then stops the old one. Bind the result, because
+`play_loop(…);` alone drops the handle and stops the loop at once; the compiler warns about it.
+
+- **Authoring.** The clip repeats from its last sample straight to its first, so it must close
+  on itself: a whole number of cycles of a tone, or a recording cut where the level and the
+  slope match. A clip that fades in or out pulses once per repeat.
+- **Volume and the switch.** A loop is scaled by the master volume and obeys `set_enabled`, and
+  follows both as they change. While its volume comes to zero it is silent but still held, and
+  it starts again from the top of the clip when it has a volume.
+- **Voices.** Loops have `LOOPS` (4) voices of their own. A loop never takes one of the eight
+  clip voices and never loses its voice to a clip, which is why `Play::priority` means nothing to
+  `play_loop`. A fifth loop stops the oldest; that loop's handle then reports `is_playing()`
+  false.
+- **Loading.** Where clips load in the background (Android, HarmonyOS, the web), a loop asked for
+  before its clip is ready starts when it is.
+- **The background.** On Android a loop pauses while the app has no activity in front and
+  resumes with it. On the web the audio context is suspended while a loop's tab is hidden. iOS
+  silences the `.ambient` session in the background. A desktop app keeps sounding when another
+  window is in front, as desktop apps do. A game should still stop its loops when it pauses.
+- **The thread.** A `Loop` belongs to the UI thread and is neither `Send` nor `Sync`.
 
 ## Clips
 
@@ -74,22 +130,50 @@ ffmpeg -i in.ogg -ac 1 -ar 44100 -c:a pcm_s16le -map_metadata -1 out.wav
   so a burst of the same sound (a streak of bricks, a deal of cards) stays crisp rather than piling
   up into one loud smear.
 - **Volume.** A play's volume is multiplied by the master volume; a result of 0 plays nothing.
-- **Pan.** Apple platforms, Android, HarmonyOS and the web place a clip across the stereo field.
-  Windows and Linux play every clip centered.
+- **Pan.** Apple platforms, Android, HarmonyOS and the web place a clip or a loop across the
+  stereo field. Windows and Linux play every one centered.
 - **Other audio.** Sound effects mix with music and podcasts from other apps rather than
   interrupting them. On iOS they follow the Silent switch.
 
 ## Per-platform realization
 
-| Platform | Engine | Notes |
-|---|---|---|
-| iOS | AVAudioEngine with a pool of AVAudioPlayerNodes | the `.ambient` audio session: mixes with other audio, silenced by the Silent switch |
-| macOS | AVAudioEngine with a pool of AVAudioPlayerNodes | the engine starts on the first load |
-| Android | `SoundPool` with `USAGE_GAME` audio attributes | loads in the background from the APK's assets |
-| HarmonyOS | `SoundPool` with `STREAM_USAGE_GAME` | loads in the background from the app's raw files |
-| web | Web Audio | fetches and decodes each clip; the audio context starts on the page's first tap or key press, as browsers require |
-| Windows | XAudio2 | a mastering voice in the game-effects category and 8 source voices |
-| Linux (GTK, Qt) | libcanberra, loaded at run time | the desktop's event-sound service; each clip is cached under `$XDG_CACHE_HOME/day-part-sound/` for it to read |
+| Platform | Engine | Notes | Loops |
+|---|---|---|---|
+| iOS | AVAudioEngine with a pool of AVAudioPlayerNodes | the `.ambient` audio session: mixes with other audio, silenced by the Silent switch | native: the node is given the buffer with the `Loops` option |
+| macOS | AVAudioEngine with a pool of AVAudioPlayerNodes | the engine starts on the first load | native, as on iOS |
+| Android | `SoundPool` with `USAGE_GAME` audio attributes | loads in the background from the APK's assets | native: a stream played with `loop = -1` |
+| HarmonyOS | `SoundPool` with `STREAM_USAGE_GAME` | loads in the background from the app's raw files | native: a stream played with `loop: -1` |
+| web | Web Audio | fetches and decodes each clip; the audio context starts on the page's first tap or key press, as browsers require | native: a source node with `loop` set |
+| Windows | XAudio2 | a mastering voice in the game-effects category, 8 source voices for clips and 4 for loops | native: the buffer's `LoopCount` is `XAUDIO2_LOOP_INFINITE` |
+| Linux (GTK, Qt) | libcanberra, loaded at run time | the desktop's event-sound service; each clip is cached under `$XDG_CACHE_HOME/day-part-sound/` for it to read | emulated, as described below |
+
+Every native loop repeats sample-exactly inside the engine. libcanberra plays a file from its
+start to its end and has no call to repeat one or to change a playing sound, so on Linux the part
+emulates a loop, in one of two ways. Pan is not applied in either, as for clips.
+
+**A stream of its own.** Where `libpulse-simple.so.0` can be loaded and a server answers, the loop
+is a playback stream fed by a thread that writes the clip's samples round and round, 20 ms at a
+time. That covers PulseAudio and PipeWire desktops, which is where libcanberra plays through the
+same server. Every repeat is sample-exact, a new volume is applied to the samples as they are
+written and eases in over one write, and a stopped loop's stream is flushed and closed. The
+stream holds 100 ms, so a volume change is heard within about that. The library is loaded at run
+time like libcanberra, and the part has no build-time dependency on it.
+
+**A long file through libcanberra.** On a desktop without libpulse (ALSA only), the part falls
+back to what libcanberra can do:
+
+- The clip is written end to end into one file of at least 20 seconds (`<clip>.loop.wav`, beside
+  its plain file in the cache), with an 80 ms fade at each end. Every repeat inside that file is
+  sample-exact, and libcanberra streams it from disk.
+- A helper thread asks for the file again 80 ms before it runs out, so the two playings cross
+  over their fades. The two are not phase-aligned, so a steady tone dips for about 100 ms at each
+  crossover, once every 20 seconds or so, and the loop's first 80 ms fade in.
+- `Loop::set_volume` cancels the loop and starts the file again at the new volume, so the loop
+  restarts from the top of the clip.
+
+On Apple platforms a route change (headphones, a new output device) stops the engine. The part
+starts it again on the next call that makes sound and puts every loop back on its node, so a
+loop that was the only sound stays silent until then.
 
 Where loading happens in the background (Android, HarmonyOS, the web), a clip played before it is
 ready is skipped, because a late sound effect is worse than none; `preload` when a screen opens
@@ -104,11 +188,14 @@ permission to play sound.
 
 ## Checking it
 
-Run with `DAY_LOG=debug` and every play logs a `play sounds/…` line under the `day_part_sound`
-target, whether or not the machine has speakers. In a test or a dayscript, `recent()` gives the
-same record: Day-Showcase's walkthrough taps a sound button and asserts the path it shows.
+Run with `DAY_LOG=debug` and every play logs a `play sounds/…` line, and every loop a
+`loop sounds/…` line, under the `day_part_sound` target, whether or not the machine has speakers.
+In a test or a dayscript, `recent()` and `loops()` give the same record: Day-Showcase's
+walkthrough taps a sound button and asserts the path it shows, then turns its loop on and off
+and asserts what is looping.
 
 ## What it does not do
 
-The part plays clips, not music. A music track needs streaming, looping and seeking, and would
-exceed SoundPool's limit; that is a job for a streaming player rather than a sound-effects pool.
+The part plays clips, not music. A loop repeats a short clip held in memory; a music track needs
+streaming and seeking, and would exceed SoundPool's limit. That is a job for a streaming player
+rather than a sound-effects pool. A loop also keeps the pitch and speed its clip was recorded at.

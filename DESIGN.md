@@ -3545,7 +3545,7 @@ Two package kinds share the mechanism:
   under [§15.2](#152-package-layout-and-aggregation) for what an external repository adds.
 - **Parts** (`parts/day-part-*`): headless platform services exposing signals/functions —
   battery, network, sensors (streaming, [docs/sensors.md](docs/sensors.md)), clipboard, prefs, haptics, sound
-  (bundled clips through each platform's low-latency engine, [docs/sound.md](docs/sound.md)), wakelock
+  (bundled clips played once or looped through each platform's low-latency engine, [docs/sound.md](docs/sound.md)), wakelock
   (keeping the screen on, [docs/wakelock.md](docs/wakelock.md)), deviceinfo,
   http (requests through the platform HTTP stack, [docs/http.md](docs/http.md)), permissions (the OS consent system
   plus the build-time declarations each platform requires, [docs/permissions.md](docs/permissions.md)), location
