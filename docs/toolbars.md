@@ -403,8 +403,7 @@ window before it crosses to the toolkit, so a backend draws what it has always d
 to know that a page contributed any of it. There is deliberately no per-page model: one authority,
 so a live `enabled_when` patch and a re-compose cannot disagree. (They did once, and a page command
 declared while nothing was selected stayed disabled on a window that never re-composed afterwards —
-a tiled Android tablet, where selecting a row changes no chrome. Day-Rise's
-`dayscript/toolbar-enable.yaml` is that case, kept.)
+a tiled Android tablet, where selecting a row changes no chrome.)
 
 The corollary for scripting: `toolbar:` can only reach what is actually ON the bar. A step that
 drives a list pane's command has to run while that list is showing. The one exception is the
@@ -452,10 +451,9 @@ disable one, write both bound signals, and read back what the bar did. The walkt
 button, types into the search field, sets the toggle, adds the optional item and runs it, then
 disables one and clears the search, asserting the page's live readouts after each.
 
-Day-Rise carries the applied version, and it is the three-column case: the sidebar host's own
-commands, the content-list pane's filter and add, and the editor's Done, each declared on the piece
-it acts on. `dayscript/demo.yaml` drives all three, and `dayscript/toolbar-enable.yaml` is the
-regression for a page command's live enablement.
+Day-Rise carries a small applied example: New Item on the content-list pane and Delete on the
+editor, enabled when an item is selected. Its portable `dayscript/demo.yaml` smoke test drives
+both commands while creating, editing, and deleting one item.
 
 Verified by running Day-Rise's demo on macos-appkit, macos-gtk, macos-qt, web-dom, ios-uikit
 (iPhone and iPad) and android-mdc (phone and tablet), and the Showcase walkthrough on

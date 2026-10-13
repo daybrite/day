@@ -29,6 +29,13 @@ are not read; remove obsolete generated icons and update custom project referenc
 HarmonyOS custom hosts use `platform/harmony/` and identity overrides use `[app.harmony]`;
 the old `ohos` spellings are rejected. SDK, permission and signing keys keep their OHOS names.
 
+For app-specific Android declarations, keep an optional overlay at
+`platform/android/AndroidManifest.xml`. Day's Gradle plugin merges it above the host and piece
+contributions in every app variant, using Android's standard rules. This path alone does not
+select a persistent host. Keep only custom declarations and explicit merge markers; do not copy
+the complete old host manifest. See
+[manifest customization](https://daybrite.dev/docs/platforms/android-mdc#manifest-customization).
+
 ## Preserve app configuration
 
 Before removing a host project, inventory its targets, build phases, native packages, launch
@@ -36,8 +43,11 @@ arguments, environment settings, permissions, themes, signing settings, and icon
 Preserve a recoverable copy outside disposable build output: `day clean` removes that output.
 Do not discard uncommitted native-project changes.
 
-App-owned Swift sources, plists, string catalogs, `.xcconfig` files, and CLI wrappers remain
-inputs to generated Apple hosts. Preserve custom Android resources as source overlays:
+App-owned Swift sources, plists, string catalogs, and `.xcconfig` files remain inputs to generated
+Apple hosts. Unmodified `platform/<macos|ios>/day-cli.sh` launchers can also be removed: Day
+writes the default launcher beside the generated Xcode project. Keep customized launchers;
+Day uses and preserves them. Persisted Xcode projects get a missing launcher recreated beside
+their source configuration during preparation. Preserve custom Android resources as source overlays:
 
 ```toml
 [android]

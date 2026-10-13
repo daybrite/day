@@ -157,7 +157,7 @@ stay deterministic), while live picker changes always apply.
 (File ▸ New Window, ⌘N/Ctrl+N; lowers disabled when unregistered) and the macOS tab-bar "+"
 (`newWindowForTab:`). Each call opens an independent `Normal` window, and mark secondary shells'
 routed navs `.local()` so `navigate()` stays unambiguous (the showcase's `window_root(primary)`
-is the pattern; so is the scaffold's `window_shell(primary)`).
+is the pattern). The starter uses one main window.
 
 Because the builder runs again per window, whatever state that shell reaches for decides whether
 the windows are independent; a `thread_local!` gives all of them one selection.

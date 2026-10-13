@@ -9958,60 +9958,35 @@ mod imp {
                             }
                         }));
                     }
-                    Some(ListPatch::ScrollToEnd) => {
-                        LIST_STATE.with(|m| {
-                            if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
-                                // Row count from the snapshot (no tree). Empty list → no-op.
-                                let n = data
-                                    .ivars()
-                                    .source
-                                    .borrow()
-                                    .as_ref()
-                                    .map(|s| (s.len)())
-                                    .unwrap_or(0);
-                                if n > 0 {
-                                    let ip =
-                                        objc2_foundation::NSIndexPath::indexPathForRow_inSection(
-                                            (n - 1) as isize,
-                                            0,
-                                        );
-                                    unsafe {
-                                        table.scrollToRowAtIndexPath_atScrollPosition_animated(
-                                            &ip,
-                                            objc2_ui_kit::UITableViewScrollPosition::Bottom,
-                                            true,
-                                        )
-                                    };
-                                }
+                    Some(scroll @ (ListPatch::ScrollToEnd | ListPatch::ScrollToRow(_))) => {
+                        let key = ptr_of(h);
+                        let (row, position) = match scroll {
+                            ListPatch::ScrollToRow(row) => {
+                                (*row, objc2_ui_kit::UITableViewScrollPosition::Top)
                             }
-                        });
-                    }
-                    Some(ListPatch::ScrollToRow(row)) => {
-                        LIST_STATE.with(|m| {
-                            if let Some((table, data)) = m.borrow().get(&ptr_of(h)) {
-                                let n = data
-                                    .ivars()
-                                    .source
-                                    .borrow()
-                                    .as_ref()
-                                    .map(|s| (s.len)())
-                                    .unwrap_or(0);
-                                if n > 0 {
-                                    let ip =
-                                        objc2_foundation::NSIndexPath::indexPathForRow_inSection(
-                                            (*row).min(n - 1) as isize,
-                                            0,
-                                        );
-                                    unsafe {
-                                        table.scrollToRowAtIndexPath_atScrollPosition_animated(
-                                            &ip,
-                                            objc2_ui_kit::UITableViewScrollPosition::Top,
-                                            true,
-                                        )
-                                    };
-                                }
+                            _ => (usize::MAX, objc2_ui_kit::UITableViewScrollPosition::Bottom),
+                        };
+                        // Splices/reloads are deferred. Scroll after them, outside the tree
+                        // borrow: scrolling can synchronously realize and recycle cells too.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                            let Some((table, _)) = entry else { return };
+                            // UIKit's committed count is authoritative, even if another model
+                            // change has already advanced the source snapshot. Empty is a no-op.
+                            let count = unsafe { table.numberOfRowsInSection(0) };
+                            if count <= 0 {
+                                return;
                             }
-                        });
+                            let ip = objc2_foundation::NSIndexPath::indexPathForRow_inSection(
+                                row.min(count as usize - 1) as isize,
+                                0,
+                            );
+                            unsafe {
+                                table.scrollToRowAtIndexPath_atScrollPosition_animated(
+                                    &ip, position, true,
+                                );
+                            }
+                        }));
                     }
                     // Not implemented: RowSizeInvalidated (the row keeps its height until the
                     // next Reload) and Selected (no programmatic selection sync on UIKit yet).

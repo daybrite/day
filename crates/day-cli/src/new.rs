@@ -1325,7 +1325,7 @@ fn render_app(
     // rest from the same template later.
     let mut files = crate::template::filter_for_targets(files, &app.targets);
     files.retain(|f| {
-        !crate::xcode::is_project_file(&f.path) && !crate::native_host::is_scaffold_file(&f.path)
+        !crate::xcode::is_scaffold_file(&f.path) && !crate::native_host::is_scaffold_file(&f.path)
     });
     // website/ ships by default: two small files that make the shared CI workflow build and
     // deploy a project site (daysite). Opting out is one flag, and adding it back later is
@@ -1424,7 +1424,7 @@ impl PieceDemo<'_> {
     ) {
         // The starter's editor binds through `model`, and one page has no editor.
         ctx.insert("day_dep", deps.dep("day", ""));
-        // The piece by path, in place of the four the starter uses, so the demo always builds the
+        // The piece by path, in place of the starter's settings crate, so the demo always builds the
         // code beside it.
         ctx.insert(
             "day_piece_deps",
@@ -1584,22 +1584,8 @@ fn template_context(
     // The resource-constant codegen helper the app's build.rs calls (§18.5), from the same source
     // (git / version / local path) as the `day` dep so it resolves identically.
     ctx.insert("day_build_dep", deps.dep("day-build", ""));
-    // The external pieces the starter's item editor and settings are built from. Each registers
-    // its renderers link-time into whichever backend the app selects, so a dependency line is the
-    // whole integration; there is nothing to call at startup ([§15](../../DESIGN.md)).
-    ctx.insert("day_piece_deps", {
-        let mut s = String::new();
-        for p in [
-            "day-piece-datetime",
-            "day-piece-settings",
-            "day-piece-rating",
-            "day-piece-colorpicker",
-        ] {
-            s.push_str(&deps.dep(p, ""));
-            s.push('\n');
-        }
-        s.trim_end().to_string()
-    });
+    // Settings supplies the starter's appearance and language controls.
+    ctx.insert("day_piece_deps", deps.dep("day-piece-settings", ""));
     ctx.insert(
         "targets_toml",
         targets
@@ -1731,7 +1717,7 @@ pub fn add_target(
     if persist_native_project {
         for file in crate::template::builtin_app() {
             if (crate::native_host::is_scaffold_file(&file.path)
-                || crate::xcode::is_project_file(&file.path))
+                || crate::xcode::is_scaffold_file(&file.path))
                 && !files.iter().any(|f| f.path == file.path)
             {
                 builtin_projects.insert(file.path.clone());
@@ -1741,7 +1727,7 @@ pub fn add_target(
     }
     let mut files = crate::template::platform_files_for_targets(files, &wanted);
     files.retain(|f| {
-        if crate::native_host::is_scaffold_file(&f.path) {
+        if crate::native_host::is_scaffold_file(&f.path) || crate::xcode::is_cli_shim(&f.path) {
             return persist_native_project;
         }
         !crate::xcode::is_project_file(&f.path)
@@ -3944,7 +3930,7 @@ mod scaffold_tests {
         };
         let files = render_app(&spec, None).unwrap();
         assert!(
-            !files.iter().any(|(p, _)| crate::xcode::is_project_file(p)
+            !files.iter().any(|(p, _)| crate::xcode::is_scaffold_file(p)
                 || crate::native_host::is_scaffold_file(p))
         );
         for os in ["macos", "ios"] {
@@ -3965,9 +3951,14 @@ mod scaffold_tests {
         add_target(&project, &spec.targets, None, false).unwrap();
         assert!(!crate::xcode::path(&root, "macos").exists());
         assert!(!crate::xcode::path(&root, "ios").exists());
-        for platform in ["android", "harmony"] {
-            assert!(!root.join("platform").join(platform).exists());
+        for os in ["macos", "ios"] {
+            assert!(!root.join(format!("platform/{os}/day-cli.sh")).exists());
         }
+        let overlay = root.join("platform/android/AndroidManifest.xml");
+        assert!(overlay.is_file());
+        assert!(!root.join("platform/android/settings.gradle.kts").exists());
+        assert!(!root.join("platform/harmony").exists());
+        std::fs::write(&overlay, "<!-- synthetic customized app overlay -->").unwrap();
         // A lean custom template has no native projects; persistence fills those from Day.
         let template = root.join("lean-template");
         std::fs::create_dir_all(&template).unwrap();
@@ -3975,6 +3966,7 @@ mod scaffold_tests {
         assert!(root.join("platform/android/settings.gradle.kts").is_file());
         assert!(root.join("platform/harmony/build-profile.json5").is_file());
         for os in ["macos", "ios"] {
+            assert!(root.join(format!("platform/{os}/day-cli.sh")).is_file());
             let path = crate::xcode::path(&root, os);
             let doc = crate::xcode::open(&path).unwrap();
             assert!(doc.project().localizations.supported.contains(&"fr".into()));
@@ -3989,6 +3981,10 @@ mod scaffold_tests {
                 "// synthetic custom project fixture"
             );
         }
+        assert_eq!(
+            std::fs::read_to_string(overlay).unwrap(),
+            "<!-- synthetic customized app overlay -->"
+        );
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -4158,8 +4154,7 @@ mod scaffold_tests {
                     || path.starts_with("store/")
                     || path.starts_with("website/")
                     || path.starts_with("resource/images/")
-                    || path.starts_with("resource/vectors/")
-                    || path == "dayscript/toolbar-enable.yaml";
+                    || path.starts_with("resource/vectors/");
                 assert!(!starter, "the starter's {path} is in the demo");
             }
             assert!(text("build.rs").contains("prebuild_project"));
@@ -4172,7 +4167,7 @@ mod scaffold_tests {
                 cargo.contains("day-piece-chip = { path = \"..\" }"),
                 "{cargo}"
             );
-            for starter_dep in ["serde", "model", "day-piece-datetime"] {
+            for starter_dep in ["serde", "model", "day-piece-settings"] {
                 assert!(!cargo.contains(starter_dep), "{starter_dep} in {cargo}");
             }
             let gitignore = text(".gitignore");

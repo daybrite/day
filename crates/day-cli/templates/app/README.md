@@ -1,56 +1,71 @@
 # {{title}}
 
-A [Day](https://daybrite.dev) app: one Rust codebase, native widgets on every platform.
+A small starting point for a [Day](https://daybrite.dev) app: a welcome page, a list with a
+detail editor, and settings, rendered with native widgets from one Rust codebase.
 
 ## Run it
 
-Day compiles **exactly one backend per binary**, so choose a target when you build or launch. The
-Day CLI supplies the right feature for each target:
+Day compiles one toolkit backend per binary, so name a target when you build or launch:
 
 ```sh
-day doctor                  # check the toolchains for your targets
-day launch -t {{first_target}}   # build + run
-day build  -t {{first_target}}   # build only
+day doctor                     # check the toolchains for your targets
+day launch -t {{first_target}}  # build + run
+day build -t {{first_target}}   # build only
 ```
 
-Targets live in `Day.toml`. A bare `cargo build` uses this crate's default `mock` backend, which is
-what lets rust-analyzer and `cargo check` work with no flags. To pick a real one from plain cargo,
-turn the default off as well — otherwise `mock` and your choice are both on, which is two backends
-and a compile error:
+Targets live in `Day.toml`. A bare `cargo build` uses the crate's default `mock` backend, which
+lets rust-analyzer and `cargo check` work with no flags. To choose a toolkit from plain cargo,
+turn the default off first:
 
 ```sh
 cargo build --no-default-features --features appkit    # or gtk / qt / uikit / mdc / winui / dom
 ```
 
-## What's inside
+## What the scaffold gives you
 
-- `src/lib.rs` — the UI (`root()`), shared across every platform: a typed-route sidebar
-  ([navigation](https://daybrite.dev/docs/navigation)) over four sample panels.
-- `src/pages/home.rs` — signals in one glance: the reactive counter.
-- `src/pages/controls.rs` — two-way bindings: toggle, slider, text field.
-- `src/pages/canvas.rs` — a reactive display list drawn natively.
-- `src/pages/items.rs` — a drill-down stack with data-carrying typed routes.
-- `resource/locales/en/app.ftl` — every user-facing string ([localization](https://daybrite.dev/docs/localization)).
-- `dayscript/demo.yaml` — a [dayscript](https://daybrite.dev/docs/dayscript) walkthrough that
-  drives every feature this app ships, and doubles as its UI test:
-  `day launch -t {{first_target}} --script dayscript/demo.yaml`.
-- `platform/` — app-owned native sources and configuration. Day derives Apple projects
-  under `build/day/xcode/`, Android Gradle projects under `build/android/`, and HarmonyOS
-  hvigor projects under `build/day/harmony/project/`.
-- `Day.toml` — app metadata + the target list.
-- `.github/workflows/ci.yml` — builds and tests every target above on each push through the
-  shared [Day workflow](https://daybrite.dev/docs/github-actions), and attaches packages to a
+Welcome and Items share adaptive navigation: the item list and editor appear side by side on a
+wide window and stack on a phone. An item has just a name and a done flag. Start with an empty
+list, add an item, and edit it through two-way bindings; changes are saved between launches.
+Drag items to reorder them on platforms with native list reordering; the order is saved too.
+The app also reopens on the section you last visited.
+
+Creation, deletion, and reordering demonstrate `info!` console logging without logging item
+contents. Failed saves produce a `warn!`; use `--env DAY_LOG=dayapp=debug` with `day launch`
+to also see successful saves.
+
+Settings provides theme and language preferences. It opens from the app menu on desktop and
+appears as a navigation section on platforms without a menu bar. The app uses one main window.
+
+`dayscript/demo.yaml` is a portable [dayscript](https://daybrite.dev/docs/dayscript) smoke test.
+It opens Welcome, adds an item, edits its name and done flag, and deletes that same item. It
+uses no platform-specific conditions, works with existing saved items, and captures Welcome,
+the list, and the editor:
+
+```sh
+day launch -t {{first_target}} --script dayscript/demo.yaml
+```
+
+## Inside the code
+
+- `src/lib.rs` configures the app and builds the navigation and menus.
+- `src/pages/mod.rs` declares the welcome, items, detail, and settings modules.
+- `src/model.rs` holds the item model, selection, and JSON persistence, with unit tests at the end.
+- `resource/locales/en/app.ftl` carries every user-facing string.
+- `dayscript/demo.yaml` is the smoke test; `store/` and `website/` are the store-listing and
+  site stubs.
+- `platform/` holds app-owned Apple host sources and any native resource customizations.
+- `Day.toml` holds app metadata and the target list.
+- `.github/workflows/ci.yml` builds and tests the declared targets through the shared
+  [Day workflow](https://daybrite.dev/docs/github-actions), and attaches packages to a
   GitHub release on a `v1.2.3` tag.
 
 `day lint` checks routes, element ids, and locale coverage.
 
-macOS and iOS builds require full **Xcode 27 or newer**. Their host projects use
-`build/day/xcode/<platform>/DayApp.xcodeproj/project.xcproj` (generated JSON5); `day doctor` checks the selected Xcode
-and `day lint` validates the project wiring. Open a prepared Apple project with
-`day open -t macos-appkit` or `day open -t ios-uikit`. For manual project customization,
-`day project add-target <target> --persist-native-project` creates a persistent override.
+## Generated native projects
 
-Android and HarmonyOS need no checked-in build scaffold. `day open -t android-mdc` or
-`day open -t harmony-arkui` prepares their generated project and opens its IDE.
-`day project add-target <target> --persist-native-project` creates an editable override
-under `platform/`; existing customized projects continue to work.
+Apple builds require **Xcode 27 or newer**. Day generates Xcode projects, Android Gradle files,
+and HarmonyOS hvigor files under `build/` when you run `day prepare`, `day build`, or
+`day launch`. Open a project's IDE with `day open -t <target>`; edits to generated files are
+disposable. App-owned native sources and configuration remain under `platform/`. For additional
+native configuration, `day project add-target <target> --persist-native-project` creates an
+editable override.

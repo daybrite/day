@@ -218,6 +218,9 @@ SWIFT
     # (whose HarmonyOS staging happened to fill the cache) carried the glyphs and the rebuild's
     # pack carried none (2026-09). Without this step that class of bug is only caught by luck.
     "$DAY" build -t "$COMBO"
+    if [ "$COMBO" = android-mdc ]; then
+        python3 "$ROOT/scripts/ci/check-android-manifest-overlay.py" "$PWD"
+    fi
 
     "$DAY" pack -t "$COMBO" --profile release --no-version-in-name
 

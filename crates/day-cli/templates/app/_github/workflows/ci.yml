@@ -1,4 +1,4 @@
-# {{title}}'s CI: every target the app declares, its walkthrough in every language it ships, and
+# {{title}}'s CI: every target the app declares, its smoke test in every language it ships, and
 # on a version tag the packages for a GitHub release, through the workflow every Day app uses
 # (https://daybrite.dev/docs/github-actions). Nothing here builds the app itself; the shared
 # workflow installs the toolchains, builds, runs the dayscripts and packages each target.

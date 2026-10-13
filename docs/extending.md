@@ -285,8 +285,8 @@ part contributes components but no permissions.
 
 **Manifest permissions.** A piece that needs a permission (a web view needs `INTERNET`) can't reach the
 app's `AndroidManifest.xml`, so `day build` also writes the collected permissions into a generated
-**overlay manifest** (`build/day/android/day-pieces-manifest.xml`). Day's Gradle plugin points the
-debug and release source-set manifests at that overlay, and AGP's manifest merger folds the `<uses-permission>`
+**overlay manifest** (`build/day/android/day-pieces-manifest.xml`). Day's Gradle plugin registers that overlay
+with each app variant, and AGP's manifest merger folds the `<uses-permission>`
 entries into the app manifest (deduping against any the app already declares). So a WebView-using app
 needs no manual manifest edit: the piece declares the permission and it shows up in the merged
 manifest. `day-piece-webview` is the reference. (A piece can only add a permission; it never

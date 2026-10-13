@@ -2,8 +2,6 @@
 name = "{{name}}"
 version.workspace = true
 edition = "2024"
-# Generates typed `res::` constants from `resource/` (see build.rs).
-build = "build.rs"
 
 [features]
 # `mock` keeps bare cargo and rust-analyzer compiling; `day build` overrides it with
@@ -20,11 +18,10 @@ arkui = ["day/arkui"]
 dom = ["day/dom"]
 mock = ["day/mock"]
 
-# rlib for the desktop bin; the mobile pipeline requests staticlib/cdylib via `cargo rustc`.
+# Cargo defaults to rlib; the mobile pipeline requests staticlib/cdylib via `cargo rustc`.
 [lib]
 # A constant lib name: staged artifacts and the `dayapp::` import never move on a package rename.
 name = "dayapp"
-crate-type = ["rlib"]
 
 [dependencies]
 {{day_dep}}

@@ -142,7 +142,7 @@ build/day/ios-uikit/Debug-iphonesimulator/MyApp.app
 xcrun simctl install booted … && simctl launch          (day launch)
 ```
 
-The callback design means opening `platform/ios` in Xcode and pressing Run also works, because the
+The callback design means opening the project with `day open -t ios-uikit` and pressing Run also works, because the
 build phase calls back into `day` for the Rust half.
 
 ### Xcode project format
@@ -152,8 +152,12 @@ By default, no `.xcodeproj` folder is checked in. `day build`, `day launch`, `da
 `day prepare`, and `day open` derive the project under
 `build/day/xcode/<macos|ios>/DayApp.xcodeproj/`. This folder is disposable and recreated
 when needed; edits to its project document are replaced on the next preparation.
-The Swift sources, `Info.plist`, `day-cli.sh`, and editable `DayApp.xcconfig` remain under
-`platform/<macos|ios>/`. Generated projects derive their locales from `resource/locales/`.
+The Swift sources, `Info.plist`, and editable `DayApp.xcconfig` remain under
+`platform/<macos|ios>/`. The generic `day-cli.sh` launcher is generated beside the derived
+project under `build/day/xcode/<macos|ios>/`; it does not need to be checked in. An existing
+`platform/<macos|ios>/day-cli.sh` is treated as a custom override and preserved. For a persisted
+Xcode project, preparation creates a missing launcher in `platform/<macos|ios>/` instead.
+Generated projects derive their locales from `resource/locales/`.
 
 Open a prepared project with:
 
@@ -257,6 +261,8 @@ build/android/app/build/outputs/apk/debug/app-debug.apk
 adb install … && am start DayActivity                   (day launch)
 ```
 
+An optional app-owned `platform/android/AndroidManifest.xml` supplies manifest customizations
+without persisting the Gradle project; see [manifest customization](/docs/platforms/android-mdc#manifest-customization).
 An existing `platform/android/` Gradle project takes precedence over the generated default.
 `day open -t android-mdc` prepares and opens the selected project in Android Studio.
 Day's Gradle plugin configures that project from `build/day/android/`

@@ -1,3 +1,4 @@
+use crate::res;
 use day::prelude::*;
 
 /// The opening screen: vector art, a greeting, and markdown prose that lives in the
@@ -5,15 +6,19 @@ use day::prelude::*;
 pub(crate) fn welcome_page() -> impl Piece {
     column((
         spacer(),
-        vector(crate::res::vectors::app_mark)
+        // Hide decorative art from screen readers; name meaningful images instead.
+        // Accessibility semantics: https://daybrite.dev/docs/accessibility/
+        vector(res::vectors::app_mark)
+            .decorative()
             .frame(132.0, 132.0)
             .corner_radius(30.0)
             .id("welcome-mark"),
-        label(crate::res::str::welcome_title())
+        label(res::str::welcome_title())
             .font(Font::LargeTitle)
+            .a11y(|a| a.role(Role::Heading(1)))
             .align(TextAlign::Center)
             .id("welcome-title"),
-        label(crate::res::str::welcome_body())
+        label(res::str::welcome_body())
             .markdown()
             .on_link(|target| {
                 // Desktop Settings lives in its own window instead of the navigation host.

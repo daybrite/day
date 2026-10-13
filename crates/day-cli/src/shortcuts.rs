@@ -446,10 +446,6 @@ fn strings_escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// The scaffold's `day-cli.sh`, embedded so an injected phase and a fresh scaffold can
-/// never disagree about what the shim contains.
-const DAY_CLI_SHIM: &str = include_str!("../templates/app/platform/ios/day-cli.sh");
-
 /// Ensure a customized JSON project stages shortcut labels into the app bundle.
 pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
     if project.manifest.shortcuts.is_empty() {
@@ -458,10 +454,7 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
     let json = crate::xcode::path(&project.root, "ios");
     if json.exists() {
         crate::xcode::ensure_strings_phase(&json)?;
-        let shim = project.root.join("platform/ios/day-cli.sh");
-        if !shim.exists() {
-            std::fs::write(&shim, DAY_CLI_SHIM).map_err(|e| e.to_string())?;
-        }
+        crate::xcode::ensure_cli_shim(&project.root, "ios")?;
         return Ok(());
     }
     Ok(())

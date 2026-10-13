@@ -2409,6 +2409,12 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > scroll extent while retaining the viewport and selection; cell realization runs outside the
 > tree borrow. The deferred task resolves live handles again so disposal during `on_reorder`
 > is safe (`day-appkit/tests/native_list_scroll.rs`).
+> UIKit also queues programmatic row/end scrolling after pending table splices and reloads,
+> outside the tree and list-state borrows. It resolves the live table at execution time and
+> clamps to UIKit's committed row count; an empty or disposed list is a no-op. A source snapshot
+> can already include an inserted row while UIKit still has its previous count, so scrolling
+> synchronously can raise an Objective-C exception. The `list-append-then-scroll` conformance
+> case covers insertion into an empty list and subsequent scrolling beyond the viewport.
 > **Swipe actions shipped** (2026-08): app-declared reveal-as-you-swipe buttons on either
 > semantic edge, offers pulled per gesture so labels track row state — the pieces API
 > (`swipe_action(label).destructive/.tint/.symbol/.action` + `.swipe_leading/.swipe_trailing`), the
@@ -2880,7 +2886,10 @@ use or explicit generated `register()`. Duplicate diagnostic names fail closed f
 static identity still isolates typed calls from two versions of a crate. `day lint` handles
 private workspace catalogs separately from app-global references. The
 [website guide](https://daybrite.dev/docs/localization) documents setup, migration, and
-translation review. `day localize add/remove` updates the app root's locale surfaces;
+translation review. The CLI's starter translation table covers navigation labels and the
+Items empty-state and untitled-item text in all twenty supported starter locales. Only keys
+present in the source locale are translated; app-specific text remains available for review.
+`day localize add/remove` updates the app root's locale surfaces;
 dependency catalogs and CI locale lists require separate edits. Structural lint does not
 track source-text revisions or determine whether a translation's wording is current. See
 [Private catalogs](docs/localization.md#private-catalogs-for-reusable-crates-and-source-modules),
@@ -4238,9 +4247,10 @@ and `add-target` omit `.xcodeproj` folders by default. `xcode::ensure` derives J
 `build/day/xcode/<platform>/DayApp.xcodeproj/project.xcproj` from the built-in template,
 rebasing references to app-owned `platform/<platform>/` sources/configuration and generated
 DayPieces/assets. Locales come from `resource/locales/`; `DAY_PROJECT_ROOT` lets script callbacks
-find the app from the generated location, and `DAY_BIN` keeps GUI builds on the preparing CLI.
+find the app from the generated location, and canonicalized `DAY_BIN` keeps GUI builds on the
+preparing CLI without making equivalent paths look stale to `prepare --check`.
 Build, launch, archive/unsigned packaging, prepare, and open use the same project selection.
-Generation updates only the document when changed, preserving IDE user state; `prepare --check`
+Generation updates the document and default CLI helper when changed, preserving IDE user state; `prepare --check`
 compares without writing. `day open --print-path` prepares prerequisites and returns the actual
 project location (also as a JSON result); day-vscode uses it rather than assuming a source path.
 `day project add-target --persist-xcode-project` explicitly materializes an app-owned project
@@ -4776,14 +4786,13 @@ fieldnotes/
     lib.rs                   # routes! + root() (the app)
     main.rs                  # desktop entry: day::launch
     model.rs                 # the domain object + its prefs-backed store
-    pages/                   # starter pages: welcome, navigate, settings
+    pages/mod.rs             # declares welcome, items, detail, and settings pages
   resource/
     locales/en/app.ftl       # + one dir per locale
-    vectors/                 # tab + row glyphs, and app_mark.svg (a copy of the generated icon)
-    images/app_logo.png      # processed images (§18.3); assets/ and fonts/ join as needed
+    vectors/                 # tab + row glyphs, and app_mark.svg (a copy of the generated icon);
+                             #   images/, assets/ and fonts/ (§18.3) join as an app needs them
   dayscript/
-    demo.yaml                # starter walkthrough; real apps grow it further
-    toolbar-enable.yaml      # a page-declared command's live enablement, kept as a regression check
+    demo.yaml                # portable create/edit/delete smoke test, with screenshots
   platform/                  # only for toolkits with a native host project:
     ios/                     #   Runner + DayApp.xcconfig (optional DayApp.xcodeproj) (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4);
@@ -4801,10 +4810,48 @@ fieldnotes/
                              #   staged in build/day by `day build`/`prepare`
 ```
 
-Rust code layout: the app is a **lib crate** (`fieldnotes`) so mobile targets (which need
-`cdylib`/`staticlib` + platform entry glue) and the desktop `main.rs` share everything. The mobile
-entry glue (`#[no_mangle] JNI_OnLoad`-adjacent start fn for android; the UIKit `main` shim for ios)
-is generated into the scaffolds, calling `day::launch_with(Options::from_env(), fieldnotes::root)`.
+The starter uses one main window: Welcome, Items, and Settings (in the desktop app menu or
+mobile navigation). Items have an ID, name, and done flag; the list starts empty and persists
+as JSON in preferences, including native drag-reordering where supported. Moves preserve item
+IDs and editor bindings. Persistence failures warn; creation/deletion/moves log IDs at info level
+and successful saves log at debug level without logging item contents. Explicit localized
+accessibility labels name the list, editor controls, and completion glyph; the welcome title
+has a heading role and its illustration is decorative. `Scene` owns selection and editor state,
+and the navigation preference store restores the last section. Tests live in an inline module at the bottom of `model.rs`.
+The only external piece dependency is `day-piece-settings`. Monochrome row glyphs use
+`.template()` so their color follows the native theme. `dayscript/demo.yaml` creates, edits,
+and deletes its own item without platform-specific conditions or disturbing saved items. It
+also audits native accessibility metadata on the welcome and editor screens. Short source comments
+explain scope ownership, recycled rows, deselection, keyed editors, and Settings placement, with
+links to the corresponding published guides and detailed references.
+
+Rust code layout: the app has a **lib crate** named `dayapp` shared by desktop `main.rs` and
+mobile hosts. Cargo's default library type is `rlib`; the mobile build pipeline requests
+`staticlib` or `cdylib` through `cargo rustc`. `day::day_start!` supplies the mobile entry point.
+Android scaffolds include an optional app-owned `platform/android/AndroidManifest.xml` overlay.
+`native_host::rendered` excludes it from generated boilerplate, and `android_dir` does not treat it
+as a persistent-host marker. The Gradle plugin registers it through the AGP variant manifest API
+at highest priority for every app variant, above the existing host and piece overlays. Android
+performs XML validation and merging, including `tools:replace` and `tools:node="remove"`, without
+Day reimplementing merge rules. Provider-backed file reads track additions, edits, and removals
+for configuration-cache invalidation; the source file is never rewritten. Hosts using Day's plugin
+also support it when persistent. `native_host` and scaffold tests cover ownership and generation.
+`scripts/ci/check-android-manifest-overlay.py`, run by the Android scaffold CI, checks the real AGP
+merge in debug, release, and a custom build type: precedence over pieces, tools markers, invalid
+XML/conflicts, unchanged source files, and configuration-cache invalidation on add/edit/remove.
+The pinned AGP 9.4 consumes these static manifest additions highest-priority first, so the plugin
+registers the app overlay before piece contributions; the integration test guards this ordering.
+The user guide is `website/src/content/docs/platforms/android-mdc.mdx` (Manifest customization).
+
+The generic Apple `day-cli.sh` launcher is derived beside `build/day/xcode/<os>/DayApp.xcodeproj`
+and is omitted from default app scaffolds. An existing `platform/<os>/day-cli.sh` overrides the
+derived helper and is never overwritten. Persistent Xcode hosts get a missing helper recreated
+under `platform/<os>/`; opting into native-project persistence also scaffolds that helper.
+`day prepare --check` validates generated helper contents without writing; deleting build output
+recreates both project and helper on the next preparation. Shortcut phase injection shares this
+helper generation path. Regression coverage lives in `day-cli::xcode` and `day-cli::new`.
+`Day-Rise/scripts/scaffold-drift.sh` checks the reference app against freshly rendered output;
+app identity, title, targets, and dependency source remain template parameters.
 
 ### §17.2 Why real platform projects (and not pane's hand-assembly)
 
@@ -4957,10 +5004,10 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   xcode-backend build`** — arg-less plumbing that reads
   `CONFIGURATION`/`ARCHS`/`BUILT_PRODUCTS_DIR`/`PLATFORM_NAME` from
   Xcode's environment (flutter's `xcode_backend.sh` pattern; a fully-parameterized checked-in
-  invocation would fossilize flags into user projects). Generated projects call the same
-  script through `$DAY_PROJECT_ROOT/platform/ios/day-cli.sh`; callbacks prefer
-  `DAY_PROJECT_ROOT`, falling back to two parents above `PROJECT_DIR` for persistent hosts.
-  `day-cli.sh` remains in `platform/ios/` and is the one place each project resolves the CLI: `DAY_BIN`
+  invocation would fossilize flags into user projects). Generated projects use the helper beside
+  their project under `build/day/xcode/ios/`, or an existing custom helper through
+  `$DAY_PROJECT_ROOT/platform/ios/day-cli.sh`. Callbacks prefer `DAY_PROJECT_ROOT`, falling back
+  to two parents above `PROJECT_DIR` for persistent hosts. The helper resolves the CLI: `DAY_BIN`
   (exported by `day build`) wins, then `command -v day`, then the standard install locations
   (`~/.cargo/bin`, Homebrew, `/usr/local/bin`), with a named error rather than sh's bare
   `day: command not found`. `day build` runs the cargo half itself before invoking xcodebuild
@@ -4969,11 +5016,10 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   fresh. xcodebuild holds a script phase's output until the phase ends — measured, with and
   without `-verbose` — so output routed through the phase could only ever arrive as one burst.
   It exists because a build started from the Xcode GUI runs on
-  Xcode's own minimal PATH with no shell profile; per-project rather than shared because the
-  template's target filter keys a file's platform off its `platform/<os>/` prefix, and each
-  Xcode project stays self-contained. It is invoked through `sh` since the scaffold writes
-  every file non-executable. `shortcuts.rs` `include_str!`s the same file when it injects a
-  phase into an older project, so the two can never drift. The scaffolded projects also carry
+  Xcode's own minimal PATH with no shell profile. `xcode::ensure_cli_shim` creates it when missing
+  and refreshes it only in disposable build output; `shortcuts.rs` uses the same helper when
+  injecting a strings phase. It is invoked through `sh`, so no executable permission is needed.
+  The scaffolded projects also carry
   a plain folder reference to the app root (never in any build phase), so the Rust sources are
   browsable and editable from inside Xcode. Inside: configuration→cargo-profile
   mapping by case-insensitive substring with a `DAY_BUILD_MODE` override (miette error listing
@@ -7136,6 +7182,13 @@ Undo and redo return `false` while a group is active, preventing replay from inv
 a live gesture. They become available again after its final guard drops.
 
 ### Bitmap teardown order at process exit
+
+Core's safe-area seed, conformance runner, launcher shortcuts, and status items share
+the existing `tls_root!` store through `tls_slots!`. Their initializers only construct
+empty state; they do not access the root recursively. This avoids separate pthread
+keys on Android and keeps their lifetime tied to the core root. It also avoids the
+cross-target Clippy false positives on standalone const `thread_local!` declarations
+without suppressing the lint.
 
 Native Quit can destroy toolkit TLS before the reactive arena releases its cached
 `Bitmap` handles. AppKit, GTK, and Qt image release therefore use fallible registry

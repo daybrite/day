@@ -572,7 +572,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!("day-scheme-derived-{}", std::process::id()));
         let host = root.join("platform/ios");
         std::fs::create_dir_all(host.join("Runner")).unwrap();
-        for file in ["Runner/main.swift", "Runner/Info.plist", "day-cli.sh"] {
+        for file in ["Runner/main.swift", "Runner/Info.plist"] {
             std::fs::write(host.join(file), "synthetic fixture").unwrap();
         }
         std::fs::write(host.join("DayApp.xcconfig"), "PRODUCT_NAME = Fixture\n").unwrap();

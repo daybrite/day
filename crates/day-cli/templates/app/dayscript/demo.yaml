@@ -1,131 +1,30 @@
-# The starter's walkthrough (https://daybrite.dev/docs/dayscript): drives the running app by
-# element id and route on any target, and doubles as its test.
-#
-#     day launch -t {{first_target}} --script dayscript/demo.yaml
-#
-# Steps that need a toolbar or a menu bar carry `skip_on:` for the platforms without one.
+# A portable round trip through the starter. No seed data or platform-specific steps.
+# The typed name is synthetic test input; UI assertions use localization keys.
+# Run with: day launch -t <target> --script dayscript/demo.yaml
 flow:
-  # --- Welcome ------------------------------------------------------------------------------
-  # The nav host mounts on every platform; which chrome it wears depends on the window width.
   - wait_for: { id: nav }
   - navigate: { route: welcome }
   - assert_visible: { id: welcome-mark }
-  - assert_text: { id: welcome-title, text: "Welcome to Day" }
-  # Markdown from the locale catalog, so this proves resources, Fluent, and the parser at once.
+  - assert_text: { id: welcome-title, key: welcome_title }
   - assert_visible: { id: welcome-body }
+  - a11y_audit: {}
   - screenshot: welcome
 
-  # --- The list -----------------------------------------------------------------------------
-  - navigate: { route: navigate }
-  - assert_route: { route: navigate }
+  - navigate: { route: items }
+  - assert_route: { route: items }
   - wait_for: { id: item-list }
   - screenshot: list
 
-  # Reorder and delete take the same path a drag or a swipe would, so they run on every
-  # target, desktops included.
-  - reorder: { id: item-list, from: 1, to: 0 }
-  - delete_row: { id: item-list, row: 0 }
-
-  # --- Adaptive navigation ------------------------------------------------------------------
-  # The same host re-presented; the selection has to survive each change.
-  - size_class: { width: compact }
-  - wait_idle: {}
-  - assert_route: { route: navigate }
-  - screenshot: compact
-  - size_class: { width: medium }
-  - wait_idle: {}
-  - assert_route: { route: navigate }
-  - screenshot: medium
-  - size_class: { width: expanded }
-  - wait_idle: {}
-  - assert_route: { route: navigate }
-  - screenshot: expanded
-  # Back to the device's own width. A forced class changes the layout, not the pixels, so a
-  # phone left on `expanded` would draw a split off the right edge.
-  - size_class: { width: auto }
-  - wait_idle: {}
-
-  # --- The editor ---------------------------------------------------------------------------
-  # Selecting a row opens it: in the detail pane on a desktop, pushed over the list on a phone.
-  - select: { id: item-list, index: 0 }
+  - toolbar: { item: tb-add }
   - wait_for: { id: field-name }
   - input: { id: field-name, text: "Written by the demo" }
-  # Every standard two-way binding, each a native control.
-  - tap: { id: field-count-inc }
-  - tap: { id: field-count-inc }
-  - tap: { id: field-count-dec }
+  - assert_text: { id: field-name, text: "Written by the demo" }
   - toggle: { id: field-done, value: true }
-  - assert_visible: { id: field-date }
-  - assert_visible: { id: field-kind }
-  - assert_visible: { id: field-rating }
-  - assert_visible: { id: field-color }
-  - input: { id: field-notes, text: "Notes persist with the item." }
+  - assert_value: { id: field-done, value: true }
+  - a11y_audit: {}
   - screenshot: editor
 
-  # On a phone the editor is a pushed page; the platform's back (the bar's button on iOS, the
-  # system back on Android) pops to the list and keeps the selection; `native: true` runs the
-  # toolkit's user-back path, the code a real tap runs. A wide window never pushed
-  # anything, so the step passes without moving there. The same ios-uikit build stacks on an
-  # iPhone and splits on an iPad.
-  - nav_back: { native: true, only_on: [uikit, mdc] }
-  - wait_idle: { only_on: [uikit, mdc] }
-  - assert_route: { route: navigate, only_on: [uikit, mdc] }
-  - assert_visible: { id: item-list, only_on: [uikit, mdc] }
-  # --- Done, and the filter -----------------------------------------------------------------
-  # Finished items sort to the top, and the filter hides them. The button, the menu item, and
-  # the list all read one signal.
-  #
-  # Driven with the list showing: these commands are declared on the list pane, so they leave
-  # the bar when an editor covers it. The phones came back to the list just above.
-  - toolbar: { item: tb-show-done, on: false, skip_on: [arkui] }
-  - wait_idle: {}
-  - screenshot: filtered
-  - toolbar: { item: tb-show-done, on: true, skip_on: [arkui] }
-  - wait_idle: {}
-
-  # "+" adds a row and opens it. On the phones it rides the navigation bar.
-  - toolbar: { item: tb-add, skip_on: [arkui] }
-  - wait_idle: {}
-  - assert_visible: { id: field-name, skip_on: [arkui] }
-  # "+" left an item open, so every platform ends this section in the same state.
-
-  # --- Settings -----------------------------------------------------------------------------
-  # A section on the phones; a Settings window on the desktops, where the route does not exist.
-  - navigate: { route: settings, skip_on: [appkit, gtk, qt, xaml] }
-  # The theme row appears only where the toolkit can override the appearance at runtime
-  # (`Cap::Appearance`, docs/coverage-matrix.md): iOS, Android and the web have it, HarmonyOS
-  # does not. Opted IN by platform rather than opted out toolkit by toolkit, so a new backend
-  # that lacks the capability needs no edit here. The language row is always present.
-  - assert_visible: { id: theme-picker, only_on: [ios, android, web] }
-  - assert_visible: { id: language-picker, skip_on: [appkit, gtk, qt, xaml] }
-  - screenshot: settings
-
-  # --- A second window ----------------------------------------------------------------------
-  # File ▸ New Window builds the same shell again, with its own document, filter, and
-  # selection. A per-window state bug shows up here as a panic. Desktop only.
-  #
-  # Last in the file: ids resolve across the whole tree, and a second shell duplicates them
-  # all. The screenshot is the primary window; that the two are independent is a check by hand.
-  - menu: { key: day-new-window, only_on: [appkit, gtk, qt, xaml] }
-  - wait_idle: { only_on: [appkit, gtk, qt, xaml] }
-  - assert_visible: { id: item-list, only_on: [appkit, gtk, qt, xaml] }
-  - screenshot: { name: after-new-window, only_on: [appkit, gtk, qt, xaml] }
-
-  # --- Surviving a theme change ---------------------------------------------------------------
-  # android-mdc only: changing the appearance there recreates the activity, so the app is built
-  # again in the same process. A framework change once broke exactly this and nothing else
-  # caught it. The navigate after the theme change is the assertion that matters.
-  - navigate: { route: settings, only_on: [mdc] }
-  - wait_idle: { only_on: [mdc] }
-  - select: { id: theme-picker, index: 1, only_on: [mdc] }
-  - pause: { secs: 4, only_on: [mdc] }
-  # The routes must still resolve; this is the step that fails when a re-mount registers none.
-  - navigate: { route: navigate, only_on: [mdc] }
-  - wait_idle: { only_on: [mdc] }
-  - assert_visible: { id: item-list, only_on: [mdc] }
-  - navigate: { route: settings, only_on: [mdc] }
-  - wait_idle: { only_on: [mdc] }
-  - assert_visible: { id: language-picker, only_on: [mdc] }
-  # Put the appearance back for the next run.
-  - select: { id: theme-picker, index: 2, only_on: [mdc] }
-  - pause: { secs: 4, only_on: [mdc] }
+  # Remove only the item this run created, leaving existing items alone.
+  - toolbar: { item: tb-delete }
+  - wait_for: { id: item-list }
+  - assert_missing: { id: field-name }

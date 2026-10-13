@@ -629,7 +629,8 @@ pub static TESTS: [TestFn];
 /// What a test host does when the active case changes: rebuild its content.
 type HostNotify = Rc<dyn Fn()>;
 
-thread_local! {
+day_reactive::tls_slots! {
+    conformance;
     static RUNTIME: RefCell<Vec<TestFn>> = const { RefCell::new(Vec::new()) };
     /// The case the engine is driving, which the test host shows; its page shares its signals
     /// with the drive.

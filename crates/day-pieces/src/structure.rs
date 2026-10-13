@@ -3148,6 +3148,36 @@ pub(crate) mod conformance {
             })
     }
 
+    /// Synthetic fixture: appending and scrolling in one event must apply the native insert
+    /// before scrolling. UIKit used to scroll against its old count and throw an exception.
+    #[day_macros::test(day_core)]
+    fn list_append_then_scroll() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = names(&[]);
+                let scroll = Signal::new(None);
+                column((
+                    button("Append").id("append").action(move || {
+                        rows.update(|rows| rows.push(format!("Item {}", rows.len())));
+                        scroll.set(Some(rows.with(|rows| rows.len() - 1)));
+                    }),
+                    names_list(rows)
+                        .scroll_to_row(scroll)
+                        .id("list")
+                        .height(120.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                // Start empty, then grow past the viewport to prove the scroll actually runs.
+                for index in 0..8 {
+                    d.tap("append").await?;
+                    d.assert_visible(&format!("row:Item {index}")).await?;
+                }
+                Ok(())
+            })
+    }
+
     /// Selecting a row reports its key; activating one reports its key too.
     #[day_macros::test(day_core)]
     fn list_select_and_activate() -> Case {
@@ -3445,6 +3475,7 @@ pub(crate) mod conformance {
         tree_move_reparents,
         list_rows_realize,
         list_follows_source,
+        list_append_then_scroll,
         list_select_and_activate,
         list_reorder_moves_row,
         list_delete_row,

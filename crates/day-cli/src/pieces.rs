@@ -24,7 +24,7 @@
 //! plugin (`toolkits/day-android/gradle-plugin`, staged into `build/day/android/gradle-plugin`) reads
 //! generically (loops over the lists; no per-piece Gradle edits, ever).
 //! Permissions additionally go into a generated manifest overlay (`day-pieces-manifest.xml`) that the
-//! plugin points the debug+release source-set manifests at, so AGP merges them into the app manifest.
+//! plugin registers with every app variant, so AGP merges them into the app manifest.
 //!
 //! iOS contract (`[package.metadata.day.ios]`):
 //! ```toml
@@ -884,12 +884,12 @@ pub fn write_android_manifest(project: &Project) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&pieces).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("day-pieces.json"), json).map_err(|e| e.to_string())?;
 
-    // Permissions → a manifest overlay AGP merges into the app manifest (Day's Gradle plugin points
-    // the debug+release source-set manifests here). Remove any stale overlay when there are none.
+    // Permissions → a manifest overlay Day's Gradle plugin registers with every app variant.
+    // Remove any stale overlay when there are none.
     //
     // The FILENAME is a compatibility surface: it is baked into every scaffold `day new` has ever
-    // generated, and a source set has exactly one manifest slot (debug and release are both already
-    // claimed). Widen what this file contains; never move or split it, or permission merging breaks
+    // generated, including older plugins that use debug/release source-set manifest slots.
+    // Widen what this file contains; never move or split it, or permission merging breaks
     // silently in every checked-out app.
     let overlay = dir.join("day-pieces-manifest.xml");
     let mut components = read_manifest_components(&pieces.manifest_components)?;

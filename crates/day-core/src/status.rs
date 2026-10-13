@@ -26,7 +26,8 @@ pub enum KeepRunning {
     Never,
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    status;
     static POLICY: Cell<KeepRunning> = const { Cell::new(KeepRunning::Automatic) };
     /// The status items, in the order the app first added them, each with the dispatch ids its
     /// menu and click hold (swept when the item changes or goes).

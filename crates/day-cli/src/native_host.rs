@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 /// Only omit known boilerplate from templates; never discard extra Java/ArkTS app sources.
 pub fn is_scaffold_file(path: &str) -> bool {
     (path.starts_with("platform/android/") || path.starts_with("platform/harmony/"))
+        && path != "platform/android/AndroidManifest.xml"
         && crate::template::builtin_app()
             .iter()
             .any(|f| f.path == path)
@@ -142,7 +143,11 @@ fn rendered(project: &Project, platform: &str) -> Result<Vec<(String, Vec<u8>)>,
     let prefix = format!("platform/{platform}/");
     let files: Vec<_> = crate::template::builtin_app()
         .into_iter()
-        .filter(|f| f.path.starts_with(&prefix) && !f.path.ends_with("_gitignore"))
+        .filter(|f| {
+            f.path.starts_with(&prefix)
+                && is_scaffold_file(&f.path)
+                && !f.path.ends_with("_gitignore")
+        })
         .collect();
     let files = crate::template::render(&files, &context).map(|files| {
         files
@@ -457,6 +462,30 @@ mod tests {
         ensure_android(p).unwrap();
         ensure_harmony_source(p).unwrap();
         assert!(!p.root.join("platform").exists());
+    }
+
+    #[test]
+    fn android_manifest_overlay_stays_app_owned_without_opting_into_a_native_project() {
+        let fixture = Fixture::new();
+        let p = &fixture.0;
+        let overlay = p.root.join("platform/android/AndroidManifest.xml");
+        std::fs::create_dir_all(overlay.parent().unwrap()).unwrap();
+        let custom = "<manifest><!-- synthetic app overlay --><application /></manifest>";
+        std::fs::write(&overlay, custom).unwrap();
+        assert!(!is_scaffold_file("platform/android/AndroidManifest.xml"));
+        let dir = ensure_android(p).unwrap();
+        assert_eq!(dir, p.root.join("build/android"));
+        assert!(!dir.join("AndroidManifest.xml").exists());
+        check(p, "android").unwrap();
+        std::fs::remove_dir_all(p.root.join("build")).unwrap();
+        ensure_android(p).unwrap();
+        assert_eq!(std::fs::read_to_string(&overlay).unwrap(), custom);
+        std::fs::remove_file(&overlay).unwrap();
+        ensure_android(p).unwrap();
+        assert!(
+            !overlay.exists(),
+            "preparation must not recreate an optional app overlay"
+        );
     }
 
     #[test]

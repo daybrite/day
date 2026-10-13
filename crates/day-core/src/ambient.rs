@@ -49,6 +49,7 @@ struct WindowAmbient {
 day_reactive::tls_slots! {
     ambient;
     static AMBIENT: RefCell<Vec<(RNode, WindowAmbient)>> = const { RefCell::new(Vec::new()) };
+    static SEED: std::cell::Cell<Option<day_geometry::Insets>> = const { std::cell::Cell::new(None) };
 }
 
 /// One window's signals, created on first touch.
@@ -88,10 +89,6 @@ fn initial_safe_area() -> day_geometry::Insets {
             ..Default::default()
         })
         .unwrap_or_default()
-}
-
-thread_local! {
-    static SEED: std::cell::Cell<Option<day_geometry::Insets>> = const { std::cell::Cell::new(None) };
 }
 
 /// Backend-facing: the first window's safe-area insets, known before its content builds and

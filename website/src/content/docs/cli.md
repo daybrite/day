@@ -94,11 +94,13 @@ hyphen (`io.github.fair_starter`, not `io.github.fair-starter`); Apple also take
 new` refuses an id a chosen target would reject, and derives one that works when the flag is
 left out.
 
-`day new app` scaffolds a working starter: a typed-route [sidebar](/docs/glossary#sidebar) over four sample panels (a
-[reactive](/docs/glossary#reactive) counter, a controls tour, a canvas dial, and a drill-down stack), with [locales](/docs/glossary#locale), a
-[dayscript](/docs/glossary#dayscript) [walkthrough](/docs/glossary#walkthrough) (`day launch -t <target> --script dayscript/demo.yaml`), the native
-host projects the mobile targets build through, and a GitHub Actions workflow that builds and
-tests every scaffolded target through the shared [`dayapp.yml`](/docs/github-actions) workflow
+`day new app` scaffolds a small working starter: Welcome, an Items list with a name-and-done
+editor, and Settings. It uses one main window, saves items and the last navigation section,
+and includes [locales](/docs/glossary#locale) and a portable [dayscript](/docs/glossary#dayscript)
+smoke test (`day launch -t <target> --script dayscript/demo.yaml`). Day derives native build
+projects under `build/`; app-owned host sources and configuration stay under `platform/`.
+A GitHub Actions workflow builds and tests the declared targets through the shared
+[`dayapp.yml`](/docs/github-actions) workflow
 as soon as the repository is pushed. The interactive run asks whether to set that repository up:
 yes initializes git in the new directory and ships `.gitignore` with the workflow, no leaves all
 three out. `--github` and `--no-github` answer for it; `--no-input` takes yes. The scaffold

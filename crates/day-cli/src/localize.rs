@@ -277,7 +277,10 @@ fn quote_join(entries: &[String]) -> String {
 /// Matching is on the key at the start of a line, so a commented-out key or a key inside a value
 /// is untouched. `{app}` in the table is replaced with whatever the default locale already put
 /// there, which keeps the project's own title rather than inventing one.
-fn apply_starter(body: &str, starter: &'static [&'static str; 4]) -> (String, usize) {
+fn apply_starter(
+    body: &str,
+    starter: &'static crate::starter_l10n::Translations,
+) -> (String, usize) {
     let keys = crate::starter_l10n::KEYS;
     // The app's title, read from `app_title` in the file being copied rather than guessed out of
     // a longer line: taking the last word of "Welcome to Day Sample" yields "Sample", which is
@@ -313,7 +316,7 @@ fn copy_locale_files(
     dst: &Path,
     ext: &str,
     header: Option<&str>,
-    starter: Option<&'static [&'static str; 4]>,
+    starter: Option<&'static crate::starter_l10n::Translations>,
 ) -> Result<usize, String> {
     std::fs::create_dir_all(dst).map_err(|e| format!("{}: {e}", dst.display()))?;
     let Ok(entries) = std::fs::read_dir(src) else {
@@ -638,6 +641,39 @@ mod tests {
         )
         .expect("site.toml");
         root
+    }
+
+    #[test]
+    fn add_translates_items_labels_in_every_starter_locale() {
+        let root = scratch("items-translations");
+        let source = root.join("resource/locales/en");
+        std::fs::create_dir_all(&source).unwrap();
+        // Synthetic app strings: only known starter keys should be translated.
+        std::fs::write(source.join("app.ftl"),
+            "nav_items = Items\nitems_empty = No items yet. Add your first item.\nitem_untitled = Untitled\ncustom = Keep this fixture text\n").unwrap();
+        for (tag, translations) in crate::starter_l10n::STARTER {
+            add(&root, tag).unwrap();
+            let body =
+                std::fs::read_to_string(root.join(format!("resource/locales/{tag}/app.ftl")))
+                    .unwrap();
+            for key in ["nav_items", "items_empty", "item_untitled"] {
+                let index = crate::starter_l10n::KEYS
+                    .iter()
+                    .position(|k| *k == key)
+                    .unwrap();
+                assert!(
+                    body.lines()
+                        .any(|line| line == format!("{key} = {}", translations[index])),
+                    "{tag}: {key}"
+                );
+            }
+            assert!(body.contains("custom = Keep this fixture text"));
+            assert!(!body.contains("nav_navigate"));
+        }
+        let french = std::fs::read_to_string(root.join("resource/locales/fr-FR/app.ftl")).unwrap();
+        assert!(french.contains("nav_items = Éléments"));
+        assert!(french.contains("item_untitled = Sans titre"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

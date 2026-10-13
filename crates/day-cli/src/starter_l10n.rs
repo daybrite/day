@@ -6,51 +6,55 @@
 //! `day localize add <tag>` copies the default locale verbatim under a translate-me header,
 //! which is right for an app's strings: the CLI cannot know what they mean. It can know
 //! what the scaffold's strings mean, because it wrote them. So for the handful of keys the
-//! generated sample app shows on its opening screen, a locale added here starts translated
+//! sample app uses for navigation and empty states, a locale added here starts translated
 //! rather than starting as English labeled otherwise.
 //!
-//! Scope is narrow. A key is listed only if the scaffold ships it and the phrase is
-//! a UI label with one obvious rendering in each language. Anything longer (the panel blurbs)
-//! stays an English copy for a human to translate in context.
+//! Scope is narrow: starter labels and short empty-state messages. Longer prose stays
+//! an English copy for a human to translate in context.
 //!
 //! `{app}` is replaced with the project's title before the line is written.
 
 /// The scaffold keys carried here, in the order they are written.
 pub const KEYS: &[&str] = &[
     "nav_welcome",
-    "nav_navigate",
     "nav_settings",
     "welcome_title",
+    "nav_items",
+    "items_empty",
+    "item_untitled",
 ];
+
+/// One translation for each key.
+pub type Translations = [&'static str; KEYS.len()];
 
 /// `(locale tag, [translation per KEYS])`. A tag absent here gets the English copy.
 #[rustfmt::skip]
-pub const STARTER: &[(&str, [&str; 4])] = &[
-    ("ar-SA", ["مرحبًا", "تصفح", "الإعدادات", "مرحبًا بك في Day"]),
-    ("cs-CZ", ["Vítejte", "Procházet", "Nastavení", "Vítejte v Day"]),
-    ("de-DE", ["Willkommen", "Navigieren", "Einstellungen", "Willkommen bei Day"]),
-    ("es-ES", ["Bienvenida", "Navegar", "Ajustes", "Te damos la bienvenida a Day"]),
-    ("fr-FR", ["Bienvenue", "Naviguer", "Réglages", "Bienvenue dans Day"]),
-    ("id-ID", ["Selamat Datang", "Navigasi", "Pengaturan", "Selamat datang di Day"]),
-    ("it-IT", ["Benvenuto", "Naviga", "Impostazioni", "Benvenuto in Day"]),
-    ("ja-JP", ["ようこそ", "ナビゲート", "設定", "Day へようこそ"]),
-    ("ko-KR", ["환영합니다", "탐색", "설정", "Day에 오신 것을 환영합니다"]),
-    ("ms-MY", ["Selamat Datang", "Navigasi", "Tetapan", "Selamat datang ke Day"]),
-    ("nl-NL", ["Welkom", "Navigeren", "Instellingen", "Welkom bij Day"]),
-    ("pl-PL", ["Powitanie", "Nawigacja", "Ustawienia", "Witamy w Day"]),
-    ("pt-BR", ["Bem-vindo", "Navegar", "Configurações", "Boas-vindas ao Day"]),
-    ("ru-RU", ["Добро пожаловать", "Навигация", "Настройки", "Добро пожаловать в Day"]),
-    ("th-TH", ["ยินดีต้อนรับ", "นำทาง", "การตั้งค่า", "ยินดีต้อนรับสู่ Day"]),
-    ("tr-TR", ["Hoş Geldiniz", "Gezin", "Ayarlar", "Day uygulamasına hoş geldiniz"]),
-    ("uk-UA", ["Ласкаво просимо", "Навігація", "Налаштування", "Ласкаво просимо до Day"]),
-    ("vi-VN", ["Chào mừng", "Điều hướng", "Cài đặt", "Chào mừng đến với Day"]),
-    ("zh-Hans-CN", ["欢迎", "导航", "设置", "欢迎使用 Day"]),
-    ("zh-Hant-TW", ["歡迎", "導覽", "設定", "歡迎使用 Day"]),
+pub const STARTER: &[(&str, Translations)] = &[
+    ("ar-SA", ["مرحبًا", "الإعدادات", "مرحبًا بك في Day", "العناصر", "لا توجد عناصر بعد. أضف عنصرك الأول.", "بلا عنوان"]),
+    ("cs-CZ", ["Vítejte", "Nastavení", "Vítejte v Day", "Položky", "Zatím tu nejsou žádné položky. Přidejte první.", "Bez názvu"]),
+    ("de-DE", ["Willkommen", "Einstellungen", "Willkommen bei Day", "Einträge", "Noch keine Einträge. Füge deinen ersten Eintrag hinzu.", "Ohne Titel"]),
+    ("es-ES", ["Bienvenida", "Ajustes", "Te damos la bienvenida a Day", "Elementos", "Aún no hay elementos. Añade el primero.", "Sin título"]),
+    ("fr-FR", ["Bienvenue", "Réglages", "Bienvenue dans Day", "Éléments", "Aucun élément pour le moment. Ajoutez votre premier élément.", "Sans titre"]),
+    ("id-ID", ["Selamat Datang", "Pengaturan", "Selamat datang di Day", "Item", "Belum ada item. Tambahkan item pertama Anda.", "Tanpa judul"]),
+    ("it-IT", ["Benvenuto", "Impostazioni", "Benvenuto in Day", "Elementi", "Non ci sono ancora elementi. Aggiungi il primo.", "Senza titolo"]),
+    ("ja-JP", ["ようこそ", "設定", "Day へようこそ", "項目", "項目はまだありません。最初の項目を追加しましょう。", "無題"]),
+    ("ko-KR", ["환영합니다", "설정", "Day에 오신 것을 환영합니다", "항목", "아직 항목이 없습니다. 첫 항목을 추가하세요.", "제목 없음"]),
+    ("ms-MY", ["Selamat Datang", "Tetapan", "Selamat datang ke Day", "Item", "Belum ada item. Tambahkan item pertama anda.", "Tanpa tajuk"]),
+    ("nl-NL", ["Welkom", "Instellingen", "Welkom bij Day", "Items", "Nog geen items. Voeg je eerste item toe.", "Naamloos"]),
+    ("pl-PL", ["Powitanie", "Ustawienia", "Witamy w Day", "Elementy", "Nie ma jeszcze żadnych elementów. Dodaj pierwszy.", "Bez tytułu"]),
+    ("pt-BR", ["Bem-vindo", "Configurações", "Boas-vindas ao Day", "Itens", "Ainda não há itens. Adicione seu primeiro item.", "Sem título"]),
+    ("ru-RU", ["Добро пожаловать", "Настройки", "Добро пожаловать в Day", "Элементы", "Пока нет элементов. Добавьте первый.", "Без названия"]),
+    ("th-TH", ["ยินดีต้อนรับ", "การตั้งค่า", "ยินดีต้อนรับสู่ Day", "รายการ", "ยังไม่มีรายการ เพิ่มรายการแรกของคุณ", "ไม่มีชื่อ"]),
+    ("tr-TR", ["Hoş Geldiniz", "Ayarlar", "Day uygulamasına hoş geldiniz", "Öğeler", "Henüz öğe yok. İlk öğenizi ekleyin.", "Başlıksız"]),
+    ("uk-UA", ["Ласкаво просимо", "Налаштування", "Ласкаво просимо до Day", "Елементи", "Ще немає елементів. Додайте перший.", "Без назви"]),
+    ("vi-VN", ["Chào mừng", "Cài đặt", "Chào mừng đến với Day", "Mục", "Chưa có mục nào. Hãy thêm mục đầu tiên.", "Chưa có tiêu đề"]),
+    ("zh-Hans-CN", ["欢迎", "设置", "欢迎使用 Day", "项目", "暂无项目。添加你的第一个项目吧。", "无标题"]),
+    ("zh-Hant-TW", ["歡迎", "設定", "歡迎使用 Day", "項目", "尚無項目。新增你的第一個項目吧。", "無標題"]),
 ];
 
 /// The starter translations for `tag`, matched on the exact tag then its language subtag, so
 /// `de` and `de-AT` both reach the `de-DE` row.
-pub fn starter_for(tag: &str) -> Option<&'static [&'static str; 4]> {
+pub fn starter_for(tag: &str) -> Option<&'static Translations> {
     if let Some((_, v)) = STARTER.iter().find(|(t, _)| *t == tag) {
         return Some(v);
     }
@@ -67,7 +71,11 @@ mod tests {
 
     #[test]
     fn every_row_covers_every_key() {
-        assert_eq!(KEYS.len(), 4);
+        assert_eq!(STARTER.len(), 20);
+        assert_eq!(
+            KEYS.iter().collect::<std::collections::HashSet<_>>().len(),
+            KEYS.len()
+        );
         for (tag, vals) in STARTER {
             for (k, v) in KEYS.iter().zip(vals) {
                 assert!(!v.trim().is_empty(), "{tag}: {k} is empty");

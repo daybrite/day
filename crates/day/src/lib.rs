@@ -826,7 +826,7 @@ macro_rules! resources {
         /// Typed constants for the files under `resource/`, generated at build time by
         /// `day-build` (§18.5): `res::images::<stem>`, `res::assets::<file>`,
         /// `res::fonts::<family>`, `res::str::<key>()`, and the `res::locales` catalog.
-        /// Reference bundled resources through these (`image(res::images::app_logo)`) so a
+        /// Reference bundled resources through these (`image(res::images::logo)`) so a
         /// typo is a compile error and the resource is guaranteed present. Drop a file into
         /// `resource/images/` and its constant appears on the next build.
         pub mod res {

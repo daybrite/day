@@ -22,6 +22,62 @@ pub fn project_dir(root: &Path, platform: &str) -> PathBuf {
     }
 }
 
+/// Native host helpers are derived alongside the project unless persistence is requested.
+pub fn is_cli_shim(path: &str) -> bool {
+    matches!(
+        path,
+        "platform/macos/day-cli.sh" | "platform/ios/day-cli.sh"
+    )
+}
+
+pub fn is_scaffold_file(path: &str) -> bool {
+    is_project_file(path) || is_cli_shim(path)
+}
+
+const CLI_SHIM: &str = include_str!("../templates/app/platform/ios/day-cli.sh");
+
+fn shim_path(root: &Path, platform: &str) -> (PathBuf, bool) {
+    let source = root.join(format!("platform/{platform}/day-cli.sh"));
+    if source.exists() || path(root, platform).parent().unwrap().exists() {
+        (source, false)
+    } else {
+        (
+            root.join(format!("build/day/xcode/{platform}/day-cli.sh")),
+            true,
+        )
+    }
+}
+
+/// Preserve app-owned launchers; refresh the default helper only in disposable build output.
+pub fn ensure_cli_shim(root: &Path, platform: &str) -> Result<(), String> {
+    let (file, generated) = shim_path(root, platform);
+    if !generated && file.exists() {
+        return if file.is_file() {
+            Ok(())
+        } else {
+            Err(format!("{} is not a file", file.display()))
+        };
+    }
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(CLI_SHIM) {
+        std::fs::create_dir_all(file.parent().unwrap()).map_err(|e| e.to_string())?;
+        std::fs::write(&file, CLI_SHIM).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    Ok(())
+}
+
+fn check_cli_shim(root: &Path, platform: &str) -> Result<(), String> {
+    let (file, generated) = shim_path(root, platform);
+    if !file.is_file()
+        || (generated && std::fs::read_to_string(&file).ok().as_deref() != Some(CLI_SHIM))
+    {
+        return Err(format!(
+            "{} is missing or stale — run `day prepare`",
+            file.display()
+        ));
+    }
+    Ok(())
+}
+
 pub fn is_project_file(path: &str) -> bool {
     ["macos", "ios"]
         .iter()
@@ -29,7 +85,7 @@ pub fn is_project_file(path: &str) -> bool {
 }
 
 /// Derive a relocatable project from Day's template. Source/configuration files stay app-owned;
-/// only the project document is generated. All paths are relative to build/day/xcode/<os>/.
+/// the project and default CLI helper are generated under build/day/xcode/<os>/.
 fn derived_document(root: &Path, platform: &str) -> Result<ProjectDocument, String> {
     let template = crate::template::builtin_app()
         .into_iter()
@@ -68,7 +124,9 @@ fn derived_document(root: &Path, platform: &str) -> Result<ProjectDocument, Stri
         .as_array_mut()
         .ok_or("missing template phases")?
     {
-        if let Some(script) = phase["script"].as_str() {
+        if let Some(script) = phase["script"].as_str()
+            && !shim_path(root, platform).1
+        {
             phase["script"] = script
                 .replace(
                     "$PROJECT_DIR/day-cli.sh",
@@ -93,6 +151,7 @@ fn derived_document(root: &Path, platform: &str) -> Result<ProjectDocument, Stri
     // GUI builds should use the same CLI that prepared the host (including VS Code's managed
     // CLI), not an older installation found by the shell wrapper's PATH fallback.
     value["build-settings"]["DAY_BIN"] = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
         .map_err(|e| e.to_string())?
         .to_string_lossy()
         .into_owned()
@@ -153,8 +212,9 @@ pub fn initialize_persistent(
 pub fn check_generated(project: &crate::meta::Project, platform: &str) -> Result<(), String> {
     if path(&project.root, platform).parent().unwrap().exists() {
         open(&path(&project.root, platform))?;
-        return Ok(());
+        return check_cli_shim(&project.root, platform);
     }
+    check_cli_shim(&project.root, platform)?;
     let file = project_dir(&project.root, platform).join("project.xcproj");
     let doc = derived_document(&project.root, platform)?;
     if std::fs::read_to_string(&file).ok().as_deref() != Some(doc.source()) {
@@ -172,14 +232,10 @@ pub fn ensure(project: &crate::meta::Project, platform: &str) -> Result<PathBuf,
     let dir = project_dir(&project.root, platform);
     if dir == path(&project.root, platform).parent().unwrap() {
         open(&dir.join("project.xcproj"))?;
+        ensure_cli_shim(&project.root, platform)?;
         return Ok(dir);
     }
-    for file in [
-        "DayApp.xcconfig",
-        "Runner/main.swift",
-        "Runner/Info.plist",
-        "day-cli.sh",
-    ] {
+    for file in ["DayApp.xcconfig", "Runner/main.swift", "Runner/Info.plist"] {
         let source = project.root.join(format!("platform/{platform}/{file}"));
         if !source.is_file() {
             return Err(format!(
@@ -193,6 +249,7 @@ pub fn ensure(project: &crate::meta::Project, platform: &str) -> Result<PathBuf,
             ));
         }
     }
+    ensure_cli_shim(&project.root, platform)?;
     let doc = derived_document(&project.root, platform)?;
     let file = dir.join("project.xcproj");
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -536,7 +593,7 @@ mod tests {
         for platform in ["macos", "ios"] {
             let host = fixture.0.join(format!("platform/{platform}"));
             std::fs::create_dir_all(host.join("Runner")).unwrap();
-            for file in ["Runner/main.swift", "Runner/Info.plist", "day-cli.sh"] {
+            for file in ["Runner/main.swift", "Runner/Info.plist"] {
                 std::fs::write(host.join(file), "synthetic fixture").unwrap();
             }
             std::fs::write(host.join("DayApp.xcconfig"), "PRODUCT_NAME = Fixture\n").unwrap();
@@ -550,9 +607,40 @@ mod tests {
                     .join(format!("build/day/xcode/{platform}/DayApp.xcodeproj"))
             );
             assert!(!host.join("DayApp.xcodeproj").exists());
+            assert!(!host.join("day-cli.sh").exists());
+            let shim = dir.parent().unwrap().join("day-cli.sh");
+            assert_eq!(std::fs::read_to_string(&shim).unwrap(), CLI_SHIM);
+            // Read-only checks detect a missing/stale helper without repairing it.
+            std::fs::remove_file(&shim).unwrap();
+            assert!(check_generated(&project, platform).is_err());
+            assert!(!shim.exists());
+            ensure(&project, platform).unwrap();
+            std::fs::write(&shim, "synthetic stale helper").unwrap();
+            assert!(check_generated(&project, platform).is_err());
+            assert_eq!(
+                std::fs::read_to_string(&shim).unwrap(),
+                "synthetic stale helper"
+            );
+            ensure(&project, platform).unwrap();
+            assert_eq!(std::fs::read_to_string(&shim).unwrap(), CLI_SHIM);
             let file = dir.join("project.xcproj");
             let document = open(&file).unwrap();
             assert!(validate_host(document.project(), platform).is_empty());
+            assert_eq!(
+                document.value()["build-settings"]["DAY_BIN"]
+                    .as_str()
+                    .unwrap(),
+                std::fs::canonicalize(std::env::current_exe().unwrap())
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+            );
+            assert!(document.source().contains("$PROJECT_DIR/day-cli.sh"));
+            assert!(
+                !document
+                    .source()
+                    .contains(&format!("platform/{platform}/day-cli.sh"))
+            );
             assert_eq!(
                 scheme_identity(&file).unwrap(),
                 ("Runner".into(), "Fixture.app".into())
@@ -585,15 +673,42 @@ mod tests {
             assert_eq!(std::fs::read_to_string(&file).unwrap(), document.source());
             assert_eq!(std::fs::read_to_string(state).unwrap(), "user state");
             // Build output is disposable and can always be recreated.
-            std::fs::remove_dir_all(&dir).unwrap();
+            std::fs::remove_dir_all(dir.parent().unwrap()).unwrap();
             ensure(&project, platform).unwrap();
+            assert_eq!(std::fs::read_to_string(&shim).unwrap(), CLI_SHIM);
+            // An existing source helper is an explicit override, even with a derived project.
+            let custom_shim = host.join("day-cli.sh");
+            std::fs::write(&custom_shim, "synthetic custom helper").unwrap();
+            ensure(&project, platform).unwrap();
+            check_generated(&project, platform).unwrap();
+            assert!(
+                open(&file)
+                    .unwrap()
+                    .source()
+                    .contains(&format!("$DAY_PROJECT_ROOT/platform/{platform}/day-cli.sh"))
+            );
+            assert_eq!(
+                std::fs::read_to_string(&custom_shim).unwrap(),
+                "synthetic custom helper"
+            );
+            std::fs::remove_file(&custom_shim).unwrap();
             let persistent = fixture.host(platform);
             let source = std::fs::read_to_string(&persistent).unwrap();
+            assert!(check_generated(&project, platform).is_err());
+            assert!(!custom_shim.exists());
             assert_eq!(
                 ensure(&project, platform).unwrap(),
                 persistent.parent().unwrap()
             );
             assert_eq!(std::fs::read_to_string(&persistent).unwrap(), source);
+            assert_eq!(std::fs::read_to_string(&custom_shim).unwrap(), CLI_SHIM);
+            check_generated(&project, platform).unwrap();
+            std::fs::write(&custom_shim, "synthetic persistent helper").unwrap();
+            ensure(&project, platform).unwrap();
+            assert_eq!(
+                std::fs::read_to_string(&custom_shim).unwrap(),
+                "synthetic persistent helper"
+            );
             std::fs::remove_file(&persistent).unwrap();
             let pbx = persistent.with_file_name("project.pbxproj");
             std::fs::write(&pbx, "synthetic legacy override").unwrap();

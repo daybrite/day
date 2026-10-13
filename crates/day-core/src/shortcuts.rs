@@ -36,7 +36,8 @@ pub fn launcher_shortcuts() -> Vec<(&'static str, &'static str)> {
     }
 }
 
-thread_local! {
+day_reactive::tls_slots! {
+    shortcuts;
     /// The shortcuts the app set while running (`set_launcher_shortcuts`).
     static DYNAMIC: RefCell<Vec<day_spec::LauncherShortcut>> = const { RefCell::new(Vec::new()) };
     /// One dispatch id per shortcut route, registered on first use and kept for the life of the

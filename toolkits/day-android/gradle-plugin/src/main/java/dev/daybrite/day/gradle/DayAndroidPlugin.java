@@ -7,6 +7,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import com.android.build.api.variant.ApplicationAndroidComponentsExtension;
+import com.android.build.api.variant.ApplicationVariant;
 import com.android.build.api.dsl.AndroidSourceSet;
 import com.android.build.api.dsl.ApkSigningConfig;
 import com.android.build.api.dsl.ApplicationBuildType;
@@ -117,14 +119,25 @@ public class DayAndroidPlugin implements Plugin<Project> {
         main.getAssets().getDirectories().add(path(gradleRoot, "../../build/day/android/assets"));
         main.getRes().getDirectories().add(path(gradleRoot, "../../build/day/android/res"));
         main.getRes().getDirectories().add(path(gradleRoot, "../../build/day/host/android/res"));
-        // Permissions and components contributed by pieces, parts and Day.toml [[shortcuts]] merge
-        // in from a generated overlay. A source set has one manifest slot and main keeps the app's,
-        // so the overlay takes the build types'.
-        if (DayGenerated.exists(providers, gradleRoot, "day-pieces-manifest.xml")) {
-            var overlay = DayGenerated.file(gradleRoot, "day-pieces-manifest.xml").getAsFile();
-            android.getSourceSets().getByName("debug").getManifest().srcFile(overlay);
-            android.getSourceSets().getByName("release").getManifest().srcFile(overlay);
-        }
+        // Register app customizations before generated contributions: AGP 9.4 merges this
+        // list in registration order (highest first). The manifest-overlay CI test guards priority.
+        // Both use the variant API: a debug/release source-set overlay would outrank these
+        // additions and would also omit contributions from custom build types.
+        var pieceManifest = DayGenerated.file(gradleRoot, "day-pieces-manifest.xml");
+        boolean hasPieces = DayGenerated.exists(providers, gradleRoot, "day-pieces-manifest.xml");
+        var appManifest = gradleRoot.file("../../platform/android/AndroidManifest.xml");
+        // Provider-backed reads track creation/removal in Gradle's configuration cache.
+        boolean hasAppManifest = providers.fileContents(appManifest).getAsText().getOrNull() != null;
+        var components = project.getExtensions().getByType(ApplicationAndroidComponentsExtension.class);
+        components.onVariants(components.selector().all(), (Action<ApplicationVariant>) variant -> {
+            var manifests = variant.getSources().getManifests();
+            if (hasAppManifest) {
+                manifests.addStaticManifestFile(appManifest.getAsFile().getAbsolutePath());
+            }
+            if (hasPieces) {
+                manifests.addStaticManifestFile(pieceManifest.getAsFile().getAbsolutePath());
+            }
+        });
 
         // Release builds shrink and rename with R8. Native code reaches Java classes by name, so the
         // framework's keep rules and each component's are always included.
