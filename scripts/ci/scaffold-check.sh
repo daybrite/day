@@ -7,7 +7,7 @@
 #
 # `day new app` is the CLI's largest single output and nothing else in CI runs it end to end: it
 # writes Day.toml, the sample sources, a website/, and then per locale a resource/locales/<tag>/
-# catalog, a store/<tag>/ listing, an Xcode knownRegions entry and a site.toml locales row. Those
+# catalog, a store/<tag>/ listing, an Xcode localization and a site.toml locales row. Those
 # four surfaces have to agree, and `day lint` is what checks that they do, so a scaffold that
 # lints clean is the cheapest proof the whole `day new` → `day localize add` path still works.
 #

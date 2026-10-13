@@ -147,12 +147,10 @@ opens the project in one step.
 
 ## Migrating an app
 
-`day prepare --migrate` moves a project that committed its derived files to this layout. It
-deletes each legacy output the old `resource/icons/icons.lock.json` proves was generated (a
-hand-edited file stays, and is named, since it has become an override or a mistake), repoints
-the Xcode projects' catalog references and the Gradle source set, gitignores the HarmonyOS
-links, and runs `prepare`. It touches nothing in git; review `git status` and commit the
-deletions.
+Keep the master artwork in `resource/icons/`, remove obsolete generated copies and their
+references from custom native projects, then run `day prepare`. Generated hosts already
+use the current asset paths. Day does not read old icon lockfiles or rewrite native projects
+to migrate them. See [native-project migration](native-project-migration.md).
 
 ## Engine
 

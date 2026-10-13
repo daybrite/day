@@ -36,7 +36,9 @@ Select the installation with `sudo xcode-select -s /Applications/Xcode.app`, or 
 `DEVELOPER_DIR=/path/to/Xcode.app/Contents/Developer` for one shell. Run
 `day doctor --toolkit appkit --toolkit uikit` to check the selected Xcode version.
 
-Legacy `project.pbxproj` projects remain supported, but `day lint` warns to modernize:
+Day requires `project.xcproj`. A PBX-only persistent project fails lint and native builds.
+Remove the `.xcodeproj` folder to use automatic generation, or convert a customized project
+with Xcode 27 before using Day:
 
 ```sh
 xcodebuild -project platform/macos/DayApp.xcodeproj -convert-project "Xcode Project"

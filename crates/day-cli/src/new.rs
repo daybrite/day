@@ -1257,7 +1257,7 @@ fn write_app(
     write_all_bytes(dir, &rendered, label)?;
     // The scaffold itself ships `en`; each further locale is exactly a `day localize add` on
     // the fresh project, so the flag and the command can never disagree about what adding a
-    // locale means (fluent copies, store copies, knownRegions, site.toml; see localize.rs).
+    // locale means (fluent copies, store copies, Xcode localizations, site.toml; see localize.rs).
     for tag in app.locales.iter().filter(|t| t.as_str() != "en") {
         let lines = crate::localize::add(dir, tag)
             .map_err(|e| CliError::failure(format!("--locales {tag}: {e}")))?;
@@ -3989,15 +3989,6 @@ mod scaffold_tests {
                 "// synthetic custom project fixture"
             );
         }
-        let ios = crate::xcode::path(&root, "ios");
-        std::fs::remove_file(&ios).unwrap();
-        std::fs::write(
-            ios.with_file_name("project.pbxproj"),
-            "synthetic legacy override",
-        )
-        .unwrap();
-        add_target(&project, &spec.targets, None, true).unwrap();
-        assert!(!ios.exists(), "never shadow an existing legacy override");
         std::fs::remove_dir_all(root).unwrap();
     }
 

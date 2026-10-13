@@ -481,11 +481,8 @@ enum Cmd {
         )]
         platforms: Vec<String>,
         /// Check generated files without writing; exit 5 if files are missing or stale
-        #[arg(long, conflicts_with = "migrate")]
-        check: bool,
-        /// Migrate to generated assets: remove old generated files and update native projects
         #[arg(long)]
-        migrate: bool,
+        check: bool,
     },
     /// Prepare and open a native project in its IDE
     #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
@@ -753,7 +750,7 @@ pub enum StoreCmd {
 }
 
 /// `day localize …`: the four places a conventional project spells its locale set
-/// (`resource/locales/`, `store/`, the iOS `knownRegions`, `website/site.toml`), kept in step.
+/// (`resource/locales/`, `store/`, the iOS `localizations`, `website/site.toml`), kept in step.
 #[derive(Subcommand)]
 pub enum WebCmd {
     /// Print the path to the bundled browser automation driver
@@ -980,10 +977,6 @@ pub enum ProjectCmd {
         #[arg(long, visible_alias = "persist-xcode-project")]
         persist_native_project: bool,
     },
-    /// Move Xcode build settings into DayApp.xcconfig files
-    #[command(name = "migrate-xcode")]
-    #[command(after_help = "Docs: https://daybrite.dev/docs/project-structure/")]
-    MigrateXcode,
 }
 
 #[derive(clap::Subcommand)]
@@ -1558,14 +1551,6 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
             )
             .map(|()| 0)
         }),
-        Cmd::Project {
-            cmd: ProjectCmd::MigrateXcode,
-        } => with_project(cli.project.as_deref(), |project| {
-            for platform in ["ios", "macos"] {
-                crate::xcconfig::ensure_split(project, platform).map_err(CliError::failure)?;
-            }
-            Ok(0)
-        }),
         Cmd::Metadata {
             json,
             schema,
@@ -2116,15 +2101,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 }
             })
         }
-        Cmd::Prepare {
-            platforms,
-            check,
-            migrate,
-        } => with_project(cli.project.as_deref(), |project| {
-            if migrate {
-                crate::icon::migrate(project).map_err(CliError::build)?;
-                return Ok(0);
-            }
+        Cmd::Prepare { platforms, check } => with_project(cli.project.as_deref(), |project| {
             let opts = crate::icon::IconOptions {
                 master: None,
                 check,
@@ -3048,10 +3025,20 @@ mod error_tests {
     }
 
     #[test]
+    fn removed_project_migration_commands_are_rejected() {
+        for args in [
+            vec!["day", "prepare", "--migrate"],
+            vec!["day", "project", "migrate-xcode"],
+        ] {
+            assert!(command().try_get_matches_from(args).is_err());
+        }
+    }
+
+    #[test]
     fn nested_commands_have_only_their_documented_spellings() {
         let tree = command();
         for (name, expected) in [
-            ("project", vec!["add-target", "migrate-xcode"]),
+            ("project", vec!["add-target"]),
             ("icon", vec!["build", "new", "check"]),
             ("sign", vec!["check", "status", "apply"]),
             ("doctor", vec!["verify"]),
@@ -3075,7 +3062,6 @@ mod error_tests {
         }
         for args in [
             vec!["day", "project", "add-target", "android-mdc"],
-            vec!["day", "project", "migrate-xcode"],
             vec!["day", "icon", "build", "source.svg", "--target", "web-dom"],
             vec![
                 "day",

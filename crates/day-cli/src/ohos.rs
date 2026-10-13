@@ -32,28 +32,9 @@ use crate::ops::{
 };
 use crate::targets::Target;
 
-/// The HarmonyOS host project's directory: `platform/harmony` (matching the target
-/// identifier `harmony-arkui`, like every other platform dir; docs/harmonyos.md). An older
-/// scaffold's `platform/ohos` still resolves, with a one-time rename hint; a project with
-/// neither answers the modern path (scaffolding, error messages).
+/// The app-owned HarmonyOS host uses the target's platform name.
 pub fn harmony_dir(project: &Project) -> PathBuf {
-    let modern = project.root.join("platform/harmony");
-    if modern.exists() {
-        return modern;
-    }
-    let legacy = project.root.join("platform/ohos");
-    if legacy.exists() {
-        static HINTED: std::sync::Once = std::sync::Once::new();
-        HINTED.call_once(|| {
-            status(
-                "Warning",
-                "platform/ohos is the pre-rename layout — rename the directory to \
-                 platform/harmony (day reads both for now)",
-            );
-        });
-        return legacy;
-    }
-    modern
+    project.root.join("platform/harmony")
 }
 
 /// The writable hvigor project. Source stays in `harmony_dir`; generated manifests,

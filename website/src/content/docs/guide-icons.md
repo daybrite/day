@@ -83,14 +83,9 @@ The command exits 0 when outputs match and 5 when files are missing or stale.
 `build/day/host/host.lock.json` records the generator version and source and output digests.
 A version mismatch requests regeneration rather than comparing outputs from different generators.
 
-Older projects that commit generated icons can migrate to this layout:
-
-```sh
-day prepare --migrate
-```
-
-Migration removes the generated copies, updates project references, and adds the generated links
-to `.gitignore`. Review those changes before committing.
+Keep master artwork under `resource/icons/` and remove obsolete generated copies and their
+references from customized native projects before running `day prepare`. Generated native
+projects use the current paths automatically. See [native project migration](/docs/internal/native-project-migration).
 
 <span id="4-draw-in-app-glyphs-from-resourcevectors"></span>
 

@@ -1412,8 +1412,8 @@ pub(crate) fn apple_selective_archive_loading(
 /// always resolves.
 ///
 /// Returns the deployment-target override to pass to xcodebuild: `Some(floor)` when a
-/// contribution's `platform` exceeds the scaffold pbxproj's checked-in value (a command-line
-/// setting raises the app and the SwiftPM package targets; the pbxproj itself is never edited,
+/// contribution's `platform` exceeds the scaffold Xcode project's checked-in value (a command-line
+/// setting raises the app and the SwiftPM package targets; the Xcode project itself is never edited,
 /// per §15.2 "aggregation never mutates the scaffolds").
 pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     let pieces = resolve_apple(project, &["uikit"], "ios").unwrap_or_else(|e| {
@@ -1493,8 +1493,8 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
     prune_except(&sources, &expected.into_iter().collect());
 
     // A project declaring no target at all gets day-uikit's floor, the scaffold's value.
-    let pbx = apple_ios_target(project).unwrap_or_else(|| "15.0".into());
-    let floor = ios_package_floor(&pbx, pieces.platform.as_deref());
+    let app_floor = apple_ios_target(project).unwrap_or_else(|| "15.0".into());
+    let floor = ios_package_floor(&app_floor, pieces.platform.as_deref());
     write_if_changed(
         &pkg_dir.join("Package.swift"),
         &package_swift(
@@ -1509,7 +1509,7 @@ pub fn write_ios_pieces(project: &Project) -> Result<Option<String>, String> {
 
     // Override only when the contributions exceed the scaffold's checked-in target, and never
     // lower a value the user set by hand.
-    Ok((max_platform(&pbx, &floor) != pbx).then_some(floor))
+    Ok((max_platform(&app_floor, &floor) != app_floor).then_some(floor))
 }
 
 /// The generated `DayPieces` package's minimum iOS: the APP's own checked-in deployment target,
@@ -1527,31 +1527,21 @@ fn ios_package_floor(app_target: &str, contributed: Option<&str>) -> String {
     }
 }
 
-/// The scaffold's checked-in `IPHONEOS_DEPLOYMENT_TARGET` (the max across every place it can
-/// be set), parsed tolerantly; `None` when nothing declares it. Since the xcconfig split
-/// (§17.4) the setting normally lives in `DayApp.xcconfig`. JSON5 Runner/project overrides
-/// take precedence over the legacy file; pre-split PBX hosts remain readable.
+/// The highest deployment floor declared in the app's xcconfig or JSON project.
 fn apple_ios_target(project: &Project) -> Option<String> {
-    [
-        "platform/ios/DayApp.xcodeproj/project.pbxproj",
-        "platform/ios/DayApp.xcconfig",
-    ]
-    .iter()
-    .filter(|rel| {
-        !rel.ends_with("project.pbxproj") || !crate::xcode::path(&project.root, "ios").exists()
-    })
-    .filter_map(|rel| std::fs::read_to_string(project.root.join(rel)).ok())
-    .filter_map(|text| ios_target_from_pbxproj(&text))
-    .chain(crate::xcode::ios_deployment_targets(&project.root))
-    .reduce(|a, b| max_platform(&a, &b))
+    std::fs::read_to_string(project.root.join("platform/ios/DayApp.xcconfig"))
+        .ok()
+        .and_then(|text| ios_target_from_xcconfig(&text))
+        .into_iter()
+        .chain(crate::xcode::ios_deployment_targets(&project.root))
+        .reduce(|a, b| max_platform(&a, &b))
 }
 
-fn ios_target_from_pbxproj(text: &str) -> Option<String> {
+fn ios_target_from_xcconfig(text: &str) -> Option<String> {
     text.lines()
         .filter_map(|l| {
             let (key, value) = l.trim().split_once('=')?;
-            (key.trim() == "IPHONEOS_DEPLOYMENT_TARGET")
-                .then(|| value.trim().trim_end_matches(';').trim().to_string())
+            (key.trim() == "IPHONEOS_DEPLOYMENT_TARGET").then(|| value.trim().to_string())
         })
         .reduce(|a, b| max_platform(&a, &b))
 }
@@ -2029,7 +2019,7 @@ fn package_swift(
 /// Generate the local `DayPieces` SwiftPM package under `build/day/macos/DayPieces` from every
 /// piece's `[package.metadata.day.macos]`, the macOS analog of [`write_ios_pieces`], minus the
 /// resource legs (the `day xcode-backend stage-resources` phase owns those). The Xcode host
-/// project's pbxproj references the package unconditionally, so it is written even when
+/// references the package unconditionally, so it is written even when
 /// nothing contributes Swift; an empty package must still exist for xcodebuild to resolve.
 ///
 /// Unlike the iOS leg this stages **only files whose bytes changed** (and prunes the rest):
@@ -2750,11 +2740,11 @@ mod tests {
         );
         let xcc =
             std::fs::read_to_string(format!("{root}/DayApp.xcconfig")).expect("template xcconfig");
-        assert_eq!(ios_target_from_pbxproj(&xcc).as_deref(), Some("15.0"));
+        assert_eq!(ios_target_from_xcconfig(&xcc).as_deref(), Some("15.0"));
         // Tolerant of spacing, takes the max across configurations.
-        let raw = "  IPHONEOS_DEPLOYMENT_TARGET = 15.0;\n\tIPHONEOS_DEPLOYMENT_TARGET=16.0 ;\n";
-        assert_eq!(ios_target_from_pbxproj(raw).as_deref(), Some("16.0"));
-        assert_eq!(ios_target_from_pbxproj("nothing here"), None);
+        let raw = "  IPHONEOS_DEPLOYMENT_TARGET = 15.0\n\tIPHONEOS_DEPLOYMENT_TARGET=16.0 \n";
+        assert_eq!(ios_target_from_xcconfig(raw).as_deref(), Some("16.0"));
+        assert_eq!(ios_target_from_xcconfig("nothing here"), None);
     }
 
     #[test]

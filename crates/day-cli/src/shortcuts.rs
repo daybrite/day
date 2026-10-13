@@ -450,10 +450,7 @@ fn strings_escape(s: &str) -> String {
 /// never disagree about what the shim contains.
 const DAY_CLI_SHIM: &str = include_str!("../templates/app/platform/ios/day-cli.sh");
 
-/// Ensure the iOS scaffold's pbxproj carries the `stage-strings` script phase; scaffolds
-/// generated before it existed get it injected once, anchored on the template's deterministic
-/// object ids. A hand-restructured project that lost the anchors gets instructions instead of
-/// a half-edit.
+/// Ensure a customized JSON project stages shortcut labels into the app bundle.
 pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
     if project.manifest.shortcuts.is_empty() {
         return Ok(());
@@ -467,65 +464,6 @@ pub fn ensure_ios_strings_phase(project: &Project) -> Result<(), String> {
         }
         return Ok(());
     }
-    let pbxproj = project
-        .root
-        .join("platform/ios/DayApp.xcodeproj/project.pbxproj");
-    if !pbxproj.exists() {
-        return Ok(());
-    }
-    let before =
-        std::fs::read_to_string(&pbxproj).map_err(|e| format!("{}: {e}", pbxproj.display()))?;
-    if before.contains("xcode-backend stage-strings") {
-        return Ok(());
-    }
-    let phase_ref = "\t\t\t\tDA0000000000000000000043 /* Resources */,";
-    let section_end = "/* End PBXShellScriptBuildPhase section */";
-    if !before.contains(phase_ref)
-        || !before.contains(section_end)
-        || before.contains("DA0000000000000000000044")
-    {
-        return Err(format!(
-            "{}: can't add the `Stage Day Strings` build phase automatically. Add a Run \
-             Script phase running `/bin/sh \"$PROJECT_DIR/day-cli.sh\" xcode-backend \
-             stage-strings` (docs/deep-links.md)",
-            pbxproj.display()
-        ));
-    }
-    // The phase runs the project's own shim rather than a bare `day` (a build started from the
-    // Xcode GUI has no ~/.cargo/bin on PATH). A project old enough to need this injection
-    // predates the shim, so write it.
-    let shim = project.root.join("platform/ios/day-cli.sh");
-    if !shim.exists() {
-        std::fs::write(&shim, DAY_CLI_SHIM).map_err(|e| format!("{}: {e}", shim.display()))?;
-    }
-    let script = "/bin/sh \"$PROJECT_DIR/day-cli.sh\" xcode-backend stage-strings\n"
-        .replace('"', "\\\"")
-        .replace('\n', "\\n");
-    let block = format!(
-        "\t\tDA0000000000000000000044 /* Stage Day Strings */ = {{\n\
-         \t\t\tisa = PBXShellScriptBuildPhase;\n\
-         \t\t\talwaysOutOfDate = 1;\n\
-         \t\t\tbuildActionMask = 2147483647;\n\
-         \t\t\tfiles = (\n\t\t\t);\n\
-         \t\t\tinputPaths = (\n\t\t\t);\n\
-         \t\t\tname = \"Stage Day Strings\";\n\
-         \t\t\toutputPaths = (\n\t\t\t);\n\
-         \t\t\trunOnlyForDeploymentPostprocessing = 0;\n\
-         \t\t\tshellPath = /bin/sh;\n\
-         \t\t\tshellScript = \"{script}\";\n\
-         \t\t}};\n"
-    );
-    let after = before
-        .replace(
-            phase_ref,
-            &format!("{phase_ref}\n\t\t\t\tDA0000000000000000000044 /* Stage Day Strings */,"),
-        )
-        .replace(section_end, &format!("{block}{section_end}"));
-    std::fs::write(&pbxproj, after).map_err(|e| format!("{}: {e}", pbxproj.display()))?;
-    crate::ops::status(
-        "Adding",
-        "iOS `Stage Day Strings` build phase (shortcut labels)",
-    );
     Ok(())
 }
 

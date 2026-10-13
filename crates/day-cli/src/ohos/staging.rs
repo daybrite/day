@@ -312,20 +312,15 @@ label = "play_label"
     }
 
     #[test]
-    fn legacy_host_is_staged_and_release_signing_finds_the_staged_hap() {
-        let fixture = Fixture::new("legacy");
-        fs::rename(
-            fixture.0.root.join("platform/harmony"),
-            fixture.0.root.join("platform/ohos"),
-        )
-        .unwrap();
+    fn release_signing_finds_the_staged_hap() {
+        let fixture = Fixture::new("release");
         stage_host(&fixture.0).unwrap();
         let unsigned =
             staged_harmony_dir(&fixture.0).join("entry/build/entry-default-unsigned.hap");
         fs::create_dir_all(unsigned.parent().unwrap()).unwrap();
         fs::write(&unsigned, "staged hap").unwrap();
         assert_eq!(crate::ohos::find_unsigned_hap(&fixture.0), Some(unsigned));
-        assert!(!fixture.0.root.join("platform/harmony").exists());
+        assert!(fixture.0.root.join("platform/harmony").is_dir());
     }
 
     #[cfg(unix)]

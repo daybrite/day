@@ -360,9 +360,6 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
                 )));
             }
         };
-    // Cargo names the artifact after the crate with `-` → `_` (`hello-day` ⇒ libhello_day.a);
-    // the pbxproj links `-l<ident>` with the same spelling.
-    let ident = project.manifest.app.name.replace('-', "_");
     // Inherited streams: xcodebuild captures the phase's output and its log carries them. When
     // `day build` is the caller, the porcelain has already run this same step with the output
     // on the terminal, and this pass finds everything fresh.
@@ -375,7 +372,7 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         &run_logged,
     )
     .map_err(CliError::build)?;
-    let out_dir = built_products.join("day"); // must match pbxproj LIBRARY_SEARCH_PATHS `$(BUILT_PRODUCTS_DIR)/day`
+    let out_dir = built_products.join("day"); // staged archive and linker response file
     if std::fs::create_dir_all(&out_dir).is_err() {
         return Err(CliError::build(format!(
             "day xcode-backend: cannot create {}",
@@ -423,16 +420,6 @@ pub fn xcode_backend_build() -> Result<(), CliError> {
         // (docs/extending.md).
         crate::resources::stage_piece_assets(&project, "uikit", &dst)
             .map_err(|e| CliError::build(format!("day xcode-backend: stage piece assets: {e}")))?;
-    }
-    // The crate-named alias, for app projects generated before the staged name became this
-    // constant; they link `-l<crate>` out of the same directory. A hard link, so the archive
-    // (hundreds of MB in a debug build) is not stored twice.
-    let alias = out_dir.join(format!("lib{ident}.a"));
-    if alias != dest {
-        let _ = std::fs::remove_file(&alias);
-        if std::fs::hard_link(&dest, &alias).is_err() {
-            let _ = std::fs::copy(&dest, &alias);
-        }
     }
     eprintln!("day xcode-backend: staged {}", dest.display());
     Ok(())
@@ -561,7 +548,7 @@ fn copy_tree_flat(src: &Path, dst: &Path) -> Result<(), String> {
 ///
 /// The prefix is canonicalized because ld writes the resolved path: on macOS `/tmp/...` reaches
 /// the linker as `/private/tmp/...`, and a prefix that doesn't match byte-for-byte is silently
-/// ignored. `$(inherited)` keeps whatever the pbxproj already sets; a command-line build setting
+/// ignored. `$(inherited)` keeps whatever the Xcode project already sets; a command-line build setting
 /// otherwise replaces it for every target in the project.
 ///
 /// This covers every object the final link consumes, which is 12 of the 13 entries. The one it
@@ -662,7 +649,7 @@ fn bundle_id_of(app: &Path) -> Option<String> {
 
 /// Build macos-appkit through the Xcode host project, the only macos-appkit build since the
 /// bare-cargo path retired (2026-08). Mirrors [`build_ios_for`]: stage the DayPieces package
-/// the pbxproj references (empty is fine; the reference must resolve), run xcodebuild with
+/// the Xcode project references (empty is fine; the reference must resolve), run xcodebuild with
 /// an absolute SYMROOT, and hand back the built `.app` bundle as the artifact (launch execs
 /// its inner binary; the bundle carries identity, icon, and resources).
 /// [`cargo_apple_staticlibs`] as `day build` runs it ahead of xcodebuild: output live under
@@ -806,7 +793,6 @@ pub fn build_macos_xcode(
     let symroot = absolute(&crate::ops::build_root(project).join("macos-appkit"))?;
     let day_bin = std::env::current_exe().map_err(|e| e.to_string())?;
     // The xcconfig split (§17.4), same order rationale as prepare_ios.
-    crate::xcconfig::ensure_split(project, "macos")?;
     crate::xcconfig::write_generated(project, "macos")?;
     crate::pieces::write_macos_pieces(project)?;
     let xcodeproj = crate::xcode::ensure(project, "macos")?;
@@ -1033,7 +1019,6 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
     // The translations, beside the plist (docs/permissions.md, "Localized reasons").
     if !macos {
         sync_info_plist_strings(
-            project,
             &plist,
             &plan.default_locale,
             &crate::permissions::apple_keys_localized(&plan, macos),
@@ -1047,9 +1032,8 @@ pub(crate) fn sync_usage_descriptions(project: &Project, macos: bool) -> Result<
 /// locale the catalogs translate, byte-stable across builds. A single-locale app that has no
 /// catalog file yet gets none (materializing one would dirty a tree the app never asked to
 /// localize), but a file that exists (every scaffold since 2026-09 ships one) is always kept
-/// current, and the Xcode project is taught about it the first time it matters.
+/// current. Native projects reference the catalog through their resource entries.
 pub(crate) fn sync_info_plist_strings(
-    project: &Project,
     plist: &Path,
     default_locale: &str,
     keys: &std::collections::BTreeMap<String, std::collections::BTreeMap<String, String>>,
@@ -1064,90 +1048,11 @@ pub(crate) fn sync_info_plist_strings(
     if have != want {
         std::fs::write(&path, &want).map_err(|e| format!("{}: {e}", path.display()))?;
     }
-    ensure_info_plist_strings_reference(project)
+    Ok(())
 }
 
 /// The string catalog's file name.
 pub(crate) const INFO_PLIST_STRINGS: &str = "InfoPlist.xcstrings";
-
-/// Make sure the Xcode project copies `InfoPlist.xcstrings` into the bundle: a file reference,
-/// a build file, the Runner group child, and the Resources phase entry: the four lines a
-/// scaffold generated before 2026-09 lacks. Text insertion at the section anchors, like the
-/// other pbxproj edits (`knownRegions`, the strings phase); ids are fixed and checked free.
-pub(crate) fn ensure_info_plist_strings_reference(project: &Project) -> Result<(), String> {
-    let pbx = project
-        .root
-        .join("platform/ios/DayApp.xcodeproj/project.pbxproj");
-    let Ok(text) = std::fs::read_to_string(&pbx) else {
-        return Ok(());
-    };
-    if text.contains(INFO_PLIST_STRINGS) {
-        return Ok(());
-    }
-    const FILE_REF: &str = "DA0000000000000000000008";
-    const BUILD_FILE: &str = "DA0000000000000000000105";
-    if text.contains(FILE_REF) || text.contains(BUILD_FILE) {
-        status(
-            "Warning",
-            &format!(
-                "{}: cannot add {INFO_PLIST_STRINGS} (its ids are taken); add the file to the \
-                 Runner target's Copy Bundle Resources in Xcode",
-                pbx.display()
-            ),
-        );
-        return Ok(());
-    }
-    let mut out = text.clone();
-    let insert_after = |out: &mut String, anchor: &str, line: &str| -> Result<(), String> {
-        let at = out
-            .find(anchor)
-            .ok_or_else(|| format!("{}: no `{}`", pbx.display(), anchor.trim()))?
-            + anchor.len();
-        out.insert_str(at, line);
-        Ok(())
-    };
-    insert_after(
-        &mut out,
-        "/* Begin PBXBuildFile section */\n",
-        &format!(
-            "\t\t{BUILD_FILE} /* {INFO_PLIST_STRINGS} in Resources */ = {{isa = PBXBuildFile; \
-             fileRef = {FILE_REF} /* {INFO_PLIST_STRINGS} */; }};\n"
-        ),
-    )?;
-    insert_after(
-        &mut out,
-        "/* Begin PBXFileReference section */\n",
-        &format!(
-            "\t\t{FILE_REF} /* {INFO_PLIST_STRINGS} */ = {{isa = PBXFileReference; \
-             lastKnownFileType = text.json.xcstrings; path = {INFO_PLIST_STRINGS}; sourceTree = \
-             \"<group>\"; }};\n"
-        ),
-    )?;
-    // The Runner group: right after Info.plist, which every scaffold lists there.
-    insert_after(
-        &mut out,
-        "/* Info.plist */,\n",
-        &format!("\t\t\t\t{FILE_REF} /* {INFO_PLIST_STRINGS} */,\n"),
-    )?;
-    // The Resources phase: the first `files = (` after its `isa`.
-    let phase = out
-        .find("isa = PBXResourcesBuildPhase;")
-        .ok_or_else(|| format!("{}: no PBXResourcesBuildPhase", pbx.display()))?;
-    let files = out[phase..]
-        .find("files = (\n")
-        .map(|i| phase + i + "files = (\n".len())
-        .ok_or_else(|| format!("{}: Resources phase has no files list", pbx.display()))?;
-    out.insert_str(
-        files,
-        &format!("\t\t\t\t{BUILD_FILE} /* {INFO_PLIST_STRINGS} in Resources */,\n"),
-    );
-    std::fs::write(&pbx, out).map_err(|e| format!("{}: {e}", pbx.display()))?;
-    status(
-        "Adding",
-        &format!("{INFO_PLIST_STRINGS} to the Xcode project"),
-    );
-    Ok(())
-}
 
 /// The iPad orientation set, in the iOS `Info.plist` (docs/size-classes.md).
 ///
@@ -1373,14 +1278,11 @@ pub(crate) fn ios_wants_push(project: &Project) -> Result<bool, String> {
 /// already drifted: the signed-archive path never synced `UIAppFonts`, so a released `.ipa` could
 /// ship a stale font list.
 /// Returns the `IPHONEOS_DEPLOYMENT_TARGET` override (docs/swiftui.md): `Some(floor)` when a
-/// piece's `platform` metadata exceeds the scaffold pbxproj's checked-in value. Every xcodebuild
+/// piece's `platform` metadata exceeds the scaffold Xcode project's checked-in value. Every xcodebuild
 /// invocation downstream must pass it: a command-line setting reaches the app and the SwiftPM
 /// package targets, which is the only way to raise both without editing the scaffold.
 pub(crate) fn prepare_ios(project: &Project) -> Result<Option<String>, String> {
-    // The xcconfig split (§17.4): migrate a pre-split scaffold once, then refresh the
-    // generated Day.toml-derived values the committed DayApp.xcconfig includes last. Before
-    // `write_ios_pieces`, whose deployment floor reads the (possibly just-moved) setting.
-    crate::xcconfig::ensure_split(project, "ios")?;
+    // Refresh the Day.toml-derived settings before building the native host.
     crate::xcconfig::write_generated(project, "ios")?;
     // The resource caches the DayPieces catalog is generated from (docs/vectors.md): the glyph
     // SVGs and the uikit raster fallbacks under build/day/vectors/. Staged here, not only in

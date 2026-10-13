@@ -4,7 +4,7 @@
 //! `day localize`: one locale set, every surface (DESIGN.md §16.5). A conventional Day project
 //! spells its locales in four places: `resource/locales/<tag>/` (the app's Fluent
 //! translations), the listing text's locale tables in `store/storefront.toml` (docs/store.md), the Xcode project's
-//! `knownRegions` list, and `website/site.toml`'s `locales` array. Added by hand in one place,
+//! `localizations` list, and `website/site.toml`'s `locales` array. Added by hand in one place,
 //! a locale silently drifts out of the other three, so [`add`]/[`remove`] edit every surface
 //! the project has at once, and [`survey`]/[`sync_findings`] give `day lint` the drift check.
 //!
@@ -24,7 +24,7 @@ use anstream::eprintln;
 /// Xcode's spelling of a Day locale tag.
 ///
 /// Xcode speaks script-subtag Chinese (`zh-Hans` / `zh-Hant`) where Day keys by region
-/// (`zh-CN` / `zh-TW`); every other tag passes through. This covers only the `knownRegions`
+/// (`zh-CN` / `zh-TW`); every other tag passes through. This covers only the `localizations`
 /// namespace: the stores' spellings (Apple's `zh-Hans`, Play's legacy `iw-IL`) are converted
 /// at fastlane emission by store.rs, and Android's resource qualifiers (`values-iw`,
 /// `values-in`) are yet another namespace, converted where android resources are emitted,
@@ -122,7 +122,7 @@ pub fn survey(project_root: &Path) -> LocaleSurvey {
     LocaleSurvey {
         fluent: dir_locales(&project_root.join("resource/locales")).unwrap_or_default(),
         store: crate::store::listing_locales(project_root),
-        xcode: pbx_regions(project_root),
+        xcode: crate::xcode::regions(project_root),
         website: website_locales(project_root),
     }
 }
@@ -140,138 +140,6 @@ pub(crate) fn dir_locales(dir: &Path) -> Option<Vec<String>> {
         .collect();
     v.sort();
     Some(v)
-}
-
-/// The scaffold's iOS project file: `day new app` writes exactly this path, and
-/// `knownRegions` is the only locale list Xcode keeps in it.
-fn pbxproj_path(project_root: &Path) -> PathBuf {
-    project_root.join("platform/ios/DayApp.xcodeproj/project.pbxproj")
-}
-
-const PBX_REL: &str = "platform/ios/DayApp.xcodeproj/project.pbxproj";
-
-/// Byte range of the entries between `knownRegions = (` and its closing `);`.
-///
-/// Textual, because the block is the only part of the file locale work touches, and a full
-/// pbxproj parser would be a dependency for a ten-line list. Assumes Xcode's layout (one
-/// entry per line), which is also what the scaffold ships.
-fn pbx_block(text: &str) -> Option<(usize, usize)> {
-    let start = text.find("knownRegions = (")?;
-    let after = start + "knownRegions = (".len();
-    let end = text[after..].find(");")? + after;
-    Some((after, end))
-}
-
-/// The `knownRegions` entries as Xcode spellings, unquoted (`Base` included).
-///
-/// Xcode quotes any entry that is not a bare word, which is every hyphenated region
-/// (`"zh-Hans"`, `"pt-BR"`). The quotes are pbxproj syntax rather than part of the tag, so they
-/// come off here and go back on in [`pbx_quoted`]; otherwise a hyphenated region never compares
-/// equal to its Day tag and reads as both missing and unknown at once.
-fn pbx_entries(text: &str) -> Vec<String> {
-    let Some((a, b)) = pbx_block(text) else {
-        return Vec::new();
-    };
-    text[a..b]
-        .lines()
-        .map(|l| pbx_unquote(l.trim().trim_end_matches(',')))
-        .filter(|l| !l.is_empty())
-        .map(str::to_string)
-        .collect()
-}
-
-/// One `knownRegions` entry with its pbxproj quoting removed.
-fn pbx_unquote(entry: &str) -> &str {
-    entry
-        .strip_prefix('"')
-        .and_then(|e| e.strip_suffix('"'))
-        .unwrap_or(entry)
-}
-
-/// `region` spelled the way it must appear in the file: quoted unless it is a bare word.
-///
-/// Matches Xcode's rule, which is what keeps the block round-trippable: the project opens
-/// without Xcode rewriting the list on save.
-fn pbx_quoted(region: &str) -> String {
-    if region
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_')
-    {
-        region.to_string()
-    } else {
-        format!("\"{region}\"")
-    }
-}
-
-/// The iOS project's regions as Day tags, or `None` when there is no iOS host project.
-fn pbx_regions(project_root: &Path) -> Option<Vec<String>> {
-    if crate::xcode::path(project_root, "ios").exists() {
-        return crate::xcode::regions(project_root);
-    }
-    let text = std::fs::read_to_string(pbxproj_path(project_root)).ok()?;
-    let mut v: Vec<String> = pbx_entries(&text)
-        .iter()
-        // `Base` is Xcode's base-internationalization pseudo-region, not a locale.
-        .filter(|r| r.as_str() != "Base")
-        .map(|r| day_region(r))
-        .collect();
-    v.sort();
-    Some(v)
-}
-
-/// The pbxproj text with `region` inserted into `knownRegions` (before `Base`, matching the
-/// scaffold's ordering), or `None` when it is already listed.
-fn pbx_with_region(text: &str, region: &str) -> Result<Option<String>, String> {
-    if pbx_entries(text).iter().any(|e| e == region) {
-        return Ok(None);
-    }
-    let mut out = String::with_capacity(text.len() + region.len() + 8);
-    let mut state = 0u8; // 0 = before the block, 1 = inside it, 2 = inserted
-    for line in text.split_inclusive('\n') {
-        let trimmed = line.trim();
-        if state == 1 && (trimmed == "Base," || trimmed == ");") {
-            // Indentation copied from the neighbor so the file stays Xcode-shaped; entries
-            // sit one level deeper than the closing `);`.
-            let mut indent = line[..line.len() - line.trim_start().len()].to_string();
-            if trimmed == ");" {
-                indent.push('\t');
-            }
-            out.push_str(&indent);
-            out.push_str(&pbx_quoted(region));
-            out.push_str(",\n");
-            state = 2;
-        }
-        if state == 0 && trimmed.starts_with("knownRegions = (") {
-            state = 1;
-        }
-        out.push_str(line);
-    }
-    if state != 2 {
-        return Err(format!("{PBX_REL} has no `knownRegions = (…);` block"));
-    }
-    Ok(Some(out))
-}
-
-/// The pbxproj text minus `region`'s entry line, or `None` when it is not listed.
-fn pbx_without_region(text: &str, region: &str) -> Option<String> {
-    let mut out = String::with_capacity(text.len());
-    let mut state = 0u8; // 0 = before the block, 1 = inside it, 2 = past it
-    let mut removed = false;
-    for line in text.split_inclusive('\n') {
-        let trimmed = line.trim();
-        if state == 0 && trimmed.starts_with("knownRegions = (") {
-            state = 1;
-        } else if state == 1 {
-            if trimmed == ");" {
-                state = 2;
-            } else if !removed && pbx_unquote(trimmed.trim_end_matches(',')) == region {
-                removed = true;
-                continue;
-            }
-        }
-        out.push_str(line);
-    }
-    removed.then_some(out)
 }
 
 /// True when a site.toml line assigns `key` (`key = …`, ignoring leading whitespace); a
@@ -525,17 +393,6 @@ pub fn add(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
 
     done.extend(crate::xcode::edit_region(project_root, tag, true)?);
 
-    // Xcode's knownRegions, in its own spelling, inserted before `Base`.
-    let pbx = pbxproj_path(project_root);
-    if pbx.is_file() && !crate::xcode::path(project_root, "ios").exists() {
-        let text = std::fs::read_to_string(&pbx).map_err(|e| format!("{}: {e}", pbx.display()))?;
-        let region = xcode_region(tag);
-        if let Some(updated) = pbx_with_region(&text, &region)? {
-            std::fs::write(&pbx, updated).map_err(|e| format!("{}: {e}", pbx.display()))?;
-            done.push(format!("added {region} to knownRegions in {PBX_REL}"));
-        }
-    }
-
     // The website's declared locale set.
     let site = project_root.join("website/site.toml");
     if site.is_file() {
@@ -571,15 +428,6 @@ pub fn remove(project_root: &Path, tag: &str) -> Result<Vec<String>, String> {
     }
     done.extend(crate::store::remove_locale(project_root, tag)?);
     done.extend(crate::xcode::edit_region(project_root, tag, false)?);
-    let pbx = pbxproj_path(project_root);
-    if pbx.is_file() && !crate::xcode::path(project_root, "ios").exists() {
-        let text = std::fs::read_to_string(&pbx).map_err(|e| format!("{}: {e}", pbx.display()))?;
-        let region = xcode_region(tag);
-        if let Some(updated) = pbx_without_region(&text, &region) {
-            std::fs::write(&pbx, updated).map_err(|e| format!("{}: {e}", pbx.display()))?;
-            done.push(format!("removed {region} from knownRegions in {PBX_REL}"));
-        }
-    }
     let site = project_root.join("website/site.toml");
     if site.is_file() {
         let text =
@@ -604,7 +452,7 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
         present.push(("store/storefront.toml", s));
     }
     if let Some(s) = &survey.xcode {
-        present.push(("platform/ios (knownRegions)", s));
+        present.push(("platform/ios (localizations)", s));
     }
     if let Some(s) = &survey.website {
         present.push(("website/site.toml", s));
@@ -633,8 +481,8 @@ pub fn sync_findings(survey: &LocaleSurvey) -> Vec<(String, String)> {
                     "run `day localize add {tag}`, or add a [storefront.metadata.{tag}] table \
                      to store/storefront.toml (the default locale's text is [storefront.metadata])"
                 ),
-                "platform/ios (knownRegions)" => format!(
-                    "run `day localize add {tag}` to update Xcode localizations (legacy knownRegions; Xcode spelling: {})",
+                "platform/ios (localizations)" => format!(
+                    "run `day localize add {tag}` to update Xcode localizations (Xcode spelling: {})",
                     xcode_region(tag)
                 ),
                 _ => format!("add {tag:?} to the locales array in website/site.toml"),
@@ -691,7 +539,7 @@ fn list(project: &Project) {
         "store/storefront.toml [storefront.metadata]",
         &s.store,
     );
-    opt("Xcode", "platform/ios knownRegions", &s.xcode);
+    opt("Xcode", "platform/ios localizations", &s.xcode);
     opt("Website", "website/site.toml locales", &s.website);
     let findings = sync_findings(&s);
     if findings.is_empty() {
@@ -778,11 +626,11 @@ mod tests {
         )
         .expect("storefront.toml");
         std::fs::create_dir_all(root.join("platform/ios/DayApp.xcodeproj")).expect("xcodeproj");
-        std::fs::write(
-            pbxproj_path(&root),
-            "\t\t\tdevelopmentRegion = en;\n\t\t\tknownRegions = (\n\t\t\t\ten,\n\t\t\t\tBase,\n\t\t\t);\n",
-        )
-        .expect("pbxproj");
+        let template = crate::template::builtin_app()
+            .into_iter()
+            .find(|f| f.path == "platform/ios/DayApp.xcodeproj/project.xcproj")
+            .unwrap();
+        std::fs::write(crate::xcode::path(&root, "ios"), template.bytes).unwrap();
         std::fs::create_dir_all(root.join("website")).expect("website");
         std::fs::write(
             root.join("website/site.toml"),
@@ -816,29 +664,6 @@ mod tests {
         assert_eq!(day_region("zh-Hans"), "zh-CN");
         assert_eq!(day_region("zh-Hant"), "zh-TW");
         assert_eq!(day_region("pt-BR"), "pt-BR");
-    }
-
-    #[test]
-    fn hyphenated_regions_round_trip_through_xcode_quoting() {
-        // Xcode quotes every entry that is not a bare word. Reading has to take the quotes off
-        // (or `"zh-Hans"` reads as a region nobody asked for, while zh-CN reads as missing) and
-        // writing has to put them back.
-        let text =
-            "\t\t\tknownRegions = (\n\t\t\t\ten,\n\t\t\t\t\"zh-Hans\",\n\t\t\t\tBase,\n\t\t\t);\n";
-        assert_eq!(pbx_entries(text), v(&["en", "zh-Hans", "Base"]));
-        assert_eq!(pbx_quoted("zh-Hans"), "\"zh-Hans\"");
-        assert_eq!(pbx_quoted("fr"), "fr");
-
-        // Already listed under its quoted spelling, so adding it is a no-op…
-        assert_eq!(pbx_with_region(text, "zh-Hans").expect("block"), None);
-        // …and removing it finds the quoted line.
-        let removed = pbx_without_region(text, "zh-Hans").expect("listed");
-        assert_eq!(pbx_entries(&removed), v(&["en", "Base"]));
-        // Adding it back quotes it again, returning the file to where it started.
-        let added = pbx_with_region(&removed, "zh-Hans")
-            .expect("block")
-            .expect("not yet listed");
-        assert_eq!(added, text);
     }
 
     #[test]
@@ -886,7 +711,7 @@ mod tests {
         assert_eq!(f.len(), 2, "{f:?}");
         assert!(
             f.iter()
-                .any(|(m, a)| m.contains("knownRegions") && a.contains("zh-Hans"))
+                .any(|(m, a)| m.contains("localizations") && a.contains("zh-Hans"))
         );
         assert!(
             f.iter()
@@ -929,25 +754,17 @@ mod tests {
             app.contains("[storefront.metadata.fr]\nname = \"Example\"\n"),
             "the locale's table starts as the default's text: {app}"
         );
-        let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
-        assert!(
-            pbx.contains("\t\t\t\tfr,\n\t\t\t\tBase,"),
-            "inserted before Base: {pbx}"
-        );
+        assert_eq!(crate::xcode::regions(&root), Some(v(&["en", "fr"])));
         let site = std::fs::read_to_string(root.join("website/site.toml")).expect("site");
         assert!(site.contains("locales = [\"en\", \"fr\"]"), "{site}");
 
         // Idempotent: a second add changes nothing.
         assert!(add(&root, "fr").expect("re-add").is_empty());
 
-        // Chinese takes the script-subtag spelling in the pbxproj and maps back in the survey.
-        // Hyphenated, so it lands quoted; `fr` above is a bare word and does not.
+        // Chinese uses the Xcode script subtag and maps back in the survey.
         add(&root, "zh-CN").expect("add zh-CN");
-        let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
-        assert!(
-            pbx.contains("\"zh-Hans\",") && !pbx.contains("zh-CN,"),
-            "{pbx}"
-        );
+        let json = std::fs::read_to_string(crate::xcode::path(&root, "ios")).unwrap();
+        assert!(json.contains("zh-Hans") && !json.contains("zh-CN"));
         let s = survey(&root);
         assert_eq!(s.fluent, v(&["en", "fr", "zh-CN"]));
         assert_eq!(s.store, Some(v(&["en", "fr", "zh-CN"])));
@@ -965,8 +782,7 @@ mod tests {
             std::fs::read_to_string(root.join("store/storefront.toml")).expect("storefront.toml");
         assert!(!app.contains("metadata.fr"), "{app}");
         assert!(app.contains("[storefront.metadata.zh-CN]"), "{app}");
-        let pbx = std::fs::read_to_string(pbxproj_path(&root)).expect("pbx");
-        assert!(!pbx.contains("fr,"), "{pbx}");
+        assert_eq!(crate::xcode::regions(&root), Some(v(&["en", "zh-CN"])));
         let site = std::fs::read_to_string(root.join("website/site.toml")).expect("site");
         assert!(!site.contains("\"fr\""), "{site}");
 

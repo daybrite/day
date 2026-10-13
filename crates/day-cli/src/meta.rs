@@ -766,7 +766,7 @@ impl Manifest {
             dock: true,
         };
         let mut artifact = self.app.artifact.clone();
-        // `[app.ohos]` is the platform table for harmony-arkui: for builtin targets the key
+        // `[app.harmony]` is the platform table for harmony-arkui: for builtin targets the key
         // comes from the catalog (`Target::os`), never from splitting the name. An externally
         // declared target (docs/extending.md) is the opposite by contract: its os is the name
         // prefix (there is no override key), so splitting is exact there, and this method has no
@@ -775,15 +775,8 @@ impl Manifest {
             .map(|t| t.os)
             .unwrap_or_else(|| target.split_once('-').map(|(os, _)| os).unwrap_or_default());
         let toolkit = target.split_once('-').map(|(_, t)| t).unwrap_or_default();
-        // `[app.ohos]` is the pre-rename spelling of the harmony platform key: still read,
-        // below the modern key in precedence.
-        let legacy = if platform == "harmony" { "ohos" } else { "" };
-        // Increasing precedence: toolkit, then platform (legacy spelling first), then the
-        // exact target.
-        for key in [toolkit, legacy, platform, target] {
-            if key.is_empty() {
-                continue;
-            }
+        // Increasing precedence: toolkit, platform, exact target.
+        for key in [toolkit, platform, target] {
             if let Some(o) = self.app.overrides.get(key) {
                 if let Some(id) = &o.id {
                     out.id = id.clone();
@@ -1095,6 +1088,9 @@ pub fn parse_manifest(
     // into an unactionable "data did not match any variant".
     validate_permissions(day_toml)?;
     let mut manifest: Manifest = toml::from_str(day_toml).map_err(|e| format!("Day.toml: {e}"))?;
+    if manifest.app.overrides.contains_key("ohos") {
+        return Err("Day.toml: [app.ohos] is unsupported; use [app.harmony]".into());
+    }
     crate::documents::validate(&manifest.file_types)?;
     for scheme in &manifest.url_schemes {
         if scheme.is_empty()
@@ -1312,6 +1308,17 @@ mod tests {
         let r = m.resolve("macos-appkit");
         assert_eq!(r.title, "demo-app"); // no title ⇒ crate name
         assert_eq!(r.build, 1);
+    }
+
+    #[test]
+    fn obsolete_harmony_override_is_rejected() {
+        let err = parse_manifest(
+            "schema = 1\n[app]\nid = \"dev.x.demo\"\n[app.ohos]\ntitle = \"Old\"\n",
+            CARGO,
+            None,
+        )
+        .unwrap_err();
+        assert!(err.contains("[app.harmony]"), "{err}");
     }
 
     #[test]

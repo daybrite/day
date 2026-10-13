@@ -4084,13 +4084,13 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day sign check` / `day sign status <id>` / `day sign apply <artifact>` | validate `Day.toml [signing]` without printing secrets, query a notarization submission, or sign a package that already exists (Android; §16.5 below). A subcommand is required |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day doctor verify [-t <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-t` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: the command installs that day-cli and pins the app it scaffolds to the same one — what the scheduled `doctor-verify.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
-| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host sources (`--persist-native-project` opts into an app-owned Apple, Android or HarmonyOS project) (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). `migrate-xcode` migrates pre-split Xcode projects to the `DayApp.xcconfig` layout (§17.4) without building — `day build` runs the same migration automatically |
+| `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host sources (`--persist-native-project` opts into an app-owned Apple, Android or HarmonyOS project) (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). |
 | `day icon build [master]` / `day icon new` / `day icon check [master]` | render platform assets, create a seeded source icon, or check for drift (exit 5). A subcommand is required; `new --out preview.svg` writes a preview without changing a project |
 | `day metadata [--json]` | machine-readable project metadata (versioned, grow-only envelope — IDE tooling consumes this, never Day.toml directly) |
 | `day lint` | fluent coverage (missing/unused/unknown keys), duplicate element ids, unknown navigation routes (including `[[shortcuts]]` routes), shortcut-label coverage, permission declaration/manifest drift ([docs/permissions.md](docs/permissions.md)), store-listing rules ([docs/store.md](docs/store.md)), Day.toml schema, every `Day-<name>.toml` flavor ([docs/flavors.md](docs/flavors.md)) — fast, source-level  Findings carry `file:line:column` and a severity; `--json` emits them as a versioned envelope with the fix a rule proposes, and `--fix` applies those fixes  Under GitHub Actions (`GITHUB_ACTIONS=true`) findings also emit `::warning::`/`::error::` annotations on stdout, anchored to their line, and a markdown table into `$GITHUB_STEP_SUMMARY` |
 | `day patch [--local <checkout>]… [--git <url>[@<ref>]] [--check]` | build a project against LOCAL checkouts or a FORK of the crates it takes from git: `--local` (repeatable: the day checkout, an external piece or part repository — each identified by the `day` crate it carries or its manifest's `repository`) writes the machine-local `.cargo/config.toml` `[patch]` tables, one per source URL; `--git` writes a committable table redirecting the canonical day URL to a fork for the whole graph (external pieces follow, unchanged; `@<ref>` is a branch, a 40-hex commit, or `tag=`/`branch=`/`rev=`); `--check` fails when a patched source still resolves from git — the guard against a stale table silently mixing a local framework with a published one. Works from an app (Day.toml) or from any cargo package root, so a piece crate patches its own day dependency the same way. `day build`/`launch` separately refuse a graph carrying two copies of any day crate (§15.2) |
 | `day store <init\|migrate\|stage\|screenshots\|export>` | the App Store / Google Play listing, one file (`store/storefront.toml` or `storefront.yaml`; the older `app.*` names still read): `init` writes `[storefront.metadata]` tables for every locale the app ships and the listing lacks, `migrate` folds the older `store/<locale>/*.txt` layout into them, `stage` generates the fastlane trees a release uploads ([docs/store.md](docs/store.md)), refusing a listing with any lint error (`--allow-placeholders` lets TODO text through), `export` writes the listing resolved per target, store and locale as one JSON document with the stores' rules in force (`--out FILE`; what the website is built from and a release carries as `storefront.json`); `stage --screenshots <gallery.json\|URL>` also places the listing's screenshots, the captures `store/storefront.toml` `[storefront…screenshots]` declares (§14.7), from a gallery index; `screenshots <gallery.json\|URL>` checks that set against each store's rules, the `store-rules.toml` the CLI embeds and `--rules` / `DAY_STORE_RULES` / `store/rules.toml` replace ([docs/store.md](docs/store.md)) |
-| `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `project.xcproj` localizations (legacy `knownRegions`), `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
+| `day localize <list\|add\|remove>` | the project's locale surfaces — `resource/locales/`, the store listing's locale tables in `store/storefront.toml`, the iOS `project.xcproj` localizations, `website/site.toml`'s `locales` array — surveyed (`list`, with drift warnings; `day lint` reports the same findings) or edited together (`add`/`remove` a Day BCP-47 tag on every surface the project has; per-store and Xcode spellings remain a generation-time concern) |
 | `day screenshot index` | merge capture trees (`--screenshot-paths`, default `build/day/screenshots`) into `gallery.json` — the published machine-readable screenshot index: URL, localized title/caption from the dayscript metadata (§14.7), theme, locale, platform, dimensions, byte size, sha-256, and `listings`, the store and website lists `store/storefront.toml` `[storefront]` declares, resolved per target and device kind. App sites serve it at `/gallery/gallery.json`; `--out` places it |
 | `day screenshot pack --root <tree>… --out <file>` / `day screenshot unpack <file>` | the screenshot bundle ([docs/screenshot-archive.md](docs/screenshot-archive.md)): `pack` writes capture trees as one `screenshots.tar.xz` of uncompressed PNG files (`--index` carries a merged index inside with each capture's archived checksum, `--index-out` writes it with the bundle's facts, `--each <dir>` also writes one bundle per tree); `unpack` checks every file against the bundle's `SHA256SUMS` and writes the tree, each capture as a compact PNG, to `--out`, or with `--check` verifies and writes nothing. Both run outside a project |
 | `day web driver` | print the path of the bundled `DAY_WEB_DRIVER` page-driver script (headless Playwright; materialized to a temp location) — `DAY_WEB_DRIVER="node $(day web driver)"` is how CI drives scripted web-dom runs with a driver that always matches the CLI's protocol ([docs/web.md](docs/web.md)) |
@@ -4215,13 +4215,14 @@ Generation updates only the document when changed, preserving IDE user state; `p
 compares without writing. `day open --print-path` prepares prerequisites and returns the actual
 project location (also as a JSON result); day-vscode uses it rather than assuming a source path.
 `day project add-target --persist-xcode-project` explicitly materializes an app-owned project
-under `platform/`, even for an already-declared target. Existing JSON5 or PBX project folders
-always win, are never overwritten by materialization, and an incomplete override fails clearly.
+under `platform/`, even for an already-declared target. Existing project folders
+always win and are never overwritten by materialization; an override without a valid JSON5
+project fails clearly.
 Removing that folder opts back into generation. `day lint` validates an absent project using an
 in-memory derived document, so a fresh checkout needs neither generated output nor Xcode.
 Targets still require stable IDs, but the single app target uses
 the readable ID `Runner`; product references use paths and omit optional IDs. Archive
-schemes preserve whichever ID the host declares, including legacy hexadecimal IDs.
+schemes preserve whichever ID the host declares, including hexadecimal IDs.
 The templates omit upgrade history, unused Base localization, repeated target xcconfigs,
 script environment logging, inferred product file metadata, and default plist-generation
 settings. The Rust archive is force-loaded by full path, so it needs no library search path.
@@ -4234,21 +4235,27 @@ modes selected by their own manifests.
 `ycode-project` from marcprux/ycode parses and validates these documents; `day lint`
 checks Runner, Debug/Release configurations, Rust-before-Swift phase ordering, resource
 callbacks, script sandboxing, and generated DayPieces linkage without requiring generated
-files on disk. Invalid JSON5 or broken host contracts are errors; legacy `project.pbxproj`
-is tolerated with a modernization warning. When both exist JSON5 takes precedence.
+files on disk. Invalid JSON5 or broken host contracts are errors. A persistent project must
+contain a valid `project.xcproj`; PBX-only and incomplete overrides fail lint, preparation,
+builds, and packaging. Day neither reads nor rewrites `project.pbxproj`.
 Locale edits preserve comments and include the development language in the survey;
-deployment-floor discovery, icon migration, shortcut staging, and archive scheme identity
+deployment-floor discovery, shortcut staging, and archive scheme identity
 also understand JSON5. The navigator uses an explicit App group containing source/configuration
 files, excluding generated build folders: a recursive `../..` file reference from Xcode's
 converter opens DayPieces as a Folder and prevents SwiftPM loading it as a dependency;
-lint detects that conversion hazard. Existing PBX migration remains available only for legacy hosts.
+lint detects that conversion hazard. Legacy xcconfig migration, PBX localization/resource/phase
+injection, and icon-lock migration are removed, along with `day project migrate-xcode` and
+`day prepare --migrate`. The Xcode backend stages only `libdayapp.a` and its linker response
+file; it no longer creates a crate-named archive alias. Current-format persistent projects
+remain supported; any retained project must use the current generated-resource paths and
+callbacks. See [native-project migration](docs/native-project-migration.md).
 See [environment requirements](docs/environment.md) and regression tests in
 [`xcode.rs`](crates/day-cli/src/xcode.rs).
 
 Both Xcode scaffolds keep their user-adjustable build settings (signing, deployment target,
 device family) in a committed `DayApp.xcconfig`: each JSON5 configuration's `file`
-reference points at it, inherited by Runner without duplicate target specializations
-(legacy projects use `baseConfigurationReference`), and it `#include?`s two files after
+reference points at it, inherited by Runner without duplicate target specializations,
+and it `#include?`s two files after
 its own settings. First a generated `build/day/xcconfig/<platform>.xcconfig` carrying the
 Day.toml-derived bundle id, version, and build number, so Day.toml stays authoritative. Then a
 gitignored `DayApp.local.xcconfig` beside it (2026-09), the per-checkout layer: a developer's
@@ -4256,10 +4263,8 @@ gitignored `DayApp.local.xcconfig` beside it (2026-09), the per-checkout layer: 
 file. Being last, it overrides the generated identity too. The scaffold sets no signing keys of
 its own, so a simulator or local desktop build signs ad-hoc and a device build takes the team
 from the local file ([docs/project-structure](website/src/content/docs/project-structure.md)).
-Command-line settings still win, a
-fresh checkout builds in the IDE from the committed fallback lines, and `day build` migrates a
-pre-split scaffold in place (also available standalone as `day project migrate-xcode`; an
-unrecognized pbxproj degrades to a warning, never a half-edit).
+Command-line settings still win. A fresh checkout builds in the IDE from the committed
+fallback lines; `day build` refreshes the generated include without migrating app-owned files.
 Multiple `-t` build in parallel. Results land in `build/day/<target>/…`.
 
 #### `day prepare`, `day open`, and `day icon build`
@@ -4300,8 +4305,10 @@ remains a compatible alias. Existing native projects always take precedence. Gen
 projects are disposable, and `day clean` removes them along with other build output.
 
 For `harmony-arkui`, the built-in scaffold is rendered into `build/day/harmony/template/`
-then staged into `build/day/harmony/project/`. A checked-in `platform/harmony/` (or legacy
-`platform/ohos/`) replaces the built-in input. An incomplete override is reported, not replaced.
+then staged into `build/day/harmony/project/`. A checked-in `platform/harmony/` replaces
+the built-in input. An incomplete override is reported, not replaced. The obsolete
+`platform/ohos/` path and `[app.ohos]` identity override are rejected; use `platform/harmony/`
+and `[app.harmony]`. OHOS SDK, permission and signing names are unchanged.
 The framework's ArkTS host, pieces and bridges, raw assets, fonts, localized permission
 strings and shortcut resources are generated there. Identity, permission and shortcut
 manifest changes apply only to the copy. hvigor, dev signing, release signing, and
@@ -4314,7 +4321,7 @@ are copied by value, never written through; cycles fail with a source path. Edit
 files in the source host and prepare again: edits in the staged project are disposable.
 Custom native scripts and dependency paths must resolve within the host or use absolute
 external paths. `ohos::staging::tests` covers Git cleanliness, localized permissions and
-shortcuts, resource removal, cache retention, symlink isolation, legacy layouts and the
+shortcuts, resource removal, cache retention, symlink isolation, and the
 release-signing input path. See [docs/harmonyos.md](docs/harmonyos.md).
 
 For `android-mdc`, the default Gradle root is `build/android/`. Its depth matches
@@ -4759,8 +4766,7 @@ fieldnotes/
                              #   build/day/android/*.json|properties generically (§17.5)
     harmony/                 #   hvigor skeleton only (docs/harmonyos.md): the ArkTS host —
                              #   abilities, pages, native typings — is the day-arkui crate's,
-                             #   staged in gitignored by `day build`/`prepare`; pre-rename scaffolds'
-                             #   platform/ohos/ is still read, with a rename hint)
+                             #   staged in build/day by `day build`/`prepare`
 ```
 
 Rust code layout: the app is a **lib crate** (`fieldnotes`) so mobile targets (which need
@@ -4999,10 +5005,9 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   detected and that build fails with "metadata changed — build again". `settings.gradle.kts`
   checks for the staged Gradle plugin and, on a fresh clone without one, fails with "run `day
   prepare` or `day build -t android-mdc`". Committed-vs-generated is explicit: the thin Gradle
-  scripts and a bootstrap xcconfig stub are **create-time committed** files; only value-bearing
-  generated files are gitignored; the
-  pbxproj references generated `.lproj` outputs via a folder reference so it never names
-  gitignored files.
+  scripts are derived unless a persistent project is requested; the bootstrap xcconfig stays
+  app-owned. Generated values and `.lproj` output remain under build/, and the Xcode callback
+  copies localizations into the bundle.
 - Recursion guard: the plumbing entrypoints never re-enter the native build; `DAY_BUILD_PARENT`
   marks provenance for diagnostics.
 
@@ -5402,7 +5407,7 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    scaffolds a 21-locale project and lints it with `--strict --allow store-placeholder`, so every
    rule but the listing TODOs a human still has to write holds against a fresh project. It runs on
    all three OSes because the four locale surfaces (`resource/locales/`, the store listing's locale tables, Xcode's
-   `knownRegions`, `website/site.toml`) are written through platform path handling. The project
+   Xcode localizations, `website/site.toml`) are written through platform path handling. The project
    sits under `Day Project Root/`, a directory whose name contains a space, so the build, pack,
    rebuild, and launch steps meet the path a user's own folder names produce (2026-09).
 3. **Framework checks** — `toolkit (<backend>)` lints the showcase against one backend crate's
@@ -6139,7 +6144,7 @@ points (DP-16–DP-25)**.
   API, fixed `command` out-param); Flutter-style generated registrants (a fixed
   `day_register_pieces` symbol was a guaranteed duplicate-symbol link failure on static iOS);
   generated aggregator packages (`DayGeneratedPieces` / `day-pieces.gradle.kts`) instead of
-  pbxproj mutation and `includeBuild`.
+  Xcode project mutation and `includeBuild`.
 - **CLI/scaffold**: `ENABLE_USER_SCRIPT_SANDBOXING=NO` + `run-on-every-build` in the JSON5 project template
   (Xcode 15+ blocks the callback otherwise); dayscript port-0 handshake files +
   bind-only-when-invited (five parallel targets collide on loopback; the engine never listens

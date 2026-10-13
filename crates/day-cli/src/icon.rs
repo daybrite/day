@@ -44,8 +44,6 @@ use crate::ops::status;
 pub const HOST_DIR: &str = "build/day/host";
 /// Lock path, relative to the project root.
 const LOCK: &str = "build/day/host/host.lock.json";
-/// The legacy lock, read once by [`migrate`] to tell a generated file from a hand-edited one.
-const LEGACY_LOCK: &str = "resource/icons/icons.lock.json";
 /// The macOS margin convention: 824 pt of art on the 1024 canvas, radius 184.
 const MAC_INSET: f32 = 100.0;
 const MAC_ART: f32 = 824.0;
@@ -295,7 +293,7 @@ pub fn ensure(project: &Project, platforms: &[&str]) -> Result<(), String> {
             status(
                 "Note",
                 "no resource/icons/icon.svg (or icon.png) master — host icon files are not \
-                 generated; add one (`day icon new`) and run `day prepare --migrate`",
+                 generated; add one (`day icon new`) and run `day prepare`",
             );
         });
         return Ok(());
@@ -474,9 +472,9 @@ fn harmony_links(project: &Project, families: &[Family]) -> Vec<(String, String)
 
 /// Make `link` (project-relative) a symlink to `target` (project-relative), relative so the
 /// checkout can move. An existing correct link is left alone; a stale one is replaced; a real
-/// directory in the way is the pre-`prepare` layout and is reported (`day prepare --migrate`
-/// removes it). Where symlinks are unavailable (a Windows host without the privilege) the
-/// target is copied instead, and the copy is refreshed on every run.
+/// directory in the way is reported so app-owned files are never overwritten. Where symlinks
+/// are unavailable (a Windows host without the privilege), the target is copied instead and
+/// the copy is refreshed on every run.
 fn link_dir(root: &Path, link: &str, target: &str) -> Result<(), String> {
     let link_path = root.join(link);
     let target_path = root.join(target);
@@ -497,8 +495,7 @@ fn link_dir(root: &Path, link: &str, target: &str) -> Result<(), String> {
             } else {
                 return Err(format!(
                     "{link} is a real directory, but the derived media now lives under {target} \
-                     and is linked here — run `day prepare --migrate` to remove the checked-in \
-                     copies (or delete the directory yourself)"
+                     and is linked here — move or remove the conflicting directory first"
                 ));
             }
         }
@@ -569,274 +566,6 @@ fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-/// `day prepare --migrate`: move a project from committed derived files to the generated
-/// layout. Idempotent, and careful about what it deletes: a file is removed only when the
-/// legacy lock proves it was generated (its digest matches); anything hand-edited stays, and
-/// the summary says so, because that file has become a source override or a mistake, and
-/// only its author knows which. The host projects are rewritten in place to reference
-/// `build/day/host`, `.gitignore` learns the HarmonyOS links, and `prepare` then runs so the
-/// project builds at once. Nothing touches git: the deletions show up in `git status`.
-pub fn migrate(project: &Project) -> Result<(), String> {
-    let root = &project.root;
-    // The host projects are about to reference build/day/host; without a master there would be
-    // nothing there, and Xcode would open onto a missing catalog.
-    let master = discover(project, None).map_err(|e| {
-        format!(
-            "{e}\n  migrate needs a master to derive from: put the app's 1024 px icon at \
-             resource/icons/icon.png (a raster master), or an SVG at resource/icons/icon.svg, \
-             then run `day prepare --migrate` again"
-        )
-    })?;
-    let legacy: BTreeMap<String, String> = std::fs::read_to_string(root.join(LEGACY_LOCK))
-        .ok()
-        .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        .and_then(|v| {
-            v.get("outputs")?.as_object().map(|o| {
-                o.iter()
-                    .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-                    .collect()
-            })
-        })
-        .unwrap_or_default();
-    // A second witness beside the legacy lock: the files this generator renders now. A committed
-    // copy whose bytes equal a fresh render was generated, whatever the lock says; the macOS
-    // catalog PNG, for one, was staged by `day new` from the same render and never locked.
-    let rendered: std::collections::BTreeSet<String> = generate(
-        project,
-        &master,
-        &[
-            Family::Png,
-            Family::Ios,
-            Family::Macos,
-            Family::Linux,
-            Family::Windows,
-            Family::Android,
-            Family::Ohos,
-        ],
-    )?
-    .iter()
-    .map(|(_, b)| sha256_hex(b))
-    .collect();
-    let hroot = crate::ohos::harmony_dir(project);
-    let hrel = hroot
-        .strip_prefix(root)
-        .unwrap_or(&hroot)
-        .to_string_lossy()
-        .into_owned();
-    // Every place the old layout put a derived file. Directories are walked; each file inside
-    // is judged on its own.
-    let candidates = [
-        "resource/icons/png".to_string(),
-        "resource/icons/linux".to_string(),
-        "resource/icons/windows".to_string(),
-        "resource/icons/macos".to_string(),
-        "resource/icons/ios".to_string(),
-        "resource/icons/android".to_string(),
-        "platform/ios/Assets.xcassets".to_string(),
-        "platform/ios/AppIcon.icon".to_string(),
-        "platform/macos/Assets.xcassets".to_string(),
-        "platform/android/app/src/main/res/mipmap-xxxhdpi".to_string(),
-        "platform/android/app/src/main/res/mipmap-anydpi-v26".to_string(),
-        "platform/android/app/src/main/res/drawable/ic_launcher_monochrome.xml".to_string(),
-        "platform/android/app/src/main/res/drawable-xxxhdpi/ic_launcher_monochrome.png".to_string(),
-        format!("{hrel}/entry/src/main/resources/base/media"),
-        format!("{hrel}/AppScope/resources/base/media"),
-    ];
-    let mut removed = Vec::new();
-    let mut kept = Vec::new();
-    for cand in &candidates {
-        let path = root.join(cand);
-        if std::fs::symlink_metadata(&path)
-            .map(|m| m.file_type().is_symlink())
-            .unwrap_or(false)
-        {
-            continue; // already the new layout
-        }
-        if !path.exists() {
-            continue;
-        }
-        let files: Vec<PathBuf> = if path.is_dir() {
-            walk_files(&path)
-        } else {
-            vec![path.clone()]
-        };
-        for file in files {
-            let rel = file
-                .strip_prefix(root)
-                .unwrap_or(&file)
-                .to_string_lossy()
-                .into_owned();
-            // Under `platform/`, the host render now supplies every one of these names: a kept
-            // copy would collide with the host source set (Gradle refuses duplicate resources)
-            // or sit where the harmony link has to go, and the template's placeholder catalog
-            // PNG was never in any lock. So the whole tree is superseded, whatever the bytes.
-            // Under `resource/icons/`, the old export tree, a file is only removed when it is
-            // provably a render: its digest is in the legacy lock or equals a fresh render.
-            // Finder litter goes either way.
-            let superseded = !rel.starts_with("resource/icons/") || rel.ends_with(".DS_Store");
-            let digest = std::fs::read(&file)
-                .map(|b| sha256_hex(&b))
-                .unwrap_or_default();
-            let generated =
-                legacy.get(&rel).is_some_and(|d| *d == digest) || rendered.contains(&digest);
-            if generated || superseded {
-                std::fs::remove_file(&file).map_err(|e| format!("rm {rel}: {e}"))?;
-                removed.push(rel);
-            } else {
-                kept.push(rel);
-            }
-        }
-        // Drop what is now empty, so the link (or nothing) can take the directory's place.
-        if path.is_dir() {
-            let _ = remove_empty_dirs(&path);
-        }
-    }
-    let legacy_lock = root.join(LEGACY_LOCK);
-    if legacy_lock.is_file() {
-        std::fs::remove_file(&legacy_lock).map_err(|e| format!("rm {LEGACY_LOCK}: {e}"))?;
-        removed.push(LEGACY_LOCK.to_string());
-    }
-
-    // The host projects: Xcode file references and the Gradle source set.
-    let mut rewritten = Vec::new();
-    for (platform, host) in [("ios", "ios"), ("macos", "macos")] {
-        let json = crate::xcode::path(root, platform);
-        if json.exists() {
-            if crate::xcode::point_assets_at_host(&json, host)? {
-                rewritten.push(format!(
-                    "platform/{platform}/DayApp.xcodeproj/project.xcproj"
-                ));
-            }
-            continue;
-        }
-        let rel = format!("platform/{platform}/DayApp.xcodeproj/project.pbxproj");
-        let path = root.join(&rel);
-        if let Ok(text) = std::fs::read_to_string(&path) {
-            let updated = point_xcode_at_host(&text, host);
-            if updated != text {
-                std::fs::write(&path, updated).map_err(|e| format!("write {rel}: {e}"))?;
-                rewritten.push(rel);
-            }
-        }
-    }
-    let gradle_rel = "platform/android/app/build.gradle.kts";
-    let gradle = root.join(gradle_rel);
-    if let Ok(text) = std::fs::read_to_string(&gradle) {
-        let updated = point_gradle_at_host(&text);
-        if updated != text {
-            std::fs::write(&gradle, updated).map_err(|e| format!("write {gradle_rel}: {e}"))?;
-            rewritten.push(gradle_rel.to_string());
-        }
-    }
-    let ignore = root.join(".gitignore");
-    let text = std::fs::read_to_string(&ignore).unwrap_or_default();
-    let updated = gitignore_with_links(&text, &hrel);
-    if updated != text {
-        std::fs::write(&ignore, updated).map_err(|e| format!("write .gitignore: {e}"))?;
-        rewritten.push(".gitignore".to_string());
-    }
-
-    for rel in &removed {
-        status("Removed", rel);
-    }
-    for rel in &rewritten {
-        status("Rewrote", rel);
-    }
-    for rel in &kept {
-        status(
-            "Kept",
-            &format!("{rel} (not a generated file — a source override, or edited by hand)"),
-        );
-    }
-    status(
-        "Migrated",
-        &format!(
-            "{} derived file(s) removed, {} project file(s) rewritten — review `git status`, \
-             then commit the deletions",
-            removed.len(),
-            rewritten.len()
-        ),
-    );
-    ensure(project, &[])
-}
-
-fn remove_empty_dirs(dir: &Path) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(dir)?.flatten() {
-        if entry.path().is_dir() {
-            let _ = remove_empty_dirs(&entry.path());
-        }
-    }
-    if std::fs::read_dir(dir)?.next().is_none() {
-        std::fs::remove_dir(dir)?;
-    }
-    Ok(())
-}
-
-/// Repoint an Xcode project's `Assets.xcassets` file reference at the generated catalog.
-/// Idempotent: the template's reference (`path = Assets.xcassets`) becomes a named reference
-/// with a relative path, and an already-repointed project is returned unchanged.
-pub(crate) fn point_xcode_at_host(pbxproj: &str, host: &str) -> String {
-    let target = format!("../../{HOST_DIR}/{host}/Assets.xcassets");
-    pbxproj.replace(
-        "lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = \"<group>\";",
-        &format!(
-            "lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = \"{target}\"; sourceTree = \"<group>\";"
-        ),
-    )
-}
-
-/// Add the generated resource directory to the Gradle module's `res` source set, beside the
-/// staged-images line the template already carries. Idempotent.
-pub(crate) fn point_gradle_at_host(gradle: &str) -> String {
-    let host_line = format!(
-        "            res.srcDir(rootProject.projectDir.resolve(\"../../{HOST_DIR}/android/res\"))\n"
-    );
-    if gradle.contains(host_line.trim()) {
-        return gradle.to_string();
-    }
-    let anchor =
-        "            res.srcDir(rootProject.projectDir.resolve(\"../../build/day/android/res\"))\n";
-    match gradle.find(anchor) {
-        Some(i) => {
-            let end = i + anchor.len();
-            format!(
-                "{}            // The launcher icon set (mipmaps, the adaptive and themed drawables), rendered by\n            // `day prepare` from resource/icons/icon.svg (docs/icons.md). Never checked in.\n{}{}",
-                &gradle[..end],
-                host_line,
-                &gradle[end..]
-            )
-        }
-        None => gradle.to_string(),
-    }
-}
-
-/// The HarmonyOS media links belong in `.gitignore`: they are created by `day prepare`, and
-/// a committed symlink would point at a build directory the clone does not have yet.
-pub(crate) fn gitignore_with_links(text: &str, harmony_rel: &str) -> String {
-    let lines = [
-        format!("/{harmony_rel}/entry/src/main/resources/base/media"),
-        format!("/{harmony_rel}/AppScope/resources/base/media"),
-    ];
-    if lines.iter().all(|l| text.lines().any(|t| t == l)) {
-        return text.to_string();
-    }
-    let mut out = text.to_string();
-    if !out.ends_with('\n') && !out.is_empty() {
-        out.push('\n');
-    }
-    out.push_str(
-        "\n# HarmonyOS reads its icon media from a fixed place under each module, so `day prepare`\n\
-         # links these two directories to the generated set under build/day/host/harmony/media.\n",
-    );
-    for l in lines {
-        if !text.lines().any(|t| t == l) {
-            out.push_str(&l);
-            out.push('\n');
-        }
-    }
-    out
 }
 
 fn generator_id() -> String {

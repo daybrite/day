@@ -173,8 +173,7 @@ Add `--persist-native-project` to `add-target` to create a checked-in project un
 native target) prepares and opens the selected project; `--print-path` returns its path
 without opening the IDE. Edits to generated files are disposable; edit a persistent
 project when Day's configuration cannot express the customization you need.
-`day project migrate-xcode` moves Xcode build settings into `DayApp.xcconfig` files without
-building the app. `day build` also performs this migration when needed.
+Apple projects require `project.xcproj`; Day does not migrate older native project layouts.
 
 Use `day sign check` to check signing configuration, or `day sign status <id>` to query a
 notarization submission. See [signing configuration](/docs/packaging#signing-configuration).

@@ -73,7 +73,15 @@ fn warn_ignored_android_config(project: &Project) {
     }
 }
 
+fn check_harmony_layout(project: &Project) -> Result<(), String> {
+    if project.root.join("platform/ohos").exists() {
+        return Err("platform/ohos is unsupported; use platform/harmony for a customized host, or remove it to use the generated host".into());
+    }
+    Ok(())
+}
+
 pub fn ensure_harmony_source(project: &Project) -> Result<PathBuf, String> {
+    check_harmony_layout(project)?;
     let source = harmony_source(project);
     if source == crate::ohos::harmony_dir(project) {
         if !source.join("build-profile.json5").is_file() {
@@ -97,6 +105,7 @@ pub fn check(project: &Project, platform: &str) -> Result<(), String> {
         }
         dir
     } else {
+        check_harmony_layout(project)?;
         let dir = harmony_source(project);
         if dir == crate::ohos::harmony_dir(project) {
             return Ok(());
@@ -451,12 +460,23 @@ mod tests {
     }
 
     #[test]
-    fn customized_projects_and_legacy_harmony_are_preserved() {
+    fn obsolete_harmony_directory_is_rejected() {
+        let fixture = Fixture::new();
+        let p = &fixture.0;
+        std::fs::create_dir_all(p.root.join("platform/ohos")).unwrap();
+        for result in [ensure_harmony_source(p).map(|_| ()), check(p, "harmony")] {
+            assert!(result.unwrap_err().contains("platform/harmony"));
+        }
+        assert!(!p.root.join("build").exists());
+    }
+
+    #[test]
+    fn customized_projects_are_preserved() {
         let fixture = Fixture::new();
         let p = &fixture.0;
         for (platform, file) in [
             ("android", "settings.gradle"),
-            ("ohos", "build-profile.json5"),
+            ("harmony", "build-profile.json5"),
         ] {
             let dir = p.root.join("platform").join(platform);
             std::fs::create_dir_all(&dir).unwrap();
@@ -465,7 +485,7 @@ mod tests {
         assert_eq!(ensure_android(p).unwrap(), p.root.join("platform/android"));
         assert_eq!(
             ensure_harmony_source(p).unwrap(),
-            p.root.join("platform/ohos")
+            p.root.join("platform/harmony")
         );
         for platform in ["android", "harmony"] {
             check(p, platform).unwrap();
@@ -476,7 +496,7 @@ mod tests {
             "synthetic customized project"
         );
         assert_eq!(
-            std::fs::read_to_string(p.root.join("platform/ohos/build-profile.json5")).unwrap(),
+            std::fs::read_to_string(p.root.join("platform/harmony/build-profile.json5")).unwrap(),
             "synthetic customized project"
         );
     }

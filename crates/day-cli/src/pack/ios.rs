@@ -139,7 +139,7 @@ pub fn pack(
         .arg("-derivedDataPath")
         .arg(build_dir.join("archive-dd"))
         .arg("-allowProvisioningUpdates")
-        // The scaffold pbxproj disables signing for simulator development; the archive build
+        // The scaffold Xcode project disables signing for simulator development; the archive build
         // re-enables it from the command line (command-line settings override the project).
         .arg("CODE_SIGNING_ALLOWED=YES")
         .arg("CODE_SIGN_STYLE=Automatic")
@@ -322,31 +322,14 @@ pub(crate) fn export_options(
 }
 
 /// `xcodebuild archive` needs a scheme (targets aren't archivable). The scaffold ships none, but
-/// the host carries a stable Runner id. Read its product and id from project.xcproj when
-/// present, falling back to the legacy PBX host.
+/// the host carries a stable Runner id. Read its product and id from project.xcproj.
 fn ensure_shared_scheme(project: &Project) -> Result<(), String> {
     let xcodeproj = crate::xcode::ensure(project, "ios")?;
     let scheme = xcodeproj.join("xcshareddata/xcschemes/Runner.xcscheme");
     if scheme.exists() {
         return Ok(());
     }
-    let (target_id, product) = if xcodeproj.join("project.xcproj").exists() {
-        crate::xcode::scheme_identity(&xcodeproj.join("project.xcproj"))?
-    } else {
-        let pbxproj = std::fs::read_to_string(xcodeproj.join("project.pbxproj"))
-            .map_err(|e| format!("read pbxproj: {e}"))?;
-        let target_id =
-            find_native_target_id(&pbxproj).ok_or("no PBXNativeTarget found in project.pbxproj")?;
-        let product = pbxproj
-            .lines()
-            .find(|l| l.contains("explicitFileType = wrapper.application"))
-            .and_then(|l| l.split("path = ").nth(1))
-            .and_then(|s| s.split(';').next())
-            .map(str::trim)
-            .ok_or("no application product reference in project.pbxproj")?
-            .to_owned();
-        (target_id, product)
-    };
+    let (target_id, product) = crate::xcode::scheme_identity(&xcodeproj.join("project.xcproj"))?;
     let target_id = xml_attribute(&target_id);
     let product = xml_attribute(&product);
     std::fs::create_dir_all(scheme.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -381,26 +364,6 @@ fn xml_attribute(value: &str) -> String {
         .replace('>', "&gt;")
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
-}
-
-/// The 24-hex-digit object id of the first PBXNativeTarget (`XXXX /* Name */ = {` whose next line
-/// declares `isa = PBXNativeTarget`).
-fn find_native_target_id(pbxproj: &str) -> Option<String> {
-    let mut lines = pbxproj.lines().peekable();
-    while let Some(line) = lines.next() {
-        let t = line.trim();
-        if let Some(rest) = t.strip_suffix("= {")
-            && let Some(id) = rest.split_whitespace().next()
-            && id.len() == 24
-            && id.chars().all(|c| c.is_ascii_hexdigit())
-            && lines
-                .peek()
-                .is_some_and(|n| n.trim() == "isa = PBXNativeTarget;")
-        {
-            return Some(id.to_string());
-        }
-    }
-    None
 }
 
 /// Build settings that keep the shipped iOS binary reproducible (DESIGN.md §20.3).
@@ -625,15 +588,5 @@ mod tests {
         assert!(xml.contains("BlueprintIdentifier=\"Runner\""));
         assert!(xml.contains("BuildableName=\"Fixture.app\""));
         std::fs::remove_dir_all(root).unwrap();
-    }
-
-    #[test]
-    fn native_target_id_from_pbxproj() {
-        let pbx = "\t\tDA0000000000000000000020 /* Runner */ = {\n\t\t\tisa = PBXNativeTarget;\n";
-        assert_eq!(
-            find_native_target_id(pbx).as_deref(),
-            Some("DA0000000000000000000020")
-        );
-        assert_eq!(find_native_target_id("nothing here"), None);
     }
 }

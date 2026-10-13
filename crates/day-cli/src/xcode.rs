@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Xcode 27 JSON5 hosts. Prefer project.xcproj; legacy hosts remain readable.
+//! Xcode 27 JSON5 hosts. Only project.xcproj is supported.
 use std::path::{Path, PathBuf};
 use ycode_project::{BuildPhase, BuildPhaseKind, BuildSetting, ProjectDocument, Target};
 
@@ -11,7 +11,7 @@ pub fn path(root: &Path, platform: &str) -> PathBuf {
     ))
 }
 
-/// A checked-in project is an explicit customization override, including legacy PBX hosts.
+/// A checked-in project is an explicit customization override, using project.xcproj.
 /// An incomplete override is an error rather than permission to silently replace it.
 pub fn project_dir(root: &Path, platform: &str) -> PathBuf {
     let persistent = path(root, platform).parent().unwrap().to_path_buf();
@@ -152,6 +152,7 @@ pub fn initialize_persistent(
 /// `day prepare --check` must not repair or write build output.
 pub fn check_generated(project: &crate::meta::Project, platform: &str) -> Result<(), String> {
     if path(&project.root, platform).parent().unwrap().exists() {
+        open(&path(&project.root, platform))?;
         return Ok(());
     }
     let file = project_dir(&project.root, platform).join("project.xcproj");
@@ -170,12 +171,7 @@ pub fn check_generated(project: &crate::meta::Project, platform: &str) -> Result
 pub fn ensure(project: &crate::meta::Project, platform: &str) -> Result<PathBuf, String> {
     let dir = project_dir(&project.root, platform);
     if dir == path(&project.root, platform).parent().unwrap() {
-        if !dir.join("project.xcproj").is_file() && !dir.join("project.pbxproj").is_file() {
-            return Err(format!(
-                "{} has no project.xcproj or project.pbxproj",
-                dir.display()
-            ));
-        }
+        open(&dir.join("project.xcproj"))?;
         return Ok(dir);
     }
     for file in [
@@ -215,18 +211,6 @@ pub fn lint(root: &Path) -> Vec<crate::lint::Finding> {
     let mut findings = Vec::new();
     for platform in ["macos", "ios"] {
         let json = path(root, platform);
-        let legacy = json.with_file_name("project.pbxproj");
-        if legacy.exists() {
-            findings.push(Finding {
-                code: "day::lint::xcode-legacy",
-                message: format!("modernize platform/{platform}/DayApp.xcodeproj with Xcode 27+: `xcodebuild -project platform/{platform}/DayApp.xcodeproj -convert-project \"Xcode Project\"`{}", if json.exists() { "; both formats exist — keep project.xcproj and remove the obsolete project.pbxproj after reviewing the conversion" } else { "" }),
-                location: Some(Location::head(format!("platform/{platform}/DayApp.xcodeproj/project.pbxproj"))),
-                ..Default::default()
-            });
-        }
-        if !json.exists() && legacy.exists() {
-            continue;
-        }
         let persistent = json.parent().is_some_and(Path::is_dir);
         if !persistent && !root.join(format!("platform/{platform}")).is_dir() {
             continue;
@@ -472,33 +456,6 @@ pub fn scheme_identity(file: &Path) -> Result<(String, String), String> {
     Ok((target.id.to_string(), product))
 }
 
-pub fn point_assets_at_host(file: &Path, platform: &str) -> Result<bool, String> {
-    fn collect(files: &serde_json::Value, prefix: &str, paths: &mut Vec<String>) {
-        if let Some(files) = files.as_array() {
-            for (i, entry) in files.iter().enumerate() {
-                if entry["path"].as_str() == Some("Assets.xcassets") {
-                    paths.push(format!("{prefix}/{i}/path"));
-                }
-                collect(&entry["children"], &format!("{prefix}/{i}/children"), paths);
-            }
-        }
-    }
-    let mut doc = open(file)?;
-    let mut paths = Vec::new();
-    collect(&doc.value()["files"], "/files", &mut paths);
-    for pointer in &paths {
-        doc.set(
-            pointer,
-            format!("../../build/day/host/{platform}/Assets.xcassets").into(),
-        )
-        .map_err(|e| e.to_string())?;
-    }
-    if !paths.is_empty() {
-        doc.save().map_err(|e| e.to_string())?;
-    }
-    Ok(!paths.is_empty())
-}
-
 pub fn ensure_strings_phase(file: &Path) -> Result<(), String> {
     let mut doc = open(file)?;
     let runner = doc
@@ -640,10 +597,8 @@ mod tests {
             std::fs::remove_file(&persistent).unwrap();
             let pbx = persistent.with_file_name("project.pbxproj");
             std::fs::write(&pbx, "synthetic legacy override").unwrap();
-            assert_eq!(
-                ensure(&project, platform).unwrap(),
-                persistent.parent().unwrap()
-            );
+            assert!(ensure(&project, platform).is_err());
+            assert!(check_generated(&project, platform).is_err());
             assert!(!persistent.exists());
             std::fs::remove_file(pbx).unwrap();
             assert!(ensure(&project, platform).is_err());
@@ -707,14 +662,13 @@ mod tests {
     }
 
     #[test]
-    fn legacy_warns_and_invalid_json_is_an_error_even_beside_legacy() {
+    fn legacy_only_and_invalid_json_are_errors() {
         let fixture = Fixture::new();
         let json = fixture.host("ios");
         let legacy = json.with_file_name("project.pbxproj");
         std::fs::write(&legacy, "// synthetic legacy fixture").unwrap();
         let findings = lint(&fixture.0);
-        assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].severity(), crate::lint::Severity::Warning);
+        assert!(findings.is_empty());
         std::fs::write(&json, "{ invalid JSON5").unwrap();
         assert!(
             lint(&fixture.0)
@@ -722,7 +676,9 @@ mod tests {
                 .any(|f| f.severity() == crate::lint::Severity::Error)
         );
         std::fs::remove_file(&json).unwrap();
-        assert_eq!(lint(&fixture.0).len(), 1);
+        let findings = lint(&fixture.0);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity(), crate::lint::Severity::Error);
     }
 
     #[test]
@@ -767,23 +723,16 @@ mod tests {
     }
 
     #[test]
-    fn icon_migration_preserves_json5_and_archive_ids_resolve() {
+    fn archive_product_ids_resolve() {
         let fixture = Fixture::new();
         let file = fixture.host("ios");
         let mut doc = open(&file).unwrap();
-        doc.set("/files/2/path", "Assets.xcassets".into()).unwrap();
-        // Synthetic legacy-style ID reference: existing converted projects still use these.
+        // Explicit IDs are valid in customized JSON projects.
         doc.set("/files/4/children/0/id", "fixture-product-id".into())
             .unwrap();
         doc.set("/targets/0/product", "id:fixture-product-id".into())
             .unwrap();
         doc.save().unwrap();
-        assert!(point_assets_at_host(&file, "ios").unwrap());
-        assert!(!point_assets_at_host(&file, "ios").unwrap());
-        assert_eq!(
-            open(&file).unwrap().value()["files"][2]["path"],
-            "../../build/day/host/ios/Assets.xcassets"
-        );
         assert_eq!(scheme_identity(&file).unwrap().1, "DayApp.app");
     }
 

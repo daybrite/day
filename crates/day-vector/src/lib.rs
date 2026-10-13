@@ -40,7 +40,7 @@ mod symbolset;
 mod vd;
 mod xaml;
 
-/// The render-engine identity stamped into `icons.lock.json`. Byte-stable renders hold only
+/// The render-engine identity stamped into `host.lock.json`. Byte-stable renders hold only
 /// within one engine version, so `day icon check` compares generators before bytes.
 pub const ENGINE: &str = "resvg-0.45";
 

@@ -181,8 +181,8 @@ To return to automatic generation, first preserve any customizations you need, t
 remove the persistent `.xcodeproj` folder. Ordinary build settings can stay in
 `DayApp.xcconfig` without requiring a persistent project.
 
-Legacy checked-in `project.pbxproj` projects remain supported, with a modernization
-warning from `day lint`. Convert a custom project with Xcode 27:
+Day requires `project.xcproj`; PBX-only projects fail lint and native builds. Remove the
+persistent folder to use automatic generation, or convert a custom project with Xcode 27:
 
 ```sh
 xcodebuild -project platform/macos/DayApp.xcodeproj -convert-project "Xcode Project"

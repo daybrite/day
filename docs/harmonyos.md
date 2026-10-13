@@ -64,8 +64,8 @@ directory into `build/day/harmony/project/`: the pages and abilities under
 `entry/src/main/cpp/types/libentry/`, plus the generated page list and start-window colors.
 The CLI derives the hvigor skeleton from its built-in template, including build profiles,
 `AppScope/app.json5`, `module.json5`, string tables and hvigor configuration. New apps need
-no checked-in `platform/harmony/` directory. A customized source host at that path (or the
-legacy `platform/ohos/`) takes precedence. Day writes permission strings, shortcut labels
+no checked-in `platform/harmony/` directory. A customized source host at that path takes
+precedence. Day writes permission strings, shortcut labels
 and profiles, manifest changes, and raw resources into the staged project, then runs hvigor
 there. All generated output stays under `build/day/`. An app that predates this (2026-09) still carries its
 own copies under `ets/pages/` and `ets/entryability/`; `day build` leaves those alone and
@@ -77,7 +77,8 @@ edit the resulting files under `platform/harmony/`, then run `day prepare -t har
 edits made only in the staged copy are overwritten. Each preparation refreshes the source
 copy and removes obsolete resources while keeping hvigor's build and dependency caches.
 Symlinked inputs, including generated icon media, are copied as files so native generators
-cannot write through to their sources. The old `platform/ohos/` source layout also works.
+cannot write through to their sources. The old `platform/ohos/` layout is rejected; use
+`platform/harmony/` and `[app.harmony]` for platform identity overrides.
 Flavors use `build/day/flavors/<name>/harmony/project/`.
 
 Set `[harmony] vendor = "your-publisher"` in `Day.toml` to customize the vendor in

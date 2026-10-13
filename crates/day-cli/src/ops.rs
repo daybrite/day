@@ -1223,7 +1223,7 @@ pub fn desktop_launch_plan(
     // and dayscript.
     let bundled = outcome.artifact.extension().and_then(|e| e.to_str()) == Some("app");
     let program = if bundled {
-        // The executable is named by the pbxproj's PRODUCT_NAME, not the crate, so take the
+        // The executable is named by the Xcode project's PRODUCT_NAME, not the crate, so take the
         // bundle's single Contents/MacOS entry rather than guess.
         let macos_dir = outcome.artifact.join("Contents/MacOS");
         std::fs::read_dir(&macos_dir)
@@ -1941,7 +1941,6 @@ pub fn native_project(
             (crate::xcode::ensure(project, "ios")?, "Xcode")
         }
         "macos-appkit" => {
-            crate::xcconfig::ensure_split(project, "macos")?;
             crate::xcconfig::write_generated(project, "macos")?;
             crate::resources::stage(project, target)?;
             crate::pieces::write_macos_pieces(project)?;

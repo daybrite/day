@@ -1177,7 +1177,7 @@ fn collect(project: &Project) -> Vec<Finding> {
     }
 
     // --- Locale surface sync (`day localize`, DESIGN.md §16.5) ---
-    // The four locale surfaces (resource/locales/, store/, Xcode's knownRegions, the website's
+    // The four locale surfaces (resource/locales/, store/, Xcode's localizations, the website's
     // locales array) drift the moment one is edited by hand. Each present surface is compared
     // against the union of all of them, with the same advice `day localize list` prints.
     {

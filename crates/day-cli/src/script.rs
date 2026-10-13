@@ -1641,7 +1641,7 @@ pub(crate) fn terminate(project: &Project, target: &Target) {
             //   <build_root>/<target>/<config>/<Name>.app/Contents/MacOS/<Name>  xcodebuild
             //
             // and the executable's name is not common ground between them: `app.name` is the
-            // crate name (`day-skies`), while an Xcode bundle's binary is named by the pbxproj's
+            // crate name (`day-skies`), while an Xcode bundle's binary is named by the Xcode project's
             // PRODUCT_NAME (`DaySkies`). A pattern built from `app.name` matches nothing at all
             // under the second layout. The directory is the one thing both agree on, and it is
             // also what makes this project-specific: two checkouts building the same target

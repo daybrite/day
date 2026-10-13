@@ -323,7 +323,7 @@ screenshot metadata. See [store listings](store.md) and [DayScript](https://dayb
 ## Adding and removing locales
 
 `day localize list` surveys the app root's Fluent directories, the store listing's locale tables, Xcode
-persistent `project.xcproj` localizations (or legacy `knownRegions`), and website locale list.
+persistent `project.xcproj` localizations, and website locale list.
 Disposable Xcode projects derive their locales from the Fluent directories when prepared;
 localization commands do not edit build output.
 The JSON5 format requires Xcode 27 or newer. The development language is included in

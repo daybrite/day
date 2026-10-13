@@ -16,6 +16,19 @@ containing the support before rolling out downstream app migrations. CI jobs res
 from Git main need the framework changes on that branch first. Keep host-project removal
 separate from unrelated engine changes so each can be reviewed and validated independently.
 
+## Supported native layouts
+
+Persistent Apple projects must contain Xcode 27's `project.xcproj`. Day no longer reads
+PBX projects, migrates inline build settings, injects PBX resources or phases, or creates
+crate-named aliases for the staged Rust archive. Use the current template's `libdayapp.a`
+and linker response file. Convert a customized project with Xcode 27 and review its resource
+paths and callbacks, or remove the project folder to use the generated host.
+
+`day project migrate-xcode` and `day prepare --migrate` have been removed. Old icon lockfiles
+are not read; remove obsolete generated icons and update custom project references manually.
+HarmonyOS custom hosts use `platform/harmony/` and identity overrides use `[app.harmony]`;
+the old `ohos` spellings are rejected. SDK, permission and signing keys keep their OHOS names.
+
 ## Preserve app configuration
 
 Before removing a host project, inventory its targets, build phases, native packages, launch
