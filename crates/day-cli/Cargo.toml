@@ -16,7 +16,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Read Mach-O registration symbols without depending on Xcode's LLVM bitcode version.
-object = { version = "0.37", default-features = false, features = ["read", "std"] }
+object = { version = "0.40", default-features = false, features = ["read", "std"] }
 clap = { version = "4.6", features = ["derive", "wrap_help"] }
 # Terminal styling for the CLI's own human output (src/term.rs). `anstyle` is the styling
 # vocabulary clap already uses (so our output shares its color system); `anstream`'s print macros
