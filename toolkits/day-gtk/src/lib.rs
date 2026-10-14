@@ -2666,7 +2666,13 @@ struct ListEntry {
     /// The row-pull source, injected by `attach_list` and read by the factory's `bind` handler.
     source: Rc<RefCell<Option<ListSource>>>,
     selection: Option<ListSelection>,
+    /// The cells GTK has bound right now, for a reload to re-bind in place.
+    bound: BoundCells,
 }
+
+/// A list's bound cells: physical cell (DayCell ptr) → the GtkListItem it fills. Written by the
+/// factory's bind, cleared by its unbind; weak, so a disposed list item is simply skipped.
+type BoundCells = Rc<RefCell<HashMap<usize, gtk4::glib::WeakRef<gtk4::ListItem>>>>;
 
 #[derive(Clone)]
 struct ListSelection {
@@ -3155,11 +3161,54 @@ fn show_menu_popover(w: &Handle, items: &[day_spec::MenuItem], x: f64, y: f64) {
     popover.popup();
 }
 
-/// Resize the backing model to `n` rows (content is irrelevant — bind_row provides it).
-fn list_resize(model: &gtk4::StringList, n: usize) {
-    let cur = model.n_items();
-    let blanks: Vec<&str> = vec![""; n];
-    model.splice(0, cur, &blanks);
+/// Bring the backing model to `n` rows (content is irrelevant — bind_row provides it), then
+/// re-bind the rows GTK already shows, in place.
+///
+/// Only the count difference is spliced. Replacing every item would make GtkListView destroy
+/// each row widget and set up a new one (it keeps a widget only for an item that stays in the
+/// model), so a same-size reload would build every bound row a second time while day-core
+/// still holds the first set, with its effects and tasks still running. A row that keeps its
+/// position re-binds instead, the way AppKit's reloadData refreshes its visible cells.
+fn list_resize(
+    model: &gtk4::StringList,
+    n: usize,
+    source: &Rc<RefCell<Option<ListSource>>>,
+    bound: &BoundCells,
+) {
+    let cur = model.n_items() as usize;
+    // Snapshot first: an append binds its new rows synchronously, and they need no second bind.
+    // Top to bottom, so the rows a reader sees first are refreshed (and start any work) first.
+    let mut kept: Vec<gtk4::ListItem> = bound
+        .borrow()
+        .values()
+        .filter_map(|li| li.upgrade())
+        .collect();
+    kept.sort_by_key(|li| li.position());
+    let (cur32, n32) = (cur as u32, n as u32);
+    if n > cur {
+        let blanks: Vec<&str> = vec![""; n - cur];
+        model.splice(cur32, 0, &blanks);
+    } else if n < cur {
+        model.splice(n32, cur32 - n32, &[]);
+    }
+    let Some(src) = source.borrow().clone() else {
+        return;
+    };
+    for li in kept {
+        let pos = li.position();
+        // A row past the new end was unbound by the splice above.
+        if pos == gtk4::INVALID_LIST_POSITION || pos >= n32 {
+            continue;
+        }
+        let Some(cell) = li.child() else { continue };
+        LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos as usize));
+        (src.bind_row)(pos as usize, cell.as_ptr() as RawHandle);
+        if let Ok(cell) = cell.downcast::<DayCell>() {
+            cell.bind_layout(src.layout_cell.clone());
+            // New content may need a new height (an Automatic row); GTK measured the old one.
+            cell.queue_resize();
+        }
+    }
 }
 
 /// Resize the model on the next main-loop turn. CRUCIAL: `splice` makes GtkListView bind visible
@@ -3170,6 +3219,7 @@ fn schedule_list_resize(
     model: gtk4::StringList,
     source: Rc<RefCell<Option<ListSource>>>,
     selection: Option<ListSelection>,
+    bound: BoundCells,
 ) {
     gtk4::glib::idle_add_local_once(move || {
         // Contained: `len` is app code and the splice re-binds through day-core (bind_row).
@@ -3178,7 +3228,7 @@ fn schedule_list_resize(
             if let Some(selection) = &selection {
                 selection.suppress.set(true);
             }
-            list_resize(&model, n);
+            list_resize(&model, n, &source, &bound);
             if let Some(selection) = &selection {
                 selection.apply();
                 selection.suppress.set(false);
@@ -5177,8 +5227,10 @@ impl Toolkit for Gtk {
                     }
                 });
                 let source: Rc<RefCell<Option<ListSource>>> = Rc::new(RefCell::new(None));
+                let bound: BoundCells = Rc::default();
                 factory.connect_bind({
                     let source = source.clone();
+                    let bound = bound.clone();
                     // Contained: bind_row runs day-core (and through it the app's row builder).
                     move |_, item| {
                         ffi_guard::contain((), || {
@@ -5190,6 +5242,9 @@ impl Toolkit for Gtk {
                                 && let Some(src) = source.borrow().as_ref()
                             {
                                 LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos));
+                                bound
+                                    .borrow_mut()
+                                    .insert(cell.as_ptr() as usize, li.downgrade());
                                 (src.bind_row)(pos, cell.as_ptr() as RawHandle);
                                 // `bind_row` laid the row at the LIST's width; the cell knows the
                                 // width its row actually granted and re-lays the content to that.
@@ -5202,6 +5257,7 @@ impl Toolkit for Gtk {
                 });
                 factory.connect_unbind({
                     let source = source.clone();
+                    let bound = bound.clone();
                     // The cell left its row (a source that shrank, a scroll): clear its day
                     // element ids so a hidden row stops answering lookups. The next bind
                     // restores the live row's (docs/list.md; the tree's unbind does the same).
@@ -5210,6 +5266,9 @@ impl Toolkit for Gtk {
                             let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
                                 return;
                             };
+                            if let Some(cell) = li.child() {
+                                bound.borrow_mut().remove(&(cell.as_ptr() as usize));
+                            }
                             if let Some(cell) = li.child()
                                 && let Some(src) = source.borrow().as_ref()
                             {
@@ -5364,6 +5423,7 @@ impl Toolkit for Gtk {
                         let source = source.clone();
                         let model = model.clone();
                         let selection = selection.clone();
+                        let bound = bound.clone();
                         // Contained as a refused drop: move_row is app code.
                         move |_, _value, _x, y| {
                             ffi_guard::contain(false, || {
@@ -5383,6 +5443,7 @@ impl Toolkit for Gtk {
                                         model.clone(),
                                         source.clone(),
                                         selection.clone(),
+                                        bound.clone(),
                                     );
                                 }
                                 true
@@ -5398,6 +5459,7 @@ impl Toolkit for Gtk {
                             model,
                             source,
                             selection,
+                            bound,
                         },
                     )
                 });
@@ -5924,6 +5986,7 @@ impl Toolkit for Gtk {
                                 e.model.clone(),
                                 e.source.clone(),
                                 e.selection.clone(),
+                                e.bound.clone(),
                             );
                         }
                     });
@@ -7230,7 +7293,12 @@ impl Toolkit for Gtk {
                 *e.source.borrow_mut() = Some(source);
                 // Deferred off this with_tree borrow: splice binds cells synchronously (see
                 // schedule_list_resize), which would otherwise re-enter with_tree via bind_row.
-                schedule_list_resize(e.model.clone(), e.source.clone(), e.selection.clone());
+                schedule_list_resize(
+                    e.model.clone(),
+                    e.source.clone(),
+                    e.selection.clone(),
+                    e.bound.clone(),
+                );
             }
         });
     }

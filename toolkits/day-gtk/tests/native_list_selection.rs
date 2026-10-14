@@ -38,6 +38,11 @@ fn main() {
         },
         NodeId(41),
     );
+    // Shown, so GtkListView binds rows.
+    let window = gtk4::Window::new();
+    window.set_default_size(320, 480);
+    window.set_child(Some(&host));
+    window.present();
     let list = host
         .downcast_ref::<gtk4::ScrolledWindow>()
         .unwrap()
@@ -51,6 +56,8 @@ fn main() {
         .downcast::<gtk4::SingleSelection>()
         .unwrap();
     let count = Rc::new(Cell::new(5));
+    // Every bind, as (row, physical cell).
+    let binds = Rc::new(RefCell::new(Vec::<(usize, usize)>::new()));
     toolkit.update(&host, kinds::LIST, &ListPatch::Selected(vec![3]), None);
     toolkit.attach_list(
         &host,
@@ -61,7 +68,10 @@ fn main() {
                 move || count.get()
             }),
             token_at: Rc::new(|row| row as u64),
-            bind_row: Rc::new(|_, _| {}),
+            bind_row: Rc::new({
+                let binds = binds.clone();
+                move |row, cell| binds.borrow_mut().push((row, cell as usize))
+            }),
             recycle: Rc::new(|_| {}),
             layout_cell: Rc::new(|_, _| {}),
             reorder: None,
@@ -83,8 +93,23 @@ fn main() {
     drain();
     assert!(selection.is_selected(1));
     assert!(!selection.is_selected(3));
+    let cells = |binds: &[(usize, usize)]| {
+        let mut cells = binds.to_vec();
+        cells.sort();
+        cells
+    };
+    let before = cells(&binds.borrow());
+    assert_eq!(before.len(), 5, "the first fill binds every row once");
+    binds.borrow_mut().clear();
     toolkit.update(&host, kinds::LIST, &ListPatch::Reload, None);
     drain();
+    // A same-size reload re-binds the cells it has; new cells would leave the old rows
+    // (and their running effects) behind in day-core.
+    assert_eq!(
+        cells(&binds.borrow()),
+        before,
+        "a same-size reload re-binds each row in its own cell"
+    );
     assert_eq!(selection.selected(), 1, "reload preserves native selection");
     assert!(events.borrow().is_empty());
     selection.set_selected(4);
@@ -136,6 +161,8 @@ fn main() {
         events.borrow().is_empty(),
         "clearing a user selection never echoes"
     );
+    window.set_child(None::<&gtk4::Widget>);
+    window.destroy();
     toolkit.release(host);
-    println!("native list selection: sync, reload, clear, and echo suppression passed");
+    println!("native list selection: sync, in-place reload, clear, and echo suppression passed");
 }

@@ -184,7 +184,7 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior
 | AppKit  | `NSTableView` (view-based) | native | `makeView`/`viewFor` → `bind_row`; `numberOfRows` → `len` |
 | UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row` |
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
-| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell` |
+| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell`. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
 | Qt      | `QListWidget` + one item per row, Day's cell attached with `setIndexWidget` as it scrolls in | none — cells stay pinned to their row (Cap reports `Emulated`, DP-19) | the view owns selection, keys, focus, drag; Day owns the rows |
 
 ## Building it (mock-first, like M0–M1)
