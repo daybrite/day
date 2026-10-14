@@ -5,7 +5,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Store badges
 
-The App Store and Google Play badges the showcase page links the Day Showcase's listings with,
+The App Store and Google Play badges used by the showcase page and the app gallery,
 English only: this site has one language. Copied unchanged from the daysite template's
 `public/badges/en/`, which took them from the stores' own badge downloads; the localized set
 lives there.

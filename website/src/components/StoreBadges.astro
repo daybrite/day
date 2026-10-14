@@ -1,0 +1,43 @@
+---
+// Copyright © The Daybrite Project
+// SPDX-License-Identifier: CC-BY-SA-4.0
+import { url } from '../lib/site';
+
+interface Props {
+  app: string;
+  stores: { apple?: string; google?: string };
+  compact?: boolean;
+}
+
+const { app, stores, compact = false } = Astro.props;
+const badges = [
+  { store: 'apple', href: stores.apple, file: 'apple-app-store.svg', alt: 'Download on the App Store' },
+  { store: 'google', href: stores.google, file: 'google-play-store.svg', alt: 'Get it on Google Play' },
+].filter((badge) => badge.href);
+---
+{badges.length > 0 && (
+  <div class:list={['store-badges', { compact }]}>
+    {badges.map((badge) => (
+      <a class:list={['store-badge', `store-badge-${badge.store}`]} href={badge.href}
+         aria-label={`${app}: ${badge.alt}`} target="_blank" rel="noopener">
+        <img src={url(`badges/${badge.file}`)} alt={badge.alt} decoding="async" />
+      </a>
+    ))}
+  </div>
+)}
+
+<style>
+  .store-badges { --h: 44px; display: flex; flex-wrap: wrap; gap: 16px; margin-block: 8px; }
+  .store-badges.compact { --h: 32px; }
+  .store-badge { display: inline-block; height: var(--h); flex-shrink: 0; }
+  .store-badge img { display: block; max-width: none; width: auto; height: var(--h); }
+  /* Match daysite's sizing: Google's 155×60 artwork includes a 10-unit transparent margin
+     around its 135×40 plate. Scale and offset it so both visible badges have the same height. */
+  .store-badge-google img {
+    height: calc(var(--h) * 1.5);
+    width: calc(var(--h) * 1.5 * 155 / 60);
+    margin: calc(var(--h) * -0.25);
+  }
+  .store-badge:hover { opacity: 0.85; }
+  .store-badge:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 8px; }
+</style>

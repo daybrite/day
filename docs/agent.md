@@ -62,8 +62,9 @@ native UI. Use `--dialogs native` (or `--env DAY_TEST_DIALOGS=native`) for nativ
 coverage. Scripts can switch with `dialog_mode: { mode: scripted }` or `{ mode: native }`
 after answering pending requests; `assert_not_presented` checks for unanswered Day requests.
 See [dialog testing](dialogs.md#dayscript-presentation-modes) for examples, native dismissal
-limitations, and OS prompts outside Day's control. With `--keep-alive`, end with native mode
-to restore interactive presentation.
+limitations, and OS prompts outside Day's control. With `--keep-alive`, the CLI restores
+native mode once the scripts finish; pass `--dialogs scripted` to keep answering prompts with
+`day drive`.
 
 ## The session registry
 

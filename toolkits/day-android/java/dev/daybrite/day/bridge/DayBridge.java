@@ -998,7 +998,10 @@ public final class DayBridge {
         // COMPLEX_UNIT_SP applies the user's font scale (Settings ▸ Display ▸ Font size), the
         // Android accessibility text scale; COMPLEX_UNIT_DIP does not.
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
-        Typeface base = (family != null && !family.isEmpty()) ? bundledFont(family) : Typeface.DEFAULT;
+        // The Rust whole-label monospace flag uses Android's system family alias.
+        // It is not an app font resource and must never enter the bundled-font cache.
+        Typeface base = "monospace".equals(family) ? Typeface.MONOSPACE
+                : (family != null && !family.isEmpty()) ? bundledFont(family) : Typeface.DEFAULT;
         if (android.os.Build.VERSION.SDK_INT >= 28) {
             // Exact numeric weight + italic (API 28+); a custom base picks (or synthesizes) the
             // nearest face the family provides.

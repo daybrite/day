@@ -8,6 +8,7 @@ import { url } from '../../lib/site';
 import { localeLabel } from '../../lib/locale-names';
 import DeviceShell from '../../components/DeviceShell.astro';
 import PlatformIcon from '../../components/PlatformIcon.astro';
+import StoreBadges from '../../components/StoreBadges.astro';
 
 // One app's screenshots, read from the index its own site publishes (see
 // scripts/assemble-gallery.mjs). The images are served by that app's site; this page links them.
@@ -59,6 +60,7 @@ const description = `Explore ${app.label} screenshots and compare how the app lo
       <p class="eyebrow"><a href={url('gallery')}>Screenshot gallery</a></p>
       <h1 class="gal-title">{app.label} <span class="accent-text">screenshots</span></h1>
       <p class="lead">{app.blurb}</p>
+      <StoreBadges app={app.label} stores={app.stores} />
       <p class="lead">
         These screenshots come from automated app tests run with{' '}
         <a href={url('docs/dayscript')}>dayscript</a>.

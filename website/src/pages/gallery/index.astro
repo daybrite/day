@@ -6,6 +6,7 @@ import manifest from '../../data/gallery-manifest.json';
 import { url } from '../../lib/site';
 import { localeLabel } from '../../lib/locale-names';
 import PlatformIcon from '../../components/PlatformIcon.astro';
+import StoreBadges from '../../components/StoreBadges.astro';
 
 // The gallery hub: one card per Day app, each carrying a carousel of its own screenshots and a
 // link to its full gallery. The screenshots are hosted by the apps themselves — this page reads
@@ -84,6 +85,7 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
             <div class="card-body">
               <h2 class="card-title"><a href={url(`gallery/${app.id}`)}>{app.label}</a></h2>
               <p class="card-blurb">{app.blurb}</p>
+              <StoreBadges app={app.label} stores={app.stores} compact />
               <ul class="card-plats" aria-label={`Platforms ${app.label} is captured on`}>
                 {app.columns.map((c) => (
                   <li data-pf={c.id} title={`${c.os} · ${c.toolkit}`}>

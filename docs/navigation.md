@@ -518,11 +518,16 @@ bugs of that month lived in the bookkeeping). UIKit's `viewControllers` is the s
   agrees, the swipe there under an interactive transition, and the history menu to the
   `popTo…` pair. Day never calls those for its own changes, and its two pops on a collapsed
   triple column announce themselves (`with_day_pop`), so a call that reaches super is the
-  user's. `observe_user_pop` waits for that pop's own transition — a swipe let go early is
-  cancelled, and Day hears nothing — and `confirm_user_pop` emits one
-  `NavBack { already_popped: true }` per Day page that left. Day answers each by popping its
-  model and removing the page, and `pop_page` finds the page already gone: that no-op is the
-  whole protocol between the two, and nothing is counted.
+  user's. `observe_user_pop` waits for an interactive pop's own transition — a swipe let go
+  early is cancelled, and Day hears nothing. A button or history-menu pop cannot be cancelled,
+  so it is reported on the next run-loop turn instead of when its slide ends: the revealed page
+  takes taps during that slide, and a push made there must land on a model that no longer holds
+  the outgoing page (a late report popped the new page instead, leaving Day one page off
+  UIKit). `confirm_user_pop` emits one `NavBack { already_popped: true }` per Day page that
+  left. Day answers each by popping its model and removing the page, and `pop_page` finds the
+  page already gone: that no-op is the whole protocol between the two, and nothing is counted.
+  A title patch retitles the top of the stack Day has asked for, queued changes included, so a
+  title arriving with its push never lands on the page below.
 
 - **A pop during a size-class transition is UIKit's own.** A split view merges its columns when
   it collapses and takes them apart again when it expands, and the un-merge is a real

@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use day_script_proto::{FailurePolicy, Reply, Request, Script, ScriptStep, Step};
+use day_script_proto::{DialogMode, FailurePolicy, Reply, Request, Script, ScriptStep, Step};
 
 use crate::meta::Project;
 use crate::targets::{Target, TargetKind};
@@ -697,6 +697,7 @@ pub fn run_scripts(
     attached: bool,
     fast: bool,
     memory_profile: bool,
+    restore_native_dialogs: bool,
 ) -> Result<ScriptRun, ScriptError> {
     let reports = crate::script_report::Reports::new(
         project,
@@ -708,7 +709,18 @@ pub fn run_scripts(
         memory_profile,
     );
     let result = run_scripts_inner(
-        project, target, port, token, scripts, locale, variant, device, keep_alive, attached, fast,
+        project,
+        target,
+        port,
+        token,
+        scripts,
+        locale,
+        variant,
+        device,
+        keep_alive,
+        attached,
+        fast,
+        restore_native_dialogs,
         &reports,
     );
     reports.finish(result.as_ref().err().map(|e| e.to_string()).as_deref());
@@ -728,6 +740,7 @@ fn run_scripts_inner(
     keep_alive: bool,
     attached: bool,
     fast: bool,
+    restore_native_dialogs: bool,
     reports: &crate::script_report::Reports,
 ) -> Result<ScriptRun, ScriptError> {
     forward_engine(target.kind, port);
@@ -830,6 +843,8 @@ fn run_scripts_inner(
     };
     // Captures this run saved, for the per-target gallery index (screenshot.rs §14.7).
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
+    // Set by a passing `expect_exit`: nothing is left to hand over.
+    let mut app_exited = false;
     for (script_index, script) in scripts.iter().enumerate() {
         reports.begin(script_index);
         let mut expected_exit = false;
@@ -1075,6 +1090,7 @@ fn run_scripts_inner(
                 }
                 if exited {
                     expected_exit = true;
+                    app_exited = true;
                     eprintln!("  {SUCCESS}✓{SUCCESS:#} expect_exit (app terminated as expected)");
                 } else {
                     run.steps_failed += 1;
@@ -1341,6 +1357,35 @@ fn run_scripts_inner(
         screenshot_engine.as_secs_f64(),
         screenshot_capture.as_secs_f64()
     );
+    if keep_alive && restore_native_dialogs && !app_exited {
+        // `--script` defaults dialogs to scripted, which holds every alert, prompt and picker
+        // for a `respond` step. Once the scripts are done, the kept app is in someone's hands,
+        // and a prompt nobody can answer looks like a button that does nothing. An explicit
+        // `--dialogs` (or `--env DAY_TEST_DIALOGS=…`) keeps its mode for `day drive`.
+        let line = format!(
+            "{}\n",
+            serde_json::to_string(&Request {
+                token: token.into(),
+                step: Step::DialogMode {
+                    mode: DialogMode::Native,
+                },
+            })
+            .unwrap()
+        );
+        let restored = roundtrip(&mut stream, &mut reader, &line, 0.0)
+            .ok()
+            .and_then(|reply| serde_json::from_str::<Reply>(&reply).ok());
+        match restored {
+            Some(reply) if reply.ok => {}
+            other => eprintln!(
+                "  {WARN}▸{WARN:#} {} kept scripted dialogs: {}",
+                target.name,
+                other
+                    .and_then(|r| r.error)
+                    .unwrap_or_else(|| "the engine did not answer".into())
+            ),
+        }
+    }
     if keep_alive {
         // Interactive script development (docs/agent.md): leave the app running so its session
         // stays drivable (`day drive`) and scripts can be built and debugged incrementally.
@@ -1894,6 +1939,7 @@ mod gate_tests {
             false,
             true,
             false,
+            false,
         )
         .unwrap();
         server.join().unwrap();
@@ -2008,6 +2054,7 @@ mod gate_tests {
             false,
             true,
             false,
+            false,
         )
         .unwrap();
         let seen = server.join().unwrap();
@@ -2090,6 +2137,7 @@ mod gate_tests {
                 None,
                 None,
                 true,
+                false,
                 false,
                 false,
                 false,
@@ -2192,6 +2240,7 @@ mod gate_tests {
                 None,
                 None,
                 true,
+                false,
                 false,
                 false,
                 false,

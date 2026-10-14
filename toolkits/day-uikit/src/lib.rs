@@ -4134,13 +4134,25 @@ mod imp {
     /// The Day page on top of `host`'s active stack, as the app will see it: the top of the
     /// change in flight if there is one, else what UIKit reports.
     fn current_top(host: usize, active: &DayNavController) -> Option<Retained<UIViewController>> {
-        NAV_OPS
-            .with(|q| {
-                q.borrow()
-                    .get(&host)
-                    .and_then(|e| e.in_flight.as_ref().and_then(|t| t.last().cloned()))
-            })
-            .or_else(|| top_page(active))
+        // Changes still queued count too: a page's title arrives in the same turn as its push,
+        // and while a modal transition holds the queue, UIKit's top is still the page below.
+        NAV_OPS.with(|q| {
+            let q = q.borrow();
+            let entry = q.get(&host);
+            if entry.is_none_or(|e| e.in_flight.is_none() && e.ops.is_empty()) {
+                return top_page(active);
+            }
+            let mut stack = entry
+                .and_then(|e| e.in_flight.clone())
+                .unwrap_or_else(|| day_pages(active, None));
+            for op in entry.map(|e| e.ops.as_slice()).unwrap_or_default() {
+                match op {
+                    NavOp::Push(vc) => stack.push(vc.clone()),
+                    NavOp::Pop(vc) => stack.retain(|v| !std::ptr::eq(&**v, &**vc)),
+                }
+            }
+            stack.last().cloned()
+        })
     }
 
     /// Which navigation controller directly holds `vc` — `nav` itself or a controller nested
@@ -4213,6 +4225,23 @@ mod imp {
             return;
         };
         let mtm = MainThreadMarker::new().expect("nav pops run on main");
+        // Only an interactive pop (the swipe) can be cancelled. A button or history-menu pop
+        // has already left UIKit's stack, so tell Day now rather than when the slide ends:
+        // the revealed page is live during that slide, and a row tapped there pushes onto a
+        // model that still holds the outgoing page. The late report then popped the NEW page
+        // instead, leaving Day's stack one page off UIKit's (the wrong title, and every later
+        // push applied to the wrong depth).
+        if !coordinator.isInteractive() {
+            let popped = dispatch2::MainThreadBound::new(popped, mtm);
+            // Off the override's stack: the report re-enters day-core, which pops the model
+            // and patches this host, and UIKit is still inside `popViewController` here.
+            dispatch2::DispatchQueue::main().exec_async(move || {
+                let mtm = MainThreadMarker::new().expect("dispatched to main");
+                let popped = popped.into_inner(mtm);
+                day_spec::ffi_guard::contain((), || confirm_user_pop(host, popped));
+            });
+            return;
+        }
         let popped = dispatch2::MainThreadBound::new(popped, mtm);
         let popped = std::rc::Rc::new(std::cell::RefCell::new(Some(popped)));
         let completion = block2::RcBlock::new(

@@ -64,6 +64,7 @@ export const preferReleaseScreenshots = false;
  *                               branch build's index beside it, under `main/`, is derived from it.
  * @property {boolean} [preferRelease]  Override `preferReleaseScreenshots` for this app alone.
  * @property {string} [site]     The app's own website. Defaults to the index's `site` field.
+ * @property {{apple?: string, google?: string}} [stores]  Published App Store / Google Play listing URLs.
  * @property {string} [web]      Its hosted web-dom build, when that lives somewhere other than
  *                               `<site>/webapp/` — the address every app whose index carries a
  *                               web-dom column gets by default.
@@ -88,6 +89,10 @@ export const apps = [
     repo: 'https://github.com/daybrite/Day-Showcase',
     site: 'https://showcase.daybrite.dev',
     metadata: 'https://showcase.daybrite.dev/gallery/gallery.json',
+    stores: {
+      apple: 'https://apps.apple.com/app/id6802801331',
+      google: 'https://play.google.com/store/apps/details?id=dev.daybrite.showcase',
+    },
     hero: 'home',
     // The showcase's web build takes its route from the URL fragment (`day_dom_set_hash` writes
     // it, a `hashchange` listener reads it back), so a gallery row can open the very screen it
@@ -193,12 +198,30 @@ export const apps = [
     hero: 'browse',
   },
   {
+    id: 'Stanza-Redux',
+    label: 'Stanza Redux',
+    blurb:
+      'A free EPUB reader with a personal library, online book catalogs, bookmarks, and customizable typography for reading offline.',
+    repo: 'https://github.com/Stanza-Redux/Stanza-Redux',
+    site: 'https://stanza-redux.app',
+    metadata: 'https://stanza-redux.app/gallery/gallery.json',
+    stores: {
+      apple: 'https://apps.apple.com/app/id1639831676',
+      google: 'https://play.google.com/store/apps/details?id=org.appfair.app.Stanza_Redux',
+    },
+    hero: 'reading-alice',
+  },
+  {
     id: 'Games-Fair',
     label: 'Games Fair',
     blurb:
       'Ten classic games in one app, from solitaire and sudoku to minesweeper, charades and reversi, each board drawn on a canvas by the game itself and playable offline.',
     repo: 'https://github.com/Games-Fair/Games-Fair',
     metadata: 'https://games-fair.github.io/Games-Fair/gallery/gallery.json',
+    stores: {
+      apple: 'https://apps.apple.com/app/id6761661340',
+      google: 'https://play.google.com/store/apps/details?id=org.appfair.app.Faire_Games',
+    },
     hero: 'home',
     // Every game is a route (`day::routes!` in the app's src/lib.rs) and web-dom mirrors the
     // current route into the URL hash, so a gallery row opens the screen it photographs.

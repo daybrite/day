@@ -340,7 +340,7 @@ pub fn stage(project: &Project, target: &Target) -> Result<(), String> {
     }
     let set = ResourceSet::scan(project, target.toolkit);
     let fonts = scan_fonts(project)?;
-    if set.is_empty() && fonts.is_empty() {
+    if set.is_empty() && fonts.is_empty() && vectors.is_empty() {
         return Ok(());
     }
     match target.toolkit {
@@ -697,6 +697,38 @@ mod tests {
             std::fs::remove_file(generated).unwrap();
             assert_eq!(super::app_icon(&project, toolkit), Some(source));
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn vector_only_android_app_stages_native_drawables() {
+        let root = std::env::temp_dir().join(format!("day-vector-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let cargo = "[package]\nname = 'vector-fixture'\nversion = '0.1.0'\n[features]\nmdc = []\n";
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: crate::meta::parse_manifest(
+                "schema = 1\n[app]\nid = 'dev.test.vector'\n",
+                cargo,
+                None,
+            )
+            .unwrap(),
+        };
+        std::fs::create_dir_all(root.join("resource/vectors")).unwrap();
+        std::fs::create_dir_all(root.join("src")).unwrap();
+        std::fs::write(root.join("Cargo.toml"), cargo).unwrap();
+        std::fs::write(root.join("src/lib.rs"), "// Synthetic staging fixture\n").unwrap();
+        std::fs::write(root.join("resource/vectors/network.svg"),
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"><path d="M2 2H22V22H2Z"/></svg>"#,
+        ).unwrap();
+        // Every glyph converts natively, so there are no fallback images, fonts or data.
+        // The empty raster ResourceSet must not skip Android's vector staging.
+        super::stage(&project, crate::targets::find("android-mdc").unwrap()).unwrap();
+        assert!(super::ResourceSet::scan(&project, "mdc").is_empty());
+        let xml = std::fs::read_to_string(root.join("build/day/android/res/drawable/network.xml"))
+            .unwrap();
+        assert!(xml.contains("<vector"));
+        assert!(xml.contains("android:pathData"));
         std::fs::remove_dir_all(root).unwrap();
     }
 

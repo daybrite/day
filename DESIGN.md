@@ -1288,6 +1288,10 @@ platform's accessibility text factor (UIFontMetrics / `sp` / GTK text-scaling-fa
 italic ride the same spec ([docs/text.md](docs/text.md)). A points-first API would have made Dynamic Type
 unfixable later; this one has been semantic-first from the start.
 
+Android whole-label `.monospace()` resolves to `Typeface.MONOSPACE` before bundled-font
+lookup, preserving the system fixed-pitch face for selectable protocol text as well as ordinary
+labels. It must not fall through an absent `R.font.monospace` resource to the default sans face.
+
 ---
 
 ## §7 Layout
@@ -4481,7 +4485,8 @@ app's locale; `--env` passes app environment (on web-dom as page query parameter
 through `day::env` — a browser sandbox has no process environment, [docs/web.md](docs/web.md)); each
 `--script` runs via the embedded engine
 ([§14](#14-scripting-dayscript)) — with scripts the command exits when the last one finishes (the CI entry point), and
-`--keep-alive` keeps the session drivable via `day drive` afterwards.
+`--keep-alive` keeps the session drivable via `day drive` afterwards, restoring native dialogs
+unless `--dialogs` was given ([docs/dialogs.md](docs/dialogs.md)).
 
 Development macOS bundles replace their executable atomically through a sibling temporary
 file and rename, preserving the inode of a still-running executable. Truncating that inode
@@ -5291,6 +5296,11 @@ ArkUI. Images map to SwiftPM `.process`→`Assets.car` (iOS), `res/drawable`→`
 copies, `assets/`-rooted APK srcDir, path-carrying gresource/qrc aliases, rawfile subdirs. Core
 API in `day-core::resource`; build-time staging in `crates/day-cli/src/resources/`. Full design +
 per-platform detail: **[docs/resources.md](docs/resources.md)**.
+
+Resource staging includes native vector glyphs even when an app has no raster images, data
+assets or fonts. In particular, an Android app whose SVGs all convert to VectorDrawables still
+stages `res/drawable` before Gradle; an empty fallback-image set does not mean empty resources.
+The CLI's `vector_only_android_app_stages_native_drawables` regression exercises that case.
 
 ArkUI's NDK resource manager is process-wide: NAPI
 initialization remains on the host thread, while bundled-resource reads can run on worker

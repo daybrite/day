@@ -135,8 +135,11 @@ A script or `day drive` can change the policy before opening a dialog:
 
 The step overrides the launch policy for subsequent presentations. Switching modes with
 an unanswered request fails: respond to it first. The policy lasts for the app process or
-until another `dialog_mode` step; finish with `native` if leaving the app interactive via
-`--keep-alive`. Browser hosts initialize the same policy through their host environment.
+until another `dialog_mode` step. When `--keep-alive` hands the app over after its scripts,
+the CLI switches it back to `native`, so a person using the app sees its prompts. An explicit
+`--dialogs` (or `--env DAY_TEST_DIALOGS=…`) keeps that mode instead, for `day drive` sessions
+that answer with `respond`; the restore is also skipped while a request is unanswered, and the
+CLI says so. Browser hosts initialize the same policy through their host environment.
 `assert_presented` and `assert_not_presented` inspect Day's **request registry**, not OS
 windows; they do not establish that a native dialog is visible or has physically closed.
 

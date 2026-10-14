@@ -2528,6 +2528,8 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 spec.attached,
                                 fast,
                                 memory_profile,
+                                dialogs.is_none()
+                                    && !envs.iter().any(|kv| kv.starts_with("DAY_TEST_DIALOGS=")),
                             ) {
                                 // A single retryable failure and nothing else: the shape a race
                                 // leaves behind (an element not realized yet, an assert that lost

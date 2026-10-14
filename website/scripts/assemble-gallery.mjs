@@ -264,6 +264,7 @@ function assembleApp(app, index, stale, source) {
     repo: app.repo,
     site,
     web,
+    stores: app.stores ?? {},
     // Flattened to one shot→fragment map for the page: the shots whose id is their own route,
     // then the explicit map (which may override one, or `null` it out as unreachable).
     webRoutes: web

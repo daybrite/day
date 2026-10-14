@@ -40,3 +40,6 @@ pnpm-debug.log*
 # (scripts/assemble-downloads.mjs)
 /public/downloads/
 /src/data/downloads.json
+
+# Optional local Copyedit configuration (the normal build stays independent of it)
+/astro.copyedit.config.mjs

@@ -135,8 +135,10 @@ the themes and the languages all come from the app — an app that captures a ne
 here on the next build, with no change in this repository.
 
 **To add an app:** add an entry to `apps` in `gallery.config.mjs` with its label, blurb, repository
-and index URL. Its hub card and page link the app's homepage (the index's `site`) and its live web
-build at `<site>/webapp/` whenever the index carries a web-dom column; `web` names another address
+and index URL. For published apps, set `stores.apple` and/or `stores.google` to their listing URLs
+to show daysite's store badges on the card and app page. Its hub card and page link the app's
+homepage (the index's `site`) and its live web build at `<site>/webapp/` whenever the index carries
+a web-dom column; `web` names another address
 for a build hosted elsewhere. The optional `order` / `labels` / `hide` keys are there for an app
 whose dayscript carries thin metadata; a shot with no `title:` falls back to a label derived from
 its id. (The
