@@ -123,6 +123,6 @@ reqwest = ["dep:reqwest", "dep:tokio", "dep:futures-util", "dep:tokio-tungstenit
 reqwest = { version = "0.13", optional = true, default-features = false, features = ["rustls-no-provider", "stream"] }
 tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
 futures-util = { version = "0.3", optional = true, features = ["sink"] }
-rustls = { version = "0.23", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
+rustls = { version = "0.23.46", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = { version = "1", optional = true }
 tokio-tungstenite = { version = "0.30", optional = true, features = ["rustls-tls-webpki-roots"] }
