@@ -1293,15 +1293,22 @@ impl Piece for SectionGroup {
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Debug, PartialEq)]
-struct PageProps;
+struct PageProps {
+    /// Sized to its groups inside a Day `scroll`, which does the scrolling (`group_body`).
+    hug: bool,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum PagePatch {}
 
-fn page_make(_backend: &mut ArkUi, _p: &PageProps, _id: NodeId) -> AHandle {
+fn page_make(_backend: &mut ArkUi, p: &PageProps, _id: NodeId) -> AHandle {
     let n = node::create(node::LIST);
     if n.is_null() {
         return AHandle(n);
+    }
+    // A list as tall as its groups has nothing to scroll; leave the drag to the scroll around it.
+    if p.hug {
+        node::set_i32(n, Attr::NODE_SCROLL_ENABLE_SCROLL_INTERACTION, 0);
     }
     node::set_f32(n, Attr::NODE_LIST_SPACE, CARD_SPACE as f32);
     node::set_values(
@@ -1329,12 +1336,23 @@ mod page_renderer {
 }
 
 /// The groups stacked inside the list's padding, a card's gap apart: the same order and
-/// heights the List lays them out in once they are back in its flow.
+/// heights the List lays them out in once they are back in its flow. With no height offered
+/// (inside a Day `scroll`), the page is as tall as its groups.
 struct PageLayout;
 
 impl Layout for PageLayout {
-    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
-        Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let width = p.width.unwrap_or(0.0);
+        if let Some(height) = p.height {
+            return Size::new(width, height);
+        }
+        let w = (width - 2.0 * LIST_INSET).max(0.0);
+        let groups: f64 = children
+            .iter()
+            .map(|&c| cx.measure_child(c, Proposal::new(Some(w), None)).height)
+            .sum();
+        let gaps = CARD_SPACE * children.len().saturating_sub(1) as f64;
+        Size::new(width, PAGE_TOP + groups + gaps + PAGE_BOTTOM)
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         let w = (bounds.size.width - 2.0 * LIST_INSET).max(0.0);
@@ -1349,20 +1367,27 @@ impl Layout for PageLayout {
 
 struct ListPage {
     groups: Vec<AnyPiece>,
+    hug: bool,
 }
 
 impl Piece for ListPage {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let node = cx.native(
             PAGE_KIND,
-            &PageProps,
+            &PageProps { hug: self.hug },
             Rc::new(PageLayout),
             Flex {
                 grow_w: true,
-                grow_h: true,
+                grow_h: !self.hug,
                 ..Default::default()
             },
-            Boundary::Yes,
+            // A hugging page's height follows its rows, and the scroll around it must learn of
+            // a change; a filling page is a boundary.
+            if self.hug {
+                Boundary::No
+            } else {
+                Boundary::Yes
+            },
         );
         cx.under(node, |cx| {
             for g in self.groups {
@@ -1526,19 +1551,33 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         }
         cards
     });
-    Some(ListPage { groups: cards }.id("settings-root").any())
+    Some(
+        ListPage {
+            groups: cards,
+            hug: false,
+        }
+        .id("settings-root")
+        .any(),
+    )
 }
 
 /// One group's page: its sections as cards.
 pub(super) fn group_page(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
+    Some(group_list(&inst, g, false))
+}
+
+/// One group's cards in a list as tall as they are, for a sheet's own `scroll`.
+pub(super) fn group_body(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
+    Some(group_list(&inst, g, true))
+}
+
+fn group_list(inst: &Rc<Installed>, g: &Group, hug: bool) -> AnyPiece {
     let cards = listed(|| {
         let mut cards: Vec<AnyPiece> = Vec::new();
-        group_cards(&inst, g, &mut cards);
+        group_cards(inst, g, &mut cards);
         cards
     });
-    Some(
-        ListPage { groups: cards }
-            .id(format!("prefs-group-{}", g.id))
-            .any(),
-    )
+    ListPage { groups: cards, hug }
+        .id(format!("prefs-group-{}", g.id))
+        .any()
 }

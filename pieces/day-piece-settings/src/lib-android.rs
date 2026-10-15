@@ -810,20 +810,23 @@ fn group_lines(inst: &Rc<Installed>, g: &Group, out: &mut Vec<AnyPiece>) {
 
 /// The page: its lines in a full-bleed scrolling list.
 fn page(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
-    scroll(
-        column(PieceVec(lines))
-            .spacing(0.0)
-            .align(HAlign::Leading)
-            .padding(day_spec::Insets {
-                top: PAGE_TOP,
-                leading: 0.0,
-                bottom: PAGE_BOTTOM,
-                trailing: 0.0,
-            })
-            .grow_w()
-            .id(id.to_string()),
-    )
-    .any()
+    scroll(body(lines, id)).any()
+}
+
+/// A page's lines without the scroll.
+fn body(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
+    column(PieceVec(lines))
+        .spacing(0.0)
+        .align(HAlign::Leading)
+        .padding(day_spec::Insets {
+            top: PAGE_TOP,
+            leading: 0.0,
+            bottom: PAGE_BOTTOM,
+            trailing: 0.0,
+        })
+        .grow_w()
+        .id(id.to_string())
+        .any()
 }
 
 /// The settings root as the Settings app's home: the About header, then one row per group with
@@ -872,6 +875,13 @@ pub(super) fn group_page(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
     let mut lines: Vec<AnyPiece> = Vec::new();
     group_lines(&inst, g, &mut lines);
     Some(page(lines, &format!("prefs-group-{}", g.id)))
+}
+
+/// One group's lines with no scroll, for a sheet's own `scroll`.
+pub(super) fn group_body(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
+    let mut lines: Vec<AnyPiece> = Vec::new();
+    group_lines(&inst, g, &mut lines);
+    Some(body(lines, &format!("prefs-group-{}", g.id)))
 }
 
 /// The About page: the app's identity centered at the top, then the links, the

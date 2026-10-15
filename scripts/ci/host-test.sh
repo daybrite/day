@@ -22,15 +22,6 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-# day-sqlite-worker's native engine build (the vendored SQLite + musl shim, docs/persistence.md)
-# is a gcc/clang recipe with no MSVC port, and Windows has no native consumer: the engine's
-# product form is wasm32 (exercised by the web-dom combo) and its native form exists for the
-# unix test hosts. Skip it on Windows rather than carry a cl port nothing ships.
-windows_excludes=""
-case "$(uname -s)" in
-MINGW* | MSYS* | CYGWIN*) windows_excludes="--exclude day-sqlite-worker" ;;
-esac
-
 # On a MinGW toolchain (windows-gnu), link the tests without section garbage collection, as
 # `day build` does for the windows-qt and windows-gtk apps (apply_mingw_registration_guard in
 # crates/day-cli/src/ops.rs). GNU ld has no way to see that a `linkme` slice element is used:
@@ -43,18 +34,13 @@ if rustc -vV | grep -q '^host: .*-windows-gnu'; then
     export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }-C link-arg=-Wl,--no-gc-sections"
 fi
 
-# $windows_excludes is unquoted: empty means no extra words, non-empty splits into
-# the two flag words (bash 3.2 on macOS mishandles empty arrays under `set -u`).
 # --no-fail-fast: one red crate must not hide another's failures; a leg's first CI run on new
 # hardware surfaced failures one round-trip at a time without it (exit is nonzero either way).
 # --features day-pieces/dyn-registry: no member turns the dynamic piece registry on now that its
 # consumer, day-lite, lives in its own repository, so without the flag its tests never run.
 # Exercise the optional HTTP provider as well as the default native transport.
-# Enable persistence's date and time codecs explicitly too: they are opt-in and no member
-# turns them on, so without the flag their tests never run.
 exec cargo test --locked --workspace --no-fail-fast \
-    --features day-pieces/dyn-registry,day-persistence/datetime,day-part-http/reqwest \
-    $windows_excludes \
+    --features day-pieces/dyn-registry,day-part-http/reqwest \
     --exclude day-appkit \
     --exclude day-gtk \
     --exclude day-qt \

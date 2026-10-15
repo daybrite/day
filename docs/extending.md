@@ -513,7 +513,7 @@ files = ["web/day-sql-worker.js"]   # staged beside them, loaded by the modules
 `day build -t web-dom` stages them under `dist/modules/<crate>/` for every crate the wasm build
 links. A module exports `register(rt)`, which returns wasm imports, and optionally
 `start(rt, module)`, which the page awaits before the app's entry point.
-[docs/web.md](web.md#web-modules) has the contract; `crates/day-sqlite-worker` is the
+[docs/web.md](web.md#web-modules) has the contract; [`day-sqlite-worker`](https://github.com/daybrite/day-persistence/tree/main/crates/day-sqlite-worker) is the
 reference, and `scripts/ci/web-shim-abi.py` checks that a crate's modules supply every import
 its Rust declares.
 

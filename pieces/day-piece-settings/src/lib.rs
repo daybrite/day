@@ -1369,10 +1369,11 @@ impl Prefs {
         }
     }
     /// One group's sections without a scroll, for a sheet that stacks several groups and
-    /// owns the scrolling itself.
+    /// owns the scrolling itself: put the bodies in one `scroll`. The phones keep their native
+    /// shape, sized to its rows.
     pub fn group_body(&self, id: &str) -> AnyPiece {
         match self.0.group(id) {
-            Some(g) => group_page(self.0.clone(), g, true),
+            Some(g) => group_body(self.0.clone(), g),
             None => column(()).any(),
         }
     }
@@ -1884,8 +1885,36 @@ fn group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
     composed_group_page(inst, g, desktop)
 }
 
-/// A group's page from ordinary Day pieces: its sections as a form, then its custom piece.
-fn composed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
+/// One group's sections with no scroll of their own (see [`Prefs::group_body`]). The phones'
+/// native pages size themselves to their rows inside a Day `scroll`.
+fn group_body(inst: Rc<Installed>, g: &Group) -> AnyPiece {
+    #[cfg(all(feature = "uikit", target_os = "ios"))]
+    {
+        if let Some(p) = uikit_impl::group_body(inst.clone(), g) {
+            return p;
+        }
+    }
+    #[cfg(all(feature = "mdc", target_os = "android"))]
+    {
+        if let Some(p) = android_impl::group_body(inst.clone(), g) {
+            return p;
+        }
+    }
+    #[cfg(all(feature = "arkui", target_env = "ohos"))]
+    {
+        if let Some(p) = arkui_impl::group_body(inst.clone(), g) {
+            return p;
+        }
+    }
+    column((composed_group_form(inst, g, false),))
+        .align(HAlign::Leading)
+        .padding(16.0)
+        .grow_w()
+        .any()
+}
+
+/// A group's sections as a form, then its custom piece.
+fn composed_group_form(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
     let mut parts: Vec<AnyPiece> = Vec::new();
     for s in &g.sections {
         if let Some(p) = section_piece(inst.clone(), s, desktop) {
@@ -1895,7 +1924,14 @@ fn composed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiec
     if let Some(custom) = &g.custom {
         parts.push(custom());
     }
-    let body = form(PieceVec(parts)).id(format!("prefs-group-{}", g.id));
+    form(PieceVec(parts))
+        .id(format!("prefs-group-{}", g.id))
+        .any()
+}
+
+/// A group's page from ordinary Day pieces: its sections as a form, then its custom piece.
+fn composed_group_page(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiece {
+    let body = composed_group_form(inst, g, desktop);
     // A desktop panel fits its page (`size_to_fit`), so the page measures its content; past
     // the height the window can give it (a long page, a large text size) it scrolls.
     if desktop {

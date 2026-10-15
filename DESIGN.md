@@ -376,7 +376,7 @@ Day runtime dependencies), and `day-cli` (the `day` binary).
 |---|---|---|
 | `day-reactive` | `Signal<T>`, `Memo<T>`, `Effect`, `Trigger`, `Scope`, `bind`/`watch`, batching, `Setter`, `Binding` (the two-way binding trait: `read`/`write`/`peek`; re-exported by day-pieces), `on_main` scheduler hook | — |
 | `day-model` | the per-property observable store ([docs/model.md](docs/model.md)): `Store`/`Keyed`/`Elem`/`Field`, path interning + trigger reclamation, integer/`Uuid`/`String` keys behind `ModelId<M>`, the change log, background transactions; opt-in via the facade's `model` feature | day-reactive, uuid |
-| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)); an app depends on it directly, beside the facade, and nothing in the framework depends on it: `ModelContainer`, the `Model` trait with its derive re-exported under the same name, a `prelude`, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), attached external databases (`attach_database`, `external = "alias"` models over tables the container never migrates, swapped in place for a downloaded update) and value links across them (`link(…)`, relations without a key), `container.undo(levels)`; opt-in via the facade's `persistence` feature | day-model, day-reactive (+ day-pieces under `pieces`) |
+| `day-persistence` | SQLite storage for the model ([docs/persistence.md](docs/persistence.md)); an app depends on it directly, beside the facade, and nothing in the framework depends on it: `ModelContainer`, the `Model` trait with its derive re-exported under the same name, a `prelude`, the change-log→SQL fold, typed live queries (`Query`/`LiveSet`, FTS5 + R*Tree through the derive), `SqliteDriver` with the rusqlite `Sqlite` and `Recorder` built-ins (engine features `bundled`/`system`/`cipher`), migrations, codecs, maintenance, external-change detection (`check_external` over `PRAGMA data_version`), relations (`One`/`Many`, delete rules, ordered to-many, generated join tables), attached external databases (`attach_database`, `external = "alias"` models over tables the container never migrates, swapped in place for a downloaded update) and value links across them (`link(…)`, relations without a key), `container.undo(levels)`; independently versioned in [daybrite/day-persistence](https://github.com/daybrite/day-persistence) | day-model, day-reactive (+ day-pieces under `pieces`) |
 | `day-persistence-macros` | `#[derive(Model)]` (same no-syn construction as day-macros): the `#[model(…)]` grammar and the schema half; it expands to day-macros' `observable_impls!` for the observable half | — (proc-macro) |
 | `day-sqlite-worker` | The web engine behind day-persistence ([docs/persistence.md](docs/persistence.md)): the vendored SQLite amalgamation compiled to wasm with no libc and no wasm-bindgen, a VFS over the day-sql worker page's synchronous OPFS access-handle imports (plus an in-RAM default VFS for `:memory:`), the statement protocol the main thread speaks over the SharedArrayBuffer channel, and the browser half itself: `web/day-sql.js` and `web/day-sql-worker.js`, declared in `[package.metadata.day.web]` ([§15.2](#152-package-layout-and-aggregation)) so the host page carries no SQL; unit-tests natively against an in-memory OPFS fake | (vendored C only) |
 | `day-geometry` | `Point`, `Size`, `Rect`, `Insets`, `Color`, `Affine` — plain `Copy` value types shared by layout, canvas, and the spec | — |
@@ -6483,19 +6483,28 @@ Day-Showcase gained a Model page with walkthrough coverage.
 
 ## Addendum (2026-08-22) — day-persistence: SQLite storage for the model
 
+`day-persistence`, `day-persistence-macros`, and `day-sqlite-worker` live in
+[daybrite/day-persistence](https://github.com/daybrite/day-persistence). The dependency remains
+one-way: persistence consumes Day's public model, reactive, async, and optional list APIs.
+Day retains `day-model` and `observable_impls!`; no persistence implementation is vendored back
+into the framework. The extension owns the browser worker protocol and stages its JS through
+`package.metadata.day.web`. It runs its own engine/derive/codec/worker tests and a portable demo
+script; Day's app integration jobs continue to exercise its consumers.
+
 > [!IMPORTANT]
-> **Decoupled from the facade (2026-10-13).** Four statements below describe the first shape
+> **Decoupled from the facade (2026-10-13), extracted (2026-10-15).** Four statements below describe the first shape
 > and no longer hold. The `day` facade has no `persistence`, `sqlite-system` or `sqlite-cipher`
 > feature and re-exports nothing: an app depends on `day-persistence` directly, picks the
 > engine with that crate's `system`/`cipher` features, and writes `use
-> day_persistence::prelude::*`. `#[derive(Model)]` lives in `crates/day-persistence-macros`
+> day_persistence::prelude::*`. The crate paths below now refer to that external repository.
+> `#[derive(Model)]` lives in `crates/day-persistence-macros`
 > and expands to day-macros' `observable_impls!` for its observable half; day-macros keeps
 > `Observable`, which still accepts `#[model(…)]` and reads only `id`. The `DayDate`/`DayTime`
 > codecs are day-persistence's `datetime` feature, not a feature of day-piece-datetime. The
 > day-sql channel and worker script ship in `crates/day-sqlite-worker/web/` and reach the page
 > through `[package.metadata.day.web]`. The result is three crates that use the framework's
-> public API and that nothing in the framework depends on, so they can move to a repository of
-> their own; [docs/persistence.md](docs/persistence.md) "The crate's boundary" lists the API
+> public API and that nothing in the framework depends on, now maintained and versioned in
+> [daybrite/day-persistence](https://github.com/daybrite/day-persistence); [docs/persistence.md](docs/persistence.md) "The crate's boundary" lists the API
 > they use.
 
 Adopted as phase 2 of the same plan: the change log, folded into SQL.

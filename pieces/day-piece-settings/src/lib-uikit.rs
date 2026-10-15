@@ -1254,6 +1254,9 @@ impl GroupedSection {
 /// The inset grouped table: the page.
 struct Grouped {
     sections: Vec<GroupedSection>,
+    /// As tall as its rows inside a sheet's own `scroll` (`group_body`), rather than filling
+    /// the height it is offered.
+    hug: bool,
 }
 
 impl Piece for Grouped {
@@ -1267,7 +1270,7 @@ impl Piece for Grouped {
             Rc::new(TableLayout),
             Flex {
                 grow_w: true,
-                grow_h: true,
+                grow_h: !self.hug,
                 ..Default::default()
             },
             // Not a layout boundary: a self-sizing table's height follows its cells, and the
@@ -2172,18 +2175,34 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
             sections.push(GroupedSection::new(cells));
         }
     }
-    Some(Grouped { sections }.id("settings-root").any())
+    Some(
+        Grouped {
+            sections,
+            hug: false,
+        }
+        .id("settings-root")
+        .any(),
+    )
 }
 
 /// One group's page: its sections as the table's. A group with a bespoke page piece keeps the
 /// composed page, where that piece has the room it was designed for.
 pub(super) fn group_page(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
+    group_table(&inst, g, false)
+}
+
+/// One group's table as tall as its rows, for a sheet's own `scroll`.
+pub(super) fn group_body(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
+    group_table(&inst, g, true)
+}
+
+fn group_table(inst: &Rc<Installed>, g: &Group, hug: bool) -> Option<AnyPiece> {
     if g.custom.is_some() {
         return None;
     }
-    let sections = group_sections(&inst, g);
+    let sections = group_sections(inst, g);
     Some(
-        Grouped { sections }
+        Grouped { sections, hug }
             .id(format!("prefs-group-{}", g.id))
             .any(),
     )
@@ -2285,5 +2304,12 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         )]));
     }
 
-    Some(Grouped { sections }.id("about-page").any())
+    Some(
+        Grouped {
+            sections,
+            hug: false,
+        }
+        .id("about-page")
+        .any(),
+    )
 }
