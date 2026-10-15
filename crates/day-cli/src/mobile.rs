@@ -2635,7 +2635,7 @@ where
         .strings(endian, file.data(), strings_index)
         .map_err(|e| e.to_string())?;
     for entry in entries {
-        if entry.tag32(endian) == Some(object::elf::DT_NEEDED)
+        if entry.d_tag(endian) == object::elf::DT_NEEDED
             && let Some(index) = entry.val32(endian)
             && strings
                 .get(index)
@@ -3614,21 +3614,21 @@ mod android_cxx_tests {
         put16(&mut bytes, 58, 64);
         put16(&mut bytes, 60, 3);
         put16(&mut bytes, 62, 2);
-        put32(&mut bytes, 128 + 4, object::elf::SHT_DYNAMIC);
+        put32(&mut bytes, 128 + 4, object::elf::SHT_DYNAMIC.0);
         put64(&mut bytes, 128 + 24, 256);
         put64(&mut bytes, 128 + 32, 32);
         put32(&mut bytes, 128 + 40, 2);
         put64(&mut bytes, 128 + 56, 16);
-        put32(&mut bytes, 192 + 4, object::elf::SHT_STRTAB);
+        put32(&mut bytes, 192 + 4, object::elf::SHT_STRTAB.0);
         put64(&mut bytes, 192 + 24, 288);
         put64(&mut bytes, 192 + 32, strings.len() as u64);
         put64(
             &mut bytes,
             256,
             if needs_runtime {
-                u64::from(object::elf::DT_NEEDED)
+                object::elf::DT_NEEDED.0 as u64
             } else {
-                u64::from(object::elf::DT_SONAME)
+                object::elf::DT_SONAME.0 as u64
             },
         );
         put64(&mut bytes, 264, 1);

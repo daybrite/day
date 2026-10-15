@@ -5156,7 +5156,8 @@ manifest through `day metadata --json` (a versioned envelope), never by parsing 
   Studio packages the `.so` the last `day build` compiled. Day stages the selected flavor/profile's
   archive regardless of destination mtime: switching to an older cached flavor must replace the
   previous build's newer file. After pruning stale ABI libraries,
-  Day inspects the app ELF dynamic dependencies. If it needs `libc++_shared.so`, Day stages
+  Day inspects the app ELF dynamic dependencies using `object`'s typed `DT_NEEDED` tags,
+  rather than searching binary bytes for a library name. If it needs `libc++_shared.so`, Day stages
   that ABI's runtime from the selected NDK beside the app library; a missing required runtime
   fails the build. Apps without that dependency do not ship it. A package can additionally declare
   `[package.metadata.day.android].disable-native-heap-pointer-tagging = { feature = "servo" }`
