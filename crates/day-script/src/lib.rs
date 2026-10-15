@@ -849,6 +849,19 @@ fn exec(step: Step, revision: u32) -> Reply {
                         return Ok(Reply::ok());
                     }
                 }
+                let node = find(&id)?;
+                let state = probe(&id)?;
+                if with_tree(|t| t.node_kind(node)) == Some(day_spec::kinds::PICKER)
+                    && (index < 0 || index as usize >= state.options.len())
+                {
+                    return Err(Reply::fail(
+                        format!(
+                            "select {id:?}: index {index} is out of range for {} options",
+                            state.options.len()
+                        ),
+                        false,
+                    ));
+                }
                 emit(&id, Event::SelectionChanged(index))?;
                 Ok(Reply::ok())
             }

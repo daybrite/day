@@ -618,7 +618,7 @@ pub struct Link {
 /// Build a [`Link`] that activates `url` through [`open_link`] when tapped.
 pub fn link<M>(text: impl IntoText<M>, url: impl Into<String>) -> Link {
     Link {
-        label: label(text).color(LINK_BLUE),
+        label: label(text),
         url: url.into(),
     }
 }
@@ -644,10 +644,57 @@ impl Link {
 impl Piece for Link {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let url = self.url;
-        self.label
-            .on_tap(move || open_link(&url))
-            .a11y(|b| b.role(Role::Button))
-            .build(cx)
+        let mut label = self.label;
+        if day_core::capability(day_spec::Cap::TextLinks) == day_spec::Support::Native {
+            // Use native link runs for theme colors, hover/pressed states, keyboard focus
+            // and accessibility. Keep ranges together with localized/reactive text.
+            let source = label.text.clone();
+            let font = day_spec::FontSpec {
+                style: label.font,
+                scale: label.font_scale,
+                weight: label.weight,
+                italic: label.italic,
+                ..Default::default()
+            };
+            let color = label.color.as_ref().map(|c| c.get_untracked());
+            let target = url.clone();
+            let runs = move |text: &str| {
+                vec![day_spec::TextRun {
+                    range: 0..text.len(),
+                    font,
+                    color,
+                    link: Some(target.clone()),
+                    ..Default::default()
+                }]
+            };
+            let initial = source.initial();
+            label.runs = runs(&initial);
+            label.text = TextSource::Static(initial);
+            let node = label.build(cx);
+            source.bind_to(
+                node,
+                move |text| {
+                    let spans = runs(&text);
+                    Box::new(LabelPatch::Runs(text, spans))
+                },
+                true,
+            );
+            // Synthetic taps still exercise link policy; native activation is LinkActivated.
+            cx.on(node, move |ev| {
+                if matches!(ev, Event::Tap(_)) {
+                    open_link(&url);
+                }
+            });
+            node
+        } else {
+            if label.color.is_none() {
+                label = label.color(LINK_BLUE);
+            }
+            label
+                .on_tap(move || open_link(&url))
+                .a11y(|b| b.role(Role::Button))
+                .build(cx)
+        }
     }
 }
 

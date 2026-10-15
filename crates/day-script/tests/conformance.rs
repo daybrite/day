@@ -294,3 +294,40 @@ fn a_native_field_the_toolkit_cannot_read_is_recorded_not_failed() {
         assert!(t.native_unread.is_empty(), "{t:?}");
     }
 }
+
+#[test]
+fn picker_selection_rejects_invalid_indices_without_changing_selection() {
+    let _probe = boot_with(|| {
+        day_core::AnyPiece::new(
+            day_pieces::picker(["First", "Second"], day_reactive::Signal::new(0usize))
+                .id("picker-bounds"),
+        )
+    });
+    for index in [-1, 2, 999] {
+        let reply = day_script::step(Step::Select {
+            id: "picker-bounds".into(),
+            index,
+            if_present: false,
+        });
+        assert!(!reply.ok && !reply.retryable, "{reply:?}");
+        assert!(reply.error.unwrap().contains("out of range for 2 options"));
+    }
+    let current: Step = serde_json::from_value(serde_json::json!({
+        "op": "assert_text", "id": "picker-bounds", "text": "First"
+    }))
+    .unwrap();
+    assert!(day_script::step(current).ok);
+    assert!(
+        day_script::step(Step::Select {
+            id: "picker-bounds".into(),
+            index: 1,
+            if_present: false,
+        })
+        .ok
+    );
+    let current: Step = serde_json::from_value(serde_json::json!({
+        "op": "assert_text", "id": "picker-bounds", "text": "Second"
+    }))
+    .unwrap();
+    assert!(day_script::step(current).ok);
+}

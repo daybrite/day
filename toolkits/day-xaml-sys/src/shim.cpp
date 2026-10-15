@@ -2922,7 +2922,9 @@ void* day_xaml_scroll_new(void** out_content, int horizontal) {
         sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
         sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
     }
+    sv.VerticalContentAlignment(WUX::VerticalAlignment::Top);
     WUXC::Canvas content;
+    content.VerticalAlignment(WUX::VerticalAlignment::Top);
     sv.Content(content);
     if (out_content) *out_content = boxh(content);
     return boxh(sv);
@@ -3006,18 +3008,18 @@ void* day_xaml_canvas_new(unsigned long long id,
                           int (*handles)(unsigned long long),
                           void (*cb)(unsigned long long, const char*, int)) try {
     WUXC::Canvas c;
-    // An UNPAINTED Canvas is not hit-testable, so a press would land only where a drawn shape
-    // happens to be and the empty canvas could never be focused (or tapped). A transparent
-    // Panel BACKGROUND fixes that and, unlike the list cell's background Rectangle, survives
-    // the `Children().Clear()` every redraw does.
-    c.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
+    // The drawing is replaced every frame. Keep it entirely outside hit testing so
+    // XAML's press/release recognizer stays on the persistent host while its children
+    // are repainted. Disabling individual shapes is insufficient: clearing the Canvas
+    // also invalidates gestures targeting that Canvas itself.
+    c.IsHitTestVisible(false);
     WUXC::ContentControl host;
+    host.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
     host.IsTabStop(true);
     host.HorizontalContentAlignment(WUX::HorizontalAlignment::Stretch);
     host.VerticalContentAlignment(WUX::VerticalAlignment::Stretch);
     host.Content(c);
-    // A press focuses it, the way clicking a text box does. The press lands on the Canvas and
-    // BUBBLES to the host, which is the element that can actually take focus.
+    // A press focuses the persistent host, the way clicking a text box does.
     host.PointerPressed([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
         if (auto ctl = s.try_as<WUXC::Control>()) ctl.Focus(WUX::FocusState::Pointer);
     });
@@ -3524,7 +3526,9 @@ void* day_xaml_list_new(void** out_content) {
     WUXC::ScrollViewer sv;
     sv.HorizontalScrollBarVisibility(WUXC::ScrollBarVisibility::Disabled);
     sv.VerticalScrollBarVisibility(WUXC::ScrollBarVisibility::Auto);
+    sv.VerticalContentAlignment(WUX::VerticalAlignment::Top);
     WUXC::Canvas content;
+    content.VerticalAlignment(WUX::VerticalAlignment::Top);
     sv.Content(content);
     if (out_content) *out_content = boxh(content);
     return boxh(sv);
@@ -5286,6 +5290,9 @@ void day_xaml_tabs_content_size(void* tabs, double* w, double* h) {
 // shared with the handlers at construction, as the text area's `g_selectable` is, so they never
 // touch this map. Entries drop in day_xaml_delete.
 static std::map<void*, std::shared_ptr<bool>> g_field_live;
+// XAML may not expose Parent until layout loads the control. Remember the collection
+// it was inserted into so an initial secure replacement cannot leave a plain field behind.
+static std::map<void*, winrt::weak_ref<WUXC::Panel>> g_field_parents;
 
 // ---- focus (docs/focus.md) ----
 // Observe: kind 1 = gained, 0 = lost, 2 = submitted (Enter in a TextBox or a PasswordBox). System
@@ -5513,7 +5520,12 @@ void* day_xaml_field_set_secure(void* h, int secure, unsigned long long id,
         // Where the old control hangs. Day parents every field on a Canvas; anything else has no
         // child list to take the replacement's place in, so the field stays the class it is.
         WUXC::Panel parent{ nullptr };
-        if (auto above = oc.Parent()) {
+        if (auto found = g_field_parents.find(h); found != g_field_parents.end()) {
+            parent = found->second.get();
+        }
+        auto above = oc.Parent();
+        if (!above) above = WUXM::VisualTreeHelper::GetParent(oc).try_as<FrameworkElement>();
+        if (!parent && above) {
             parent = above.try_as<WUXC::Panel>();
             if (!parent) return nullptr;
         }
@@ -5558,8 +5570,10 @@ void* day_xaml_field_set_secure(void* h, int secure, unsigned long long id,
                 // In beside the old control first, which keeps focus where it is until the
                 // replacement can take it. A throw here leaves the old field as it was.
                 kids.InsertAt(idx, fresh);
+                g_field_parents[nh] = winrt::make_weak(parent);
             } else {
-                parent = nullptr;
+                day_xaml_delete(nh);
+                return nullptr;
             }
         }
         // From here the replacement is the field. The old control goes quiet before focus moves
@@ -5816,36 +5830,34 @@ static WUXM::Geometry geometry_from_data(const std::string& data, bool even_odd)
     }
 }
 
-// The theme foreground an untinted TEMPLATE glyph draws in (docs/vectors.md "Template"): the
-// island's text brush, looked up as an application resource — a snapshot, not a ThemeResource
-// binding, so callers re-resolve it on `ActualThemeChanged` (the card fill does the same).
-static WUXM::Brush template_foreground_brush() {
-    try {
-        auto res = WUX::Application::Current().Resources();
-        auto key = winrt::box_value(L"TextFillColorPrimaryBrush");
-        if (res.HasKey(key)) return res.Lookup(key).as<WUXM::Brush>();
-        key = winrt::box_value(L"ApplicationForegroundThemeBrush");
-        if (res.HasKey(key)) return res.Lookup(key).as<WUXM::Brush>();
-    } catch (...) {
-    }
-    return WUXM::SolidColorBrush(color_argb(0xFF000000u));
-}
-
-// Paint every Path in a template glyph's canvas with the current theme foreground.
-static void paint_template_paths(WUXC::Canvas const& canvas) {
-    auto brush = template_foreground_brush();
-    for (auto const& child : canvas.Children()) {
-        if (auto p = child.try_as<WUXSh::Path>()) {
-            if (p.Fill()) p.Fill(brush);
-            if (p.Stroke()) p.Stroke(brush);
+// Resolve template paint in each Path's theme, including live window overrides and
+// high contrast. A style retains ThemeResource expressions rather than brush snapshots.
+static void style_template_path(WUXSh::Path const& path, bool fill, bool stroke) {
+    static WUX::Style styles[4] = {nullptr, nullptr, nullptr, nullptr};
+    int mask = (fill ? 1 : 0) | (stroke ? 2 : 0);
+    if (!styles[mask]) {
+        std::wstring xaml = L"<Style xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" TargetType=\"Path\">";
+#ifdef DAY_WINUI
+        auto brush = L"{ThemeResource TextFillColorPrimaryBrush}";
+#else
+        auto brush = L"{ThemeResource ApplicationForegroundThemeBrush}";
+#endif
+        for (auto property : {L"Fill", L"Stroke"}) {
+            if ((property == std::wstring(L"Fill") && fill) ||
+                (property == std::wstring(L"Stroke") && stroke)) {
+                xaml += std::wstring(L"<Setter Property=\"") + property + L"\" Value=\"" + brush + L"\"/>";
+            }
         }
+        xaml += L"</Style>";
+        styles[mask] = WUXMk::XamlReader::Load(xaml).as<WUX::Style>();
     }
+    path.Style(styles[mask]);
 }
 
 // A glyph sized by the layout: the shapes go in a Canvas the size of the source viewport, and a
 // Viewbox scales that to whatever frame day assigns — so one geometry serves every size.
 // `tinted` 1 replaces every authored paint with `argb`; 2 paints them with the theme foreground
-// (a template glyph, repainted when the island's theme changes); 0 keeps the art's own colors.
+// (a template glyph with live theme resources); 0 keeps the art's own colors.
 void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tinted) {
     Geom g = parse_geom(spec);
     if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
@@ -5859,11 +5871,12 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
             if (!geo) continue;
             WUXSh::Path p;
             p.Data(geo);
-            if (tinted) {
+            if (tinted == 2) {
+                style_template_path(p, sh.fill != 0, sh.stroke != 0);
+            } else if (tinted) {
                 // The tint composes over the geometry: fill where the art filled, stroke where
                 // it stroked, so a glyph drawn as an outline stays an outline.
-                auto brush = tinted == 2 ? template_foreground_brush()
-                                         : WUXM::Brush(WUXM::SolidColorBrush(color_argb(argb)));
+                auto brush = WUXM::Brush(WUXM::SolidColorBrush(color_argb(argb)));
                 if (sh.fill) p.Fill(brush);
                 if (sh.stroke) p.Stroke(brush);
             } else {
@@ -5882,11 +5895,6 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
             any = true;
         }
         if (!any) return nullptr;
-        if (tinted == 2) {
-            canvas.ActualThemeChanged([](FrameworkElement const& sender, WF::IInspectable const&) {
-                paint_template_paths(sender.as<WUXC::Canvas>());
-            });
-        }
         WUXC::Viewbox vb;
         vb.Child(canvas);
         // Matches the image content modes: 0=fit, 1=fill (crop), 2=stretch.
@@ -6083,7 +6091,10 @@ void* day_xaml_image_new(const char* uri, int mode) {
 
 void day_xaml_add_child(void* parent, void* child) {
     guard([&] {
-        if (auto p = elem(parent).try_as<WUXC::Panel>()) p.Children().Append(elem(child));
+        if (auto p = elem(parent).try_as<WUXC::Panel>()) {
+            p.Children().Append(elem(child));
+            if (g_field_live.count(child)) g_field_parents[child] = winrt::make_weak(p);
+        }
     });
 }
 // Move `child` under `parent`, detaching it from wherever it currently hangs.
@@ -6102,7 +6113,10 @@ void day_xaml_reparent(void* parent, void* child) {
             }
         }
         // Appended last, so it is topmost among its new siblings — what a cover needs.
-        if (auto p = elem(parent).try_as<WUXC::Panel>()) p.Children().Append(c);
+        if (auto p = elem(parent).try_as<WUXC::Panel>()) {
+            p.Children().Append(c);
+            if (g_field_live.count(child)) g_field_parents[child] = winrt::make_weak(p);
+        }
     });
 }
 void day_xaml_remove_child(void* parent, void* child) {
@@ -6122,6 +6136,7 @@ void day_xaml_delete(void* h) {
     picker_forget(h);
     g_clip_geometry.erase(h);
     g_field_live.erase(h);
+    g_field_parents.erase(h);
     g_button_selected.erase(h);
     g_button_tint.erase(h);
     delete reinterpret_cast<Node*>(h);
@@ -9353,7 +9368,7 @@ void* day_picker_xaml_new(int style, const char* items_joined, int selected, uin
             cbi.Content(winrt::box_value(hs(it.c_str())));
             box.Items().Append(cbi);
         }
-        box.SelectedIndex(selected);
+        if (selected >= 0 && selected < static_cast<int>(items.size())) box.SelectedIndex(selected);
         box.SelectionChanged(
             [id, cb](WF::IInspectable const& s, WUXC::SelectionChangedEventArgs const&) {
                 cb(id, s.as<WUXC::ComboBox>().SelectedIndex());
@@ -9442,10 +9457,11 @@ void day_picker_xaml_set_enabled(void* handle, int on) {
     });
 }
 
-void day_picker_xaml_set_selected(void* handle, int idx) {
+void day_picker_xaml_set_selected(void* handle, int idx) try {
     WUX::UIElement e{ nullptr };
     winrt::copy_from_abi(e, day_xaml_unbox(handle));
     if (auto box = e.try_as<WUXC::ComboBox>()) {
+        if (idx < 0 || static_cast<uint32_t>(idx) >= box.Items().Size()) return;
         if (box.SelectedIndex() != idx) box.SelectedIndex(idx);
         return;
     }
@@ -9462,6 +9478,8 @@ void day_picker_xaml_set_selected(void* handle, int idx) {
         // change, so re-selecting the current segment is a no-op.
         if (auto tb = kids.GetAt(idx).try_as<WUXCP::ToggleButton>()) tb.IsChecked(true);
     }
+} catch (...) {
+    // No WinRT exception may unwind across this Rust FFI boundary.
 }
 
 } // extern "C"
@@ -9707,6 +9725,7 @@ void day_xaml_tree_add(void *w, uint64_t token, uint64_t parent, int hasParent, 
     auto found=s->cells.find(token);
     if(found==s->cells.end()) {
         WUXC::Canvas c; c.Height(s->height); c.HorizontalAlignment(WUX::HorizontalAlignment::Stretch);
+        c.FlowDirection(WUX::FlowDirection::LeftToRight);
         found=s->cells.emplace(token,c).first;
     }
     WUXA::AutomationProperties::SetName(found->second,hs(text));

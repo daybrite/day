@@ -1871,6 +1871,8 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 );
             }
             n.handle = Some(new);
+            n.last_native_frame = None;
+            self.mark_needs_measure_impl(node);
         }
     }
 
