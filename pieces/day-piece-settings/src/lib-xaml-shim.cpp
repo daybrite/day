@@ -42,6 +42,7 @@
 // Windows-only; compiled by build.rs and linked alongside day-xaml-sys. Not verified locally.
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.UI.h>
 // One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
 // windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
@@ -50,6 +51,7 @@
 #include <winrt/Microsoft.UI.Xaml.h>
 #include <winrt/Microsoft.UI.Xaml.Automation.h>
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
+#include <winrt/Microsoft.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Microsoft.UI.Xaml.Markup.h>
 #include <winrt/Microsoft.UI.Xaml.Media.h>
 #else
@@ -57,6 +59,7 @@
 #include <winrt/Windows.UI.Xaml.h>
 #include <winrt/Windows.UI.Xaml.Automation.h>
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#include <winrt/Windows.UI.Xaml.Controls.Primitives.h>
 #include <winrt/Windows.UI.Xaml.Markup.h>
 #include <winrt/Windows.UI.Xaml.Media.h>
 #endif
@@ -67,6 +70,7 @@
 #include <cstdint>
 #include <limits>
 #include <string>
+#include <vector>
 
 using namespace winrt;
 namespace WF = winrt::Windows::Foundation;
@@ -340,6 +344,48 @@ static WUXC::Grid build_text(const char *header, const char *description, unsign
 }
 
 extern "C" {
+
+// Standard GroupIcons have no bundled-image name. Keep their native icon slot populated
+// alongside image-backed groups, including after localization rebuilds the menu items.
+void day_settings_xaml_sidebar_symbols(void *abi, const char *paths) {
+    try {
+        WUX::UIElement element{nullptr};
+        winrt::copy_from_abi(element, abi);
+        auto nav = element.try_as<WUXC::NavigationView>();
+        if (!nav) return;
+        std::vector<std::string> outlines;
+        std::string joined = paths ? paths : "";
+        size_t start = 0;
+        while (true) {
+            auto end = joined.find('\x1f', start);
+            outlines.push_back(joined.substr(start, end == std::string::npos ? end : end - start));
+            if (end == std::string::npos) break;
+            start = end + 1;
+        }
+        auto paint = [outlines](auto const& items) {
+            for (uint32_t i = 0; i < items.Size() && i < outlines.size(); ++i) {
+                if (outlines[i].empty()) continue;
+                auto item = items.GetAt(i).template try_as<WUXC::NavigationViewItem>();
+                if (!item || item.Icon()) continue;
+                // Day's symbol SVGs use a 24px viewport and even-odd filled geometry. Match
+                // both here: PathIcon does not scale its Data to NavigationView's 16px slot.
+                // Leave Foreground inherited for native theme and selection-state colors.
+                auto xaml = std::string("<PathIcon xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\" Data=\"F0 ")
+                    + outlines[i] + "\"/>";
+                auto icon = WUXMk::XamlReader::Load(hs(xaml.c_str())).as<WUXC::PathIcon>();
+                WUXM::ScaleTransform scale;
+                scale.ScaleX(16.0 / 24.0);
+                scale.ScaleY(16.0 / 24.0);
+                icon.Data().Transform(scale);
+                item.Icon(icon);
+            }
+        };
+        paint(nav.MenuItems());
+        auto observable = nav.MenuItems().as<WF::Collections::IObservableVector<WF::IInspectable>>();
+        observable.VectorChanged([paint](auto const& items, auto const&) { paint(items); });
+    } catch (...) {
+    }
+}
 
 // A card row. `glyph` is a Segoe symbol code point for the trailing action icon (0 = none;
 // U+E974 ChevronRightMed on a navigate row, U+E8A7 OpenInNewWindow on a link row).

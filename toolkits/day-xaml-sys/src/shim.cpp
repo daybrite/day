@@ -8210,6 +8210,16 @@ extern "C" void day_xaml_set_present_cb(void (*cb)(uint64_t, int, long long, con
     g_present_cb = cb;
 }
 
+// A settings action can originate in a secondary island. Attaching its ContentDialog to
+// the primary XamlRoot leaves the modal behind the owned preferences window.
+static WUX::XamlRoot presentation_root(AppWindow* app) {
+    auto active = GetAncestor(GetActiveWindow(), GA_ROOT);
+    auto secondary = g_sec_windows.find(active);
+    if (secondary != g_sec_windows.end() && secondary->second && secondary->second->root)
+        return secondary->second->root.XamlRoot();
+    return app->root.XamlRoot();
+}
+
 extern "C" void day_xaml_present_dialog(uint64_t req, const char* title, const char* message,
                                          const char* buttons_joined, const char* roles_joined,
                                          void* win) try {
@@ -8217,7 +8227,7 @@ extern "C" void day_xaml_present_dialog(uint64_t req, const char* title, const c
     auto app = reinterpret_cast<AppWindow*>(win);
     if (!app || !app->root) { if (g_present_cb) g_present_cb(req, 0, 0, ""); return; }
     WUXC::ContentDialog dlg;
-    dlg.XamlRoot(app->root.XamlRoot());
+    dlg.XamlRoot(presentation_root(app));
     if (title && *title) dlg.Title(winrt::box_value(hs(title)));
     if (message && *message) dlg.Content(winrt::box_value(hs(message)));
     // Map buttons in spec order to ContentDialog's Primary / Secondary / Close slots; the async
@@ -8250,7 +8260,7 @@ extern "C" void day_xaml_present_prompt(uint64_t req, const char* title, const c
     auto app = reinterpret_cast<AppWindow*>(win);
     if (!app || !app->root) { if (g_present_cb) g_present_cb(req, 0, 0, ""); return; }
     WUXC::ContentDialog dlg;
-    dlg.XamlRoot(app->root.XamlRoot());
+    dlg.XamlRoot(presentation_root(app));
     if (title && *title) dlg.Title(winrt::box_value(hs(title)));
     WUXC::StackPanel panel;
     if (message && *message) {
@@ -9554,6 +9564,8 @@ struct DayNativeTree {
     std::set<uint64_t> headers;
     std::vector<uint64_t> selection;
     bool suppress = false;
+    bool selection_pending = false;
+    bool containers_hooked = false;
     double height = 36;
     void *handle = nullptr;
     uint64_t id = 0;
@@ -9571,6 +9583,13 @@ void *day_xaml_tree_new(uint64_t id, double height, double indent, int selectabl
     void *result = nullptr;
     guard([&] {
         auto s = std::make_shared<DayNativeTree>(); s->view = WUXC::TreeView();
+        // A reusable host, not a binding to the cached Canvas: a recycled presenter can
+        // retain that UIElement and leave its next container blank (one native parent only).
+        // tree_frame explicitly moves the Canvas into its current realized host.
+        s->view.ItemTemplate(WUXMk::XamlReader::Load(
+            L"<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\">"
+            L"<Grid/>"
+            L"</DataTemplate>").as<WUX::DataTemplate>());
         s->id=id; s->height=height; s->expanded=expanded; s->selected=selected; s->viewport=viewport;
         s->view.CanDragItems(false); s->view.CanReorderItems(false);
         s->view.SelectionMode(!selectable ? WUXC::TreeViewSelectionMode::None : multi ? WUXC::TreeViewSelectionMode::Multiple : WUXC::TreeViewSelectionMode::Single);
@@ -9583,25 +9602,46 @@ void *day_xaml_tree_new(uint64_t id, double height, double indent, int selectabl
             if(auto s=weak.lock(); s && !s->suppress) { s->expanded(s->id,s->token(args.Node()),0); s->viewport(s->handle); }
         });
         auto reportSelection = [weak](auto const&, auto const&) {
-            if(auto s=weak.lock(); s && !s->suppress) {
-                s->suppress=true;
-                auto selected=s->view.SelectedNodes(); std::vector<uint64_t> tokens;
-                bool heading=false;
-                for(auto const& node:selected) {
-                    auto token=s->token(node);
-                    if(s->headers.count(token)) heading=true; else tokens.push_back(token);
-                }
-                if(heading) {
-                    // Headers have disclosure but no destination. Preserve the previous
-                    // leaf highlight when the native control tries to select a heading.
-                    selected.Clear();
-                    for(auto token:s->selection) {
-                        auto node=s->nodes.find(token);
-                        if(node!=s->nodes.end()) selected.Append(node->second);
+            if (auto s = weak.lock(); s && !s->suppress && !s->selection_pending) {
+                // SelectedNodes is still changing during SelectionChanged. Reading or
+                // correcting it here observes intermediate empty selections and re-enters
+                // WinUI's synchronization (a native stack overflow when rejecting a header).
+                // Coalesce notifications and read the final selection on the next UI turn.
+                s->selection_pending = true;
+                day_xaml_post([](void* raw) {
+                    std::unique_ptr<std::weak_ptr<DayNativeTree>> pending(
+                        static_cast<std::weak_ptr<DayNativeTree>*>(raw));
+                    if (auto s = pending->lock()) {
+                        s->selection_pending = false;
+                        guard([&] {
+                            auto selected = s->view.SelectedNodes();
+                            std::vector<uint64_t> tokens;
+                            bool heading = false;
+                            for (auto const& node : selected) {
+                                auto token = s->token(node);
+                                if (s->headers.count(token)) heading = true;
+                                else tokens.push_back(token);
+                            }
+                            if (heading) {
+                                s->suppress = true;
+                                try {
+                                    selected.Clear();
+                                    for (auto token : s->selection) {
+                                        auto node = s->nodes.find(token);
+                                        if (node != s->nodes.end()) selected.Append(node->second);
+                                    }
+                                } catch (...) {
+                                    s->suppress = false;
+                                    throw;
+                                }
+                                s->suppress = false;
+                            } else if (tokens != s->selection) {
+                                s->selection = tokens;
+                                s->selected(s->id, tokens.data(), int(tokens.size()));
+                            }
+                        });
                     }
-                } else s->selection=tokens;
-                s->suppress=false;
-                if(!heading) s->selected(s->id,tokens.data(),int(tokens.size()));
+                }, new std::weak_ptr<DayNativeTree>(weak));
             }
         };
 #ifdef DAY_WINUI
@@ -9624,7 +9664,34 @@ void *day_xaml_tree_new(uint64_t id, double height, double indent, int selectabl
         });
 #endif
         s->view.SizeChanged([weak](auto const&, auto const&) { if(auto s=weak.lock()) s->viewport(s->handle); });
-        s->view.Loaded([weak](auto const&, auto const&) { if(auto s=weak.lock()) s->viewport(s->handle); });
+        s->view.Loaded([weak](auto const&, auto const&) {
+            if (auto s = weak.lock()) {
+                if (!s->containers_hooked) {
+                    std::vector<WUX::DependencyObject> pending{s->view};
+                    while (!pending.empty()) {
+                        auto current = pending.back(); pending.pop_back();
+                        if (auto list = current.try_as<WUXC::ListViewBase>()) {
+                            list.ContainerContentChanging([weak](auto const&, auto const& args) {
+                                if (auto s = weak.lock()) {
+                                    if (args.InRecycleQueue()) {
+                                        if (auto host = args.ItemContainer().ContentTemplateRoot().template try_as<WUXC::Panel>())
+                                            host.Children().Clear();
+                                    }
+                                    // Realization can follow Expanding, and scrolling realizes
+                                    // rows without changing the TreeView's size.
+                                    s->viewport(s->handle);
+                                }
+                            });
+                            s->containers_hooked = true;
+                            break;
+                        }
+                        for (int i = 0; i < WUXM::VisualTreeHelper::GetChildrenCount(current); ++i)
+                            pending.push_back(WUXM::VisualTreeHelper::GetChild(current, i));
+                    }
+                }
+                s->viewport(s->handle);
+            }
+        });
     });
     return result;
 }
@@ -9658,6 +9725,23 @@ int day_xaml_tree_frame(void *w, uint64_t token, double *width) {
         auto s=day_native_trees.at(w); auto found=s->nodes.find(token); if(found==s->nodes.end()) return;
         auto n=found->second; int depth=1;
         for(auto p=n.Parent(); p; p=p.Parent()) { if(!p.IsExpanded()) return; ++depth; }
+        // The peer otherwise names the TreeViewNode object even with a visual template.
+        if (auto item = s->view.ContainerFromNode(n).try_as<WUXC::TreeViewItem>()) {
+            WUXA::AutomationProperties::SetName(item,
+                WUXA::AutomationProperties::GetName(s->cells.at(token)));
+            if (auto host = item.ContentTemplateRoot().try_as<WUXC::Panel>()) {
+                auto cell = s->cells.at(token);
+                auto parent = WUXM::VisualTreeHelper::GetParent(cell);
+                if (parent != host) {
+                    if (auto old = parent.try_as<WUXC::Panel>()) {
+                        uint32_t index = 0;
+                        if (old.Children().IndexOf(cell, index)) old.Children().RemoveAt(index);
+                    }
+                    host.Children().Clear();
+                    host.Children().Append(cell);
+                }
+            }
+        }
         *width=(std::max)(1.0,s->view.ActualWidth()-24.0*depth-16.0);
         s->cells.at(token).Width(*width); visible=1;
     }); return visible;

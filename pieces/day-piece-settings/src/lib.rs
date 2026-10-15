@@ -1851,7 +1851,10 @@ fn composed_window_shell(inst: Rc<Installed>) -> AnyPiece {
             _ => nav.item(id, title, build),
         };
     }
-    nav.any()
+    let nav = nav.any();
+    #[cfg(all(feature = "xaml", target_os = "windows"))]
+    let nav = xaml_impl::sidebar_symbols(nav, &inst.visible_groups());
+    nav
 }
 
 /// A group's page: its sections as a form, then its custom piece.

@@ -43,7 +43,26 @@ const DEFAULT_WIDTH: f64 = 480.0;
 const GLYPH_CHEVRON: u32 = 0xE974;
 const GLYPH_OPEN: u32 = 0xE8A7;
 
+/// Navigation's image channel handles bundled art. Standard symbols use Day's shared vectors
+/// here, including when a locale change replaces the NavigationViewItems.
+pub(super) fn sidebar_symbols(nav: AnyPiece, groups: &[&Group]) -> AnyPiece {
+    use day_xaml::XamlExt;
+    let paths = groups
+        .iter()
+        .map(|g| match &g.icon {
+            Some(GroupIcon::Symbol(symbol)) => symbol.outline_path().unwrap_or_default(),
+            _ => "",
+        })
+        .collect::<Vec<_>>()
+        .join("\u{1f}");
+    nav.xaml_raw(move |abi, _| unsafe {
+        day_settings_xaml_sidebar_symbols(abi, cstr(&paths).as_ptr());
+    })
+    .any()
+}
+
 unsafe extern "C" {
+    fn day_settings_xaml_sidebar_symbols(abi: *mut c_void, paths: *const c_char);
     fn day_settings_xaml_card_new(
         header: *const c_char,
         description: *const c_char,
