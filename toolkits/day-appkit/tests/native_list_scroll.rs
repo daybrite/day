@@ -143,6 +143,25 @@ mod native {
                         Err(_) => std::process::exit(1),
                     };
                     day_core::sleep(200).await;
+                    // Exercise a long viewport history. Native retirement must remove pooled
+                    // cells from Day's resize work set even though their row scopes survive.
+                    for row in (0..60).step_by(5) {
+                        table.scrollRowToVisible(row);
+                        table.layoutSubtreeIfNeeded();
+                        day_core::sleep(10).await;
+                    }
+                    let active = day_core::with_tree(|t| {
+                        let mut node = t.find_by_id("fixture-list").unwrap();
+                        while t.node_kind(node) != Some(day_spec::kinds::LIST) {
+                            node = t.first_child(node).unwrap();
+                        }
+                        t.list_cell_keys(node).len()
+                    });
+                    assert!(
+                        (1..30).contains(&active),
+                        "retired cells still participate in layout: {active}"
+                    );
+                    println!("native list active layout cells after scrolling: {active}");
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         assert_eq!(&rows.get()[..4], &[1, 2, 3, 0]);
                         assert_eq!(selected.get(), Some(0));
@@ -216,7 +235,8 @@ mod native {
                             })
                         })
                         .height(280.)
-                        .grow_w(),
+                        .grow_w()
+                        .id("fixture-list"),
                         label(move || format!("{} fixture rows", rows.with(|r| r.len()))),
                     ))
                     .spacing(10.)

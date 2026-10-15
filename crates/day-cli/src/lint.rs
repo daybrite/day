@@ -536,8 +536,8 @@ const ANDROID_CONFIG_CHANGES: &[&str] = &[
     "keyboardHidden",
     // Claimed, even though a light/dark switch does need the activity recreated: an app-level
     // `setApplicationNightMode` does not make the platform recreate it, so day-android performs
-    // that recreation itself (docs/appearance.md). Unclaiming this was tried and measured: the
-    // theme change then did nothing at all.
+    // that recreation itself (docs/settings.md "Appearance on Android"). Unclaiming this was
+    // tried and measured: the theme change then did nothing at all.
     "uiMode",
     "density",
     "locale",
@@ -1410,8 +1410,11 @@ fn collect(project: &Project) -> Vec<Finding> {
     };
     if let Some(default_keys) = locales.get(&default_name).cloned() {
         let spelled = spellings(default_keys.keys());
+        let core = core_catalog_keys();
         for k in &used {
-            if !spelled.contains(k) {
+            // A `day-*` key the core catalog defines resolves through `day::tr` in every app
+            // (docs/localization.md), so it is never unknown; an app may still override it.
+            if !spelled.contains(k) && !core.contains(k) {
                 findings.push(
                     Finding {
                         code: "day::lint::unknown-key",
@@ -1780,6 +1783,14 @@ fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)
 }
 
 /// Validate one Fluent formatting-function call (docs/localization.md "Formatted values"):
+/// The keys of Day's core catalog (`crates/day-l10n/catalog/en.ftl`, docs/localization.md): the
+/// `day-*` strings every app can reach through `day::tr` without defining them.
+fn core_catalog_keys() -> BTreeSet<String> {
+    day_build::message_keys(include_str!("../../day-l10n/catalog/en.ftl"))
+        .into_iter()
+        .collect()
+}
+
 /// day-l10n provides exactly `NUMBER()` and `DATETIME()`; unknown names render as error markers
 /// at runtime, and a misspelled/invalid option silently falls back to defaults.
 fn lint_ftl_call(locale: &str, file: &str, src: &str, call: &day_build::FtlCall) -> Vec<Finding> {

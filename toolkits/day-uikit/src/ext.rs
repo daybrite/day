@@ -29,7 +29,7 @@ use day_core::RNode;
 use day_pieces::Decorate;
 use objc2::MainThreadMarker;
 use objc2::rc::Retained;
-use objc2_ui_kit::UIView;
+use objc2_ui_kit::{UIImage, UIView};
 
 /// Run `f` with the native `UIView` behind `node`, its runtime class name, and the
 /// `MainThreadMarker`. `None` when the node is layout-only or disposed (or, defensively, off the
@@ -60,3 +60,10 @@ pub trait UiKitExt: Decorate + Sized {
 }
 
 impl<P: Decorate> UiKitExt for P {}
+
+/// The `UIImage` a bundled image or vector name resolves to on this backend (the DayPieces
+/// asset catalog, then a staged file; docs/vectors.md): for a piece that configures a native
+/// cell or bar item itself rather than showing the image through an `image()` piece.
+pub fn image_named(name: &str) -> Option<Retained<UIImage>> {
+    crate::imp::uikit_image_for(&day_spec::ImageSource::Named(name.to_owned()))
+}

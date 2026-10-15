@@ -72,7 +72,9 @@ native container, its corner radius, and its clipping.
 Semantic colors are a separate question. There is no `theme::` token module, because default
 appearance is native by construction: text, controls, separators and window grounds take the
 platform's dynamic colors inside each backend, and a form card takes
-`SurfaceRole::SectionCard`. Apps state only the colors they choose.
+`SurfaceRole::SectionCard`. Apps state only the colors they choose. An app-level light or dark
+choice is the settings surface's theme row ([settings](settings.md), "The General group"); on
+Android that choice recreates the activity through a crossfade, described there.
 
 Those grounds come in PAIRS, and a backend has to take both halves of one. iOS is the clearest
 case: `systemGroupedBackground` behind and `secondarySystemGroupedBackground` for the cards that

@@ -28,3 +28,10 @@ flow:
   - toolbar: { item: tb-delete }
   - wait_for: { id: item-list }
   - assert_missing: { id: field-name }
+
+  # Settings: the window on desktop, the section on a phone; the language row exists everywhere.
+  # A plain screenshot captures the primary window, so the desktop panel is captured by its key.
+  - navigate: { route: settings }
+  - wait_for: { id: language-picker }
+  - screenshot: settings
+  - screenshot: { name: settings-window, window: day.preferences, skip_on: [uikit, mdc, arkui, dom] }

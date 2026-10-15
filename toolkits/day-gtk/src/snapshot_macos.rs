@@ -21,6 +21,25 @@ unsafe extern "C" {
     ) -> *mut CGImage;
 }
 
+/// Whether `widget`'s window carries a Cocoa view of its own above GTK's drawing: a piece
+/// that hosts an `NSView` in the window's content view (day-piece-webview's `WKWebView`).
+/// GDK's content view holds nothing else, so any subview is such a surface. It paints over
+/// everything GTK draws in the window, an `AdwDialog` included, which is why the callers
+/// present a dialog as a window while one is there.
+pub(super) fn has_native_surface(widget: &gtk4::Widget) -> bool {
+    let Some(surface) = widget.native().and_then(|n| n.surface()) else {
+        return false;
+    };
+    let ptr: *mut gtk4::gdk::ffi::GdkSurface = surface.to_glib_none().0;
+    let Some(window) = (unsafe { gdk_macos_surface_get_native_window(ptr.cast()).as_ref() }) else {
+        return false;
+    };
+    let Some(content) = window.contentView() else {
+        return false;
+    };
+    !content.subviews().is_empty()
+}
+
 pub(super) fn snapshot(widget: &gtk4::Widget) -> Result<Vec<u8>, String> {
     let root = widget.root().ok_or("no GTK root")?;
     let bounds = widget

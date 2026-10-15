@@ -80,6 +80,8 @@ pub struct BuiltRow {
 
 pub(crate) struct BoundCell {
     pub anchor: RNode,
+    /// Between `bind_row` and `recycle`: only displayed cells participate in layout.
+    pub active: bool,
     /// The row subtree's reactive scope, disposed by `remove_subtree` when the list node
     /// goes away (the cells live in the list machinery, not the node tree, so nothing else
     /// would dispose their bindings).
@@ -95,6 +97,8 @@ pub(crate) struct BoundCell {
     /// cell on every pass, and re-measuring each row's text each time made a 500-row list's
     /// binds take whole seconds.
     pub laid_width: Option<f64>,
+    /// The height the row was last laid at (`ListSource::cell_height`).
+    pub laid_height: Option<f64>,
 }
 
 pub(crate) struct ListState {
@@ -301,6 +305,9 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
             // From the native cell's own layout pass: skip inside a snapshot borrow, the next
             // real pass corrects it (same rule as bind_row).
             let _ = try_with_tree(|t| t.list_layout_cell_width(node, cell as usize, width));
+        }),
+        cell_height: Rc::new(move |cell| {
+            try_with_tree(|t| t.list_cell_height(node, cell as usize)).unwrap_or(0.0)
         }),
         recycle: Rc::new(move |cell| {
             let _ = try_with_tree(|t| t.list_recycle_cell(node, cell as usize));

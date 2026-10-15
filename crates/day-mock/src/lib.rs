@@ -2107,6 +2107,7 @@ impl Toolkit for MockToolkit {
         let kind_s = match kind {
             day_spec::WindowKind::Normal => "normal",
             day_spec::WindowKind::Preferences => "preferences",
+            day_spec::WindowKind::About => "about",
         };
         let mut s = self.state.borrow_mut();
         if s.no_multi_window {

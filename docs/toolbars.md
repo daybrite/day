@@ -242,7 +242,11 @@ It no longer decides whether a command can be SHOWN. Every platform has somewher
 contribution — a title bar, a navigation bar, a Material app bar, a `Navigation`'s `.menus()`, a
 drawn strip — so an app never needs a fallback branch for "there is no toolbar here", and the ones
 that had them have been deleted. `Native` on the desktops and the phones, `Emulated` on web-dom
-(a strip docked above the app root, since a browser tab has no title bar to hang chrome on) and on
+(a strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
+cover-tier window — the settings surface, anything `open_window` presents as a cover
+([docs/cover.md](cover.md)) — gets a strip of its own over the cover, where a navigation stack
+inside the cover also puts its back button and title, so the cover's Done and the stack's bar
+are one bar as on a phone's modal navigation controller) and on
 HarmonyOS (the bar belongs to the navigation destination, not the window). Probe it only for a
 layout decision that really turns on a persistent bar existing — Day-Tunes chooses between a
 toolbar transport and a Now Playing tab that way.

@@ -30,6 +30,7 @@ export const groups = [
       ['menus', 'app menu bar, context menus, the Dock menu, roles and shortcuts'],
       ['toolbars', 'window toolbars: the item vocabulary, symbol icons, per-desktop realization'],
       ['windows', 'secondary windows, the Preferences window, the cover fallback, window properties'],
+      ['settings', 'the Settings and About surface: typed prefs, groups and rows, per-platform presentation'],
       ['window-chrome', 'frameless and overlay title bars, transparent and material backgrounds, drag regions'],
       ['status-item', 'menu-bar and tray items, Dock and taskbar progress, keeping the app running'],
       ['window-image', "capturing the app's own window as a PNG"],

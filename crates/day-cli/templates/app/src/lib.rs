@@ -1,6 +1,7 @@
 //! A small Day app: shared state, adaptive navigation, and native controls.
 
 use day::prelude::*;
+use day_piece_settings::prelude::*;
 
 mod model;
 mod pages;
@@ -12,9 +13,6 @@ use model::Scene;
 day::day_start!(options: window(), root);
 // Generate typed accessors for resource/: https://daybrite.dev/docs/resources/
 day::resources!();
-
-const THEME_KEY: &str = "app.theme";
-const LOCALE_KEY: &str = "app.locale";
 
 day::routes! {
     /// Typed navigation keys also supply the routes used by links and dayscript.
@@ -36,19 +34,20 @@ pub fn window() -> day::WindowOptions {
     }
 }
 
-/// Choose Settings placement by toolkit capability, keeping platform checks out of the pages.
-pub(crate) fn has_menu_bar() -> bool {
-    capability(Cap::AppMenu) != Support::Unsupported
-}
-
 /// Provide one window's shared state and compose its pages: https://daybrite.dev/docs/internal/state/
 pub fn root() -> impl Piece {
     // Connect `.restore` below to preferences so the last section survives a relaunch.
     day::prefs::install_nav_store();
-    day_piece_settings::apply_startup(THEME_KEY, LOCALE_KEY);
-    day::register_preferences(pages::settings::settings_body);
+    // Settings and About: appearance and language from Day's catalog, the app's name and
+    // version from Day.toml. On desktop this adds the app menu's Settings… and About items and
+    // their windows; on a phone it is the page behind the Settings section below.
+    // https://daybrite.dev/docs/settings/
+    let prefs = Preferences::new()
+        .about(About::from_manifest().link(day::tr("day-about-website"), "https://daybrite.dev"))
+        .group(general_group(res::locales::ALL))
+        .install();
 
-    Scene::scoped(|scene| {
+    Scene::scoped(move |scene| {
         scene.persist();
         app_menu(menus(scene));
 
@@ -76,16 +75,13 @@ pub fn root() -> impl Piece {
             // Use the desktop's conventional Settings menu/window; without a menu bar,
             // keep Settings reachable as a navigation section.
             .items(
-                || {
-                    if has_menu_bar() {
-                        Vec::new()
-                    } else {
-                        vec![Section::Settings]
-                    }
+                {
+                    let prefs = prefs.clone();
+                    move || prefs.nav_keys(Section::Settings)
                 },
                 |s: &Section| item(*s, res::str::nav_settings()).icon(res::vectors::tab_settings),
             )
-            .destination(|_: &Section| pages::settings::settings_page())
+            .destination(move |_: &Section| prefs.page())
             .restore("app.section")
             .id("nav")
     })

@@ -17,8 +17,20 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-/// The store file, created under `<config-dir>/day/`.
-const STORE_FILE: &str = "day-part-prefs.store";
+/// The store file, created under `<config-dir>/day/`, named after the app (docs/prefs.md): the
+/// `[app].id` from `Day.toml`, which `day build`/`day launch` export as `DAY_APP_ID` (a dev launch
+/// sets it in the process environment; a packaged build bakes it at compile time). A binary
+/// built outside the CLI, with no id either way, shares one `day-part-prefs.store`.
+fn store_file() -> String {
+    let id = std::env::var("DAY_APP_ID")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| option_env!("DAY_APP_ID").map(str::to_owned));
+    match id {
+        Some(id) => format!("{id}.store"),
+        None => "day-part-prefs.store".to_string(),
+    }
+}
 
 /// Serializes this process's accesses (two threads writing concurrently could lose an update or read
 /// a half-written file). Cross-process concurrency is out of scope for a settings store.
@@ -101,7 +113,7 @@ fn save(map: &BTreeMap<String, String>) -> bool {
 }
 
 fn store_path() -> Option<PathBuf> {
-    Some(config_dir()?.join("day").join(STORE_FILE))
+    Some(config_dir()?.join("day").join(store_file()))
 }
 
 /// Escape so the result contains no raw `=`, newline, or carriage return:

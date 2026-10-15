@@ -68,6 +68,9 @@ unsafe extern "C" {
         w: c_double,
         h: c_double,
     );
+    /// Resize to `w`×`h` of content and keep it there (`WindowOptions::size_to_fit`): a
+    /// fixed-size panel moves its pin, a resizable window just resizes.
+    pub fn day_qt_window_fit(win: *mut c_void, w: c_double, h: c_double);
     /// The frame into `out[4]`; 0 where the platform does not say.
     pub fn day_qt_window_frame(win: *mut c_void, out: *mut c_double) -> c_int;
     /// Content-size limits; negative lifts a bound.
@@ -375,6 +378,11 @@ unsafe extern "C" {
     pub fn day_qt_image_set_path(w: *mut c_void, path: *const c_char);
     // App icon (§18.2): Dock icon on macOS, taskbar icon on Linux/Windows.
     pub fn day_qt_set_app_icon(path: *const c_char);
+    /// A heap `QIcon` resolved like a toolbar item's icon (`theme|outline.svg`, a vector path,
+    /// or a QStyle standard pixmap), for a piece shim that draws icons of its own.
+    pub fn day_qt_icon_new(spec: *const c_char, standard_pixmap: c_int, px: c_int) -> *mut c_void;
+    pub fn day_qt_icon_delete(icon: *mut c_void);
+
     // Native Qt Resource System (§18.3): register the .rcc blob; read data zero-copy.
     pub fn day_qt_register_resource(path: *const c_char);
     pub fn day_qt_resource_data(respath: *const c_char, out_len: *mut usize) -> *const c_void;

@@ -250,7 +250,10 @@ Known gaps, in rough order of interest:
 - **Bundled data assets** — `resource()` returns `None` (no synchronous file reads in a
   browser). Images and fonts work; raw asset bytes need an embedding mode that does not exist
   yet.
-- **App menus and context menus** — no DOM equivalent of a native menu bar; unsupported.
+- **Menus are composed** — no DOM equivalent of a native menu bar exists, so the app menu is a
+  trailing `⋯` button on the toolbar strip whose popover carries the model (`Cap::AppMenu`
+  emulated; the model's accelerators are live), and a context menu is presented as day pieces
+  at the summon point ([docs/menus.md](menus.md)). Nav-row context menus are still dropped.
 - **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
   standard placeholder. `day-piece-media` now renders a real `<video>` ([docs/media.md](media.md)): the browser
   supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs

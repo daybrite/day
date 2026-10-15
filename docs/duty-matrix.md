@@ -90,7 +90,7 @@ implement them, and this table proves it.
 | `quit_app` | · | ✓ | · | ✓ | ✓ | ✓ | · | · | · | ✓ |
 | `focus_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
 | `set_window_title` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| `fit_window` | · | ✓ | · | · | · | · | · | · | · | ✓ |
+| `fit_window` | · | ✓ | · | ✓ | ✓ | · | · | · | · | ✓ |
 | `snapshot_window_of` | · | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | · | ✓ |
 | `apply_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `native_window_tabs` | · | ✓ | · | · | ✓ | · | · | · | · | ✓ |

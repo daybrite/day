@@ -1452,6 +1452,7 @@ fn win_role_label(role: day_spec::MenuRole) -> String {
         CloseWindow => "Close",
         Fullscreen => "Full Screen",
         NewWindow => "New Window",
+        CheckForUpdates => "Check for Updates…",
     }
     .to_string()
 }
@@ -1755,7 +1756,7 @@ impl Toolkit for Xaml {
             // Native modals (ContentDialog) + WinRT file pickers (docs/dialogs.md, docs/files.md).
             Cap::Dialogs | Cap::FileDialogs => Support::Native,
             // The system light/dark setting, read live and re-reported when the user changes it
-            // (docs/appearance.md). XAML's own controls follow theme resources by themselves; this
+            // (docs/settings.md). XAML's own controls follow theme resources by themselves; this
             // is what makes DAY's palette follow too.
             Cap::Appearance => Support::Native,
             // Windows' "Show animations" switch (`UISettings.AnimationsEnabled`), read live and
@@ -3519,7 +3520,7 @@ impl Toolkit for Xaml {
         options: &WindowOptions,
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<WinHandle> {
-        let fixed = (kind == day_spec::WindowKind::Preferences) as c_int;
+        let fixed = kind.is_panel() as c_int;
         let chrome = window_chrome(options);
         let win = unsafe {
             ffi::day_xaml_window_new2(
@@ -3544,7 +3545,7 @@ impl Toolkit for Xaml {
         // Except into a Preferences window: that is a panel, not a second main window
         // (docs/windows.md), and a settings dialog carrying File/Edit/View is not an idiom
         // Windows has. It keeps the menu-less frame the shim gives it.
-        let menuless = kind == day_spec::WindowKind::Preferences;
+        let menuless = kind.is_panel();
         if !menuless && !self.menu_spec.is_empty() {
             unsafe { ffi::day_xaml_window_set_menu2(win, cstr(&self.menu_spec).as_ptr()) };
         }
@@ -3796,7 +3797,7 @@ impl Toolkit for Xaml {
         unsafe { ffi::day_xaml_toggle_sidebar() != 0 }
     }
 
-    /// The app's appearance override (docs/appearance.md) — what the showcase's Preferences
+    /// The app's appearance override (docs/settings.md) — what the showcase's Preferences
     /// Appearance picker drives. Without this the backend took the trait default, which ignores
     /// the call: picking Light or Dark changed nothing at all, while `Cap::Appearance` promised
     /// the opposite. `dark_mode` below answers from the same override, so day's palette and the

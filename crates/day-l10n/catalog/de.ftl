@@ -38,6 +38,8 @@ day-toggle-sidebar = Seitenleiste ein-/ausblenden
 day-file = Ablage
 day-view = Darstellung
 day-help = Hilfe
+# The web toolbar button that opens the app menu (docs/menus.md).
+day-menu = Menü
 day-services = Dienste
 day-hide = Ausblenden
 day-hide-others = Andere ausblenden
@@ -47,3 +49,17 @@ day-color = Farben
 day-color-hue = Farbton
 day-color-shade = Sättigung und Helligkeit
 day-color-opacity = Deckkraft
+
+# Settings and About surfaces (docs/settings.md, day-piece-settings)
+day-settings = Einstellungen
+day-check-for-updates = Nach Updates suchen …
+day-settings-general = Allgemein
+day-settings-updates = Updates
+day-about-version = Version {$version}
+day-about-build = Build {$build}
+day-about-website = Website
+day-about-source = Quellcode
+day-about-privacy = Datenschutzerklärung
+day-about-licenses = Lizenzen
+day-about-acknowledgements = Danksagungen
+day-settings-done = Fertig

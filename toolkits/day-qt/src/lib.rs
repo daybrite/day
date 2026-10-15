@@ -79,6 +79,9 @@ pub type Handle = QtHandle;
 
 pub mod ext;
 pub use ext::*;
+/// The icon spec a piece shim hands `day_qt_icon_new` (docs/extending.md): see
+/// [`toolbar::icon_args`].
+pub use toolbar::icon_args;
 
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
@@ -1712,6 +1715,7 @@ fn qt_role_label(role: day_spec::MenuRole) -> &'static str {
         CloseWindow => "Close",
         Fullscreen => "Enter Full Screen",
         NewWindow => "New Window",
+        CheckForUpdates => "Check for Updates…",
     }
 }
 
@@ -1730,7 +1734,7 @@ fn qt_role_shortcut(role: day_spec::MenuRole) -> Option<&'static str> {
         Minimize => "Ctrl+M",
         Preferences => "Ctrl+,",
         NewWindow => "Ctrl+N",
-        Delete | About | Fullscreen => return None,
+        Delete | About | Fullscreen | CheckForUpdates => return None,
     })
 }
 
@@ -3974,7 +3978,7 @@ impl Toolkit for Qt {
         options: &WindowOptions,
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<QtHandle> {
-        let fixed = (kind == day_spec::WindowKind::Preferences) as c_int;
+        let fixed = kind.is_panel() as c_int;
         let win = unsafe {
             ffi::day_qt_window_new2(
                 cstr(&options.title).as_ptr(),
@@ -4018,6 +4022,16 @@ impl Toolkit for Qt {
     fn focus_window(&mut self, host: &QtHandle) {
         if let Some(w) = self.secondary.iter().find(|w| w.content == host.0) {
             unsafe { ffi::day_qt_window_raise(w.win) };
+        }
+    }
+
+    fn fit_window(&mut self, host: &QtHandle, size: Size) {
+        // A panel that fits its content (docs/windows.md `size_to_fit`): the shim adds the
+        // chrome strip back and moves a fixed-size window's pin; the resize event then reports
+        // the new content area to day-core through `relayoutChrome`.
+        if let Some(win) = self.qt_window_for(host) {
+            // SAFETY: `win` is a live DayWindow (see `apply_window`).
+            unsafe { ffi::day_qt_window_fit(win, size.width, size.height) };
         }
     }
 

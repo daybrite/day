@@ -38,6 +38,8 @@ day-toggle-sidebar = サイドバーの表示切り替え
 day-file = ファイル
 day-view = 表示
 day-help = ヘルプ
+# The web toolbar button that opens the app menu (docs/menus.md).
+day-menu = メニュー
 day-services = サービス
 day-hide = 隠す
 day-hide-others = ほかを隠す
@@ -47,3 +49,17 @@ day-color = カラー
 day-color-hue = 色相
 day-color-shade = 彩度と明度
 day-color-opacity = 不透明度
+
+# Settings and About surfaces (docs/settings.md, day-piece-settings)
+day-settings = 設定
+day-check-for-updates = アップデートを確認…
+day-settings-general = 一般
+day-settings-updates = アップデート
+day-about-version = バージョン {$version}
+day-about-build = ビルド {$build}
+day-about-website = ウェブサイト
+day-about-source = ソースコード
+day-about-privacy = プライバシーポリシー
+day-about-licenses = ライセンス
+day-about-acknowledgements = 謝辞
+day-settings-done = 完了

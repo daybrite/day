@@ -15,6 +15,9 @@ day-spec = { workspace = true }
 # extends Decorate (day-pieces) with this toolkit\'s tweak modifier.
 day-core = { workspace = true }
 day-pieces = { workspace = true }
+# A re-mount's route restore runs one turn after the first build (`on_main`), the same
+# deferral a launch deep link takes.
+day-reactive = { workspace = true }
 linkme = { workspace = true }
 
 [target.'cfg(target_os = "android")'.dependencies]

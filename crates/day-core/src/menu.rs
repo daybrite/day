@@ -30,9 +30,10 @@ day_reactive::tls_slots! {
     static DOCK_MENU_SHOWN: Cell<bool> = const { Cell::new(false) };
 }
 
-/// Forget every menu action and the last-installed app menu: a re-mount (docs/appearance.md).
-/// The closures a previous mount registered capture that mount's reactive graph, which has just
-/// been disposed; keeping them would leave the menu bar invoking a dead tree.
+/// Forget every menu action and the last-installed app menu: a re-mount (docs/settings.md
+/// "Appearance on Android"). The closures a previous mount registered capture that mount's
+/// reactive graph, which has just been disposed; keeping them would leave the menu bar invoking
+/// a dead tree.
 pub fn reset_menus() {
     ACTIONS.with(|a| a.borrow_mut().clear());
     APP_MENU_MODEL.with(|m| m.borrow_mut().clear());
@@ -171,7 +172,8 @@ fn rebind_menu(next: &mut [day_spec::MenuItem], prev: &[day_spec::MenuItem]) {
 }
 
 pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
-    let mut items = inject_preferences(items);
+    let items = inject_preferences(items);
+    let mut items = inject_about(items);
 
     // The same concern the toolbar has (docs/toolbars.md): an app declares its menu inside the
     // page build, so every route change
@@ -191,6 +193,8 @@ pub fn set_app_menu(items: Vec<day_spec::MenuItem>) {
     // `day::register_*` and `undo_action_id`) and outlive any menu install; never sweep them.
     let durable = [
         crate::windows::preferences_action_id(),
+        crate::windows::about_action_id(),
+        crate::windows::check_for_updates_action_id(),
         crate::windows::new_window_action_id(),
         crate::undo_action_id(false),
         crate::undo_action_id(true),
@@ -347,6 +351,74 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
     items
 }
 
+/// Inject the About and Check for Updates… commands (docs/settings.md): an inert
+/// `role(About)` / `role(CheckForUpdates)` item (id 0) is rewritten to the registered action,
+/// so an app that placed the role itself keeps its placement. When the model has no About at
+/// all but an About is registered, About (and the updater command, when registered) are
+/// appended to the app's Help menu if it has one; otherwise the stock Help menu
+/// ([`MenuBarStyle::stock`]) supplies them, and macOS hoists both into the App menu whichever
+/// way they arrive.
+fn inject_about(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
+    use day_spec::{MenuItem as M, MenuRole as R};
+    let about_id = crate::windows::about_action_id();
+    let updates_id = crate::windows::check_for_updates_action_id();
+    if about_id == 0 && updates_id == 0 {
+        return items;
+    }
+    // Rewrite inert role items in place; report whether each role appears at all.
+    fn rewrite(items: &mut [M], role: R, id: u64) -> bool {
+        let mut found = false;
+        for it in items.iter_mut() {
+            match it {
+                M::Action {
+                    action, role: r, ..
+                } if *r == Some(role) => {
+                    if *action == 0 {
+                        *action = id;
+                    }
+                    found = true;
+                }
+                M::Submenu { items, .. } => {
+                    found |= rewrite(items, role, id);
+                }
+                _ => {}
+            }
+        }
+        found
+    }
+    let has_about = rewrite(&mut items, R::About, about_id);
+    let has_updates = rewrite(&mut items, R::CheckForUpdates, updates_id);
+    let act = |role: R, action: u64| M::Action {
+        id: None,
+        action,
+        // Empty label: each backend falls back to its localized role label.
+        label: String::new(),
+        shortcut: None,
+        enabled: true,
+        checked: None,
+        role: Some(role),
+        icon: None,
+    };
+    let mut missing = Vec::new();
+    if about_id != 0 && !has_about {
+        missing.push(act(R::About, about_id));
+    }
+    if updates_id != 0 && !has_updates {
+        missing.push(act(R::CheckForUpdates, updates_id));
+    }
+    if missing.is_empty() {
+        return items;
+    }
+    // Only an app-owned Help menu takes them here; without one the stock Help menu does.
+    if let Some(M::Submenu { items: help, .. }) = items.iter_mut().find(|it| {
+        matches!(it, M::Submenu { role, label, .. }
+            if *role == Some(day_spec::MenuBarRole::Help) || *label == day_l10n::t("day-help"))
+    }) {
+        help.extend(missing);
+    }
+    items
+}
+
 /// The dispatch ids a menu model holds (status items sweep theirs when replaced).
 pub(crate) fn collect_ids(items: &[day_spec::MenuItem]) -> Vec<u64> {
     collect_action_ids(items)
@@ -423,9 +495,16 @@ impl MenuBarStyle {
     /// (`inject_preferences`), so a stock Settings menu would be a second copy of it.
     pub fn stock(self, role: day_spec::MenuBarRole) -> Option<day_spec::MenuItem> {
         use day_spec::{MenuBarRole as B, MenuItem as MI, MenuRole as R};
+        // About and Check for Updates… dispatch to the registered Day actions when the app
+        // registered them (docs/settings.md); every other role keeps the backend's native
+        // command (action 0).
         let act = |r: R| MI::Action {
             id: None,
-            action: 0,
+            action: match r {
+                R::About => crate::windows::about_action_id(),
+                R::CheckForUpdates => crate::windows::check_for_updates_action_id(),
+                _ => 0,
+            },
             label: String::new(),
             shortcut: None,
             enabled: true,
@@ -459,7 +538,13 @@ impl MenuBarStyle {
             // Help menu still earns its place on macOS, where AppKit fills it with the help search.
             B::Help => match self {
                 MenuBarStyle::Macos => sub("day-help", Vec::new()),
-                _ => sub("day-help", vec![act(R::About)]),
+                _ => {
+                    let mut items = vec![act(R::About)];
+                    if crate::windows::check_for_updates_action_id() != 0 {
+                        items.push(act(R::CheckForUpdates));
+                    }
+                    sub("day-help", items)
+                }
             },
             _ => None,
         }

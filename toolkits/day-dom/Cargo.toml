@@ -16,6 +16,8 @@ license.workspace = true
 day-core.workspace = true
 day-spec = { workspace = true }
 day-geometry = { workspace = true }
+# The emulated app menu's button name and its injected role labels come from the core catalog.
+day-l10n = { workspace = true }
 log = { workspace = true }
 
 # The entropy bridge (§9): `day build` compiles every web app with

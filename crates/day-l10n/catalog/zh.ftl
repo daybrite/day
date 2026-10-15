@@ -38,6 +38,8 @@ day-toggle-sidebar = 显示/隐藏边栏
 day-file = 文件
 day-view = 显示
 day-help = 帮助
+# The web toolbar button that opens the app menu (docs/menus.md).
+day-menu = 菜单
 day-services = 服务
 day-hide = 隐藏
 day-hide-others = 隐藏其他
@@ -47,3 +49,17 @@ day-color = 颜色
 day-color-hue = 色相
 day-color-shade = 饱和度与明度
 day-color-opacity = 不透明度
+
+# Settings and About surfaces (docs/settings.md, day-piece-settings)
+day-settings = 设置
+day-check-for-updates = 检查更新…
+day-settings-general = 通用
+day-settings-updates = 更新
+day-about-version = 版本 {$version}
+day-about-build = 构建 {$build}
+day-about-website = 网站
+day-about-source = 源代码
+day-about-privacy = 隐私政策
+day-about-licenses = 许可证
+day-about-acknowledgements = 致谢
+day-settings-done = 完成

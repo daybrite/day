@@ -72,6 +72,7 @@ impl<C: PieceSeq + 'static> Piece for Form<C> {
 /// XAML card brush), so it follows light/dark mode with no app code.
 pub struct FormSection<C: PieceSeq> {
     title: Option<TextSource>,
+    footer: Option<TextSource>,
     children: C,
 }
 
@@ -80,6 +81,7 @@ pub struct FormSection<C: PieceSeq> {
 pub fn section<C: PieceSeq + 'static>(children: C) -> FormSection<C> {
     FormSection {
         title: None,
+        footer: None,
         children,
     }
 }
@@ -88,6 +90,13 @@ impl<C: PieceSeq + 'static> FormSection<C> {
     /// The section header, shown above the card in the footnote style.
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
         self.title = Some(t.into_text());
+        self
+    }
+    /// The section footer, shown under the card in the footnote style: the explanatory line
+    /// settings screens put beneath a group of rows (iOS section footers, libadwaita's group
+    /// description).
+    pub fn footer<M>(mut self, t: impl IntoText<M>) -> Self {
+        self.footer = Some(t.into_text());
         self
     }
 }
@@ -120,31 +129,45 @@ impl<C: PieceSeq + 'static> Piece for FormSection<C> {
             });
             node
         });
-        match self.title {
-            Some(t) => {
-                let header = Label {
-                    text: t,
-                    font: Font::Footnote,
-                    font_scale: 1.0,
-                    weight: None,
-                    italic: false,
-                    tabular: false,
-                    monospace: false,
-                    wraps: true,
-                    max_lines: 0,
-                    runs: Vec::new(),
-                    markdown: false,
-                    align: day_spec::props::TextAlign::Leading,
-                    on_link: None,
-                    color: None,
-                    role: Default::default(),
-                };
-                column((header, card))
+        let note = |t: TextSource| Label {
+            text: t,
+            font: Font::Footnote,
+            font_scale: 1.0,
+            weight: None,
+            italic: false,
+            tabular: false,
+            monospace: false,
+            wraps: true,
+            max_lines: 0,
+            runs: Vec::new(),
+            markdown: false,
+            align: day_spec::props::TextAlign::Leading,
+            on_link: None,
+            color: None,
+            role: Default::default(),
+        };
+        let footer_insets = day_spec::Insets {
+            top: 0.0,
+            leading: 12.0,
+            bottom: 0.0,
+            trailing: 12.0,
+        };
+        match (self.title, self.footer) {
+            (None, None) => card.build(cx),
+            (Some(t), None) => column((note(t), card))
+                .spacing(6.0)
+                .align(HAlign::Leading)
+                .build(cx),
+            (None, Some(f)) => column((card, note(f).secondary().padding(footer_insets)))
+                .spacing(6.0)
+                .align(HAlign::Leading)
+                .build(cx),
+            (Some(t), Some(f)) => {
+                column((note(t), card, note(f).secondary().padding(footer_insets)))
                     .spacing(6.0)
                     .align(HAlign::Leading)
                     .build(cx)
             }
-            None => card.build(cx),
         }
     }
 }
@@ -404,17 +427,24 @@ impl day_core::Layout for LabeledLayout {
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait FormSectionBuilder: Sized {
     fn title<M>(self, t: impl IntoText<M>) -> Self;
+    fn footer<M>(self, t: impl IntoText<M>) -> Self;
 }
 
 impl<C: PieceSeq + 'static> FormSectionBuilder for FormSection<C> {
     fn title<M>(self, t: impl IntoText<M>) -> Self {
         FormSection::title(self, t)
     }
+    fn footer<M>(self, t: impl IntoText<M>) -> Self {
+        FormSection::footer(self, t)
+    }
 }
 
 impl<Inner: FormSectionBuilder + Piece> FormSectionBuilder for Decorated<Inner> {
     fn title<M>(self, t: impl IntoText<M>) -> Self {
         self.map_inner(|inner_piece| inner_piece.title(t))
+    }
+    fn footer<M>(self, t: impl IntoText<M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.footer(t))
     }
 }
 

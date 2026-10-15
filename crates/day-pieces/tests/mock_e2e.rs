@@ -3001,6 +3001,82 @@ fn list_recycles_cells_with_a_slot_write_not_a_rebuild() {
 }
 
 #[test]
+fn pooled_list_cells_skip_resize_and_dirty_layout_until_rebound() {
+    // Synthetic viewport history: hundreds of physical cells, only one still displayed.
+    let changed = Signal::new(false);
+    let probe = boot(move || {
+        list(
+            day_pieces::items(|| (0..256).collect::<Vec<_>>(), |i: &usize| *i),
+            move |slot: ItemSlot<usize, usize>| {
+                column((label(move || {
+                    format!("row {} {}", slot.get(), changed.get())
+                }),))
+                .grow()
+            },
+        )
+        .id("viewport")
+        .row_height(RowHeight::Uniform(40.))
+        .grow()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    for index in 0..256 {
+        let cell = MockHandle(100_000 + index as u64);
+        probe.list_bind(host, index, cell);
+        if index != 255 {
+            probe.list_recycle(host, cell);
+        }
+    }
+    let layout_keys = || {
+        day_core::with_tree(|t| {
+            let list = t.find_by_id("viewport").unwrap();
+            t.list_cell_keys(list)
+        })
+    };
+    assert_eq!(
+        layout_keys().len(),
+        1,
+        "pooled cells must leave the resize work set"
+    );
+    let measured = probe.measure_calls();
+    changed.set(true);
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        Event::WindowResized(Size::new(600., 600.)),
+    );
+    flush_sync();
+    assert!(
+        probe.measure_calls() - measured < 10,
+        "dirty pooled rows must not be measured during the resize"
+    );
+    let containers = probe.find_by_kind("day.container");
+    assert_eq!(
+        containers
+            .iter()
+            .filter(|(_, w)| w.frame.size.width == 600.)
+            .count(),
+        1,
+        "only the displayed row should be placed at the new width"
+    );
+    probe.list_bind(host, 0, MockHandle(100_000));
+    flush_sync();
+    assert_eq!(layout_keys().len(), 2);
+    let containers = probe.find_by_kind("day.container");
+    assert_eq!(
+        containers
+            .iter()
+            .filter(|(_, w)| w.frame.size.width == 600.)
+            .count(),
+        2
+    );
+    assert!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .any(|(_, w)| w.text == "row 0 true")
+    );
+}
+
+#[test]
 fn list_async_content_inside_fixed_frame_is_laid_out_without_scrolling() {
     let loaded = Signal::new(false);
     let probe = boot(move || {
@@ -6140,6 +6216,65 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     // open_preferences() is the same path for a toolbar gear.
     assert!(day_core::open_preferences());
     assert_eq!(probe.windows().len(), 1);
+}
+
+/// Registering an About makes the role live in the stock Help menu and in an installed menu,
+/// and dispatching it opens the singleton About window (docs/settings.md).
+#[test]
+fn register_about_wires_the_role_and_opens_singleton() {
+    let probe = boot(|| label("main").any());
+    app_menu(vec![sub_menu("File", vec![menu_item("Save").key("s")])]);
+    day_core::register_about_window(
+        day_spec::WindowOptions {
+            title: "About".into(),
+            ..Default::default()
+        },
+        || label("about body").id("about-label").any(),
+    );
+    day_core::register_check_for_updates(|| {});
+    flush_sync();
+
+    fn find_role(items: &[day_spec::MenuItem], role: day_spec::MenuRole) -> Option<u64> {
+        items.iter().find_map(|it| match it {
+            day_spec::MenuItem::Action {
+                action, role: r, ..
+            } if *r == Some(role) => Some(*action),
+            day_spec::MenuItem::Submenu { items, .. } => find_role(items, role),
+            _ => None,
+        })
+    }
+    // The app's bar has no Help menu, so the stock one carries both commands, live.
+    let bar = day_core::menu::standard_menu_bar_for(
+        day_core::menu::MenuBarStyle::Gnome,
+        day_core::menu::app_menu_model(),
+    );
+    let about_id = find_role(&bar, day_spec::MenuRole::About).expect("no About in the stock bar");
+    assert_eq!(about_id, day_core::about_action_id());
+    assert_ne!(about_id, 0, "About role is inert");
+    let updates_id = find_role(&bar, day_spec::MenuRole::CheckForUpdates)
+        .expect("no Check for Updates in the stock bar");
+    assert_eq!(updates_id, day_core::check_for_updates_action_id());
+
+    // An app-owned Help menu takes the injected items instead.
+    app_menu(vec![sub_menu("Help", vec![menu_item("Guide")])]);
+    flush_sync();
+    let model = day_core::menu::app_menu_model();
+    assert_eq!(find_role(&model, day_spec::MenuRole::About), Some(about_id));
+    assert_eq!(
+        find_role(&model, day_spec::MenuRole::CheckForUpdates),
+        Some(updates_id)
+    );
+
+    // Dispatching opens the About window once; reopening focuses.
+    day_core::dispatch_menu_action(about_id);
+    flush_sync();
+    assert_eq!(probe.windows().len(), 1);
+    assert_eq!(probe.windows()[0].kind, "about");
+    assert!(day_core::with_tree(|t| t.find_by_id("about-label")).is_some());
+    day_core::dispatch_menu_action(about_id);
+    flush_sync();
+    assert_eq!(probe.windows().len(), 1);
+    assert!(day_core::open_about());
 }
 
 /// A page change that leaves the bar looking the same installs nothing (docs/toolbars.md).

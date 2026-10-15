@@ -213,11 +213,11 @@ window's own, and the app to still be there afterwards.
 
 Entering split-screen, or dragging a desktop-windowing edge across a size bucket, changes
 `screenLayout` and `smallestScreenSize`. An activity that has not claimed those in
-`android:configChanges` is **destroyed and recreated**, and day-android does not survive a second
-`nativeStart` in one process, so the app comes back missing whatever it installed once at startup.
-The scaffold's manifest claims them, `day lint` fails a manifest that does not
-(`day::lint::android-not-resizable`), and `day::android::start` refuses a second launch with a
-message naming the fix rather than half-relaunching into an undiagnosable state.
+`android:configChanges` is **destroyed and recreated**. Day survives that (a recreation re-mounts
+the tree, the path a theme switch takes on purpose: [settings](settings.md), "Appearance on
+Android"), but a resize is not a reason to rebuild the app, so the scaffold's manifest claims them,
+`day lint` fails a manifest that does not (`day::lint::android-not-resizable`), and the resize
+reaches Day as a window resize with everything still in place.
 
 The `<layout>` element carries the window's minimum and its desktop-windowing default, and
 `PROPERTY_SUPPORTS_MULTI_INSTANCE_SYSTEM_UI` (API 35+) lets the system UI offer a second

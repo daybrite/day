@@ -576,8 +576,8 @@ impl<B: Toolkit> Tree<B> {
             return;
         };
         let (anchor, stale) = match state.cells.get(&key) {
-            Some(b) => (b.anchor, b.laid_width != Some(width)),
-            None => return,
+            Some(b) if b.active => (b.anchor, b.laid_width != Some(width)),
+            _ => return,
         };
         let row_height = state.driver.row_height;
         // A new width: nothing measured at the old one may survive, or a `grow` child keeps it.
@@ -600,6 +600,13 @@ impl<B: Toolkit> Tree<B> {
                 crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
             }
         };
+        if let Some(b) = self
+            .lists
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+        {
+            b.laid_height = Some(height);
+        }
         crate::layout::place_node(
             self,
             anchor,
@@ -641,6 +648,13 @@ impl<B: Toolkit> Tree<B> {
                 crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
             }
         });
+        if let Some(b) = self
+            .trees
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+        {
+            b.laid_height = Some(height);
+        }
         crate::layout::place_node(
             self,
             anchor,
@@ -670,6 +684,9 @@ impl<B: Toolkit> Tree<B> {
             .iter()
             .flat_map(|(list, state)| {
                 state.cells.iter().filter_map(|(key, cell)| {
+                    if !cell.active {
+                        return None;
+                    }
                     self.nodes
                         .get(cell.anchor)
                         .filter(|n| n.needs_layout)
@@ -1045,8 +1062,12 @@ pub trait TreeOps {
     /// approximation: a native row's chrome, GtkListView's themed `row` node, makes the cell
     /// narrower, and a row laid at the list's width holds the whole list wider than its frame).
     fn list_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
+    /// The height the cell's row was last laid at (`ListSource::cell_height`); 0 before its
+    /// first layout.
+    fn list_cell_height(&self, node: RNode, key: usize) -> f64;
     /// The physical-cell keys of every bound cell of the list at `node` (for a bulk re-layout
     /// after the list's own width changed).
+    /// Active cells eligible for width-change layout; excludes cells parked by `recycle`.
     fn list_cell_keys(&self, node: RNode) -> Vec<usize>;
     /// A pooled cell left the visible row set (an emulated backend hides rows past a shrunk
     /// source instead of destroying them): clear the cell subtree's element ids so stale rows
@@ -1093,6 +1114,9 @@ pub trait TreeOps {
     /// Re-lay the row at the cell's actual width (indentation makes tree cells per-row wide).
     fn tree_layout_cell_width(&mut self, node: RNode, key: usize, width: f64);
     fn tree_layout_cell_size(&mut self, node: RNode, key: usize, size: Size);
+    /// The height the cell's row was last laid at (`TreeSource::cell_height`); 0 before its
+    /// first layout.
+    fn tree_cell_height(&self, node: RNode, key: usize) -> f64;
     /// The cell went back to the host's reuse pool: clear the row subtree's element ids, so
     /// a collapsed-away row stops answering `find_by_id` (dayscript `assert_missing`) and a
     /// stale id can never hijack a lookup. The next bind re-sets the live row's id.
@@ -2284,9 +2308,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         key: usize,
         cell: RawHandle,
     ) -> crate::list::CellStep {
-        if let Some(state) = self.lists.get(&node)
-            && let Some(bound) = state.cells.get(&key)
+        if let Some(state) = self.lists.get_mut(&node)
+            && let Some(bound) = state.cells.get_mut(&key)
         {
+            bound.active = true;
             let (rebind, anchor) = (bound.rebind.clone(), bound.anchor);
             // A pooled cell coming back: its ids were parked when it was recycled, and a
             // rebind to unchanged content would never re-set them (see `parked_id`).
@@ -2311,10 +2336,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 key,
                 crate::list::BoundCell {
                     anchor,
+                    active: true,
                     scope: built.scope,
                     rebind: built.rebind,
                     native_width: None,
                     laid_width: None,
+                    laid_height: None,
                 },
             );
         }
@@ -2354,10 +2381,24 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.layout_list_cell_at(node, key, width);
     }
 
+    fn list_cell_height(&self, node: RNode, key: usize) -> f64 {
+        self.lists
+            .get(&node)
+            .and_then(|s| s.cells.get(&key))
+            .filter(|b| b.active)
+            .and_then(|b| b.laid_height)
+            .unwrap_or(0.0)
+    }
+
     fn list_cell_keys(&self, node: RNode) -> Vec<usize> {
         self.lists
             .get(&node)
-            .map(|s| s.cells.keys().copied().collect())
+            .map(|s| {
+                s.cells
+                    .iter()
+                    .filter_map(|(key, cell)| cell.active.then_some(*key))
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -2496,6 +2537,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                     native_width: None,
                     native_height: None,
                     laid_width: None,
+                    laid_height: None,
                 },
             );
         }
@@ -2533,6 +2575,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.layout_tree_cell_at(node, key, width);
     }
 
+    fn tree_cell_height(&self, node: RNode, key: usize) -> f64 {
+        self.trees
+            .get(&node)
+            .and_then(|s| s.cells.get(&key))
+            .and_then(|b| b.laid_height)
+            .unwrap_or(0.0)
+    }
+
     fn tree_layout_cell_size(&mut self, node: RNode, key: usize, size: Size) {
         let changed = self
             .trees
@@ -2564,9 +2614,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     fn list_recycle_cell(&mut self, node: RNode, key: usize) {
         let Some(anchor) = self
             .lists
-            .get(&node)
-            .and_then(|s| s.cells.get(&key))
-            .map(|b| b.anchor)
+            .get_mut(&node)
+            .and_then(|s| s.cells.get_mut(&key))
+            .map(|b| {
+                b.active = false;
+                b.anchor
+            })
         else {
             return;
         };
@@ -2719,7 +2772,7 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
 }
 
 /// Tear the current mount down so the app can be built again in the same process
-/// (docs/appearance.md "Surviving a recreation").
+/// (docs/settings.md "Appearance on Android").
 ///
 /// Android is the one platform that needs this: an activity recreation (the mechanism of a
 /// light/dark switch, and the side effect of any configuration change the manifest does not
@@ -2752,8 +2805,8 @@ pub fn prepare_remount() {
 /// Whether a tree is installed on this thread, i.e. whether the app has already launched.
 ///
 /// The one caller that is not a test is Android's `nativeStart`, which an activity recreation can
-/// re-enter after the app is already up (docs/appearance.md). Everywhere else launch happens
-/// exactly once by construction.
+/// re-enter after the app is already up (docs/settings.md "Appearance on Android"). Everywhere
+/// else launch happens exactly once by construction.
 pub fn is_mounted() -> bool {
     TREE.with(|t| t.borrow().is_some())
 }

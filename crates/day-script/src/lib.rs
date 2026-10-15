@@ -446,6 +446,7 @@ fn find_menu_actions(
             R::CloseWindow => "day-close",
             R::Fullscreen => "day-fullscreen",
             R::NewWindow => "day-new-window",
+            R::CheckForUpdates => "day-check-for-updates",
         }
     }
     #[allow(clippy::too_many_arguments)]
@@ -1158,6 +1159,10 @@ fn exec(step: Step, revision: u32) -> Reply {
                     }
                     (true, Some("day-new-window")) => {
                         Some(day_core::windows::new_window_action_id())
+                    }
+                    (true, Some("day-about")) => Some(day_core::windows::about_action_id()),
+                    (true, Some("day-check-for-updates")) => {
+                        Some(day_core::windows::check_for_updates_action_id())
                     }
                     _ => None,
                 };

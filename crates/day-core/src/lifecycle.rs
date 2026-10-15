@@ -240,9 +240,9 @@ pub fn resident_memory() -> Option<u64> {
     None
 }
 
-/// Forget every registered handler: a re-mount (docs/appearance.md). The app's `root()` is
-/// about to run again and re-register, and handlers left from the previous mount would fire a
-/// second time for every phase.
+/// Forget every registered handler: a re-mount (docs/settings.md "Appearance on Android").
+/// The app's `root()` is about to run again and re-register, and handlers left from the
+/// previous mount would fire a second time for every phase.
 pub fn reset_handlers() {
     HANDLERS.with(|h| h.borrow_mut().clear());
     WARNED.with(|w| w.borrow_mut().clear());

@@ -62,11 +62,11 @@ fn sf_symbol(s: Symbol) -> &'static str {
     day_spec::sf_symbol_name(s)
 }
 
-pub(crate) fn image_for(
-    icon: &Icon,
-    label: &str,
-    mtm: MainThreadMarker,
-) -> Option<Retained<NSImage>> {
+/// The `NSImage` a toolbar item draws for `icon`: the SF Symbol for a standard symbol, the
+/// staged vector (as a template image) for a bundled one. Public as [`crate::toolbar_image`]
+/// for the piece renderers that build their own `NSToolbar` on a Day window (the settings
+/// panel's preference tabs), so their items resolve icons exactly as Day's toolbar does.
+pub fn image_for(icon: &Icon, label: &str, mtm: MainThreadMarker) -> Option<Retained<NSImage>> {
     match icon {
         Icon::Symbol(s) => {
             let name = sf_symbol(*s);

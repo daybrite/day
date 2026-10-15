@@ -16,6 +16,7 @@
 #include <QBuffer>
 #include <QByteArray>
 #include <QImage>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <QCheckBox>
@@ -591,6 +592,19 @@ void day_qt_window_set_frame(void *win, int has_origin, double x, double y, int 
         else dw->resize(size);
     }
     if (has_origin) dw->move(QPoint(int(x), int(y)));
+}
+
+// Resize the window to `w`×`h` of CONTENT and keep it there: `WindowOptions::size_to_fit`
+// (docs/windows.md). The chrome strip (an in-window menu bar, a toolbar) goes back on top. A
+// panel opened fixed-size (`day_qt_window_new2` with `fixed`, the Preferences and About
+// windows) moves its pin, since `resize` cannot move a widget whose minimum and maximum agree;
+// a resizable window just takes the new size and stays resizable. The resize event then reports
+// the new content area back to day through `relayoutChrome`.
+void day_qt_window_fit(void *win, double w, double h) {
+    auto *dw = static_cast<DayWindow *>(win);
+    const QSize size(int(std::lround(w)), int(std::lround(h)) + dw->chromeTop());
+    if (!dw->resizable || dw->minimumSize() == dw->maximumSize()) dw->setFixedSize(size);
+    else dw->resize(size);
 }
 
 // The window's frame on the desktop; 0 where the platform does not say (Wayland positions).
@@ -4036,6 +4050,14 @@ static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap, int px)
             static_cast<QStyle::StandardPixmap>(standard_pixmap));
     return QIcon();
 }
+
+// A heap `QIcon` resolved exactly as a toolbar item's (`theme-name|outline.svg`, a bundled
+// vector path, or a QStyle standard pixmap), for a piece's own shim to draw where it hosts a
+// list or a button of its own (the settings piece's page list). Freed with `day_qt_icon_delete`.
+void *day_qt_icon_new(const char *spec, int standard_pixmap, int px) {
+    return new QIcon(day_qt_toolbar_icon(spec ? spec : "", standard_pixmap, px));
+}
+void day_qt_icon_delete(void *icon) { delete static_cast<QIcon *>(icon); }
 
 // The bar's fixed layout (docs/toolbars.md), built once per bar: a TRACK per column, each a row
 // of three GROUP boxes — leading, principal, trailing — that items go in and out of. A window

@@ -111,8 +111,14 @@ pub fn register_nav(ctrl: NavController) -> NavToken {
         if !(ctrl.enter)(&front) {
             break;
         }
+        // `enter` may itself have consumed the segment: a push that mounts a surface
+        // registers it, and `register_nav` takes pending segments as it does. Only drop
+        // the head when it is still there.
         PENDING.with(|p| {
-            p.borrow_mut().remove(0);
+            let mut p = p.borrow_mut();
+            if !p.is_empty() {
+                p.remove(0);
+            }
         });
     }
     token
@@ -466,8 +472,14 @@ fn navigate_absolute(segments: &[String]) -> bool {
                     if !(c.enter)(&front) {
                         break;
                     }
+                    // `enter` may itself have consumed the segment: a push that mounts a surface
+                    // registers it, and `register_nav` takes pending segments as it does. Only drop
+                    // the head when it is still there.
                     PENDING.with(|p| {
-                        p.borrow_mut().remove(0);
+                        let mut p = p.borrow_mut();
+                        if !p.is_empty() {
+                            p.remove(0);
+                        }
                     });
                 }
             }
@@ -486,16 +498,34 @@ fn navigate_absolute(segments: &[String]) -> bool {
             // Lazily mounted surfaces still consume the tail in `register_nav`.
             let live = snapshot();
             if let Some(anchor) = live.iter().position(|nav| Rc::ptr_eq(nav, c)) {
-                for child in nested_after(&live, anchor)
+                let nested: Vec<Rc<NavController>> = nested_after(&live, anchor)
                     .into_iter()
                     .filter(|nav| (nav.active)())
-                {
+                    .collect();
+                // An explicit deeper path is the nested surfaces' whole state (set-semantics,
+                // as in the anchored branch above): a resident stack that still holds the
+                // pages of an earlier visit pops to its root before the tail lands, so
+                // `settings/general` followed later by `settings/privacy` reads
+                // `settings/privacy`, not `settings/general/privacy`. A bare section switch
+                // leaves what the user had open.
+                if PENDING.with(|p| !p.borrow().is_empty()) {
+                    for child in nested.iter().rev() {
+                        let _ = (child.push)("");
+                    }
+                }
+                for child in nested {
                     while let Some(front) = PENDING.with(|p| p.borrow().first().cloned()) {
                         if !(child.enter)(&front) {
                             break;
                         }
+                        // `enter` may itself have consumed the segment: a push that mounts a surface
+                        // registers it, and `register_nav` takes pending segments as it does. Only drop
+                        // the head when it is still there.
                         PENDING.with(|p| {
-                            p.borrow_mut().remove(0);
+                            let mut p = p.borrow_mut();
+                            if !p.is_empty() {
+                                p.remove(0);
+                            }
                         });
                     }
                 }

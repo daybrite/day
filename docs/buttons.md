@@ -107,8 +107,8 @@ button("Drafts")
 | web-dom | `aria-pressed` and the `selected` class, drawn as the accent fill |
 
 `read_native` reports the state as `checked`, so a conformance case asserts it with
-`assert_on` and `assert_native` (docs/testing.md). The composed document strip uses it for the
-current tab (docs/navigation.md "Document tabs").
+`assert_on` and `assert_native` ([docs/testing.md](testing.md)). The composed document strip uses it for the
+current tab ([docs/navigation.md](navigation.md) "Document tabs").
 
 ## Platform implementation
 

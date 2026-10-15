@@ -54,8 +54,8 @@ values modest; large blobs belong in a file.
 | macOS | `NSUserDefaults.standard` | `objc2` + `objc2-foundation`, shared `apple.rs` |
 | iOS | `NSUserDefaults.standard` | `objc2` + `objc2-foundation`, shared `apple.rs` |
 | Android | `SharedPreferences` (`MODE_PRIVATE`) via a Java shim | `day-android` + `[package.metadata.day.android]` |
-| Linux | file store under `$XDG_CONFIG_HOME/day` (or `~/.config/day`) | std only, shared `file.rs` |
-| Windows | file store under `%APPDATA%\day` | std only, shared `file.rs` |
+| Linux | per-app file store under `$XDG_CONFIG_HOME/day` (or `~/.config/day`) | std only, shared `file.rs` |
+| Windows | per-app file store under `%APPDATA%\day` | std only, shared `file.rs` |
 | HarmonyOS | file store, best-effort in the app sandbox (`target_env = "ohos"`) | std only, shared `file.rs` |
 | Web | `localStorage` (per origin, `day.pref.` namespace) via the day-dom shim | the `web-dom` host page ([docs/web.md](web.md)), `web.rs` |
 
@@ -75,7 +75,11 @@ values modest; large blobs belong in a file.
   stages its own Java shim through `[package.metadata.day.android]` and rides the Day runtime (it
   needs the app's JVM + `Context`).
 - **Linux / Windows / HarmonyOS**: a file-backed store, one flat `String -> String` map serialized
-  under `<config-dir>/day/day-part-prefs.store`. `config-dir` is `$XDG_CONFIG_HOME` (else `~/.config`)
+  under `<config-dir>/day/<app-id>.store`, where the app id is `Day.toml`'s `[app].id` as
+  `day build`/`day launch` export it (`DAY_APP_ID`; a binary built outside the CLI shares
+  `day-part-prefs.store`). The file is new per app: nothing is read from the
+  shared file earlier builds wrote, by design (apps started over when the store became
+  per-app, 2026-10). `config-dir` is `$XDG_CONFIG_HOME` (else `~/.config`)
   on Linux, `%APPDATA%` (else `%USERPROFILE%\AppData\Roaming`) on Windows, and a best-effort app files
   dir on HarmonyOS. Each entry is a line `escaped_key=escaped_value`; the escaper removes every raw
   `=`, newline, and carriage return (`\` → `\\`, newline → `\n`, CR → `\r`, `=` → `\e`), so the first
@@ -103,14 +107,10 @@ none), which `day build` folds into the app's Gradle build without touching any 
 every other platform it is fully day-independent (pure FFI on Apple, pure `std` file I/O on desktop).
 See [docs/extending.md](extending.md).
 
-## Settings pieces + the env-wins rule ([docs/windows.md](windows.md))
+## Settings and About
 
-`pieces/day-piece-settings` packages the theme/language settings rows every app was
-hand-rolling. `appearance_picker`/`language_picker`/`settings_sections` persist through
-this part and apply live. Its `apply_startup(theme_key, locale_key)` applies persisted
-overrides at boot with the **env-wins rule**: when `DAY_THEME` or `DAY_LOCALE` is set (a
-`day launch --env`/`--locale` run, every themed CI variant), the persisted value is not
-re-applied; the launch override stays deterministic no matter what an earlier run stored.
-Live picker changes still apply and persist after boot. When testing persistence by hand on
-macOS, unbundled binaries store under the process-name defaults domain (`defaults delete <name>`
-clears it; a plist delete alone won't, because cfprefsd caches).
+`pieces/day-piece-settings` ([docs/settings.md](settings.md)) is the typed, declarative layer
+over this store: `Pref<T>` statics, groups and rows, the Settings and About surfaces, and the
+env-wins rule for `DAY_THEME`/`DAY_LOCALE`. Its default `Store` is this crate. When testing
+persistence by hand on macOS, unbundled binaries store under the process-name defaults domain
+(`defaults delete <name>` clears it; a plist delete alone won't, because cfprefsd caches).

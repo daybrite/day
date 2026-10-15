@@ -21,9 +21,9 @@ pub(crate) fn welcome_page() -> impl Piece {
         label(res::str::welcome_body())
             .markdown()
             .on_link(|target| {
-                // Desktop Settings lives in its own window instead of the navigation host.
-                if target == "#settings" && crate::has_menu_bar() {
-                    day::open_preferences();
+                // Settings opens its window on desktop and selects the section on a phone.
+                if target == "#settings" {
+                    day_piece_settings::open();
                 } else {
                     open_link(target);
                 }

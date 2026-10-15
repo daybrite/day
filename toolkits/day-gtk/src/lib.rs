@@ -88,6 +88,9 @@ mod transfer;
 
 pub mod ext;
 pub use ext::*;
+/// For external piece renderers that build native chrome of their own (the settings shell's
+/// view switcher): the window's header bar and themed icon names for Day's icon vocabulary.
+pub use toolbar::{header_of, icon_name_for};
 
 /// The day-core event sink (node-id keyed).
 type Sink = Rc<dyn Fn(NodeId, Event)>;
@@ -121,8 +124,13 @@ day_core::tls_group! {
     static NAV_PAGE_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
     /// NAV_PAGE widget → its title (for the AdwNavigationPage).
     static NAV_PAGE_TITLES: RefCell<HashMap<usize, String>> = RefCell::new(HashMap::new());
+    /// The Day window that was active most recently (`Toolkit::active_window`).
+    static LAST_ACTIVE_WINDOW: RefCell<Option<gtk4::glib::WeakRef<gtk4::Window>>> = const { RefCell::new(None) };
     /// NAV_PAGE widget → the pane it belongs to (which `NavSplit` cell takes it).
     static NAV_PAGE_PANES: RefCell<HashMap<usize, day_spec::props::Pane>> = RefCell::new(HashMap::new());
+    /// A pushed stack page's filling cell (under its header bar), keyed by the NAV_PAGE
+    /// widget: the page's content is the cell's allocation, not the whole host.
+    static STACK_PAGE_CELLS: RefCell<HashMap<usize, DayCell>> = RefCell::new(HashMap::new());
 
     /// NAV_MENU widget → its list box + suppression flag.
     static NAV_MENUS: RefCell<HashMap<usize, NavMenuState>> = RefCell::new(HashMap::new());
@@ -1152,6 +1160,7 @@ fn gtk_role_label(role: day_spec::MenuRole) -> &'static str {
         R::CloseWindow => "Close",
         R::Fullscreen => "Full Screen",
         R::NewWindow => "New Window",
+        R::CheckForUpdates => "Check for Updates…",
     }
 }
 
@@ -2455,8 +2464,14 @@ fn nav_report(host_key: usize) {
                             }
                         }
                     }
-                    // A stack, a suite, or a `nav_stack`: every page fills the host.
-                    None => Size::new(hw, hh),
+                    // A stack, a suite, or a `nav_stack`: every page fills the host — a
+                    // pushed stack page its cell under the header bar, once allocated (its
+                    // own allocation reports it live; this is the whole-host moment).
+                    None => STACK_PAGE_CELLS
+                        .with(|m| m.borrow().get(key).cloned())
+                        .filter(|cell| cell.width() > 0 && cell.height() > 0)
+                        .map(|cell| Size::new(cell.width() as f64, cell.height() as f64))
+                        .unwrap_or(Size::new(hw, hh)),
                 };
                 (*id, size)
             })
@@ -2726,6 +2741,8 @@ mod day_cell {
     /// A cell's re-layout seam, `(cell handle, width)`: `ListSource::layout_cell` or
     /// `TreeSource::layout_cell`.
     type LayoutCell = std::rc::Rc<dyn Fn(RawHandle, f64)>;
+    /// A cell's laid-height query, `ListSource::cell_height` or `TreeSource::cell_height`.
+    type CellHeight = std::rc::Rc<dyn Fn(RawHandle) -> f64>;
     /// A filling cell's allocation observer, `(width, height)`.
     type AllocateHook = std::rc::Rc<dyn Fn(i32, i32)>;
 
@@ -2734,6 +2751,10 @@ mod day_cell {
         /// The row's seam, planted at bind time; `None` until the first bind, and always for a
         /// filling cell.
         layout: RefCell<Option<LayoutCell>>,
+        /// The row's laid height, asked of day-core (`ListSource::cell_height`): the row's own
+        /// height, its bottom padding included, where the children's frames alone end at the
+        /// last child.
+        height: RefCell<Option<CellHeight>>,
         /// The width Day last laid this cell's row at, so an unchanged allocation costs nothing.
         laid: std::cell::Cell<i32>,
         /// Each child's frame as Day last laid it, keyed by the child's pointer.
@@ -2778,15 +2799,26 @@ mod day_cell {
                 // that in `size_allocate`.
                 return (0, 0, -1, -1);
             }
-            // The row is as tall as Day laid it — `RowHeight`, or a measured automatic row.
-            let height = self
-                .frames
+            // The row is as tall as Day laid it — `RowHeight`, or a measured automatic row —
+            // padding included. Before the first layout (or inside a day-core borrow) the
+            // children's frames stand in.
+            let laid = self
+                .height
                 .borrow()
-                .values()
-                .map(|f| (f.origin.y + f.size.height).ceil() as i32)
-                .max()
-                .unwrap_or(0)
-                .max(0);
+                .as_ref()
+                .map(|h| h(self.obj().as_ptr() as RawHandle))
+                .unwrap_or(0.0);
+            let height = if laid > 0.0 {
+                laid.ceil() as i32
+            } else {
+                self.frames
+                    .borrow()
+                    .values()
+                    .map(|f| (f.origin.y + f.size.height).ceil() as i32)
+                    .max()
+                    .unwrap_or(0)
+                    .max(0)
+            };
             (height, height, -1, -1)
         }
 
@@ -2853,8 +2885,9 @@ mod day_cell {
         /// by the row's padding, or its indentation — and correcting it now keeps that width off
         /// the screen. A cell GTK has not allocated yet has no width to offer; its first
         /// `size_allocate` does it.
-        fn bind(&self, layout: LayoutCell) {
+        fn bind(&self, layout: LayoutCell, height: CellHeight) {
             *self.layout.borrow_mut() = Some(layout.clone());
+            *self.height.borrow_mut() = Some(height);
             let width = self.obj().width();
             if width <= 0 {
                 self.laid.set(0);
@@ -2884,8 +2917,8 @@ mod day_cell {
 
         /// Called from a factory's `bind` handler once day-core has built or rebound the row,
         /// with `ListSource::layout_cell` or `TreeSource::layout_cell`.
-        pub(crate) fn bind_layout(&self, layout: LayoutCell) {
-            self.imp().bind(layout);
+        pub(crate) fn bind_layout(&self, layout: LayoutCell, height: CellHeight) {
+            self.imp().bind(layout, height);
         }
 
         /// Adopt `child`: this cell places it at the frame `set_child_frame` records for it.
@@ -3204,7 +3237,7 @@ fn list_resize(
         LIST_CELL_ROWS.with(|t| t.insert(cell.as_ptr() as usize, pos as usize));
         (src.bind_row)(pos as usize, cell.as_ptr() as RawHandle);
         if let Ok(cell) = cell.downcast::<DayCell>() {
-            cell.bind_layout(src.layout_cell.clone());
+            cell.bind_layout(src.layout_cell.clone(), src.cell_height.clone());
             // New content may need a new height (an Automatic row); GTK measured the old one.
             cell.queue_resize();
         }
@@ -3287,7 +3320,7 @@ fn symbolic_icon_dir() -> Option<std::path::PathBuf> {
 /// through the same librsvg path the sidebar rows use, at 4× the display size for HiDPI, and
 /// refreshed when the vector is newer. `None` for a name no vector answers to, so the caller
 /// falls back to the blank glyph rather than the broken-image box.
-fn vector_icon_name(name: &str) -> Option<String> {
+pub fn vector_icon_name(name: &str) -> Option<String> {
     if name.is_empty() {
         return None;
     }
@@ -3334,6 +3367,47 @@ fn icon_theme_rescan() {
         let paths: Vec<&std::path::Path> = paths.iter().map(std::path::PathBuf::as_path).collect();
         theme.set_search_path(&paths);
     }
+}
+
+/// A themed icon name for a [`Symbol`]: the running theme's own glyph where it has one, else
+/// Day's outline staged as a symbolic icon (`day-<symbol>-symbolic`) the way
+/// [`vector_icon_name`] stages a bundled vector, so a widget that takes only an icon name (an
+/// `AdwViewStackPage`) draws the same glyph a toolbar button would. `None` where nothing can be
+/// staged (no cache directory, no display).
+pub fn symbol_icon_name(sym: day_spec::Symbol) -> Option<String> {
+    if let Some(name) = toolbar::icon_name_for(sym) {
+        return Some(name.to_string());
+    }
+    let svg = sym.outline_svg()?;
+    let dir = symbolic_icon_dir()?;
+    let name = format!("day-{}-symbolic", format!("{sym:?}").to_lowercase());
+    let png = dir.join(format!("{name}.symbolic.png"));
+    if !png.exists() {
+        let px = ICON_PX * 4;
+        let stream =
+            gtk4::gio::MemoryInputStream::from_bytes(&gtk4::glib::Bytes::from(svg.as_bytes()));
+        let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_stream_at_scale(
+            &stream,
+            px,
+            px,
+            true,
+            gtk4::gio::Cancellable::NONE,
+        )
+        .ok()?;
+        let pixbuf = if pixbuf.has_alpha() {
+            pixbuf
+        } else {
+            pixbuf.add_alpha(false, 0, 0, 0).ok()?
+        };
+        // Black under the alpha, for the same reason `vector_icon_name` recolors.
+        recolor_pixbuf(&pixbuf, 0, 0, 0);
+        pixbuf.savev(&png, "png", &[]).ok()?;
+        icon_theme_rescan();
+    }
+    let display = gtk4::gdk::Display::default()?;
+    gtk4::IconTheme::for_display(&display)
+        .has_icon(&name)
+        .then_some(name)
 }
 
 /// A fully transparent symbolic icon, for a switcher row with no glyph: libadwaita's switcher
@@ -3427,10 +3501,312 @@ fn suite_rows_changed(
 #[distributed_slice]
 pub static RENDERERS: [fn() -> Renderer<Gtk>];
 
+/// Whether `widget`'s window holds a native surface a piece hosts above GTK's drawing (on
+/// macOS, a Cocoa view in the window's content view: day-piece-webview's `WKWebView`). Such
+/// a view draws over everything GTK draws in that window, an `AdwDialog` included, so a
+/// dialog presented within the window would sit under it unseen; the callers present the
+/// dialog as a window instead. Elsewhere a web view draws inside GTK's scene, so nothing
+/// covers a dialog.
+fn has_native_surface(widget: &gtk4::Widget) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        snapshot_macos::has_native_surface(widget)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = widget;
+        false
+    }
+}
+
+/// Where to present an alert dialog for `parent`: within its window, or, while a native
+/// surface would cover it there (`has_native_surface`), as a window of its own (`None`). An
+/// alert belongs to the window it interrupts, so only the cover lifts it out.
+fn dialog_parent(parent: &gtk4::Widget) -> Option<&gtk4::Widget> {
+    if has_native_surface(parent) {
+        log::info!("day-gtk: presenting the dialog as a window: its window hosts a native surface");
+        None
+    } else {
+        Some(parent)
+    }
+}
+
+/// Where to present a panel (Preferences, About) for `parent`. On Linux, within its window:
+/// GNOME's preferences dialog, a sheet in a wide window and a bottom sheet in a narrow one.
+/// On macOS always as a window of its own (`None`): that is where a Mac keeps Preferences
+/// (AppKit's convention), and it never depends on what the window holds — a Cocoa view
+/// (`has_native_surface`) would cover an in-window sheet, whether it is there when the
+/// panel opens or arrives after. The dialog is the same `AdwPreferencesDialog` either way.
+fn panel_parent(parent: &gtk4::Widget) -> Option<&gtk4::Widget> {
+    if cfg!(target_os = "macos") {
+        None
+    } else {
+        dialog_parent(parent)
+    }
+}
+
+/// Remember a window that just became active (`LAST_ACTIVE_WINDOW`).
+fn note_last_active(w: &gtk4::Window) {
+    if w.is_active() {
+        LAST_ACTIVE_WINDOW.with(|l| *l.borrow_mut() = Some(w.downgrade()));
+    }
+}
+
 /// A live secondary window (docs/windows.md).
 struct GtkWin {
     window: adw::ApplicationWindow,
     fixed: gtk4::Fixed,
+}
+
+/// A panel (`WindowKind::Preferences`, `WindowKind::About`) presented as an `AdwDialog` over
+/// the app window rather than as a window of its own (docs/windows.md): a preferences or About
+/// surface in a GNOME app is a dialog, floating in a wide window and a bottom sheet in a narrow
+/// one. The record keeps a window's content-container contract: Day mounts into `fixed`, and
+/// every window duty day-core calls with that handle lands on the dialog instead.
+///
+/// The dialog itself is made lazily, because what it should be depends on the content. The
+/// settings shell (day-piece-settings) claims an `AdwPreferencesDialog` through
+/// [`preferences_dialog_of`] while it realizes and adds its pages to it; any other content (the
+/// composed About, a settings sub-page opened on its own) gets a plain `AdwDialog` with a header
+/// bar over Day's tree the moment its first child mounts. Presenting waits for the next main-loop
+/// turn, so the dialog appears built and at its fitted size.
+struct DialogHost {
+    /// The window's root node, where the dialog's events go.
+    node: NodeId,
+    kind: day_spec::WindowKind,
+    /// Day's content container.
+    fixed: gtk4::Fixed,
+    /// The window the dialog presents over.
+    parent: gtk4::Window,
+    dialog: RefCell<Option<adw::Dialog>>,
+    title: RefCell<String>,
+    /// The content size to show: the options' size until `fit_window` says otherwise. The
+    /// dialog's content height counts its header bar, which is added when applied.
+    size: std::cell::Cell<Size>,
+    presented: std::cell::Cell<bool>,
+    /// When it was presented: a capture waits out the sheet's entrance animation.
+    presented_at: std::cell::Cell<Option<std::time::Instant>>,
+    /// Closed (by day-core, or by the user) — nothing further is presented or applied.
+    closed: std::cell::Cell<bool>,
+}
+
+/// How long libadwaita animates a dialog in; a capture before that shows it mid-fade.
+const DIALOG_ENTRANCE: std::time::Duration = std::time::Duration::from_millis(400);
+
+thread_local! {
+    /// Every open dialog-hosted panel. An entry goes when its dialog reports `closed`.
+    static DIALOGS: RefCell<Vec<Rc<DialogHost>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// The dialog host whose content container is `host`.
+fn dialog_host_for(host: &Handle) -> Option<Rc<DialogHost>> {
+    DIALOGS.with(|d| {
+        d.borrow()
+            .iter()
+            .find(|h| h.fixed.upcast_ref::<gtk4::Widget>() == host)
+            .cloned()
+    })
+}
+
+/// The dialog host whose window root is `node`.
+fn dialog_host_of_node(node: NodeId) -> Option<Rc<DialogHost>> {
+    DIALOGS.with(|d| d.borrow().iter().find(|h| h.node == node).cloned())
+}
+
+/// The first header bar under `w`: a dialog's own, for the content height it takes.
+fn find_header_bar(w: &gtk4::Widget) -> Option<adw::HeaderBar> {
+    if let Some(h) = w.downcast_ref::<adw::HeaderBar>() {
+        return Some(h.clone());
+    }
+    let mut child = w.first_child();
+    while let Some(c) = child {
+        if let Some(h) = find_header_bar(&c) {
+            return Some(h);
+        }
+        child = c.next_sibling();
+    }
+    None
+}
+
+/// The height libadwaita's header bar takes when it cannot be measured yet.
+const HEADER_BAR_FALLBACK_H: f64 = 47.0;
+
+impl DialogHost {
+    /// A plain `AdwDialog`: a header bar with the title over Day's content, which fills the
+    /// dialog and reports its allocation as the window size. No-op once a dialog exists.
+    fn materialize_plain(self: &Rc<Self>) {
+        if self.dialog.borrow().is_some() {
+            return;
+        }
+        let dialog = adw::Dialog::new();
+        dialog.set_title(&self.title.borrow());
+        let header = adw::HeaderBar::new();
+        let toolbar = adw::ToolbarView::new();
+        toolbar.add_top_bar(&header);
+        // The same minimum-size breaker a window's content has (`build_day_window`), plus the
+        // allocation report GTK offers no signal for.
+        let cell = DayCell::filling();
+        cell.add_child(self.fixed.upcast_ref());
+        let node = self.node;
+        cell.on_allocate(move |w, h| {
+            ffi_guard::contain((), || {
+                emit(
+                    node,
+                    Event::WindowResized(Size::new(f64::from(w), f64::from(h))),
+                )
+            })
+        });
+        toolbar.set_content(Some(&cell));
+        dialog.set_child(Some(&toolbar));
+        self.install(dialog);
+    }
+
+    /// The `AdwPreferencesDialog` the settings shell fills: made on the first claim, answered
+    /// again on later ones. `None` once a plain dialog holds the content.
+    fn claim_preferences(self: &Rc<Self>) -> Option<adw::PreferencesDialog> {
+        if let Some(d) = self.dialog.borrow().clone() {
+            return d.downcast::<adw::PreferencesDialog>().ok();
+        }
+        let dialog = adw::PreferencesDialog::new();
+        dialog.set_title(&self.title.borrow());
+        self.install(dialog.clone().upcast());
+        Some(dialog)
+    }
+
+    /// Keep `dialog`, wire its close to day-core's confirm path, and present it on the next
+    /// main-loop turn.
+    fn install(self: &Rc<Self>, dialog: adw::Dialog) {
+        *self.dialog.borrow_mut() = Some(dialog.clone());
+        let node = self.node;
+        let parent = self.parent.clone();
+        let host = Rc::downgrade(self);
+        dialog.connect_closed(move |d| {
+            ffi_guard::contain((), || {
+                if let Some(h) = host.upgrade() {
+                    h.closed.set(true);
+                }
+                DIALOGS.with(|v| {
+                    v.borrow_mut()
+                        .retain(|h| h.dialog.borrow().as_ref() != Some(d))
+                });
+                // The window underneath is key again: an in-window dialog never changed the
+                // toplevel's active state, so nothing else reports it.
+                emit(node, Event::WindowFocused(false));
+                if let Some(track) = state_track(&parent) {
+                    emit(track.target, Event::WindowFocused(true));
+                }
+                // day-core tears down on a deferred hop, never inside this signal.
+                emit(node, Event::WindowClosed);
+            })
+        });
+        let host = Rc::downgrade(self);
+        gtk4::glib::idle_add_local_once(move || {
+            ffi_guard::contain((), || {
+                if let Some(h) = host.upgrade() {
+                    h.present();
+                }
+            })
+        });
+    }
+
+    /// Show the dialog over its window at the size it was fitted to.
+    fn present(&self) {
+        if self.closed.get() || self.presented.replace(true) {
+            return;
+        }
+        let Some(dialog) = self.dialog.borrow().clone() else {
+            return;
+        };
+        dialog.present(panel_parent(self.parent.upcast_ref()));
+        self.presented_at.set(Some(std::time::Instant::now()));
+        self.apply_size();
+    }
+
+    /// The widget a capture of the dialog renders: the sheet libadwaita lays the dialog's
+    /// content in (floating, or the bottom sheet of a narrow window), which paints the
+    /// background, corners and shadow. The dialog widget itself spans the whole window: it
+    /// holds the dimming layer too.
+    fn capture_widget(&self) -> Option<gtk4::Widget> {
+        fn sheet_under(w: &gtk4::Widget) -> Option<gtk4::Widget> {
+            if w.css_name() == "sheet" {
+                return Some(w.clone());
+            }
+            let mut child = w.first_child();
+            while let Some(c) = child {
+                if let Some(s) = sheet_under(&c) {
+                    return Some(s);
+                }
+                child = c.next_sibling();
+            }
+            None
+        }
+        let dialog: gtk4::Widget = self.dialog.borrow().clone()?.upcast();
+        Some(sheet_under(&dialog).unwrap_or(dialog))
+    }
+
+    /// Whether the dialog is on screen and done animating in.
+    fn settled(&self) -> bool {
+        self.presented_at
+            .get()
+            .is_some_and(|t| t.elapsed() >= DIALOG_ENTRANCE)
+    }
+
+    /// Size the dialog to its content: `size` plus the header bar, which the dialog's content
+    /// height includes. Nothing before presentation; `present` applies it then.
+    fn apply_size(&self) {
+        if !self.presented.get() || self.closed.get() {
+            return;
+        }
+        let Some(dialog) = self.dialog.borrow().clone() else {
+            return;
+        };
+        let bar = find_header_bar(dialog.upcast_ref())
+            .map(|h| {
+                let h = h.measure(gtk4::Orientation::Vertical, -1).1;
+                if h > 0 {
+                    f64::from(h)
+                } else {
+                    HEADER_BAR_FALLBACK_H
+                }
+            })
+            .unwrap_or(0.0);
+        let size = self.size.get();
+        dialog.set_content_width(size.width.round() as i32);
+        dialog.set_content_height((size.height + bar).round() as i32);
+    }
+
+    /// Close the dialog; `closed` confirms to day-core. A dialog not presented yet (closed in
+    /// the turn it opened) has nothing to animate, so the confirm goes straight out.
+    fn close(self: &Rc<Self>) {
+        if self.closed.get() {
+            return;
+        }
+        let dialog = self.dialog.borrow().clone();
+        match dialog {
+            Some(d) if self.presented.get() => {
+                d.close();
+            }
+            _ => {
+                self.closed.set(true);
+                let node = self.node;
+                DIALOGS.with(|v| v.borrow_mut().retain(|h| h.node != node));
+                gtk4::glib::idle_add_local_once(move || {
+                    ffi_guard::contain((), || emit(node, Event::WindowClosed))
+                });
+            }
+        }
+    }
+}
+
+/// The `AdwPreferencesDialog` hosting the panel whose window root is `root`, for the settings
+/// shell to fill with its `AdwPreferencesPage`s (docs/settings.md). Made on the first call,
+/// which must come before any content mounts into the window (the shell's realize does); `None`
+/// when `root` is not a dialog-hosted `WindowKind::Preferences` panel, or when its content
+/// already took a plain dialog.
+pub fn preferences_dialog_of(root: NodeId) -> Option<adw::PreferencesDialog> {
+    dialog_host_of_node(root)
+        .filter(|h| h.kind == day_spec::WindowKind::Preferences)
+        .and_then(|h| h.claim_preferences())
 }
 
 /// GTK 4.14's `gtk_accessible_announce(GtkAccessible *, const char *, GtkAccessibleAnnouncementPriority)`.
@@ -3524,6 +3900,40 @@ impl Gtk {
             menu_bar: None,
             menu_group: None,
         }
+    }
+
+    /// The window a dialog presents over: the active Day window, else the primary (the same
+    /// rule `present` uses for alerts). `None` before the first window exists.
+    /// The window a panel (a dialog) presents over: the active window, else the window that
+    /// was active most recently and is still up, else the secondary window opened last, else
+    /// the primary. The fallbacks matter on macOS, where choosing from the global menu bar
+    /// leaves no window `is-active` for the moment the action runs: without them a Settings…
+    /// chosen while a reader window was in front landed on the primary window BEHIND it, and
+    /// showed only once the reader window closed.
+    fn active_window(&self) -> Option<gtk4::Window> {
+        let primary = self
+            .window_fixed
+            .as_ref()
+            .and_then(|f| f.root())
+            .and_then(|r| r.downcast::<gtk4::Window>().ok());
+        self.secondary
+            .iter()
+            .find(|w| w.window.is_active())
+            .map(|w| w.window.clone().upcast())
+            .or_else(|| primary.clone().filter(|w| w.is_active()))
+            .or_else(|| {
+                LAST_ACTIVE_WINDOW
+                    .with(|w| w.borrow().as_ref().and_then(|w| w.upgrade()))
+                    .filter(|w| w.is_visible())
+            })
+            .or_else(|| {
+                self.secondary
+                    .iter()
+                    .rev()
+                    .find(|w| w.window.is_visible())
+                    .map(|w| w.window.clone().upcast())
+            })
+            .or(primary)
     }
 
     /// The GtkWindow whose content container is `host`: a secondary window's, or the
@@ -5059,7 +5469,10 @@ impl Toolkit for Gtk {
                                 // `bind_row` laid the row at the TREE's width; the cell knows
                                 // the width the expander actually left it and re-lays to that.
                                 if let Ok(cell) = cell.downcast::<DayCell>() {
-                                    cell.bind_layout(src.layout_cell.clone());
+                                    cell.bind_layout(
+                                        src.layout_cell.clone(),
+                                        src.cell_height.clone(),
+                                    );
                                 }
                             }
                         });
@@ -5249,7 +5662,10 @@ impl Toolkit for Gtk {
                                 // `bind_row` laid the row at the LIST's width; the cell knows the
                                 // width its row actually granted and re-lays the content to that.
                                 if let Ok(cell) = cell.downcast::<DayCell>() {
-                                    cell.bind_layout(src.layout_cell.clone());
+                                    cell.bind_layout(
+                                        src.layout_cell.clone(),
+                                        src.cell_height.clone(),
+                                    );
                                 }
                             }
                         });
@@ -6196,6 +6612,11 @@ impl Toolkit for Gtk {
     }
 
     fn insert(&mut self, parent: &Handle, child: &Handle, index: usize) {
+        // The first mount into a dialog-hosted panel decides the dialog: Day content gets the
+        // plain one (the settings shell claimed its own before mounting anything).
+        if let Some(h) = dialog_host_for(parent) {
+            h.materialize_plain();
+        }
         // A nav menu that has just gained ancestors: if one of them is a navigation suite, its
         // rows are that suite's switcher. Runs before the insert proper so the toggles exist by
         // the time the first page is shown.
@@ -6271,7 +6692,31 @@ impl Toolkit for Gtk {
                     None
                 }
                 NavPresent::Stack(nv) => {
-                    let nav_page = adw::NavigationPage::new(child, &title);
+                    // The root page is the content as it stands. A PUSHED page gets a header
+                    // bar (GNOME's navigation page shape): the view draws its back button in
+                    // it, so there is a way out besides the swipe and Escape, and the title
+                    // names where the user is. The page's content sits in a filling cell
+                    // under the bar and reports its own size, the bar's height taken off.
+                    let nav_page = if state.pages.is_empty() {
+                        adw::NavigationPage::new(child, &title)
+                    } else {
+                        let cell = DayCell::filling();
+                        cell.add_child(child);
+                        cell.on_allocate(move |w, h| {
+                            if w > 0 && h > 0 {
+                                emit(id, Event::FrameChanged(Size::new(w as f64, h as f64)));
+                            }
+                        });
+                        STACK_PAGE_CELLS
+                            .with(|m| m.borrow_mut().insert(widget_key(child), cell.clone()));
+                        let header = adw::HeaderBar::new();
+                        header.set_show_start_title_buttons(false);
+                        header.set_show_end_title_buttons(false);
+                        let toolbar = adw::ToolbarView::new();
+                        toolbar.add_top_bar(&header);
+                        toolbar.set_content(Some(&cell));
+                        adw::NavigationPage::new(&toolbar, &title)
+                    };
                     state.suppress.set(true);
                     nv.push(&nav_page);
                     state.suppress.set(false);
@@ -6430,8 +6875,12 @@ impl Toolkit for Gtk {
                         }
                     }
                     // The stack pop already removed it (day-driven pop or native gesture);
-                    // dropping our ref is enough.
-                    (NavPresent::Stack(_), _) => {}
+                    // dropping our ref is enough — and a pushed page's cell lets the content go.
+                    (NavPresent::Stack(_), _) => {
+                        if let Some(cell) = STACK_PAGE_CELLS.with(|m| m.borrow_mut().remove(&key)) {
+                            cell.remove_child(child);
+                        }
+                    }
                 }
             }
             true
@@ -7619,6 +8068,10 @@ impl Toolkit for Gtk {
     }
 
     fn snapshot_window_of(&mut self, host: &Handle) -> Result<Vec<u8>, String> {
+        if let Some(h) = dialog_host_for(host) {
+            let sheet = h.capture_widget().ok_or("dialog not presented")?;
+            return snapshot_widget(&sheet);
+        }
         snapshot_widget(host)
     }
 
@@ -7637,10 +8090,35 @@ impl Toolkit for Gtk {
         let Some(app) = self.app.clone() else {
             return day_spec::WindowOpenReply::Unsupported;
         };
+        // A panel over an app window is a dialog in it (`DialogHost`); with no window to
+        // present over (nothing is up yet) it is a window of its own, below.
+        if kind.is_panel()
+            && let Some(parent) = self.active_window()
+        {
+            let host = Rc::new(DialogHost {
+                node: id,
+                kind,
+                fixed: gtk4::Fixed::new(),
+                parent,
+                dialog: RefCell::new(None),
+                title: RefCell::new(options.title.clone()),
+                size: std::cell::Cell::new(options.size),
+                presented: std::cell::Cell::new(false),
+                presented_at: std::cell::Cell::new(None),
+                closed: std::cell::Cell::new(false),
+            });
+            DIALOGS.with(|d| d.borrow_mut().push(host.clone()));
+            // About content is Day's own; Preferences content decides at its first mount
+            // (the settings shell claims an `AdwPreferencesDialog` before that).
+            if kind == day_spec::WindowKind::About {
+                host.materialize_plain();
+            }
+            return day_spec::WindowOpenReply::Open(host.fixed.clone().upcast());
+        }
         let (window, fixed, _header) = build_day_window(&app, options, Some(id));
         // An overlay title bar's height is the content's top inset, there before it builds.
         shell::report_overlay_inset(window.upcast_ref(), Some(id));
-        if kind == day_spec::WindowKind::Preferences {
+        if kind.is_panel() {
             window.set_resizable(false);
         }
         window.connect_close_request(move |_| {
@@ -7656,6 +8134,7 @@ impl Toolkit for Gtk {
             let app = app.clone();
             window.connect_is_active_notify(move |w| {
                 ffi_guard::contain((), || {
+                    note_last_active(w.upcast_ref());
                     emit(id, Event::WindowFocused(w.is_active()));
                     note_activation_changed(&app);
                 });
@@ -7677,7 +8156,30 @@ impl Toolkit for Gtk {
         day_spec::WindowOpenReply::Open(fixed.upcast())
     }
 
+    fn fit_window(&mut self, host: &Handle, size: Size) {
+        if let Some(h) = dialog_host_for(host) {
+            h.size.set(size);
+            h.apply_size();
+            return;
+        }
+        // A panel that fits its content (docs/windows.md `size_to_fit`): the default size is
+        // the size GTK gives a window it has not been asked to resize, mapped or not, so
+        // resetting it to the content plus the header bar resizes the live window. The
+        // `default-height` notify then reports the new content area back to day-core.
+        if let Some(w) = self.gtk_window_for(host) {
+            let bar = shell::bar_height(&w);
+            w.set_default_size(
+                size.width.round() as i32,
+                (size.height + bar).round() as i32,
+            );
+        }
+    }
+
     fn close_window(&mut self, host: &Handle) {
+        if let Some(h) = dialog_host_for(host) {
+            h.close();
+            return;
+        }
         // The primary too (`gtk_window_for`): the initial window is an ordinary window
         // (docs/windows.md), and `close()` takes it through `close-request`, so a scripted close
         // ends the app exactly as the title bar's button does.
@@ -7687,12 +8189,29 @@ impl Toolkit for Gtk {
     }
 
     fn focus_window(&mut self, host: &Handle) {
+        if let Some(h) = dialog_host_for(host) {
+            // Presenting a presented dialog again brings it forward and refocuses it (the
+            // open-or-focus half of the preferences singleton).
+            if h.presented.get()
+                && let Some(d) = h.dialog.borrow().clone()
+            {
+                d.present(panel_parent(h.parent.upcast_ref()));
+            }
+            return;
+        }
         if let Some(w) = self.gtk_window_for(host) {
             w.present();
         }
     }
 
     fn set_window_title(&mut self, host: &Handle, title: &str) {
+        if let Some(h) = dialog_host_for(host) {
+            *h.title.borrow_mut() = title.to_string();
+            if let Some(d) = h.dialog.borrow().clone() {
+                d.set_title(title);
+            }
+            return;
+        }
         if let Some(w) = self
             .secondary
             .iter()
@@ -7720,6 +8239,11 @@ impl Toolkit for Gtk {
 
     fn apply_window(&mut self, host: &Handle, change: &day_spec::WindowChange) {
         use day_spec::WindowChange as C;
+        // A dialog has no window properties of its own: every change is ignored, which the
+        // `Cap`s named on `WindowChange` already allow for.
+        if dialog_host_for(host).is_some() {
+            return;
+        }
         let Some(window) = self.gtk_window_for(host) else {
             return;
         };
@@ -7769,8 +8293,22 @@ impl Toolkit for Gtk {
         revision: u32,
     ) -> Result<day_spec::capture::Readiness, String> {
         use gtk4::prelude::*;
-        let widget = host
-            .cloned()
+        // A dialog-hosted panel paints on the window's frame clock through its dialog; its
+        // content container is not what is on screen. Not before the dialog has animated in.
+        let dialog_host = host.and_then(dialog_host_for);
+        if let Some(h) = &dialog_host
+            && !h.settled()
+        {
+            return Ok(day_spec::capture::Readiness::Pending);
+        }
+        let widget = dialog_host
+            .and_then(|h| {
+                h.dialog
+                    .borrow()
+                    .clone()
+                    .map(|d| d.upcast::<gtk4::Widget>())
+            })
+            .or_else(|| host.cloned())
             .or_else(|| self.window_fixed.as_ref().map(|w| w.clone().upcast()))
             .ok_or("no window to capture")?;
         let Some(clock) = widget.frame_clock() else {
@@ -7852,7 +8390,7 @@ impl Toolkit for Gtk {
                     });
                 }
                 NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
-                dialog.present(parent.as_ref());
+                dialog.present(parent.as_ref().and_then(|p| dialog_parent(p.upcast_ref())));
             }
             PresentSpec::Prompt {
                 title,
@@ -7890,7 +8428,7 @@ impl Toolkit for Gtk {
                     });
                 }
                 NAV_DIALOGS.with(|m| m.borrow_mut().insert(req, DialogHandle { finish }));
-                dialog.present(parent.as_ref());
+                dialog.present(parent.as_ref().and_then(|p| dialog_parent(p.upcast_ref())));
             }
             // GtkFileDialog (GTK 4.10+): async open/save with a native GTK picker. The chosen
             // GFile's local path crosses back; a Cancellable lets dismiss() cancel it.
@@ -8349,6 +8887,7 @@ fn watch_window_state(window: &gtk4::Window, target: NodeId) {
         .connect_fullscreened_notify(|w| ffi_guard::contain((), || report_window_state(w, false)));
     window.connect_is_active_notify(|w| {
         ffi_guard::contain((), || {
+            note_last_active(w);
             if w.is_active()
                 && let Some(track) = state_track(w)
             {

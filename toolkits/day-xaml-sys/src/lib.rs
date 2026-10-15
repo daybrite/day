@@ -220,7 +220,7 @@ unsafe extern "C" {
     pub fn day_xaml_set_primary_closed_cb(cb: extern "C" fn());
     /// Destroy the primary window's host, once day-core has released its root handle.
     pub fn day_xaml_destroy_primary();
-    /// Appearance (docs/appearance.md): the effective dark/light for the `dark_mode` duty, and a
+    /// Appearance (docs/settings.md): the effective dark/light for the `dark_mode` duty, and a
     /// callback fired when the user flips the system setting while the app runs.
     pub fn day_xaml_set_appearance_cb(cb: extern "C" fn());
     pub fn day_xaml_is_dark() -> c_int;

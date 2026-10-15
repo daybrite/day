@@ -124,10 +124,12 @@ pub use day_spec::resource::{
 };
 pub use tree::*;
 pub use windows::{
-    WindowHandle, current_window, finish_window_open, focused_scope, focused_window,
-    initial_window, monitors, open_new_window, open_new_window_for_group, open_preferences,
-    open_window, quit, register_new_window, register_new_window_for, register_preferences,
-    register_preferences_with, window_by_key, window_title,
+    WindowHandle, about_action_id, check_for_updates, check_for_updates_action_id, current_window,
+    finish_window_open, focused_scope, focused_window, initial_window, launch_options, monitors,
+    open_about, open_new_window, open_new_window_for_group, open_preferences, open_window, quit,
+    register_about, register_about_window, register_check_for_updates, register_new_window,
+    register_new_window_for, register_preferences, register_preferences_with, window_by_key,
+    window_title,
 };
 
 /// The app-wide layout direction (docs/localization): mirrors every horizontal placement in

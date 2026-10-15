@@ -598,7 +598,7 @@ static int day_theme_env() {
 // captured at window creation. Read by the code-behind theme-brush fills below, which resolve per
 // the SYSTEM theme and would otherwise mis-color a forced scheme.
 static int g_forced_theme = 0;
-/// The APP's own appearance override (docs/appearance.md): 0 follow the system, 1 light, 2 dark.
+/// The APP's own appearance override (docs/settings.md): 0 follow the system, 1 light, 2 dark.
 /// Distinct from `g_forced_theme`, which is the DAY_THEME env force a screenshot run pins — that
 /// one still wins, so a themed CI capture cannot be knocked off its scheme by the app's own picker.
 static int g_app_override = 0;
@@ -1558,7 +1558,7 @@ static void apply_dark_titlebar(HWND host) {
 }
 
 /// Fired when the system light/dark setting flips, so day can re-evaluate its own palette
-/// (docs/appearance.md). Set once from Rust; null until then.
+/// (docs/settings.md). Set once from Rust; null until then.
 static void (*g_appearance_cb)() = nullptr;
 
 /// Re-theme and re-ground every live window. Defined below, once `SecWindow` is a complete type;
@@ -1722,7 +1722,7 @@ extern "C" void day_xaml_set_lifecycle_cb(void (*cb)(int)) { g_lifecycle_cb = cb
 
 extern "C" void day_xaml_set_primary_closed_cb(void (*cb)()) { g_primary_closed = cb; }
 
-// Appearance (docs/appearance.md): the system light/dark setting, and a notification when the
+// Appearance (docs/settings.md): the system light/dark setting, and a notification when the
 // user changes it. `day_xaml_is_dark` answers the `dark_mode` duty — a DAY_THEME force wins,
 // else the live system value — so day's palette resolves the same way the window chrome does.
 extern "C" void day_xaml_set_appearance_cb(void (*cb)()) { g_appearance_cb = cb; }
@@ -3884,7 +3884,7 @@ static WUX::ElementTheme element_theme_now() {
     }
 }
 
-/// Re-theme every window in place — the `set_appearance` duty (docs/appearance.md).
+/// Re-theme every window in place — the `set_appearance` duty (docs/settings.md).
 ///
 /// Per-element rather than `Application::RequestedTheme`, which is unsupported under XAML Islands:
 /// ElementTheme on a root cascades to every descendant control and its {ThemeResource} lookups, so

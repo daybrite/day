@@ -87,6 +87,10 @@ waiting for the network, and dispose the task with the row's scope.
 A two-axis `.frame(width, height)` keeps rows stable while loading. It is a measurement
 boundary, not a placement barrier: both image-source updates and conditional children inside
 it are laid out when they change, including in detached native list and tree cells.
+List cells parked by `recycle` retain their contents and pending layout dirt, but skip both
+width-change layout and dirty-cell sweeps. `bind_row` reactivates and lays them out before
+redisplay. Resize work therefore follows the active viewport rather than every physical
+cell accumulated in the native reuse pool.
 
 ### Imperative scroll-to-end (chat timelines)
 
@@ -141,6 +145,7 @@ pub struct ListSource {
     pub bind_row: Rc<dyn Fn(usize, RawHandle)>, // build-or-rebind row `i` into this native cell
     pub recycle: Rc<dyn Fn(RawHandle)>,         // cell leaving the viewport: its ids park until the next bind
     pub layout_cell: Rc<dyn Fn(RawHandle, f64)>, // re-lay that cell's row at the width the platform gave it
+    pub cell_height: Rc<dyn Fn(RawHandle) -> f64>, // the row's laid height, padding included (a self-measuring cell's height)
 }
 
 trait Toolkit {

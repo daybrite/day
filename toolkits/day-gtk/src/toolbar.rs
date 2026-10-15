@@ -93,7 +93,7 @@ fn icon_candidates(s: Symbol) -> &'static [&'static str] {
 
 /// The first candidate the running icon theme actually has. Setting a name the theme lacks
 /// paints GTK's broken-image glyph, which is worse than the item's own text.
-pub(crate) fn icon_name_for(s: Symbol) -> Option<&'static str> {
+pub fn icon_name_for(s: Symbol) -> Option<&'static str> {
     icon_name(s)
 }
 
@@ -210,7 +210,7 @@ pub(crate) fn register_header(window: &impl IsA<gtk4::Window>, header: &adw::Hea
 }
 
 /// The header bar of the window `h` lives in.
-pub(crate) fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
+pub fn header_of(h: &Handle) -> Option<(gtk4::Window, adw::HeaderBar)> {
     let root = h.root()?;
     let window = root.downcast::<gtk4::Window>().ok()?;
     let header = HEADERS.with(|t| t.get(window.as_ptr() as usize))?;

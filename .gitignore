@@ -6,6 +6,9 @@
 # Rust build products
 target/
 
+# Local tool caches (including clangd's generated index)
+.cache/
+
 # day build outputs: per-target cargo dirs, staged assets, jniLibs, screenshots, dist
 # artifacts, and the gradle/xcodebuild outputs under the platform scaffolds
 build/

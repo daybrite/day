@@ -35,7 +35,7 @@ gauge(level).a11y(|a| a.role(Role::Meter).label("Volume").value("72"))   // canv
 `.decorative()` (decorative ⇒ hidden + exempt from the "needs a label" lint). `.id(_)` sets the
 identifier. `.selected` is the platform's selected state for one item among peers, a `Role::Tab`
 or a row; it takes a `bool`, a `Signal<bool>` or a closure and follows it. A `button(..).selected(..)`
-carries the same state through the control itself (docs/buttons.md), so the annotation is for
+carries the same state through the control itself ([docs/buttons.md](buttons.md)), so the annotation is for
 custom chrome and drawn pieces.
 The three strings take what a `label` takes: a literal, a `String`, a `Signal<String>` or a
 closure. A closure is re-read whenever what it reads changes and the new string is re-sent on
@@ -58,7 +58,7 @@ handle-less layout node, so annotations placed after them wouldn't reach a nativ
 `Tree`, `TreeItem`, `Tab`, `TabList`.
 
 `Tab` and `TabList` are what the composed document strip applies to its title buttons and their
-row (docs/navigation.md "Document tabs"): a tab button on AppKit, `role="tab"` on the web, GTK's
+row ([docs/navigation.md](navigation.md) "Document tabs"): a tab button on AppKit, `role="tab"` on the web, GTK's
 and Qt's tab roles, a button with the selected trait or state on UIKit and Android, where no
 single-tab role exists.
 

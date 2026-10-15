@@ -1803,7 +1803,8 @@ public final class DayBridge {
      *  every process-wide reference to the hosts of the one that went away. day-android clears
      *  its own per-mount tables in `init` for the same reason; these are their Java twins.
      *
-     *  Without this a recreation (the theme switch, docs/appearance.md) left `toolbarHost`
+     *  Without this a recreation (the theme switch, docs/settings.md "Appearance on Android")
+     *  left `toolbarHost`
      *  and `DayNavHost.active` on the destroyed activity's host. The weak reference stays live
      *  until a collection happens to run, so the new tree's first host never claimed the bar
      *  (makeNavHost saw the slot taken), and every setWindowToolbar after it painted onto a view
@@ -1976,8 +1977,11 @@ public final class DayBridge {
     public static void coverDismiss(View cover) { ((DayCover) cover).dismissCover(); }
 
     /** Whether native transitions have settled (Toolkit::ui_idle): dayscript screenshots
-     *  wait on this so captures never show a cover mid-slide. */
-    public static boolean uiIdle() { return DayCover.slidesInFlight == 0; }
+     *  wait on this so captures never show a cover mid-slide, and a scripted theme switch
+     *  waits through the whole recreation it causes (DayActivity.recreating). */
+    public static boolean uiIdle() {
+        return DayCover.slidesInFlight == 0 && !DayActivity.recreating();
+    }
 
     static boolean fastAnimations;
 
@@ -2109,10 +2113,11 @@ public final class DayBridge {
         // theme against whichever configuration has landed by then, which is how a Dark-to-Light
         // pick came back with a light app bar over a dark sidebar. The platform answers with a
         // uiMode configuration change once the override is in force, and `DayActivity` recreates
-        // from there (docs/appearance.md), so the new activity always resolves against the
-        // appearance that was asked for. A pick the platform has nothing to do (the mode already
-        // in force) produces no configuration change and no recreation, which is why the guards
-        // above can afford to be exact.
+        // from there (docs/settings.md "Appearance on Android"), so the new activity always
+        // resolves against the appearance that was asked for. A pick the platform has nothing
+        // to do (the mode already in force) produces no configuration change and no
+        // recreation, which is why the guards above can afford to be exact.
+        DayActivity.armRecreate();
         um.setApplicationNightMode(night);
     }
 
@@ -2124,6 +2129,23 @@ public final class DayBridge {
      *  rebuilds app-painted surfaces. */
     public static void appearanceChanged() {
         if (started) nativeOnEvent(0L, K_APPEARANCE_CHANGED, 0, "");
+    }
+
+    /** The activity is about to recreate itself (DayActivity.onConfigurationChanged: a theme or
+     *  language switch): day-android saves the full current route into `navState` under its
+     *  reserved `day.route` key, so the re-mounted tree comes back to the same section and
+     *  pushed page (docs/settings.md "Appearance on Android"). Routed through the custom-event
+     *  trampoline rather than a bridge kind of its own: the kind table is shared wire format,
+     *  and this never leaves the Android shim. */
+    public static void willRecreate() {
+        if (started) nativeOnEvent(0L, K_CUSTOM, 0, "day:will-recreate");
+    }
+
+    /** The mounted tree's first build has settled, and on a re-mount its route is restored
+     *  (day-android `mount_settled`, one turn after `nativeStart`): the activity may now fade
+     *  the previous window's capture away. Called from Rust on the main thread. */
+    public static void mountSettled() {
+        if (ctx instanceof DayActivity) ((DayActivity) ctx).mountSettled();
     }
 
     /** Whether the user asked the system for less motion (Toolkit::reduce_motion,
@@ -3804,6 +3826,12 @@ public final class DayBridge {
     /** Persist a `.restore` key for the next restore of this task instance. Called from Rust. */
     public static void navSave(String key, String value) {
         navState.put(key, value);
+    }
+
+    /** Read and clear a key: how a re-mount takes the route the previous mount saved under
+     *  `day.route` (willRecreate), so it can never apply to a later mount. Called from Rust. */
+    public static String navTake(String key) {
+        return navState.remove(key);
     }
 
     /** Forward a root size change (px) to native as a window resize (event kind 18). Posted:

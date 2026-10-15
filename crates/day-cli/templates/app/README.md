@@ -33,8 +33,10 @@ Creation, deletion, and reordering demonstrate `info!` console logging without l
 contents. Failed saves produce a `warn!`; use `--env DAY_LOG=dayapp=debug` with `day launch`
 to also see successful saves.
 
-Settings provides theme and language preferences. It opens from the app menu on desktop and
-appears as a navigation section on platforms without a menu bar. The app uses one main window.
+Settings provides theme and language preferences, and About shows the app's name and version
+from `Day.toml`. Both come from `day-piece-settings`: on desktop they open from the app menu in
+their own windows; on platforms without a menu bar, Settings is a navigation section with About
+at its top. The app uses one main window.
 
 `dayscript/demo.yaml` is a portable [dayscript](https://daybrite.dev/docs/dayscript) smoke test.
 It opens Welcome, adds an item, edits its name and done flag, and deletes that same item. It
@@ -48,7 +50,7 @@ day launch -t {{first_target}} --script dayscript/demo.yaml
 ## Inside the code
 
 - `src/lib.rs` configures the app and builds the navigation and menus.
-- `src/pages/mod.rs` declares the welcome, items, detail, and settings modules.
+- `src/pages/mod.rs` declares the welcome, items, and detail modules.
 - `src/model.rs` holds the item model, selection, and JSON persistence, with unit tests at the end.
 - `resource/locales/en/app.ftl` carries every user-facing string.
 - `dayscript/demo.yaml` is the smoke test; `store/` and `website/` are the store-listing and

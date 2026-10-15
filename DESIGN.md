@@ -121,6 +121,7 @@ the architecture-level view and the rationale.
 | day-piece-break — consent-first crash reporting (panic hook + signal handlers, next-launch report, pluggable upload) | [docs/break.md](docs/break.md) | [§8.5](#85-panics-and-crashes) |
 | document tabs — stable keys, resident pages, native window groups, and live chrome switching | [docs/navigation.md](docs/navigation.md#document-tabs), [docs/windows.md](docs/windows.md#document-window-tabs) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | secondary windows — `open_window`, the Preferences window + auto menu item, `WindowKind`, the cover fallback, the debug title tag; window properties (`state()`, content protection, frame, level, monitors, remembered frames, macOS tab groups) | [docs/windows.md](docs/windows.md) | [§8.1](#81-the-toolkit-trait) |
+| settings and About — `day-piece-settings`: `Pref<T>` over a `Store`, groups/sections/rows, the Settings and About windows + menu items, the mobile navigation presentation, provider groups from other crates (the self-updater) | [docs/settings.md](docs/settings.md) | [§8.1](#81-the-toolkit-trait), [§15](#15-extensibility-pieces-parts-and-tweaks), [§17.1](#171-project-layout-day-new-output) |
 | window chrome — `WindowChrome` (frameless, overlay title bar), transparent and material backgrounds, placement, `.window_drag_region()` | [docs/window-chrome.md](docs/window-chrome.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | status items — menu-bar / tray items, Dock and taskbar progress, menu-bar apps, `KeepRunning`, `day::quit` | [docs/status-item.md](docs/status-item.md) | [§8.1](#81-the-toolkit-trait) |
 | toolchain & environment discovery | [docs/environment.md](docs/environment.md) | [§16](#16-the-day-cli) |
@@ -1829,6 +1830,27 @@ through window creation.
 > mobile ones — iPad UIScenes (day-uikit runs the scene lifecycle), Android document-style
 > activity instances, OHOS multiton ability instances; iPhone, the Preferences kind on
 > mobile, and web present the content as a fullscreen cover in the primary window.
+>
+> Revised 2026-10: **About and the updater command** joined the same registration family
+> ([docs/settings.md](docs/settings.md)): `WindowKind::About` (the panel chrome of
+> `Preferences`, `WindowKind::is_panel`), `day::register_about`/`register_about_window`/
+> `open_about` behind `MenuRole::About` (AppKit's stock Info.plist panel only until an app
+> registers), and `MenuRole::CheckForUpdates` behind `day::register_check_for_updates`,
+> placed under About in the macOS App menu and in Help elsewhere. day-core injects both into
+> the default bar and an installed `app_menu` the way it injects Settings…. Apps reach all of
+> it through `day-piece-settings`, which also chooses the mobile navigation presentation.
+>
+> Revised 2026-10: on GTK the panel kinds are **dialogs over the app window**, not windows
+> (`AdwPreferencesDialog` for `Preferences`, an `AdwDialog` with a header bar for `About`),
+> which is what GNOME does with them. The duties keep their meaning on that host: the
+> `open_window` reply is still a content container, `close_window` closes the dialog and its
+> `closed` signal is the `WindowClosed` confirm, `fit_window` is the dialog's content size,
+> `snapshot_window_of` renders the dialog, and `apply_window` is ignored
+> ([docs/windows.md](docs/windows.md)). The settings piece fills the preferences dialog with
+> its own pages (`day_gtk::preferences_dialog_of`) and pushes navigate rows' pages into it.
+> On macOS the same dialogs are presented as windows of their own (where a Mac keeps
+> Preferences, and where a piece's Cocoa view in the GTK window would cover an in-window
+> sheet); on Linux they are the sheet.
 
 > [!NOTE]
 > Revised 2026-10: **window properties, chrome and the app's presence outside its windows
@@ -2303,9 +2325,13 @@ Two lifecycle realities that shape backends beyond pane's baseline:
   **recreate the Activity** — fatal to a build-once tree holding `jobject` handles. Day takes
   Flutter's stance: the scaffold manifest declares
   `android:configChanges="orientation|screenSize|uiMode|locale|density|fontScale"`, and the
-  backend routes `onConfigurationChanged` into Day's signals and re-applies — dark mode natively
-  (backends resolve dynamic colors, [§6.3](#63-semantic-theme-tokens)), locale → the locale signal ([§12](#12-localization-fluent)), density →
-  measure-cache epoch bump + frame re-multiplication ([§7.9](#79-pixel-snapping-and-density)). The
+  backend routes `onConfigurationChanged` into Day's signals and re-applies — locale → the
+  locale signal ([§12](#12-localization-fluent)), density → measure-cache epoch bump + frame
+  re-multiplication ([§7.9](#79-pixel-snapping-and-density)). Dark mode and language are the
+  exception: a Material DayNight theme cannot re-resolve live views, so for those two the
+  backend recreates the activity itself, as a re-mount of the tree behind a crossfade of the
+  previous frame, with the full route saved into the instance state and restored after the
+  rebuild ([docs/settings.md](docs/settings.md), "Appearance on Android"). The
   suspend/resume/memory hooks ([§8.1](#81-the-toolkit-trait)) map to the Activity callbacks. Process-death state
   restoration (`onSaveInstanceState`) is **DP-25** — v1 documents cold restart.
 - **Windows runtime choice.** The backend is WinUI 3 on the Windows App SDK (release 2.5.1),
@@ -2406,6 +2432,11 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > stop answering element-id lookups and redisplayed cells regain their ids. Table reloads run
 > outside the tree borrow so synchronous retirement can park ids. Day-Hub's iOS
 > `dayscript/hub.yaml` exercises repository addition/removal and the corresponding row ids.
+> A recycled list cell also leaves the layout work set. Its scope and measurement dirt remain
+> available for reuse, but divider resizing and dirty-cell sweeps only place active cells;
+> the next bind reactivates and lays out the row at the current width. This prevents a long
+> reading/scrolling session from resizing hundreds of parked cells on every mouse movement
+> (`pooled_list_cells_skip_resize_and_dirty_layout_until_rebound` in `mock_e2e.rs`).
 > **Programmatic row scrolling** followed
 > (`ListPatch::ScrollToRow` + `.scroll_to_row(Signal<Option<usize>>)`, all backends), and a
 > same-set/new-order Reload animates as native row moves on AppKit ([docs/list.md](docs/list.md)).
@@ -3597,6 +3628,14 @@ counts. See [navigation](docs/navigation.md).
 ### §15.2 Package layout and aggregation
 
 > [!NOTE]
+> **Settings providers (2026-10).** A second link-time registry joined `RENDERERS`:
+> `day_piece_settings::PROVIDERS`, a `linkme` slice of `&'static Provider` that a piece or part
+> crate fills with `day_piece_settings::provider!` to contribute a group to the app's Settings
+> surface (the self-updater's Updates group is the first). Same layering as §8.2: the slice is
+> the zero-setup path on native targets; on wasm, and wherever order matters, the app names the
+> provider (`Preferences::provider(&UPDATES)`, `register_provider`). Normative:
+> [docs/settings.md](docs/settings.md#providers).
+>
 > **External repositories (2026-09).** `day-piece-lottie`, the layout example below, moved out of
 > this tree into [daybrite/day-piece-lottie](https://github.com/daybrite/day-piece-lottie) — the
 > first piece to live in its own repository, and the reference for the next one. `day-part-speech`
@@ -4424,6 +4463,20 @@ with an outline hint). Normative: [docs/icons.md](docs/icons.md).
 
 #### `day sign`
 
+Android launches accept Gradle's `*-unsigned.apk` release output: before installing, the CLI
+signs a separate `day-launch/app-dev.apk` beside that output with Android's local debug key,
+using the same alignment, signing, and verification pipeline as `day sign apply`. The copy is
+regenerated for each launch (including `--skip-build`) and shared across the selected devices.
+Already signed debug/release outputs retain their signatures. The unsigned build artifact and
+Gradle signing properties stay untouched, so launching cannot change `day pack --no-sign` output.
+The key is `debug.keystore` under `ANDROID_USER_HOME` (default `~/.android`, with the legacy
+`ANDROID_SDK_HOME/.android` override supported), created with the standard Android debug alias
+and passwords if absent. This keeps local debug/release updates compatible without deleting
+app data. Custom debug signing and previously installed distribution signatures still require
+matching keys. This development signature is for local installation, not distribution.
+Regression coverage: `crates/day-cli/tests/android_identity.rs` checks launch-copy freshness,
+unsigned input preservation, and failure before installation when signature verification fails.
+
 Per-format truth as designed: `.app`/`.dmg` = `codesign` + `notarytool` + `stapler`; `.apk` =
 `apksigner`; `.aab` = Gradle signingConfig; ios = an unsigned device build signed afterwards
 with `sign::apply` over an installed App Store profile when one covers the app id (xcodebuild's
@@ -4821,7 +4874,8 @@ fieldnotes/
     lib.rs                   # routes! + root() (the app)
     main.rs                  # desktop entry: day::launch
     model.rs                 # the domain object + its prefs-backed store
-    pages/mod.rs             # declares welcome, items, detail, and settings pages
+    pages/mod.rs             # declares welcome, items, and detail pages (Settings and About are
+                             #   declared in lib.rs through day-piece-settings, docs/settings.md)
   resource/
     locales/en/app.ftl       # + one dir per locale
     vectors/                 # tab + row glyphs, and app_mark.svg (a copy of the generated icon);
@@ -4853,7 +4907,10 @@ and successful saves log at debug level without logging item contents. Explicit 
 accessibility labels name the list, editor controls, and completion glyph; the welcome title
 has a heading role and its illustration is decorative. `Scene` owns selection and editor state,
 and the navigation preference store restores the last section. Tests live in an inline module at the bottom of `model.rs`.
-The only external piece dependency is `day-piece-settings`. Monochrome row glyphs use
+The only external piece dependency is `day-piece-settings`, whose `Preferences::new().about(..)
+.group(general_group(..)).install()` in `root()` supplies the Settings and About windows and
+menu items on desktop and the Settings navigation section (About at its top) elsewhere
+([docs/settings.md](docs/settings.md)). Monochrome row glyphs use
 `.template()` so their color follows the native theme. `dayscript/demo.yaml` creates, edits,
 and deletes its own item without platform-specific conditions or disturbing saved items. It
 also audits native accessibility metadata on the welcome and editor screens. Short source comments

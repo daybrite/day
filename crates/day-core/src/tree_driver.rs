@@ -89,6 +89,8 @@ pub(crate) struct TreeBoundCell {
     /// The width this cell's row was last laid at, by either path; only a width that actually
     /// changed invalidates the row's measurement cache (see `BoundCell::laid_width`).
     pub laid_width: Option<f64>,
+    /// The height the row was last laid at (`TreeSource::cell_height`).
+    pub laid_height: Option<f64>,
 }
 
 pub(crate) struct TreeState {
@@ -247,6 +249,9 @@ pub(crate) fn make_tree_source(node: RNode, driver: Rc<TreeDriver>) -> TreeSourc
         }),
         layout_cell_size: Rc::new(move |cell, size| {
             let _ = try_with_tree(|t| t.tree_layout_cell_size(node, cell as usize, size));
+        }),
+        cell_height: Rc::new(move |cell| {
+            try_with_tree(|t| t.tree_cell_height(node, cell as usize)).unwrap_or(0.0)
         }),
         moves: d_moves.moves.as_ref().map(|_| day_spec::TreeMoves {
             can_move: {

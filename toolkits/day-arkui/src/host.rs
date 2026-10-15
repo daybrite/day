@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! The toolkit duties HarmonyOS exposes only in ArkTS, reached through daybridge arms
-//! (docs/bridge.md) rather than the C node shim: the app's color mode (docs/appearance.md), the
+//! (docs/bridge.md) rather than the C node shim: the app's color mode (docs/settings.md), the
 //! app-icon badge (docs/badge.md), screen-reader announcements (docs/accessibility.md; the C
 //! API's announce event needs an XComponent's accessibility provider, which a node tree has
 //! none of) and the user's animation scale, which is the reduce-motion setting here. `day build`

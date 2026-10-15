@@ -313,7 +313,7 @@ pub(crate) fn place_node<B: Toolkit>(
     } else {
         abs.origin
     };
-    // A list whose width changes re-lays its bound cells in this pass: the native table
+    // A list whose width changes re-lays its active cells in this pass: the native table
     // resizes the physical cell views, but each cell's day content keeps the old width's
     // placement until laid out again (a trailing control would sit clipped after a
     // narrowing). It runs synchronously because interactive live-resize runs inside a

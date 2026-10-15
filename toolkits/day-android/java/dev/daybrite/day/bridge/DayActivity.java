@@ -34,10 +34,10 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         // DAY_THEME forcing is the launcher's job (day-cli sets the device night mode over adb
         // before `am start`), not this activity's: UiModeManager.setApplicationNightMode
         // persists per-app across restarts, so a forced run would poison the next run's window
-        // inflation with the old scheme, and since the manifest handles the uiMode config
-        // change itself (no recreation), the already-inflated window could never re-theme.
-        // With no app-level override the theme follows the system, coherently, from the
-        // first frame.
+        // inflation with the old scheme. With no app-level override the theme follows the
+        // system, coherently, from the first frame. An app-level pick made later
+        // (DayBridge.setAppearance) lands as a uiMode configuration change, and
+        // onConfigurationChanged recreates this activity through a crossfade.
 
         DayBridge.ctx = this;
         DayBridge.primaryCreated(this);
@@ -106,6 +106,10 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(wrapper);
+        // A recreation (a theme or language switch): the previous activity's last frame goes
+        // over the window now, before anything of this one draws, and comes down once the
+        // re-mounted tree has settled (mountSettled).
+        installRecreateOverlay();
         final DisplayMetrics dm = getResources().getDisplayMetrics();
         final String autodrive = getIntent().getStringExtra("day.autodrive");
         final String locale = getIntent().getStringExtra("day.locale");
@@ -252,8 +256,12 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     @Override protected void onDestroy() {
         DayBridge.unwatchReduceMotion(this, reduceMotionObserver);
         reduceMotionObserver = null;
+        // A crossfade still up comes down with its activity. The handoff slot stays: a
+        // recreation that interrupted the fade has just filled it for the next activity.
+        dropRecreateOverlay();
         // Only a real finish is a termination; a config-change recreation is not.
         if (isFinishing()) {
+            releaseRecreateShot();
             DayBridge.lifecycle(7); // WillTerminate
             DayBridge.lifecycle(8); // DidExit: nothing of the app runs after onDestroy
         }
@@ -277,13 +285,20 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
      *  has no size to report, so without this nothing downstream learns it happened and
      *  `day::dark_mode()` stays stuck on the scheme the app launched in.
      *
-     *  This reports the transition; it does not re-theme the window. A Material widget resolves
-     *  its colors from theme attributes when it is inflated and does not re-resolve them, so the
-     *  already-built view tree keeps the scheme it was born with, which is why this backend
-     *  answers `Cap::Appearance` with Unsupported. Applying a scheme to live views is the
-     *  platform's activity-recreation path, and day-android does not yet survive a second
-     *  nativeStart in one process. What this does buy: `dark_mode()` is a reactive signal, so app
-     *  code reading it recolors, and it is correct at the moment it is read rather than stale. */
+     *  A light/dark or language switch recreates the activity, through a crossfade
+     *  (docs/settings.md "Appearance on Android"). A Material DayNight theme picks its variant
+     *  when the activity's theme is resolved, which is at creation, so a uiMode change alone
+     *  leaves every native view (and every view inflated after it) on the colors chosen at
+     *  startup: the app bar restyles and the list beneath it does not. `uiMode` and `locale`
+     *  stay in the manifest's configChanges so the platform does not recreate us by itself;
+     *  Day does it here, once the new configuration is in hand, which is what makes an
+     *  app-level pick (`DayBridge.setAppearance`) and the user flipping the system theme land
+     *  the same way, and is also what Android itself does for an app that leaves the change
+     *  to the platform. Day's tree is rebuilt from `onCreate`, the same path a cold start
+     *  takes, and that path is a re-mount rather than a second launch: root-scope state
+     *  survives, the app's `root()` runs again, and the route the user was on is saved before
+     *  the teardown and restored after the rebuild (DayBridge.willRecreate, mountSettled). The
+     *  same re-mount re-reads the language list and re-resolves the app's catalog. */
     @Override public void onConfigurationChanged(android.content.res.Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
         boolean night = (newConfig.uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
@@ -299,18 +314,11 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         if (!nightChanged && !localesChanged) return;
         lastNightMode = night;
         lastLocales = locales;
-        if (nightChanged) DayBridge.appearanceChanged();
-        // Then re-resolve the window. A DayNight theme picks its variant when the activity's theme
-        // is resolved, which is at creation, so a uiMode change alone leaves every native view
-        // (and every view inflated after it) on the colors chosen at startup: the app bar restyles
-        // and the list beneath it does not. `uiMode` stays in the manifest's configChanges so the
-        // platform does not recreate us; Day does it here, once the new configuration is in hand,
-        // which is what makes an app-level pick (`DayBridge.setAppearance`) and the user flipping
-        // the system theme land the same way. Day's tree is rebuilt from `onCreate`, the same path
-        // a cold start takes, and since 2026-08 that path is a re-mount (docs/appearance.md)
-        // rather than a second launch. The same re-mount re-reads the language list and
-        // re-resolves the app's catalog.
-        recreate();
+        // The change an app-level pick asked for has arrived; the recreation takes over the
+        // idle gate from here (recreating()).
+        recreateArmed = false;
+        DayBridge.main.removeCallbacks(DISARM);
+        beginRecreate(nightChanged);
     }
 
     /** The night-mode bit the window is currently themed for; seeded in onCreate. */
@@ -319,6 +327,222 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     private android.database.ContentObserver reduceMotionObserver;
     /** The language list the app was built in (BCP-47, comma-joined); seeded in onCreate. */
     private String lastLocales = "";
+
+    // --- Recreation through a crossfade (docs/settings.md "Appearance on Android") ---------
+    //
+    // recreate() tears the window down and builds it again from onCreate, and the Day tree is
+    // re-mounted on the new one a frame or more later (the root's first laid-out size starts
+    // native). Left bare, that showed as a flash: one or two frames of the new theme's empty
+    // window ground, then the content. Instead the outgoing activity captures its window as its
+    // last act, the next activity lays that capture over everything from its first frame, and
+    // once the re-mounted tree has built, restored its route and laid out, the capture fades
+    // out over the new content. The whole switch reads as one crossfade, which is also how
+    // the platform's own activity-recreation transition reads elsewhere.
+
+    /** The outgoing activity's last frame, captured just before `recreate()`; the next
+     *  `onCreate` takes it as the crossfade's top layer. One per process, held only between the
+     *  capture and the moment the overlay takes it (or a finishing activity's destruction). */
+    private static android.graphics.Bitmap recreateShot;
+    /** A recreation the platform has been asked for but has not delivered yet
+     *  (DayBridge.setAppearance, until its uiMode configuration change arrives). */
+    private static boolean recreateArmed;
+    /** The window capture is in progress, or the recreation it precedes has not reached the
+     *  next activity's onCreate yet. */
+    private static boolean snapshotPending;
+    /** An activity is showing the crossfade overlay. */
+    private static boolean overlayUp;
+    /** The overlay this activity shows, and the bitmap it owns; null once the fade is done. */
+    private android.widget.ImageView recreateOverlay;
+    private android.graphics.Bitmap overlayShot;
+    /** The capture stays until the re-mounted tree settles; a tree that never does (a root()
+     *  that fails to build) must not leave the previous frame on screen for good. */
+    private final Runnable overlayFallback = new Runnable() {
+        @Override public void run() { fadeRecreateOverlay(); }
+    };
+    /** armRecreate's grace period ran out without a configuration change. */
+    private static final Runnable DISARM = new Runnable() {
+        @Override public void run() { recreateArmed = false; }
+    };
+
+    /** DayBridge.setAppearance asked the platform for a new uiMode: a configuration change,
+     *  and the recreation it triggers, are on their way. Disarmed when the change arrives, or
+     *  after a grace period when the platform had nothing to change after all (System picked
+     *  while the system already matches the explicit choice it replaces). Gates uiIdle, so a
+     *  scripted theme switch's `wait_idle` spans the whole recreation. */
+    static void armRecreate() {
+        recreateArmed = true;
+        DayBridge.main.removeCallbacks(DISARM);
+        DayBridge.main.postDelayed(DISARM, 1500);
+    }
+
+    /** Whether a recreation is pending or in flight (DayBridge.uiIdle). */
+    static boolean recreating() {
+        return recreateArmed || snapshotPending || overlayUp;
+    }
+
+    /** Capture the window as it is, then recreate. The capture is asynchronous on API 26+
+     *  (PixelCopy reads the composited surface, elevation shadows and all), so the recreation
+     *  waits for it; a window with no surface to copy from, or an older device, draws the
+     *  decor into the bitmap instead. */
+    private void beginRecreate(final boolean nightChanged) {
+        // A second change while a capture is pending: the one recreation reads the newest
+        // configuration anyway.
+        if (snapshotPending) return;
+        snapshotPending = true;
+        // A fade still running from the previous recreation would be captured over the tree;
+        // the tree itself is what the next crossfade starts from.
+        dropRecreateOverlay();
+        releaseRecreateShot();
+        final android.view.View decor = getWindow().getDecorView();
+        final int w = decor.getWidth();
+        final int h = decor.getHeight();
+        android.graphics.Bitmap shot = null;
+        if (w > 0 && h > 0) {
+            try {
+                shot = android.graphics.Bitmap.createBitmap(w, h,
+                        android.graphics.Bitmap.Config.ARGB_8888);
+            } catch (OutOfMemoryError e) {
+                android.util.Log.w("Day", "no memory for the recreation crossfade; recreating bare");
+            }
+        }
+        if (shot == null) {
+            finishRecreate(nightChanged, null);
+            return;
+        }
+        final android.graphics.Bitmap target = shot;
+        if (android.os.Build.VERSION.SDK_INT >= 26) {
+            try {
+                android.view.PixelCopy.request(getWindow(), target,
+                        new android.view.PixelCopy.OnPixelCopyFinishedListener() {
+                            @Override public void onPixelCopyFinished(int result) {
+                                if (isDestroyed()) {
+                                    // Gone for another reason while the copy ran.
+                                    target.recycle();
+                                    snapshotPending = false;
+                                    return;
+                                }
+                                if (result != android.view.PixelCopy.SUCCESS) drawInto(decor, target);
+                                finishRecreate(nightChanged, target);
+                            }
+                        }, DayBridge.main);
+                return;
+            } catch (IllegalArgumentException e) {
+                // The window has no surface to copy from (not showing); draw it instead.
+            }
+        }
+        drawInto(decor, target);
+        finishRecreate(nightChanged, target);
+    }
+
+    /** Software fallback for the capture: the view hierarchy drawn into the bitmap. */
+    private static void drawInto(android.view.View view, android.graphics.Bitmap into) {
+        try {
+            view.draw(new android.graphics.Canvas(into));
+        } catch (RuntimeException e) {
+            android.util.Log.w("Day", "window capture for the recreation crossfade failed", e);
+        }
+    }
+
+    /** The capture is in hand (or was not possible): report the appearance, save the route,
+     *  recreate. The appearance report comes this late on purpose, so the capture never shows
+     *  a canvas day-core already repainted in the new scheme. */
+    private void finishRecreate(boolean nightChanged, android.graphics.Bitmap shot) {
+        recreateShot = shot;
+        if (nightChanged) DayBridge.appearanceChanged();
+        DayBridge.willRecreate();
+        recreate();
+    }
+
+    /** onCreate: take the capture the previous activity left and lay it over the window, above
+     *  the content view and the window toolbar a nav host docks beside it, before this
+     *  activity's first frame. Opaque and touch-absorbing until the fade starts: nothing under
+     *  it is on screen for the user to aim at yet. */
+    private void installRecreateOverlay() {
+        snapshotPending = false;
+        android.graphics.Bitmap shot = recreateShot;
+        recreateShot = null;
+        if (shot == null) return;
+        android.widget.ImageView overlay = new android.widget.ImageView(this);
+        overlay.setImageBitmap(shot);
+        overlay.setScaleType(android.widget.ImageView.ScaleType.FIT_XY);
+        overlay.setClickable(true);
+        ((android.view.ViewGroup) getWindow().getDecorView()).addView(overlay,
+                new android.widget.FrameLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT));
+        recreateOverlay = overlay;
+        overlayShot = shot;
+        overlayUp = true;
+        DayBridge.main.postDelayed(overlayFallback, 4000);
+    }
+
+    /** The re-mounted tree's first build has settled and its route is restored
+     *  (DayBridge.mountSettled, from Rust): once the next traversal has laid it out, start the
+     *  fade. Posted first, so a page a restored route pushed through the fragment manager is
+     *  committed before the frame the fade starts on. */
+    void mountSettled() {
+        if (recreateOverlay == null) return;
+        final android.view.View decor = getWindow().getDecorView();
+        decor.post(new Runnable() {
+            @Override public void run() {
+                if (recreateOverlay == null) return;
+                decor.getViewTreeObserver().addOnPreDrawListener(
+                        new android.view.ViewTreeObserver.OnPreDrawListener() {
+                    @Override public boolean onPreDraw() {
+                        decor.getViewTreeObserver().removeOnPreDrawListener(this);
+                        fadeRecreateOverlay();
+                        return true;
+                    }
+                });
+                decor.invalidate();
+            }
+        });
+    }
+
+    /** Fade the capture out over the new content (250 ms), or drop it at once for a user who
+     *  removed animations (DayBridge.reduceMotion, docs/accessibility.md). */
+    private void fadeRecreateOverlay() {
+        final android.widget.ImageView overlay = recreateOverlay;
+        if (overlay == null) return;
+        DayBridge.main.removeCallbacks(overlayFallback);
+        if (DayBridge.reduceMotion()) {
+            dropRecreateOverlay();
+            return;
+        }
+        overlay.setClickable(false);
+        overlay.animate().alpha(0f).setDuration(250)
+                .setInterpolator(new android.view.animation.LinearInterpolator())
+                .withEndAction(new Runnable() {
+                    @Override public void run() { dropRecreateOverlay(); }
+                })
+                .start();
+    }
+
+    /** Remove the overlay and release its bitmap. Safe to call at any point, repeatedly. */
+    private void dropRecreateOverlay() {
+        android.widget.ImageView overlay = recreateOverlay;
+        android.graphics.Bitmap shot = overlayShot;
+        recreateOverlay = null;
+        overlayShot = null;
+        DayBridge.main.removeCallbacks(overlayFallback);
+        if (overlay != null) {
+            overlay.animate().cancel();
+            overlay.setImageDrawable(null);
+            android.view.ViewParent parent = overlay.getParent();
+            if (parent instanceof android.view.ViewGroup) {
+                ((android.view.ViewGroup) parent).removeView(overlay);
+            }
+            overlayUp = false;
+        }
+        if (shot != null) shot.recycle();
+    }
+
+    /** Release a capture no activity took (a recreation that never reached onCreate). */
+    private static void releaseRecreateShot() {
+        android.graphics.Bitmap shot = recreateShot;
+        recreateShot = null;
+        if (shot != null) shot.recycle();
+    }
 
     @Override public void onTrimMemory(int level) {
         super.onTrimMemory(level);

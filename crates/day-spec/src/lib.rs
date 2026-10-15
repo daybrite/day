@@ -1129,6 +1129,10 @@ pub enum MenuRole {
     Undo,
     Redo,
     Delete,
+    /// The app's About command (docs/settings.md). With an About registered through
+    /// `day::register_about` the item lowers to that dispatch action (a Day-rendered About
+    /// window, or the toolkit's own About dialog where one exists); without one AppKit shows
+    /// its stock Info.plist panel and the other desktops show the label alone.
     About,
     Quit,
     Preferences,
@@ -1139,6 +1143,10 @@ pub enum MenuRole {
     /// app registered with `day::register_new_window`. No platform has a native selector
     /// for it, so the item lowers to the registered dispatch action (disabled when none).
     NewWindow,
+    /// Check for Updates… (docs/settings.md): placed directly under About in the macOS App
+    /// menu (the Sparkle convention) and in Help elsewhere. Lowers to the action an updater
+    /// registered with `day::register_check_for_updates`; absent from the bar when none did.
+    CheckForUpdates,
 }
 
 /// The keyboard modifiers held at an interaction, queryable ambiently
@@ -1868,6 +1876,12 @@ pub struct ListSource {
     /// whole list wider than its frame. Skips quietly when called inside a day-core borrow (a
     /// snapshot pass).
     pub layout_cell: std::rc::Rc<dyn Fn(RawHandle, f64)>,
+    /// The height day-core last laid the row bound to this cell at: the row's own height,
+    /// padding included, as `RowHeight` resolves it. A backend whose cell measures itself
+    /// (GtkListView's `DayCell`) reports it as the cell's height, so a padded row keeps its
+    /// bottom padding rather than the height of its last child's frame. `0.0` before the row's
+    /// first layout, or inside a day-core borrow.
+    pub cell_height: std::rc::Rc<dyn Fn(RawHandle) -> f64>,
     /// Drag-to-reorder closures, present when `ListProps::reorderable` (docs/list.md). `None` on
     /// non-reorderable lists; backends must not enable their drag machinery without it.
     pub reorder: Option<ListReorder>,
@@ -1985,6 +1999,8 @@ pub struct TreeSource {
     /// Native bounds for controls whose group headers have a different height from leaves.
     /// Overrides the initial row-height estimate and preserves the native height on rebind.
     pub layout_cell_size: std::rc::Rc<dyn Fn(RawHandle, Size)>,
+    /// The height day-core last laid this cell's row at (see [`ListSource::cell_height`]).
+    pub cell_height: std::rc::Rc<dyn Fn(RawHandle) -> f64>,
     /// The row's type-ahead string (docs/tree.md): what native type-select matches against.
     pub type_select_text: std::rc::Rc<dyn Fn(u64) -> String>,
     /// The row's context menu, built when the menu is summoned (docs/menus.md "Dynamic context
@@ -7195,6 +7211,19 @@ pub enum WindowKind {
     /// tabbing and drops the resize/minimize chrome, mobile presents it modally. Pairs with
     /// day-core's key-singleton reopen (`open_window` with a key).
     Preferences,
+    /// The About window (docs/settings.md): the same fixed, centered, untabbed panel chrome
+    /// as [`Self::Preferences`] (every desktop treats the two alike), presented modally on
+    /// mobile. Singleton under day-core's `day.about` key.
+    About,
+}
+
+impl WindowKind {
+    /// Whether this is a panel (settings or About) rather than a document window: the kinds
+    /// every desktop draws fixed-size, centered and out of the Window menu, and mobile presents
+    /// as a cover.
+    pub fn is_panel(self) -> bool {
+        !matches!(self, WindowKind::Normal)
+    }
 }
 
 /// Whether a window keeps the app alive (docs/windows.md close policy).
@@ -7223,7 +7252,7 @@ impl From<WindowKind> for WindowRole {
     fn from(kind: WindowKind) -> WindowRole {
         match kind {
             WindowKind::Normal => WindowRole::Primary,
-            WindowKind::Preferences => WindowRole::Secondary,
+            WindowKind::Preferences | WindowKind::About => WindowRole::Secondary,
         }
     }
 }

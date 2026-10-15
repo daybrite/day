@@ -62,6 +62,35 @@ esac
     )
     .unwrap();
     std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // Synthetic signing tools: verify the launch path aligns, signs, and verifies a copy
+    // before adb sees it. Real APK/certificate validation is covered by emulator testing.
+    let build_tools = root.join("sdk/build-tools/35.0.0");
+    std::fs::create_dir_all(&build_tools).unwrap();
+    for (name, script) in [
+        ("zipalign", "#!/bin/sh\ncp \"$3\" \"$4\"\n"),
+        (
+            "apksigner",
+            r#"#!/bin/sh
+for last do :; done
+case "$1" in
+  sign)
+    [ "$DAY_SIGN_STORE_PASS" = android ] || exit 1
+    [ "$DAY_SIGN_KEY_PASS" = android ] || exit 1
+    [ "$4" = --ks-key-alias ] && [ "$5" = androiddebugkey ] || exit 1
+    printf '\nsigned fixture\n' >> "$last" ;;
+  verify)
+    [ -z "$FAIL_VERIFY" ] || exit 1
+    grep -q 'signed fixture' "$last" || exit 1
+    printf 'Signer #1 certificate SHA-256 digest: a1b2\n' ;;
+  *) exit 1 ;;
+esac
+"#,
+        ),
+    ] {
+        let tool = build_tools.join(name);
+        std::fs::write(&tool, script).unwrap();
+        std::fs::set_permissions(tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let apk = root.join("fixture.apk");
     std::fs::write(&apk, "fake APK: only adb is mocked").unwrap();
 
@@ -119,6 +148,80 @@ esac
                 .count(),
             2,
             "both launch cleanup and day stop must address the installed package: {calls}"
+        );
+    }
+
+    let unsigned = root.join("app-release-unsigned.apk");
+    let android_user = root.join("android-user");
+    std::fs::create_dir_all(&android_user).unwrap();
+    std::fs::write(android_user.join("debug.keystore"), "synthetic debug key").unwrap();
+    let signed = root.join("day-launch/app-dev.apk");
+    let signing_props = root.join("build/day/android/day-signing.properties");
+    std::fs::create_dir_all(signing_props.parent().unwrap()).unwrap();
+    std::fs::write(&signing_props, "synthetic signing config: leave untouched").unwrap();
+    std::fs::write(
+        root.join("build/day/artifacts/android-mdc-release.path"),
+        unsigned.to_str().unwrap(),
+    )
+    .unwrap();
+    // Reusing a build must re-sign the current input, not install a stale launch copy.
+    // A verification failure must never reach adb, even with a previous good copy present.
+    for (contents, fail_verify) in [
+        ("first fixture", false),
+        ("rebuilt fixture", false),
+        ("bad fixture", true),
+    ] {
+        std::fs::write(&unsigned, contents).unwrap();
+        let calls = root.join("adb-calls");
+        std::fs::write(&calls, "").unwrap();
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_day"));
+        cmd.arg("--project")
+            .arg(root)
+            .args([
+                "launch",
+                "-t",
+                "android-mdc",
+                "--profile",
+                "release",
+                "--skip-build",
+                "--detach",
+            ])
+            .env("ANDROID_HOME", root.join("sdk"))
+            .env("ANDROID_USER_HOME", &android_user)
+            .env("ANDROID_SERIAL", "identity-device")
+            .env("ADB_CALLS", &calls)
+            .env("EXPECTED_APP_ID", "dev.example.base")
+            .env("DAY_NO_UPDATE_CHECK", "1")
+            .env_remove("DAY_FLAVOR")
+            .env_remove("FAIL_VERIFY");
+        if fail_verify {
+            cmd.env("FAIL_VERIFY", "1");
+        }
+        let output = cmd.output().unwrap();
+        assert_eq!(
+            output.status.success(),
+            !fail_verify,
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let calls = std::fs::read_to_string(calls).unwrap();
+        if fail_verify {
+            assert!(!calls.contains("install -r"), "{calls}");
+        } else {
+            assert!(
+                calls.contains(&format!("install -r {}", signed.display())),
+                "{calls}"
+            );
+            assert_eq!(
+                std::fs::read_to_string(&signed).unwrap(),
+                format!("{contents}\nsigned fixture\n")
+            );
+        }
+        assert_eq!(std::fs::read_to_string(&unsigned).unwrap(), contents);
+        assert_eq!(
+            std::fs::read_to_string(&signing_props).unwrap(),
+            "synthetic signing config: leave untouched"
         );
     }
 }

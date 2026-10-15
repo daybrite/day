@@ -1088,6 +1088,12 @@ public class DayNavHost extends LinearLayout {
     void add(View page) {
         page.setLayoutParams(new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+        // The page moves as ONE view under the push/pop transition. Without this the
+        // transition framework animates the page's leaf views one by one, and Day lays those
+        // out (and a native row re-binds them) in the frames right after the push, which
+        // clobbers the per-view animators: a page of native settings rows appeared with no
+        // motion at all while a page of plain labels happened to fade.
+        if (page instanceof ViewGroup) ((ViewGroup) page).setTransitionGroup(true);
         PageFragment f = new PageFragment(page);
         frags.add(f);
         pageHosts.put(page, this);
@@ -1211,8 +1217,8 @@ public class DayNavHost extends LinearLayout {
     /** A fragment that retains and re-serves its Rust-owned page view (the
      *  react-native-screens pattern) — the FragmentManager owns when it shows, Day owns what
      *  it shows. Public with a no-arg constructor per the Fragment contract: the framework
-     *  re-instantiates these on an activity recreation (the theme switch, docs/appearance.md)
-     *  with no content, and `DayBridge.beginMount` removes those restored shells before the
+     *  re-instantiates these on an activity recreation (the theme switch, docs/settings.md
+     *  "Appearance on Android") with no content, and `DayBridge.beginMount` removes those restored shells before the
      *  new tree registers its own. */
     public static class PageFragment extends Fragment {
         View content;

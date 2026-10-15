@@ -104,9 +104,12 @@ fn icon_for(s: Symbol) -> (&'static str, i32) {
     }
 }
 
-/// An item's icon as the (theme name, QStyle fallback) pair the shim takes. A bundled image
-/// has no theme name; Qt loads it by path through the theme lookup's file branch.
-pub(crate) fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
+/// An item's icon as the `(spec, QStyle fallback)` pair the shim's icon resolution takes
+/// (`day_qt_toolbar_icon`): a symbol as `theme-name|outline.svg` (the desktop's themed icon,
+/// else Day's own outline), a bundled image as its resolved file path (no theme name; Qt loads
+/// it through the lookup's file branch), plus the standard pixmap to fall back on (-1 for
+/// none). Public for a piece that draws icons in a shim of its own (`day_qt_icon_new`).
+pub fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     match icon {
         Some(Icon::Symbol(s)) => {
             // `theme-name|outline.svg` — see `day_qt_toolbar_icon`. The staged outline is Day's

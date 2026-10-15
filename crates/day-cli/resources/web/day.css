@@ -619,6 +619,36 @@ body.day-has-toolbar #day-root {
    the theme background unless the app sets its own color. */
 .day-cover { display: none; position: fixed; inset: 0; z-index: 100; background: var(--day-bg); }
 .day-cover.open { display: block; }
+/* A cover with toolbar items (docs/toolbars.md) gets its own strip, docked right after it so
+   the two paint in the cover's order; the cover starts below it, so Day's frame for the cover
+   is the strip's height shorter. The strip shows only while its cover does. */
+.day-cover.day-has-toolbar { top: var(--day-toolbar-h); }
+/* Two classes: `.day-toolbar` below sets the translucent bar background, and this must win. */
+.day-toolbar.day-cover-toolbar {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: 100;
+  /* Opaque: the page's own strip sits underneath, and a translucent bar would show it. */
+  background: linear-gradient(var(--day-bar-bg), var(--day-bar-bg)), var(--day-bg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.day-cover:not(.open) + .day-cover-toolbar { display: none; }
+/* A stack inside the cover puts its bar on the strip: back button leading, the top page's
+   title centered, the cover's own items at the trailing edge. */
+.day-cover-toolbar > .day-nav-back { flex: none; }
+.day-toolbar-title {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: calc(1rem * var(--day-text-scale));
+  pointer-events: none;
+}
 
 /* Window toolbar (docs/toolbars.md) ---------------------------------------- */
 /* The web has no window chrome, so the bar is a strip docked above the app root. Day sizes the
@@ -649,6 +679,11 @@ body.day-has-toolbar #day-root {
 .day-toolbar-detail { flex: 1; }
 .day-toolbar-track > .trailing:first-of-type { margin-left: auto; }
 .day-toolbar-track > .principal { margin: 0 auto; }
+/* The app menu button (docs/menus.md) ends the detail track at the window's right edge; where
+   a trailing item already pushed itself there, the button just follows it. */
+.day-toolbar-detail > .day-app-menu { margin-left: auto; }
+.day-toolbar-detail > .trailing:first-of-type ~ .day-app-menu { margin-left: 0; }
+.day-app-menu > .day-toolbar-icon { width: 18px; height: 18px; }
 .day-toolbar-gap { width: 12px; flex: none; }
 .day-toolbar-sep {
   width: 1px;
@@ -673,6 +708,8 @@ body.day-has-toolbar #day-root {
   -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--day-shadow);
   z-index: 1000;
+  overflow-y: auto;
+  box-sizing: border-box;
 }
 .day-toolbar-menu-item {
   display: flex;
@@ -682,8 +719,10 @@ body.day-has-toolbar #day-root {
   cursor: default;
   white-space: nowrap;
 }
-.day-toolbar-menu-item:not(.header):not(.disabled):hover {
+.day-toolbar-menu-item:not(.header):not(.disabled):hover,
+.day-toolbar-menu-item:focus {
   background: var(--day-selected-row);
+  outline: none;
 }
 .day-toolbar-menu-item.header,
 .day-toolbar-menu-item.disabled { color: var(--day-fg-dim); }
@@ -694,6 +733,13 @@ body.day-has-toolbar #day-root {
   width: 12px;
   flex: none;
   text-align: center;
+}
+/* The shortcut hint at a row's trailing edge (the app menu's rows, docs/menus.md). */
+.day-toolbar-menu-key {
+  margin-left: auto;
+  padding-left: 24px;
+  color: var(--day-fg-dim);
+  font-size: 0.9em;
 }
 .day-toolbar-menu-sep {
   height: 1px;

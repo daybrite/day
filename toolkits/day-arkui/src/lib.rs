@@ -1065,7 +1065,7 @@ mod imp {
         out
     }
 
-    /// The application's color mode changed (docs/appearance.md): repaint every neutral paint
+    /// The application's color mode changed (docs/settings.md): repaint every neutral paint
     /// for the new mode, then let `dark_mode()` readers recolor.
     fn appearance_changed(dark: bool) {
         repaint_themed(dark);
@@ -3804,7 +3804,7 @@ mod imp {
             crate::host::reduce_motion()
         }
 
-        /// The application context's color mode (docs/appearance.md). ArkTS components and
+        /// The application context's color mode (docs/settings.md). ArkTS components and
         /// the C nodes' theme colors restyle in place, and this backend repaints its own neutral
         /// paints (see [`themed`]). A return to the system mode has no answer until the
         /// environment callback `init` subscribed reports the mode it resolved to.
@@ -4052,7 +4052,7 @@ mod imp {
         ) -> day_spec::WindowOpenReply<AHandle> {
             // Preferences stay modal on mobile (docs/windows.md); Normal windows become
             // multiton ability instances (their own task cards; freeform on tablets).
-            if kind == day_spec::WindowKind::Preferences {
+            if kind.is_panel() {
                 return day_spec::WindowOpenReply::Unsupported;
             }
             if crate::host_api::open_window(id.0, &options.title) {

@@ -22,6 +22,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > color still paints edge to edge under the bar) and lays its content out below the bar, the
 > size it reports through `FrameChanged` (DESIGN.md §7.7).
 >
+> **web-dom (2026-10).** A cover presented as a window (`open_window` on the cover tier) whose
+> content declares toolbar items gets its own strip docked over the cover
+> ([docs/toolbars.md](toolbars.md)); the cover starts below it and reports the shorter frame.
+> A navigation stack inside the cover moves its back button and title onto that strip. Without
+> items the cover is untouched (Games Fair's game covers).
+>
 > **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
 > and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
 > bounding box, so a small home page (Games Fair's tile grid) presented a cover the size of

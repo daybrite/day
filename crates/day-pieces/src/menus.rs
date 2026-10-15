@@ -182,6 +182,7 @@ fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
         R::CloseWindow => "day-close",
         R::Fullscreen => "day-fullscreen",
         R::NewWindow => "day-new-window",
+        R::CheckForUpdates => "day-check-for-updates",
     }
 }
 
@@ -266,6 +267,16 @@ fn lower_menu_with(
                         Some(day_spec::MenuRole::Preferences) => {
                             action = day_core::windows::preferences_action_id();
                             shortcut = shortcut.or(Some(day_spec::Shortcut::new(",")));
+                        }
+                        // About keeps the toolkit's stock panel (action 0) until an app
+                        // registers its own (docs/settings.md); the updater command has no
+                        // native fallback and lowers disabled when nothing registered.
+                        Some(day_spec::MenuRole::About) => {
+                            action = day_core::windows::about_action_id();
+                        }
+                        Some(day_spec::MenuRole::CheckForUpdates) => {
+                            action = day_core::windows::check_for_updates_action_id();
+                            enabled = enabled && action != 0;
                         }
                         _ => {}
                     }

@@ -2464,6 +2464,7 @@ mod imp {
             CloseWindow => "Close",
             Fullscreen => "Full Screen",
             NewWindow => "New Window",
+            CheckForUpdates => "Check for Updates…",
         }
     }
 
@@ -7459,7 +7460,9 @@ mod imp {
     /// Shared by realize and the `Source` patch on purpose: a swapped source must load exactly
     /// what a fresh realize would have, or a piece shows different pixels depending on whether it
     /// was built or updated.
-    fn uikit_image_for(source: &day_spec::ImageSource) -> Option<Retained<objc2_ui_kit::UIImage>> {
+    pub(crate) fn uikit_image_for(
+        source: &day_spec::ImageSource,
+    ) -> Option<Retained<objc2_ui_kit::UIImage>> {
         match source {
             day_spec::ImageSource::Named(named) => {
                 let name = NSString::from_str(named);
@@ -11335,8 +11338,7 @@ mod imp {
             }
             // iPhone (single visible scene) — and the Preferences kind everywhere on
             // mobile, where settings are modal, not a detached window (docs/windows.md).
-            if !unsafe { app.supportsMultipleScenes() } || kind == day_spec::WindowKind::Preferences
-            {
+            if !unsafe { app.supportsMultipleScenes() } || kind.is_panel() {
                 return day_spec::WindowOpenReply::Unsupported;
             }
             // Ask UIKit for a new scene; its willConnect completes the open through

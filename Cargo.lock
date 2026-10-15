@@ -464,6 +464,7 @@ version = "0.5.1"
 dependencies = [
  "day-core",
  "day-pieces",
+ "day-reactive",
  "day-spec",
  "jni",
  "linkme",
@@ -593,6 +594,7 @@ version = "0.5.1"
 dependencies = [
  "day-core",
  "day-geometry",
+ "day-l10n",
  "day-spec",
  "getrandom 0.4.3",
  "log",
@@ -1147,13 +1149,35 @@ dependencies = [
 name = "day-piece-settings"
 version = "0.5.1"
 dependencies = [
+ "cc",
+ "day-android",
+ "day-appkit",
+ "day-arkui",
+ "day-build",
  "day-core",
  "day-fluent",
+ "day-gtk",
+ "day-l10n",
  "day-macros",
+ "day-part-clipboard",
  "day-part-prefs",
  "day-pieces",
+ "day-qt",
  "day-reactive",
  "day-spec",
+ "day-toolchain",
+ "day-uikit",
+ "day-xaml",
+ "day-xaml-sys",
+ "gtk4",
+ "libadwaita",
+ "linkme",
+ "log",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "objc2-ui-kit",
 ]
 
 [[package]]
@@ -5531,7 +5555,3 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
-
-[[patch.unused]]
-name = "day-piece-charts"
-version = "0.4.2"

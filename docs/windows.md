@@ -140,16 +140,28 @@ Registering a preferences piece enables the following, without any menu code in 
   itself.
 - The window opens under the singleton key `day.preferences` (`WindowKind::Preferences`);
   reopening focuses. On cover-tier backends `open_preferences` presents the same piece
-  fullscreen; mobile apps typically keep their in-nav settings route as the visible entry
-  point and gate on `Cap::MultiWindow` (Day-Matrix's `settings::show()` is the pattern).
+  fullscreen. The default title is the platform's word (`day-settings`).
 
-`pieces/day-piece-settings` supplies the shared theme/language rows most preferences
-surfaces need: `appearance_picker(key)` (Light/Dark/System, id `theme-picker`, gated on
-`Cap::Appearance`), `language_picker(key, res::locales::ALL)` (System + autonyms, id
-`language-picker`), `settings_sections(..)`, and `apply_startup(theme_key, locale_key)`,
-which applies persisted overrides at boot with the **env-wins rule**: `DAY_THEME` /
-`DAY_LOCALE` launches keep their forced values regardless of persistence (CI variant loops
-stay deterministic), while live picker changes always apply.
+Apps rarely call these directly: `day-piece-settings` ([docs/settings.md](settings.md))
+declares the settings and About once and registers both windows, the menu items and the
+mobile navigation presentation itself.
+
+## About
+
+```rust
+day::register_about_window(WindowOptions { title: "About My App".into(), ..Default::default() }, || about_page());
+day::register_about(|| show_native_about_dialog());   // or: any action
+day::open_about();
+```
+
+`register_about` names what the About command does; `register_about_window` is the common
+case, a Day window under the singleton key `day.about` as `WindowKind::About` (the same fixed,
+centered, untabbed panel chrome as Preferences, a dialog over the app window on GTK, a cover
+on mobile). With an About registered,
+`MenuRole::About` items lower to it: the macOS App menu's "About <App>" (replacing the stock
+Info.plist panel), Help ▸ About on the other desktops, in both the default bar and an installed
+`app_menu`. `day::register_check_for_updates(action)` adds the updater's Check for Updates…
+command the same way (`MenuRole::CheckForUpdates`, under About on macOS, in Help elsewhere).
 
 ## New Window + the macOS Window menu
 
@@ -403,7 +415,7 @@ releases stay sound).
 | Backend | Tier | Mechanism |
 |---|---|---|
 | AppKit | Native | per-window `NSWindow` + delegate (retained; windows are not released-when-closed); tabbing groups; Window menu |
-| GTK | Native | additional `AdwApplicationWindow`s on the shared `GtkApplication`; app-level active-state debounced across windows |
+| GTK | Native | additional `AdwApplicationWindow`s on the shared `GtkApplication`; app-level active-state debounced across windows. The panel kinds are dialogs, not windows: `Preferences` presents as an `AdwPreferencesDialog` and `About` as an `AdwDialog` with a header bar, over the active app window (a floating sheet in a wide window, a bottom sheet in a narrow one, Escape closes). The record keeps the window contract — `close_window` is `adw_dialog_close` and the dialog's `closed` signal is the `WindowClosed` confirm, `focus_window` presents it again, `set_window_title` is its title, `fit_window` is its content width and height, `snapshot_window_of` renders its sheet, and `apply_window` is ignored. A panel opened before any window exists is a window as before. On macOS the panel is always a window of its own (the same `AdwPreferencesDialog`, presented without a parent): that is where a Mac keeps Preferences, and a piece's Cocoa view in the GTK window's content view (day-piece-webview's `WKWebView`) draws above everything GTK draws there, so an in-window sheet could be covered whenever such a view is up. Alert dialogs stay in their window unless such a view would cover them, in which case they too present as windows. |
 | Qt | Native | shim `DayWindow` carrying its node id; explicit quit policy (`quitOnLastWindowClosed(false)`) |
 | XAML | Native (CI-verified) | second Win32 host + its own `DesktopWindowXamlSource` island; accelerators in secondary islands are a noted v1 limit |
 | iOS | Native on iPad (`UIScene` request/connect; the whole backend runs the scene lifecycle, and a scene the system opens on its own is filled from `register_new_window`) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |

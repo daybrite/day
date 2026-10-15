@@ -22,7 +22,8 @@ Use examples with the API supported by this project's Day dependency version. Ch
 
 - `src/lib.rs`: app setup, typed routes, navigation, and menus.
 - `src/model.rs`: the item model, shared `Scene` state, JSON persistence, and unit tests.
-- `src/pages/mod.rs`: declarations for welcome, items, detail, and settings pages.
+- `src/pages/mod.rs`: declarations for welcome, items, and detail pages. Settings and About
+  are declared in `src/lib.rs` through `day-piece-settings` (https://daybrite.dev/docs/settings/).
 - `resource/locales/<locale>/app.ftl`: app-owned UI strings.
 - `resource/`: bundled vectors, images, fonts, and data assets.
 - `dayscript/demo.yaml`: portable smoke test and screenshots.

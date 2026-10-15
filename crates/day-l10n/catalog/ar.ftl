@@ -40,6 +40,8 @@ day-toggle-sidebar = إظهار/إخفاء الشريط الجانبي
 day-file = ملف
 day-view = عرض
 day-help = مساعدة
+# The web toolbar button that opens the app menu (docs/menus.md).
+day-menu = القائمة
 day-services = الخدمات
 day-hide = إخفاء
 day-hide-others = إخفاء الآخرين
@@ -49,3 +51,17 @@ day-color = الألوان
 day-color-hue = تدرج اللون
 day-color-shade = التشبع والسطوع
 day-color-opacity = العتامة
+
+# Settings and About surfaces (docs/settings.md, day-piece-settings)
+day-settings = الإعدادات
+day-check-for-updates = التحقق من وجود تحديثات…
+day-settings-general = عام
+day-settings-updates = التحديثات
+day-about-version = الإصدار {$version}
+day-about-build = البنية {$build}
+day-about-website = الموقع الإلكتروني
+day-about-source = الكود المصدري
+day-about-privacy = سياسة الخصوصية
+day-about-licenses = التراخيص
+day-about-acknowledgements = شكر وتقدير
+day-settings-done = تم

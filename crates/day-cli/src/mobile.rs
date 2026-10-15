@@ -2805,6 +2805,7 @@ pub fn launch_android(
         crate::ops::remember_android_serial(only.serial.clone());
     }
     // Install + launch on every connected device; the one APK already carries each device's ABI.
+    let apk = crate::sign::android_launch_apk(&outcome.artifact)?;
     let mut log_threads = Vec::new();
     for dev in &devices {
         // Before the install, the heaviest step a loaded emulator sees (quiet_system_dialogs).
@@ -2814,7 +2815,7 @@ pub fn launch_android(
             "Installing",
             &format!("{} on {}", outcome.target, dev.serial),
         );
-        install_apk(&dev.serial, &outcome.artifact)?;
+        install_apk(&dev.serial, &apk)?;
         // `--grant`: mark the runtime permissions on the freshly installed package. After the
         // install, since `pm grant` wants the package present, and before the start, so the
         // app's first `status` already reads granted. `-r` installs keep the marks, so a later

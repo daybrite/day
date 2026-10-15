@@ -78,6 +78,9 @@ use day_spec::{
 
 pub type Handle = Retained<NSView>;
 
+/// Icon resolution for a piece renderer's own `NSToolbar` items (see `toolbar::image_for`).
+pub use toolbar::image_for as toolbar_image;
+
 // Built-in leaf pieces split into modules (moved in from their satellite crates 2026-07).
 mod dock;
 mod documents;
@@ -8909,9 +8912,11 @@ impl Toolkit for AppKit {
         // their callbacks, shortcuts, and enabled state.
         let mut items = items.to_vec();
         let about = extract_app_role(&mut items, day_spec::MenuRole::About);
+        let updates = extract_app_role(&mut items, day_spec::MenuRole::CheckForUpdates);
         let prefs = extract_app_role(&mut items, day_spec::MenuRole::Preferences);
         let quit = extract_app_role(&mut items, day_spec::MenuRole::Quit);
-        let services = install_application_menu(mtm, &menubar, &self.app_name, about, prefs, quit);
+        let services =
+            install_application_menu(mtm, &menubar, &self.app_name, about, updates, prefs, quit);
         // Fill the standard slots the app did not claim, in the platform's bar order
         // (day-core owns that policy so every backend arranges its bar the same way).
         // Fill the standard slots the app left open, in macOS's bar order. The Window menu is
@@ -9477,7 +9482,7 @@ impl Toolkit for AppKit {
         options: &WindowOptions,
         kind: day_spec::WindowKind,
     ) -> day_spec::WindowOpenReply<Handle> {
-        let prefs = kind == day_spec::WindowKind::Preferences;
+        let prefs = kind.is_panel();
         let (window, delegate, content) = self.make_window(options, prefs, Some(id));
         if prefs {
             // A settings panel is one-of-a-kind and centered, and it stays OUT of the Window
@@ -10564,6 +10569,7 @@ fn install_application_menu(
     menubar: &NSMenu,
     title: &str,
     about: Option<day_spec::MenuItem>,
+    updates: Option<day_spec::MenuItem>,
     prefs: Option<day_spec::MenuItem>,
     quit: Option<day_spec::MenuItem>,
 ) -> Retained<NSMenu> {
@@ -10590,7 +10596,31 @@ fn install_application_menu(
             *label = title;
         }
     }
-    let menu = build_ns_menu(mtm, title, &[about, M::Separator]);
+    // A registered Day About (docs/settings.md) replaces the stock Info.plist panel: the
+    // item fires the dispatch action instead of `orderFrontStandardAboutPanel:`.
+    if let M::Action { action, .. } = &mut about
+        && *action == 0
+    {
+        *action = day_core::windows::about_action_id();
+    }
+    // Check for Updates… sits directly under About (the Sparkle convention), whether the app
+    // placed the role itself or the updater only registered its action.
+    let updates_id = day_core::windows::check_for_updates_action_id();
+    let updates = updates.or_else(|| {
+        (updates_id != 0)
+            .then(|| standard(R::CheckForUpdates, day_l10n::t("day-check-for-updates")))
+    });
+    let mut head = vec![about];
+    if let Some(mut updates) = updates {
+        if let M::Action { action, .. } = &mut updates
+            && *action == 0
+        {
+            *action = updates_id;
+        }
+        head.push(updates);
+    }
+    head.push(M::Separator);
+    let menu = build_ns_menu(mtm, title, &head);
     if let Some(mut prefs) = prefs {
         if let M::Action { label, .. } = &mut prefs {
             *label = res::str::settings().format();
@@ -10674,7 +10704,7 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
         role: Some(day_spec::MenuRole::Preferences),
         icon: None,
     });
-    let services = install_application_menu(mtm, &menubar, title, None, prefs, None);
+    let services = install_application_menu(mtm, &menubar, title, None, None, prefs, None);
 
     // File ▸ New Window / Close, when the app registered a new-window builder — the same
     // zero-menu-code rule as Settings…/⌘, above (docs/windows.md). Without this an app that
@@ -11023,6 +11053,8 @@ fn role_spec(
         // No native selector (docs/windows.md): the item dispatches the registered
         // new-window action through the ordinary custom-item path (`fire:`).
         R::NewWindow => ("New Window", None, Some(S::new("n"))),
+        // Likewise: no selector, the registered updater action fires through `fire:`.
+        R::CheckForUpdates => ("Check for Updates…", None, None),
     }
 }
 

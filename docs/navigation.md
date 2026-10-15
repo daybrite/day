@@ -53,7 +53,7 @@ scopes, and native handles survive each switch; only composed chrome is conditio
 `drag`, and `drop_before`. Drag payloads are host-scoped so equal keys in unrelated collections
 cannot move each other's documents. `.layout(|chrome, content| ...)` places the composed chrome.
 The default strip is native buttons: the current document's is a selected button
-(`button(..).selected(..)`, docs/buttons.md), so it keeps its focus stop and activation, the
+(`button(..).selected(..)`, [docs/buttons.md](buttons.md)), so it keeps its focus stop and activation, the
 platform draws its own selected look, and assistive tech hears a selected tab in a tab list
 (`Role::Tab`, `Role::TabList`). `.strip_id("docs")` names its elements for scripts and tests:
 `docs-strip`, `docs-tab-{key}`, `docs-close-{key}` and `docs-new`; without it the prefix is
@@ -84,7 +84,7 @@ to subtract, and a drag to the first slot is an ordinary move. The
 nav with real keyboard events, checks the current widget and the reported indices, and in
 document mode checks a close request and a drag to the first slot.
 
-The conformance cases (`day test 'document-tabs-*'`, docs/testing.md) run on every toolkit:
+The conformance cases (`day test 'document-tabs-*'`, [docs/testing.md](testing.md)) run on every toolkit:
 selection through the strip with the current tab enabled and natively selected, neighbor
 selection on close, a vetoed close request, reordering with resident counters and the strip's
 geometry, background opens, cycling, the add button, an empty host, live titles, repeated
@@ -250,7 +250,10 @@ nav_stack(path, home_view)
 
 Day reconciles the native stack to `path` (keep the common prefix, pop the rest, push the new
 suffix; the same diff `NavigationStack`/React-Navigation do). The native containers:
-`UINavigationController` (iOS), `AdwNavigationView` (GTK), Android back-stack, and a
+`UINavigationController` (iOS), `AdwNavigationView` (GTK; a pushed page carries an
+`AdwHeaderBar` with the page's title, in which the view draws its back button, over a filling
+cell that reports the content's size under the bar — the root page is the content alone),
+Android back-stack, and a
 top-page-only presentation on macOS `NSSplitView` / Qt `QSplitter` in stack mode. The path is
 data, so deep-linking is "parse the URL into a path and `set` it," and the stack is unit-testable
 without the framework.
@@ -642,7 +645,9 @@ Reserved characters inside a segment or param value (`/ ? & = %`) are percent-en
   outer switch takes effect are queued and consumed as those surfaces register. One string
   reaches a stack three levels deep on a cold start. A stack consumes absolute segments
   unconditionally (its destinations are open-ended); the explicit path is the stack's state
-  (set-semantics: navigating `mail/inbox` while `mail/inbox/msg-42` shows pops the detail).
+  (set-semantics: navigating `mail/inbox` while `mail/inbox/msg-42` shows pops the detail,
+  and switching back into a resident tab with a deeper path, `settings/privacy` after an
+  earlier `settings/general`, first pops that tab's stack to its root).
 
 **Params** ride the query string: `route_param("hint")` / `route_params()` inside a destination
 builder return the values of the navigation being applied. They describe the navigation in
@@ -1009,7 +1014,12 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   section changes replace the current content without accumulating history. Free pane
   dragging is locked so pane visibility cannot diverge from selection.
   A nested push is a `replace()` back-stack transaction carrying `MaterialSharedAxis`
-  transitions, which gets the whole back behavior from the platform:
+  transitions. Each page view is a transition group, so the push and pop move the page as
+  one view: left to the framework's default, the transition animates the page's leaf views
+  individually, and Day's layout of those views in the frames after the push (and a native
+  row's re-bind) cancelled the animators, so a page of settings rows appeared with no motion
+  while a page of plain labels happened to fade. This gets the whole back behavior from the
+  platform:
   `OnBackPressedDispatcher` dispatches hardware/gesture back on every API level, the
   FragmentManager **seeks the pop transition live under the predictive back gesture** on API
   34+ (progress, cancel, commit), and its back callback is enabled only while the back stack

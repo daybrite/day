@@ -288,6 +288,79 @@ struct AndroidKeys {
     key_pass: String,
 }
 
+/// Gradle deliberately emits an `-unsigned.apk` when no release key is configured.
+/// Launch a verified dev-signed copy, including for `launch --skip-build`, without changing
+/// the build artifact or the signing properties consumed by `pack --no-sign`.
+pub(crate) fn android_launch_apk(artifact: &Path) -> Result<PathBuf, String> {
+    if !artifact
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| name.ends_with("-unsigned.apk"))
+    {
+        return Ok(artifact.to_path_buf());
+    }
+    let keys = android_debug_keys()?;
+    // A subdirectory keeps build/pack's APK discovery from mistaking this local install copy
+    // for a distribution artifact. Always regenerate it so a rebuild cannot launch stale code.
+    let dest = artifact.parent().unwrap().join("day-launch/app-dev.apk");
+    std::fs::create_dir_all(dest.parent().unwrap()).map_err(|e| e.to_string())?;
+    sign_android(artifact, Some(&dest), &keys, Format::Apk)?;
+    Ok(dest)
+}
+
+/// Use Android's local debug identity so switching debug/release for a local run can update
+/// the installed app without uninstalling it and losing its data. Distribution packaging
+/// still owns its separate release/shared-dev key policy.
+fn android_debug_keys() -> Result<AndroidKeys, String> {
+    let directory = if let Some(dir) = std::env::var_os("ANDROID_USER_HOME") {
+        PathBuf::from(dir)
+    } else {
+        PathBuf::from(
+            std::env::var_os("ANDROID_SDK_HOME")
+                .or_else(|| std::env::var_os("HOME"))
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound).to_string())?,
+        )
+        .join(".android")
+    };
+    let keys = AndroidKeys {
+        keystore: directory.join("debug.keystore"),
+        key_alias: "androiddebugkey".into(),
+        store_pass: "android".into(),
+        key_pass: "android".into(),
+    };
+    if !keys.keystore.exists() {
+        std::fs::create_dir_all(directory).map_err(|e| e.to_string())?;
+        run_tool(
+            &jdk_tool("keytool")?,
+            &[
+                "-genkeypair".into(),
+                "-keystore".into(),
+                keys.keystore.display().to_string(),
+                "-alias".into(),
+                keys.key_alias.clone(),
+                "-storepass:env".into(),
+                STORE_PASS_VAR.into(),
+                "-keypass:env".into(),
+                KEY_PASS_VAR.into(),
+                "-keyalg".into(),
+                "RSA".into(),
+                "-keysize".into(),
+                "2048".into(),
+                "-validity".into(),
+                "10950".into(),
+                "-dname".into(),
+                "CN=Android Debug,O=Android,C=US".into(),
+            ],
+            &[
+                (STORE_PASS_VAR, &keys.store_pass),
+                (KEY_PASS_VAR, &keys.key_pass),
+            ],
+        )?;
+    }
+    Ok(keys)
+}
+
 /// What `apply` signed, for the report.
 struct Signed {
     /// sha256 of the artifact as it arrived.

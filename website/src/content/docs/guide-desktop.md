@@ -171,27 +171,33 @@ the same API, keys, and close path. That tier has no native title bar or close b
 `Cap::MultiWindow` and give cover-tier content its own close affordance (the system back button
 closes it on Android).
 
-## 5. Add the Settings window and File ▸ New Window
+## 5. Add Settings, About and File ▸ New Window
 
-Two registrations in your root builder, before `app_menu`, give the app its standard window
-conventions:
+Settings and About come from `day-piece-settings` ([settings](/docs/internal/settings)): one
+declaration in your root builder, before `app_menu`, registers both windows and their menu
+items on every desktop and the navigation presentation on the phones:
 
 ```rust
-day::register_preferences_with(
-    WindowOptions { title: "Settings".into(), size: Size::new(520.0, 420.0), ..Default::default() },
-    || preferences_page(),
-);
+use day_piece_settings::prelude::*;
+
+let prefs = Preferences::new()
+    .about(About::from_manifest().link(day::tr("day-about-website"), "https://example.org"))
+    .group(general_group(res::locales::ALL))         // Appearance + Language
+    .group(Group::new("editing", res::str::settings_editing())
+        .icon(res::vectors::prefs_editing)
+        .row(rows::toggle(&SNAP, res::str::pref_snap())))
+    .install();
 day::register_new_window(|| {
     shell()                 // toolbar items come from the pieces in this window
 });
 ```
 
-`register_preferences_with` alone enables the Settings item: on macOS,
-"Settings…" with ⌘, in the App menu directly under About; on GTK, Qt, and Windows, a
-Preferences item with Ctrl+comma, injected into your first menu if you didn't place a
-`menu_role(MenuRole::Preferences)` yourself. The window opens under the singleton key
-`day.preferences`, so reopening focuses it, and `day::open_preferences()` opens the same
-surface from anywhere, such as a toolbar gear. On the cover tier it presents fullscreen.
+On macOS that is "About <App>" and "Settings…" with ⌘, in the App menu; on GTK, Qt and Windows
+a Preferences item with Ctrl+comma (in your first menu unless you placed
+`menu_role(MenuRole::Preferences)` yourself) and Help ▸ About. The Settings window opens under
+the singleton key `day.preferences`, so reopening focuses it; `day_piece_settings::open()`
+opens it from anywhere, such as a toolbar gear, and `navigate("settings/editing")` opens it
+on a group. `About::from_manifest()` reads the name and version from `Day.toml`.
 
 `register_new_window` names the builder behind `menu_role(MenuRole::NewWindow)` (File ▸ New
 Window with ⌘N/Ctrl+N) and the macOS tab-bar "+". Each call opens an independent `Normal`
@@ -201,8 +207,8 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
 ## Pitfalls
 
 - Register windows before the menu. A `MenuRole::NewWindow` item is disabled when no
-  builder is registered, and the auto Settings item needs the preferences registration. Call
-  `register_preferences_with` and `register_new_window` before installing the app menu (the
+  builder is registered, and the auto Settings and About items need their registrations. Call
+  `Preferences::install()` and `register_new_window` before installing the app menu (the
   showcase's `root()` does exactly this), so those menu items are enabled.
 - Toolbars follow their pieces into new windows. Items declared on a window’s root
   piece belong to that window. Items declared on a page appear wherever that page is shown. A builder whose pieces declare none opens a window with an empty bar.

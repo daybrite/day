@@ -23,75 +23,139 @@ let scriptWs = null;        // dayscript WebSocket once armed (?dayscript= token
 let appStarted = false;     // day_dom_main has run; script lines before that queue in the inbox
 const scriptInbox = [];
 let scriptOutbox = [];      // reply lines queued while the socket is still connecting
-let toolbarItems = {};      // toolbar item id → its element, for targeted patches
-// The docked toolbar strip (docs/toolbars.md): the bar element, its tracks by column, and every
-// item in Day's order with its element, the column it asked for, and the track it sits in.
-let toolbarBar = null;
-let toolbarTracks = {};
-let toolbarOrder = [];
+// A docked toolbar strip (docs/toolbars.md): the bar element, its tracks by column, every item
+// in Day's order with its element, the column it asked for and the track it sits in, and the
+// items by id for targeted patches. One per window: the page's strip docks above `#day-root`;
+// an emulated cover's (docs/cover.md) docks over the cover, right after it in the DOM so the
+// two paint in the cover's own order, and the cover moves down by the strip's height so the
+// frame Day lays the cover out in comes back that much shorter. `host` is the cover element,
+// or null for the page.
+function newStrip(host) {
+  const strip = { host, bar: null, tracks: {}, order: [], items: {}, menuBtn: null, nav: 0 };
+  // Follows the split's panes, so the tracks keep their widths as a pane is dragged, collapsed
+  // or the window resized.
+  strip.panes = new ResizeObserver(() => layoutToolbar(strip));
+  return strip;
+}
+const pageStrip = newStrip(null);
+const coverStrips = new Map(); // cover element → its strip
+// The strip a toolbar edit addresses: the window root Day names is a cover element for a
+// cover-tier window (its toolbar lives with it), anything else means the page.
+function stripFor(hostId) {
+  const el = els[hostId];
+  if (!el || !el.classList || !el.classList.contains('day-cover')) return pageStrip;
+  let strip = coverStrips.get(el);
+  if (!strip) { strip = newStrip(el); coverStrips.set(el, strip); }
+  return strip;
+}
+const coverStripOf = (el) => { const c = el.closest('.day-cover'); return (c && coverStrips.get(c)) || null; };
+// The emulated app menu's button (docs/menus.md): last in the page strip's detail track,
+// outside its `order` so Day's item indexes stay its own, and the strip stays up for it alone.
+// Its accelerators (docs/menus.md "Keyboard shortcuts"): every enabled item with a shortcut
+// the browser does not already route, matched on the document's capture phase so the menu
+// answers before the focused widget, as a menu bar's key equivalents do.
+let appMenuKeys = [];
+const isMac = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 const TOOLBAR_COLUMNS = ['sidebar', 'list', 'detail'];
-// Follows the split's panes, so the tracks keep their widths as a pane is dragged, collapsed or
-// the window resized.
-const toolbarPanes = new ResizeObserver(() => layoutToolbar());
 
-// Dock a new strip. Three tracks, one per column of a split window (docs/toolbars.md). Day draws
+// Dock a strip. Three tracks, one per column of a split window (docs/toolbars.md). Day draws
 // this strip itself, so it can do what a desktop toolbar does: the sidebar's commands over the
-// sidebar, the content list's over the list, the rest over the detail.
-function openToolbar() {
-  toolbarBar = div('day-toolbar'); toolbarBar.id = 'day-toolbar';
-  toolbarTracks = {};
-  document.body.prepend(toolbarBar);
-  document.body.classList.add('day-has-toolbar');
-  layoutToolbar();
+// sidebar, the content list's over the list, the rest over the detail. A cover's strip is also
+// where a navigation stack inside the cover puts its bar (`applyNavBar`): back button, title
+// and the window's items share one bar, the way a phone's modal navigation bar does.
+function openToolbar(strip) {
+  strip.bar = div('day-toolbar');
+  strip.tracks = {};
+  if (strip.host) {
+    strip.bar.classList.add('day-cover-toolbar');
+    const back = document.createElement('button');
+    back.className = 'day-nav-back'; back.textContent = '‹'; back.style.display = 'none';
+    back.addEventListener('click', () => { if (strip.nav) wasm.day_dom_event(strip.nav, 14, 0, 0, 0, 0); });
+    const title = div('day-toolbar-title');
+    strip.back = back; strip.title = title;
+    strip.bar.append(back, title);
+    strip.host.after(strip.bar);
+    strip.host.classList.add('day-has-toolbar');
+    for (const nav of strip.host.querySelectorAll('.day-nav.stack')) applyNavBar(nav);
+  } else {
+    strip.bar.id = 'day-toolbar';
+    document.body.prepend(strip.bar);
+    document.body.classList.add('day-has-toolbar');
+  }
+  layoutToolbar(strip);
+}
+// Take the strip down once nothing is left on it: no toolbar item and no app menu button. A
+// stack that had moved its bar into a cover's strip gets its own bar back.
+function closeToolbarIfEmpty(strip) {
+  if (!strip.bar || strip.order.length || strip.menuBtn) return;
+  strip.panes.disconnect();
+  strip.bar.remove();
+  strip.bar = null;
+  strip.tracks = {};
+  if (strip.host) {
+    strip.host.classList.remove('day-has-toolbar');
+    coverStrips.delete(strip.host);
+    for (const nav of strip.host.querySelectorAll('.day-nav.stack')) applyNavBar(nav);
+  } else {
+    document.body.classList.remove('day-has-toolbar');
+  }
+}
+// A cover leaving the document takes its strip with it, whatever order its items' removals
+// arrive in.
+function dropCoverStrip(el) {
+  const strip = el && coverStrips.get(el);
+  if (!strip) return;
+  strip.order = []; strip.items = {}; strip.menuBtn = null;
+  closeToolbarIfEmpty(strip);
 }
 
 // The track column `col`'s items go in right now. A column with no pane of its own (no split, a
 // composed content list, a collapsed sidebar) has no width to align to, so its commands join the
 // detail's track rather than claiming a strip of their own.
-function toolbarColumn(col) {
-  const widths = toolbarBar.__widths || {};
+function toolbarColumn(strip, col) {
+  const widths = strip.bar.__widths || {};
   return (col === 'sidebar' || col === 'list') && widths[col] ? col : 'detail';
 }
 
-function toolbarTrack(col) {
-  col = toolbarColumn(col);
-  if (!toolbarTracks[col]) {
+function toolbarTrack(strip, col) {
+  col = toolbarColumn(strip, col);
+  if (!strip.tracks[col]) {
     const t = div('day-toolbar-track day-toolbar-' + col);
     // In column order, whatever order the tracks are first needed in.
     const next = TOOLBAR_COLUMNS.slice(TOOLBAR_COLUMNS.indexOf(col) + 1)
-      .map((c) => toolbarTracks[c]).find(Boolean);
-    if (next) next.before(t); else toolbarBar.append(t);
-    toolbarTracks[col] = t;
+      .map((c) => strip.tracks[c]).find(Boolean);
+    if (next) next.before(t); else strip.bar.append(t);
+    strip.tracks[col] = t;
   }
-  return toolbarTracks[col];
+  return strip.tracks[col];
 }
 
-// Fit the strip to the window as it is now: measure the split's panes, size the tracks to them,
+// Fit a strip to its window as it is now: measure the split's panes, size the tracks to them,
 // and put each item in the track its column now maps to. Only an item whose track changed moves
 // (a pane appearing or collapsing), in Day's order, and the keyboard focus goes back to the
 // element that had it; everything else stays exactly where it is.
-function layoutToolbar() {
-  if (!toolbarBar) return;
-  const nav = document.querySelector('.day-nav.split');
+function layoutToolbar(strip) {
+  if (!strip.bar) return;
+  const nav = (strip.host || document).querySelector('.day-nav.split');
   const pane = (sel) => nav && nav.querySelector(sel);
   const widthOf = (el) => (el && el.offsetParent !== null ? Math.round(el.getBoundingClientRect().width) : 0);
   const side = pane('.day-nav-sidebar'), list = pane('.day-nav-list');
-  toolbarBar.__widths = { sidebar: widthOf(side), list: widthOf(list) };
-  if (toolbarBar.__nav !== nav) {
-    toolbarPanes.disconnect();
-    for (const el of [side, list]) if (el) toolbarPanes.observe(el);
-    toolbarBar.__nav = nav;
+  strip.bar.__widths = { sidebar: widthOf(side), list: widthOf(list) };
+  if (strip.bar.__nav !== nav) {
+    strip.panes.disconnect();
+    for (const el of [side, list]) if (el) strip.panes.observe(el);
+    strip.bar.__nav = nav;
   }
   const focused = document.activeElement;
-  for (const e of toolbarOrder) {
-    const track = toolbarTrack(e.col);
+  for (const e of strip.order) {
+    const track = toolbarTrack(strip, e.col);
     if (e.track !== track) { e.track = track; e.moved = true; }
   }
   for (const col of TOOLBAR_COLUMNS) {
-    const t = toolbarTracks[col];
+    const t = strip.tracks[col];
     if (!t) continue;
     let prev = null;
-    for (const e of toolbarOrder) {
+    for (const e of strip.order) {
       if (e.track !== t) continue;
       if (e.moved || (prev ? prev.nextSibling !== e.el : t.firstChild !== e.el)) {
         if (prev) prev.after(e.el); else t.prepend(e.el);
@@ -99,16 +163,43 @@ function layoutToolbar() {
       }
       prev = e.el;
     }
-    const w = toolbarBar.__widths[col];
+    const w = strip.bar.__widths[col];
     t.style.flex = col !== 'detail' && w ? `0 0 ${w}px` : '';
     // A column that has lost its pane has nothing left in it.
-    if (col !== 'detail' && !w && !t.firstChild) { t.remove(); delete toolbarTracks[col]; }
+    if (col !== 'detail' && !w && !t.firstChild) { t.remove(); delete strip.tracks[col]; }
   }
   if (focused && focused !== document.activeElement && focused.isConnected) focused.focus();
 }
+// Every strip, after something that can change a split's panes (a nav re-present).
+function layoutToolbars() {
+  layoutToolbar(pageStrip);
+  for (const strip of coverStrips.values()) layoutToolbar(strip);
+}
+
+// Where a stack's bar goes (docs/navigation.md): its own back bar over the detail, or, inside
+// a cover that has a strip, that strip — the back button shows while pages are pushed, the
+// title is the top page's, and the cover's own items (a Done button) keep their trailing edge.
+// `__barState` is what Day last sent, so a strip arriving after the stack can take the bar over,
+// and a strip leaving can hand it back.
+function applyNavBar(n) {
+  const st = n.__barState;
+  if (!st || !n.__bar) return;
+  const strip = coverStripOf(n);
+  if (strip && strip.bar) {
+    n.__bar.style.display = 'none';
+    n.__detail.classList.remove('under-bar');
+    strip.nav = n.__id;
+    strip.back.style.display = st.visible ? '' : 'none';
+    strip.title.textContent = st.title;
+    return;
+  }
+  n.__bar.style.display = st.visible ? 'flex' : 'none';
+  n.__detail.classList.toggle('under-bar', !!st.visible);
+  n.__title.textContent = st.title;
+}
 
 // The element for one toolbar item.
-function buildToolbarItem(it) {
+function buildToolbarItem(strip, it) {
   let el = null;
   if (it.kind === '-') el = div('day-toolbar-sep');
   else if (it.kind === 'L') { el = div('day-toolbar-label'); el.textContent = it.label; }
@@ -154,7 +245,7 @@ function buildToolbarItem(it) {
     el.setAttribute('list', dl.id);
     el.__datalist = dl;
     setSuggestions(dl, it.suggestions || []);
-    toolbarBar.append(dl);
+    strip.bar.append(dl);
     if (it.action) el.addEventListener('input', () => {
       const [ptr, len] = intoWasm(el.value);
       wasm.day_dom_toolbar_text(it.action, ptr, len);
@@ -215,14 +306,103 @@ function buildToolbarItem(it) {
 // day_dom_toolbar_action; the encoded ids are registered menu-action ids.
 let toolbarMenu = null;
 function closeToolbarMenu() {
-  if (toolbarMenu) { toolbarMenu.remove(); toolbarMenu = null; }
+  if (!toolbarMenu) return;
+  const m = toolbarMenu;
+  toolbarMenu = null;
+  // The keyboard came in through the button: it goes back there, as a native menu's does.
+  const restore = m.contains(document.activeElement) ? m.__anchor : null;
+  m.__anchor.setAttribute('aria-expanded', 'false');
+  m.remove();
+  if (restore) restore.focus();
 }
-function toggleToolbarMenu(anchor, items) {
+// The rows the keyboard can land on: every enabled command, in order.
+const menuRows = (m) => [...m.querySelectorAll('.day-toolbar-menu-item:not(.header):not(.disabled)')];
+function menuKeydown(e) {
+  const m = toolbarMenu;
+  if (!m) return;
+  const rows = menuRows(m);
+  const at = rows.indexOf(document.activeElement);
+  const go = (i) => { if (rows.length) rows[(i + rows.length) % rows.length].focus(); };
+  switch (e.key) {
+    case 'ArrowDown': go(at + 1); break;
+    case 'ArrowUp': go(at < 0 ? rows.length - 1 : at - 1); break;
+    case 'Home': go(0); break;
+    case 'End': go(rows.length - 1); break;
+    case 'Enter': case ' ':
+      if (at >= 0) rows[at].click();
+      break;
+    case 'Tab': closeToolbarMenu(); return; // the menu is not in the tab order
+    case 'Escape': closeToolbarMenu(); break;
+    default: return;
+  }
+  e.preventDefault();
+  e.stopPropagation();
+}
+// A shortcut's hint, spelled the way the platform's menus spell it: "⇧⌘S" on a Mac,
+// "Ctrl+Shift+S" elsewhere.
+const KEY_GLYPHS = { Delete: '\u232B', Backspace: '\u232B', Return: '\u21A9', Enter: '\u21A9',
+  Escape: '\u238B', Space: '\u2423', ArrowLeft: '\u2190', ArrowRight: '\u2192',
+  ArrowUp: '\u2191', ArrowDown: '\u2193' };
+function shortcutLabel(sc) {
+  const mac = isMac();
+  const key = sc.key.length === 1 ? sc.key.toUpperCase() : (mac && KEY_GLYPHS[sc.key]) || sc.key;
+  if (mac) {
+    return (sc.control ? '\u2303' : '') + (sc.alt ? '\u2325' : '') + (sc.shift ? '\u21E7' : '')
+      + (sc.primary ? '\u2318' : '') + key;
+  }
+  const parts = [];
+  if (sc.primary || sc.control) parts.push('Ctrl');
+  if (sc.alt) parts.push('Alt');
+  if (sc.shift) parts.push('Shift');
+  parts.push(key);
+  return parts.join('+');
+}
+// The key names a shortcut answers to: letters case-folded, the two delete keys folded onto
+// each other (appkit and gtk do the same), the named keys under the browser's spellings.
+function shortcutKeys(key) {
+  if (key.length === 1) return [key.toLowerCase()];
+  return { Delete: ['Delete', 'Backspace'], Backspace: ['Delete', 'Backspace'],
+    Return: ['Enter'], Enter: ['Enter'], Space: [' '], Esc: ['Escape'] }[key] || [key];
+}
+function collectAppMenuKeys(items, out) {
+  for (const it of items) {
+    if (it.items) { collectAppMenuKeys(it.items, out); continue; }
+    if (!it.shortcut || it.sys || it.enabled === false || !it.id) continue;
+    out.push({ id: it.id, keys: shortcutKeys(it.shortcut.key), primary: !!it.shortcut.primary,
+      shift: !!it.shortcut.shift, alt: !!it.shortcut.alt, control: !!it.shortcut.control });
+  }
+  return out;
+}
+document.addEventListener('keydown', (e) => {
+  if (!appMenuKeys.length || e.isComposing) return;
+  const t = e.target;
+  const editable = t && t.closest && t.closest('input, textarea, [contenteditable]');
+  const primary = e.metaKey || e.ctrlKey;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  for (const a of appMenuKeys) {
+    if (a.primary !== primary || a.shift !== e.shiftKey || a.alt !== e.altKey) continue;
+    if (a.control && !e.ctrlKey) continue;
+    if (!a.keys.includes(key)) continue;
+    // A bare key (Delete, a letter) is the focused text field's own; a command combination
+    // reaches the menu from anywhere, the way a menu bar's does.
+    if (!primary && editable) return;
+    e.preventDefault();
+    e.stopPropagation();
+    closeToolbarMenu();
+    wasm.day_dom_toolbar_action(a.id);
+    return;
+  }
+}, true);
+// `hints` draws each row's shortcut beside it: the app menu's rows, whose keys are live.
+function toggleToolbarMenu(anchor, items, hints) {
   if (toolbarMenu && toolbarMenu.__anchor === anchor) { closeToolbarMenu(); return; }
   closeToolbarMenu();
   const m = document.createElement('div');
   m.className = 'day-toolbar-menu';
+  m.setAttribute('role', 'menu');
   m.__anchor = anchor;
+  anchor.setAttribute('aria-expanded', 'true');
+  m.addEventListener('keydown', menuKeydown);
   const add = (list, depth) => {
     for (const it of list) {
       if (it.sep) {
@@ -261,11 +441,28 @@ function toggleToolbarMenu(anchor, items) {
       const t = document.createElement('span');
       t.textContent = it.label;
       row.append(t);
-      if (it.enabled === false) row.classList.add('disabled');
-      else row.addEventListener('click', () => {
-        closeToolbarMenu();
-        if (it.id) wasm.day_dom_toolbar_action(it.id);
-      });
+      if (hints && it.shortcut) {
+        const k = document.createElement('span');
+        k.className = 'day-toolbar-menu-key';
+        k.textContent = shortcutLabel(it.shortcut);
+        row.append(k);
+      }
+      if (it.name) row.dataset.menuId = it.name;
+      // A real menu item: focusable by arrow (not by Tab), activated by Enter or Space, and
+      // the pointer's hover is the keyboard's focus so both read as one highlight.
+      row.setAttribute('role', it.checked !== undefined ? 'menuitemcheckbox' : 'menuitem');
+      if (it.checked !== undefined) row.setAttribute('aria-checked', it.checked ? 'true' : 'false');
+      if (it.enabled === false) {
+        row.classList.add('disabled');
+        row.setAttribute('aria-disabled', 'true');
+      } else {
+        row.tabIndex = -1;
+        row.addEventListener('pointerenter', () => row.focus());
+        row.addEventListener('click', () => {
+          closeToolbarMenu();
+          if (it.id) wasm.day_dom_toolbar_action(it.id);
+        });
+      }
       m.append(row);
     }
   };
@@ -273,11 +470,17 @@ function toggleToolbarMenu(anchor, items) {
   const r = anchor.getBoundingClientRect();
   m.style.left = `${Math.round(r.left)}px`;
   m.style.top = `${Math.round(r.bottom + 4)}px`;
+  // A long menu (an app menu with every submenu inlined) scrolls inside the window instead of
+  // running off its bottom edge.
+  m.style.maxHeight = `${Math.max(120, innerHeight - Math.round(r.bottom + 4) - 8)}px`;
   document.body.append(m);
   // Opened past the right edge: pull it back inside.
   const mr = m.getBoundingClientRect();
   if (mr.right > innerWidth - 4) m.style.left = `${Math.max(4, innerWidth - 4 - mr.width)}px`;
   toolbarMenu = m;
+  // Opened from the keyboard (Enter/Space on the button): the first command takes focus so the
+  // arrows work at once; a pointer open leaves focus on the button until the pointer moves.
+  if (anchor.matches(':focus-visible')) menuRows(m)[0]?.focus();
 }
 document.addEventListener('pointerdown', (e) => {
   if (toolbarMenu && !toolbarMenu.contains(e.target) && !toolbarMenu.__anchor.contains(e.target)) closeToolbarMenu();
@@ -408,7 +611,7 @@ function navChrome(nav, id, mode) {
   const name = NAV_MODES[mode] || 'stack';
   // A split arriving or leaving after the toolbar (docs/toolbars.md) changes the columns it
   // follows; measured once the panes have their width.
-  requestAnimationFrame(layoutToolbar);
+  requestAnimationFrame(layoutToolbars);
   nav.classList.add(name);
   if (name === 'stack') {
     const bar = div('day-nav-backbar');
@@ -507,7 +710,7 @@ const env = {
     if (el === ref || (el.parentNode === target && el.nextSibling === ref)) return;
     target.insertBefore(el, ref);
   },
-  day_dom_remove: (child) => E(child)?.remove(),
+  day_dom_remove: (child) => { const el = E(child); dropCoverStrip(el); el?.remove(); },
   day_dom_release(id) {
     const callbacks = releaseHooks.get(id);
     releaseHooks.delete(id);
@@ -936,16 +1139,24 @@ const env = {
     const b = bitmaps.get(id);
     if (b && b.url) E(el).src = b.url;
   },
-  // An `<img>` showing raw encoded bytes the app holds, with no staged resource behind them.
+  // An `<img>` showing raw encoded bytes the app holds, with no staged resource behind them;
+  // or, for a tinted/template glyph (a masked div, docs/vectors.md), the mask those bytes cut.
+  // SVG is the one format a browser will not sniff, so markup bytes get their MIME type.
   day_dom_image_set_bytes: (el, ptr, len) => {
     const node = E(el);
     if (!node) return;
-    const url = URL.createObjectURL(new Blob([mem().slice(ptr, ptr + len)]));
+    const bytes = mem().slice(ptr, ptr + len);
+    let i = 0;
+    if (bytes[0] === 0xEF && bytes[1] === 0xBB && bytes[2] === 0xBF) i = 3;
+    while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x0A || bytes[i] === 0x0D || bytes[i] === 0x09)) i++;
+    const type = bytes[i] === 0x3C ? { type: 'image/svg+xml' } : {};
+    const url = URL.createObjectURL(new Blob([bytes], type));
     // Revoke the blob this element made last time: a signal-driven swap would otherwise leak one
     // URL per change, and nothing else is holding them.
     if (node.__dayBlob) URL.revokeObjectURL(node.__dayBlob);
     node.__dayBlob = url;
-    node.src = url;
+    if (node.tagName === 'IMG') node.src = url;
+    else { node.style.maskImage = `url("${url}")`; node.style.webkitMaskImage = `url("${url}")`; }
   },
   // Release an element's own blob URL when the element goes (day-dom's `release`).
   day_dom_image_revoke: (el) => {
@@ -1079,6 +1290,7 @@ const env = {
     nav.classList.remove(...NAV_MODES);
     nav.__side = nav.__detail = nav.__bar = nav.__title = undefined;
     navChrome(nav, id, mode);
+    applyNavBar(nav);
   },
   day_dom_nav_add_page(nav, page, chrome) {
     const n = E(nav);
@@ -1087,9 +1299,8 @@ const env = {
   },
   day_dom_nav_back_bar(nav, visible, t, tl) {
     const n = E(nav); if (!n.__bar) return;
-    n.__bar.style.display = visible ? 'flex' : 'none';
-    n.__detail.classList.toggle('under-bar', !!visible);
-    n.__title.textContent = str(t, tl);
+    n.__barState = { visible: !!visible, title: str(t, tl) };
+    applyNavBar(n);
   },
 
   day_dom_navmenu(id, json, len) {
@@ -1174,21 +1385,22 @@ const env = {
   // element, and nothing else in the strip is touched, so a search field being typed into keeps
   // its focus while the page commands around it change. day_dom_toolbar_patch carries the
   // targeted value changes.
-  day_dom_toolbar_edit(json, len) {
+  day_dom_toolbar_edit(host, json, len) {
+    const strip = stripFor(host);
     const spec = JSON.parse(str(json, len));
     for (const op of spec.ops) {
       if (op.op === 'remove') {
-        const at = toolbarOrder.findIndex((e) => e.id === op.id);
+        const at = strip.order.findIndex((e) => e.id === op.id);
         if (at < 0) continue;
-        const e = toolbarOrder[at];
+        const e = strip.order[at];
         if (e.el.__datalist) e.el.__datalist.remove();
         e.el.remove();
-        toolbarOrder.splice(at, 1);
-        delete toolbarItems[op.id];
+        strip.order.splice(at, 1);
+        delete strip.items[op.id];
       } else if (op.op === 'insert') {
-        if (!toolbarBar) openToolbar();
+        if (!strip.bar) openToolbar(strip);
         const it = op.item;
-        const el = buildToolbarItem(it);
+        const el = buildToolbarItem(strip, it);
         // Within a track: leading roles first, then the trailing ones pushed to that column's own
         // right edge. `Principal` centers, the way it does on every other backend.
         if (it.place === 'primary' || it.place === 'secondary' || it.place === 'auto') {
@@ -1196,32 +1408,66 @@ const env = {
         }
         if (it.place === 'mid') el.classList.add('principal');
         const col = it.col || 'detail';
-        const track = toolbarTrack(col);
+        const track = toolbarTrack(strip, col);
         // Right after the nearest earlier item in the same track, or first in it.
-        const at = Math.min(op.index, toolbarOrder.length);
+        const at = Math.min(op.index, strip.order.length);
         let prev = null;
         for (let k = at - 1; k >= 0; k--) {
-          if (toolbarOrder[k].track === track) { prev = toolbarOrder[k]; break; }
+          if (strip.order[k].track === track) { prev = strip.order[k]; break; }
         }
         if (prev) prev.el.after(el); else track.prepend(el);
-        toolbarOrder.splice(at, 0, { id: it.id, el, col, track });
-        if (it.id) toolbarItems[it.id] = el;
+        strip.order.splice(at, 0, { id: it.id, el, col, track });
+        if (it.id) strip.items[it.id] = el;
       }
     }
-    if (toolbarBar && !toolbarOrder.length) {
-      toolbarPanes.disconnect();
-      toolbarBar.remove();
-      toolbarBar = null;
-      toolbarTracks = {};
-      document.body.classList.remove('day-has-toolbar');
-    } else {
-      layoutToolbar();
-    }
+    if (strip.bar && !strip.order.length && !strip.menuBtn) closeToolbarIfEmpty(strip);
+    else layoutToolbar(strip);
   },
-  day_dom_toolbar_patch(json, len) {
+  // A cover's strip height, for the frame Day seeds the cover with at present time (the
+  // ResizeObserver reports the settled size a frame later).
+  day_dom_toolbar_height(host) {
+    const strip = coverStrips.get(els[host]);
+    return strip && strip.bar ? strip.bar.offsetHeight : 0;
+  },
+  // The emulated app menu (docs/menus.md "The composed presentation (web-dom)"): the model as
+  // a trailing pull-down button on the strip, presented by the same popover a toolbar menu
+  // item gets, so items, separators, inlined submenus, check marks, disabled rows, the
+  // outside-press and Escape dismissals are one implementation. Re-sent whole on every
+  // install (a locale change, a moved check mark); an empty list takes the button away.
+  day_dom_app_menu(json, len) {
+    const spec = JSON.parse(str(json, len));
+    const strip = pageStrip;
+    if (strip.menuBtn) {
+      if (toolbarMenu && toolbarMenu.__anchor === strip.menuBtn) closeToolbarMenu();
+      strip.menuBtn.remove();
+      strip.menuBtn = null;
+    }
+    appMenuKeys = collectAppMenuKeys(spec.items, []);
+    if (!spec.items.length) { closeToolbarIfEmpty(strip); return; }
+    if (!strip.bar) openToolbar(strip);
+    const el = document.createElement('button');
+    el.className = 'day-toolbar-btn day-app-menu';
+    el.id = 'day-app-menu';
+    el.title = spec.label;
+    el.setAttribute('aria-label', spec.label);
+    el.setAttribute('aria-haspopup', 'menu');
+    if (spec.icon) {
+      const ic = div('day-toolbar-icon');
+      ic.style.maskImage = `url("${spec.icon}")`;
+      ic.style.webkitMaskImage = `url("${spec.icon}")`;
+      el.append(ic);
+    } else {
+      const t = document.createElement('span'); t.textContent = spec.label; el.append(t);
+    }
+    el.addEventListener('click', (e) => { e.stopPropagation(); toggleToolbarMenu(el, spec.items, true); });
+    toolbarTrack(strip, 'detail').append(el);
+    strip.menuBtn = el;
+    layoutToolbar(strip);
+  },
+  day_dom_toolbar_patch(host, json, len) {
     closeToolbarMenu();
     const p = JSON.parse(str(json, len));
-    const el = toolbarItems[p.item];
+    const el = stripFor(host).items[p.item];
     if (!el) return;
     if (p.text !== undefined && el.value !== p.text) el.value = p.text;
     if (p.on !== undefined) el.setAttribute('aria-pressed', p.on ? 'true' : 'false');

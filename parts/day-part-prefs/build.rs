@@ -8,4 +8,7 @@
 //! Java arm into the app's Gradle build. Runs on any host with no Android toolchain installed.
 fn main() {
     day_build::bridge::generate().expect("day-build: bridge codegen");
+    // The file store is named after the app id baked at compile time (src/file.rs), so a
+    // changed id must recompile the crate rather than reuse a stale store name.
+    println!("cargo:rerun-if-env-changed=DAY_APP_ID");
 }

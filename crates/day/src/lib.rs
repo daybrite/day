@@ -68,9 +68,10 @@ pub use day_spec::{KeyEvent, Modifiers};
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
 pub use day_core::{
-    WindowHandle, current_window, focused_window, initial_window, open_new_window,
-    open_preferences, open_window, quit, register_new_window, register_new_window_for,
-    register_preferences, register_preferences_with, window_by_key, window_title,
+    WindowHandle, check_for_updates, current_window, focused_window, initial_window, open_about,
+    open_new_window, open_preferences, open_window, quit, register_about, register_about_window,
+    register_check_for_updates, register_new_window, register_new_window_for, register_preferences,
+    register_preferences_with, window_by_key, window_title,
 };
 // The app outside its windows (docs/status-item.md): progress on the Dock or taskbar icon, the
 // macOS Dock icon, and whether the app outlives its last window. Status items themselves are
@@ -1121,8 +1122,8 @@ pub mod android {
     pub use day_android::jni;
     pub use day_android::{
         dispatch_event, handles_keys, list_bind, list_can_delete, list_can_drop, list_delete,
-        list_is_selected, list_len, list_move, list_recycle, read_jstring, run_frame, run_posted,
-        transfer_call, window_started,
+        list_is_selected, list_len, list_move, list_recycle, mount_settled, read_jstring,
+        run_frame, run_posted, transfer_call, window_started,
     };
 
     #[allow(clippy::too_many_arguments)]
@@ -1140,10 +1141,10 @@ pub mod android {
     ) {
         // Before any println!: send stdout/stderr to logcat (Android drops them otherwise).
         day_android::redirect_stdio_to_logcat();
-        // A second launch in one process: the activity was recreated (docs/appearance.md).
-        // Two paths do it: a light/dark switch calls `recreate()` itself, and any
-        // configuration change the manifest does not claim recreates incidentally. Both
-        // re-enter here with day-core already mounted.
+        // A second launch in one process: the activity was recreated (docs/settings.md
+        // "Appearance on Android"). Two paths do it: a light/dark or language switch calls
+        // `recreate()` itself, and any configuration change the manifest does not claim
+        // recreates incidentally. Both re-enter here with day-core already mounted.
         //
         // Re-mount rather than refuse. Refusing left the process alive with no tree behind the
         // new activity: a black, unresponsive window, and (because the dayscript engine socket
@@ -1193,6 +1194,9 @@ pub mod android {
         // moved into `WindowOptions` (docs/localization.md). The window fields are inert on
         // Android, where the Activity owns the surface and the label comes from the manifest.
         crate::start(day_android::Android::new(), options, root_piece);
+        // The tree is up: on a re-mount, bring the app back to the route the previous mount
+        // saved, then let the activity take its crossfade down.
+        day_android::mount_settled(remount);
     }
 }
 

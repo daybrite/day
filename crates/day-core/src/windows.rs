@@ -91,6 +91,12 @@ day_reactive::tls_slots! {
 
     static PREFS: RefCell<Option<PrefsRegistration>> = const { RefCell::new(None) };
     static PREFS_ACTION: Cell<u64> = const { Cell::new(0) };
+    /// What About does (docs/settings.md): opens a Day window, or the toolkit's own dialog.
+    static ABOUT: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    static ABOUT_ACTION: Cell<u64> = const { Cell::new(0) };
+    /// The updater's Check for Updates… command (docs/settings.md).
+    static UPDATES: RefCell<Option<Rc<dyn Fn()>>> = const { RefCell::new(None) };
+    static UPDATES_ACTION: Cell<u64> = const { Cell::new(0) };
     static NEW_WINDOW: RefCell<Option<Rc<dyn Fn() -> AnyPiece>>> = const { RefCell::new(None) };
     /// Builders behind the macOS tab bar's "+" for windows of one tab group
     /// (`register_new_window_for`, docs/windows.md).
@@ -110,6 +116,12 @@ day_reactive::tls_slots! {
 /// title-decorated, which is idempotent (`tag_title`).
 pub fn set_launch_options(options: &WindowOptions) {
     LAUNCH_OPTIONS.with(|o| *o.borrow_mut() = Some(options.clone()));
+}
+
+/// What the app handed `launch` (title, app name, version), for surfaces that describe the
+/// app (an About page). `None` before launch.
+pub fn launch_options() -> Option<WindowOptions> {
+    LAUNCH_OPTIONS.with(|o| o.borrow().clone())
 }
 
 /// A live secondary window (docs/windows.md). Cheap to clone; inert after close.
@@ -1065,7 +1077,7 @@ pub const PREFERENCES_KEY: &str = "day.preferences";
 pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
     register_preferences_with(
         WindowOptions {
-            title: "Settings".into(),
+            title: day_l10n::t("day-settings"),
             version: None,
             // The width a settings panel wants, and a ceiling for the height rather than the
             // height itself: `size_to_fit` shrinks the window to whatever the rows actually
@@ -1120,6 +1132,93 @@ pub fn open_preferences() -> bool {
         move || build(),
     );
     true
+}
+
+// ---------------------------------------------------------------------------
+// About + Check for Updates registration (docs/settings.md)
+// ---------------------------------------------------------------------------
+
+/// The singleton key the About window opens under.
+pub const ABOUT_KEY: &str = "day.about";
+
+/// Declare what the app's About command does (docs/settings.md): once, in `root()`. Enables
+/// the About menu item everywhere a desktop has one (the macOS App menu, Help elsewhere; both
+/// the default menu and an installed `app_menu`) and [`open_about`]. The action is the whole
+/// contract, so a toolkit-native About dialog (libadwaita's) and a Day window
+/// ([`register_about_window`]) register the same way.
+pub fn register_about(open: impl Fn() + 'static) {
+    ABOUT.with(|a| *a.borrow_mut() = Some(Rc::new(open)));
+    if ABOUT_ACTION.with(|c| c.get()) == 0 {
+        ABOUT_ACTION.with(|c| {
+            c.set(crate::menu::register_menu_action(Rc::new(|| {
+                open_about();
+            })))
+        });
+    }
+    crate::menu::reinstall_app_menu();
+}
+
+/// [`register_about`] with a Day-rendered About window: opened under the singleton key
+/// [`ABOUT_KEY`] as a `WindowKind::About` panel (fixed, centered, out of the Window menu),
+/// the cover fallback where the toolkit cannot open windows. The window titles itself with
+/// `options.title`.
+pub fn register_about_window<P: Piece>(options: WindowOptions, build: impl Fn() -> P + 'static) {
+    let build: Rc<dyn Fn() -> AnyPiece> = Rc::new(move || AnyPiece::new(build()));
+    register_about(move || {
+        let build = build.clone();
+        open_window(
+            Some(ABOUT_KEY),
+            options.clone(),
+            WindowKind::About,
+            move || build(),
+        );
+    });
+}
+
+/// Run the registered About action (docs/settings.md): the menu item's dispatch, and what a
+/// toolbar button or a settings row calls. `false` = nothing registered (logged).
+pub fn open_about() -> bool {
+    let Some(open) = ABOUT.with(|a| a.borrow().clone()) else {
+        log::warn!("open_about without register_about — ignored");
+        return false;
+    };
+    open();
+    true
+}
+
+/// The dispatch id of the About menu action (0 = unregistered). Backends wire their stock
+/// About item to it; `MenuRole::About` lowering and the injection pass use it.
+pub fn about_action_id() -> u64 {
+    ABOUT_ACTION.with(|c| c.get())
+}
+
+/// Declare the updater's Check for Updates… command (docs/settings.md): the item appears
+/// under About in the macOS App menu and in Help elsewhere, and `MenuRole::CheckForUpdates`
+/// items lower to it. Registered by an update provider, not by the app.
+pub fn register_check_for_updates(check: impl Fn() + 'static) {
+    UPDATES.with(|u| *u.borrow_mut() = Some(Rc::new(check)));
+    if UPDATES_ACTION.with(|c| c.get()) == 0 {
+        UPDATES_ACTION.with(|c| {
+            c.set(crate::menu::register_menu_action(Rc::new(|| {
+                check_for_updates();
+            })))
+        });
+    }
+    crate::menu::reinstall_app_menu();
+}
+
+/// Run the registered Check for Updates… command. `false` = none registered.
+pub fn check_for_updates() -> bool {
+    let Some(check) = UPDATES.with(|u| u.borrow().clone()) else {
+        return false;
+    };
+    check();
+    true
+}
+
+/// The dispatch id of the Check for Updates… action (0 = unregistered).
+pub fn check_for_updates_action_id() -> u64 {
+    UPDATES_ACTION.with(|c| c.get())
 }
 
 /// Register the builder behind File ▸ New Window and the macOS tab-bar "+" (docs/windows.md):
@@ -1314,7 +1413,7 @@ pub fn window_kind_of(handle: &WindowHandle) -> Option<WindowKind> {
 /// Reset the registry + registrations (tests; pairs with `uninstall_tree`).
 pub fn reset_windows() {
     // Does not dispose each record's content scope, which is a change that was
-    // made and then reverted after it broke navigation (docs/appearance.md "What was tried").
+    // made and then reverted after it broke navigation (docs/settings.md "Appearance on Android").
     //
     // Disposing looks right: the reactive graph a window built otherwise outlives it, and on an
     // Android re-mount that showed up as the previous window's navigation host re-registering
@@ -1330,6 +1429,8 @@ pub fn reset_windows() {
     INITIAL_WINDOW.with(|c| c.set(None));
     crate::toolbar::reset_toolbars();
     PREFS.with(|p| *p.borrow_mut() = None);
+    ABOUT.with(|a| *a.borrow_mut() = None);
+    UPDATES.with(|u| *u.borrow_mut() = None);
     NEW_WINDOW.with(|p| *p.borrow_mut() = None);
     GROUP_WINDOWS.with(|g| g.borrow_mut().clear());
     // Action ids stay registered (the closures are inert without a builder); that is cheap, and

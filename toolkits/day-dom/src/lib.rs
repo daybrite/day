@@ -186,9 +186,15 @@ unsafe extern "C" {
     // Window toolbar (docs/toolbars.md): each edit crosses as one JSON list of ops, and targeted
     // patches address an item by id. `day_dom_toolbar_sidebar` returns 0 when the page has no
     // split nav to toggle.
-    fn day_dom_toolbar_edit(json: *const u8, len: usize);
-    fn day_dom_toolbar_patch(json: *const u8, len: usize);
+    // `host` is the window root the edit belongs to: a cover element gets a strip of its own
+    // over the cover (docs/cover.md), anything else addresses the page's strip.
+    fn day_dom_toolbar_edit(host: u32, json: *const u8, len: usize);
+    fn day_dom_toolbar_patch(host: u32, json: *const u8, len: usize);
+    fn day_dom_toolbar_height(host: u32) -> f64;
     fn day_dom_toolbar_sidebar() -> u32;
+    // The emulated app menu (docs/menus.md): the model crosses as one JSON document and the
+    // shim docks a trailing menu button on the toolbar strip; an empty item list removes it.
+    fn day_dom_app_menu(json: *const u8, len: usize);
     fn day_dom_navmenu_select(el: u32, idx: i32);
     fn day_dom_options(el: u32, json: *const u8, len: usize);
     fn day_dom_options_select(el: u32, idx: u32);
@@ -528,9 +534,13 @@ thread_local! {
 /// it back exactly as it was.
 fn apply_image_tint(el: u32, src: &str, fit: &str, tint: Option<day_spec::Color>, template: bool) {
     if tint.is_some() || template {
-        let mask = format!("url(\"{src}\")");
-        s(el, "mask-image", &mask);
-        s(el, "-webkit-mask-image", &mask);
+        // An empty `src` is a bytes image whose blob URL the shim already set as the mask
+        // (`day_dom_image_set_bytes`); only the paint changes here.
+        if !src.is_empty() {
+            let mask = format!("url(\"{src}\")");
+            s(el, "mask-image", &mask);
+            s(el, "-webkit-mask-image", &mask);
+        }
         // The mask scales the way the untinted image would: `object-fit` and `mask-size`
         // share contain/cover, and Stretch's `fill` is `100% 100%`.
         let size = if fit == "fill" { "100% 100%" } else { fit };
@@ -1108,17 +1118,50 @@ fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
                 json.push('}');
             }
             day_spec::MenuItem::Action {
+                id,
                 action,
                 label,
+                shortcut,
                 enabled,
                 checked,
+                role,
                 icon,
-                ..
             } => {
                 json.push_str("{\"label\":");
                 json_str(json, label);
                 json.push_str(",\"id\":");
                 json.push_str(&action.to_string());
+                // The app's own name for the item (`.id`, docs/menus.md), so a browser test
+                // can address the row the way a dayscript `menu:` step does.
+                if let Some(name) = id {
+                    json.push_str(",\"name\":");
+                    json_str(json, name);
+                }
+                // The accelerator, for the app menu's key route and the hint beside the row.
+                // `sys` marks the roles whose keys the browser's own routes already carry
+                // (the clipboard events, the shim's undo/select-all keys): shown, never
+                // registered a second time.
+                if let Some(sc) = shortcut {
+                    json.push_str(",\"shortcut\":{\"key\":");
+                    json_str(json, &sc.key);
+                    json.push_str(&format!(
+                        ",\"primary\":{},\"shift\":{},\"alt\":{},\"control\":{}}}",
+                        sc.primary, sc.shift, sc.alt, sc.control
+                    ));
+                }
+                if matches!(
+                    role,
+                    Some(
+                        day_spec::MenuRole::Cut
+                            | day_spec::MenuRole::Copy
+                            | day_spec::MenuRole::Paste
+                            | day_spec::MenuRole::SelectAll
+                            | day_spec::MenuRole::Undo
+                            | day_spec::MenuRole::Redo
+                    )
+                ) {
+                    json.push_str(",\"sys\":true");
+                }
                 json.push_str(",\"enabled\":");
                 json.push_str(if *enabled { "true" } else { "false" });
                 // Absent for a plain command; true/false makes the row checkable and says which
@@ -1141,6 +1184,146 @@ fn menu_items_json(json: &mut String, items: &[day_spec::MenuItem]) {
         }
     }
     json.push(']');
+}
+
+/// Send the app menu to the shim's trailing toolbar button (docs/menus.md "The composed
+/// presentation (web-dom)"): the model reduced to what the web can answer, as one JSON document
+/// with the button's localized name. An empty web model removes the button.
+fn install_app_menu(items: &[day_spec::MenuItem]) {
+    use day_spec::MenuBarRole as B;
+    // The standard slots in the desktops' order, and the stock Help menu for an app that
+    // claimed none: that is where About and Check for Updates… live on every desktop whose
+    // bar day-core assembles, and the web has no other place to put them. The other stock
+    // menus are native selectors (Edit ▸ Cut, View ▸ Enter Full Screen) the web filter would
+    // drop whole, so they are not asked for.
+    let bar = day_core::menu::standard_menu_bar(
+        items.to_vec(),
+        &[B::File, B::Edit, B::View],
+        &[B::Help],
+        |role| match role {
+            B::Help => day_core::menu::MenuBarStyle::Gnome.stock(B::Help),
+            _ => None,
+        },
+    );
+    let items = web_menu_items(&bar);
+    let mut json = String::from("{\"label\":");
+    json_str(&mut json, &day_l10n::t("day-menu"));
+    json.push_str(",\"items\":");
+    menu_items_json(&mut json, &items);
+    if let Some(url) = symbol_svg(day_spec::Symbol::More) {
+        json.push_str(",\"icon\":");
+        json_str(&mut json, &url);
+    }
+    json.push('}');
+    unsafe { day_dom_app_menu(json.as_ptr(), json.len()) };
+}
+
+/// The menu an app that installed no `app_menu` still gets: the registered Settings… command
+/// (docs/settings.md), the item a desktop's default bar carries; [`install_app_menu`] adds the
+/// stock Help menu's About and Check for Updates… the same way it does for an installed model.
+fn registration_menu() -> Vec<day_spec::MenuItem> {
+    let prefs = day_core::windows::preferences_action_id();
+    if prefs == 0 {
+        return Vec::new();
+    }
+    vec![day_spec::MenuItem::Action {
+        id: None,
+        action: prefs,
+        label: String::new(),
+        shortcut: Some(day_spec::Shortcut::new(",")),
+        enabled: true,
+        checked: None,
+        role: Some(day_spec::MenuRole::Preferences),
+        icon: None,
+    }]
+}
+
+/// The app menu reduced to what the web can answer (docs/menus.md "Standard roles", the web
+/// column). A role whose meaning is the window or the process (Quit, Minimize, Fullscreen,
+/// New Window, Close Window) has nothing behind it in a browser tab, and a role that lowered
+/// without a day action (About with no registration, Delete) would be a row that does nothing:
+/// both are left out. Every other item keeps its action id, so the popover dispatches through
+/// `day_dom_toolbar_action` exactly as a toolbar pull-down does. A role item lowered with an
+/// empty label (day-core's injected Settings…/About) takes its catalog label here, as every
+/// backend does. Submenus left empty by the pruning go, and separators never lead, trail, or
+/// double up.
+fn web_menu_items(items: &[day_spec::MenuItem]) -> Vec<day_spec::MenuItem> {
+    use day_spec::{MenuItem, MenuRole};
+    let mut out: Vec<MenuItem> = Vec::new();
+    for item in items {
+        match item {
+            MenuItem::Separator => {
+                if !matches!(out.last(), None | Some(MenuItem::Separator)) {
+                    out.push(MenuItem::Separator);
+                }
+            }
+            MenuItem::Submenu { label, items, role } => {
+                let items = web_menu_items(items);
+                if !items.is_empty() {
+                    out.push(MenuItem::Submenu {
+                        label: label.clone(),
+                        items,
+                        role: *role,
+                    });
+                }
+            }
+            MenuItem::Action {
+                role: Some(role),
+                action,
+                ..
+            } if *action == 0
+                || matches!(
+                    role,
+                    MenuRole::Quit
+                        | MenuRole::Minimize
+                        | MenuRole::Fullscreen
+                        | MenuRole::NewWindow
+                        | MenuRole::CloseWindow
+                ) => {}
+            MenuItem::Action { .. } => {
+                let mut item = item.clone();
+                if let MenuItem::Action {
+                    label,
+                    role: Some(role),
+                    ..
+                } = &mut item
+                    && label.is_empty()
+                {
+                    *label = day_l10n::t(role_catalog_key(*role));
+                }
+                out.push(item);
+            }
+        }
+    }
+    while matches!(out.last(), Some(MenuItem::Separator)) {
+        out.pop();
+    }
+    out
+}
+
+/// The core-catalog key for a standard menu command's label (docs/localization.md), the same
+/// table the pieces layer resolves `menu_role` labels from.
+fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
+    use day_spec::MenuRole as R;
+    match role {
+        R::Cut => "day-cut",
+        R::Copy => "day-copy",
+        R::Paste => "day-paste",
+        R::SelectAll => "day-select-all",
+        R::Undo => "day-undo",
+        R::Redo => "day-redo",
+        R::Delete => "day-delete",
+        R::About => "day-about",
+        R::Quit => "day-quit",
+        // The web says "Settings", like macOS, Windows and the phones (docs/settings.md);
+        // "Preferences" is the GNOME/KDE word.
+        R::Preferences => "day-settings",
+        R::Minimize => "day-minimize",
+        R::CloseWindow => "day-close",
+        R::Fullscreen => "day-fullscreen",
+        R::NewWindow => "day-new-window",
+        R::CheckForUpdates => "day-check-for-updates",
+    }
 }
 
 /// A toolbar edit (docs/toolbars.md) as the shim's `day_dom_toolbar_edit` reads it: the ops in
@@ -1649,6 +1832,11 @@ impl Toolkit for Dom {
             // for an app to decide the commands belong in the bar rather than in the content
             // (docs/toolbars.md).
             Cap::Toolbar | Cap::ToolbarSearch => Support::Emulated,
+            // The app menu is a pull-down on that same strip, presented by the shim's popover
+            // rather than a menu bar the browser has no way to draw (docs/menus.md). Emulated
+            // says the commands are reachable, which is what an app probing the capability
+            // wants to know before it duplicates Settings… or About somewhere in its content.
+            Cap::AppMenu => Support::Emulated,
             // The Badging API takes a number or, with no argument, a dot. Emulated rather than
             // Native because whether anything is DRAWN depends on the browser and on the page
             // being an installed app — the call itself always succeeds (docs/badge.md).
@@ -1836,7 +2024,11 @@ impl Toolkit for Dom {
                     day_spec::ImageSource::Named(name) => name.clone(),
                     _ => String::new(),
                 };
-                let src = if named.contains('/') {
+                // Empty for bytes and shared decodes: the shim owns their URL (a blob), and
+                // sets it on the element itself, mask or `<img>`.
+                let src = if named.is_empty() {
+                    String::new()
+                } else if named.contains('/') {
                     named.clone()
                 } else {
                     format!("assets/images/{}.{}", named, image_ext(&named))
@@ -1862,6 +2054,12 @@ impl Toolkit for Dom {
                 if state.masked() {
                     if !p.decorative {
                         attr(el, "role", "img");
+                    }
+                    // A template cut from bytes the app holds (a `Symbol`'s outline SVG, a
+                    // settings row's glyph): the shim makes the blob URL and sets it as this
+                    // div's mask, since a URL is the one thing a mask can be cut from.
+                    if let day_spec::ImageSource::Bytes(b) = &p.source {
+                        unsafe { day_dom_image_set_bytes(el, b.as_ptr(), b.len()) };
                     }
                 } else {
                     // Bytes and shared decodes never name a file (docs/images.md): the shim owns
@@ -1926,18 +2124,17 @@ impl Toolkit for Dom {
                     )
                 };
                 unsafe { day_dom_listen(el, 1) }; // the back bar's button reports via CLICK
-                NAV_STATE.with(|m| {
-                    m.borrow_mut().insert(
-                        el,
-                        NavState {
-                            presentation: p.presentation,
-                            pages: Vec::new(),
-                            sidebar: None,
-                            titles: vec![p.title.clone()],
-                            selected: 0,
-                        },
-                    )
-                });
+                let state = NavState {
+                    presentation: p.presentation,
+                    pages: Vec::new(),
+                    sidebar: None,
+                    titles: vec![p.title.clone()],
+                    selected: 0,
+                };
+                // The bar's initial state (hidden at the root, the host's title): a cover's
+                // strip that takes the bar over later starts from it.
+                sync_back_bar(el, &state);
+                NAV_STATE.with(|m| m.borrow_mut().insert(el, state));
                 el
             }
             Some(Builtin::NavPage) => {
@@ -2304,8 +2501,11 @@ impl Toolkit for Dom {
                             // LTR's top-left but off-screen to the LEFT under RTL (docs/cover.md).
                             if let Some(node) = node_of(el) {
                                 let vp = LAST_VIEWPORT.with(|v| v.get());
-                                if vp.width > 0.0 && vp.height > 0.0 {
-                                    emit(node, Event::FrameChanged(vp));
+                                // Less the cover's own toolbar strip, which sits above it.
+                                let strip = unsafe { day_dom_toolbar_height(el) };
+                                let size = Size::new(vp.width, vp.height - strip);
+                                if size.width > 0.0 && size.height > 0.0 {
+                                    emit(node, Event::FrameChanged(size));
                                 }
                             }
                         }
@@ -2737,15 +2937,17 @@ impl Toolkit for Dom {
         unsafe { day_dom_set_hash(route.as_ptr(), route.len(), replace as u32) };
     }
 
-    fn edit_toolbar(&mut self, _h: &DomHandle, ops: &[day_spec::ToolbarOp]) -> bool {
+    fn edit_toolbar(&mut self, h: &DomHandle, ops: &[day_spec::ToolbarOp]) -> bool {
         // The web has no window chrome, so the bar is a strip the shim docks at the top of the
-        // document (docs/toolbars.md), edited one item at a time like every native bar.
+        // document (docs/toolbars.md), edited one item at a time like every native bar. A
+        // cover-tier window's items go on a strip over the cover, where its content can reach
+        // them (the page's strip is underneath it).
         let json = toolbar_edit_json(ops);
-        unsafe { day_dom_toolbar_edit(json.as_ptr(), json.len()) };
+        unsafe { day_dom_toolbar_edit(h.0, json.as_ptr(), json.len()) };
         true
     }
 
-    fn update_toolbar(&mut self, _h: &DomHandle, patch: &day_spec::ToolbarPatch) {
+    fn update_toolbar(&mut self, h: &DomHandle, patch: &day_spec::ToolbarPatch) {
         use day_spec::ToolbarPatch as P;
         let mut json = String::from("{\"item\":");
         match patch {
@@ -2786,7 +2988,7 @@ impl Toolkit for Dom {
             }
         }
         json.push('}');
-        unsafe { day_dom_toolbar_patch(json.as_ptr(), json.len()) };
+        unsafe { day_dom_toolbar_patch(h.0, json.as_ptr(), json.len()) };
     }
     fn toggle_sidebar(&mut self, _host: &DomHandle) -> bool {
         // One window, one split: the host is implied. Same call the strip's own button makes,
@@ -2794,8 +2996,8 @@ impl Toolkit for Dom {
         unsafe { day_dom_toolbar_sidebar() != 0 }
     }
 
-    fn set_app_menu(&mut self, _items: &[MenuItem]) {
-        // No menu bar on the web (Cap-honest no-op; docs/menus.md).
+    fn set_app_menu(&mut self, items: &[MenuItem]) {
+        install_app_menu(items);
     }
 
     fn set_context_menu(&mut self, h: &DomHandle, node: NodeId, _items: &[MenuItem]) {
@@ -3287,6 +3489,14 @@ impl Platform for Dom {
         // Root container: the shim pre-registers the `#day-root` element under this id.
         let root = self.root;
         ready(self, DomHandle(root), Size::new(w, h));
+        // `ready` ran the app's root(), so its registrations are in. An app with its own
+        // `app_menu` model reached the strip through `set_app_menu` with Settings…/About
+        // injected by day-core; one without still gets the button when something registered,
+        // the way a desktop's default bar carries those items (day-appkit rebuilds its default
+        // menu at this same point).
+        if !day_core::has_app_menu() {
+            install_app_menu(&registration_menu());
+        }
     }
 
     fn post(f: Box<dyn FnOnce() + Send>) {

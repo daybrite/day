@@ -16,7 +16,8 @@ Day renders menus with each toolkit's native menu machinery: `NSMenu`, `GtkPopov
 
 - **Context menus**: per-Piece, shown on secondary-click (desktop) or long-press (touch), attached
   with the [`Decorate::context_menu`] modifier.
-- **The app menu**: the global menu bar on desktop, installed once with [`app_menu`].
+- **The app menu**: the global menu bar on desktop (a toolbar menu button on the web), installed
+  once with [`app_menu`].
 
 Both are described with the same small, toolkit-neutral tree of [`MenuEntry`] values. Day owns the
 model; the backend owns the rendering, so a menu looks and behaves like any other native menu on
@@ -130,7 +131,8 @@ platform's menus carry pictures:
 | **Qt** | yes — `QAction::setIcon`, resolved like a toolbar icon (theme name, then Day's outline, then the QStyle standard set) |
 | **XAML** | symbols only — a `FontIcon` from the Segoe Fluent table; a bundled image would need the toolbar's three-field icon channel |
 | **Android** | ignored: Material's overflow menu is text-only, and an icon belongs on an app-bar action |
-| **ArkUI**, **web-dom** | no menus of this kind to put an icon in |
+| **web-dom** | yes — a template glyph beside the row of the app menu's popover (and a toolbar pull-down's), from the same outline table the toolbar draws |
+| **ArkUI** | no menus of this kind to put an icon in |
 
 ## Keyboard shortcuts
 
@@ -156,9 +158,14 @@ take the platform-neutral defaults (primary+Z/X/C/V/A, shift for redo) unless th
 own. AppKit's native items always carried these; the lowering gives GTK, Qt, and the other
 action-routed backends the same accelerators.
 
-Shortcuts render on the platforms that draw a menu bar: the three desktops, which is
-[`Cap::AppMenu`](duty-matrix.md). The UIKit and Android menu builders take the item and drop
-its accelerator, so an app that wants a key to work there routes it through `.on_key` on the
+Shortcuts render on the platforms that have an app menu: the three desktops' menu bars and
+web-dom's [emulated app menu](#the-composed-presentation-web-dom), which is
+[`Cap::AppMenu`](duty-matrix.md) native or emulated. On the web the shim matches the model's
+accelerators on the document's capture phase, so a key the menu owns reaches it before the
+focused widget, the way a menu bar's key equivalents do; a bare key (Delete) stays with a
+focused text field, and a combination the browser reserves for itself (⌘N, ⌘T, ⌘W) never
+reaches the page at all. The UIKit and Android menu builders take the item and drop its
+accelerator, so an app that wants a key to work there routes it through `.on_key` on the
 focused piece instead; probe `Cap::AppMenu` to decide which, or the key fires twice where both
 apply. Day-Sketch's `canvas_key` is the worked example.
 
@@ -179,19 +186,19 @@ app_menu(vec![
 ])
 ```
 
-| Role | AppKit | GTK | Qt | UIKit | Android | XAML |
-|---|---|---|---|---|---|---|
-| Cut/Copy/Paste | `cut:`/`copy:`/`paste:` nav hosts — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² |
-| SelectAll | `selectAll:` nav host — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² |
-| Undo/Redo | `undo:`/`redo:` (responder chain — the acting `NSUndoManager`, a focused text field's before the document's) | stock actions (`text.undo`) | focused editor | installed undo bridge³ | installed undo bridge³ | — |
-| Quit / Close / Minimize / Fullscreen | standard App-menu items | window actions | window / `qApp` | — | — | Quit closes the window |
+| Role | AppKit | GTK | Qt | UIKit | Android | XAML | web-dom |
+|---|---|---|---|---|---|---|---|
+| Cut/Copy/Paste | `cut:`/`copy:`/`paste:` nav hosts — a focused text view answers first, then the app's edit bridge⁴ | `clipboard.*` actions | dispatched to the focused `QLineEdit`/`QTextEdit` | responder chain, then the edit bridge⁴ | edit bridge⁴ (text keeps its own selection toolbar¹) | accelerator² | popover row → edit bridge⁴; the keys stay the browser's own clipboard events |
+| SelectAll | `selectAll:` nav host — a focused text view answers first, then the edit bridge⁴ | `selection.select-all` | focused editor | responder chain, then the edit bridge⁴ | edit bridge⁴ | accelerator² | popover row → edit bridge⁴; ⌘A is the shim's document route |
+| Undo/Redo | `undo:`/`redo:` (responder chain — the acting `NSUndoManager`, a focused text field's before the document's) | stock actions (`text.undo`) | focused editor | installed undo bridge³ | installed undo bridge³ | — | installed undo bridge³; ⌘Z/⇧⌘Z are the shim's document route |
+| Quit / Close / Minimize / Fullscreen | standard App-menu items | window actions | window / `qApp` | — | — | Quit closes the window | left out of the popover (no meaning in a browser tab; New Window likewise) |
 
 The platform quit shortcut works with no menu declared: GTK registers `app.quit` on
 `<Primary>q`, and Qt gives the window a `QKeySequence::Quit` action (Ctrl+Q; ⌘Q on macOS,
 where Qt's own application menu carries Quit as well). A declared `MenuRole::Quit` item takes
 the key over. Neither desktop adds a Quit item on its own: the GNOME guidelines keep Quit out of
 menus (the window closes, Ctrl+Q quits), and an app that wants one on Qt declares the role.
-| About / Preferences | moved into the App menu | — | `menuRole` → app menu (mac) | — | — | — |
+| About / Preferences / Check for Updates | moved into the App menu; About shows the stock panel until `day::register_about` names a Day action ([settings.md](settings.md)) | Help ▸ About / Check for Updates… dispatch the registered actions | `menuRole` → app menu (mac); Help elsewhere | — | — | Help menu | popover rows dispatching the registered actions; an unregistered About is left out (no stock panel to fall back on) |
 
 You can override a role's label (`menu_role(r)` starts empty and the backend fills the standard label;
 supply your own via `MenuEntry::role` on a `menu_item` if you want a custom title). Roles with no native
@@ -350,6 +357,16 @@ Where each backend puts the bar:
 - **iOS/iPhone**: a no-op, because touch platforms have no persistent global menu bar; the native
   affordances are the per-Piece context menu and the system edit menu. (iPad/Catalyst `UIMenuBuilder`
   wiring is a future addition.)
+- **web-dom**: a trailing menu button (the `⋯` overflow glyph, `#day-app-menu`) on the
+  [toolbar strip](toolbars.md) the shim docks above the page, there whenever the installed
+  model has anything the web can answer; the strip appears for it even when the app declared
+  no toolbar items. Pressing it opens the model as a popover under the button
+  ([below](#the-composed-presentation-web-dom)); the popover is a real `role=menu`: its rows
+  are `menuitem`s the arrow keys (and Home/End) walk, Enter or Space activates, Escape closes,
+  and closing puts the focus back on the button, so every command, About included, is
+  reachable without a shortcut. `Cap::AppMenu` answers `Emulated`. An app that
+  installed no `app_menu` still gets the button when it registered Settings…, About or Check for
+  Updates…, the items a desktop's default bar carries.
 
 ## How it works
 
@@ -523,6 +540,19 @@ test can click them), separators, inlined submenus, role items resolved to their
 dispatchers, and disabled items dimmed. A tap outside dismisses. Toolkits that serve
 menus natively never emit the event, so the fallback costs them nothing, not even a node,
 until a first summon that never comes.
+
+The app menu takes the other route: the backend keeps the model. `set_app_menu` reduces it to
+what the web can answer (window and process roles out, a role that lowered without a day
+action out, empty submenus and stranded separators pruned, an injected role item given its
+catalog label) and hands it to the shim as the trailing button's pull-down, so the popover is
+the one a [toolbar pull-down](toolbars.md) already gets: item rows (`data-menu-id` carries the
+app's `.id`, for a browser test), separators, inlined submenus, a check column, dimmed
+disabled rows, the shortcut hint at each row's trailing edge, dismissed by a press outside or
+Escape, pulled back inside the window at the right edge. A chosen row emits
+`Event::MenuAction(id)` like every other backend's item, so `dispatch_menu_action` runs the
+app's closure, and the role items reach the standing dispatchers they lowered to. The model's
+accelerators are live ([above](#keyboard-shortcuts)). A dayscript `menu:` step never needs the
+popover: it dispatches by action id straight from the installed model.
 
 An app whose context menu commands need the clipboard (Cut/Copy/Paste items) calls
 `day::invoke_edit(EditOp::…)`, the same handler (transport included) that the platform's own

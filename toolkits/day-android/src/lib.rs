@@ -1382,8 +1382,8 @@ mod imp {
     /// A JNI up-call entry: contained, so a startup failure logs instead of aborting.
     pub fn init(env: &mut Env, root: JObject, density_: f32, w: i32, h: i32) {
         day_spec::ffi_guard::contain((), || {
-            // A re-mount (docs/appearance.md): an activity recreation calls this a second time
-            // with a brand-new view hierarchy. Everything below maps a native view pointer (or a
+            // A re-mount (docs/settings.md "Appearance on Android"): an activity recreation
+            // calls this a second time with a brand-new view hierarchy. Everything below maps a native view pointer (or a
             // host id) to something owned by the tree that is going away, and `LIST_SOURCES` in
             // particular holds closures that captured the previous mount's state. Left in place,
             // a callback from a stale view (or a recycled pointer that now means something else)
@@ -1545,6 +1545,12 @@ mod imp {
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         if kind == K_CUSTOM {
             let text = env.dstr(jstr).ok().unwrap_or_default();
+            // DayActivity is about to recreate itself (DayBridge.willRecreate): the route goes
+            // into the activity's instance state before the tree it belongs to is torn down.
+            if text == "day:will-recreate" {
+                save_route_for_remount(env);
+                return;
+            }
             for tag in ["day:tab-new", "day:tab-close", "day:tab-move"] {
                 if let Some(key) = text.strip_prefix(tag).and_then(|s| s.strip_prefix(':')) {
                     emit(
@@ -1964,6 +1970,7 @@ mod imp {
             CloseWindow => "Close",
             Fullscreen => "Full Screen",
             NewWindow => "New Window",
+            CheckForUpdates => "Check for Updates…",
         }
     }
 
@@ -2072,8 +2079,10 @@ mod imp {
         }
     }
 
-    /// `Symbol::ZoomIn` → `day_symbol_zoom_in`: the variant's name in snake case.
-    fn symbol_drawable(sym: day_spec::Symbol) -> String {
+    /// `Symbol::ZoomIn` → `day_symbol_zoom_in`: the variant's name in snake case. Public so a
+    /// piece drawing a standard glyph in its own Java view (day-piece-settings' group rows)
+    /// resolves the same drawable a nav item does.
+    pub fn symbol_drawable(sym: day_spec::Symbol) -> String {
         let mut out = String::from("day_symbol");
         for c in format!("{sym:?}").chars() {
             if c.is_ascii_uppercase() {
@@ -4419,7 +4428,7 @@ mod imp {
         ) -> day_spec::WindowOpenReply<AHandle> {
             // Preferences stay modal on mobile (docs/windows.md); the cover fallback is
             // the platform settings idiom; Normal windows become document activities.
-            if kind == day_spec::WindowKind::Preferences {
+            if kind.is_panel() {
                 return day_spec::WindowOpenReply::Unsupported;
             }
             let ok = with_env(|env| {
@@ -4929,9 +4938,10 @@ mod imp {
             android_window_image(true)
         }
 
-        /// Apply an app-level appearance (docs/appearance.md). The uiMode change the platform
-        /// makes comes straight back as a configuration change `DayActivity` turns into
-        /// `appearanceChanged()`, so nothing has to be reported from here.
+        /// Apply an app-level appearance (docs/settings.md "Appearance on Android"). The uiMode
+        /// change the platform makes comes straight back as a configuration change that
+        /// `DayActivity` turns into `appearanceChanged()` and a recreation, so nothing has to
+        /// be reported from here.
         fn set_appearance(&mut self, dark: Option<bool>) {
             let mode = match dark {
                 Some(false) => 0i32,
@@ -5036,6 +5046,85 @@ mod imp {
                     .unwrap_or(true)
             })
         }
+    }
+
+    /// The `DayBridge.navState` key the full route of a mount being torn down travels under
+    /// (docs/settings.md "Appearance on Android"). Reserved: `.restore` keys are the app's,
+    /// and none of Day's own start with `day.`.
+    const REMOUNT_ROUTE_KEY: &str = "day.route";
+
+    /// DayActivity is about to recreate itself (a theme or language switch): save the full
+    /// current route, so the re-mounted tree can come back to it. The activity recreation
+    /// re-runs the app's `root()`, so every signal made there starts over; only a nav surface
+    /// with a `.restore(key)` reads its place back by itself, and an app without one came back
+    /// on its first tab. Saved straight into `DayBridge.navState`, not through the installed
+    /// `NavStore`: the map is the activity's own instance state, exactly the lifetime a
+    /// recreation needs, and an app that installed a disk-backed store must not find a
+    /// transient route in it.
+    fn save_route_for_remount(env: &mut Env) {
+        let Some(route) = day_core::current_route() else {
+            return;
+        };
+        let k = jstr(env, REMOUNT_ROUTE_KEY);
+        let v = jstr(env, &route);
+        let _ = env.dcall_static(
+            BRIDGE,
+            "navSave",
+            "(Ljava/lang/String;Ljava/lang/String;)V",
+            &[JValue::Object(&k), JValue::Object(&v)],
+        );
+    }
+
+    /// Read and clear a `DayBridge.navState` entry (`DayBridge.navTake`).
+    fn nav_take(env: &mut Env, key: &str) -> Option<String> {
+        let k = jstr(env, key);
+        let obj = env
+            .dcall_static(
+                BRIDGE,
+                "navTake",
+                "(Ljava/lang/String;)Ljava/lang/String;",
+                &[JValue::Object(&k)],
+            )
+            .ok()?
+            .l()
+            .ok()?;
+        if obj.is_null() {
+            return None;
+        }
+        env.dstr(&as_jstring(obj)).ok()
+    }
+
+    /// A mount's first build is done (`day::android::start`, after the tree is up). On a
+    /// re-mount, put the app back where the previous mount left it; then tell the activity the
+    /// tree has settled (`DayBridge.mountSettled`), which is what brings the recreation's
+    /// crossfade down (docs/settings.md "Appearance on Android").
+    ///
+    /// Deferred one turn, behind the closure `launch_with` defers its own launch deep link
+    /// into, for the same reason that one is: the first frame mounts before a destination
+    /// pushes. A pending launch deep link wins over the saved route, as it wins over
+    /// `.restore`; the saved route is consumed either way, so it can never apply to a later
+    /// mount. A route a nav surface's `.restore` already restored is a no-op here, since the
+    /// current route then equals the saved one.
+    pub fn mount_settled(remount: bool) {
+        day_reactive::on_main(move || {
+            if remount {
+                let saved = with_env(|env| nav_take(env, REMOUNT_ROUTE_KEY));
+                if let Some(route) = saved {
+                    if day_core::has_launch_deeplink() {
+                        log::info!(
+                            "day-android: re-mount keeps the launch deep link over {route:?}"
+                        );
+                    } else if day_core::current_route().as_deref() != Some(route.as_str())
+                        && !day_core::navigate(&route)
+                    {
+                        log::warn!("day-android: re-mount could not restore route {route:?}");
+                    }
+                }
+            }
+            with_env(|env| {
+                let _ = env.dcall_static(BRIDGE, "mountSettled", "()V", &[]);
+            });
+        });
     }
 
     /// Navigation persistence backed by the Activity's saved instance state (docs/navigation.md).
