@@ -525,6 +525,27 @@ pub struct MacosSigning {
     pub entitlements: Option<String>,
     #[serde(default)]
     pub notarize: Option<Notarize>,
+    /// The Mac App Store's material (`[signing.macos.app-store]`), which `day pack --formats pkg`
+    /// and `day sign apply` sign the installer package with. Separate from the Developer ID
+    /// identity above: a store build and a direct download are signed by different certificates.
+    #[serde(default)]
+    pub app_store: Option<MacAppStoreSigning>,
+}
+
+/// Mac App Store signing: the distribution identity the app is signed with, the installer
+/// identity the `.pkg` is signed with, and the Mac App Store provisioning profile embedded in the
+/// bundle (docs/packaging.md "The Mac App Store").
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "kebab-case")]
+pub struct MacAppStoreSigning {
+    /// The app's signing identity: "Apple Distribution: …" (or the older "3rd Party Mac Developer
+    /// Application: …"), by name or SHA-1.
+    pub identity: String,
+    /// The installer's identity: "3rd Party Mac Developer Installer: …", which Apple's portal
+    /// lists as a Mac Installer Distribution certificate.
+    pub installer_identity: String,
+    /// The Mac App Store provisioning profile (`.provisionprofile`), relative to the project root.
+    pub profile: String,
 }
 
 /// notarytool App Store Connect API-key auth (never interactive Apple-ID; §16.5).

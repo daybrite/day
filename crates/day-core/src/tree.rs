@@ -460,8 +460,15 @@ impl<B: Toolkit> Tree<B> {
         if let Some(p) = self.nodes.get_mut(parent) {
             p.children.retain(|&c| c != node);
         }
-        let ancestor = self.native_ancestor(parent);
-        let anc_handle = self.nodes.get(ancestor).and_then(|n| n.handle.clone());
+        // A realized node may be owned outside a window (for example an audio session).
+        // It has no native parent until inserted. native_ancestor(null) falls back to the
+        // primary root, which must not receive a remove for a widget it never contained.
+        let anc_handle = if parent.is_null() {
+            None
+        } else {
+            let ancestor = self.native_ancestor(parent);
+            self.nodes.get(ancestor).and_then(|n| n.handle.clone())
+        };
         let mut roots = Vec::new();
         match self.nodes.get(node) {
             Some(nd) if nd.handle.is_some() => roots.push(node),
@@ -3359,7 +3366,9 @@ mod thread_exit_tests {
         fn realize(&mut self, _: PieceKind, _: &dyn Any, _: NodeId) -> Self::Handle {}
         fn release(&mut self, _: Self::Handle) {}
         fn insert(&mut self, _: &Self::Handle, _: &Self::Handle, _: usize) {}
-        fn remove(&mut self, _: &Self::Handle, _: &Self::Handle) {}
+        fn remove(&mut self, _: &Self::Handle, _: &Self::Handle) {
+            panic!("test probe has no attached children to remove");
+        }
         fn move_child(&mut self, _: &Self::Handle, _: &Self::Handle, _: usize) {}
         fn measure(&mut self, _: &Self::Handle, _: PieceKind, _: Proposal) -> Size {
             Size::new(0.0, 0.0)
@@ -3411,6 +3420,30 @@ mod thread_exit_tests {
         })
         .join()
         .expect("thread");
+    }
+
+    #[test]
+    fn removing_an_unattached_node_releases_without_native_detach() {
+        let dropped = Arc::new(AtomicBool::new(false));
+        let mut tree = Tree::new(Probe(dropped), (), Size::new(0.0, 0.0));
+        let scope = Scope::detached();
+        let node = tree.create_node(
+            "fixture.detached",
+            &(),
+            Rc::new(crate::LeafLayout),
+            Flex::default(),
+            true,
+            false,
+            scope,
+        );
+        tree.remove_subtree(node);
+        assert!(!tree.node_exists(node));
+        assert_eq!(
+            tree.release_queue.len(),
+            1,
+            "the unattached native handle must still be released"
+        );
+        scope.dispose();
     }
 
     /// A posted closure that arrives while the tree is borrowed (a backend pumping its native

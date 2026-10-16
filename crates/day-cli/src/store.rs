@@ -1661,7 +1661,7 @@ pub fn stage(
         write("fastlane/Appfile", &apple_appfile(&id, &info))?;
         write(
             "fastlane/Fastfile",
-            &apple_fastfile(project, with_screenshots),
+            &apple_fastfile(project, with_screenshots, target.os == "macos"),
         )?;
     } else {
         write("fastlane/Appfile", &play_appfile(&id))?;
@@ -1930,6 +1930,11 @@ pub struct StoreRule {
     /// The device kind a capture from a profile-less run counts as.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_kind: Option<String>,
+    /// A store an app publishes to only when its listing names it (the Mac App Store: most
+    /// desktop apps ship a direct download and nothing else). Staged on request or when named;
+    /// otherwise it scaffolds nothing and lints nothing.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub opt_in: bool,
     /// Fields the store's record cannot do without.
     #[serde(default)]
     pub required: Vec<String>,
@@ -2063,9 +2068,21 @@ impl StoreRules {
         self.0.contains_key(store)
     }
 
-    /// Whether some store the CLI stages publishes the target.
+    /// Whether some store the CLI stages publishes the target for every app that has it: an
+    /// opt-in store (`opt-in = true`) does not count, since an app reaches it only by naming it.
     pub fn is_store_target(&self, target: &str) -> bool {
-        self.store_for(target).is_some()
+        self.0
+            .values()
+            .any(|r| r.stages() && !r.opt_in && r.targets.iter().any(|t| t == target))
+    }
+
+    /// Whether the app publishes `target` through a store the CLI stages: a store that counts for
+    /// every app, or an opt-in one the listing names for the target.
+    pub fn publishes(&self, target: &str, declared: &Storefront) -> bool {
+        self.is_store_target(target)
+            || self.store_for(target).is_some_and(|(key, rule)| {
+                rule.opt_in && declared.stores(target).iter().any(|s| s == key)
+            })
     }
 
     /// The device kind a capture belongs to: its device slug, else the target's store's
@@ -2089,13 +2106,20 @@ impl StoreRules {
 
     /// The stores the CLI stages that the app's targets publish to: the store's key, its rule,
     /// and the target that publishes there.
-    pub fn lanes(&self, targets: &[String]) -> Vec<(&str, &StoreRule, String)> {
+    /// An opt-in store is among them only when the listing names it for the target.
+    pub fn lanes(
+        &self,
+        targets: &[String],
+        declared: &Storefront,
+    ) -> Vec<(&str, &StoreRule, String)> {
         let mut out = Vec::new();
         for (key, rule) in &self.0 {
             if !rule.stages() {
                 continue;
             }
-            if let Some(t) = rule.targets.iter().find(|t| targets.contains(t)) {
+            if let Some(t) = rule.targets.iter().find(|t| {
+                targets.contains(t) && (!rule.opt_in || declared.stores(t).iter().any(|s| s == key))
+            }) {
                 out.push((key.as_str(), rule, t.clone()));
             }
         }
@@ -2250,11 +2274,23 @@ pub fn screenshot_problems(
         }
         if rule.required {
             if mine.is_empty() {
+                // A desktop store's kind is `default` itself: one list, no device profile.
+                let (list, profile) = if kind == "default" {
+                    (
+                        "`default` list".to_string(),
+                        "in a scripted run".to_string(),
+                    )
+                } else {
+                    (
+                        format!("`{kind}` or `default` list"),
+                        format!("on a {kind} profile"),
+                    )
+                };
                 problems.push(format!(
                     "{store} needs {kind} screenshots and the listing declares none for it, or \
-                     the walkthrough captured none on a {kind} profile. Declare them in \
+                     the walkthrough captured none {profile}. Declare them in \
                      store/storefront.toml, [storefront.{}.{store_key}.screenshots] with a \
-                     `{kind}` or `default` list, and capture on a {kind} profile",
+                     {list}, and capture {profile}",
                     target.name
                 ));
             } else {
@@ -2410,7 +2446,7 @@ fn play_appfile(id: &str) -> String {
     )
 }
 
-fn apple_fastfile(_project: &Project, with_screenshots: bool) -> String {
+fn apple_fastfile(_project: &Project, with_screenshots: bool, mac: bool) -> String {
     // `deliver` uploads the screenshot tree beside the metadata when told to; without any staged
     // there is nothing to send, and skipping keeps what the record already shows.
     let screenshots = if with_screenshots {
@@ -2418,7 +2454,128 @@ fn apple_fastfile(_project: &Project, with_screenshots: bool) -> String {
     } else {
         "skip_screenshots: true,"
     };
-    apple_fastfile_text().replace("skip_screenshots: true,", screenshots)
+    let text = if mac {
+        mac_fastfile_text()
+    } else {
+        apple_fastfile_text()
+    };
+    text.replace("skip_screenshots: true,", screenshots)
+}
+
+/// The Mac App Store's lanes: the iOS lanes' shape, over the `.pkg` and the record's macOS
+/// platform. The same four lanes, so a release workflow names `mac upload` or `mac release` the
+/// way it names `ios upload` or `ios release`.
+fn mac_fastfile_text() -> String {
+    r##"# Generated by `day store stage` — edit store/ in the project, not this file.
+#
+# No metrics: fastlane reports usage to its own servers unless a Fastfile opts out, and a lane
+# that publishes an app is not a place to send anything anywhere but the store.
+opt_out_usage
+# The .pkg comes from `day pack -t macos-appkit --formats pkg`, or from `day sign apply` over a
+# built .app; this only uploads what that produced.
+default_platform(:mac)
+
+# DAY_PKG names the package outright (DAY_PKG_OR_APP is the release workflow's older name for
+# it). Otherwise __dir__ is <project>/build/day/store/<target>/fastlane, so ../../../dist is
+# build/day/dist — where `day pack` puts its output. An unsigned package is never picked: the
+# store refuses one, and uploading it would only say so later.
+def day_pkg
+  ["DAY_PKG", "DAY_PKG_OR_APP"].each do |name|
+    return ENV[name] unless ENV[name].to_s.empty?
+  end
+  Dir[File.expand_path("../../../dist/*.pkg", __dir__)].reject { |p| p.end_with?("-unsigned.pkg") }.first ||
+    UI.user_error!("no signed .pkg in build/day/dist — run `day pack -t macos-appkit --formats pkg` with [signing.macos.app-store] set")
+end
+
+# App Store Connect API key from the environment, so no Apple ID password is ever needed.
+def day_env!(name, what)
+  ENV[name].to_s.empty? ? UI.user_error!("#{name} is not set — #{what}") : ENV[name]
+end
+
+def day_asc_key
+  app_store_connect_api_key(
+    key_id: day_env!("DAY_ASC_KEY_ID", "the App Store Connect API key id"),
+    issuer_id: day_env!("DAY_ASC_ISSUER", "the App Store Connect issuer id"),
+    key_filepath: ENV["DAY_ASC_KEY"],
+    key_content: ENV["DAY_ASC_KEY_CONTENT"],
+    in_house: false,
+  )
+end
+
+platform :mac do
+  desc "Validate the listing against App Store Connect WITHOUT uploading."
+  lane :validate do
+    deliver(
+      api_key: day_asc_key,
+      platform: "osx",
+      pkg: day_pkg,
+      metadata_path: File.expand_path("metadata", __dir__),
+      verify_only: true,
+      force: true,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
+  desc "Upload the build + listing to App Store Connect. Does NOT submit for review."
+  # The build appears under the record's macOS platform once App Store Connect has processed it;
+  # `release` is the lane that also submits, and `submit` submits one this lane sent earlier.
+  lane :upload do
+    deliver(
+      api_key: day_asc_key,
+      platform: "osx",
+      pkg: day_pkg,
+      metadata_path: File.expand_path("metadata", __dir__),
+      submit_for_review: false,
+      automatic_release: false,
+      force: true,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
+  desc "Attach the build already uploaded for this version and SUBMIT it for review."
+  lane :submit do
+    deliver(
+      api_key: day_asc_key,
+      platform: "osx",
+      skip_binary_upload: true,
+      metadata_path: File.expand_path("metadata", __dir__),
+      submit_for_review: true,
+      automatic_release: ENV["DAY_ASC_MANUAL_RELEASE"].to_s.empty?,
+      force: true,
+      skip_screenshots: true,
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa: false,
+      },
+      precheck_include_in_app_purchases: false,
+    )
+  end
+
+  desc "Upload the build + listing, wait for processing, and SUBMIT the version for review."
+  # Export compliance is answered as exempt (the app uses only the platform's HTTPS), and the
+  # build carries no advertising identifier, as the iOS lanes answer.
+  lane :release do
+    deliver(
+      api_key: day_asc_key,
+      platform: "osx",
+      pkg: day_pkg,
+      metadata_path: File.expand_path("metadata", __dir__),
+      submit_for_review: true,
+      automatic_release: ENV["DAY_ASC_MANUAL_RELEASE"].to_s.empty?,
+      submission_information: {
+        export_compliance_uses_encryption: false,
+        add_id_info_uses_idfa: false,
+      },
+      force: true,
+      skip_screenshots: true,
+      precheck_include_in_app_purchases: false,
+    )
+  end
+end
+"##
+    .to_string()
 }
 
 fn apple_fastfile_text() -> String {
@@ -2784,7 +2941,7 @@ pub fn lint(project: &Project, listing: &Listing, rules: &StoreRules) -> Vec<Pro
     }
     // The stores the CLI stages that this app publishes to, per the rules: none, and the
     // listing text is nobody's business.
-    let lanes = rules.lanes(targets);
+    let lanes = rules.lanes(targets, declared);
     if lanes.is_empty() {
         return out;
     }
@@ -3603,10 +3760,12 @@ fn store_targets(
     project: &Project,
     want: Option<&str>,
     rules: &StoreRules,
+    declared: &Storefront,
 ) -> Result<Vec<&'static crate::targets::Target>, CliError> {
     let targets: Vec<&'static crate::targets::Target> = match want {
+        // Named outright, an opt-in store is staged too: asking is opting in.
         Some(name) => match crate::targets::find(name) {
-            Some(t) if rules.is_store_target(t.name) => vec![t],
+            Some(t) if rules.store_for(t.name).is_some() => vec![t],
             Some(t) => {
                 return Err(CliError::failure(format!(
                     "{}: no store the rules stage publishes this target",
@@ -3623,7 +3782,7 @@ fn store_targets(
             .targets
             .iter()
             .filter_map(|t| crate::targets::find(t))
-            .filter(|t| rules.is_store_target(t.name))
+            .filter(|t| rules.publishes(t.name, declared))
             .collect(),
     };
     if targets.is_empty() {
@@ -3673,7 +3832,7 @@ fn stage_cmd(
             blocking.join("\n  ")
         )));
     }
-    for t in store_targets(project, want, &rules)? {
+    for t in store_targets(project, want, &rules, &listing.app)? {
         let out = stage_dir(project, t);
         let files = stage(project, t, &listing, &out, screenshots, &rules)
             .map_err(|e| CliError::failure(format!("{}: {e}", t.name)))?;
@@ -3696,8 +3855,9 @@ fn screenshots_cmd(
 ) -> Result<(), CliError> {
     let rules = StoreRules::load(project, rules).map_err(CliError::failure)?;
     let index = source.index().map_err(CliError::failure)?;
+    let declared = read(project).map_err(CliError::failure)?.app;
     let mut refused = 0;
-    for t in store_targets(project, want, &rules)? {
+    for t in store_targets(project, want, &rules, &declared)? {
         let shots = listing_shots(&index, t, &rules).map_err(CliError::failure)?;
         // One line per device kind: how many captures each locale contributes.
         let mut per_device: BTreeMap<&str, BTreeMap<&str, usize>> = BTreeMap::new();
@@ -3893,15 +4053,22 @@ mod tests {
             rules.store_for("android-mdc").map(|(k, _)| k),
             Some("google-play-store")
         );
-        assert!(
-            rules.store_for("macos-appkit").is_none(),
-            "known, not staged"
+        // The Mac App Store is staged, but opt-in: a macOS app is not a store app by default.
+        assert_eq!(
+            rules.store_for("macos-appkit").map(|(k, _)| k),
+            Some("mac-app-store")
         );
+        assert!(!rules.is_store_target("macos-appkit"));
         assert!(rules.known("mac-app-store") && !rules.known("apple-appstore"));
         assert_eq!(rules.capture_kind("ios-uikit", None), "iphone");
         assert_eq!(rules.capture_kind("android-mdc", Some("tablet")), "tablet");
         assert_eq!(rules.capture_kind("web-dom", None), "default");
-        let lanes = rules.lanes(&["android-mdc".into(), "web-dom".into()]);
+        // A desktop capture keeps the kind it always had.
+        assert_eq!(rules.capture_kind("macos-appkit", None), "default");
+        let lanes = rules.lanes(
+            &["android-mdc".into(), "web-dom".into()],
+            &Storefront::default(),
+        );
         assert_eq!(lanes.len(), 1);
         assert_eq!(
             (lanes[0].0, lanes[0].2.as_str()),
@@ -4096,6 +4263,69 @@ mod tests {
     /// Play refuses a package name with a hyphen, which is why an app whose bundle id has one
     /// states an `[app.android] id`. The staged Appfile has to carry the id the store it is for
     /// knows, or `supply` stops with "Invalid package name".
+
+    #[test]
+    fn the_mac_app_store_is_opt_in_and_staged_with_mac_lanes() {
+        let rules = StoreRules::builtin();
+        let mac = "macos-appkit".to_string();
+        let silent = Storefront::default();
+        assert!(!rules.publishes("macos-appkit", &silent));
+        assert!(rules.lanes(std::slice::from_ref(&mac), &silent).is_empty());
+        // Naming the store in the listing is what opts in.
+        let named = parse_src(
+            &parse_document(
+                "[storefront.macos-appkit.mac-app-store.submission-info]\n\
+                 apple-category = \"DEVELOPER_TOOLS\"\n",
+                false,
+            )
+            .expect("toml"),
+        )
+        .expect("storefront");
+        assert!(rules.publishes("macos-appkit", &named));
+        assert_eq!(
+            rules
+                .lanes(std::slice::from_ref(&mac), &named)
+                .iter()
+                .map(|(k, _, t)| (*k, t.as_str()))
+                .collect::<Vec<_>>(),
+            vec![("mac-app-store", "macos-appkit")]
+        );
+
+        let tmp = std::env::temp_dir().join(format!("day-store-mac-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("mkdir");
+        std::fs::write(
+            tmp.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\nbuild = 7\ntargets = [\"macos-appkit\"]\n",
+        )
+        .expect("Day.toml");
+        std::fs::write(
+            tmp.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .expect("Cargo.toml");
+        let project = crate::meta::find_project(Some(&tmp)).expect("project");
+        let listing = listing_of(
+            "en",
+            &[(
+                "fr",
+                &[
+                    (Field::Name, "Exemple"),
+                    (Field::Description, "Ce qu'il fait."),
+                ],
+            )],
+        );
+        let target = crate::targets::find("macos-appkit").expect("macos");
+        let out = tmp.join("out-mac");
+        stage(&project, target, &listing, &out, None, rules).expect("stage mac");
+        assert!(out.join("fastlane/metadata/fr-FR/name.txt").is_file());
+        let fastfile = std::fs::read_to_string(out.join("fastlane/Fastfile")).expect("Fastfile");
+        assert!(fastfile.contains("platform :mac do"));
+        assert!(fastfile.contains("platform: \"osx\""));
+        assert!(fastfile.contains("pkg: day_pkg"));
+        assert!(!fastfile.contains("ipa:"));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
     #[test]
     fn the_staged_id_is_the_one_each_store_knows() {
         let tmp = std::env::temp_dir().join(format!("day-store-id-{}", std::process::id()));

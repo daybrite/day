@@ -69,6 +69,38 @@ pub fn check(project: &Project) -> i32 {
         checks.push(c);
     }
 
+    // --- macos.app-store ----------------------------------------------------
+    // Its own section: a direct download and a store build are signed by different
+    // certificates, and an app may well have only one of the two.
+    {
+        let mas = signing
+            .and_then(|s| s.macos.as_ref())
+            .and_then(|m| m.app_store.as_ref());
+        let mut c = Check {
+            section: "macos.app-store",
+            configured: mas.is_some(),
+            problems: Vec::new(),
+        };
+        if let Some(m) = mas {
+            for (label, raw) in [
+                ("identity", &m.identity),
+                ("installer-identity", &m.installer_identity),
+            ] {
+                if let Err(e) = interpolate(raw) {
+                    c.problems.push(format!("{label}: {e}"));
+                }
+            }
+            match interpolate(&m.profile) {
+                Ok(p) if !project.root.join(&p).is_file() => {
+                    c.problems.push(format!("profile missing: {p}"))
+                }
+                Ok(_) => {}
+                Err(e) => c.problems.push(format!("profile: {e}")),
+            }
+        }
+        checks.push(c);
+    }
+
     // --- ios ------------------------------------------------------------------
     {
         let ios = signing.and_then(|s| s.ios.as_ref());
@@ -383,6 +415,8 @@ pub struct AppleOverrides<'a> {
     pub profile: Option<&'a Path>,
     pub identity: Option<&'a str>,
     pub entitlements: Option<&'a Path>,
+    /// The Mac App Store's installer identity, for a macOS bundle signed into a `.pkg`.
+    pub installer_identity: Option<&'a str>,
 }
 
 /// Android signing material passed on the command line, for a caller that signs a package
@@ -429,18 +463,27 @@ pub fn apply(
     ohos: OhosOverrides<'_>,
     json: bool,
 ) -> Result<i32, CliError> {
-    if !artifact.is_file() {
-        return Err(CliError::sign(format!(
-            "no such package: {}",
-            artifact.display()
-        )));
-    }
     let ext = artifact
         .extension()
         .and_then(|e| e.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
+    // A bundle is a directory; every other package is a file.
+    let present = if ext == "app" {
+        artifact.is_dir()
+    } else {
+        artifact.is_file()
+    };
+    if !present {
+        return Err(CliError::sign(format!(
+            "no such package: {}",
+            artifact.display()
+        )));
+    }
     let signed = match ext.as_str() {
+        // A macOS bundle (it has `Contents/`): signed for the Mac App Store, into a `.pkg`.
+        "app" if artifact.join("Contents/Info.plist").is_file() => mas_material(project, apple)
+            .and_then(|m| sign_mac_app_store(artifact, out, &m).map_err(CliError::sign)),
         "aab" => android_keys(project, android).and_then(|keys| {
             sign_android(artifact, out, &keys, Format::Aab).map_err(CliError::sign)
         }),
@@ -456,7 +499,8 @@ pub fn apply(
         // to grow, and a caller who tries one should hear that it is coming, not that it is wrong.
         "dmg" | "pkg" => Err(CliError::sign(format!(
             "signing a {ext} is not implemented yet — `day pack -t macos-appkit` signs and \
-             notarizes during the build (docs/packaging.md)"
+             notarizes the .dmg during the build, and a Mac App Store .pkg is signed from the \
+             .app inside it (`day sign apply <App>.app`, docs/packaging.md)"
         ))),
         _ => Err(CliError::sign(format!(
             "unknown package format {:?} — `day sign apply` takes .aab, .apk, .ipa, .app or .hap",
@@ -1001,6 +1045,150 @@ fn sign_apple(artifact: &Path, out: Option<&Path>, m: &AppleMaterial) -> Result<
     })
 }
 
+/// The Mac App Store material: the command line first, then `[signing.macos.app-store]`. Strict
+/// like the rest of `sign apply`: the caller asked for a store signature, so a missing piece is an
+/// error, not a quietly unsigned package.
+fn mas_material(
+    project: Option<&Project>,
+    over: AppleOverrides<'_>,
+) -> Result<crate::pack::macos::MasMaterial, CliError> {
+    let mas = project
+        .and_then(|p| p.manifest.signing.as_ref())
+        .and_then(|s| s.macos.as_ref())
+        .and_then(|m| m.app_store.as_ref());
+    let from_manifest = |raw: Option<&String>, what: &str| -> Result<Option<String>, CliError> {
+        interpolate_opt(raw)
+            .map_err(|e| CliError::sign(format!("signing.macos.app-store.{what}: {e}")))
+    };
+    let missing = |what: &str, flag: &str, key: &str| {
+        CliError::sign(format!(
+            "no {what} — pass {flag}, or set signing.macos.app-store.{key} in Day.toml \
+             (docs/packaging.md#the-mac-app-store)"
+        ))
+    };
+    let profile = match over.profile {
+        Some(p) => p.to_path_buf(),
+        None => match from_manifest(mas.map(|m| &m.profile), "profile")? {
+            Some(p) => project
+                .map(|pr| pr.root.join(&p))
+                .unwrap_or_else(|| p.into()),
+            None => {
+                return Err(missing(
+                    "Mac App Store profile",
+                    "--profile <file>",
+                    "profile",
+                ));
+            }
+        },
+    };
+    if !profile.is_file() {
+        return Err(CliError::sign(format!(
+            "provisioning profile not found: {}",
+            profile.display()
+        )));
+    }
+    let identity = match over.identity {
+        Some(i) => i.to_string(),
+        None => from_manifest(mas.map(|m| &m.identity), "identity")?
+            .ok_or_else(|| missing("signing identity", "--identity <name>", "identity"))?,
+    };
+    let installer_identity = match over.installer_identity {
+        Some(i) => i.to_string(),
+        None => from_manifest(mas.map(|m| &m.installer_identity), "installer-identity")?
+            .ok_or_else(|| {
+                missing(
+                    "installer identity",
+                    "--installer-identity <name>",
+                    "installer-identity",
+                )
+            })?,
+    };
+    let entitlements = over.entitlements.map(Path::to_path_buf);
+    if let Some(e) = &entitlements
+        && !e.is_file()
+    {
+        return Err(CliError::sign(format!(
+            "entitlements file not found: {}",
+            e.display()
+        )));
+    }
+    Ok(crate::pack::macos::MasMaterial {
+        profile,
+        identity,
+        installer_identity,
+        entitlements,
+    })
+}
+
+/// A macOS bundle signed for the Mac App Store, as an installer package: `--out`, else the
+/// bundle's name with `.pkg`. The bundle itself is left as it was.
+fn sign_mac_app_store(
+    artifact: &Path,
+    out: Option<&Path>,
+    m: &crate::pack::macos::MasMaterial,
+) -> Result<Signed, String> {
+    let input = sha256_tree(artifact)?;
+    let dest = match out {
+        Some(o) if o.extension().and_then(|e| e.to_str()) == Some("pkg") => o.to_path_buf(),
+        Some(o) => {
+            return Err(format!(
+                "--out {}: a Mac App Store package is a .pkg",
+                o.display()
+            ));
+        }
+        None => artifact.with_extension("pkg"),
+    };
+    let fingerprint = crate::pack::macos::mac_app_store_pkg(artifact, &dest, m)?;
+    Ok(Signed {
+        input,
+        output: sha256_file(&dest)?,
+        fingerprint,
+    })
+}
+
+/// A digest of a bundle directory, for the report's "unsigned" side: every file's path relative
+/// to the root and its bytes, and every symlink's target, in sorted order. Stable across copies,
+/// which is all the report needs from it.
+fn sha256_tree(root: &Path) -> Result<String, String> {
+    use sha2::Digest;
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) -> Result<(), String> {
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("read {}: {e}", dir.display()))?;
+        for e in entries.flatten() {
+            let path = e.path();
+            let kind = e.file_type().map_err(|e| e.to_string())?;
+            if kind.is_dir() {
+                walk(&path, out)?;
+            } else {
+                out.push(path);
+            }
+        }
+        Ok(())
+    }
+    let mut files = Vec::new();
+    walk(root, &mut files)?;
+    files.sort();
+    let mut hasher = sha2::Sha256::new();
+    for path in files {
+        let rel = path.strip_prefix(root).unwrap_or(&path);
+        hasher.update(rel.to_string_lossy().as_bytes());
+        hasher.update([0]);
+        let meta = std::fs::symlink_metadata(&path).map_err(|e| e.to_string())?;
+        if meta.file_type().is_symlink() {
+            let target = std::fs::read_link(&path).map_err(|e| e.to_string())?;
+            hasher.update(target.to_string_lossy().as_bytes());
+        } else {
+            hasher
+                .update(std::fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?);
+        }
+        hasher.update([0]);
+    }
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
+}
+
 /// The one `.app` inside an unpacked `Payload/`.
 fn app_bundle_in(payload: &Path) -> Result<PathBuf, String> {
     let mut apps: Vec<PathBuf> = std::fs::read_dir(payload)
@@ -1096,7 +1284,7 @@ fn profile_entitlements(profile: &Path, work: &Path) -> Result<PathBuf, String> 
 
 /// The sha256 of the signing certificate itself, so an Apple signature reports the same "which
 /// key" field an Android one does. Best effort: a missing certificate is not a signing failure.
-fn leaf_certificate_sha256(bundle: &Path, work: &Path) -> Option<String> {
+pub(crate) fn leaf_certificate_sha256(bundle: &Path, work: &Path) -> Option<String> {
     let prefix = work.join("cert");
     run_tool(
         Path::new("/usr/bin/codesign"),

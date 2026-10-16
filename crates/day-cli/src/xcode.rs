@@ -724,11 +724,19 @@ mod tests {
     fn derived_host_references_a_string_catalog_only_when_it_exists() {
         let fixture = Fixture::new();
         let has_catalog = |doc: &ProjectDocument| doc.source().contains("InfoPlist.xcstrings");
-        assert!(!has_catalog(&derived_document(&fixture.0, "ios").unwrap()));
-        let catalog = fixture.0.join("platform/ios/Runner/InfoPlist.xcstrings");
-        std::fs::create_dir_all(catalog.parent().unwrap()).unwrap();
-        std::fs::write(&catalog, "{}").unwrap();
-        assert!(has_catalog(&derived_document(&fixture.0, "ios").unwrap()));
+        for platform in ["ios", "macos"] {
+            assert!(!has_catalog(
+                &derived_document(&fixture.0, platform).unwrap()
+            ));
+            let catalog = fixture
+                .0
+                .join(format!("platform/{platform}/Runner/InfoPlist.xcstrings"));
+            std::fs::create_dir_all(catalog.parent().unwrap()).unwrap();
+            std::fs::write(&catalog, "{}").unwrap();
+            assert!(has_catalog(
+                &derived_document(&fixture.0, platform).unwrap()
+            ));
+        }
     }
 
     #[test]

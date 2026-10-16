@@ -224,7 +224,10 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 - **Android** — `build/day/android/day-pieces-manifest.xml`, gitignored and regenerated, merged by
   AGP. That filename is a compatibility surface: it is baked into every scaffold `day new` has
   generated, and a source set has one manifest slot, so it is widened, never moved.
-- **iOS/macOS** — the checked-in `platform/ios/Runner/Info.plist`, edited in place. Day owns exactly
+- **iOS/macOS** — the checked-in `platform/ios/Runner/Info.plist` and
+  `platform/macos/Runner/Info.plist`, each from its platform's column of the table, edited in
+  place (the macOS host since 2026-10; before that a macOS bundle carried no usage descriptions,
+  and TCC terminated a sandboxed app at its first camera or location request). Day owns exactly
   the keys in the table above plus your `[permissions.raw]` keys; every other byte is preserved, so
   the diff shows only what changed, and a hand-added key Day doesn't model is never touched. Two
   consecutive builds produce a byte-identical file. This is an exception to "aggregation
@@ -233,7 +236,8 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   beside it, the string catalog Xcode 15+ reads localized `Info.plist` values from, one
   `stringUnit` per key and locale in Xcode's own locale spelling (`zh-Hans`). The scaffold
   ships an empty catalog already wired into the target; an older project gets the file and its
-  four project entries the first time a build has a translation to write. Regenerated from the
+  four project entries the first time a build has a translation to write. The macOS host gets its
+  catalog the same way, and the generated Xcode project references it once it exists. Regenerated from the
   same plan as the plist and byte-stable, so open it in Xcode to read, not to edit.
 - **HarmonyOS** — Day copies the native host into `build/day/harmony/project/` and merges
   permissions into that copy's `entry/src/main/module.json5`. The referenced

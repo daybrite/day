@@ -717,6 +717,11 @@ pub fn build(
         crate::documents::sync_apple(project, &plist, false)?;
         sync_dock_visibility(&plist, project.manifest.resolve(target.name).dock)?;
     }
+    if target.name == "macos-appkit" {
+        // The Runner host is AppKit's: the usage descriptions TCC and App Review read
+        // (docs/permissions.md), written the way the iOS host's are.
+        crate::mobile::sync_macos_usage_descriptions(project)?;
+    }
     let host = crate::targets::host_os();
     if target.host != "any" && target.host != host {
         return Err(format!(
@@ -1942,6 +1947,7 @@ pub fn native_project(
         }
         "macos-appkit" => {
             crate::xcconfig::write_generated(project, "macos")?;
+            crate::mobile::sync_macos_usage_descriptions(project)?;
             crate::resources::stage(project, target)?;
             crate::pieces::write_macos_pieces(project)?;
             (crate::xcode::ensure(project, "macos")?, "Xcode")

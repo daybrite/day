@@ -227,10 +227,98 @@ min-side = 1080
 max-side = 7680
 max-ratio = 2.3
 
-# Storefronts the CLI knows by name and does not stage.
+# The Mac App Store is App Store Connect too: the same deliver tree, the same fields and locale
+# spellings, under the record's macOS platform. `day store stage -t macos-appkit` writes it with
+# `platform :mac` lanes that upload the .pkg `day pack --formats pkg` (or `day sign apply`)
+# signed. Opt-in: an app publishes there only when its listing names the store
+# (`[storefront.macos-appkit.mac-app-store.*]`), or when `day store stage -t macos-appkit` asks.
 [mac-app-store]
 label = "the Mac App Store"
 targets = ["macos-appkit"]
+layout = "deliver"
+opt-in = true                           # staged when asked for, or when the listing names it
+required = ["name", "description", "privacy-url"]
+
+[mac-app-store.fields]
+name = { file = "name.txt", limit = 30 }
+subtitle = { file = "subtitle.txt", limit = 30 }
+description = { file = "description.txt", limit = 4000 }
+keywords = { file = "keywords.txt", limit = 100 }
+release-notes = { file = "release_notes.txt", limit = 4000 }
+promo = { file = "promotional_text.txt", limit = 170 }
+marketing-url = { file = "marketing_url.txt", limit = 255 }
+support-url = { file = "support_url.txt", limit = 255 }
+privacy-url = { file = "privacy_url.txt", limit = 255 }
+
+[mac-app-store.locales]
+"en" = "en-US"
+"en-GB" = "en-GB"
+"fr" = "fr-FR"
+"fr-CA" = "fr-CA"
+"de" = "de-DE"
+"es" = "es-ES"
+"es-MX" = "es-MX"
+"it" = "it"
+"nl" = "nl-NL"
+"pt-BR" = "pt-BR"
+"pt-PT" = "pt-PT"
+"ru" = "ru"
+"pl" = "pl"
+"tr" = "tr"
+"ar" = "ar-SA"
+"he" = "he"
+"ja" = "ja"
+"ko" = "ko"
+"zh-CN" = "zh-Hans"
+"zh-TW" = "zh-Hant"
+"hi" = "hi"
+"id" = "id"
+"th" = "th"
+"vi" = "vi"
+"uk" = "uk"
+"cs" = "cs"
+"sv" = "sv"
+"da" = "da"
+"fi" = "fi"
+"no" = "no"
+"el" = "el"
+"hu" = "hu"
+"ro" = "ro"
+"sk" = "sk"
+"ms" = "ms"
+"ca" = "ca"
+"hr" = "hr"
+"en-US" = "en-US"
+"es-ES" = "es-ES"
+"fr-FR" = "fr-FR"
+"de-DE" = "de-DE"
+"it-IT" = "it"
+"nl-NL" = "nl-NL"
+"pl-PL" = "pl"
+"ru-RU" = "ru"
+"tr-TR" = "tr"
+"cs-CZ" = "cs"
+"uk-UA" = "uk"
+"ar-SA" = "ar-SA"
+"ja-JP" = "ja"
+"ko-KR" = "ko"
+"id-ID" = "id"
+"ms-MY" = "ms"
+"th-TH" = "th"
+"vi-VN" = "vi"
+"zh-Hans-CN" = "zh-Hans"
+"zh-Hant-TW" = "zh-Hant"
+
+# The four 16:10 sizes App Store Connect takes for a Mac app. `day screenshot` captures desktop
+# targets at 2560x1600 by default ([screenshots] in Day.toml), which is one of them. A desktop
+# capture has no device profile, so its kind is `default`.
+[mac-app-store.screenshots.default]
+label = "Mac"
+required = true
+max = 10
+sizes = [[1280, 800], [1440, 900], [2560, 1600], [2880, 1800]]
+
+# Storefronts the CLI knows by name and does not stage.
 
 [altstore]
 label = "AltStore"

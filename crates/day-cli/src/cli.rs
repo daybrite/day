@@ -1126,7 +1126,7 @@ pub enum SignCmd {
         after_help = "Docs: https://daybrite.dev/docs/packaging/#signing-an-existing-package"
     )]
     Apply {
-        /// The package to sign (.aab, .apk, .ipa, or .app)
+        /// The package to sign (.aab, .apk, .ipa, .hap, or .app; a macOS .app is signed into a Mac App Store .pkg)
         artifact: PathBuf,
         /// Write the signed package here instead of replacing the input
         #[arg(long)]
@@ -1134,9 +1134,12 @@ pub enum SignCmd {
         /// Apple: the provisioning profile to embed (default: signing.ios.profile); HarmonyOS: the .p7b profile
         #[arg(long, value_name = "FILE")]
         profile: Option<PathBuf>,
-        /// Apple: the signing identity, by name or SHA-1 (default: signing.ios.identity)
+        /// Apple: the signing identity, by name or SHA-1 (default: signing.ios.identity, or signing.macos.app-store.identity for a macOS .app)
         #[arg(long, value_name = "NAME")]
         identity: Option<String>,
+        /// macOS: the installer identity a Mac App Store .pkg is signed with (default: signing.macos.app-store.installer-identity)
+        #[arg(long, value_name = "NAME")]
+        installer_identity: Option<String>,
         /// Apple: the entitlements to sign with (default: the profile's own)
         #[arg(long, value_name = "FILE")]
         entitlements: Option<PathBuf>,
@@ -1407,6 +1410,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     out,
                     profile,
                     identity,
+                    installer_identity,
                     entitlements,
                     keystore,
                     key_alias,
@@ -1422,6 +1426,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     profile: profile.as_deref(),
                     identity: identity.as_deref(),
                     entitlements: entitlements.as_deref(),
+                    installer_identity: installer_identity.as_deref(),
                 },
                 crate::sign::AndroidOverrides {
                     keystore: keystore.as_deref(),
@@ -1444,6 +1449,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 out,
                 profile,
                 identity,
+                installer_identity,
                 entitlements,
                 keystore,
                 key_alias,
@@ -1456,6 +1462,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                     profile: profile.as_deref(),
                     identity: identity.as_deref(),
                     entitlements: entitlements.as_deref(),
+                    installer_identity: installer_identity.as_deref(),
                 },
                 crate::sign::AndroidOverrides {
                     keystore: keystore.as_deref(),

@@ -29,7 +29,7 @@ If signing fails, start with the [signing checks](/docs/troubleshooting#signing-
 
 | Target | Output | Distribution |
 |---|---|---|
-| `macos-appkit` | `.dmg` | Disk image containing the app |
+| `macos-appkit` | `.dmg`; `.pkg` with `--formats pkg` | Disk image for direct download; installer package for the [Mac App Store](#the-mac-app-store) |
 | `ios-uikit` | `.ipa` | Device app archive |
 | `android-mdc` | `.apk`, `.aab` | Direct installation or Google Play |
 | `linux-gtk`, `linux-qt` | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
@@ -46,6 +46,8 @@ The development combinations `macos-gtk`, `macos-qt`, `windows-gtk`, and `window
 For macOS, Day assembles the `.app`, signs its nested components with `codesign`, and creates a
 compressed UDZO disk image with an `/Applications` link. With release credentials configured,
 it signs the disk image, submits it through `notarytool`, and staples the notarization ticket.
+`--formats pkg` builds the [Mac App Store](#the-mac-app-store) package instead, and
+`--formats dmg,pkg` builds both from one build.
 
 For iOS, with an App Store provisioning profile for the app id installed under
 `~/Library/MobileDevice/Provisioning Profiles/` and its distribution certificate in the keychain,
@@ -139,6 +141,11 @@ identity = "${DAY_SIGN_MACOS_IDENTITY}"   # "Developer ID Application: …"
 key-id = "${DAY_NOTARY_KEY_ID}"           # App Store Connect API key
 issuer = "${DAY_NOTARY_ISSUER}"
 key-path = "${DAY_NOTARY_KEY}"
+
+[signing.macos.app-store]                 # the Mac App Store .pkg
+identity = "${DAY_MAS_IDENTITY}"          # "Apple Distribution: …"
+installer-identity = "${DAY_MAS_INSTALLER_IDENTITY}"  # "3rd Party Mac Developer Installer: …"
+profile = "${DAY_MAS_PROFILE}"            # Mac App Store Connect .provisionprofile
 
 [signing.ios]
 team = "${DAY_APPLE_TEAM}"
@@ -244,9 +251,73 @@ The signed bundle is verified with `codesign --verify --deep --strict` before it
 anything, so a bad identity or an out-of-order nested signature fails with the artifact untouched.
 `certificate_sha256` is the signing certificate itself, the same field the Android path reports.
 
-Signing an Apple package needs macOS: `codesign`, `security` and `ditto` ship with Xcode. `.dmg`
-and `.pkg` are named as not-yet-implemented rather than refused as unknown; `day pack -t
-macos-appkit` signs and notarizes those during the build.
+Signing an Apple package needs macOS: `codesign`, `security` and `ditto` ship with Xcode. A
+macOS `.app` is signed for the [Mac App Store](#the-mac-app-store) into a `.pkg`. Signing an
+existing `.dmg` or `.pkg` is not implemented yet; `day pack -t macos-appkit` signs and notarizes
+the `.dmg` during the build.
+
+## The Mac App Store
+
+The Mac App Store takes an installer package, not a disk image. The app inside is signed with an
+Apple Distribution identity over a Mac App Store provisioning profile, and the package is signed
+with a Mac Installer Distribution identity. The notarized `.dmg` and the store's `.pkg` carry
+different signatures, so the two are separate packages built from the same app:
+
+```sh
+day pack -t macos-appkit --formats pkg          # build/day/dist/<stem>-macos-appkit.pkg
+day pack -t macos-appkit --formats dmg,pkg      # the download and the store package together
+```
+
+The material comes from `[signing.macos.app-store]` in `Day.toml`
+([configuration](#signing-configuration)). Without it, Day packs `<stem>-macos-appkit-unsigned.pkg`
+around the ad-hoc signed app and says so; the store refuses that package, and `day sign apply`
+signs the app inside it later.
+
+To sign an app built elsewhere, as a release pipeline does after its build, give `day sign apply`
+the `.app`:
+
+```sh
+day sign apply "Day Showcase.app" \
+  --profile ShowcaseMacAppStore.provisionprofile \
+  --identity "Apple Distribution: Example Inc (ABCDE12345)" \
+  --installer-identity "3rd Party Mac Developer Installer: Example Inc (ABCDE12345)" \
+  --out day-showcase-macos-appkit.pkg
+```
+
+The flags default to the `[signing.macos.app-store]` values, and `--out` defaults to the bundle's
+name with `.pkg`. The bundle is left as it was. Day signs a copy: it embeds the profile as
+`Contents/embedded.provisionprofile`, signs nested code before the bundle, signs the bundle with
+the hardened runtime and the app's entitlements, verifies the result with
+`codesign --verify --deep --strict`, wraps it with `productbuild`, and checks the package with
+`pkgutil --check-signature`.
+
+**Entitlements come from the app.** A Day build signs its [sandbox](/docs/internal/sandbox)
+policy into the bundle, even ad hoc, and that policy is what the store build keeps. Day adds the
+two identifiers the profile ties the signature to (`com.apple.application-identifier` and
+`com.apple.developer.team-identifier`) and drops the debugger grant. `--entitlements <file>`
+replaces the app's set.
+
+Before signing, Day checks what App Store Connect would otherwise reject after the upload:
+
+- The profile is a Mac App Store profile for this bundle id that has not expired. A development
+  profile, a Developer ID profile, or an iOS profile is named as such.
+- The app is sandboxed.
+- `Info.plist` has `LSApplicationCategoryType` and a version.
+- Every device or personal-data entitlement has its usage description: the camera,
+  the microphone, location, photos, contacts and calendars.
+- Every `com.apple.developer.*` capability the app asks for is granted by the profile.
+
+Declare permissions in `Day.toml` `[permissions]` and Day writes their usage descriptions into
+`platform/macos/Runner/Info.plist` ([permissions](/docs/internal/permissions)). Add the category to
+the same file:
+
+```xml
+<key>LSApplicationCategoryType</key>
+<string>public.app-category.developer-tools</string>
+```
+
+The store listing and the upload lanes come from `store/storefront.toml`; see
+[App Store Submissions](/docs/app-store-submissions#the-mac-app-store).
 
 ## Signing tiers
 
@@ -274,9 +345,9 @@ and uploads `dist-<target>` artifacts. Version tags create GitHub releases with 
 checksums and provenance. Branch builds use development signing; release signing requires the
 corresponding credentials and workflow configuration.
 
-See [App Store Submissions](/docs/app-store-submissions) for iOS and Android signing secrets,
-store records and upload lanes. macOS download signing and notarization use the shared
-workflow's [`signing-environment` input](https://github.com/daybrite/actions#signing).
+See [App Store Submissions](/docs/app-store-submissions) for iOS, Mac App Store and Android
+signing secrets, store records and upload lanes. macOS download signing and notarization use the
+shared workflow's [`signing-environment` input](https://github.com/daybrite/actions#signing).
 
 ## macOS App Sandbox
 

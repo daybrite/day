@@ -129,10 +129,12 @@ example, an app-private file) is usable too; actual I/O determines whether acces
 
 ## Distribution and validation
 
-A sandboxed build is not an App Store submission package. Day's existing `day pack` macOS path
-creates a Developer ID/ad-hoc DMG and optionally notarizes it. Mac App Store submission still
-requires the appropriate Apple distribution identity, provisioning, archive/installer workflow,
-and App Store review. Custom entitlements must match the provisioning profile. Debug's
+A sandboxed build is not an App Store submission package by itself. `day pack -t macos-appkit`
+creates a Developer ID or ad-hoc DMG and optionally notarizes it; `--formats pkg` (or `day sign
+apply` over a built `.app`) signs the app with an Apple Distribution identity over a Mac App Store
+profile and wraps it in an installer signed for the store
+([Packaging](/docs/packaging#the-mac-app-store)). The store build keeps the sandbox entitlements
+the build signed in, and refuses an app that is not sandboxed. Custom entitlements must match the provisioning profile. Debug's
 `get-task-allow` belongs in development builds, not submitted apps. For sandboxed Release builds,
 Day disables Xcode's base entitlement injection and rejects a signed debugger grant. This follows
 Apple's [distribution signing guidance](https://developer.apple.com/documentation/security/resolving-common-notarization-issues).

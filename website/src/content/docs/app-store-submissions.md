@@ -1,6 +1,6 @@
 ---
 title: App Store Submissions
-description: Prepare store listings, configure signing credentials, and submit iOS and Android releases through GitHub Actions.
+description: Prepare store listings, configure signing credentials, and submit iOS, Mac App Store and Android releases through GitHub Actions.
 order: 33
 section: Build & ship
 ---
@@ -23,8 +23,8 @@ place in each store's console.
 > the Apple App Store and Google Play Store without requiring any developer account. Follow the
 > [App Fair submission guide](https://appfair.org/docs/getting-started/) for that process.
 
-This page covers iOS and Android submissions through your own accounts. For desktop downloads,
-see [Packaging & distribution](/docs/packaging). For the build workflow, see
+This page covers iOS, Mac App Store and Android submissions through your own accounts. For
+desktop downloads, see [Packaging & distribution](/docs/packaging). For the build workflow, see
 [GitHub Actions](/docs/github-actions).
 
 ## Prepare the listing
@@ -44,7 +44,16 @@ ipad = ["home", "editor", "search"]
 
 [storefront.android-mdc.google-play-store.screenshots]
 default = ["home", "editor", "search"]
+
+[storefront.macos-appkit.mac-app-store.submission-info]
+apple-category = "PRODUCTIVITY"
+
+[storefront.macos-appkit.mac-app-store.screenshots]
+default = ["home", "editor", "search"]
 ```
+
+The Mac App Store is opt-in: an app publishes there only when its listing has a
+`[storefront.macos-appkit.mac-app-store.*]` table, as above.
 
 Screenshot names refer to captures in your [dayscript tests](/docs/dayscript). Run the tests on
 the required phone and tablet profiles, then check the listing and captures:
@@ -67,6 +76,7 @@ record. Do not change an identifier when releasing an update.
 | Store | One-time setup |
 | --- | --- |
 | App Store Connect | [Create the app record](https://developer.apple.com/help/app-store-connect/create-an-app-record/add-a-new-app/) for the iOS bundle ID. Configure privacy, age rating, export compliance and availability. Create an App Store Connect API key with access to the app, an Apple distribution certificate, and an App Store provisioning profile. |
+| Mac App Store | Add the macOS platform to the same app record, so one bundle ID covers iPhone, iPad and Mac. Create a Mac Installer Distribution certificate and a Mac App Store Connect provisioning profile for the bundle ID; the Apple Distribution certificate signs both platforms. |
 | Google Play | Create the app in Play Console and complete its content rating, data safety and audience settings. [Enable the publishing API and grant a service account access](https://developers.google.com/android-publisher/getting_started). Configure Play App Signing and retain the upload keystore. |
 
 Upload the first Android bundle through Play Console before using the API. This is a
@@ -86,13 +96,15 @@ Configure only the stores you use.
 | iOS signing | `DAY_APPLE_CERT_P12`, `DAY_APPLE_CERT_PASSWORD`, `DAY_IOS_PROFILE_B64` — base64-encoded distribution certificate, its password and base64-encoded provisioning profile |
 | Android signing | `DAY_ANDROID_KEYSTORE_B64`, `DAY_ANDROID_KEY_ALIAS`, `DAY_KS_PASS`, `DAY_KEY_PASS` — base64-encoded upload keystore, alias, keystore password and key password |
 | Google Play API | `DAY_PLAY_JSON_KEY` — service-account JSON contents |
+| Mac App Store signing | `DAY_MAS_CERT_P12`, `DAY_MAS_CERT_PASSWORD`, `DAY_MAS_PROFILE_B64` — one base64-encoded `.p12` holding both the Apple Distribution and the Mac Installer Distribution identities, its password, and the base64-encoded Mac App Store profile (optional: without it, the workflow has Apple issue one through the API key and `DAY_APPLE_TEAM`) |
 | HarmonyOS signing | `DAY_OHOS_KEYSTORE_B64`, `DAY_OHOS_CERT_B64`, `DAY_OHOS_PROFILE_B64`, `DAY_OHOS_KEY_ALIAS`, `DAY_OHOS_KS_PASS`, `DAY_OHOS_KEY_PASS` — base64-encoded keystore, certificate and profile, the key alias and the two passwords |
 
 The workflow signs after it builds, and only where it can. The job that compiles the app and
 runs its walkthroughs never sees a key. On a tag, it packs unsigned each store package whose
 platform has its signing secrets set, and a separate `sign` job, which checks out no code, signs
 that package with `day sign apply` and replaces the artifact; the macOS app is signed and
-notarized the same way from the environment the `signing-environment` input names. A platform
+notarized the same way from the environment the `signing-environment` input names. The Mac App
+Store upload job signs its own `.pkg` from the same unsigned app with the `DAY_MAS_*` secrets. A platform
 without secrets packs as on any branch: an unsigned iOS package, a development-signed Android
 one. The signing secrets therefore need no `[signing]` table in `Day.toml`, though one still
 serves [local release packs](/docs/packaging#signing-configuration). An API key authorizes
@@ -107,11 +119,12 @@ Add these inputs to the `app` job in the [CI workflow](/docs/github-actions#the-
 
 ```yaml
 with:
-  targets: ios-uikit, android-mdc
+  targets: ios-uikit, macos-appkit, android-mdc
   scripts: auto
   locales: all
   themes: light dark
   upload-ios: "true"
+  upload-macos: "true"
   upload-play: "true"
   store-screenshots: true
 ```
@@ -129,6 +142,7 @@ upload without publishing to production:
 | `ios upload` | Uploads the build and listing to App Store Connect without submitting for review. |
 | `ios submit` | Submits a previously uploaded build for review; does not upload the binary again. |
 | `ios release` | Uploads and submits for review. An approved version releases automatically unless the listing sets `apple-release = "manual"`. |
+| `mac upload`, `mac submit`, `mac release` | The same three for the Mac App Store, over the signed `.pkg`. |
 | `android upload` | Uploads to the internal track as a draft. |
 | `android release` | Uploads a completed production release, subject to Google Play review and publishing settings. |
 
@@ -136,6 +150,7 @@ To submit for review on each release tag, add:
 
 ```yaml
   ios-upload-lane: ios release
+  macos-upload-lane: mac release
   play-upload-lane: android release
 ```
 
@@ -172,6 +187,36 @@ handle metadata, screenshots and submission policy itself. The generated iOS sub
 assume no advertising identifier and exempt encryption; use custom lanes if those declarations
 do not describe your app.
 
-Mac App Store uploads also require a custom lane. The workflow supplies macOS build products;
-the lane must produce the package signed for Mac App Store distribution. See
-[store-upload inputs and limitations](https://github.com/daybrite/actions#store-uploads).
+## The Mac App Store
+
+The Mac App Store takes a `.pkg` rather than the `.dmg` you offer as a download
+([Packaging](/docs/packaging#the-mac-app-store)). Try the first upload from your Mac before a
+release tag does it:
+
+1. In the Apple Developer portal, create a **Mac Installer Distribution** certificate and a
+   **Mac App Store Connect** provisioning profile for the app's bundle ID, using your Apple
+   Distribution certificate. Install the certificate and download the profile.
+2. In App Store Connect, add the macOS platform to the app record.
+3. Set the signing variables `[signing.macos.app-store]` reads, then pack, stage and validate:
+
+   ```sh
+   export DAY_MAS_IDENTITY="Apple Distribution: Example Inc (ABCDE12345)"
+   export DAY_MAS_INSTALLER_IDENTITY="3rd Party Mac Developer Installer: Example Inc (ABCDE12345)"
+   export DAY_MAS_PROFILE="$HOME/Downloads/Example_Mac_App_Store.provisionprofile"
+   day pack -t macos-appkit --formats pkg
+   day store stage -t macos-appkit
+   xcrun altool --validate-app build/day/dist/<stem>-macos-appkit.pkg \
+     --apiKey <key id> --apiIssuer <issuer id>
+   ```
+
+   `altool` reads the API key from `~/.appstoreconnect/private_keys/AuthKey_<key id>.p8`.
+
+4. Upload with the generated lane, from `build/day/store/macos-appkit/`:
+
+   ```sh
+   DAY_ASC_KEY_ID=… DAY_ASC_ISSUER=… DAY_ASC_KEY=/path/to/AuthKey.p8 fastlane mac upload
+   ```
+
+   Apple's Transporter app also takes the `.pkg` by drag and drop.
+
+The build appears under the record's macOS platform once App Store Connect has processed it.

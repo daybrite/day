@@ -730,7 +730,8 @@ self.addEventListener('fetch', (event) => {{
     const cache = await caches.open(CACHE);
     try {{
       const fresh = await fetch(request);
-      if (fresh.ok && fresh.type === 'basic') cache.put(request, fresh.clone());
+      // CacheStorage rejects partial responses; retain the complete precached asset.
+      if (fresh.status === 200 && fresh.type === 'basic') cache.put(request, fresh.clone());
       return fresh;
     }} catch (err) {{
       const hit = await cache.match(request, {{ ignoreSearch: true }});
@@ -902,10 +903,23 @@ fn open_in_browser(url: &str) {
 /// paths, the `/dayscript` WebSocket and the `/day-http-ok` echo endpoint.
 fn serve_one(mut stream: TcpStream, dist: &Path) {
     let mut buf = [0u8; 4096];
-    let n = match stream.read(&mut buf) {
-        Ok(n) => n,
-        Err(_) => return,
-    };
+    // TCP may split the Range header across reads. Do not answer until all headers
+    // arrive; cap both size and wait time for this loopback development server.
+    let _ = stream.set_read_timeout(Some(std::time::Duration::from_secs(5)));
+    let mut n = 0;
+    loop {
+        match stream.read(&mut buf[n..]) {
+            Ok(0) | Err(_) => return,
+            Ok(count) => n += count,
+        }
+        if buf[..n].windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+            break;
+        }
+        if n == buf.len() {
+            return;
+        }
+    }
+    let _ = stream.set_read_timeout(None);
     let head = String::from_utf8_lossy(&buf[..n]).into_owned();
     let path = head
         .split_whitespace()
@@ -943,14 +957,49 @@ fn serve_one(mut stream: TcpStream, dist: &Path) {
     match resolve(dist, path).and_then(|p| std::fs::read(&p).ok().map(|b| (p, b))) {
         Some((p, body)) => {
             let mime = mime_of(&p);
+            let method = head.split_whitespace().next().unwrap_or("GET");
+            let header = |name: &str| {
+                head.lines()
+                    .skip(1)
+                    .filter_map(|line| line.split_once(':'))
+                    .find(|(key, _)| key.eq_ignore_ascii_case(name))
+                    .map(|(_, value)| value.trim())
+            };
+            // We send no validators, so an If-Range condition cannot match. HEAD and
+            // unsupported/malformed range forms get the complete representation's headers.
+            let range = if method == "GET" && header("If-Range").is_none() {
+                header("Range").and_then(|value| byte_range(value, body.len()))
+            } else {
+                None
+            };
+            let (status, content_range, selected) = match range {
+                Some(Ok(range)) => (
+                    "206 Partial Content",
+                    format!(
+                        "Content-Range: bytes {}-{}/{}\r\n",
+                        range.start,
+                        range.end - 1,
+                        body.len()
+                    ),
+                    &body[range],
+                ),
+                Some(Err(())) => (
+                    "416 Range Not Satisfiable",
+                    format!("Content-Range: bytes */{}\r\n", body.len()),
+                    &body[..0],
+                ),
+                None => ("200 OK", String::new(), body.as_slice()),
+            };
             let _ = stream.write_all(
                 format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nConnection: close\r\n\r\n",
-                    body.len()
+                    "HTTP/1.1 {status}\r\nContent-Type: {mime}\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\n{content_range}Cache-Control: no-store\r\nCross-Origin-Opener-Policy: same-origin\r\nCross-Origin-Embedder-Policy: require-corp\r\nConnection: close\r\n\r\n",
+                    selected.len()
                 )
                 .as_bytes(),
             );
-            let _ = stream.write_all(&body);
+            if method != "HEAD" {
+                let _ = stream.write_all(selected);
+            }
         }
         None => {
             let _ = stream.write_all(
@@ -958,6 +1007,44 @@ fn serve_one(mut stream: TcpStream, dist: &Path) {
             );
         }
     }
+}
+
+/// Single byte range for browser media seeks (RFC 9110 §14). None means ignore the
+/// header; Err means a valid but unsatisfiable range. Multipart ranges are not served.
+fn byte_range(value: &str, len: usize) -> Option<Result<std::ops::Range<usize>, ()>> {
+    let (unit, spec) = value.split_once('=')?;
+    if !unit.eq_ignore_ascii_case("bytes") || spec.contains(',') {
+        return None;
+    }
+    let number = |text: &str| {
+        (!text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| text.parse::<usize>().ok())
+            .flatten()
+    };
+    let (first, last) = spec.split_once('-')?;
+    if first.is_empty() {
+        let suffix = number(last)?;
+        return Some(if suffix == 0 || len == 0 {
+            Err(())
+        } else {
+            Ok(len.saturating_sub(suffix)..len)
+        });
+    }
+    let start = number(first)?;
+    let end = if last.is_empty() {
+        len
+    } else {
+        let last = number(last)?;
+        if last < start {
+            return None;
+        }
+        last.saturating_add(1).min(len)
+    };
+    Some(if start >= len {
+        Err(())
+    } else {
+        Ok(start..end)
+    })
 }
 
 /// Map a request path to a file inside `dist`, rejecting anything that could escape it.
@@ -1423,5 +1510,88 @@ mod home_screen_tests {
         let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["assets/images/a.png", "index.html"]);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn media_byte_ranges() {
+        for (header, expected) in [
+            ("bytes=2-5", Some(Ok(2..6))),
+            ("bytes=2-", Some(Ok(2..10))),
+            ("bytes=2-100", Some(Ok(2..10))),
+            ("bytes=-3", Some(Ok(7..10))),
+            ("bytes=-100", Some(Ok(0..10))),
+            ("BYTES=0-0", Some(Ok(0..1))),
+            ("bytes=10-", Some(Err(()))),
+            ("bytes=-0", Some(Err(()))),
+            ("bytes=5-2", None),
+            ("bytes=0-1,4-5", None),
+            ("items=0-1", None),
+            ("bytes=+1-2", None),
+            ("bytes=foo-", None),
+            ("bytes=-", None),
+        ] {
+            assert_eq!(byte_range(header, 10), expected, "{header}");
+        }
+        assert_eq!(byte_range("bytes=0-", 0), Some(Err(())));
+        assert_eq!(byte_range("bytes=-3", 0), Some(Err(())));
+    }
+
+    #[test]
+    fn static_server_serves_media_ranges_and_head() {
+        let dir = std::env::temp_dir().join(format!("day-web-ranges-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        // Synthetic asset bytes: inspect the actual response framing and selected bytes.
+        std::fs::write(dir.join("sample.mp4"), b"0123456789").expect("fixture");
+        let request = |method: &str, headers: &str| {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listen");
+            let mut client = TcpStream::connect(listener.local_addr().unwrap()).expect("connect");
+            client
+                .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+                .unwrap();
+            let root = dir.clone();
+            let server = std::thread::spawn(move || {
+                serve_one(listener.accept().unwrap().0, &root);
+            });
+            write!(
+                client,
+                "{method} /sample.mp4 HTTP/1.1\r\nHost: localhost\r\n{headers}\r\n"
+            )
+            .unwrap();
+            let mut response = String::new();
+            client.read_to_string(&mut response).unwrap();
+            server.join().unwrap();
+            response
+        };
+        for (headers, content_range, body) in [
+            ("rAnGe: bytes=2-5\r\n", "2-5/10", "2345"),
+            ("Range: bytes=7-\r\n", "7-9/10", "789"),
+            ("Range: bytes=-3\r\n", "7-9/10", "789"),
+        ] {
+            let response = request("GET", headers);
+            assert!(response.starts_with("HTTP/1.1 206 Partial Content\r\n"));
+            assert!(response.contains(&format!("Content-Range: bytes {content_range}\r\n")));
+            assert!(response.contains(&format!("Content-Length: {}\r\n", body.len())));
+            assert!(response.contains("Accept-Ranges: bytes\r\n"));
+            assert!(response.contains("Cross-Origin-Embedder-Policy: require-corp\r\n"));
+            assert_eq!(response.split_once("\r\n\r\n").unwrap().1, body);
+        }
+        let response = request("GET", "Range: bytes=10-\r\n");
+        assert!(response.starts_with("HTTP/1.1 416 Range Not Satisfiable\r\n"));
+        assert!(response.contains("Content-Range: bytes */10\r\n"));
+        assert!(response.ends_with("\r\n\r\n"));
+        for headers in [
+            "",
+            "Range: bytes=0-1,4-5\r\n",
+            "Range: bytes=2-5\r\nIf-Range: \"old\"\r\n",
+        ] {
+            let response = request("GET", headers);
+            assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert_eq!(response.split_once("\r\n\r\n").unwrap().1, "0123456789");
+        }
+        let response = request("HEAD", "Range: bytes=2-5\r\n");
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Length: 10\r\n"));
+        assert!(response.ends_with("\r\n\r\n"));
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }

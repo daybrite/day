@@ -264,6 +264,7 @@ fn signed_over_profile(
             profile: Some(&profile.path),
             identity: Some(&profile.cert_sha1),
             entitlements: None,
+            installer_identity: None,
         },
         crate::sign::AndroidOverrides::default(),
         crate::sign::OhosOverrides::default(),

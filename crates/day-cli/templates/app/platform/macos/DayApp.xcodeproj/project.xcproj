@@ -29,6 +29,7 @@
       "children": [
         { "path": "main.swift", "target-membership": [ "Runner/compile-sources" ] },
         { "path": "Info.plist" },
+        { "path": "InfoPlist.xcstrings", "target-membership": [ "Runner/resources" ] },
       ],
     },
     { "path": "../../build/day/host/macos/Assets.xcassets", "target-membership": [ "Runner/resources" ] },

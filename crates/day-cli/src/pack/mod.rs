@@ -7,7 +7,7 @@
 //! loudly (never silently) when release signing material is absent (§20).
 //!
 //! Per-target default formats:
-//!   macos-appkit → dmg · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
+//!   macos-appkit → dmg (pkg on request) · ios-uikit → ipa (sim-app without ASC creds) · android-mdc → apk+aab
 //!   linux-gtk/linux-qt → flatpak+appimage · windows-xaml → msix+nsis · harmony-arkui → hap
 //! GTK/Qt on macOS/Windows is DP-7 (deferred) and refuses with a pointer.
 
@@ -16,7 +16,7 @@ mod appimage;
 mod flatpak;
 mod ios;
 pub(crate) mod linux;
-mod macos;
+pub(crate) mod macos;
 mod msix;
 pub mod naming;
 mod nsis;
@@ -51,7 +51,7 @@ impl SignTier {
 
 pub struct Artifact {
     pub path: PathBuf,
-    /// Format tag: "dmg" | "ipa" | "sim-app" | "apk" | "aab" | "flatpak" | "msix" | "nsis" | "hap"
+    /// Format tag: "dmg" | "pkg" | "ipa" | "sim-app" | "apk" | "aab" | "flatpak" | "msix" | "nsis" | "hap"
     pub kind: &'static str,
     pub sha256: String,
     pub tier: SignTier,
@@ -108,6 +108,16 @@ pub(crate) fn default_formats(target: &Target) -> Result<Vec<&'static str>, Stri
     })
 }
 
+/// The formats a target packs into only when `--formats` names them: a package for one store
+/// that a plain `day pack` has no reason to build. The Mac App Store's `.pkg` is one; it needs
+/// its own certificates and profile, and the direct download does not.
+pub(crate) fn optional_formats(target: &Target) -> &'static [&'static str] {
+    match target.name {
+        "macos-appkit" => &["pkg"],
+        _ => &[],
+    }
+}
+
 pub fn run(
     project: &Project,
     target: &'static Target,
@@ -115,14 +125,19 @@ pub fn run(
 ) -> Result<PackOutcome, PackError> {
     let start = std::time::Instant::now();
     let defaults = default_formats(target)?;
+    let available: Vec<&str> = defaults
+        .iter()
+        .chain(optional_formats(target))
+        .copied()
+        .collect();
     let formats: Vec<String> = match &opts.formats {
         Some(list) => {
             for f in list {
-                if !defaults.contains(&f.as_str()) {
+                if !available.contains(&f.as_str()) {
                     return Err(PackError::Other(format!(
                         "format {f:?} is not available for {} (available: {})",
                         target.name,
-                        defaults.join(", ")
+                        available.join(", ")
                     )));
                 }
             }
@@ -162,8 +177,8 @@ pub fn run(
     let mut payload_root: Option<std::path::PathBuf> = None;
     match target.name {
         "macos-appkit" => {
-            // dmg is the only macOS format today; the .app assembly is its input.
-            artifacts.push(macos::pack(project, target, opts, &dist)?);
+            // The direct-download .dmg, the Mac App Store .pkg, or both, from one build.
+            artifacts.extend(macos::pack(project, target, opts, &dist, &formats)?);
         }
         "ios-uikit" => {
             artifacts.push(ios::pack(project, target, opts, &dist)?);
@@ -247,14 +262,23 @@ pub fn run(
     // Store listing (docs/store.md): the fastlane tree a release lane uploads, generated from `store/`.
     // Written on every pack of a store target so the deploy step never has to run a second tool to
     // get it, and skipped silently for a project with no listing.
-    if crate::store::is_store_target(target) {
+    // An opt-in store (the Mac App Store) is staged when the listing names it.
+    if crate::store::StoreRules::builtin()
+        .store_for(target.name)
+        .is_some()
+    {
         match crate::store::read(project) {
             Ok(listing) if !listing.is_empty() => {
                 let out = crate::store::stage_dir(project, target);
-                let rules = crate::store::StoreRules::load(project, None);
-                match rules.and_then(|rules| {
+                let rules = crate::store::StoreRules::load(project, None)
+                    .map(|rules| (rules.publishes(target.name, &listing.app), rules));
+                match rules.and_then(|(publishes, rules)| {
+                    if !publishes {
+                        return Ok(Vec::new());
+                    }
                     crate::store::stage(project, target, &listing, &out, None, &rules)
                 }) {
+                    Ok(files) if files.is_empty() => {}
                     Ok(files) => status(
                         "Listing",
                         &format!(

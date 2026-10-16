@@ -238,10 +238,12 @@ tree is written only when all of them and the email are set; otherwise the conta
 entered in App Store Connect stands and the notes stay home. There is no Play category, because
 Google Play's category is set in the Play Console and `supply` cannot write it; recording one
 here would be a value that never reached the store. A key at the top level of the file is not
-read: `day lint` names it and where it belongs. Store keys are open: a storefront the rules know
-by name (`mac-app-store`, `altstore`, `f-droid`, `flathub`, `microsoft-store`, `appgallery`)
-declares its own tables the same way and rides through the export and the gallery index for
-whatever publishes there; a key the rules do not know does the same, with a `store-unknown-store`
+read: `day lint` names it and where it belongs. The Mac App Store (`mac-app-store`) is staged
+like the App Store, but opt-in: an app publishes there only when its listing has a
+`[storefront.macos-appkit.mac-app-store.*]` table, since most desktop apps ship a download and
+nothing else. Store keys are open: a storefront the rules know by name (`altstore`, `f-droid`,
+`flathub`, `microsoft-store`, `appgallery`) declares its own tables the same way and rides through
+the export and the gallery index for whatever publishes there; a key the rules do not know does the same, with a `store-unknown-store`
 warning, since it is either a storefront nobody has named yet or a typo.
 
 ### Moving from the older layout
@@ -322,6 +324,7 @@ target:
 ```
 build/day/store/ios-uikit/fastlane/{Appfile,Fastfile,metadata/…}
 build/day/store/android-mdc/fastlane/{Appfile,Fastfile,metadata/android/…}
+build/day/store/macos-appkit/fastlane/{Appfile,Fastfile,metadata/…}
 ```
 
 Two lanes each. `validate` asks the store to check the build and the listing and rolls back;
@@ -335,7 +338,9 @@ listing's `apple-release = "manual"` keeps it for the Release button in App Stor
 (`day store stage` writes that choice into the tree's `.env.default` as
 `DAY_ASC_MANUAL_RELEASE`, which the lanes read). `DAY_IPA` and `DAY_AAB` name the artifact outright, which is how the
 release workflow hands each lane the file it downloaded; without them the lanes glob
-`build/day/dist/`.
+`build/day/dist/`. The Mac App Store's lanes are the iOS lanes over the `.pkg` (`mac validate`,
+`mac upload`, `mac submit`, `mac release`, with `deliver`'s `platform: "osx"`): `DAY_PKG` names
+the package, and the glob skips an `-unsigned.pkg`, which the store refuses.
 
 ```sh
 day pack -t ios-uikit --profile release
@@ -346,7 +351,7 @@ Credentials come from the environment, never from a checked-in file:
 
 | | variables |
 | --- | --- |
-| App Store | `DAY_ASC_KEY_ID`, `DAY_ASC_ISSUER`, `DAY_ASC_KEY` (path to the `.p8`) |
+| App Store, Mac App Store | `DAY_ASC_KEY_ID`, `DAY_ASC_ISSUER`, `DAY_ASC_KEY` (path to the `.p8`) |
 | Google Play | `SUPPLY_JSON_KEY` (path to the service-account JSON) |
 
 The Fastfile finds the artifact by glob rather than by name: `day pack` names an unsigned
@@ -412,9 +417,9 @@ A list is a device kind, a table is a locale; a locale matches by exact tag, the
 language (`fr` covers `fr-CA`). At each level the locale's lists come before the general ones
 (kind, then `default`), and the levels keep their order: a store's general list still beats the
 target's French one. Store keys
-are open: `apple-app-store` and `google-play-store` are what `day store stage` places;
-`mac-app-store`, `altstore`, `f-droid` or any other key rides through the index for whatever
-publishes there. `day lint` checks every name against the dayscripts and every target against
+are open: `apple-app-store`, `google-play-store` and `mac-app-store` are what `day store stage`
+places; `altstore`, `f-droid` or any other key rides through the index for whatever publishes
+there. `day lint` checks every name against the dayscripts and every target against
 Day.toml.
 
 `day screenshot index` resolves the declaration into `gallery.json`'s `listings`, per captured
@@ -484,9 +489,15 @@ min-side = 1080
 max-side = 7680
 max-ratio = 2.3
 
-[mac-app-store]                          # known by name, not staged
+[mac-app-store]
 label = "the Mac App Store"
 targets = ["macos-appkit"]
+layout = "deliver"
+opt-in = true                            # staged only for a listing that names the store
+
+[altstore]                               # known by name, not staged
+label = "AltStore"
+targets = ["ios-uikit"]
 ```
 
 The CLI ships a copy as its default; `--rules FILE` or `DAY_STORE_RULES` names another, and a
@@ -496,7 +507,9 @@ action), so a store changing its limits is a data edit there, in force for every
 run, and `day store export` carries the rules in force, so a consumer of the export (the App
 Fair's queue) holds captures to the same limits without a copy of its own. `day lint` reads the
 same file: the field limits, the required fields and the locale spellings it checks are the
-rules', and a store with a `layout` is one the CLI stages.
+rules', and a store with a `layout` is one the CLI stages. An `opt-in` store is staged for an app
+only when its listing names the store, or when `day store stage -t <target>` asks for it; it
+scaffolds no `store/` skeleton and lints no listing otherwise.
 
 | store | device slug | rule |
 |---|---|---|

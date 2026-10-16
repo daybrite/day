@@ -1281,59 +1281,14 @@ fn collect(project: &Project) -> Vec<Finding> {
 
         check_permission_reasons(project, &catalog, &mut findings);
 
-        // Has a build actually written the declarations into the checked-in iOS manifest? The
+        // Has a build actually written the declarations into the checked-in Apple manifests? The
         // Android overlay is gitignored and regenerated every build, so there is nothing stale to
         // find there; checking it would only produce false alarms on a fresh clone.
-        if let Some(plist) = crate::mobile::ios_info_plist(project)
-            && let Ok(text) = std::fs::read_to_string(&plist)
-            && let Ok(plan) = crate::permissions::resolve_project(project, "ios", &[])
-        {
-            let have = crate::plist::read_string_keys(&text);
-            // Permission usage descriptions only. Day.toml `[window]`'s minimum is not checked
-            // here: the plist carries `$(DAY_WINDOW_MIN_WIDTH)`, a reference Xcode resolves at
-            // build time, so there is no value to go stale and nothing for a build to rewrite.
-            let want = crate::permissions::apple_keys(&plan, false);
-            let missing: Vec<&String> = want
-                .iter()
-                .filter(|(k, v)| have.get(*k) != Some(*v))
-                .map(|(k, _)| k)
-                .collect();
-            if !missing.is_empty() {
-                findings.push(Finding {
-                    code: "day::lint::stale-manifest",
-                    message: format!(
-                        "platform/ios/Runner/Info.plist is missing or out of date for {} — run \
-                         `day build -t ios-uikit` to regenerate it, and COMMIT the result: it is \
-                         a tracked file, so a build that rewrites it leaves the tree dirty and \
-                         CI refuses to pack from it (docs/permissions.md)",
-                        missing
-                            .iter()
-                            .map(|k| k.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    ),
-                    ..Default::default()
-                });
-            }
-            // The translations beside it: InfoPlist.xcstrings must match what the plan says
-            // every other locale reads, for the same reason.
-            let localized = crate::permissions::apple_keys_localized(&plan, false);
-            if crate::permissions::has_translations(&localized, &plan.default_locale) {
-                let strings = plist.with_file_name(crate::mobile::INFO_PLIST_STRINGS);
-                let want = crate::permissions::xcstrings_json(&plan.default_locale, &localized);
-                if std::fs::read_to_string(&strings).ok().as_deref() != Some(want.as_str()) {
-                    findings.push(Finding {
-                        code: "day::lint::stale-manifest",
-                        message: format!(
-                            "platform/ios/Runner/{} is missing or out of date for the localized \
-                             permission reasons — run `day build -t ios-uikit` to regenerate it \
-                             and commit the result (docs/permissions.md)",
-                            crate::mobile::INFO_PLIST_STRINGS
-                        ),
-                        ..Default::default()
-                    });
-                }
-            }
+        for (macos, plist) in [
+            (false, crate::mobile::ios_info_plist(project)),
+            (true, crate::mobile::macos_info_plist(project)),
+        ] {
+            stale_apple_manifest(project, plist, macos, &mut findings);
         }
     }
 
@@ -1986,6 +1941,77 @@ fn lint_vectors(project: &Project, findings: &mut Vec<Finding>) {
                     });
                 }
             }
+        }
+    }
+}
+
+/// Whether a build has written the declarations into one checked-in Apple manifest: the usage
+/// descriptions in `platform/<os>/Runner/Info.plist`, and their translations in the string catalog
+/// beside it. Both are tracked files, so one a build would rewrite is one CI refuses to pack from.
+fn stale_apple_manifest(
+    project: &crate::meta::Project,
+    plist: Option<std::path::PathBuf>,
+    macos: bool,
+    findings: &mut Vec<Finding>,
+) {
+    let (os, target) = if macos {
+        ("macos", "macos-appkit")
+    } else {
+        ("ios", "ios-uikit")
+    };
+    let Some(plist) = plist else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&plist) else {
+        return;
+    };
+    let Ok(plan) = crate::permissions::resolve_project(project, os, &[]) else {
+        return;
+    };
+    let have = crate::plist::read_string_keys(&text);
+    // Permission usage descriptions only. Day.toml `[window]`'s minimum is not checked here: the
+    // plist carries `$(DAY_WINDOW_MIN_WIDTH)`, a reference Xcode resolves at build time, so there
+    // is no value to go stale and nothing for a build to rewrite.
+    let want = crate::permissions::apple_keys(&plan, macos);
+    let missing: Vec<&String> = want
+        .iter()
+        .filter(|(k, v)| have.get(*k) != Some(*v))
+        .map(|(k, _)| k)
+        .collect();
+    if !missing.is_empty() {
+        findings.push(Finding {
+            code: "day::lint::stale-manifest",
+            message: format!(
+                "platform/{os}/Runner/Info.plist is missing or out of date for {} — run \
+                 `day build -t {target}` to regenerate it, and COMMIT the result: it is a tracked \
+                 file, so a build that rewrites it leaves the tree dirty and CI refuses to pack \
+                 from it (docs/permissions.md)",
+                missing
+                    .iter()
+                    .map(|k| k.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+            ..Default::default()
+        });
+    }
+    // The translations beside it: InfoPlist.xcstrings must match what the plan says every other
+    // locale reads, for the same reason.
+    let localized = crate::permissions::apple_keys_localized(&plan, macos);
+    if crate::permissions::has_translations(&localized, &plan.default_locale) {
+        let strings = plist.with_file_name(crate::mobile::INFO_PLIST_STRINGS);
+        let want = crate::permissions::xcstrings_json(&plan.default_locale, &localized);
+        if std::fs::read_to_string(&strings).ok().as_deref() != Some(want.as_str()) {
+            findings.push(Finding {
+                code: "day::lint::stale-manifest",
+                message: format!(
+                    "platform/{os}/Runner/{} is missing or out of date for the localized \
+                     permission reasons — run `day build -t {target}` to regenerate it and \
+                     commit the result (docs/permissions.md)",
+                    crate::mobile::INFO_PLIST_STRINGS
+                ),
+                ..Default::default()
+            });
         }
     }
 }

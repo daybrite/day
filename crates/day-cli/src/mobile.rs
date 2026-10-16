@@ -951,42 +951,72 @@ pub(crate) fn sync_uiappfonts(project: &Project) -> Result<(), String> {
 /// iOS reads these at prompt time, and an app that touches a gated API without the matching key is
 /// terminated by TCC, so this is what stands between `[permissions]` in Day.toml and a crash on a
 /// device.
-///
-/// The managed set is derived from the declaration table plus the app's `[permissions.raw].ios`
-/// keys, never from a state file: on a fresh clone the table alone still knows which keys are Day's
-/// to write and to remove. A key outside that set (one a developer added by hand) is never
-/// touched, which is the escape hatch for anything Day doesn't model yet.
 fn sync_ios_usage_descriptions(project: &Project) -> Result<(), String> {
     let Some(plist) = ios_info_plist(project) else {
         return Ok(());
     };
-    let contributed = crate::pieces::contributed_permissions(project, &["uikit"]);
-    let plan = crate::permissions::resolve_project(project, "ios", &contributed)
+    sync_apple_usage_descriptions(project, &plist, false)
+}
+
+/// The app-owned plist for Day's macOS Runner host.
+pub(crate) fn macos_info_plist(project: &Project) -> Option<PathBuf> {
+    let path = project.root.join("platform/macos/Runner/Info.plist");
+    path.is_file().then_some(path)
+}
+
+/// The macOS half of [`sync_ios_usage_descriptions`]: the same keys, from the macOS column of the
+/// declaration table, into `platform/macos/Runner/Info.plist`. TCC on macOS enforces them the same
+/// way, sandboxed or not, and App Review rejects a Mac App Store build whose entitlements ask for
+/// the camera or location without one.
+pub(crate) fn sync_macos_usage_descriptions(project: &Project) -> Result<(), String> {
+    let Some(plist) = macos_info_plist(project) else {
+        return Ok(());
+    };
+    sync_apple_usage_descriptions(project, &plist, true)
+}
+
+/// Write one Apple plist's usage descriptions, and the string catalog beside it.
+///
+/// The managed set is derived from the declaration table plus the app's `[permissions.raw]` keys
+/// for the platform, never from a state file: on a fresh clone the table alone still knows which
+/// keys are Day's to write and to remove. A key outside that set (one a developer added by hand)
+/// is never touched, which is the escape hatch for anything Day doesn't model yet.
+fn sync_apple_usage_descriptions(
+    project: &Project,
+    plist: &Path,
+    macos: bool,
+) -> Result<(), String> {
+    let (platform, toolkit) = if macos {
+        ("macos", "appkit")
+    } else {
+        ("ios", "uikit")
+    };
+    let contributed = crate::pieces::contributed_permissions(project, &[toolkit]);
+    let plan = crate::permissions::resolve_project(project, platform, &contributed)
         .map_err(|e| format!("Day.toml: {e}"))?;
 
-    let want = crate::permissions::apple_keys(&plan, false);
-    let mut managed = crate::permissions::apple_managed_keys(false);
+    let want = crate::permissions::apple_keys(&plan, macos);
+    let mut managed = crate::permissions::apple_managed_keys(macos);
     managed.extend(plan.raw_apple.keys().cloned());
     let remove: std::collections::BTreeSet<String> = managed
         .difference(&want.keys().cloned().collect())
         .cloned()
         .collect();
 
-    let before =
-        std::fs::read_to_string(&plist).map_err(|e| format!("{}: {e}", plist.display()))?;
+    let before = std::fs::read_to_string(plist).map_err(|e| format!("{}: {e}", plist.display()))?;
     let after = crate::plist::apply_string_keys(&before, &want, &remove)
         .map_err(|e| format!("{}: {e}", plist.display()))?;
     if after != before {
         // Touch only when changed, which keeps Xcode's incremental build warm.
-        std::fs::write(&plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
+        std::fs::write(plist, &after).map_err(|e| format!("{}: {e}", plist.display()))?;
 
         // Apple's own parser gets the last word. macOS-only, so elsewhere this costs checking,
         // not correctness; on failure the original file is restored rather than left corrupt.
         if cfg!(target_os = "macos")
-            && let Ok(out) = Command::new("plutil").arg("-lint").arg(&plist).output()
+            && let Ok(out) = Command::new("plutil").arg("-lint").arg(plist).output()
             && !out.status.success()
         {
-            let _ = std::fs::write(&plist, &before);
+            let _ = std::fs::write(plist, &before);
             return Err(format!(
                 "generated Info.plist failed `plutil -lint` and was restored: {}",
                 String::from_utf8_lossy(&out.stdout).trim()
@@ -996,9 +1026,9 @@ fn sync_ios_usage_descriptions(project: &Project) -> Result<(), String> {
 
     // The translations beside the plist (docs/permissions.md, "Localized reasons").
     sync_info_plist_strings(
-        &plist,
+        plist,
         &plan.default_locale,
-        &crate::permissions::apple_keys_localized(&plan, false),
+        &crate::permissions::apple_keys_localized(&plan, macos),
     )
 }
 
@@ -3745,6 +3775,53 @@ mod android_cxx_tests {
             std::fs::read(out.join("arm64-v8a/libc++_shared.so")).unwrap(),
             b"synthetic runtime bytes"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod macos_usage_tests {
+    use super::*;
+
+    #[test]
+    fn the_macos_host_gets_the_macos_columns_keys() {
+        let root = std::env::temp_dir().join(format!("day-macos-usage-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("platform/macos/Runner")).unwrap();
+        std::fs::write(
+            root.join("Day.toml"),
+            "schema = 1\n[app]\nid = \"dev.example.app\"\ntargets = [\"macos-appkit\"]\n\
+             [permissions]\ncamera = \"Take a photo.\"\nlocation-when-in-use = \"Show where you \
+             are.\"\nmotion = \"Count steps.\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let plist = root.join("platform/macos/Runner/Info.plist");
+        std::fs::write(
+            &plist,
+            include_str!("../templates/app/platform/macos/Runner/Info.plist"),
+        )
+        .unwrap();
+        let project = crate::meta::find_project(Some(&root)).unwrap();
+        sync_macos_usage_descriptions(&project).unwrap();
+        let keys = crate::plist::read_string_keys(&std::fs::read_to_string(&plist).unwrap());
+        assert_eq!(
+            keys.get("NSCameraUsageDescription").map(String::as_str),
+            Some("Take a photo.")
+        );
+        // macOS reads the older location key too.
+        assert!(keys.contains_key("NSLocationUsageDescription"));
+        assert!(keys.contains_key("NSLocationWhenInUseUsageDescription"));
+        // CoreMotion is iOS-only, so the motion reason has no macOS key.
+        assert!(!keys.contains_key("NSMotionUsageDescription"));
+        // A second sync changes nothing, which keeps Xcode's incremental build warm.
+        let before = std::fs::read_to_string(&plist).unwrap();
+        sync_macos_usage_descriptions(&project).unwrap();
+        assert_eq!(std::fs::read_to_string(&plist).unwrap(), before);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

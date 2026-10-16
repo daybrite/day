@@ -794,6 +794,15 @@ while a modifier only some pieces can honor stays an inherent method on those pi
 typed per piece (`Picker::style` takes a `PickerStyle`), and `enabled` needs a control to gray out
 (`Button::enabled`, `Toggle::enabled`).
 
+A realized node can remain unattached when an application-owned service needs a native engine
+without window content (for example `day-piece-media::AudioSession`). Removing such a node
+releases its native handle and handlers without calling native removal against the primary
+window: a null parent is not a window attachment. Its owner must retain and dispose the
+reactive scope. This does not preserve nodes across a whole-host remount; Android media
+sessions retain an application-context player outside the activity tree instead. The regression
+`removing_an_unattached_node_releases_without_native_detach` in `day-core/src/tree.rs` checks
+the native-detachment boundary.
+
 **Modifiers do not erase.** Each `Decorate` method returns `Decorated<Self>` — the piece plus an
 ordered op list — so the concrete piece type survives a chain; inherent methods on `Decorated<P>`
 shadow the trait's, keeping the chain flat rather than nesting. A piece's own builders are also
@@ -2400,6 +2409,14 @@ registry's mutable borrow and defers delivery to the next event-loop turn. Qt us
 boundary. The callback may recompose a floating section header and update layout; delivery
 must wait until both the toolkit registry and the core layout tree are free. Day-News's
 long-reader and grouped-feed scripts exercise the resulting list/header interaction.
+The CLI's loopback static server supports single HTTP byte ranges for browser media seeking:
+bounded, open-ended, and suffix requests return `206` with `Content-Range`, while valid
+unsatisfiable ranges return `416`. HEAD returns full-file headers without a body; malformed,
+multipart, unknown-unit, and conditional `If-Range` requests fall back to the complete file.
+Static responses retain the WebAssembly isolation headers. The offline worker caches only
+complete `200` responses, preserving its precached asset when an online seek returns `206`.
+Socket-level regression tests live in `day-cli/src/web.rs`; the media demo's Chromium
+walkthrough checks paused seeks and natural completion after seeking near the end.
 Two hardenings for dependency graphs (2026-08): `day build` compiles every
 web app with `--cfg getrandom_backend="custom"` and day-dom answers getrandom v0.3's
 custom-backend hook from the shim's `crypto.getRandomValues` import (entropy for uuid/rand
@@ -3427,9 +3444,11 @@ stripped the same way and the runner says once that the listing moved.
 > store's general list, the target's general list; kind before `default` at each step), the
 > same order the listing text resolves in, so a locale's choices outrank a store's; an item is
 > a shot name (the light theme) or `{ name, theme }`.
-> Store keys are open (`mac-app-store`, `altstore`, `f-droid`, …): the CLI
-> stages `apple-app-store` and `google-play-store`, and the rest ride through the index for
-> whatever publishes there. A top-level key of the old flat layout is not read; `day lint` names
+> Store keys are open (`altstore`, `f-droid`, …): the CLI stages `apple-app-store`,
+> `google-play-store` and (since 2026-10-16) `mac-app-store`, which is `opt-in`: staged for an app
+> whose listing names it, or when `day store stage -t macos-appkit` asks, so a desktop app that
+> ships only a download gets no store skeleton and no listing lint. The rest ride through the
+> index for whatever publishes there. A top-level key of the old flat layout is not read; `day lint` names
 > it, and holds every shot name against the dayscripts and every target against Day.toml.
 > The listing text lives in the same file (2026-09-25; before that in `store/<locale>/*.txt`,
 > which `day store migrate` folds in): `[storefront.metadata]` is the default locale's fields
@@ -4207,9 +4226,9 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day new` | scaffold an app, a **piece**, or a **part** (interactive when bare; `--no-input` for CI; `--describe` prints the question set as JSON for a GUI to render). An app scaffold includes `website/` (site.toml + theme.css — the daysite/GitHub Pages config); `--no-website` omits it; it also initializes a git repository and ships `.gitignore` and `.github/workflows/ci.yml` (the shared dayapp.yml workflow on `targets: all`, §20); the interactive run asks, and `--github`/`--no-github` answer for it (`--no-github` leaves out all three); a scaffold created inside an existing repository (a Day project added to another project's tree) keeps `.gitignore`, initializes nothing and writes no workflow, since GitHub reads `.github/` at the repository root only, and says so; a piece scaffold includes `demo/`, the app template rendered by the same code as `day new app` and cut to one page that shows the piece, on the targets its toolkits draw on (every target for a composite piece); `--no-demo` omits it; a piece's or part's Android Java goes to `src/Day<Name>.java`, declared as a single-file `java` entry (`--java-in-src=false` keeps a `platform/android/java/` tree); `--locales "en fr …"` scaffolds the app pre-localized, applying each tag beyond `en` through the same code path as `day localize add`; `--day-version <main\|x.y.z\|latest\|branch\|commit>` pins the scaffold's `day` dependencies to that version (a git tag/branch/rev, or the crates.io version with `--registry`) instead of the remote's default branch |
 | `day build -t <target>… [--day-src <path\|url[@ref]>] [--flavor <name>]` | build for one or more targets, in parallel; a cross-compiled target's Rust std is added through `rustup target add` when the toolchain lacks it (2026-09; a rustup-less toolchain is left to its own error); `--day-src` builds against a different `day` — a checkout, or a branch of the framework — for that build only ([`day launch`](#day-launch)); `--flavor` builds the app described by `Day-<name>.toml` ([§16.6](#166-build-flavors)) |
 | `day launch -t <target>… [--git <url>[@<ref>]] [--dir <d>] [--day-src <path\|url[@ref]>] [--locale …] [--env K=V]… [--script <file>]… [--grant <permission>]… [--variant name] [--themes t,…] [--locales l,…] [--capture-size WxH[@S]\|window] [--keep-alive] [--detach] [--skip-build] [--ios-device <name\|udid>] [--ios-simulator <name\|udid>] [--android-device <serial>] [--ohos-device <key>]` | build + install + run + stream logs; `--git <url>[@<ref>]` runs a REPOSITORY instead of a project on this machine — clone (or fetch and fast-forward), find the Day project inside it, launch that, so trying an app is one command and needs no checkout of one's own; `--day-src` swaps the FRAMEWORK for that one run — a checkout or a branch of `day`, patched in without writing anything to the project ([`day launch`](#day-launch)); scripts imply detach and exit 5 on assertion failure; `--skip-build` reuses the previous build's artifact (recorded per target×profile) — CI's capture loops build once and launch per variant; device selection is one flag per runtime, so a single launch can name a different one for each `-t`: `--ios-device` a physical iPhone/iPad, `--ios-simulator` (alias `--device`) one booted simulator instead of every booted one; `--detach` (alias `--detached`) exits after launch and leaves the apps running, so nothing of `day`'s is left to Ctrl-C and `day stop` is what ends them, `--android-device` an adb serial, `--ohos-device` an hdc connect key. A named device is also what the run's dayscript port forward and screenshots address, rather than whichever device enumerated first. `--ios-device` also changes the BUILD — the `iphoneos` SDK, and signing against the provisioning profile installed for that app id, with the identity and entitlements taken from the profile itself; installer chatter from adb/devicectl is captured rather than streamed so every target narrates through the same `Installing`/`Launching` lines and the app's own output carries the same `[target]` prefix; `-t` resolves builtin targets first, then pairs declared by dependency crates' `[package.metadata.day.toolkit]` ([§15.5](#155-external-toolkits-stage-0--experimental)); `--themes`/`--locales` expand a scripted launch into the capture matrix (build once, one run per theme×locale, the gallery/app variant-naming conventions, the iOS app-death retry, and linux headless plumbing all internal) — the loops both CI workflows used to carry; `--capture-size` states the pixel size of a scripted run's desktop-class captures for that run, over the `DAY_CAPTURE_SIZE` variable and Day.toml `[screenshots]` (default 2560×1600 at 2×; `window` = the app's own `[window]` size at the display's scale); `--grant <permission>` marks a portable permission ([docs/permissions.md](docs/permissions.md)) granted on the device between the install and the start — `pm grant` on Android, `simctl privacy grant` on the iOS Simulator — so a scripted run never meets the OS consent prompt, which a dayscript cannot dismiss ([§14.2](#142-the-embedded-engine)); refused before the build on a target with no tool for it (HarmonyOS, a physical iPhone, macOS TCC, the web, and the camera on the simulator, which has none) |
-| `day pack -t <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below) |
+| `day pack -t <target> [--profile release] [--formats <list>] [--no-version-in-name] [--artifact-name <stem>]` | build → sign → installable artifact (formats and naming below); `--formats` may name a format the target packs only on request, the Mac App Store `.pkg` for `macos-appkit` |
 | `day rebuild <artifact> [--strict] [--keep] [--force-tool <name>] [--from-dir <dir>]` | rebuild a shipped artifact from its own provenance (the SBOM + `.buildinfo` sidecars) and report the payload/container verdicts ([§20.3](#203-reproducible-build-verification)); `--from-dir <dir>` rebuilds from that project directory instead of cloning the recorded commit — for artifacts whose source is not in git, e.g. CI's freshly scaffolded project — with tool gating still applied from the sidecar |
-| `day sign check` / `day sign status <id>` / `day sign apply <artifact>` | validate `Day.toml [signing]` without printing secrets, query a notarization submission, or sign a package that already exists (Android; §16.5 below). A subcommand is required |
+| `day sign check` / `day sign status <id>` / `day sign apply <artifact>` | validate `Day.toml [signing]` without printing secrets, query a notarization submission, or sign a package that already exists (Android, iOS, HarmonyOS, and a macOS `.app` into a Mac App Store `.pkg`; §16.5 below). A subcommand is required |
 | `day doctor` | per-toolkit environment diagnosis with fixes |
 | `day doctor verify [-t <target>…] [--day-version <spec>] [--profile …] [--no-pack] [--strict] [--dir <d>] [--keep]` | end-to-end check of THIS machine: `day doctor` (fail-fast), then per combo scaffold a throwaway app, build it, and pack it — reporting each combo's build time and packaged artifact size. No `-t` checks every combo this host can build with what is installed (a missing prerequisite is a reported SKIP); naming combos asserts they work here, so a missing prerequisite is an error. `--strict` fails on any combo this host could have checked but is not set up for. `--day-version <main\|x.y.z\|latest\|branch\|commit>` names the day under test: the command installs that day-cli and pins the app it scaffolds to the same one — what the scheduled `doctor-verify.yml` crosses with its combo matrix ([§20](#20-continuous-integration)) |
 | `day project` | grow an existing app's platform support: `add-target <target>…` appends new targets to Day.toml and materializes their host sources (`--persist-native-project` opts into an app-owned Apple, Android or HarmonyOS project) (`platform/…`, plus the `store/` listing skeleton when the first store target arrives); on an already-declared target it materializes whatever scaffold files are missing, never overwriting — how an older app adopts a host project the template gained later (e.g. `platform/macos/`). |
@@ -4504,7 +4523,8 @@ the account was full, and a manual archive's profile setting reaches the Swift p
 which refuse it, 2026-09-24), and App Store Connect API-key automatic signing without one;
 `.hap` = the OpenHarmony SDK's hap-sign-tool over the keystore, certificate and profile, and
 `sign::apply` re-signs a packed `.hap` the same way (`--keystore --cert --profile --key-alias`,
-2026-09-28). The shared CI workflow runs every signer on one rule — a release, the whole
+2026-09-28); the Mac App Store `.pkg` = `codesign` over a Mac App Store profile + `productbuild`
+(2026-10-16). The shared CI workflow runs every signer on one rule — a release, the whole
 build matrix green, the platform's material there — and packs unsigned (`day pack --no-sign`
 names it `<stem>-<target>-unsigned.<ext>`) exactly the store packages a planned `sign` row will
 sign, one row per platform whose keystore or certificate is a repository secret, each checking
@@ -4513,6 +4533,10 @@ daybrite/actions' `sign-package` composite action (ephemeral keychain, a stored 
 issued profile, the decoded keystore files, `day sign apply`); a platform without material
 packs at the dev tier as on any ref, so the job that runs the app's own code never holds a
 signing key, and a store upload waits for the whole build matrix and that platform's signer.
+The Mac App Store is the exception in shape, not in rule: its signature is not the notarized
+download's, so `appstore-macos` signs its own `.pkg` from the unsigned `.app` the build staged
+for `sign-macos`, through the same `sign-package` action, with the `DAY_MAS_*` secrets
+(2026-10-16).
 Uploads go through its `store-upload` action (`day store
 stage`, then the lane); the App Fair's queue runs the same two actions, so signing and uploading
 are written once (2026-09-25, all platforms 2026-09-28); windows = self-signed dev flow. Config in `Day.toml [signing]` with env-var interpolation — an unset
@@ -4541,8 +4565,21 @@ Apple follows the same contract with Xcode's export steps written out: embed the
 frameworks and plug-ins deepest-first, sign the bundle with `--generate-entitlement-der`, verify
 with `codesign --verify --deep --strict`, repack with `ditto`. `--identity`/`signing.ios.identity`
 names the certificate; the flags outrank the manifest because a distributor signs an artifact
-whose `Day.toml` names the developer's material, not its own. macOS only (codesign/security/ditto);
-`.dmg` and `.pkg` remain `day pack`'s, and are named as not-yet-implemented rather than refused.
+whose `Day.toml` names the developer's material, not its own. macOS only (codesign/security/ditto).
+A macOS `.app` (a bundle with `Contents/`) is signed for the Mac App Store instead (2026-10-16),
+into a `.pkg`, the package the store takes: the profile embedded as
+`Contents/embedded.provisionprofile`, nested code then the bundle signed with the distribution
+identity and the hardened runtime, keeping the entitlements the build signed in (its sandbox
+policy) less `get-task-allow` plus the profile's application and team identifiers, then
+`productbuild --sign` with the installer identity (`--installer-identity`) and
+`pkgutil --check-signature`. Before signing it refuses, in words, what App Store Connect would
+refuse after the upload: a profile that is not a Mac App Store profile for the bundle id, an
+expired one, an unsandboxed app, no `LSApplicationCategoryType`, a device or personal-data
+entitlement without its usage description, a `com.apple.developer.*` capability the profile does
+not grant. `day pack -t macos-appkit --formats pkg` runs the same steps from
+`[signing.macos.app-store]` (`identity`, `installer-identity`, `profile`), degrading to
+`<stem>-macos-appkit-unsigned.pkg` without them; the `.dmg` stays the Developer ID download.
+Signing an existing `.dmg` or `.pkg` is named as not yet implemented rather than refused.
 
 #### `day launch`
 
@@ -4626,7 +4663,8 @@ would go, with sizes. The day-vscode extension's "Clean Project" action calls th
 #### `day pack`
 
 `day pack -t <target> [--profile release]` = build → sign → **installable artifact**, per
-target: `.dmg` (macos-appkit: sign `.app` → `hdiutil` → sign dmg → notarize → staple), `.ipa`
+target: `.dmg` (macos-appkit: sign `.app` → `hdiutil` → sign dmg → notarize → staple; with
+`--formats pkg` also, or instead, the Mac App Store `.pkg`, 2026-10-16), `.ipa`
 (ios; degrades to an UNSIGNED device `.ipa` — `-unsigned.ipa`, for sideloading via
 AltStore/SideStore or the developer's own signing — without App Store Connect signing config;
 changed 2026-07 from the original zipped-Simulator-`.app` fallback),
@@ -5067,6 +5105,7 @@ license = "lgpl-dynamic"            # or "commercial" — gates `day pack` stati
 [signing.macos]
 identity = "${DAY_SIGN_MACOS_IDENTITY}"
 notarize = { key-id = "${DAY_NOTARY_KEY_ID}", issuer = "${DAY_NOTARY_ISSUER}", key-path = "${DAY_NOTARY_KEY}", wait = "30m" }
+app-store = { identity = "${DAY_MAS_IDENTITY}", installer-identity = "${DAY_MAS_INSTALLER_IDENTITY}", profile = "${DAY_MAS_PROFILE}" }  # the Mac App Store .pkg (2026-10-16)
 
 [signing.android]
 keystore = "${DAY_ANDROID_KEYSTORE}"
