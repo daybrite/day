@@ -38,6 +38,7 @@ pub struct Inspector<V: Binding<bool>> {
     width: f64,
     scrollable: bool,
     edge: PaneEdge,
+    half_sheet: bool,
     sheet_done: TextSource,
     content: AnyPiece,
     panel: Rc<dyn Fn() -> AnyPiece>,
@@ -54,6 +55,7 @@ pub fn inspector<V: Binding<bool>, C: Piece, P: Piece>(
         width: INSPECTOR_WIDTH,
         scrollable: true,
         edge: PaneEdge::Trailing,
+        half_sheet: false,
         // A language-neutral glyph, because day carries no "Done" in its own catalog; apps
         // localize with `.sheet_done(…)`.
         sheet_done: "✕".into_text(),
@@ -90,6 +92,15 @@ impl<V: Binding<bool>> Inspector<V> {
         self.edge = edge;
         self
     }
+
+    /// On a compact window, present the panel as a half-height sheet rising from the bottom
+    /// edge rather than a fullscreen one, so the content it describes stays on show (and, on
+    /// iOS, interactive) while it is open: [`Cover::half_sheet`](crate::Cover::half_sheet).
+    /// Default: the fullscreen sheet.
+    pub fn half_sheet(mut self) -> Self {
+        self.half_sheet = true;
+        self
+    }
 }
 
 /// [`Inspector`]'s builders, forwarded through `Decorated` (docs/api-style.md).
@@ -98,6 +109,7 @@ pub trait InspectorBuilder: Sized {
     fn scrollable(self, scrollable: bool) -> Self;
     fn sheet_done<M>(self, t: impl IntoText<M>) -> Self;
     fn edge(self, edge: PaneEdge) -> Self;
+    fn half_sheet(self) -> Self;
 }
 
 impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
@@ -113,6 +125,9 @@ impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
     fn edge(self, edge: PaneEdge) -> Self {
         Inspector::edge(self, edge)
     }
+    fn half_sheet(self) -> Self {
+        Inspector::half_sheet(self)
+    }
 }
 
 impl<Inner: InspectorBuilder + Piece> InspectorBuilder for Decorated<Inner> {
@@ -127,6 +142,9 @@ impl<Inner: InspectorBuilder + Piece> InspectorBuilder for Decorated<Inner> {
     }
     fn edge(self, edge: PaneEdge) -> Self {
         self.map_inner(|inner| inner.edge(edge))
+    }
+    fn half_sheet(self) -> Self {
+        self.map_inner(|inner| inner.half_sheet())
     }
 }
 
@@ -394,6 +412,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
         width,
         scrollable,
         edge: inspector_edge,
+        half_sheet,
         sheet_done,
         content,
         panel,
@@ -444,23 +463,31 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
                 .grow()
             }),))
             .grow(),
-            // The compact home: a fullscreen sheet. Unrouted, because the inspector is chrome,
-            // not a place (`Cover::unrouted`), and carrying its own way out, since a fullscreen
-            // modal has no divider to drag shut.
-            cover(SheetOpen { visible, window }, move |_: &String| {
-                let close = sheet_close.clone();
-                column((
-                    row((
-                        spacer(),
-                        button(done.clone())
-                            .action(move || close.write(false))
-                            .id("day-inspector-done"),
+            // The compact home: a sheet, fullscreen or (`half_sheet`) half-height over the
+            // content it describes. Unrouted, because the inspector is chrome, not a place
+            // (`Cover::unrouted`), and carrying its own way out, since a modal has no divider
+            // to drag shut.
+            {
+                let sheet = cover(SheetOpen { visible, window }, move |_: &String| {
+                    let close = sheet_close.clone();
+                    column((
+                        row((
+                            spacer(),
+                            button(done.clone())
+                                .action(move || close.write(false))
+                                .id("day-inspector-done"),
+                        ))
+                        .padding(Insets::symmetric(12.0, 8.0)),
+                        panel_content(sheet_panel(), scrollable).grow(),
                     ))
-                    .padding(Insets::symmetric(12.0, 8.0)),
-                    panel_content(sheet_panel(), scrollable).grow(),
-                ))
-            })
-            .unrouted(),
+                })
+                .unrouted();
+                if half_sheet {
+                    sheet.half_sheet()
+                } else {
+                    sheet
+                }
+            },
         ),
     )
     .build(cx)
@@ -468,9 +495,11 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
 
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
+    use std::rc::Rc;
+
     use day_core::conformance::{Case, Drive};
     use day_reactive::Signal;
-    use day_spec::kinds;
+    use day_spec::{Cap, Support, kinds};
 
     use crate::*;
 
@@ -506,8 +535,87 @@ pub(crate) mod conformance {
             })
     }
 
+    // The heights the half-sheet case compares: the page's, and the sheet panel's.
+    thread_local! {
+        static HALF_HEIGHTS: (Rc<std::cell::Cell<f64>>, Rc<std::cell::Cell<f64>>) =
+            (Rc::default(), Rc::default());
+    }
+
+    /// Puts the primary window's size class back when the drive ends, however it ends.
+    struct RestoreSizeClass;
+
+    impl Drop for RestoreSizeClass {
+        fn drop(&mut self) {
+            day_core::restore_reported_size_class();
+        }
+    }
+
+    /// On a compact window a `half_sheet()` inspector presents its panel as a half sheet: the
+    /// panel's content lays out at about half the page's height, the content stays mounted,
+    /// and the signal closes it again.
+    #[day_macros::test(day_core)]
+    fn inspector_half_sheet_on_compact() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            // The sheet is the COMPOSED inspector's compact home; a toolkit with a native
+            // trailing pane (`Cap::Inspector` = Native) collapses the pane instead and never
+            // presents one, so the case does not apply there.
+            .requires_support("composed inspector", || {
+                if day_core::capability(Cap::Inspector) == Support::Native {
+                    Support::Unsupported
+                } else {
+                    Support::Native
+                }
+            })
+            .page(|| {
+                let (page_h, panel_h) = HALF_HEIGHTS.with(|h| (h.0.clone(), h.1.clone()));
+                page_h.set(0.0);
+                panel_h.set(0.0);
+                let show = Signal::new(false);
+                zstack((
+                    crate::nav::conformance::height_probe(page_h),
+                    inspector(
+                        show,
+                        column((
+                            label("Content").id("content"),
+                            button("Toggle")
+                                .action(move || show.update(|v| *v = !*v))
+                                .id("toggle"),
+                        )),
+                        move || {
+                            column((
+                                label("Properties").id("panel"),
+                                crate::nav::conformance::height_probe(panel_h.clone()),
+                            ))
+                        },
+                    )
+                    .scrollable(false)
+                    .half_sheet(),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                let _restore = RestoreSizeClass;
+                day_core::override_size_class(day_spec::SizeClass {
+                    width: day_spec::WidthClass::Compact,
+                    height: day_spec::HeightClass::Medium,
+                });
+                d.wait_idle().await?;
+                d.assert_missing("panel").await?;
+                d.tap("toggle").await?;
+                d.assert_text("panel", "Properties").await?;
+                d.wait_idle().await?;
+                let heights = HALF_HEIGHTS.with(|h| h.clone());
+                crate::nav::conformance::check_half(&d, "inspector half sheet panel", &heights)
+                    .await?;
+                d.assert_text("content", "Content").await?;
+                d.tap("toggle").await?;
+                d.assert_missing("panel").await
+            })
+    }
+
     day_core::tests! {
         inspector_shows_panel,
+        inspector_half_sheet_on_compact,
     }
 }
 

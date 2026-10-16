@@ -123,7 +123,10 @@ the moment it is registered, so a command fired immediately after File ▸ New W
 lands on the new window rather than on the one behind it. The reverse holds for a window on
 its way out: a phone presents a secondary window as a cover and animates its dismissal, and
 from the moment the close is requested the window behind it is the front one again, so a
-command fired during that animation acts on it rather than on the departing sheet.
+command fired during that animation acts on it rather than on the departing sheet. A cover
+that carries no `T` of its own answers with the primary window's: the cover renders inside
+that window, so a handler of the content underneath that fires while the cover is up (a
+focus change, a redraw) still finds the window's own state rather than none.
 
 A toolbar already belongs to the piece that declares it. Put its declarations in the window
 builder, and capture that window’s state directly. See [Toolbars](toolbars.md).

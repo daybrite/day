@@ -264,9 +264,13 @@ pub fn environment<T: Clone + 'static>() -> Option<T> {
 /// piece and the wrong one inside an app-wide menu action: a desktop menu bar is one bar for the
 /// whole app, and its commands act on the front window. This resolves through that window's own
 /// scope instead of the calling scope, so `File ▸ New Item` adds to the list the user is
-/// looking at. `None` ⇒ no window is open, or the front one provides no `T`.
+/// looking at. A cover that provides no `T` answers with the primary window's, since the
+/// cover renders inside it ([`crate::windows::focused_scope_chain`]). `None` ⇒ no window is
+/// open, or the front one provides no `T`.
 pub fn focused_environment<T: Clone + 'static>() -> Option<T> {
-    crate::windows::focused_scope()?.use_context::<T>()
+    crate::windows::focused_scope_chain()
+        .into_iter()
+        .find_map(|scope| scope.use_context::<T>())
 }
 
 /// The app-wide `T`: created on the reactive root scope the first time it is asked for, and

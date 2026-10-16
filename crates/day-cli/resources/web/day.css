@@ -623,6 +623,30 @@ body.day-has-toolbar #day-root {
    the two paint in the cover's order; the cover starts below it, so Day's frame for the cover
    is the strip's height shorter. The strip shows only while its cover does. */
 .day-cover.day-has-toolbar { top: var(--day-toolbar-h); }
+/* A half sheet (docs/cover.md): the bottom half of the viewport under a grabber, rounded and
+   lifted like a phone's sheet; the page above stays on show and clickable. The 20px top
+   padding is the grabber strip day-dom subtracts from the frame it seeds. */
+.day-cover.day-half {
+  top: auto;
+  bottom: 0;
+  height: 50%;
+  box-sizing: border-box;
+  padding-top: 20px;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.18);
+}
+.day-cover.day-half::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 36px;
+  height: 4px;
+  margin-left: -18px;
+  border-radius: 2px;
+  background: currentColor;
+  opacity: 0.3;
+}
 /* Two classes: `.day-toolbar` below sets the translucent bar background, and this must win. */
 .day-toolbar.day-cover-toolbar {
   position: fixed;

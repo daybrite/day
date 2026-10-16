@@ -148,6 +148,10 @@ day_core::tls_group! {
     static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
     /// Cover widget → NodeId (set at realize).
     static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
+    /// of the window content.
+    static COVER_HALF: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
 
     /// NAV_MENU widget → (row count, section heading count), for measure: the shim draws each
     /// heading as a band of its own above its row.
@@ -1532,11 +1536,12 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
         // native-owned while presented).
         COVERS.with(|c| {
             for (cover, node) in c.borrow().iter() {
+                let (y, size) = cover_frame(*cover, size);
                 unsafe {
                     ffi::day_qt_set_geometry(
                         *cover,
                         0,
-                        0,
+                        y as c_int,
                         size.width as c_int,
                         size.height as c_int,
                     )
@@ -1545,6 +1550,17 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
             }
         });
     });
+}
+
+/// A presented cover's place in a window content `area` large: the whole area, or the bottom
+/// half for a half sheet (docs/cover.md). Answers the y offset and the cover's own size.
+fn cover_frame(cover: *mut c_void, area: Size) -> (f64, Size) {
+    if COVER_HALF.with(|s| s.borrow().contains(&(cover as usize))) {
+        let h = (area.height * 0.5).floor();
+        (area.height - h, Size::new(area.width, h))
+    } else {
+        (0.0, area)
+    }
 }
 
 extern "C" fn nav_menu_changed(id: u64, row: std::os::raw::c_int) {
@@ -2225,6 +2241,9 @@ impl Toolkit for Qt {
                     let cover = QtHandle(ffi::day_qt_container_new());
                     ffi::day_qt_set_visible(cover.0, 0);
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover.0 as usize, id));
+                    if props_of::<CoverProps>(kind, "qt", props).is_some_and(|p| p.half) {
+                        COVER_HALF.with(|s| s.borrow_mut().insert(cover.0 as usize));
+                    }
                     cover
                 }
                 Some(Builtin::NavMenu) => {
@@ -2663,11 +2682,12 @@ impl Toolkit for Qt {
                                 }
                                 ffi::day_qt_add_child(self.window, h.0);
                                 ffi::day_qt_cover_top(h.0);
-                                let size = LAST_WINDOW_SIZE.with(|c| c.get());
+                                let (y, size) =
+                                    cover_frame(h.0, LAST_WINDOW_SIZE.with(|c| c.get()));
                                 ffi::day_qt_set_geometry(
                                     h.0,
                                     0,
-                                    0,
+                                    y as c_int,
                                     size.width as c_int,
                                     size.height as c_int,
                                 );
@@ -3072,6 +3092,7 @@ impl Toolkit for Qt {
         // presented set — `window_resized` writes through every entry's raw pointer, and a
         // stale one is a use-after-free once `day_qt_delete` runs below.
         COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
+        COVER_HALF.with(|s| s.borrow_mut().remove(&(h.0 as usize)));
         COVER_IDS.with(|m| {
             m.borrow_mut().remove(&key);
         });

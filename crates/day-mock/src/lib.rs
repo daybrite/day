@@ -148,6 +148,9 @@ pub struct MockWidget {
     pub placeholder: String,
     pub value: f64,
     pub flag: bool,
+    /// A cover presented as a half sheet (`CoverProps::half`): its present reports half the
+    /// window's height, as the native sheet would.
+    pub half: bool,
     pub enabled: bool,
     /// A button's selected state (`ButtonProps::selected`), probe-visible for tests.
     pub selected: bool,
@@ -1142,7 +1145,10 @@ impl Toolkit for MockToolkit {
             ..Default::default()
         };
         let mut detail = String::new();
-        if let Some(p) = props.downcast_ref::<LabelProps>() {
+        if let Some(p) = props.downcast_ref::<CoverProps>() {
+            w.half = p.half;
+            detail = format!(" sheet={} half={}", p.sheet, p.half);
+        } else if let Some(p) = props.downcast_ref::<LabelProps>() {
             w.text = p.text.clone();
             w.flag = p.wraps;
             w.font = Some(p.font);
@@ -1245,7 +1251,8 @@ impl Toolkit for MockToolkit {
         let described = s.describers.iter().find_map(|d| d(patch));
         let detail;
         // A cover shown or hidden, for the native-behavior mode to report (see `NATIVE_EVENTS`).
-        let mut cover_shown: Option<(u64, bool)> = None;
+        // (node, shown, half)
+        let mut cover_shown: Option<(u64, bool, bool)> = None;
         {
             let w = s.widgets.get_mut(&h.0).expect("update on unknown widget");
             if anim.is_some() {
@@ -1440,7 +1447,7 @@ impl Toolkit for MockToolkit {
                     } => {
                         w.flag = true;
                         w.background = *background;
-                        cover_shown = Some((w.node, true));
+                        cover_shown = Some((w.node, true, w.half));
                         format!(
                             "cover present bg={background:?} dismiss_disabled={dismiss_disabled}"
                         )
@@ -1448,7 +1455,7 @@ impl Toolkit for MockToolkit {
                     CoverPatch::DismissDisabled(d) => format!("cover dismiss_disabled={d}"),
                     CoverPatch::Dismiss => {
                         w.flag = false;
-                        cover_shown = Some((w.node, false));
+                        cover_shown = Some((w.node, false, w.half));
                         "cover dismiss".into()
                     }
                 }
@@ -1508,11 +1515,16 @@ impl Toolkit for MockToolkit {
         s.log(format!("update {kind} #{} {detail}", h.0));
         // What a native cover reports by itself: the size it gave the content, and that the
         // hide transition finished.
-        if let (Some((node, shown)), Some(sink)) = (cover_shown, s.sink.clone())
+        if let (Some((node, shown, half)), Some(sink)) = (cover_shown, s.sink.clone())
             && VIEWPORT_ROWS.with(|r| r.get()) > 0
         {
             let event = if shown {
-                Event::FrameChanged(MOCK_WINDOW.with(|w| w.get()))
+                // A half sheet is the bottom half of the window (docs/cover.md).
+                let mut size = MOCK_WINDOW.with(|w| w.get());
+                if half {
+                    size.height = (size.height * 0.5).floor();
+                }
+                Event::FrameChanged(size)
             } else {
                 Event::CoverHidden
             };

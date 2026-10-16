@@ -45,6 +45,9 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
   width it splits: at 1000 points or more (a tablet in landscape, even beside a layers pane) it
   is at least 320, and it never takes more than two fifths of the split, so a narrow window
   keeps its content.
+- `.half_sheet()` makes the compact sheet a half-height one rising from the bottom edge, the
+  content it describes staying on show (and, on iOS, interactive) while it is open
+  ([docs/cover.md](cover.md) "Half sheet"). Default: the fullscreen sheet.
 - `.sheet_done(label)` names the compact sheet's dismiss button (default `✕`; day carries no
   "Done" of its own, so pass a localized one).
 - `.edge(PaneEdge::Leading)` puts the pane on the leading side of the content instead, for a
@@ -63,7 +66,8 @@ inspector(show, editor(), || form((section((/* property rows */,)),)))
 
 On a window wider than [`WidthClass::Compact`](size-classes.md) the panel is a side pane. On a
 compact window there is no room for one, so while `visible` is true the panel presents as a
-fullscreen sheet instead, an unrouted [`cover`](cover.md), so it claims no route segments and
+fullscreen sheet instead (or, with `.half_sheet()`, a half-height one over the content), an
+unrouted [`cover`](cover.md), so it claims no route segments and
 a restored session never reopens a modal. The sheet carries its own dismiss button; the
 system back gesture dismisses it too, writing `false` straight back into the app's signal.
 Resizing across the breakpoint re-homes the panel automatically in both directions, because

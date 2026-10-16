@@ -49,6 +49,9 @@ objc2-ui-kit = { workspace = true, features = [
     # the text through.
     "UITextInputTraits", "UITextInput", "UISlider", "UIColor",
     "UIAlertController", "UIActivityViewController", "UIActivity", "UIPopoverPresentationController",
+    # The cover tier's sheets (docs/cover.md): a page sheet's dismissal delegate, and the half
+    # sheet's medium detent.
+    "UIPresentationController", "UISheetPresentationController",
     "UIProgressView", "UIActivityIndicatorView",
     "UIScrollView", "UIAccessibility", "UIBezierPath", "UIImage", "UIImageView", "UITraitCollection", "NSAttributedString", "NSStringDrawing", "UIStringDrawing", "UIFont",
     "UINavigationController", "UINavigationBar", "UINavigationItem",

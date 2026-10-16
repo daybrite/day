@@ -128,6 +128,10 @@ day_core::tls_group! {
     static COVERS: RefCell<Vec<(*mut c_void, NodeId)>> = const { RefCell::new(Vec::new()) };
     /// Cover element → NodeId (set at realize).
     static COVER_IDS: RefCell<HashMap<usize, NodeId>> = RefCell::new(HashMap::new());
+    /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
+    /// of the window.
+    static COVER_HALF: RefCell<std::collections::HashSet<usize>> =
+        RefCell::new(std::collections::HashSet::new());
 
 }
 
@@ -1939,6 +1943,9 @@ impl Toolkit for Xaml {
                     let cover = ffi::day_xaml_container_new();
                     ffi::day_xaml_set_visible(cover, 0);
                     COVER_IDS.with(|m| m.borrow_mut().insert(cover as usize, id));
+                    if props_of::<CoverProps>(kind, "xaml", props).is_some_and(|p| p.half) {
+                        COVER_HALF.with(|s| s.borrow_mut().insert(cover as usize));
+                    }
                     WinHandle(cover)
                 }
                 Some(Builtin::NavMenu) => {
@@ -2545,11 +2552,11 @@ impl Toolkit for Xaml {
                                 // in the content canvas, and XAML refuses a second logical parent
                                 // (the throw is swallowed), so an `add_child` here moved nothing.
                                 ffi::day_xaml_reparent(root, h.0);
-                                let size = cover_extent(self.window);
+                                let (y, size) = cover_frame(h.0, cover_extent(self.window));
                                 ffi::day_xaml_set_geometry(
                                     h.0,
                                     0,
-                                    0,
+                                    y.round() as c_int,
                                     size.width.round() as c_int,
                                     size.height.round() as c_int,
                                 );
@@ -2747,6 +2754,7 @@ impl Toolkit for Xaml {
         // presented set — `window_resized` writes through every entry's raw pointer, and a
         // stale one is a use-after-free once `day_xaml_delete` runs below.
         COVERS.with(|c| c.borrow_mut().retain(|(w, _)| *w != h.0));
+        COVER_HALF.with(|s| s.borrow_mut().remove(&(h.0 as usize)));
         COVER_IDS.with(|m| {
             m.borrow_mut().remove(&key);
         });
@@ -4227,6 +4235,17 @@ fn window_chrome(options: &WindowOptions) -> ffi::DayXamlChrome {
 /// fills with the CONTENT size — what day's layout wants, and smaller than the window by exactly
 /// the chrome a cover must hide. Falls back to the content size if the root has not been laid out
 /// yet (a cover presented before the first frame), which is no worse than the old behavior.
+/// A presented cover's place in a window `area` large: the whole area, or the bottom half for
+/// a half sheet (docs/cover.md). Answers the y offset and the cover's own size.
+fn cover_frame(cover: *mut c_void, area: Size) -> (f64, Size) {
+    if COVER_HALF.with(|s| s.borrow().contains(&(cover as usize))) {
+        let h = (area.height * 0.5).floor();
+        (area.height - h, Size::new(area.width, h))
+    } else {
+        (0.0, area)
+    }
+}
+
 fn cover_extent(window: *mut c_void) -> Size {
     let (mut w, mut h) = (0.0f64, 0.0f64);
     unsafe { ffi::day_xaml_window_chrome_size(window, &mut w, &mut h) };
@@ -4252,11 +4271,12 @@ extern "C" fn window_resized(w: c_int, h: c_int) {
         let full = cover_extent(std::ptr::null_mut());
         COVERS.with(|c| {
             for (cover, node) in c.borrow().iter() {
+                let (y, full) = cover_frame(*cover, full);
                 unsafe {
                     ffi::day_xaml_set_geometry(
                         *cover,
                         0,
-                        0,
+                        y.round() as c_int,
                         full.width.round() as c_int,
                         full.height.round() as c_int,
                     )

@@ -2871,14 +2871,20 @@ mod imp {
                 }),
                 // Fullscreen cover (docs/cover.md): a DayCover shell whose content pane is the
                 // Day mount point; CoverPatch::Present re-homes it over the activity content.
-                Some(Builtin::Cover) => with_env(|env| {
-                    AHandle(make_view(
-                        env,
-                        "makeCover",
-                        "(J)Landroid/view/View;",
-                        &[JValue::Long(idj)],
-                    ))
-                }),
+                // A half sheet (`CoverProps::half`) is the same shell as a Material bottom
+                // sheet over the bottom half of the window.
+                Some(Builtin::Cover) => {
+                    let half = day_spec::props_of::<CoverProps>(kind, "android", props)
+                        .is_some_and(|p| p.half);
+                    with_env(|env| {
+                        AHandle(make_view(
+                            env,
+                            "makeCover",
+                            "(JZ)Landroid/view/View;",
+                            &[JValue::Long(idj), JValue::Bool(half)],
+                        ))
+                    })
+                }
                 Some(Builtin::NavMenu) => {
                     let Some(p) = day_spec::props_of::<NavMenuProps>(kind, "android", props) else {
                         return realize_placeholder(kind);

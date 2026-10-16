@@ -5963,6 +5963,11 @@ pub mod props {
     pub struct CoverProps {
         /// Prefer a native sheet; toolkits without sheet presentation keep their modal cover.
         pub sheet: bool,
+        /// A half-height sheet rising from the bottom edge, the window content above it
+        /// staying on show and, where the platform allows, interactive: an inspector over the
+        /// canvas it describes. Implies `sheet`. The toolkit reports the sheet's own content
+        /// size through `FrameChanged`, as for any cover (docs/cover.md "Half sheet").
+        pub half: bool,
     }
 
     /// Applied to a `kinds::COVER` node as its bound signal opens and closes it.

@@ -2241,6 +2241,8 @@ struct NavPageIvars {
     /// remaining height (see `pin_below_title_bar`).
     top_inset: Cell<f64>,
     sheet: Cell<bool>,
+    /// A half sheet (docs/cover.md): the window sheet stands half the parent's height.
+    half: Cell<bool>,
 }
 
 define_class!(
@@ -2278,6 +2280,7 @@ impl DayNavPage {
             node,
             top_inset: Cell::new(0.0),
             sheet: Cell::new(false),
+            half: Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
     }
@@ -6907,9 +6910,13 @@ impl Toolkit for AppKit {
             // content for free — parked hidden until CoverPatch::Present re-homes it on top.
             Some(Builtin::Cover) => {
                 let page = DayNavPage::new(mtm, id);
+                let cover_props = props.downcast_ref::<CoverProps>();
+                // A half sheet is a sheet here: macOS has no half-height presentation of its
+                // own, so the window sheet stands in, at half the parent's height.
                 page.ivars()
                     .sheet
-                    .set(props.downcast_ref::<CoverProps>().is_some_and(|p| p.sheet));
+                    .set(cover_props.is_some_and(|p| p.sheet || p.half));
+                page.ivars().half.set(cover_props.is_some_and(|p| p.half));
                 unsafe { page.setHidden(true) };
                 view_of(page)
             }
@@ -7751,9 +7758,14 @@ impl Toolkit for AppKit {
                                     primary_content().and_then(|v| unsafe { v.window() })
                                 {
                                     let bounds = parent.frame().size;
+                                    let height = if page.ivars().half.get() {
+                                        (bounds.height * 0.5).clamp(160.0, 620.0)
+                                    } else {
+                                        (bounds.height - 80.0).clamp(300.0, 620.0)
+                                    };
                                     let size = NSSize::new(
                                         (bounds.width - 40.0).clamp(320.0, 640.0),
-                                        (bounds.height - 80.0).clamp(300.0, 620.0),
+                                        height,
                                     );
                                     let window = unsafe {
                                         NSWindow::initWithContentRect_styleMask_backing_defer(

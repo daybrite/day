@@ -1770,48 +1770,101 @@ public final class DayBridge {
 
     // --- navigation (docs/navigation.md) ---
     public static View makeNavHost(long id, String title, boolean adaptive, float tileMinDp) {
-        DayNavHost host = new DayNavHost(ctx, id, title, adaptive, tileMinDp);
-        // The window toolbar is usually set before the nav host exists (an app installs its
-        // bar as the first thing the window body does), so a host born after the spec arrived
-        // takes it now. Best-effort, like the bar actions below.
-        //
-        // The outermost host only. A window can hold more than one (a list-backed destination
-        // composes a nested host for its two layers), and giving each of them the window's
-        // items painted a second app bar directly under the first, which is what a tablet showed
-        // as the toolbar drawn twice (docs/toolbars.md).
-        if (toolbarHost == null || toolbarHost.get() == null) {
-            toolbarHost = new java.lang.ref.WeakReference<DayNavHost>(host);
-        }
-        if (host == toolbarHost.get() && windowToolbarSpec != null && !windowToolbarSpec.isEmpty()) {
-            try {
-                host.setWindowToolbar(windowToolbarSpec);
-                // The window carried the items itself until this host existed; its app bar has
-                // them now, so that bar comes down (docs/toolbars.md).
-                DayNavHost.WindowBar.undockAll();
-            } catch (Throwable t) {
-                android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
-            }
-        }
-        return host;
+        // The window's toolbar reaches the host once the host is in a window and its window is
+        // known (navHostAttached): a host built for a cover must never carry the items of the
+        // window underneath.
+        return new DayNavHost(ctx, id, title, adaptive, tileMinDp);
     }
 
-    /** The window toolbar spec as the app last set it (docs/toolbars.md), or null. One per
-     *  process: nav is app-root only (v1), so one bar rides every host. */
-    static String windowToolbarSpec = null;
+    /** The window toolbar spec as the app last set it (docs/toolbars.md), per WINDOW ROOT: the
+     *  view the Rust side hands setWindowToolbar, which is the day root for the primary window
+     *  and the DayCover shell for a window presented as a cover (docs/cover.md). Weak, so a
+     *  closed cover's record goes with its view. */
+    static final java.util.WeakHashMap<View, String> windowToolbarSpecs =
+            new java.util.WeakHashMap<>();
+
+    /** The window root a view belongs to: the DayCover shell when it sits inside a cover, else
+     *  the nearest ancestor a toolbar call has named (the primary window's day root). Null when
+     *  no toolbar call has reached this window yet; setWindowToolbar then finds the host under
+     *  the root itself. */
+    static View windowRootOf(View v) {
+        for (View p = v; p != null; p = p.getParent() instanceof View ? (View) p.getParent() : null) {
+            if (p instanceof DayCover) return p;
+            if (windowToolbarSpecs.containsKey(p) || toolbarHosts.containsKey(p)) return p;
+        }
+        return null;
+    }
+
+    /** The host carrying `root`'s bar, when one has claimed it and is still alive. */
+    static DayNavHost toolbarHostOf(View root) {
+        java.lang.ref.WeakReference<DayNavHost> ref = toolbarHosts.get(root);
+        DayNavHost h = ref == null ? null : ref.get();
+        if (h == null && ref != null) toolbarHosts.remove(root);
+        return h;
+    }
+
+    /** A nav host has joined a window (DayNavHost.onAttachedToWindow): the outermost host of
+     *  that window carries the window's toolbar from here on. The toolbar is usually set before
+     *  the host exists (an app installs its bar as the first thing the window body does), so a
+     *  host born after the spec arrived takes it now, and the bar the window carried itself
+     *  comes down (docs/toolbars.md).
+     *
+     *  The outermost host only. A window can hold more than one (a list-backed destination
+     *  composes a nested host for its two layers), and giving each of them the window's items
+     *  painted a second app bar directly under the first, which is what a tablet showed as the
+     *  toolbar drawn twice. A parent attaches before its children, so the first claim is the
+     *  outer host's. Best-effort, like the bar actions: a throw never reaches the tree. */
+    static void navHostAttached(DayNavHost host) {
+        try {
+            View root = windowRootOf(host);
+            if (root == null) return;
+            DayNavHost owner = toolbarHostOf(root);
+            if (owner != null && owner != host) return;
+            toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(host));
+            host.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
+            String spec = windowToolbarSpecs.get(root);
+            if (spec != null && !spec.isEmpty()) {
+                host.setWindowToolbar(spec);
+                DayNavHost.WindowBar.undock(root);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
+        }
+    }
+
+    /** The host carrying a window's bar has left its window (a dismissed cover, a re-parented
+     *  host): the slot opens for the next host, and a window still on screen gets its own bar
+     *  back so its commands never vanish with the host. A cover's bar goes with its host: the
+     *  cover is leaving too (its content is disposed once it has slid away), and a docked bar
+     *  for it would land on the activity content, over the window underneath. */
+    static void navHostDetached(DayNavHost host) {
+        try {
+            View root = host.toolbarRoot == null ? null : host.toolbarRoot.get();
+            host.toolbarRoot = null;
+            if (root == null || toolbarHostOf(root) != host) return;
+            toolbarHosts.remove(root);
+            if (root instanceof DayCover) return;
+            String spec = windowToolbarSpecs.get(root);
+            if (spec != null && !spec.isEmpty() && root.isAttachedToWindow()) {
+                DayNavHost.WindowBar.dock(root, spec);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar restore failed; continuing without it", t);
+        }
+    }
 
     /** A tree is about to be mounted on a new activity (DayActivity, before nativeStart): drop
      *  every process-wide reference to the hosts of the one that went away. day-android clears
      *  its own per-mount tables in `init` for the same reason; these are their Java twins.
      *
      *  Without this a recreation (the theme switch, docs/settings.md "Appearance on Android")
-     *  left `toolbarHost`
-     *  and `DayNavHost.active` on the destroyed activity's host. The weak reference stays live
-     *  until a collection happens to run, so the new tree's first host never claimed the bar
-     *  (makeNavHost saw the slot taken), and every setWindowToolbar after it painted onto a view
-     *  no window showed: the app bar came up with no items and none ever returned. */
+     *  left the toolbar slot and `DayNavHost.active` on the destroyed activity's host. The weak
+     *  reference stays live until a collection happens to run, so the new tree's first host
+     *  never claimed the bar (the slot looked taken), and every setWindowToolbar after it painted
+     *  onto a view no window showed: the app bar came up with no items and none ever returned. */
     static void beginMount() {
-        toolbarHost = null;
-        windowToolbarSpec = null;
+        toolbarHosts.clear();
+        windowToolbarSpecs.clear();
         DayNavHost.active = null;
         // The FragmentManager also restored the previous activity's PageFragments and their
         // back-stack entries from the saved instance state: content-less zombies, since a
@@ -1842,11 +1895,13 @@ public final class DayBridge {
             android.util.Log.e("Day", "restored fragment state not cleared; continuing", t);
         }
     }
-    /** The host drawing the window's bar. A window can hold several (a list-backed destination
-     *  composes a nested one for its layers), and only the first to appear carries the
-     *  window's items; the rest would stack a second app bar under the first
-     *  (docs/toolbars.md). Weak, so a closed window's host is collectable. */
-    static java.lang.ref.WeakReference<DayNavHost> toolbarHost = null;
+    /** The host drawing each window's bar, by window root (see `windowToolbarSpecs`). A window
+     *  can hold several hosts (a list-backed destination composes a nested one for its layers),
+     *  and only the first to appear carries the window's items; the rest would stack a second
+     *  app bar under the first (docs/toolbars.md). Weak both ways, so a closed window's root and
+     *  host are collectable. */
+    static final java.util.WeakHashMap<View, java.lang.ref.WeakReference<DayNavHost>> toolbarHosts =
+            new java.util.WeakHashMap<>();
 
     /** The nav host under `root`, if one has been built. */
     static DayNavHost findNavHost(View root) {
@@ -1868,22 +1923,27 @@ public final class DayBridge {
     // so an app that skipped its in-content strip on that answer would otherwise show no
     // commands at all. Wrapped like setNavMenu: a throw here can never reach the tree build.
     public static void setWindowToolbar(View root, String spec) {
-        windowToolbarSpec = spec;
+        windowToolbarSpecs.put(root, spec == null ? "" : spec);
         try {
-            // The host that owns the window's bar, once one has claimed it, never a nested one
-            // built later for a destination's own layers.
-            DayNavHost h = toolbarHost == null ? null : toolbarHost.get();
+            // The host that owns THIS window's bar, once one has claimed it, never a nested one
+            // built later for a destination's own layers, and never another window's: the
+            // settings cover's stack must not carry the editor's items (and the editor's bar
+            // must not come down for it), so the lookup never leaves `root`'s subtree.
+            DayNavHost h = toolbarHostOf(root);
             if (h == null) h = findNavHost(root);
-            if (h == null) h = DayNavHost.active;
-            if (h != null && (toolbarHost == null || toolbarHost.get() == null)) {
-                toolbarHost = new java.lang.ref.WeakReference<DayNavHost>(h);
+            if (h != null && toolbarHostOf(root) == null) {
+                toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(h));
+                h.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
             }
             if (h != null) {
                 DayNavHost.WindowBar.undock(root);
                 h.setWindowToolbar(spec);
             } else if (spec == null || spec.isEmpty()) {
                 DayNavHost.WindowBar.undock(root);
-            } else {
+            } else if (!(root instanceof DayCover)) {
+                // A cover's items ride the navigation host inside it, which takes them the
+                // moment it attaches (navHostAttached); a docked bar would sit on the activity
+                // content, over the window the cover is presented on.
                 DayNavHost.WindowBar.dock(root, spec);
             }
         } catch (Throwable t) {
@@ -1894,9 +1954,8 @@ public final class DayBridge {
     /** A targeted change to one live toolbar item: op 0 = enabled, 1 = toggle on, 2 = segment. */
     public static void updateWindowToolbar(View root, String id, int op, double num) {
         try {
-            DayNavHost h = toolbarHost == null ? null : toolbarHost.get();
+            DayNavHost h = toolbarHostOf(root);
             if (h == null) h = findNavHost(root);
-            if (h == null) h = DayNavHost.active;
             if (h != null) {
                 h.updateWindowToolbar(id, op, num);
             } else {
@@ -1965,7 +2024,7 @@ public final class DayBridge {
     public static void navSetGuard(View host, boolean on) { ((DayNavHost) host).setGuard(on); }
 
     // --- fullscreen cover (docs/cover.md) ---
-    public static View makeCover(long node) { return new DayCover(ctx, node); }
+    public static View makeCover(long node, boolean half) { return new DayCover(ctx, node, half); }
     public static void coverPresent(View cover, int bg, boolean hasBg, boolean dismissDisabled) {
         DayCover c = (DayCover) cover;
         if (hasBg) c.setBackgroundColor(bg);

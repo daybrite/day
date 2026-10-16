@@ -55,6 +55,7 @@ mod imp {
     use objc2_core_graphics::CGContext;
     use objc2_foundation::{NSObject, NSRange, NSString};
     use objc2_quartz_core::CADisplayLink;
+    use objc2_ui_kit::UIAdaptivePresentationControllerDelegate;
     // UIApplicationMain is "deprecated" in objc2 only as a rename to the private
     // `UIApplication::__main` binding; the classic entry point is what we want.
     use objc2::Message as _;
@@ -1871,9 +1872,9 @@ mod imp {
                 // Removing a principal item must restore the ordinary native page title.
                 item.setTitleView(mid.first().and_then(|i| i.customView()).as_deref());
             }
-            // Primary items ride a FIXED group so a crowded bar never folds them; everything
-            // else rides one optional group apiece, which is what lets UIKit take them into the
-            // overflow one at a time from the trailing end (docs/toolbars.md).
+            // Primary items ride the pinned trailing group so a crowded bar never folds them;
+            // everything else rides one optional group apiece, which is what lets UIKit take
+            // them into the overflow one at a time from the trailing end (docs/toolbars.md).
             if groups_ok {
                 let mut groups: Vec<Retained<objc2_ui_kit::UIBarButtonItemGroup>> = Vec::new();
                 let auto: Vec<_> = trailing
@@ -1891,15 +1892,22 @@ mod imp {
                     &auto,
                     build_toolbar_items(mtm, root, &auto, &mut targets),
                 ));
-                if !prime.is_empty() {
+                // Primary items ride the PINNED trailing group (iOS 16's
+                // `pinnedTrailingGroup`): beside the overflow button, and never folded into
+                // it, which is "folds last" on a phone's bar. A fixed group placed among the
+                // optional ones in `trailingItemGroups` went missing with the folded ones once
+                // the bar ran out of room (iOS 26, Day Sketch's Inspector).
+                if prime.is_empty() {
+                    item.setPinnedTrailingGroup(None);
+                } else {
                     let built = build_toolbar_items(mtm, root, &prime, &mut targets);
-                    groups.push(
+                    let pinned =
                         objc2_ui_kit::UIBarButtonItemGroup::fixedGroupWithRepresentativeItem_items(
                             None,
                             &objc2_foundation::NSArray::from_retained_slice(&built),
                             mtm,
-                        ),
-                    );
+                        );
+                    item.setPinnedTrailingGroup(Some(&pinned));
                 }
                 groups.extend(optional_item_groups(
                     mtm,
@@ -2014,9 +2022,7 @@ mod imp {
         let Some(items) = items else {
             return;
         };
-        let mut targets = Vec::new();
         let controls = bar_controls(&items);
-        let bar_items = build_toolbar_items(mtm, root, &controls, &mut targets);
         let existing =
             WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).and_then(|w| w.docked.clone()));
         let bar = existing.unwrap_or_else(|| {
@@ -2030,29 +2036,16 @@ mod imp {
             holder.addSubview(&bar);
             bar
         });
-        // `topItem` is the one pushed above; a bar with no item would drop the groups.
+        // `topItem` is the one pushed above; a bar with no item would drop the groups. The
+        // placements land as on a page's bar (docs/toolbars.md): leading items at the left,
+        // a principal one as the title, `Primary` in a fixed group a narrow bar never folds,
+        // the rest optional groups the overflow eats from the trailing end (plain items on
+        // iOS 15). The item keeps the targets (`NAV_ITEM_TARGETS`), as a page's does.
         if let Some(item) = unsafe { bar.topItem() } {
-            if os_at_least(16) {
-                let groups = optional_item_groups(mtm, &controls, bar_items);
-                unsafe {
-                    item.setTrailingItemGroups(&objc2_foundation::NSArray::from_retained_slice(
-                        &groups,
-                    ))
-                };
-            } else {
-                // iOS 15 has no item groups: plain items, rightmost first (as in
-                // `apply_items_styled`), and a bar too narrow for them all clips.
-                let ordered: Vec<_> = bar_items.into_iter().rev().collect();
-                unsafe {
-                    item.setRightBarButtonItems(Some(
-                        &objc2_foundation::NSArray::from_retained_slice(&ordered),
-                    ))
-                };
-            }
+            apply_items_to(mtm, &item, root, &controls);
         }
         WINDOW_TOOLBARS.with(|t| {
             if let Some(w) = t.borrow_mut().get_mut(&root) {
-                w.targets.extend(targets);
                 w.docked = Some(bar);
             }
         });
@@ -4533,12 +4526,48 @@ mod imp {
         edge
     }
 
+    /// The cover node a `DayCoverVC` presents, for the sheet's own dismissal report, and how
+    /// it presents: UIKit makes a fresh presentation controller for every presentation, so the
+    /// sheet's detents and delegate are applied each time the VC goes up (`configure_sheet`),
+    /// never once at realize.
+    struct CoverVcIvars {
+        node: Cell<u64>,
+        sheet: Cell<bool>,
+        half: Cell<bool>,
+    }
+
     define_class!(
         #[unsafe(super(UIViewController))]
         #[thread_kind = MainThreadOnly]
         #[name = "DayCoverVC"]
-        #[ivars = ()]
+        #[ivars = CoverVcIvars]
         struct DayCoverVC;
+
+        unsafe impl NSObjectProtocol for DayCoverVC {}
+
+        /// A sheet-style cover (`CoverProps::sheet`, the half sheet included) can be pulled
+        /// down by the user. UIKit has already dismissed it when this arrives, so it is reported
+        /// as the back request every cover answers (docs/cover.md): the piece writes `None`,
+        /// the Dismiss patch finds no presentation left and confirms `CoverHidden` at once.
+        /// `isModalInPresentation` (the dismissal shield) keeps the gesture from completing,
+        /// so this never fires for a shielded cover.
+        unsafe impl UIAdaptivePresentationControllerDelegate for DayCoverVC {
+            #[unsafe(method(presentationControllerDidDismiss:))]
+            fn presentation_controller_did_dismiss(
+                &self,
+                _controller: &objc2_ui_kit::UIPresentationController,
+            ) {
+                let node = self.ivars().node.get();
+                if node != 0 {
+                    emit(
+                        NodeId(node),
+                        Event::NavBack {
+                            already_popped: false,
+                        },
+                    );
+                }
+            }
+        }
 
         /// The presented cover is the VC UIKit consults for system-gesture deferral, so the
         /// `defers_system_gestures` union applies while a game/cover is up.
@@ -4570,9 +4599,44 @@ mod imp {
     );
 
     impl DayCoverVC {
-        fn new(mtm: MainThreadMarker) -> Retained<Self> {
-            let this = Self::alloc(mtm).set_ivars(());
+        fn new(mtm: MainThreadMarker, node: NodeId, sheet: bool, half: bool) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(CoverVcIvars {
+                node: Cell::new(node.0),
+                sheet: Cell::new(sheet),
+                half: Cell::new(half),
+            });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// Dress the presentation this VC is about to get, every time it is presented (see
+        /// `CoverVcIvars`). A sheet can be pulled down, so the VC hears about it as the
+        /// presentation controller's delegate. The half sheet (docs/cover.md): the medium
+        /// detent, with the large one a pull away, and nothing dimmed at medium so the content
+        /// the sheet describes stays interactive underneath it, the way an iOS inspector sheet
+        /// does; the grabber says it can be pulled.
+        fn configure_sheet(&self, mtm: MainThreadMarker) {
+            if !self.ivars().sheet.get() {
+                return;
+            }
+            unsafe {
+                if let Some(pc) = self.presentationController() {
+                    pc.setDelegate(Some(ProtocolObject::from_ref(self)));
+                }
+                if self.ivars().half.get()
+                    && let Some(sheet) = self.sheetPresentationController()
+                {
+                    use objc2_ui_kit::UISheetPresentationControllerDetent as Detent;
+                    let medium = objc2_ui_kit::UISheetPresentationControllerDetentIdentifierMedium;
+                    sheet.setDetents(&objc2_foundation::NSArray::from_retained_slice(&[
+                        Detent::mediumDetent(mtm),
+                        Detent::largeDetent(mtm),
+                    ]));
+                    sheet.setSelectedDetentIdentifier(Some(medium));
+                    sheet.setLargestUndimmedDetentIdentifier(Some(medium));
+                    sheet.setPrefersGrabberVisible(true);
+                    sheet.setPrefersScrollingExpandsWhenScrolledToEdge(false);
+                }
+            }
         }
     }
 
@@ -8770,16 +8834,17 @@ mod imp {
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
-                    let vc = DayCoverVC::new(mtm);
+                    let cover_props = props.downcast_ref::<CoverProps>();
+                    let half = cover_props.is_some_and(|p| p.half);
+                    let sheet = half || cover_props.is_some_and(|p| p.sheet);
+                    let vc = DayCoverVC::new(mtm, id, sheet, half);
                     unsafe {
                         vc.setView(Some(&outer));
-                        vc.setModalPresentationStyle(
-                            if props.downcast_ref::<CoverProps>().is_some_and(|p| p.sheet) {
-                                UIModalPresentationStyle::PageSheet
-                            } else {
-                                UIModalPresentationStyle::FullScreen
-                            },
-                        );
+                        vc.setModalPresentationStyle(if sheet {
+                            UIModalPresentationStyle::PageSheet
+                        } else {
+                            UIModalPresentationStyle::FullScreen
+                        });
                     }
                     let handle = view_of(content);
                     COVER_STATE.with(|m| {
@@ -12387,6 +12452,11 @@ mod imp {
                     return;
                 };
                 modal_begin_transition();
+                // The sheet's dressing goes on the presentation controller UIKit makes for
+                // THIS presentation (`CoverVcIvars`).
+                if let Some(mtm) = MainThreadMarker::new() {
+                    vc.configure_sheet(mtm);
+                }
                 let completion = block2::RcBlock::new(modal_end_transition);
                 unsafe {
                     top.presentViewController_animated_completion(

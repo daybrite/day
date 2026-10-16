@@ -28,6 +28,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > A navigation stack inside the cover moves its back button and title onto that strip. Without
 > items the cover is untouched (Games Fair's game covers).
 >
+> **Half sheet (2026-10).** `cover(open, build).half_sheet()` presents the bottom half of the
+> window with the content above it on show: a medium-detent sheet on iOS, a Material bottom
+> sheet on Android, a bottom-anchored half panel on web-dom, HarmonyOS and the emulated
+> desktop tiers (macOS keeps its window sheet, at half the window's height). The composed inspector's
+> compact home takes it through `Inspector::half_sheet()` ([docs/inspector.md](inspector.md)).
+> Verified on iOS, Android and web-dom (Day-Sketch); HarmonyOS, GTK, Qt and XAML carry the
+> geometry unverified. Conformance: `cover-half-sheet-presents-over-content`,
+> `cover-half-sheet-back-dismisses` and `inspector-half-sheet-on-compact` measure the sheet's
+> content against the page on every toolkit and the mock; the Showcase's Stack page demonstrates
+> it.
+>
 > **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
 > and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
 > bounding box, so a small home page (Games Fair's tile grid) presented a cover the size of
@@ -192,7 +203,7 @@ reopen it, and a "link me to this screen" URL point at a modal.
 
 | Toolkit | Present | Dismiss request | Hidden report |
 |---|---|---|---|
-| uikit | `DayCoverVC` (fullscreen modal) over a `DayNavPageView`, through the dialog FIFO | none (fullscreen has no sheet gesture) | dismiss completion block |
+| uikit | `DayCoverVC` (fullscreen modal, or a page sheet for `.sheet()` / `.half_sheet()`) over a `DayNavPageView`, through the dialog FIFO | none fullscreen; a sheet's pull-down arrives as `NavBack` from the presentation controller's delegate | dismiss completion block (immediate when the sheet is already down) |
 | android | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out completion, shell becomes GONE |
 | arkui | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
@@ -202,5 +213,25 @@ reopen it, and a "link me to this screen" URL point at a modal.
 
 `cover(open, build).sheet().unrouted()` uses the cover's signal, scoped child tree and dismissal
 contract for a data-entry sheet. AppKit attaches a native sheet to the primary window; UIKit
-uses PageSheet. The other toolkits currently use their existing modal cover treatment. The
-presentation hint is fixed when the piece is built; omit `.sheet()` to retain fullscreen behavior.
+uses PageSheet, and reports the sheet's pull-down as the cover's back request, so the bound
+signal follows what the user did. The other toolkits currently use their existing modal cover
+treatment. The presentation hint is fixed when the piece is built; omit `.sheet()` to retain
+fullscreen behavior.
+
+## Half sheet
+
+`cover(open, build).half_sheet()` presents the bottom half of the window and leaves the content
+above it on show: an inspector over the canvas it describes, a transport over the media it
+controls. It implies `.sheet()`. The cover reports its own content size through `FrameChanged`
+as every cover does, so the content lays out inside the sheet.
+
+| Toolkit | Presentation | Dismissal |
+|---|---|---|
+| uikit | `PageSheet` with the medium and large detents, medium selected and undimmed, so the content underneath stays interactive; a grabber | the pull-down gesture (reported as the cover's back request), programmatic |
+| android | the `DayCover` shell as a Material `BottomSheetBehavior` child of a `CoordinatorLayout` over the content root, sized to the bottom half, rounded with a drag handle; the host consumes no touch outside the sheet | pulled down past the hide threshold (the back request), system back, programmatic |
+| dom | the cover element anchored to the bottom at half the viewport (`.day-half`), rounded, lifted, with a grabber strip | programmatic |
+| arkui, gtk, qt, xaml | the emulated cover placed over the bottom half of its layer or content area | programmatic (Android-style back on HarmonyOS) |
+| appkit | the native-sheet tier: a window sheet as for `.sheet()`, standing half the parent window's height | the sheet's own controls, programmatic |
+
+The `interactive_dismiss_disabled` shield holds on every tier that has a gesture. A half sheet
+has no toolbar strip of its own on web-dom; put the sheet's controls in its content.

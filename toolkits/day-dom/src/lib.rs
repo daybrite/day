@@ -770,6 +770,10 @@ struct ListEntry {
     lead: Option<usize>,
 }
 
+/// The grabber strip above a half sheet's content, in CSS px (`.day-cover.day-half`'s
+/// `padding-top` in day.css).
+const HALF_SHEET_GRABBER: f64 = 20.0;
+
 thread_local! {
     static SINK: RefCell<Option<EventSink>> = const { RefCell::new(None) };
     /// The page's display state as last reported (`report_window_state`): Normal or Fullscreen.
@@ -779,6 +783,9 @@ thread_local! {
     static NODE_OF: RefCell<HashMap<u32, NodeId>> = RefCell::new(HashMap::new());
     /// Elements whose frames are CSS-managed (nav/tab pages): `set_frame` skips them.
     static CSS_FRAMED: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
+    /// of the viewport, under a grabber strip the stylesheet pads for.
+    static COVER_HALF: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
     static NAV_STATE: RefCell<HashMap<u32, NavState>> = RefCell::new(HashMap::new());
     /// NAV_PAGE element → is-sidebar, recorded at realize for the nav `insert`.
     static PAGE_SIDEBAR: RefCell<HashMap<u32, bool>> = RefCell::new(HashMap::new());
@@ -2155,6 +2162,13 @@ impl Toolkit for Dom {
             Some(Builtin::Cover) => {
                 let el = unsafe { day_dom_create(EL_PAGE) };
                 class(el, "day-cover", true);
+                // The half sheet: a bottom-anchored half panel (`.day-half`, day.css), the
+                // page above it on show and clickable.
+                if day_spec::props_of::<CoverProps>(kind, "web-dom", props).is_some_and(|p| p.half)
+                {
+                    class(el, "day-half", true);
+                    COVER_HALF.with(|set| set.borrow_mut().insert(el));
+                }
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
                 unsafe { day_dom_listen(el, 32) };
                 el
@@ -2503,7 +2517,15 @@ impl Toolkit for Dom {
                                 let vp = LAST_VIEWPORT.with(|v| v.get());
                                 // Less the cover's own toolbar strip, which sits above it.
                                 let strip = unsafe { day_dom_toolbar_height(el) };
-                                let size = Size::new(vp.width, vp.height - strip);
+                                // A half sheet is the bottom half, less the grabber strip
+                                // the stylesheet pads for (`.day-half`); the observer
+                                // reports the content box too.
+                                let half = COVER_HALF.with(|s| s.borrow().contains(&el));
+                                let size = if half {
+                                    Size::new(vp.width, vp.height * 0.5 - HALF_SHEET_GRABBER)
+                                } else {
+                                    Size::new(vp.width, vp.height - strip)
+                                };
                                 if size.width > 0.0 && size.height > 0.0 {
                                     emit(node, Event::FrameChanged(size));
                                 }
@@ -2582,6 +2604,7 @@ impl Toolkit for Dom {
         // SAFETY: an element id the shim either knows or does not; revoking nothing is a no-op.
         unsafe { day_dom_image_revoke(el) };
         CSS_FRAMED.with(|s| s.borrow_mut().remove(&el));
+        COVER_HALF.with(|s| s.borrow_mut().remove(&el));
         AREA_HINTS.with(|m| m.borrow_mut().remove(&el));
         PAGE_SIDEBAR.with(|m| m.borrow_mut().remove(&el));
         NAV_STATE.with(|m| m.borrow_mut().remove(&el));

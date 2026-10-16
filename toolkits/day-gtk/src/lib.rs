@@ -234,6 +234,9 @@ day_core::tls_group! {
     /// Cover widget key → NodeId (set at realize; consumed by the CoverPatch arms). A
     /// [`SideTable`], so the release sweep drops it with the cover widget.
     static COVER_IDS: SideTable<NodeId> = SideTable::new();
+    /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
+    /// of the content area.
+    static COVER_HALF: SideTable<()> = SideTable::new();
 
     /// Whether ANY Day window was active at the last activation check — the app-level
     /// lifecycle debounce (docs/windows.md): focus moving BETWEEN Day windows must not
@@ -5061,6 +5064,9 @@ impl Toolkit for Gtk {
                 let cover = gtk4::Fixed::new();
                 cover.set_visible(false);
                 COVER_IDS.with(|t| t.insert(widget_key(&cover.clone().upcast()), id));
+                if props_of::<CoverProps>(kind, "gtk", props).is_some_and(|p| p.half) {
+                    COVER_HALF.with(|t| t.insert(widget_key(&cover.clone().upcast()), ()));
+                }
                 cover.upcast()
             }
             Some(Builtin::NavMenu) => {
@@ -6050,6 +6056,8 @@ impl Toolkit for Gtk {
                                     .unwrap_or_else(|| {
                                         Size::new(root.width() as f64, root.height() as f64)
                                     });
+                                let (y, size) = cover_frame(&cover, size);
+                                root.move_(&cover, 0.0, y);
                                 cover.set_size_request(size.width as i32, size.height as i32);
                                 cover.set_visible(true);
                                 COVERS.with(|c| {
@@ -8683,11 +8691,30 @@ fn report_content_size(w: &adw::ApplicationWindow, target: Option<NodeId>) {
             // Presented covers track the content area (their frame is native-owned).
             COVERS.with(|c| {
                 for (cover, node) in c.borrow().iter() {
+                    let (y, size) = cover_frame(cover, size);
+                    if let Some(root) = cover
+                        .parent()
+                        .and_then(|p| p.downcast::<gtk4::Fixed>().ok())
+                    {
+                        root.move_(cover, 0.0, y);
+                    }
                     cover.set_size_request(size.width as i32, size.height as i32);
                     emit(*node, Event::FrameChanged(size));
                 }
             });
         }
+    }
+}
+
+/// A presented cover's place in a content area `area` large: the whole area, or the bottom
+/// half for a half sheet (docs/cover.md). Answers the y offset and the cover's own size.
+fn cover_frame(cover: &gtk4::Fixed, area: Size) -> (f64, Size) {
+    let half = COVER_HALF.with(|t| t.get(widget_key(&cover.clone().upcast())).is_some());
+    if half {
+        let h = (area.height * 0.5).floor();
+        (area.height - h, Size::new(area.width, h))
+    } else {
+        (0.0, area)
     }
 }
 

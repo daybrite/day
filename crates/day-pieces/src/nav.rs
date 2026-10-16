@@ -4672,6 +4672,7 @@ type CoverBackground<R> = Rc<dyn Fn(&R) -> day_spec::Color>;
 
 pub struct Cover<S, R: Route> {
     sheet: bool,
+    half: bool,
     open: S,
     build: Rc<dyn Fn(&R) -> AnyPiece>,
     background: Option<CoverBackground<R>>,
@@ -4688,6 +4689,7 @@ pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
 ) -> Cover<S, R> {
     Cover {
         sheet: false,
+        half: false,
         open,
         // The stored builder is erased because a `Cover` holds one closure for every route it
         // presents; the parameter stays generic so callers never write `.any()` for us.
@@ -4702,6 +4704,18 @@ impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
     /// Prefer a native modal sheet. Backends without sheets retain their modal cover.
     pub fn sheet(mut self) -> Self {
         self.sheet = true;
+        self
+    }
+
+    /// Present as a half-height sheet rising from the bottom edge, the window content above
+    /// it staying on show: an inspector over the canvas it describes, a transport over the
+    /// media it controls (docs/cover.md "Half sheet"). iOS presents a medium-detent sheet that
+    /// leaves the content interactive, Android a Material bottom sheet, the web, HarmonyOS and
+    /// the emulated desktop tiers a bottom-anchored half panel, and macOS its window sheet at
+    /// half the window's height. Implies [`Cover::sheet`].
+    pub fn half_sheet(mut self) -> Self {
+        self.sheet = true;
+        self.half = true;
         self
     }
 
@@ -4751,7 +4765,10 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
         let size: Rc<RefCell<Option<Size>>> = Rc::default();
         let node = cx.native(
             kinds::COVER,
-            &CoverProps { sheet: self.sheet },
+            &CoverProps {
+                sheet: self.sheet,
+                half: self.half,
+            },
             Rc::new(day_core::CoverLayout { size: size.clone() }),
             Flex::default(),
             Boundary::Yes,
@@ -5280,10 +5297,13 @@ impl<Inner: CoverBuilder + Piece> CoverBuilder for Decorated<Inner> {
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
     use day_core::Piece;
+    use std::rc::Rc;
+
     use day_core::conformance::{Case, Drive};
+    use day_core::{Boundary, Flex, RNode, piece_fn};
     use day_reactive::Signal;
     use day_spec::props::NavPresentation;
-    use day_spec::{Cap, kinds};
+    use day_spec::{Cap, Size, kinds};
 
     use crate::*;
 
@@ -5431,6 +5451,144 @@ pub(crate) mod conformance {
             })
     }
 
+    /// A layout that answers the proposal and remembers the height it was placed at: how a
+    /// case measures a surface on every toolkit, the mock included, without a number that
+    /// would only hold for one window size.
+    pub(crate) struct HeightProbe(pub(crate) Rc<std::cell::Cell<f64>>);
+
+    impl day_core::Layout for HeightProbe {
+        fn measure(
+            &self,
+            _cx: &mut dyn day_core::LayoutOps,
+            _children: &[RNode],
+            p: day_geometry::Proposal,
+        ) -> Size {
+            Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+        }
+        fn place(
+            &self,
+            _cx: &mut dyn day_core::LayoutOps,
+            _children: &[RNode],
+            bounds: day_geometry::Rect,
+        ) {
+            self.0.set(bounds.size.height);
+        }
+    }
+
+    /// A growable piece that records the height it is laid out at into `into`.
+    pub(crate) fn height_probe(into: Rc<std::cell::Cell<f64>>) -> impl Piece {
+        piece_fn(move |cx| {
+            cx.layout_only(
+                Rc::new(HeightProbe(into)),
+                Flex {
+                    grow_w: true,
+                    grow_h: true,
+                    ..Default::default()
+                },
+                Boundary::No,
+            )
+        })
+    }
+
+    // The heights the half-sheet cases compare: the page's, and the cover content's.
+    thread_local! {
+        static HALF_HEIGHTS: (Rc<std::cell::Cell<f64>>, Rc<std::cell::Cell<f64>>) =
+            (Rc::default(), Rc::default());
+    }
+
+    /// The page under a half sheet: a probe filling the page, the open value as text, a
+    /// button that opens the sheet, and the sheet with a probe filling its content.
+    fn half_covered(open: Signal<Option<String>>) -> impl Piece {
+        let (page_h, cover_h) = HALF_HEIGHTS.with(|h| (h.0.clone(), h.1.clone()));
+        page_h.set(0.0);
+        cover_h.set(0.0);
+        let sheet = cover(open, move |key: &String| {
+            column((
+                label(format!("Cover {key}")).id("cover-text"),
+                height_probe(cover_h.clone()),
+                button("Close").action(move || open.set(None)).id("close"),
+            ))
+        })
+        .half_sheet();
+        zstack((
+            height_probe(page_h),
+            column((
+                label(move || format!("open {}", open.get().unwrap_or_default())).id("state"),
+                button("Show")
+                    .action(move || open.set(Some("panel".into())))
+                    .id("show"),
+                sheet,
+            )),
+        ))
+    }
+
+    /// Whether `probe_h` is a half sheet's content height against the page's `page_h`: at
+    /// most a little over half (a grabber or handle rides inside the half), and well clear of
+    /// zero.
+    pub(crate) fn is_half(page_h: f64, probe_h: f64) -> bool {
+        page_h > 0.0 && probe_h > page_h * 0.15 && probe_h <= page_h * 0.6
+    }
+
+    /// Wait for a presented sheet's content to be laid out, then judge it with [`is_half`].
+    /// The frame a native sheet reports lands a turn after the presentation (and on the mock
+    /// a flush later), so the probe is polled rather than read once.
+    pub(crate) async fn check_half(
+        d: &Drive,
+        what: &str,
+        heights: &(Rc<std::cell::Cell<f64>>, Rc<std::cell::Cell<f64>>),
+    ) -> day_core::conformance::TestResult {
+        let mut got = (0.0, 0.0);
+        for _ in 0..40 {
+            got = (heights.0.get(), heights.1.get());
+            if is_half(got.0, got.1) {
+                break;
+            }
+            d.pause(0.05).await?;
+            d.wait_idle().await?;
+        }
+        d.check(
+            is_half(got.0, got.1),
+            &format!("{what} {} of page {}: between 15% and 60%", got.1, got.0),
+        )
+    }
+
+    /// A half sheet presents over the page at (about) half its height, and the content
+    /// underneath stays mounted; clearing the value dismisses it.
+    #[day_macros::test(day_core)]
+    fn cover_half_sheet_presents_over_content() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            .page(|| half_covered(Signal::new(None)))
+            .drive(|d: Drive| async move {
+                d.assert_missing("cover-text").await?;
+                d.tap("show").await?;
+                d.assert_text("cover-text", "Cover panel").await?;
+                d.wait_idle().await?;
+                let heights = HALF_HEIGHTS.with(|h| h.clone());
+                check_half(&d, "half sheet content", &heights).await?;
+                d.assert_text("state", "open panel").await?;
+                d.tap("close").await?;
+                d.assert_missing("cover-text").await?;
+                d.assert_text("state", "open ").await
+            })
+    }
+
+    /// Going back dismisses a half sheet and writes `None` back, as it does a sheet.
+    #[day_macros::test(day_core)]
+    fn cover_half_sheet_back_dismisses() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            .page(|| half_covered(Signal::new(None)))
+            .drive(|d: Drive| async move {
+                d.tap("show").await?;
+                d.assert_text("cover-text", "Cover panel").await?;
+                d.wait_idle().await?;
+                d.nav_back().await?;
+                d.assert_missing("cover-text").await?;
+                d.assert_text("state", "open ").await
+            })
+    }
+
     day_core::tests! {
         nav_stack_push_pop,
         nav_stack_follows_path,
@@ -5438,5 +5596,7 @@ pub(crate) mod conformance {
         nav_tabs_switch,
         cover_presents_and_dismisses,
         cover_sheet_back_dismisses,
+        cover_half_sheet_presents_over_content,
+        cover_half_sheet_back_dismisses,
     }
 }

@@ -253,7 +253,12 @@ toolbar transport and a Now Playing tab that way.
 
 A window whose content is not a navigation host anywhere — a canvas or a form filling the window —
 has no page bar to put items on, so both phones give it one: iOS a navigation bar of the window's
-own across the top under the status bar, Android a Material app bar in the same place.
+own across the top under the status bar, Android a Material app bar in the same place. The
+placements land on that bar exactly as on a page's: a `Primary` item rides a fixed group a narrow
+iPhone never folds, so an app's one way to a panel (Day Sketch's Inspector) stays a tap away
+rather than two. On Android the bar belongs to the window root it was set for: a cover presented
+over the window (the settings surface) carries its own items on its own stack's bar, and the
+window's bar is untouched underneath.
 
 On iOS the items ride the NAVIGATION BAR of the page that is showing, as item groups (one per
 item) so what the bar cannot fit folds into its overflow, trailing items first. A leading item

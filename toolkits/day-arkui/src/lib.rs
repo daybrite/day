@@ -203,6 +203,10 @@ mod imp {
         /// Fullscreen covers (docs/cover.md): handle ptr → day NodeId. A cover's frame is
         /// native-owned (full window while presented), so `set_frame` skips these.
         static COVER_NODES: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom
+        /// half of the cover layer.
+        static COVER_HALF: RefCell<std::collections::HashSet<usize>> =
+            RefCell::new(std::collections::HashSet::new());
         /// A cover's current native parent (its parked tree slot, or the dedicated cover
         /// layer while presented). Presenting re-homes it, so removals must target this.
         static COVER_PARENTS: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
@@ -1273,10 +1277,22 @@ mod imp {
         });
         let covers: Vec<usize> = COVER_PRESENTED.with(|s| s.borrow().iter().copied().collect());
         for cover in covers {
-            node::set_frame(cover as Handle, 0.0, 0.0, w, h);
+            let (y, h) = cover_frame(cover, h);
+            node::set_frame(cover as Handle, 0.0, y, w, h);
             if let Some(id) = COVER_NODES.with(|m| m.borrow().get(&cover).copied()) {
                 post_emit(NodeId(id), Event::FrameChanged(Size::new(w, h)));
             }
+        }
+    }
+
+    /// A presented cover's vertical frame in a layer `layer_h` tall: the whole layer, or the
+    /// bottom half for a half sheet (docs/cover.md).
+    fn cover_frame(cover: usize, layer_h: f64) -> (f64, f64) {
+        if COVER_HALF.with(|s| s.borrow().contains(&cover)) {
+            let h = (layer_h * 0.5).floor();
+            (layer_h - h, h)
+        } else {
+            (0.0, layer_h)
         }
     }
 
@@ -2611,6 +2627,11 @@ mod imp {
                 Some(Builtin::Cover) => {
                     let n = new_node(node::STACK);
                     COVER_NODES.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    if day_spec::props_of::<CoverProps>(kind, "arkui", props)
+                        .is_some_and(|p| p.half)
+                    {
+                        COVER_HALF.with(|s| s.borrow_mut().insert(n.0 as usize));
+                    }
                     n
                 }
                 // A scrollable column of tappable rows; each row's tap becomes SelectionChanged(index)
@@ -2886,7 +2907,8 @@ mod imp {
                                     None => node::remove_child(root as Handle, h.0),
                                 }
                                 node::add_child(root as Handle, h.0);
-                                node::set_frame(h.0, 0.0, 0.0, w, hgt);
+                                let (y, hgt) = cover_frame(key, hgt);
+                                node::set_frame(h.0, 0.0, y, w, hgt);
                                 COVER_PARENTS.with(|m| m.borrow_mut().insert(key, root));
                                 COVER_PRESENTED.with(|s| s.borrow_mut().insert(key));
                                 crate::host_api::show_cover_layer(true);

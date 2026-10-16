@@ -58,6 +58,10 @@ public class DayNavHost extends LinearLayout {
     /** v1: nav is app-root only, so a single active host suffices (deep-link routing). */
     static DayNavHost active;
 
+    /** The window root whose toolbar this host carries (DayBridge.navHostAttached), null
+     *  while it carries none. */
+    java.lang.ref.WeakReference<View> toolbarRoot;
+
     /** Immersive mode: the extra top chrome the floating app bar adds (px; 0 when stacked). */
     static int immersiveTopExtraPx() {
         DayNavHost h = active;
@@ -405,6 +409,12 @@ public class DayNavHost extends LinearLayout {
     @Override protected void onAttachedToWindow() {
         super.onAttachedToWindow();
         syncSectionBack();
+        DayBridge.navHostAttached(this);
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        DayBridge.navHostDetached(this);
+        super.onDetachedFromWindow();
     }
 
     /** Arm/disarm the back guard (NavPatch::GuardTop). While armed, the system/gesture back and
@@ -909,15 +919,6 @@ public class DayNavHost extends LinearLayout {
                 androidx.core.view.ViewCompat.requestApplyInsets(parent);
             }
             bar.docked = null;
-        }
-
-        /** Every docked bar down at once: a navigation host has been built, and the items ride
-         *  its app bar from here on. The app installs its toolbar before it builds the window's
-         *  body, so the first placement is always the docked one. */
-        static void undockAll() {
-            for (View root : new ArrayList<View>(DOCKED.keySet())) {
-                undock(root);
-            }
         }
 
         /** A targeted update for a window that has no navigation host. */

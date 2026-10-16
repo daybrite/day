@@ -546,6 +546,36 @@ pub fn focused_scope() -> Option<Scope> {
     })
 }
 
+/// The scopes a focused-window lookup consults, in order: the focused window's own, then,
+/// when that window is a cover, the primary window's. A cover renders inside the primary
+/// window, so state the cover does not carry — an editor's per-window `Scene` while its
+/// settings cover is up — is still the primary's: a handler of the content underneath that
+/// fires during the presentation (a focus change, a redraw) resolves to the window it belongs
+/// to rather than to a sheet that never had one (docs/state.md).
+pub(crate) fn focused_scope_chain() -> Vec<Scope> {
+    WINDOWS.with(|w| {
+        let windows = w.borrow();
+        let initial = INITIAL_WINDOW.with(|c| c.get());
+        let primary = || {
+            windows
+                .iter()
+                .find(|r| Some(r.root) == initial)
+                .map(|r| r.content_scope.unwrap_or(r.scope))
+        };
+        match windows.iter().find(|r| r.focused && !r.closing()) {
+            Some(front) => {
+                let own = front.content_scope.unwrap_or(front.scope);
+                let mut chain = vec![own];
+                if matches!(front.tier, Tier::Cover { .. }) {
+                    chain.extend(primary().filter(|scope| *scope != own));
+                }
+                chain
+            }
+            None => primary().into_iter().collect(),
+        }
+    })
+}
+
 /// The tree root of the window registered under `key`: day-script's snapshot target.
 pub fn window_root_by_key(key: &str) -> Option<RNode> {
     WINDOWS.with(|w| {
