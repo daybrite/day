@@ -1435,10 +1435,27 @@ pub fn launch(
             let name = target.name;
             let stdout = child.stdout.take();
             let stderr = child.stderr.take();
+            let attached = spec.attached;
             let h = std::thread::spawn(move || {
                 let t1 = stdout.map(|s| stream_logs(name, LogStream::Out, s));
                 let t2 = stderr.map(|s| stream_logs(name, LogStream::Err, s));
-                let code = child.wait().map(exit_code_of).unwrap_or(1);
+                // Scripted launches do not join this handle. Report the native status here,
+                // before draining the pipes, so an engine loss retains the Windows exception
+                // code (or a clean exit) even when no WER report has arrived yet.
+                let code = match child.wait() {
+                    Ok(exit) => {
+                        if attached {
+                            status("Exited", &format!("{name} (pid {}): {exit}", child.id()));
+                        }
+                        exit_code_of(exit)
+                    }
+                    Err(e) => {
+                        if attached {
+                            eprintln!("warning: could not wait for {name}: {e}");
+                        }
+                        1
+                    }
+                };
                 if let Some(t) = t1 {
                     let _ = t.join();
                 }

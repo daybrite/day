@@ -97,8 +97,8 @@ pub fn after_app_death(project: &Project, target: &'static Target, since: System
 /// have been shown on the next launch.
 ///
 /// Reports are FINALIZED on the next launch, so a crash seconds ago has left raw session
-/// artifacts (`session-…kv`, `sig-…kv`, `pending-…kv`) rather than `reports/report-*.json`. Both
-/// are plain text; whichever exists is printed, newest first.
+/// artifacts (`sig-…sig`, `pending-…kv`) rather than `reports/report-*.json`. The session sentinel
+/// is written at startup, so it supplies context but cannot establish that the app crashed.
 fn day_break_findings(
     project: &Project,
     target: &'static Target,
@@ -123,7 +123,7 @@ fn day_break_findings(
     let fresh: Vec<PathBuf> = files
         .into_iter()
         .filter(|p| modified_since(p, since))
-        // A `sig-*.sig` marker is zero bytes: the evidence is in the `.kv` beside it.
+        // Signal files are pre-created empty; the handler writes them only on a fault.
         .filter(|p| std::fs::metadata(p).map(|m| m.len() > 0).unwrap_or(false))
         .collect();
     if fresh.is_empty() {
@@ -141,6 +141,16 @@ fn day_break_findings(
             continue;
         }
         let name = path.file_name().unwrap_or_default().to_string_lossy();
+        if !break_artifact_is_crash(&name, &text) {
+            if name.starts_with("session-") {
+                crate::ops::status(
+                    "Session",
+                    &format!("day-break {name} (startup metadata, not a crash report)"),
+                );
+                eprintln!("{DIM}{}{DIM:#}", indent(&head(&text, MAX_LINES)));
+            }
+            continue;
+        }
         out.push(Finding {
             source: format!("day-break {name}"),
             body: summarize_break(&text).unwrap_or_else(|| head(&text, MAX_LINES)),
@@ -149,6 +159,23 @@ fn day_break_findings(
             break;
         }
     }
+}
+
+/// Match the producer's distinction between a session sentinel, a contained panic and a fault.
+/// A lone sentinel also survives an OS kill or a hung process; treating it as a crash stopped
+/// the remaining CI variants and hid the fact that no exception had actually been recorded.
+fn break_artifact_is_crash(name: &str, text: &str) -> bool {
+    if text.trim().is_empty() {
+        return false;
+    }
+    if name.starts_with("report-") && name.ends_with(".json") {
+        return serde_json::from_str::<serde_json::Value>(text)
+            .ok()
+            .is_some_and(|v| v.get("fatal").and_then(|v| v.as_bool()) == Some(true));
+    }
+    (name.starts_with("sig-") && name.ends_with(".sig"))
+        || (name.starts_with("pending-") && name.ends_with(".kv"))
+        || (name.starts_with("java-") && name.ends_with(".kv"))
 }
 
 /// Whether an artifact describes the session this run just launched: same backend, started no
@@ -917,6 +944,37 @@ fn indent(body: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn session_metadata_and_contained_panics_do_not_prove_a_crash() {
+        assert!(!break_artifact_is_crash(
+            "session-1a-ff.kv",
+            "pid=26\nbackend=windows-winui"
+        ));
+        assert!(!break_artifact_is_crash(
+            "contained-1a-ff-0.kv",
+            "message=caught panic"
+        ));
+        assert!(!break_artifact_is_crash("sig-1a-ff.sig", ""));
+        assert!(break_artifact_is_crash("sig-1a-ff.sig", "sig=11"));
+        assert!(break_artifact_is_crash(
+            "pending-1a-ff-0.kv",
+            "message=panic"
+        ));
+        assert!(break_artifact_is_crash(
+            "java-1a-ff.kv",
+            "message=uncaught exception"
+        ));
+        assert!(break_artifact_is_crash(
+            "report-123.json",
+            r#"{"kind":"panic","fatal":true}"#
+        ));
+        assert!(!break_artifact_is_crash(
+            "report-123.json",
+            r#"{"kind":"panic","fatal":false}"#
+        ));
+        assert!(!break_artifact_is_crash("report-123.json", "incomplete"));
+    }
 
     #[test]
     fn harmony_reports_are_scoped_to_the_app_and_current_launch() {
