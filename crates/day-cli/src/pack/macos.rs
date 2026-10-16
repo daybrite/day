@@ -86,13 +86,12 @@ pub fn pack(
     ));
     let _ = std::fs::remove_file(&dmg);
     status("Packing", "hdiutil create (UDZO)");
-    run_tool(
+    create_dmg(
         Command::new("hdiutil")
-            .args(["create", "-quiet", "-volname", &title, "-srcfolder"])
+            .args(["create", "-volname", &title, "-srcfolder"])
             .arg(&stage)
             .args(["-ov", "-format", "UDZO"])
             .arg(&dmg),
-        "hdiutil",
     )
     .map_err(PackError::Other)?;
 
@@ -125,6 +124,82 @@ pub fn pack(
         sha256: String::new(),
         tier,
     })
+}
+
+/// Disk Arbitration can briefly keep disk-image creation busy on hosted macOS runners.
+/// Retry only that transient failure; keep diagnostics (including under --verbose) so a
+/// different failure is actionable. In particular, `hdiutil -quiet` hides its errors too.
+fn create_dmg(cmd: &mut Command) -> Result<(), String> {
+    for attempt in 1..=3 {
+        let out = crate::ops::run_capture(cmd, "hdiutil create")?;
+        if out.status.success() {
+            return Ok(());
+        }
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        if attempt < 3 && text.to_ascii_lowercase().contains("resource busy") {
+            status(
+                "Warning",
+                "hdiutil: resource busy; retrying disk-image creation",
+            );
+            std::thread::sleep(std::time::Duration::from_secs(attempt));
+            continue;
+        }
+        let tail: Vec<_> = text.lines().rev().take(25).collect();
+        return Err(format!(
+            "hdiutil create failed ({}):\n{}",
+            out.status,
+            tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+        ));
+    }
+    unreachable!("the last attempt returns its error")
+}
+
+#[cfg(all(test, unix))]
+mod dmg_tests {
+    use super::*;
+
+    fn fake_create(name: &str, message: &str, failures: usize) -> (Result<(), String>, usize) {
+        let dir = std::env::temp_dir().join(format!("day-dmg-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let counter = dir.join("attempts");
+        std::fs::write(&counter, "").unwrap();
+        let result = create_dmg(Command::new("sh").args([
+            "-c",
+            "echo attempt >> \"$1\"; n=$(wc -l < \"$1\"); if [ \"$n\" -le \"$3\" ]; then echo \"$2\" >&2; exit 1; fi",
+            "fake-hdiutil",
+            counter.to_str().unwrap(),
+            message,
+            &failures.to_string(),
+        ]));
+        let attempts = std::fs::read_to_string(counter).unwrap().lines().count();
+        std::fs::remove_dir_all(dir).unwrap();
+        (result, attempts)
+    }
+
+    #[test]
+    fn busy_image_creation_is_retried() {
+        let (result, attempts) = fake_create("busy", "hdiutil: create failed - Resource busy", 2);
+        result.unwrap();
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn permanent_image_errors_keep_their_diagnostics_and_are_not_retried() {
+        let (result, attempts) = fake_create("full", "hdiutil: No space left on device", 3);
+        assert!(result.unwrap_err().contains("No space left on device"));
+        assert_eq!(attempts, 1);
+    }
+
+    #[test]
+    fn busy_image_retries_are_bounded() {
+        let (result, attempts) = fake_create("stuck", "hdiutil: create failed - Resource busy", 4);
+        assert!(result.unwrap_err().contains("Resource busy"));
+        assert_eq!(attempts, 3);
+    }
 }
 
 /// The resolved signing identity: None/"-" ⇒ ad-hoc. A missing secret degrades (§20), it never fails.

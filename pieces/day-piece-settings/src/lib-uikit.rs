@@ -248,23 +248,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            // `<id>-decrement` / `<id>-increment` on the buttons and `<id>` on the value, so a
-            // script can step the value and read it back, as on every other backend.
-            let value_label = label(move || format!("{}", v.get() as i64)).tabular();
-            let ctl = match &id {
-                Some(i) => row((
-                    dec.id(format!("{i}-decrement")),
-                    value_label.id(i.clone()),
-                    inc.id(format!("{i}-increment")),
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-                None => row((dec, value_label, inc))
-                    .spacing(8.0)
-                    .align(VAlign::Center)
-                    .any(),
-            };
+            let ctl = stepper_control(v, dec, inc, id.as_deref());
             parts.control(ctl, Host::Accessory)
         }
         RowKind::Text {

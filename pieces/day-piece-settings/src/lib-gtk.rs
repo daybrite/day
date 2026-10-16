@@ -528,16 +528,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let ctl = with_id(
-                row((
-                    dec,
-                    label(move || format!("{}", v.get() as i64)).tabular(),
-                    inc,
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-            );
+            let ctl = stepper_control(v, dec, inc, id.as_deref());
             native(props(false, None), Some(ctl), None, None)
         }
         RowKind::Text {
@@ -1748,21 +1739,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let value_label = label(move || format!("{}", v.get() as i64)).tabular();
-            let ctl = match &id {
-                Some(i) => row((
-                    dec.id(format!("{i}-decrement")),
-                    value_label.id(i.clone()),
-                    inc.id(format!("{i}-increment")),
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-                None => row((dec, value_label, inc))
-                    .spacing(8.0)
-                    .align(VAlign::Center)
-                    .any(),
-            };
+            let ctl = stepper_control(v, dec, inc, id.as_deref());
             let slot = b.slot(SlotKind::Suffix, Some(ctl), None, None);
             mk_row(false, None, ShellRowKind::Row { slot: Some(slot) })
         }

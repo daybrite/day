@@ -3029,20 +3029,37 @@ fn ensure_device_answers(serial: &str) -> Result<(), String> {
 /// what one [`INSTALL_TIMEOUT`] used to spend on a single silent wait.
 const INSTALL_ATTEMPT: Duration = Duration::from_secs(180);
 
-/// Install the APK, once more after a reconnect if the first attempt hung.
+/// Install the APK, once more without streaming after a reconnect if the first attempt hung.
 ///
 /// A wedged attempt is told from a failed one by its error: the deadline message names the
 /// timeout, and only that case gets the reconnect and the retry — a real `pm install` failure
-/// (a signature mismatch, say) is reported as it always was.
+/// (a signature mismatch, say) is reported as it always was. A responsive shell does not
+/// prove the streaming package-install channel is healthy: API 24 has hung on both attempts
+/// even after `echo` succeeded. The retry pushes the APK before invoking the package manager.
 fn install_apk(serial: &str, apk: &Path) -> Result<(), String> {
-    let attempt = || {
+    let attempt = |no_streaming| {
         run_quiet(
-            adb(Some(serial)).args(["install", "-r"]).arg(apk),
+            &mut apk_install_command(serial, apk, no_streaming),
             &format!("adb install ({serial})"),
             INSTALL_ATTEMPT,
         )
     };
-    let Err(first) = attempt() else {
+    install_apk_with(serial, attempt, || {
+        let _ = run_quiet(
+            adb(Some(serial)).args(["reconnect"]),
+            "adb reconnect",
+            Duration::from_secs(20),
+        );
+        ensure_device_answers(serial)
+    })
+}
+
+fn install_apk_with(
+    serial: &str,
+    mut attempt: impl FnMut(bool) -> Result<(), String>,
+    reconnect: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    let Err(first) = attempt(false) else {
         return Ok(());
     };
     if !crate::ops::is_timeout_message(&first) {
@@ -3050,15 +3067,20 @@ fn install_apk(serial: &str, apk: &Path) -> Result<(), String> {
     }
     status(
         "Warning",
-        &format!("{first}; reconnecting {serial} and installing once more"),
+        &format!("{first}; reconnecting {serial} and installing once more without streaming"),
     );
-    let _ = run_quiet(
-        adb(Some(serial)).args(["reconnect"]),
-        "adb reconnect",
-        Duration::from_secs(20),
-    );
-    ensure_device_answers(serial)?;
-    attempt()
+    reconnect()?;
+    attempt(true)
+}
+
+fn apk_install_command(serial: &str, apk: &Path, no_streaming: bool) -> Command {
+    let mut cmd = adb(Some(serial));
+    cmd.args(["install", "-r"]);
+    if no_streaming {
+        cmd.arg("--no-streaming");
+    }
+    cmd.arg(apk);
+    cmd
 }
 
 /// Stream one device's app logs (day-android's `redirect_stdio_to_logcat` routes the app's
@@ -3166,6 +3188,46 @@ mod abi_tests {
     use super::{android_build_abis, device_problem, devicectl_launch_args, parse_abi_list};
     use crate::ops::LaunchSpec;
     use std::sync::Mutex;
+
+    #[test]
+    fn apk_install_timeout_retries_without_streaming_after_reconnect() {
+        let calls = std::cell::RefCell::new(Vec::new());
+        super::install_apk_with(
+            "emulator-test",
+            |no_streaming| {
+                calls
+                    .borrow_mut()
+                    .push(if no_streaming { "push" } else { "default" });
+                if no_streaming {
+                    Ok(())
+                } else {
+                    Err("adb install did not finish within 180s and was killed".into())
+                }
+            },
+            || {
+                calls.borrow_mut().push("reconnect");
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(*calls.borrow(), ["default", "reconnect", "push"]);
+    }
+
+    #[test]
+    fn apk_install_preserves_package_errors_without_retry() {
+        let mut attempts = 0;
+        let error = super::install_apk_with(
+            "emulator-test",
+            |_| {
+                attempts += 1;
+                Err("INSTALL_FAILED_UPDATE_INCOMPATIBLE".into())
+            },
+            || panic!("a package error must not reconnect"),
+        )
+        .unwrap_err();
+        assert_eq!(attempts, 1);
+        assert_eq!(error, "INSTALL_FAILED_UPDATE_INCOMPATIBLE");
+    }
 
     #[test]
     fn apple_launch_uses_the_platform_override() {

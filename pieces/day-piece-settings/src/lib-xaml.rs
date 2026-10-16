@@ -343,21 +343,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let value_label = label(move || format!("{}", v.get() as i64)).tabular();
-            Some(match &id {
-                Some(i) => row((
-                    dec.id(format!("{i}-decrement")),
-                    value_label.id(i.clone()),
-                    inc.id(format!("{i}-increment")),
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-                None => row((dec, value_label, inc))
-                    .spacing(8.0)
-                    .align(VAlign::Center)
-                    .any(),
-            })
+            Some(stepper_control(v, dec, inc, id.as_deref()))
         }
         RowKind::Text {
             value,

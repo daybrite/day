@@ -625,16 +625,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
             let (dec, inc) = (dec.compact(), inc.compact());
-            let ctl = with_id(
-                row((
-                    dec,
-                    label(move || format!("{}", v.get() as i64)).tabular(),
-                    inc,
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-            );
+            let ctl = stepper_control(v, dec, inc, id.as_deref());
             NativeRow::of(r).control(ctl).any()
         }
         RowKind::Text {

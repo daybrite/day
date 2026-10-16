@@ -785,16 +785,7 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            row.control = Some(with_id(
-                day_pieces::prelude::row((
-                    dec,
-                    label(move || format!("{}", v.get() as i64)).tabular(),
-                    inc,
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-            ));
+            row.control = Some(stepper_control(v, dec, inc, id.as_deref()));
         }
         RowKind::Text {
             value,

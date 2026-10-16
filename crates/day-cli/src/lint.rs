@@ -1782,11 +1782,12 @@ fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)
     }
 }
 
-/// Validate one Fluent formatting-function call (docs/localization.md "Formatted values"):
 /// The keys of Day's core catalog (`crates/day-l10n/catalog/en.ftl`, docs/localization.md): the
 /// `day-*` strings every app can reach through `day::tr` without defining them.
+/// Bundle the catalog in the CLI package: day-l10n is not published, so a sibling-crate
+/// include works in the workspace but breaks `cargo package` and crates.io installs.
 fn core_catalog_keys() -> BTreeSet<String> {
-    day_build::message_keys(include_str!("../../day-l10n/catalog/en.ftl"))
+    day_build::message_keys(include_str!("../resources/core-en.ftl"))
         .into_iter()
         .collect()
 }
@@ -2102,6 +2103,20 @@ fn check_permission_reasons(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bundled_core_catalog_matches_framework() {
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../day-l10n/catalog/en.ftl");
+        // The source catalog exists in the workspace, not in a standalone CLI package.
+        if source.exists() {
+            assert_eq!(
+                include_str!("../resources/core-en.ftl"),
+                std::fs::read_to_string(source).expect("read framework catalog"),
+                "sync resources/core-en.ftl from day-l10n/catalog/en.ftl"
+            );
+        }
+        assert!(core_catalog_keys().contains("day-ok"));
+    }
 
     /// The id rule reports once per platform that cannot build it, and stays quiet when the
     /// manifest overrides the id for those platforms.

@@ -1797,6 +1797,31 @@ pub(crate) fn stepper_buttons(
     (dec, inc)
 }
 
+/// The same script targets on every settings presentation: the id names the value label,
+/// and its two buttons have stable suffixes. Keep these on the controls, not their row.
+pub(crate) fn stepper_control(
+    value: Signal<f64>,
+    dec: day_pieces::Button,
+    inc: day_pieces::Button,
+    id: Option<&str>,
+) -> AnyPiece {
+    let value_label = label(move || format!("{}", value.get() as i64)).tabular();
+    match id {
+        Some(id) => row((
+            dec.id(format!("{id}-decrement")),
+            value_label.id(id),
+            inc.id(format!("{id}-increment")),
+        ))
+        .spacing(8.0)
+        .align(VAlign::Center)
+        .any(),
+        None => row((dec, value_label, inc))
+            .spacing(8.0)
+            .align(VAlign::Center)
+            .any(),
+    }
+}
+
 /// The desktop window: a sidebar of groups beside the selected page (one group: the page
 /// alone). A toolkit feature replaces this with its native panel.
 fn window_shell(inst: Rc<Installed>) -> AnyPiece {
@@ -2120,23 +2145,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            // The buttons carry `<id>-decrement` / `<id>-increment` and the value label `<id>`,
-            // so a script can step the value and read it back.
-            let value_label = label(move || format!("{}", v.get() as i64)).tabular();
-            let ctl = match &id {
-                Some(i) => row((
-                    dec.id(format!("{i}-decrement")),
-                    value_label.id(i.clone()),
-                    inc.id(format!("{i}-increment")),
-                ))
-                .spacing(8.0)
-                .align(VAlign::Center)
-                .any(),
-                None => row((dec, value_label, inc))
-                    .spacing(8.0)
-                    .align(VAlign::Center)
-                    .any(),
-            };
+            let ctl = stepper_control(v, dec, inc, id.as_deref());
             trailing_row(title_column(r), ctl)
         }
         RowKind::Text {
