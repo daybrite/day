@@ -212,6 +212,12 @@ installed `app_menu`. `day::open_about()` opens it from anywhere.
 | iOS, Android, HarmonyOS | The navigation presentation: a root page (About header, then the groups as chevron rows; one group: its rows inline) in a `nav_stack` that pushes one page per group. On iOS the pages are a `UITableView` in the inset grouped style: configured `UITableViewCell`s with the system disclosure chevron, header and footer text, selection highlight on touch, and the Day control as the cell's accessory (a slider under its title, a custom row as the whole cell). On Android the pages are the Material 3 preference screen: full-bleed rows with category headers and footnotes, a ripple on every tappable row, the About header a large list item. On HarmonyOS they are a `List` of `ListItemGroup` cards. | Inset-grouped / Material preference / list-item rows with the Day control trailing (a slider under its title on Android). | The app's nav item; `open()` presents a cover with a Done button where no item is mounted. |
 | Web (dom) | The navigation presentation, presented as a cover whose strip carries the stack title, the back button once a page is pushed, and the Done button, opened from the toolbar's app-menu button (web-dom emulates the app menu: `Cap::AppMenu` is `Emulated`, so Settings…, About and every app command live behind the ⋯ button, and `navigate("settings/<group>")` routes to the cover). | Composed. | The ⋯ app-menu button; no nav item (`in_nav()` is false). |
 
+HarmonyOS group pages place their native card list inside a Day `scroll`. The inner list
+measures its full content and disables its own scrolling, leaving one viewport for gestures
+and dayscript `scroll_to` to reveal controls in custom groups. `group_body` remains a
+content-sized list for a caller-owned scroll. The settings root keeps its native list viewport.
+Day-Skies' `scripts/weather.yaml` exercises revealing and removing a custom city row.
+
 A desktop page measures its content so the window fits it (`size_to_fit`), and does not
 scroll: a tall `Group::custom` needs a `window_size` ceiling that holds it, and a dayscript
 `scroll_to` on such a page is gated off the desktop toolkits.

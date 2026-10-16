@@ -1205,6 +1205,15 @@ which reads day-core directly and therefore works uniformly regardless of platfo
 and `day lint` uniqueness checks. Ids are the contract between the app and its tests; a lint rule
 forbids leaking them into `contentDescription`/a11y labels (screen readers would speak them).
 
+When the same id is mounted in several windows (for example Settings in both a sidebar and
+a floating panel), `find_by_id` prefers the focused window's subtree. Cover-backed windows
+are separate lookup roots even though they are children of the primary root; a dismissing
+cover no longer wins over the primary. Ids absent from the focused window still resolve
+globally. This keeps scripted input and Save actions in the same form rather than mixing
+copies according to slot allocation order. Regression:
+`duplicate_form_ids_resolve_in_the_focused_window_or_cover` in
+`crates/day-pieces/tests/mock_e2e.rs`, plus Day-Skies' web weather walkthrough.
+
 ---
 
 ## §6 Styling and per-target variation
@@ -3626,6 +3635,14 @@ caches; trailing badge icons can indicate independent per-row activity alongside
 counts. See [navigation](docs/navigation.md).
 
 ### §15.2 Package layout and aggregation
+
+HarmonyOS Settings group pages retain their native `ListItemGroup` cards inside a
+content-sized, non-scrolling `List`; a Day `scroll` owns the viewport. This lets tree-based
+`scroll_to` reveal controls inside `Group::custom`, which a native-only list viewport could
+not expose to the shared scroll traversal. `group_body` still leaves scrolling to its caller,
+and the settings root keeps its native list viewport. See [settings](docs/settings.md) and
+Day-Skies' `scripts/weather.yaml` custom-city regression. Local validation compile-checks
+ArkUI; emulator acceptance remains in CI.
 
 > [!NOTE]
 > **Settings providers (2026-10).** A second link-time registry joined `RENDERERS`:

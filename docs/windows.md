@@ -29,8 +29,11 @@ One tree has many roots: a secondary window's content container is adopted as an
 boundary root of the same thread-local tree (the `create_cell_anchor` trick the primary root
 and list cells already use), laid out at that window's own size. Bindings, `find_by_id`,
 navigation state, and dayscript therefore work across windows with no window parameter;
-element ids stay globally unique, and a control in one window can drive a label in another
-through ordinary signals.
+unique element ids remain reachable globally, and a control in one window can drive a label
+in another through ordinary signals. When a reusable form mounts the same ids in multiple
+windows, lookup prefers the focused window (including a cover-backed window). Recycled
+list and tree rows follow their owning view's window. A dismissing cover no longer takes
+precedence over the primary window. Keep ids unique within each window.
 
 ## Titles: what the platform manages windows by
 
@@ -361,7 +364,7 @@ before tagging; an app that sets only `title` still shows "Day News" in its App 
 
 ```yaml
 - menu: { key: day-preferences }                       # invoke a menu action (menus.md)
-- wait_for: { id: prefs-title }                        # ids are tree-global — no window scoping
+- wait_for: { id: prefs-title }                        # global lookup; focused window wins duplicates
 - screenshot: { name: prefs, window: day.preferences } # capture a window by its open key
 - close_window: { window: day.preferences }            # async confirm → teardown, like the title bar
 - close_window: {}                                     # the initial window: the app ends (close policy above; GTK today)

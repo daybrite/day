@@ -8002,6 +8002,83 @@ fn a_freshly_opened_window_is_the_focused_one() {
 }
 
 #[test]
+fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
+    // Synthetic forms model Settings mounted in a sidebar as well as its own window.
+    for cover in [false, true] {
+        let primary = Signal::new(String::new());
+        let secondary = Signal::new(String::new());
+        let saved = Signal::new(String::new());
+        let form = move |value: Signal<String>| {
+            column((
+                text_field(value).id("fixture-field"),
+                button("Fixture Save")
+                    .action(move || saved.set(value.get_untracked()))
+                    .id("fixture-save"),
+                list(items(|| vec![0usize], |i: &usize| *i), move |_| {
+                    button("Fixture row action")
+                        .action(move || saved.set(format!("row: {}", value.get_untracked())))
+                        .id("fixture-row-action")
+                })
+                .row_height(RowHeight::Uniform(40.0)),
+            ))
+        };
+        let probe = boot(move || {
+            column((
+                form(primary),
+                label("Fixture primary only").id("fixture-primary"),
+            ))
+        });
+        probe.set_no_multi_window(cover);
+        let window = day_core::open_window(
+            Some("fixture-settings"),
+            win_options("Fixture Settings", 400.0, 300.0),
+            day_spec::WindowKind::Preferences,
+            move || form(secondary),
+        );
+        flush_sync();
+        for (index, (host, _)) in probe.find_by_kind("day.list").iter().enumerate() {
+            probe.list_bind(*host, 0, MockHandle(90_000 + index as u64));
+        }
+        let find = |id| day_core::with_tree(|t| t.find_by_id(id)).unwrap();
+        let type_and_save = |text: &str| {
+            day_core::synthesize_text(find("fixture-field"), text.to_string());
+            day_core::enqueue_event(day_core::rnode_to_id(find("fixture-save")), Event::Pressed);
+            flush_sync();
+        };
+        type_and_save("secondary fixture");
+        assert_eq!(secondary.get_untracked(), "secondary fixture");
+        assert_eq!(saved.get_untracked(), "secondary fixture");
+        assert_eq!(primary.get_untracked(), "");
+        day_core::enqueue_event(
+            day_core::rnode_to_id(find("fixture-row-action")),
+            Event::Pressed,
+        );
+        assert_eq!(saved.get_untracked(), "row: secondary fixture");
+        // Unique ids elsewhere remain reachable.
+        let _ = find("fixture-primary");
+
+        if cover {
+            // A dismissing cover is still in the tree until CoverHidden arrives.
+            window.close();
+        } else {
+            probe.emit(
+                day_core::windows::window_node_id(&window),
+                Event::WindowFocused(false),
+            );
+        }
+        type_and_save("primary fixture");
+        assert_eq!(primary.get_untracked(), "primary fixture");
+        assert_eq!(saved.get_untracked(), "primary fixture");
+        assert_eq!(secondary.get_untracked(), "secondary fixture");
+        day_core::enqueue_event(
+            day_core::rnode_to_id(find("fixture-row-action")),
+            Event::Pressed,
+        );
+        assert_eq!(saved.get_untracked(), "row: primary fixture");
+    }
+}
+
+#[test]
 fn focused_ambient_follows_the_key_window_and_falls_back_to_the_primary() {
     let probe = boot(scene_shell);
     day_core::open_window(

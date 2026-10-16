@@ -1563,7 +1563,9 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
 
 /// One group's page: its sections as cards.
 pub(super) fn group_page(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
-    Some(group_list(&inst, g, false))
+    // Let Day own the group's scroll viewport, as on Android. The native cards retain
+    // their appearance while scroll_to can reveal custom controls through the tree.
+    Some(scroll(group_list(&inst, g, true)).any())
 }
 
 /// One group's cards in a list as tall as they are, for a sheet's own `scroll`.

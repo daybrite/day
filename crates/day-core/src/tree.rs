@@ -2015,10 +2015,55 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn find_by_id(&self, id: &str) -> Option<RNode> {
-        self.nodes
-            .iter()
-            .find(|(_, n)| n.id.as_deref() == Some(id))
-            .map(|(k, _)| k)
+        // A settings page can exist both in the app sidebar and in its focused window/cover.
+        // Slot order can otherwise mix fields from one form with the Save button of another.
+        let focused = crate::windows::focused_window()
+            .map(|w| id_to_rnode(crate::windows::window_node_id(&w)))
+            .unwrap_or_else(|| self.root());
+        let mut fallback = None;
+        for (key, node) in &self.nodes {
+            if node.id.as_deref() != Some(id) {
+                continue;
+            }
+            fallback.get_or_insert(key);
+            let mut ancestor = key;
+            while let Some(node) = self.nodes.get(ancestor) {
+                // Covers are children of the primary root but own a separate layout root.
+                // Stop at the nearest root so a closing cover cannot masquerade as primary.
+                if self.windows.iter().any(|w| w.root == ancestor) {
+                    if ancestor == focused {
+                        return Some(key);
+                    }
+                    break;
+                }
+                ancestor = if node.kind == kinds::LIST_CELL && node.parent.is_null() {
+                    // Recycling-list/tree cells are independent layout anchors, not children
+                    // in the owner's layout. Follow their logical owner for window lookup.
+                    self.lists
+                        .iter()
+                        .find_map(|(&owner, state)| {
+                            state
+                                .cells
+                                .values()
+                                .any(|c| c.anchor == ancestor)
+                                .then_some(owner)
+                        })
+                        .or_else(|| {
+                            self.trees.iter().find_map(|(&owner, state)| {
+                                state
+                                    .cells
+                                    .values()
+                                    .any(|c| c.anchor == ancestor)
+                                    .then_some(owner)
+                            })
+                        })
+                        .unwrap_or(node.parent)
+                } else {
+                    node.parent
+                };
+            }
+        }
+        fallback
     }
 
     fn toggle_sidebar(&mut self, host: RNode) -> bool {
