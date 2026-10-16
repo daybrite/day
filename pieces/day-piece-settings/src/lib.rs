@@ -2915,6 +2915,15 @@ pub mod conformance {
                 d.assert_enabled("pref-conformance.count-increment", true)
                     .await?;
                 d.assert_enabled("pref-conformance.count-decrement", true)
+                    .await?;
+                let initial = COUNT.get_untracked();
+                d.assert_text("pref-conformance.count", &initial.to_string())
+                    .await?;
+                d.tap("pref-conformance.count-increment").await?;
+                d.assert_text("pref-conformance.count", &(initial + 1).to_string())
+                    .await?;
+                d.tap("pref-conformance.count-decrement").await?;
+                d.assert_text("pref-conformance.count", &initial.to_string())
                     .await
             })
     }

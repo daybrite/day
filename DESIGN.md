@@ -433,7 +433,8 @@ Two structural rules carried over from pane, both still enforced:
   (`Platform::post_delayed`) over the same loop's timer (`dispatch_after` /
   `Handler.postDelayed` / `g_timeout_add` / `QTimer::singleShot` / `SetTimer` /
   `setTimeout`), so neither a post nor a sleep costs a thread. (The designed `day::task::spawn`
-  async executor shipped later as `day::task`, §4.5.)
+  async executor shipped later as `day::task`, §4.5.) XAML and WinUI check a monotonic deadline
+  before completing a delayed post and rearm early Win32 timer signals for the remaining delay.
 - **One turn state machine**, referenced by every other section (ratification: DP-17):
 
   1. A native callback (event, timer, `on_main` delivery) opens a **batch**; handler closures run;

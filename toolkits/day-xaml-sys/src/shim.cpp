@@ -38,6 +38,7 @@
 #endif
 
 #include <string>
+#include <chrono> // monotonic deadlines for Win32 timers, which may signal early
 #include <limits>
 #include <algorithm> // std::sort — radial-gradient stop ordering
 #include <array>      // the saved clip rect on the save/restore stack
@@ -2856,19 +2857,35 @@ void day_xaml_post(void (*cb)(void*), void* data) {
 // The timer door behind day::sleep (docs/async.md). A thread-less Win32 timer belongs to the
 // queue of the thread that armed it, so the arming itself rides day_xaml_post to the UI thread;
 // WM_TIMER then runs the callback from the message pump. One-shot: the timer dies as it fires.
-struct DelayedPost { void (*cb)(void*); void* data; unsigned ms; };
+struct DelayedPost {
+    void (*cb)(void*);
+    void* data;
+    unsigned ms;
+    std::chrono::steady_clock::time_point deadline;
+};
 static std::map<UINT_PTR, DelayedPost*> g_delayed; // UI thread only
 static void CALLBACK day_xaml_delayed_fire(HWND, UINT, UINT_PTR id, DWORD) {
-    KillTimer(nullptr, id);
     auto it = g_delayed.find(id);
     if (it == g_delayed.end()) return;
     DelayedPost* p = it->second;
+    auto now = std::chrono::steady_clock::now();
+    if (now < p->deadline) {
+        // WM_TIMER has system-clock granularity and can arrive before the requested delay.
+        // Keep the callback pending and reset the timer for the remaining time, rounded up.
+        // If resetting fails, the existing periodic timer still gives us another turn.
+        auto remaining = std::chrono::ceil<std::chrono::milliseconds>(p->deadline - now);
+        SetTimer(nullptr, id, static_cast<UINT>(remaining.count()), day_xaml_delayed_fire);
+        return;
+    }
+    KillTimer(nullptr, id);
     g_delayed.erase(it);
     p->cb(p->data);
     delete p;
 }
 void day_xaml_post_delayed(unsigned ms, void (*cb)(void*), void* data) {
-    auto* p = new DelayedPost{ cb, data, ms };
+    auto* p = new DelayedPost{
+        cb, data, ms, std::chrono::steady_clock::now() + std::chrono::milliseconds(ms)
+    };
     day_xaml_post([](void* raw) {
         auto* p = static_cast<DelayedPost*>(raw);
         UINT_PTR id = SetTimer(nullptr, 0, p->ms, day_xaml_delayed_fire);

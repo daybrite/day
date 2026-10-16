@@ -58,18 +58,22 @@ mod general {
         Case::headless().run(|t: Drive| async move {
             let thread = std::thread::current().id();
             let count = Signal::new(0i64);
-            #[cfg(not(target_arch = "wasm32"))]
-            let started = std::time::Instant::now();
-            day_core::sleep(120).await;
-            #[cfg(not(target_arch = "wasm32"))]
-            if !synchronous_backend() {
-                // Every backend's timer fires at or after its delay; the one millisecond of
-                // slack covers the timer's clock and `Instant` ticking apart.
-                let slept = started.elapsed();
-                t.check(
-                    slept >= std::time::Duration::from_millis(119),
-                    &format!("a 120 ms sleep resolved after {slept:?}"),
-                )?;
+            // Exercise both sides of Windows' timer tick boundaries and repeat the longer
+            // delay: a single sample can miss a WM_TIMER delivered before its deadline.
+            for ms in [1, 10, 15, 16, 31, 120, 120, 120] {
+                #[cfg(not(target_arch = "wasm32"))]
+                let started = std::time::Instant::now();
+                day_core::sleep(ms).await;
+                #[cfg(not(target_arch = "wasm32"))]
+                if !synchronous_backend() {
+                    // The one millisecond of slack covers the timer's clock and `Instant`
+                    // ticking apart; the backend must not round down to a system tick.
+                    let slept = started.elapsed();
+                    t.check(
+                        slept >= std::time::Duration::from_millis(u64::from(ms - 1)),
+                        &format!("a {ms} ms sleep resolved after {slept:?}"),
+                    )?;
+                }
             }
             t.check(
                 std::thread::current().id() == thread,
