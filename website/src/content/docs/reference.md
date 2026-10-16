@@ -34,6 +34,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [menus](/docs/internal/menus) | app menu bar, context menus, the Dock menu, roles and shortcuts |
 | [toolbars](/docs/internal/toolbars) | window toolbars: the item vocabulary, symbol icons, per-desktop realization |
 | [windows](/docs/internal/windows) | secondary windows, the Preferences window, the cover fallback, window properties |
+| [settings](/docs/internal/settings) | the Settings and About surface: typed prefs, groups and rows, per-platform presentation |
 | [window-chrome](/docs/internal/window-chrome) | frameless and overlay title bars, transparent and material backgrounds, drag regions |
 | [status-item](/docs/internal/status-item) | menu-bar and tray items, Dock and taskbar progress, keeping the app running |
 | [window-image](/docs/internal/window-image) | capturing the app's own window as a PNG |

@@ -2357,8 +2357,21 @@ pub(crate) fn requested_android_serial(spec: &LaunchSpec) -> Option<String> {
 /// Why the Android device `serial` cannot be launched on, or `None` when it is connected and
 /// ready. A device adb sees but cannot use is told apart from one it does not see at all,
 /// because the fixes differ: accept a prompt on the phone, or connect it.
+///
+/// An emulator adb lists as `offline` gets the recovery an unanswering one gets before an install
+/// ([`ensure_device_answers`]): a frozen guest drops to `offline` once adb gives up on it, and
+/// refusing it here would turn the one restart that brings it back into a failed run.
 pub(crate) fn android_device_problem(serial: &str) -> Option<String> {
-    device_problem(serial, &adb_device_states())
+    let states = adb_device_states();
+    let problem = device_problem(serial, &states)?;
+    let offline_emulator = serial.starts_with("emulator-")
+        && states
+            .iter()
+            .any(|(s, state)| s == serial && state == "offline");
+    if offline_emulator {
+        return ensure_device_answers(serial).err();
+    }
+    Some(problem)
 }
 
 /// [`android_device_problem`] against a given `adb devices` listing.
@@ -2428,14 +2441,29 @@ pub(crate) fn android_devices_for(want: Option<&str>) -> Vec<AndroidDevice> {
             {
                 return None;
             }
+            // Bounded: `adb devices` lists a frozen guest as `device`, and asking it anything
+            // waits forever. An emulator that cannot say runs the host's architecture, which is
+            // the guess that installs; the frozen guest is then met by the install's own probe.
             let abi = forced.clone().unwrap_or_else(|| {
-                Command::new(day_toolchain::adb_bin())
-                    .args(["-s", serial, "shell", "getprop", "ro.product.cpu.abi"])
-                    .output()
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| "arm64-v8a".into())
+                crate::ops::output_within(
+                    Command::new(day_toolchain::adb_bin()).args([
+                        "-s",
+                        serial,
+                        "shell",
+                        "getprop",
+                        "ro.product.cpu.abi",
+                    ]),
+                    Duration::from_secs(20),
+                )
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    if serial.starts_with("emulator-") && cfg!(target_arch = "x86_64") {
+                        "x86_64".into()
+                    } else {
+                        "arm64-v8a".into()
+                    }
+                })
             });
             Some(AndroidDevice {
                 serial: serial.to_string(),
@@ -3015,9 +3043,10 @@ pub(crate) fn stop_logcat_pumps() {
 }
 
 /// A device that answers a trivial shell command within a few seconds, after one reconnect if
-/// it must. An `adb install` against an adbd that has stopped answering blocks for its whole
-/// budget and prints nothing; minutes of silence in CI are a worse failure than one sentence
-/// now, and a reconnect is the fix the sentence would suggest anyway.
+/// it must, and for an emulator `day devices boot` started, after a restart if even that fails.
+/// An `adb install` against an adbd that has stopped answering blocks for its whole budget and
+/// prints nothing; minutes of silence in CI are a worse failure than one sentence now, and a
+/// reconnect is the fix the sentence would suggest anyway.
 fn ensure_device_answers(serial: &str) -> Result<(), String> {
     const PROBE: Duration = Duration::from_secs(20);
     let probe = || {
@@ -3044,12 +3073,26 @@ fn ensure_device_answers(serial: &str) -> Result<(), String> {
         "adb wait-for-device",
         Duration::from_secs(60),
     );
-    probe().map_err(|e| {
-        format!(
-            "Android device {serial:?} is not answering adb ({e}) — restart adb \
-             (`adb kill-server`) or the emulator, then run again"
-        )
-    })
+    let silent = match probe() {
+        Ok(()) => return Ok(()),
+        Err(e) => e,
+    };
+    // Still silent after the reconnect: the guest itself has stopped, which nothing on the adb
+    // side undoes. One a run booted comes back from a restart, as a person would restart it; the
+    // run then carries on from this install instead of losing every variant still to come.
+    let restarted = crate::devices::restart_emulator(serial);
+    if restarted.is_ok() && probe().is_ok() {
+        return Ok(());
+    }
+    let after = match restarted {
+        Ok(()) => " even after a restart".to_string(),
+        Err(why) => format!(", and it was not restarted: {why}"),
+    };
+    Err(format!(
+        "Android device {serial:?} is not answering adb ({}){after} — restart adb \
+         (`adb kill-server`) or the emulator, then run again",
+        silent.trim_end()
+    ))
 }
 
 /// One `adb install` attempt's budget. An install of the showcase takes seven seconds on a CI

@@ -89,6 +89,8 @@ appareil = "appareil"          # fr
 # Whole identifiers, so the words inside them stay checked everywhere else — "labelled" on its
 # own is still a finding, it is only `ariaLabelledBy` that is spelled that way by its spec.
 [default.extend-identifiers]
+ITMS = "ITMS"                      # Apple's App Store Connect error prefix (e.g. ITMS-91109)
+kMDItemWhereFroms = "kMDItemWhereFroms" # Apple's download-origin metadata attribute
 WriteableBitmap = "WriteableBitmap"  # the WinRT type, spelled that way by Microsoft
 ariaLabelledBy = "ariaLabelledBy"    # the ARIA DOM property, spelled that way by the spec
 # The OpenHarmony NDK's own error code, misspelled in its arkui/native_node.h; day-arkui names

@@ -385,6 +385,12 @@ own settings.
 without one and keeps the iOS simulator's UI app closed. Leave it off at a desk, where the boot
 opens that app so you can watch your app arrive.
 
+`day launch` restarts an Android emulator that `day devices boot` started if it stops answering.
+When adb still cannot reach the emulator after a reconnect, the launch stops it, boots the same
+AVD under the same serial, and continues with the install. A headless emulator on a CI runner
+occasionally freezes like this between two walkthrough variants. An emulator started some other
+way is left running, and the launch reports the problem instead.
+
 Which app shows the simulator depends on the Xcode. Up to Xcode 26 it is `Simulator.app`, opened
 directly. Xcode 27 replaced it with **Device Hub**, which shows the one device it is told about,
 so Day opens it on the device being booted

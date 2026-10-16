@@ -5620,6 +5620,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    own `cancelled()`), the deliberate misspellings that ARE test fixtures (`--profile relaese`,
    the `stlye:` Fluent lint case), and the starter-app translations, which are not English.
    Native `.inc` fragments are excluded because platform identifiers trigger false positives.
+   Platform names used in checked sources get exact identifier exceptions, including Apple's
+   `ITMS` error prefix and `kMDItemWhereFroms` metadata attribute; ordinary prose remains checked.
    Local validation and CI share `bash scripts/ci/host-clippy.sh`, which denies warnings and
    lints all targets (including tests) in the default members, CLI/dayscript, dynamic piece
    registry, model/persistence (with its derive crate and the opt-in date and time codecs), and

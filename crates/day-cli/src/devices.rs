@@ -795,7 +795,7 @@ pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
                     let port = free_emulator_port();
                     let serial = format!("emulator-{port}");
                     crate::ops::status("Booting", &format!("emulator {avd} as {serial}"));
-                    started = Some(spawn_emulator(&avd, port, spec.headless)?);
+                    started = Some(spawn_emulator(&avd, port, spec.headless, false)?);
                     serial
                 }
             };
@@ -1658,7 +1658,14 @@ fn missing_avd_image(avd: &str) -> Option<String> {
     Some(sysdir.replace(['/', '\\'], ";"))
 }
 
-fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::Child, CliError> {
+/// A `restart` appends to the log rather than replacing it: the first boot's record is the only
+/// account of the run that froze, and a CI job uploads the one file.
+fn spawn_emulator(
+    avd: &str,
+    port: u16,
+    headless: bool,
+    restart: bool,
+) -> Result<std::process::Child, CliError> {
     if let Some(pkg) = missing_avd_image(avd) {
         let sdk = day_toolchain::android_sdk_dir();
         let install = match day_toolchain::android_sdkmanager() {
@@ -1681,8 +1688,23 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
         )));
     }
     let log = emulator_log_path(avd);
-    let sink = std::fs::File::create(&log)
-        .map_err(|e| CliError::failure(format!("{}: {e}", log.display())))?;
+    let sink = if restart {
+        use std::io::Write;
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log)
+            .and_then(|mut f| {
+                writeln!(
+                    f,
+                    "\n--- day restarted this emulator: its guest stopped answering adb ---"
+                )
+                .map(|()| f)
+            })
+    } else {
+        std::fs::File::create(&log)
+    }
+    .map_err(|e| CliError::failure(format!("{}: {e}", log.display())))?;
     let errs = sink
         .try_clone()
         .map_err(|e| CliError::failure(format!("{}: {e}", log.display())))?;
@@ -1735,6 +1757,12 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
     crate::ops::status("Logging", &format!("emulator output to {}", log.display()));
     // Detached from our stdio but not from us: the emulator outlives this command, which is what
     // `day launch` expects to find later, while the handle lets the wait below watch it.
+    //
+    // In a process group of its own as well. A restart is spawned from `day launch`, which a
+    // developer ends with Ctrl-C, and the terminal delivers that to the whole foreground group:
+    // the emulator would go down with the walkthrough it was restarted to serve.
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::from(sink))
         .stderr(std::process::Stdio::from(errs))
@@ -1745,6 +1773,116 @@ fn spawn_emulator(avd: &str, port: u16, headless: bool) -> Result<std::process::
                  ANDROID_HOME set?"
             ))
         })
+}
+
+/// Restart an emulator that `day devices boot` started and whose guest has stopped answering.
+///
+/// A headless guest on a CI runner can freeze with nothing in the emulator's log: Day-Showcase's
+/// medium_tablet leg passed every step of every variant up to the network script's third, then
+/// adbd went silent at the next install and `adb reconnect` only took the device off the list
+/// (2026-10-16). Nothing on the adb side brings such a guest back, so this does what a person
+/// would: stop that emulator and boot the same AVD on the same console port, which keeps the
+/// serial every later command was given. The orientation the AVD was set up with is applied
+/// again, and the system dialogs quieted, as `day devices boot` does.
+///
+/// Only an emulator day booted is touched, recognized by the `-avd`/`-port` command line
+/// [`spawn_emulator`] gives it and the log beside it. Anyone else's emulator is theirs to restart.
+pub(crate) fn restart_emulator(serial: &str) -> Result<(), String> {
+    let port: u16 = serial
+        .strip_prefix("emulator-")
+        .and_then(|p| p.parse().ok())
+        .ok_or_else(|| format!("{serial} is not an emulator"))?;
+    let ps = Command::new("ps")
+        .args(["-ax", "-o", "pid=,command="])
+        .output()
+        .map_err(|e| format!("could not list processes ({e})"))?;
+    let (avd, headless, pids) = emulator_processes(&String::from_utf8_lossy(&ps.stdout), port)
+        .ok_or_else(|| format!("no emulator process holds console port {port}"))?;
+    if !emulator_log_path(&avd).is_file() {
+        return Err(format!(
+            "{serial} ({avd}) was not started by `day devices boot`"
+        ));
+    }
+    crate::ops::status(
+        "Restarting",
+        &format!("emulator {avd} as {serial}: its guest stopped answering adb"),
+    );
+    stop_processes(&pids);
+    let mut child = spawn_emulator(&avd, port, headless, true).map_err(|e| e.to_string())?;
+    wait_for_android_boot(serial, 600, &avd, Some(&mut child)).map_err(|e| e.to_string())?;
+    crate::mobile::quiet_system_dialogs(serial);
+    if let Some(orientation) = avd_config_value(&avd, "hw.initialOrientation") {
+        rotate_android(serial, &orientation).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// The AVD, whether it runs headless, and every pid of the emulator on console `port`, from a
+/// `ps -o pid=,command=` listing. Every pid, because the SDK's `emulator` launcher can stay
+/// alive beside the `qemu-system-*` it started, with the same arguments; the crash handler and
+/// netsimd it also starts carry no `-port` and are not matched.
+fn emulator_processes(ps: &str, port: u16) -> Option<(String, bool, Vec<u32>)> {
+    let port = port.to_string();
+    let mut found: Option<(String, bool, Vec<u32>)> = None;
+    for line in ps.lines() {
+        let mut words = line.split_whitespace();
+        let Some(pid) = words.next().and_then(|w| w.parse::<u32>().ok()) else {
+            continue;
+        };
+        let args: Vec<&str> = words.collect();
+        let after = |flag: &str| args.windows(2).find(|w| w[0] == flag).map(|w| w[1]);
+        if after("-port") != Some(port.as_str()) {
+            continue;
+        }
+        let Some(avd) = after("-avd") else {
+            continue;
+        };
+        let entry = found
+            .get_or_insert_with(|| (avd.to_string(), args.contains(&"-no-window"), Vec::new()));
+        entry.2.push(pid);
+    }
+    found
+}
+
+/// Stop `pids`: a polite signal first, then, for a process still there after ten seconds, one
+/// it cannot refuse. A frozen guest's host process usually still exits on the first.
+fn stop_processes(pids: &[u32]) {
+    let signal = |sig: &str| {
+        let _ = Command::new("kill")
+            .arg(sig)
+            .args(pids.iter().map(u32::to_string))
+            .stderr(std::process::Stdio::null())
+            .status();
+    };
+    let alive = || {
+        pids.iter().any(|pid| {
+            Command::new("kill")
+                .args(["-0", &pid.to_string()])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .is_ok_and(|s| s.success())
+        })
+    };
+    signal("-TERM");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while alive() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    if alive() {
+        signal("-KILL");
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+}
+
+/// One `key=value` from an AVD's `config.ini`.
+fn avd_config_value(avd: &str, key: &str) -> Option<String> {
+    let text = std::fs::read_to_string(avd_config_path(avd)?).ok()?;
+    text.lines().find_map(|line| {
+        let (k, v) = line.split_once('=')?;
+        (k.trim() == key)
+            .then(|| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    })
 }
 
 /// The last few lines of an emulator log, for an error that has to say why.
@@ -2653,6 +2791,29 @@ mod tests {
             .map(|(_, tail)| tail);
         let _ = std::fs::remove_file(&path);
         assert_eq!(found.as_deref(), Some("second\nthird"));
+    }
+
+    /// A restart finds the frozen emulator by the arguments `spawn_emulator` gave it: every
+    /// process on that console port (the launcher can outlive its exec into qemu), and nothing
+    /// that merely mentions the AVD or sits on another port.
+    #[test]
+    fn emulator_processes_are_found_by_console_port() {
+        let ps = "\
+  101 /sdk/emulator/emulator -avd day-ci-medium-tablet -port 5554 -no-window -gpu swiftshader_indirect
+  102 /sdk/emulator/qemu/linux-x86_64/qemu-system-x86_64-headless -avd day-ci-medium-tablet -port 5554 -no-window
+  103 /sdk/emulator/crashpad_handler --monitor-pid=102 --annotation=avd=day-ci-medium-tablet
+  104 /sdk/emulator/qemu/darwin-aarch64/qemu-system-aarch64 -avd Pixel_9_API_36 -port 5556
+  105 /sdk/emulator/emulator -port 5554
+";
+        assert_eq!(
+            emulator_processes(ps, 5554),
+            Some(("day-ci-medium-tablet".to_string(), true, vec![101, 102]))
+        );
+        assert_eq!(
+            emulator_processes(ps, 5556),
+            Some(("Pixel_9_API_36".to_string(), false, vec![104]))
+        );
+        assert_eq!(emulator_processes(ps, 5558), None);
     }
 
     /// Every device a listing reports has to name the flag that selects it: that mapping is the

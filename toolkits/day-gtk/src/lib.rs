@@ -4092,7 +4092,10 @@ fn base_span(spec: day_spec::FontSpec, color: Option<day_spec::Color>) -> String
     let (size_pt, inherent) = gtk_style(spec.style);
     let weight = spec.weight.unwrap_or(inherent);
     let mut s = String::from("<span");
-    if let Font::Custom(family, _) = spec.style {
+    // Monospace wins over a bundled family, as it does on Qt: the label asked for code type.
+    if spec.monospace {
+        s.push_str(" font_family=\"monospace\"");
+    } else if let Font::Custom(family, _) = spec.style {
         s.push_str(&format!(" font_family=\"{family}\""));
     }
     // Pango markup sizes are in 1024ths of a point, the same unit as `AttrSize`.
@@ -4150,8 +4153,16 @@ fn apply_text_attrs(label: &gtk4::Label, spec: day_spec::FontSpec, color: Option
     // Pango attribute list (markup-free): size, weight, italic style, and foreground.
     let attrs = pango::AttrList::new();
     // A bundled family (§18.4), registered with the platform font system in run(). Pango falls
-    // back to the default family if the name doesn't resolve.
-    if let Font::Custom(family, _) = spec.style {
+    // back to the default family if the name doesn't resolve. Monospace wins over it, as it does
+    // on Qt, through Pango's `monospace` alias for the system's fixed-width face.
+    let family = if spec.monospace {
+        Some("monospace")
+    } else if let Font::Custom(family, _) = spec.style {
+        Some(family)
+    } else {
+        None
+    };
+    if let Some(family) = family {
         let mut fam = pango::AttrString::new_family(family);
         fam.set_start_index(0);
         attrs.insert(fam);
