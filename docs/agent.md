@@ -120,6 +120,11 @@ host can produce:
   faulting thread's frames rather than its several hundred lines of loaded-image addresses. It is
   matched by pid on a desktop launch, and the runner waits up to 30 s for it, because ReportCrash
   writes it well after the process dies, so looking once finds the previous run's or nothing.
+- **Windows**: recent Application event-log records and local dumps in
+  `%LOCALAPPDATA%\CrashDumps`. Enable dumps before reproducing the crash, from an administrator
+  shell: `reg add "HKLM\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" /v DumpType /t REG_DWORD /d 2 /f`.
+  Windows does not support `LocalDumps` under `HKCU`; see Microsoft's
+  [WER settings](https://learn.microsoft.com/en-us/windows/win32/wer/wer-settings).
 - **Android**: the emulator's crash buffer (`adb logcat -b crash`), preceded by the emulator's
   own log when `day devices boot` started it — how it booted (the RAM it settled on, cores, GPU
   mode, feature overrides), then its tail — read from the host, so it is there even when the

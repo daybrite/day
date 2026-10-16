@@ -447,8 +447,8 @@ fn os_crash_findings(
                 crate::ops::status(
                     "Diagnosis",
                     "no minidump — Windows writes one only when LocalDumps is enabled. In CI, \
-                     before the launch:\r\n    reg add \
-                     \"HKCU\\Software\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps\" \
+                     run as administrator before the launch:\r\n    reg add \
+                     \"HKLM\\Software\\Microsoft\\Windows\\Windows Error Reporting\\LocalDumps\" \
                      /v DumpType /t REG_DWORD /d 2 /f\r\n  then re-run; the .dmp lands in \
                      %LOCALAPPDATA%\\CrashDumps and carries full frames.",
                 );
