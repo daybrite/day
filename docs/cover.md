@@ -39,6 +39,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > content against the page on every toolkit and the mock; the Showcase's Stack page demonstrates
 > it.
 >
+> **Modal sheet (2026-10).** Where the toolkit has no native sheet, `cover(open, build).sheet()`
+> on a window wider than compact is now a card centered over the dimmed page instead of the
+> full-window cover ([Modal sheet](#modal-sheet)). Verified on web-dom and GTK (Stanza Redux's
+> reader settings over the book) and on Qt (the conformance case, the page showing through);
+> XAML, Android tablets and HarmonyOS carry it unverified.
+>
 > **gtk (2026-09).** The emulated cover took the root `GtkFixed`'s allocation for its size,
 > and that Fixed sits in an External-policy scroll wrapper that allocates it its children's
 > bounding box, so a small home page (Games Fair's tile grid) presented a cover the size of
@@ -209,14 +215,25 @@ reopen it, and a "link me to this screen" URL point at a modal.
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
 | appkit / gtk / qt / xaml / dom | topmost full-window child of the window content, opaque theme background by default (`Cap::Cover` = `Emulated`, no transition) | none | posted immediately on dismiss |
 
-## Modal sheet hint
+## Modal sheet
 
 `cover(open, build).sheet().unrouted()` uses the cover's signal, scoped child tree and dismissal
-contract for a data-entry sheet. AppKit attaches a native sheet to the primary window; UIKit
-uses PageSheet, and reports the sheet's pull-down as the cover's back request, so the bound
-signal follows what the user did. The other toolkits currently use their existing modal cover
-treatment. The presentation hint is fixed when the piece is built; omit `.sheet()` to retain
-fullscreen behavior.
+contract for a modal sheet: a data-entry form, or settings shown over the page they change. The
+page stays in view behind the sheet but can't be used until it closes. The presentation is
+fixed when the piece is built; omit `.sheet()` to keep the fullscreen cover.
+
+| Toolkit | Presentation |
+|---|---|
+| appkit | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 |
+| uikit | `PageSheet`; its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
+| android, arkui, gtk, qt, xaml, dom | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill with a rounded card in the window's own color (`SurfaceRole::Window`), centered at AppKit's proportions; on a compact window, the full-window cover |
+
+The composed card decides compact or wide when the sheet opens, and keeps its place in the
+window's center as the window resizes. Its controls are the content's own: give it a way out
+(a Done or Cancel button), since there is no title bar to close it from. Android's system back
+and HarmonyOS's back gesture still dismiss it, as they do any cover.
+Conformance: `cover-sheet-composes-a-card-on-wide` measures the card's content against the page
+on every toolkit that composes the sheet, and the mock.
 
 ## Half sheet
 

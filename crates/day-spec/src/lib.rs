@@ -435,6 +435,9 @@ pub enum SurfaceRole {
     /// system fill, libadwaita `.card`, Qt `palette(alternate-base)`, UIKit tertiary system
     /// fill, Material surface-container, XAML card background brush.
     SectionCard,
+    /// The window's own background, the surface a page sits on: what an opaque cover paints
+    /// by default, and the card of a composed modal sheet (docs/cover.md "Modal sheet").
+    Window,
 }
 
 pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
@@ -2359,6 +2362,11 @@ pub enum Cap {
     /// The toolkit presents a `kinds::COVER` node as a native fullscreen modal surface
     /// (docs/cover.md). `Unsupported` ⇒ the `cover` piece's content never shows.
     Cover,
+    /// The toolkit presents a `.sheet()` cover as a native modal sheet (AppKit's window sheet,
+    /// UIKit's page sheet) over the page it covers (docs/cover.md "Modal sheet"). `Unsupported`
+    /// ⇒ the `cover` piece composes the sheet itself: on a window wider than compact, a card
+    /// centered over the dimmed page; on a compact one, the full window.
+    CoverSheet,
     /// The toolkit can hide the system status bar while a `status_bar_hidden` subtree is
     /// mounted (`Toolkit::set_status_bar_hidden`, docs/cover.md). `Native` on the phone and
     /// tablet backends; desktop and web have no status bar, so a setting that offers to hide
@@ -2550,7 +2558,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 75] = [
+    pub const ALL: [Cap; 76] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2626,6 +2634,7 @@ impl Cap {
         Cap::DynamicShortcuts,
         Cap::Split,
         Cap::TreeSections,
+        Cap::CoverSheet,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2707,6 +2716,7 @@ impl Cap {
             Cap::DynamicShortcuts => 72,
             Cap::Split => 73,
             Cap::TreeSections => 74,
+            Cap::CoverSheet => 75,
         }
     }
 }

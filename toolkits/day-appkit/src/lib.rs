@@ -6344,6 +6344,8 @@ impl Toolkit for AppKit {
             // A topmost autoresizing child of the content view — not a system modal
             // (docs/cover.md's ArkUI tier).
             Cap::Cover => Support::Emulated,
+            // `.sheet()` is a window sheet on the primary window (docs/cover.md "Modal sheet").
+            Cap::CoverSheet => Support::Native,
             _ => Support::Unsupported,
         }
     }

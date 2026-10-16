@@ -2296,6 +2296,15 @@ mod imp {
                                 0x1480_8080,
                                 0x2EFF_FFFF,
                             );
+                        } else if p.role == Some(day_spec::SurfaceRole::Window) {
+                            // The window background an opaque cover paints.
+                            themed(
+                                n.0 as usize,
+                                n.0,
+                                Paint::Background,
+                                0xFFFF_FFFF,
+                                0xFF1A_1A1C,
+                            );
                         } else if let Some(c) = p.background {
                             node::set_bg_color(n.0, argb(c));
                         }

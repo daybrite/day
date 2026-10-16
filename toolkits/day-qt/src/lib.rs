@@ -2114,6 +2114,14 @@ impl Toolkit for Qt {
                         // and it follows the platform / forced (DAY_THEME) color scheme.
                         ffi::day_qt_widget_set_section_card(w, p.corner_radius);
                     } else if let Some(p) = props.downcast_ref::<ContainerProps>()
+                        && p.role == Some(day_spec::SurfaceRole::Window)
+                    {
+                        ffi::day_qt_widget_set_window_surface(
+                            w,
+                            p.corner_radius,
+                            c_int::from(p.clips),
+                        );
+                    } else if let Some(p) = props.downcast_ref::<ContainerProps>()
                         && (p.background.is_some() || p.corner_radius > 0.0 || p.clips)
                     {
                         let bg = p.background.unwrap_or(day_spec::Color::CLEAR);
@@ -2681,7 +2689,9 @@ impl Toolkit for Qt {
                                     ffi::day_qt_widget_set_bg(h.0, bg.r, bg.g, bg.b, bg.a);
                                 }
                                 ffi::day_qt_add_child(self.window, h.0);
-                                ffi::day_qt_cover_top(h.0);
+                                // A clear cover (a composed sheet's) lets the page show through.
+                                let opaque = background.is_none_or(|bg| bg.a > 0.0);
+                                ffi::day_qt_cover_top(h.0, c_int::from(opaque));
                                 let (y, size) =
                                     cover_frame(h.0, LAST_WINDOW_SIZE.with(|c| c.get()));
                                 ffi::day_qt_set_geometry(

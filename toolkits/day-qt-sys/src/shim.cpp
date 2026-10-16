@@ -859,6 +859,27 @@ void day_qt_widget_set_section_card(void *w, double radius) {
                               .arg(radius));
 }
 
+// SurfaceRole::Window: the window's own background, the color an opaque cover fills with
+// (`autoFillBackground` over the Window role), as a scoped stylesheet so it can be rounded. A
+// clipping one routes its subtree through the rounded-clip DayEffect, as day_qt_widget_set_surface
+// does.
+void day_qt_widget_set_window_surface(void *w, double radius, int clips) {
+    auto *widget = static_cast<QWidget *>(w);
+    static unsigned long counter = 0;
+    if (widget->objectName().isEmpty())
+        widget->setObjectName(QString("dayWindowSurface%1").arg(counter++));
+    widget->setAttribute(Qt::WA_StyledBackground, true);
+    widget->setProperty("dayRadius", radius);
+    widget->setProperty("dayClips", clips);
+    widget->setStyleSheet(QStringLiteral("#%1 { background-color: palette(window); border-radius: %2px; }")
+                              .arg(widget->objectName())
+                              .arg(radius));
+    if (radius > 0.0 && clips) {
+        day_qt_effect(widget);
+        widget->graphicsEffect()->update();
+    }
+}
+
 void day_qt_widget_set_surface(void *w, double r, double g, double b, double a, double radius,
                                int clips) {
     QWidget *widget = static_cast<QWidget *>(w);
@@ -1405,9 +1426,9 @@ void day_qt_scroll_to_rect(void *w, int x, int y, int rw, int rh) {
 // --- tree / geometry ---
 // Emulated fullscreen cover (docs/cover.md): bring the re-homed cover to the front, and give it
 // an OPAQUE default surface (the palette Window color) so it occludes the page under it.
-void day_qt_cover_top(void *w) {
+void day_qt_cover_top(void *w, int opaque) {
     QWidget *c = static_cast<QWidget *>(w);
-    c->setAutoFillBackground(true);
+    c->setAutoFillBackground(opaque != 0);
     c->raise();
 }
 

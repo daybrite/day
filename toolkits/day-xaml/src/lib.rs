@@ -1794,10 +1794,16 @@ impl Toolkit for Xaml {
                             // Theme-resource card brush — tracks light/dark automatically.
                             ffi::day_xaml_container_set_card(h, p.corner_radius);
                         }
+                        if p.role == Some(day_spec::SurfaceRole::Window) {
+                            // The page background an opaque cover is grounded in.
+                            ffi::day_xaml_cover_ground(h);
+                        }
                         if let Some(bg) = p.background {
                             ffi::day_xaml_container_set_bg(h, argb(bg));
                         }
-                        if p.corner_radius > 0.0 && p.role.is_none() {
+                        if p.corner_radius > 0.0
+                            && p.role != Some(day_spec::SurfaceRole::SectionCard)
+                        {
                             ffi::day_xaml_container_set_corner(h, p.corner_radius);
                         }
                     }

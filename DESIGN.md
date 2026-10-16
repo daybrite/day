@@ -1253,7 +1253,8 @@ Style properties remain **honest about native limits**: each documents its per-t
 (e.g. `corner_radius` → CALayer / GTK CSS provider / QSS / drawable), and the surface is a
 curated set every backend implements or explicitly declines — not a CSS engine. Grouped-surface
 styling (the [§5.3](#53-built-in-pieces-mvp-set) `form`/`section` cards) travels as a semantic `SurfaceRole`, which each backend
-resolves to its platform's own material (e.g. `quaternarySystemFill` on macOS 14+).
+resolves to its platform's own material (e.g. `quaternarySystemFill` on macOS 14+); the `Window`
+role is the window's own background, the card of a composed modal sheet.
 
 ### §6.2 Per-target variation: `PerTarget<T>` values (no macros)
 
@@ -7770,8 +7771,11 @@ transient screen. Registration never subscribes or performs application operatio
 
 `cover(...).sheet()` requests a modal sheet with the same signal-driven ownership and dismissal
 contract as a cover. AppKit presents an attached NSWindow sheet and reclaims its parent/content
-references on dismissal or handle release. UIKit uses PageSheet. Other backends retain their
-existing modal cover presentation as a functional fallback; this hint does not change Cap::Cover.
+references on dismissal or handle release. UIKit uses PageSheet. Those two answer
+`Cap::CoverSheet` = Native; everywhere else the `cover` piece composes the sheet (2026-10): on a
+window wider than compact, a clear cover holding a dimmed fill and a card in the window's own
+color (`SurfaceRole::Window`), centered at AppKit's sheet proportions; on a compact window, the
+full-window cover as before. This hint does not change Cap::Cover.
 AppKit scripted snapshots capture the active attached sheet, including the offscreen fallback.
 Dialogs opened from a sheet attach to that modal surface, and dismissal uses the actual sheet parent.
 Day-News uses an unrouted subscription sheet for toolbar/menu/URL activation, explicit Verify,

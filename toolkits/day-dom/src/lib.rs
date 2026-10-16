@@ -1875,7 +1875,7 @@ impl Toolkit for Dom {
                     return realize_placeholder(kind, id);
                 };
                 let el = unsafe { day_dom_create(EL_DIV) };
-                apply_surface(el, p.background, p.corner_radius, p.clips, p.role.is_some());
+                apply_surface(el, p.background, p.corner_radius, p.clips, p.role);
                 el
             }
             Some(Builtin::Label) => {
@@ -2504,8 +2504,12 @@ impl Toolkit for Dom {
                 if let Some(p) = patch.downcast_ref::<CoverPatch>() {
                     match p {
                         CoverPatch::Present { background, .. } => {
-                            if let Some(bg) = background {
-                                s(el, "background-color", &color_css(*bg));
+                            // Each present sets its own fill or returns to the stylesheet's: the
+                            // element outlives one presentation, and a composed sheet's is clear
+                            // (docs/cover.md "Modal sheet").
+                            match background {
+                                Some(bg) => s(el, "background-color", &color_css(*bg)),
+                                None => s(el, "background-color", ""),
                             }
                             unsafe { day_dom_insert(1, el, u32::MAX) };
                             class(el, "open", true);
@@ -3571,9 +3575,19 @@ fn set_enabled(el: u32, enabled: bool) {
     attr(el, "disabled", if enabled { "" } else { "-" });
 }
 
-fn apply_surface(el: u32, bg: Option<day_spec::Color>, radius: f64, clips: bool, card: bool) {
+fn apply_surface(
+    el: u32,
+    bg: Option<day_spec::Color>,
+    radius: f64,
+    clips: bool,
+    role: Option<day_spec::SurfaceRole>,
+) {
     if let Some(c) = bg {
         s(el, "background-color", &color_css(c));
+    }
+    // The window's own surface: the page background a cover paints (`.day-cover`, day.css).
+    if role == Some(day_spec::SurfaceRole::Window) {
+        s(el, "background-color", "var(--day-bg)");
     }
     if radius > 0.0 {
         s(el, "border-radius", &format!("{radius}px"));
@@ -3586,7 +3600,7 @@ fn apply_surface(el: u32, bg: Option<day_spec::Color>, radius: f64, clips: bool,
     if clips || radius > 0.0 {
         s(el, "overflow", "hidden");
     }
-    if card {
+    if role == Some(day_spec::SurfaceRole::SectionCard) {
         class(el, "day-card", true);
     }
 }

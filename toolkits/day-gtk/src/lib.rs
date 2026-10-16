@@ -4540,6 +4540,13 @@ impl Toolkit for Gtk {
                         // libadwaita's own grouped-card treatment — rounded, elevated, and
                         // theme-adaptive (follows the Adwaita light/dark stylesheet).
                         w.add_css_class("card");
+                    } else if p.role == Some(day_spec::SurfaceRole::Window) {
+                        // Adwaita's `background` class, the theme window background an opaque
+                        // cover paints; the rounding and clip ride the surface provider.
+                        w.add_css_class("background");
+                        if p.corner_radius > 0.0 || p.clips {
+                            apply_surface(&w, None, p.corner_radius, p.clips);
+                        }
                     } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
                         apply_surface(&w, p.background, p.corner_radius, p.clips);
                     }
@@ -6025,9 +6032,18 @@ impl Toolkit for Gtk {
                         CoverPatch::Present { background, .. } => {
                             // Occlude the window: an explicit color via the surface provider,
                             // else Adwaita's `background` class (the theme window background).
+                            // The widget outlives one presentation, and a composed sheet's cover
+                            // is clear while a full-window one is not, so each present resets
+                            // whichever treatment the last one left.
                             match background {
-                                Some(_) => apply_surface(h, *background, 0.0, false),
-                                None => cover.add_css_class("background"),
+                                Some(_) => {
+                                    cover.remove_css_class("background");
+                                    apply_surface(h, *background, 0.0, false);
+                                }
+                                None => {
+                                    apply_surface(h, None, 0.0, false);
+                                    cover.add_css_class("background");
+                                }
                             }
                             if let Some(parent) = cover.parent()
                                 && let Ok(old) = parent.downcast::<gtk4::Fixed>()

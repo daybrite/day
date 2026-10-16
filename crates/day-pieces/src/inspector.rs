@@ -542,7 +542,7 @@ pub(crate) mod conformance {
     }
 
     /// Puts the primary window's size class back when the drive ends, however it ends.
-    struct RestoreSizeClass;
+    pub(crate) struct RestoreSizeClass;
 
     impl Drop for RestoreSizeClass {
         fn drop(&mut self) {

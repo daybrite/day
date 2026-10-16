@@ -2671,6 +2671,17 @@ mod imp {
                                     JValue::Float((p.corner_radius * d) as f32),
                                 ],
                             );
+                        } else if p.role == Some(day_spec::SurfaceRole::Window) {
+                            let d = DENSITY.with(|x| x.get());
+                            call_void(
+                                "setWindowSurface",
+                                "(Landroid/view/View;FZ)V",
+                                &[
+                                    JValue::Object(h.0.as_obj()),
+                                    JValue::Float((p.corner_radius * d) as f32),
+                                    JValue::Bool(p.clips),
+                                ],
+                            );
                         } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
                             apply_surface(&h, p.background, p.corner_radius, p.clips);
                         }

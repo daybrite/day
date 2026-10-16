@@ -130,6 +130,9 @@ unsafe extern "C" {
     /// `day_qt_widget_set_surface` (so a reactive `.background` keeps its rounded corners).
     pub fn day_qt_widget_set_bg(w: *mut c_void, r: c_double, g: c_double, b: c_double, a: c_double);
     pub fn day_qt_widget_set_section_card(w: *mut c_void, radius: f64);
+    /// `SurfaceRole::Window`: the window's own background (`palette(window)`), rounded and, with
+    /// `clips`, clipping its children to the rounding.
+    pub fn day_qt_widget_set_window_surface(w: *mut c_void, radius: f64, clips: c_int);
     /// `QWidget::setCursor(Qt::CursorShape)`; a negative shape unsets it (docs/cursor.md).
     pub fn day_qt_widget_set_cursor(w: *mut c_void, shape: c_int);
     pub fn day_qt_widget_set_surface(
@@ -297,7 +300,9 @@ unsafe extern "C" {
     pub fn day_qt_scroll_to_rect(w: *mut c_void, x: c_int, y: c_int, rw: c_int, rh: c_int);
 
     pub fn day_qt_add_child(parent: *mut c_void, child: *mut c_void);
-    pub fn day_qt_cover_top(w: *mut c_void);
+    /// Raise a presented cover over its siblings; `opaque` fills it with the window color
+    /// (a composed sheet's cover is clear, docs/cover.md "Modal sheet").
+    pub fn day_qt_cover_top(w: *mut c_void, opaque: c_int);
     pub fn day_qt_remove_child(child: *mut c_void);
     pub fn day_qt_delete(w: *mut c_void);
     pub fn day_qt_set_geometry(w: *mut c_void, x: c_int, y: c_int, width: c_int, height: c_int);

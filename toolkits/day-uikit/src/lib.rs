@@ -8459,6 +8459,8 @@ mod imp {
                 | Cap::EditBridge
                 | Cap::Animation
                 | Cap::Cover
+                // `.sheet()` is a page sheet (`DayCoverVC`, docs/cover.md "Modal sheet").
+                | Cap::CoverSheet
                 // `prefersStatusBarHidden` on the root and cover VCs (docs/cover.md).
                 | Cap::StatusBarHidden
                 // Every page rides a UINavigationController, whose UINavigationBar names the

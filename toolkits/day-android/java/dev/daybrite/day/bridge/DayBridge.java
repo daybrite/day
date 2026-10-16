@@ -545,6 +545,15 @@ public final class DayBridge {
         v.setClipToOutline(true);
     }
 
+    /** SurfaceRole::Window: the theme's window background, the color an opaque DayCover
+     *  paints (a composed sheet's card, docs/cover.md "Modal sheet"). */
+    public static void setWindowSurface(View v, float radiusPx, boolean clips) {
+        android.util.TypedValue tv = new android.util.TypedValue();
+        int bg = ctx.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)
+                ? tv.data : 0xFFFFFFFF;
+        setSurface(v, bg, true, radiusPx, clips);
+    }
+
     public static void setSurface(View v, int argb, boolean hasBg, float radiusPx, boolean clips) {
         GradientDrawable d = new GradientDrawable();
         if (hasBg) d.setColor(argb);
@@ -2027,7 +2036,15 @@ public final class DayBridge {
     public static View makeCover(long node, boolean half) { return new DayCover(ctx, node, half); }
     public static void coverPresent(View cover, int bg, boolean hasBg, boolean dismissDisabled) {
         DayCover c = (DayCover) cover;
-        if (hasBg) c.setBackgroundColor(bg);
+        if (hasBg) {
+            c.setBackgroundColor(bg);
+        } else if (!c.half) {
+            // Back to the theme's window background: the shell outlives one presentation, and
+            // a composed sheet's presentation left it clear (docs/cover.md "Modal sheet").
+            android.util.TypedValue tv = new android.util.TypedValue();
+            c.setBackgroundColor(ctx.getTheme().resolveAttribute(android.R.attr.colorBackground, tv, true)
+                    ? tv.data : 0xFFFFFFFF);
+        }
         c.present(dismissDisabled);
     }
     public static void coverSetDismissDisabled(View cover, boolean d) {

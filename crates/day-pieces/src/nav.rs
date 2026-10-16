@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use day_core::*;
 use day_reactive::{Scope, Signal, bind, bind_seeded};
-use day_spec::{Event, Size, kinds};
+use day_spec::{Event, Proposal, Rect, Size, kinds};
 
 use crate::*;
 
@@ -4755,20 +4755,26 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         use day_spec::props::{CoverPatch, CoverProps};
         let Cover {
+            sheet,
+            half,
             open,
             build,
             background,
             routed,
             ..
         } = self;
+        // A `.sheet()` on a toolkit with no native sheet is composed here: a card over the
+        // dimmed page, on the transparent cover (docs/cover.md "Modal sheet"). The window is
+        // the one being built, whose size class decides at each presentation.
+        let composed_sheet = sheet
+            && !half
+            && day_core::capability(day_spec::Cap::CoverSheet) == day_spec::Support::Unsupported;
+        let window = day_core::window_being_built();
 
         let size: Rc<RefCell<Option<Size>>> = Rc::default();
         let node = cx.native(
             kinds::COVER,
-            &CoverProps {
-                sheet: self.sheet,
-                half: self.half,
-            },
+            &CoverProps { sheet, half },
             Rc::new(day_core::CoverLayout { size: size.clone() }),
             Flex::default(),
             Boundary::Yes,
@@ -4835,10 +4841,19 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     // Run the app's builder inside the presentation scope: side effects it
                     // performs eagerly (state restore, autosave/cleanup registration, signals)
                     // must belong to the presented content's lifetime, not the cover's.
+                    // A compact window keeps the full-window cover: a card there would leave a
+                    // sliver of dimmed page around it.
+                    let card = composed_sheet
+                        && !day_core::window_size_class_untracked(window)
+                            .is_some_and(|c| c.width == day_spec::WidthClass::Compact);
                     scope.enter(|| {
                         let content = (build)(r);
                         let mut c = BuildCx::new(node);
-                        let _ = content.build(&mut c);
+                        if card {
+                            let _ = ComposedSheet { content }.build(&mut c);
+                        } else {
+                            let _ = content.build(&mut c);
+                        }
                     });
                     *current.borrow_mut() = Some(Presented {
                         key: r.clone(),
@@ -4846,7 +4861,13 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                     });
                     // Content is mounted, so any `interactive_dismiss_disabled` inside it has
                     // registered, so the present patch carries the resolved flag.
-                    let bg = background.as_ref().map(|f| f(r));
+                    // The composed sheet paints its own card and dimmed page; the cover under
+                    // them is clear, so the page shows through.
+                    let bg = if card {
+                        Some(day_spec::Color::CLEAR)
+                    } else {
+                        background.as_ref().map(|f| f(r))
+                    };
                     with_tree(|t| {
                         t.patch(
                             node,
@@ -5276,6 +5297,113 @@ impl<K: Route, Inner: NavStackBuilder<K> + Piece> NavStackBuilder<K> for Decorat
     }
 }
 
+/// The dimming laid over the page under a composed sheet.
+const SHEET_SCRIM: day_spec::Color = day_spec::Color::rgba(0.0, 0.0, 0.0, 0.32);
+/// A composed sheet card's corner radius.
+const SHEET_RADIUS: f64 = 12.0;
+
+/// A composed modal sheet (docs/cover.md "Modal sheet"): the cover's content on a card in the
+/// window's own background color, centered over a dimmed fill that spans the cover. The cover
+/// itself is clear and takes every click, so the page shows through but stays out of reach.
+struct ComposedSheet {
+    content: AnyPiece,
+}
+
+impl Piece for ComposedSheet {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let fill = Flex {
+            grow_w: true,
+            grow_h: true,
+            ..Default::default()
+        };
+        let node = cx.native(
+            kinds::CONTAINER,
+            &day_spec::props::ContainerProps::default(),
+            Rc::new(SheetLayout),
+            fill,
+            Boundary::Yes,
+        );
+        cx.under(node, |cx| {
+            cx.native(
+                kinds::CONTAINER,
+                &day_spec::props::ContainerProps {
+                    background: Some(SHEET_SCRIM),
+                    ..Default::default()
+                },
+                Rc::new(FillLayout),
+                fill,
+                Boundary::No,
+            );
+            let card = cx.native(
+                kinds::CONTAINER,
+                &day_spec::props::ContainerProps {
+                    background: None,
+                    corner_radius: SHEET_RADIUS,
+                    clips: true,
+                    role: Some(day_spec::SurfaceRole::Window),
+                },
+                Rc::new(FillLayout),
+                fill,
+                Boundary::Yes,
+            );
+            cx.under(card, |cx| {
+                let _ = self.content.build(cx);
+            });
+        });
+        node
+    }
+}
+
+/// A composed sheet card's size in a cover `area` large: the native AppKit sheet's proportions
+/// (the window less a margin, at most 640 by 620), never larger than the area itself.
+fn sheet_card_size(area: Size) -> Size {
+    Size::new(
+        (area.width - 40.0).clamp(320.0, 640.0).min(area.width),
+        (area.height - 80.0).clamp(300.0, 620.0).min(area.height),
+    )
+}
+
+/// [`ComposedSheet`]'s layout: the dimmed fill over the whole cover, the card centered on it.
+struct SheetLayout;
+
+impl Layout for SheetLayout {
+    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        let area = bounds.size;
+        if let Some(&scrim) = children.first() {
+            cx.place_child(scrim, Rect::from_size(area));
+        }
+        if let Some(&card) = children.get(1) {
+            let size = sheet_card_size(area);
+            cx.place_child(
+                card,
+                Rect::new(
+                    ((area.width - size.width) / 2.0).floor(),
+                    ((area.height - size.height) / 2.0).floor(),
+                    size.width,
+                    size.height,
+                ),
+            );
+        }
+    }
+}
+
+/// One child filling the container: the dimmed fill (no children) and the card's content.
+struct FillLayout;
+
+impl Layout for FillLayout {
+    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
+        Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        for &child in children {
+            cx.place_child(child, Rect::from_size(bounds.size));
+        }
+    }
+}
+
 /// [`Cover`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait CoverBuilder: Sized {
@@ -5589,6 +5717,82 @@ pub(crate) mod conformance {
             })
     }
 
+    // The heights the composed-sheet case compares: the page's, and the sheet content's.
+    thread_local! {
+        static SHEET_HEIGHTS: (Rc<std::cell::Cell<f64>>, Rc<std::cell::Cell<f64>>) =
+            (Rc::default(), Rc::default());
+    }
+
+    /// On a toolkit with no native sheet, a `.sheet()` over a wide window is a card centered
+    /// on the dimmed page: its content lays out shorter than the page, the page stays mounted,
+    /// and the card's own controls dismiss it.
+    #[day_macros::test(day_core)]
+    fn cover_sheet_composes_a_card_on_wide() -> Case {
+        Case::new()
+            .proves(kinds::COVER)
+            .requires_support("composed sheet", || {
+                if day_core::capability(Cap::CoverSheet) == day_spec::Support::Unsupported {
+                    day_spec::Support::Native
+                } else {
+                    day_spec::Support::Unsupported
+                }
+            })
+            .page(|| {
+                let (page_h, sheet_h) = SHEET_HEIGHTS.with(|h| (h.0.clone(), h.1.clone()));
+                page_h.set(0.0);
+                sheet_h.set(0.0);
+                let open = Signal::new(None::<String>);
+                let sheet = cover(open, move |key: &String| {
+                    column((
+                        label(format!("Cover {key}")).id("cover-text"),
+                        height_probe(sheet_h.clone()),
+                        button("Close").action(move || open.set(None)).id("close"),
+                    ))
+                })
+                .sheet()
+                .unrouted();
+                zstack((
+                    height_probe(page_h),
+                    column((
+                        label(move || format!("open {}", open.get().unwrap_or_default()))
+                            .id("state"),
+                        button("Show")
+                            .action(move || open.set(Some("panel".into())))
+                            .id("show"),
+                        sheet,
+                    )),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                let _restore = crate::inspector::conformance::RestoreSizeClass;
+                day_core::override_size_class(day_spec::SizeClass {
+                    width: day_spec::WidthClass::Expanded,
+                    height: day_spec::HeightClass::Expanded,
+                });
+                d.wait_idle().await?;
+                d.tap("show").await?;
+                d.assert_text("cover-text", "Cover panel").await?;
+                let heights = SHEET_HEIGHTS.with(|h| h.clone());
+                let mut got = (0.0, 0.0);
+                for _ in 0..40 {
+                    got = (heights.0.get(), heights.1.get());
+                    if got.0 > 0.0 && got.1 > 0.0 {
+                        break;
+                    }
+                    d.pause(0.05).await?;
+                    d.wait_idle().await?;
+                }
+                d.check(
+                    got.0 > 0.0 && got.1 > 0.0 && got.1 < got.0,
+                    &format!("sheet content {} under a page {} tall", got.1, got.0),
+                )?;
+                d.assert_text("state", "open panel").await?;
+                d.tap("close").await?;
+                d.assert_missing("cover-text").await?;
+                d.assert_text("state", "open ").await
+            })
+    }
+
     day_core::tests! {
         nav_stack_push_pop,
         nav_stack_follows_path,
@@ -5598,5 +5802,6 @@ pub(crate) mod conformance {
         cover_sheet_back_dismisses,
         cover_half_sheet_presents_over_content,
         cover_half_sheet_back_dismisses,
+        cover_sheet_composes_a_card_on_wide,
     }
 }
