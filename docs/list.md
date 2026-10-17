@@ -35,7 +35,7 @@ list(items(move || messages.get(), |m| m.id), move |row: ItemSlot<Message, u64>|
         label(move || row.field(|m| m.preview.clone())),
     ))
 })
-.row_height(RowHeight::Uniform(56.0))   // ::Automatic currently sizes rows at a fixed default
+.row_height(RowHeight::Automatic)       // the default: each row as tall as its content
 .on_select(move |key| open(key))
 .id("inbox")
 ```
@@ -191,6 +191,50 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
 | GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell`. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
 | Qt      | `QListWidget` + one item per row, Day's cell attached with `setIndexWidget` as it scrolls in | none — cells stay pinned to their row (Cap reports `Emulated`, DP-19) | the view owns selection, keys, focus, drag; Day owns the rows |
+
+## Row heights
+
+`RowHeight::Uniform(h)` makes every row `h` points tall. Each platform has a fixed-pitch fast
+path for that, and content taller than `h` is clipped.
+
+`RowHeight::Automatic`, the default, makes each row as tall as its content at the row's width,
+padding included. A row grows when the reader picks a larger text size (Dynamic Type on iOS,
+font size on Android), when its text wraps onto another line, and when its content changes
+after it was first shown. Use it for any row with text in it; keep `Uniform` for rows whose
+height cannot change, such as a fixed-size thumbnail grid.
+
+day-core measures a row when the backend binds it, and `ListSource::cell_height` answers that
+height as soon as `bind_row` returns. When day-core re-lays a bound row at a different height
+later, it sends `ListPatch::RowSizeInvalidated { cell, height }`. That patch arrives inside a
+layout pass, so a backend applies it on its next main-loop turn and never asks the source
+anything synchronously.
+
+| Backend | How a row takes its height |
+|---|---|
+| AppKit | `tableView:heightOfRow:` answers the height recorded for the row's token, or the last measured height for a row not bound yet; a bound row whose drawn height differs gets an unanimated `noteHeightOfRowsWithIndexesChanged`. A `Uniform` list does not answer that selector, so it keeps NSTableView's fixed `rowHeight` |
+| UIKit | self-sizing cells: `UITableViewAutomaticDimension`, and `DayListCell` answers `systemLayoutSizeFittingSize:…` with the row's height at its content view's width; a change runs an unanimated `beginUpdates`/`endUpdates` |
+| Android | the holder's layout height, set after each bind |
+| GTK | `DayCell` measures from `cell_height`; a change queues a resize of the bound list item |
+| Qt | a size hint per item, with uniform item sizes off |
+| web | rows stack by their measured heights; rows not built yet stand at the average |
+| XAML | rows stack by a running total of measured heights; rows not built yet stand at the average |
+| ArkUI | `NODE_HEIGHT` on the row's list item |
+
+The XAML and ArkUI rows have not been run on a device yet.
+
+### A text size change while the app runs
+
+`day_core::note_text_size_changed()` forgets every measurement Day holds and re-lays every
+bound row, so labels everywhere, and content-sized rows with them, take the new size. UIKit
+calls it after `UIContentSizeCategoryDidChangeNotification`, and again when a page that was
+off screen then (another tab) is shown with the new size in its traits. Android recreates the
+activity on a `fontScale` change, as it does for a theme or language change, and the tree is
+rebuilt at the new scale. The desktop and web backends do not report a live change yet; the
+new size applies from the next launch.
+
+The `list-rows-size-to-content` conformance case checks it on every toolkit: rows in caption,
+body and large-title text and a wrapped paragraph each start exactly one row height below the
+previous row, natively, before and after one row grows and shrinks back.
 
 ## Building it (mock-first, like M0–M1)
 
@@ -494,9 +538,11 @@ their own separation turns the native line off rather than showing both).
 
 ## Reorder + row-height caveat
 
-Rows drag within their own list only; nothing is draggable out of the app. `RowHeight::Automatic`
-lists compute the drop slot from a uniform-pitch approximation on GTK/Qt/XAML/ArkUI; prefer
-`Uniform` heights for reorderable lists there.
+Rows drag within their own list only; nothing is draggable out of the app. On Qt, XAML and the
+web, an `Automatic` list's drop slot comes from a uniform-pitch approximation, so a drag across
+rows of different heights can land a slot off; prefer `Uniform` heights for reorderable lists
+there. GTK and ArkUI find the row under the pointer, and AppKit, UIKit and Android use their
+platform's own drag.
 
 ## Selection and activation
 

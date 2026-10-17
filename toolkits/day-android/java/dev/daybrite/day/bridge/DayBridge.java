@@ -755,6 +755,18 @@ public final class DayBridge {
         }
         return rv;
     }
+    /** Give one row of a self-sizing list (RowHeight::Automatic) the height day laid it at, in
+     *  px (docs/list.md "Row heights"). Called from the bind, before the layout manager measures
+     *  the holder, and posted after a row was re-laid at a new height. The holder was made at
+     *  an estimate; a row whose height already matches is left alone, so a rebind of an
+     *  unchanged row costs no layout pass. */
+    public static void setListCellHeight(View cell, int px) {
+        if (cell == null || px <= 0) return;
+        ViewGroup.LayoutParams lp = cell.getLayoutParams();
+        if (lp == null || lp.height == px) return;
+        lp.height = px;
+        cell.setLayoutParams(lp);
+    }
     /** Repaint the visible holders' selection state from day's record (ListPatch::Selected):
      *  newly bound holders take theirs in onBindViewHolder. Paint only; no events. */
     public static void listPaintSelection(View v, long hostId) {

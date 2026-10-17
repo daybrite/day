@@ -1674,6 +1674,18 @@ mod imp {
         });
     }
 
+    /// The height, in vp, Day laid the row bound to `cell` (an inner Stack) at: what a
+    /// content-sized list gives the cell right after `list_bind`. `0.0` before the row's first
+    /// layout or inside a day-core borrow.
+    pub(crate) fn list_cell_height(host_id: u64, cell: Handle) -> f64 {
+        day_spec::ffi_guard::contain(0.0, || {
+            let source = LIST_SOURCES.with(|m| m.borrow().get(&host_id).cloned());
+            source.map_or(0.0, |source| {
+                (source.cell_height)(cell as day_spec::RawHandle)
+            })
+        })
+    }
+
     /// A pooled cell left the adapter's visible set: clear the cell subtree's dayscript ids so
     /// hidden rows stop answering lookups (day-core's `list_recycle_cell`), keyed by the same
     /// inner-Stack pointer `list_bind` binds with.
@@ -3115,7 +3127,14 @@ mod imp {
                     Some(ListPatch::ScrollToRow(row)) => {
                         crate::list::scroll_to_row(h.0, *row as u32)
                     }
-                    // RowSizeInvalidated: the node adapter re-measures rows itself.
+                    Some(ListPatch::RowSizeInvalidated { cell, height }) => {
+                        // A content-sized row re-laid at a new height: resize its cell, posted
+                        // out of the day-core layout pass this arrives from.
+                        let (n, cell, height) = (h.0 as usize, *cell, *height);
+                        crate::main_thread::post_local(Box::new(move || {
+                            crate::list::resize_row(n as Handle, cell as Handle, height);
+                        }));
+                    }
                     Some(ListPatch::Selected(rows)) => {
                         // Record, then repaint the live cells; newly bound cells pick the
                         // state up in the adapter's add path. Paint only, no echo.
@@ -3128,8 +3147,7 @@ mod imp {
                             crate::list::paint_selection(h.0);
                         }
                     }
-                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
-                    }
+                    Some(ListPatch::Editing(_)) | None => {}
                 },
                 // An external piece's own arkui renderer, if one registered for this kind. Without
                 // this, every registered piece realized correctly and then ignored every patch:

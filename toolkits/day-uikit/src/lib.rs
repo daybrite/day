@@ -2746,6 +2746,39 @@ mod imp {
         node: NodeId,
     }
 
+    thread_local! {
+        /// A re-measure for a text size change is posted and has not run yet.
+        static TEXT_SIZE_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// Re-measure everything Day laid out (`day_core::note_text_size_changed`) on the next turn
+    /// of the main queue, once: by then every label in the windows has taken the new size from
+    /// its own trait change. Coalesced, since one change reaches many views.
+    fn schedule_text_size_remeasure() {
+        if TEXT_SIZE_PENDING.with(|p| p.replace(true)) {
+            return;
+        }
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            TEXT_SIZE_PENDING.with(|p| p.set(false));
+            day_spec::ffi_guard::contain((), day_core::note_text_size_changed);
+        });
+    }
+
+    /// A Day host view's traits changed: if the text size category is not the one it had, the
+    /// labels under it have just taken a new size (docs/list.md "Row heights"). The app-wide
+    /// notification covers the views in a window when the setting changes; this covers the
+    /// rest, a tab or a page that was off screen then and only gets the new traits when it is
+    /// shown, after the re-measure that notification ran.
+    fn note_trait_text_size(view: &UIView, previous: Option<&objc2_ui_kit::UITraitCollection>) {
+        use objc2_ui_kit::UITraitEnvironment as _;
+        let Some(previous) = previous else { return };
+        let now = unsafe { view.traitCollection().preferredContentSizeCategory() };
+        let before = unsafe { previous.preferredContentSizeCategory() };
+        if !now.isEqualToString(&before) {
+            schedule_text_size_remeasure();
+        }
+    }
+
     define_class!(
         #[unsafe(super(UIView))]
         #[thread_kind = MainThreadOnly]
@@ -2777,6 +2810,15 @@ mod imp {
             fn safe_area_insets_did_change(&self) {
                 let _: () = unsafe { msg_send![super(self), safeAreaInsetsDidChange] };
                 self.setNeedsLayout();
+            }
+
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), || note_trait_text_size(self, previous));
             }
 
             #[unsafe(method(layoutSubviews))]
@@ -4808,6 +4850,15 @@ mod imp {
         /// against `WINDOW_NODE` re-framed the primary's root view and re-bucketed the wrong
         /// window's size class.
         impl DayHolderView {
+            #[unsafe(method(traitCollectionDidChange:))]
+            fn trait_collection_did_change(
+                &self,
+                previous: Option<&objc2_ui_kit::UITraitCollection>,
+            ) {
+                let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
+                day_spec::ffi_guard::contain((), || note_trait_text_size(self, previous));
+            }
+
             #[unsafe(method(layoutSubviews))]
             fn layout_subviews(&self) {
                 let _: () = unsafe { msg_send![super(self), layoutSubviews] };
@@ -6246,10 +6297,69 @@ mod imp {
                     }
                 });
             }
+
+            /// A self-sizing row's height (`RowHeight::Automatic`, docs/list.md "Row
+            /// heights"): UIKit asks the cell after `cellForRowAtIndexPath:` bound it, and the
+            /// answer is the height Day laid the row at, re-laid first at the width the content
+            /// view has (narrower than the table in editing mode) once the cell has reported
+            /// one. A uniform list never asks: its table has a fixed `rowHeight`.
+            #[unsafe(method(systemLayoutSizeFittingSize:withHorizontalFittingPriority:verticalFittingPriority:))]
+            fn size_fitting(
+                &self,
+                target: CGSize,
+                horizontal: objc2_ui_kit::UILayoutPriority,
+                vertical: objc2_ui_kit::UILayoutPriority,
+            ) -> CGSize {
+                let measured = day_spec::ffi_guard::contain(None, || {
+                    let data = self.list_data()?;
+                    if !data.ivars().automatic {
+                        return None;
+                    }
+                    let source = data.ivars().source.borrow().clone()?;
+                    let content = self.contentView();
+                    let cell = Retained::as_ptr(&content) as RawHandle;
+                    let reported = self.ivars().reported.get();
+                    let width = if reported > 0.0 { reported } else { target.width };
+                    if width > 0.0 {
+                        (source.layout_cell)(cell, width);
+                    }
+                    let height = (source.cell_height)(cell);
+                    (height > 0.0).then_some(CGSize::new(target.width, height))
+                });
+                match measured {
+                    Some(size) => size,
+                    None => unsafe {
+                        msg_send![
+                            super(self),
+                            systemLayoutSizeFittingSize: target,
+                            withHorizontalFittingPriority: horizontal,
+                            verticalFittingPriority: vertical
+                        ]
+                    },
+                }
+            }
         }
     );
 
     impl DayListCell {
+        /// The list data a cell's table answers to, found by walking up to the table.
+        fn list_data(&self) -> Option<Retained<DayListData>> {
+            let mut cur = self.superview();
+            while let Some(v) = cur {
+                cur = v.superview();
+                if let Ok(table) = v.downcast::<objc2_ui_kit::UITableView>() {
+                    return LIST_STATE
+                        .with(|m| {
+                            m.borrow()
+                                .get(&(Retained::as_ptr(&table) as usize))
+                                .cloned()
+                        })
+                        .map(|(_, data)| data);
+                }
+            }
+            None
+        }
+
         fn new(mtm: MainThreadMarker, ident: &NSString) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(ListCellIvars {
                 reported: std::cell::Cell::new(0.0),
@@ -6272,6 +6382,11 @@ mod imp {
         node: NodeId,
         source: RefCell<Option<ListSource>>,
         row_height: std::cell::Cell<f64>,
+        /// `RowHeight::Automatic`: the table self-sizes its cells through `DayListCell`'s
+        /// `systemLayoutSizeFittingSize:…`, and `row_height` is only the estimate.
+        automatic: bool,
+        /// A height pass is posted and not yet run (`post_row_heights` coalesces).
+        heights_pending: std::cell::Cell<bool>,
         selectable: std::cell::Cell<bool>,
         /// The app's localized word for the swipe action (docs/list.md); empty ⇒ trash glyph.
         delete_label: RefCell<String>,
@@ -6294,8 +6409,19 @@ mod imp {
                         && let Some(report) = &source.first_visible
                     {
                         let offset = unsafe { view.contentOffset() }.y.max(0.0);
-                        let pitch = self.ivars().row_height.get().max(1.0);
-                        report(((offset / pitch) as usize).min((source.len)().saturating_sub(1)));
+                        // A self-sizing list has no pitch to divide by: ask the table which row
+                        // is at the top.
+                        let row = if self.ivars().automatic {
+                            view.downcast_ref::<objc2_ui_kit::UITableView>()
+                                .and_then(|t| unsafe {
+                                    t.indexPathForRowAtPoint(CGPoint::new(0.0, offset))
+                                })
+                                .map(|ip| unsafe { ip.row() }.max(0) as usize)
+                                .unwrap_or(0)
+                        } else {
+                            (offset / self.ivars().row_height.get().max(1.0)) as usize
+                        };
+                        report(row.min((source.len)().saturating_sub(1)));
                     }
                 });
             }
@@ -6495,7 +6621,11 @@ mod imp {
                 _tv: &objc2_ui_kit::UITableView,
                 _index_path: &objc2_foundation::NSIndexPath,
             ) -> CGFloat {
-                self.ivars().row_height.get()
+                if self.ivars().automatic {
+                    unsafe { objc2_ui_kit::UITableViewAutomaticDimension }
+                } else {
+                    self.ivars().row_height.get()
+                }
             }
 
             #[unsafe(method(tableView:didSelectRowAtIndexPath:))]
@@ -6733,16 +6863,53 @@ mod imp {
             node: NodeId,
             selectable: bool,
             row_height: f64,
+            automatic: bool,
             delete_label: String,
         ) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(ListIvars {
                 node,
                 source: RefCell::new(None),
                 row_height: std::cell::Cell::new(row_height),
+                automatic,
+                heights_pending: std::cell::Cell::new(false),
                 selectable: std::cell::Cell::new(selectable),
                 delete_label: RefCell::new(delete_label),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// `ListPatch::RowSizeInvalidated`: a self-sizing row was re-laid at a new height.
+        /// The patch arrives under the day-core borrow, and re-sizing asks the cells, which ask
+        /// the source; so the table re-sizes its rows on the next turn, once for every row a
+        /// pass changed, and without animation: the row takes its content's height.
+        fn post_row_heights(key: usize) {
+            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+            let Some((_, data)) = entry else { return };
+            if data.ivars().heights_pending.replace(true) {
+                return;
+            }
+            <Uikit as Platform>::post(Box::new(move || {
+                let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                let Some((table, data)) = entry else { return };
+                data.ivars().heights_pending.set(false);
+                // Only while the table shows the source's row count. A splice or reload that
+                // changed the count is still on its way (both are posted too), and an empty
+                // batch would make the table adopt the new count early; that change's own
+                // batch then failed UITableView's row-count check and threw ("Invalid batch
+                // updates"), aborting the app. The pending change re-sizes the rows itself.
+                let len = data.ivars().source.borrow().as_ref().map(|s| (s.len)());
+                if len != Some(unsafe { table.numberOfRowsInSection(0) }.max(0) as usize) {
+                    return;
+                }
+                let cls = <objc2_ui_kit::UIView as objc2::ClassType>::class();
+                unsafe {
+                    let was: bool = msg_send![cls, areAnimationsEnabled];
+                    let _: () = msg_send![cls, setAnimationsEnabled: false];
+                    table.beginUpdates();
+                    table.endUpdates();
+                    let _: () = msg_send![cls, setAnimationsEnabled: was];
+                }
+            }));
         }
 
         /// A row's editing control: Delete where the delete seam offers one, none otherwise.
@@ -9262,10 +9429,24 @@ mod imp {
                             objc2_ui_kit::UITableViewStyle::Plain,
                         )
                     };
-                    let data =
-                        DayListData::new(mtm, id, p.selectable, row_height, p.delete_label.clone());
+                    let automatic = p.row_height == RowHeight::Automatic;
+                    let data = DayListData::new(
+                        mtm,
+                        id,
+                        p.selectable,
+                        row_height,
+                        automatic,
+                        p.delete_label.clone(),
+                    );
                     unsafe {
-                        table.setRowHeight(row_height);
+                        if automatic {
+                            // Self-sizing cells (docs/list.md "Row heights"): each row is as
+                            // tall as Day lays it, asked of the cell once it is bound.
+                            table.setRowHeight(objc2_ui_kit::UITableViewAutomaticDimension);
+                            table.setEstimatedRowHeight(row_height);
+                        } else {
+                            table.setRowHeight(row_height);
+                        }
                         table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                         table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
                         // Separators are UIKit's default; only a forced OFF changes anything
@@ -10256,11 +10437,11 @@ mod imp {
                             }
                         }));
                     }
-                    // Not implemented: RowSizeInvalidated (the row keeps its height until the
-                    // next Reload) and Selected (no programmatic selection sync on UIKit yet).
-                    Some(ListPatch::RowSizeInvalidated(_))
-                    | Some(ListPatch::Selected(_))
-                    | None => {}
+                    Some(ListPatch::RowSizeInvalidated { .. }) => {
+                        DayListData::post_row_heights(ptr_of(h));
+                    }
+                    // Not implemented: Selected (no programmatic selection sync on UIKit yet).
+                    Some(ListPatch::Selected(_)) | None => {}
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
@@ -12866,6 +13047,17 @@ mod imp {
                             None,
                         )
                 };
+                // The system text size (Dynamic Type) changing under a running app: labels
+                // take the new size by themselves, Day's measurements of them do not.
+                unsafe {
+                    objc2_foundation::NSNotificationCenter::defaultCenter()
+                        .addObserver_selector_name_object(
+                            self,
+                            sel!(textSizeChanged:),
+                            Some(objc2_ui_kit::UIContentSizeCategoryDidChangeNotification),
+                            None,
+                        )
+                };
                 // Screen recording and mirroring starting or stopping (docs/windows.md): the
                 // content-protection shields follow it. Any screen will do: the handler
                 // re-reads every scene's own capture state.
@@ -13000,6 +13192,15 @@ mod imp {
             #[unsafe(method(reduceMotionChanged:))]
             fn reduce_motion_changed(&self, _notification: &objc2_foundation::NSNotification) {
                 day_spec::ffi_guard::contain((), day_core::note_motion_changed);
+            }
+
+            /// The system text size changed. The notification arrives before the new size
+            /// has reached the views' trait collections, and a label adjusts its font from its
+            /// own trait change, so re-measure on the next turn of the main queue, once they
+            /// have.
+            #[unsafe(method(textSizeChanged:))]
+            fn text_size_changed(&self, _notification: &objc2_foundation::NSNotification) {
+                schedule_text_size_remeasure();
             }
 
             /// A recording or mirroring of some screen started or stopped. The scene trait the

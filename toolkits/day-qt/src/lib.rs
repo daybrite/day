@@ -287,7 +287,11 @@ const LIST_OVERSCAN: usize = 8;
 
 struct ListEntry {
     host: *mut c_void,
+    /// The row pitch: every row's height for a `Uniform` list, and for an `Automatic` one the
+    /// estimate for rows not built yet (a built row takes the height Day laid it at).
     row_height: f64,
+    /// `RowHeight::Automatic`: each built row is as tall as its content.
+    automatic: bool,
     source: Rc<RefCell<Option<day_spec::ListSource>>>,
     /// One slot per row, NULL until that row has been shown: cell index == row index, so a
     /// slot's identity never changes and a realized cell stays that row's for good.
@@ -603,6 +607,7 @@ fn list_fill_window(host_key: usize) {
     }) else {
         return;
     };
+    let automatic = LIST_STATE.with(|m| m.borrow().get(&host_key).is_some_and(|st| st.automatic));
     if source.first_visible.is_some() {
         // A viewport change can recompose and lay out a floating header. A
         // native layout may still hold the core tree borrow, so defer delivery.
@@ -643,7 +648,37 @@ fn list_fill_window(host_key: usize) {
         if cw != host_width {
             (source.layout_cell)(cell, f64::from(cw));
         }
+        // A self-sizing row is as tall as Day laid it, padding included; the view re-lays its
+        // items and moves the cells below. Later changes come as `RowSizeInvalidated`.
+        if automatic {
+            let laid = (source.cell_height)(cell);
+            if laid > 0.0 {
+                unsafe {
+                    ffi::day_qt_set_geometry(cell, x, y, cw, laid.ceil() as c_int);
+                    ffi::day_qt_list_set_row_height(host, i as c_int, laid.ceil() as c_int);
+                }
+            }
+        }
     }
+}
+
+/// A self-sizing row Day re-laid at a new height (`ListPatch::RowSizeInvalidated`), applied on
+/// the next event-loop turn: it arrives inside a day-core layout pass, and the view's relayout
+/// must not run under it. A cell is its row's for good, so the row is the cell's slot.
+fn schedule_list_row_height(host_key: usize, cell: usize, height: f64) {
+    let boxed: Box<dyn FnOnce() + Send> = Box::new(move || {
+        let row = LIST_STATE.with(|m| {
+            let m = m.borrow();
+            let st = m.get(&host_key)?;
+            let row = st.cells.iter().position(|c| *c as usize == cell)?;
+            Some((st.host, row))
+        });
+        if let Some((host, row)) = row {
+            unsafe { ffi::day_qt_list_set_row_height(host, row as c_int, height.ceil() as c_int) };
+        }
+    });
+    let data = Box::into_raw(Box::new(boxed)) as *mut c_void;
+    unsafe { ffi::day_qt_post(run_posted, data) };
 }
 
 /// A right-click landed on a widget with a summon-time menu: ask the provider and hand Qt a
@@ -2479,9 +2514,9 @@ impl Toolkit for Qt {
                     let Some(p) = props_of::<ListProps>(kind, "qt", props) else {
                         return placeholder_handle(kind);
                     };
-                    let row_height = match p.row_height {
-                        RowHeight::Uniform(h) => h,
-                        RowHeight::Automatic => 44.0,
+                    let (row_height, automatic) = match p.row_height {
+                        RowHeight::Uniform(h) => (h, false),
+                        RowHeight::Automatic => (44.0, true),
                     };
                     // A real QListWidget (docs/list.md): selection, the keyboard walker and
                     // the drag-and-drop machinery are the view's; the guard and the commit of
@@ -2501,12 +2536,16 @@ impl Toolkit for Qt {
                     // A legacy scroll bar appearing or leaving resizes the viewport under
                     // the rows without the host moving: re-lay them to the width they have.
                     ffi::day_qt_list_on_viewport_resized(host, on_list_viewport_resized);
+                    if automatic {
+                        ffi::day_qt_list_set_automatic(host);
+                    }
                     LIST_STATE.with(|m| {
                         m.borrow_mut().insert(
                             host as usize,
                             ListEntry {
                                 host,
                                 row_height,
+                                automatic,
                                 source: Rc::new(RefCell::new(None)),
                                 cells: Vec::new(),
                                 bound: Vec::new(),
@@ -3013,11 +3052,11 @@ impl Toolkit for Qt {
                         let rows: Vec<c_int> = rows.iter().map(|r| *r as c_int).collect();
                         ffi::day_qt_list_set_selected(h.0, rows.as_ptr(), rows.len() as c_int);
                     }
-                    // Not implemented: RowSizeInvalidated — every row stands the declared
-                    // pitch tall, and a Reload re-lays them all. No editing mode
-                    // (Cap::ListEditing is Unsupported).
-                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
+                    Some(ListPatch::RowSizeInvalidated { cell, height }) => {
+                        schedule_list_row_height(h.0 as usize, *cell, *height)
                     }
+                    // No editing mode (Cap::ListEditing is Unsupported).
+                    Some(ListPatch::Editing(_)) | None => {}
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {

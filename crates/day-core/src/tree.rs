@@ -607,12 +607,23 @@ impl<B: Toolkit> Tree<B> {
                 crate::layout::measure_node(self, anchor, Proposal::new(Some(width), None)).height
             }
         };
-        if let Some(b) = self
+        let previous = self
             .lists
             .get_mut(&node)
             .and_then(|s| s.cells.get_mut(&key))
+            .and_then(|b| b.laid_height.replace(height));
+        // A self-sizing row the host already sized has a new height: say so, or the native row
+        // keeps the old one and its content clips or leaves a gap. The first layout needs no
+        // patch: the host reads `cell_height` right after `bind_row` returns.
+        if previous.is_some_and(|p| (p - height).abs() > 0.25)
+            && let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone())
         {
-            b.laid_height = Some(height);
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::RowSizeInvalidated { cell: key, height } as &dyn Any,
+                None,
+            );
         }
         crate::layout::place_node(
             self,
@@ -868,6 +879,10 @@ pub trait TreeOps {
     }
     fn mark_needs_measure(&mut self, node: RNode);
     fn mark_layout_dirty(&mut self);
+    /// Forget every measurement Day holds and re-lay every bound list and tree row: the system
+    /// text size changed ([`crate::note_text_size_changed`]), so every text measurement is
+    /// stale, and a cached one would keep each label at its old size.
+    fn invalidate_all_measurements(&mut self);
     fn layout_if_needed(&mut self);
     fn set_window_size(&mut self, s: Size);
     /// Report the app's current route to the backend (`Toolkit::set_route`); web-dom mirrors
@@ -1945,6 +1960,28 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn mark_layout_dirty(&mut self) {
+        self.layout_dirty = true;
+    }
+
+    fn invalidate_all_measurements(&mut self) {
+        for (_, n) in self.nodes.iter_mut() {
+            n.needs_measure = true;
+            n.needs_layout = true;
+            n.cache.clear();
+        }
+        // Cells keep a row's measurements while its width holds; forgetting the width makes the
+        // dirty-cell sweep measure each bound row afresh, and a self-sizing row whose height
+        // changes reports it (`ListPatch::RowSizeInvalidated`).
+        for state in self.lists.values_mut() {
+            for cell in state.cells.values_mut() {
+                cell.laid_width = None;
+            }
+        }
+        for state in self.trees.values_mut() {
+            for cell in state.cells.values_mut() {
+                cell.laid_width = None;
+            }
+        }
         self.layout_dirty = true;
     }
 

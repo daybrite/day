@@ -740,7 +740,15 @@ struct ListEntry {
     activatable: bool,
     node: NodeId,
     content: u32,
+    /// The declared pitch of a `Uniform` list; for an `Automatic` one, the estimate a row
+    /// stands at until it has been measured.
     row_height: f64,
+    /// `RowHeight::Automatic`: each row takes the height Day laid it at
+    /// (`ListSource::cell_height`), and rows stack by those heights rather than a pitch.
+    automatic: bool,
+    /// A self-sizing list's measured row heights, by row; `0.0` for a row never bound, which
+    /// stands at [`ListEntry::estimate`]. Empty for a `Uniform` list.
+    heights: Vec<f64>,
     source: Option<ListSource>,
     /// One slot per row, 0 until that row has been shown: cell index == row index, so a slot's
     /// identity never changes and a realized cell stays that row's for good.
@@ -768,6 +776,60 @@ struct ListEntry {
     /// the anchor because a range has two ends and `shift+↓ ↓ ↑` has to grow twice and shrink
     /// once — one field cannot both stay put and move.
     lead: Option<usize>,
+}
+
+impl ListEntry {
+    /// What an unmeasured row of a self-sizing list stands at: the mean of the rows measured
+    /// so far, so the scroll extent tracks the real rows, or the declared fallback before any.
+    fn estimate(&self) -> f64 {
+        let (sum, count) = self
+            .heights
+            .iter()
+            .filter(|h| **h > 0.0)
+            .fold((0.0, 0usize), |(s, c), h| (s + h, c + 1));
+        if count == 0 {
+            self.row_height.max(1.0)
+        } else {
+            sum / count as f64
+        }
+    }
+
+    /// Every row's top for `n` rows, then the whole extent: `n + 1` entries. A uniform list's
+    /// are multiples of its pitch; a self-sizing list's add up its measured heights, standing
+    /// each unmeasured row at the estimate.
+    fn tops(&self, n: usize) -> Vec<f64> {
+        let estimate = self.estimate();
+        let mut tops = Vec::with_capacity(n + 1);
+        let mut y = 0.0;
+        for i in 0..n {
+            tops.push(y);
+            y += self.height_of(i, estimate);
+        }
+        tops.push(y);
+        tops
+    }
+
+    /// Row `i`'s height: the pitch, or its measured height, or `estimate`.
+    fn height_of(&self, i: usize, estimate: f64) -> f64 {
+        if !self.automatic {
+            return self.row_height.max(1.0);
+        }
+        match self.heights.get(i) {
+            Some(h) if *h > 0.0 => *h,
+            _ => estimate,
+        }
+    }
+
+    /// Row `row`'s top and bottom edge in the list's content.
+    fn row_span(&self, row: usize) -> (f64, f64) {
+        if !self.automatic {
+            let h = self.row_height.max(1.0);
+            return (row as f64 * h, (row + 1) as f64 * h);
+        }
+        let estimate = self.estimate();
+        let top: f64 = (0..row).map(|i| self.height_of(i, estimate)).sum();
+        (top, top + self.height_of(row, estimate))
+    }
 }
 
 /// The grabber strip above a half sheet's content, in CSS px (`.day-cover.day-half`'s
@@ -2201,9 +2263,9 @@ impl Toolkit for Dom {
                 }
                 let content = unsafe { day_dom_create(EL_DIV) };
                 unsafe { day_dom_insert(host, content, 0) };
-                let row_height = match p.row_height {
-                    RowHeight::Uniform(h) => h,
-                    RowHeight::Automatic => 44.0,
+                let (row_height, automatic) = match p.row_height {
+                    RowHeight::Uniform(h) => (h, false),
+                    RowHeight::Automatic => (44.0, true),
                 };
                 LISTS.with(|m| {
                     m.borrow_mut().insert(
@@ -2212,6 +2274,8 @@ impl Toolkit for Dom {
                             node: id,
                             content,
                             row_height,
+                            automatic,
+                            heights: Vec::new(),
                             source: None,
                             cells: Vec::new(),
                             bound: Vec::new(),
@@ -3889,8 +3953,8 @@ fn list_populate(host: u32) {
 /// Build the rows the viewport shows and that are not built already. Idempotent and cheap when
 /// nothing moved, which is what lets every scroll event call it.
 fn list_fill_window(host: u32) {
-    let Some((content, rowh, source, work, n, width, separators, first_visible)) =
-        LISTS.with(|m| {
+    let Some((content, rowh, source, work, n, width, separators, first_visible, tops)) = LISTS
+        .with(|m| {
             let mut m = m.borrow_mut();
             let st = m.get_mut(&host)?;
             let source = st.source.clone()?;
@@ -3903,14 +3967,37 @@ fn list_fill_window(host: u32) {
             let mut view = [0.0_f64; 2];
             unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
             let (offset, vh) = (view[0], if view[1] > 0.0 { view[1] } else { 600.0 });
-            let first_visible = ((offset / rowh).floor() as usize).min(n.saturating_sub(1));
-            let first = ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN);
-            let last = (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n);
+            // A self-sizing list's rows stand where their heights add up to; a uniform list's
+            // at multiples of the pitch, with no per-row table to build.
+            let tops = st.automatic.then(|| st.tops(n));
+            let (first_visible, first, last) = match &tops {
+                Some(tops) => {
+                    // The row whose span holds `offset`, and the first row starting below the
+                    // viewport's bottom edge.
+                    let at = tops[..n]
+                        .partition_point(|t| *t <= offset)
+                        .saturating_sub(1);
+                    let end = tops[..n].partition_point(|t| *t < offset + vh);
+                    (
+                        at.min(n.saturating_sub(1)),
+                        at.saturating_sub(LIST_OVERSCAN),
+                        (end + LIST_OVERSCAN).min(n),
+                    )
+                }
+                None => (
+                    ((offset / rowh).floor() as usize).min(n.saturating_sub(1)),
+                    ((offset / rowh).floor() as usize).saturating_sub(LIST_OVERSCAN),
+                    (((offset + vh) / rowh).ceil() as usize + LIST_OVERSCAN).min(n),
+                ),
+            };
             // Slots exist for every row (a Vec of zeros, not of elements): the cell for row i lives
             // at i for good, which is what keeps the click handler's recorded row honest.
             if st.cells.len() < n {
                 st.cells.resize(n, 0);
                 st.bound.resize(n, false);
+            }
+            if st.automatic && st.heights.len() < n {
+                st.heights.resize(n, 0.0);
             }
             let mut work: Vec<(usize, u32)> = Vec::new();
             for i in first..last {
@@ -3945,6 +4032,7 @@ fn list_fill_window(host: u32) {
                 width,
                 separators,
                 first_visible,
+                tops,
             ))
         })
     else {
@@ -3964,9 +4052,14 @@ fn list_fill_window(host: u32) {
             }
         });
     }
-    for (i, cell) in work {
+    let mut measured = false;
+    for &(i, cell) in &work {
+        let (top, height) = match &tops {
+            Some(t) => (t[i], t[i + 1] - t[i]),
+            None => (i as f64 * rowh, rowh),
+        };
         unsafe {
-            day_dom_set_frame(cell, 0.0, i as f64 * rowh, width, rowh);
+            day_dom_set_frame(cell, 0.0, top, width, height);
         }
         s(cell, "display", "block");
         if separators {
@@ -3980,11 +4073,38 @@ fn list_fill_window(host: u32) {
             );
         }
         (source.bind_row)(i, cell as usize as day_spec::RawHandle);
+        // A self-sizing row takes the height Day just laid it at. `0.0` means the tree was
+        // busy; the row keeps its estimate until a resize reaches it.
+        if tops.is_some() {
+            let laid = (source.cell_height)(cell as usize as day_spec::RawHandle);
+            if laid > 0.0 {
+                measured |= LISTS.with(|m| {
+                    m.borrow_mut()
+                        .get_mut(&host)
+                        .and_then(|st| st.heights.get_mut(i))
+                        .map(|h| {
+                            let changed = (*h - laid).abs() > 0.25;
+                            *h = laid;
+                            changed
+                        })
+                        .unwrap_or(false)
+                });
+            }
+        }
     }
     s(content, "position", "relative");
     // The extent is the whole source, built or not: the scrollbar is how the user reaches rows
     // that do not exist yet, so it cannot be sized to what happens to be realized.
-    s(content, "height", &format!("{}px", n as f64 * rowh));
+    match &tops {
+        Some(t) => s(content, "height", &format!("{}px", t[n])),
+        None => s(content, "height", &format!("{}px", n as f64 * rowh)),
+    }
+    // Measured rows moved every row after them, and rows the estimate placed off screen may
+    // now be in view: restack, then fill again (a no-op once every row in view is built).
+    if measured {
+        list_restack(host);
+        post_local(move || list_fill_window(host));
+    }
     // A row jump that arrived before this extent existed lands now; its scroll event builds the
     // rows it reveals.
     let pending = LISTS.with(|m| {
@@ -4001,6 +4121,30 @@ fn list_fill_window(host: u32) {
         if let Some(st) = m.borrow().get(&host) {
             list_paint_selection(st);
         }
+    });
+}
+
+/// A self-sizing list's rows moved: frame every realized row at the top its predecessors' heights
+/// add up to, and size the content to the new extent. A no-op on a uniform list, whose rows
+/// never move.
+fn list_restack(host: u32) {
+    LISTS.with(|m| {
+        let m = m.borrow();
+        let Some(st) = m.get(&host) else {
+            return;
+        };
+        let Some(source) = st.source.as_ref().filter(|_| st.automatic) else {
+            return;
+        };
+        let n = (source.len)();
+        let tops = st.tops(n);
+        let width = unsafe { day_dom_width(host) }.max(1.0);
+        for (i, &cell) in st.cells.iter().enumerate().take(n) {
+            if cell != 0 {
+                unsafe { day_dom_set_frame(cell, 0.0, tops[i], width, tops[i + 1] - tops[i]) };
+            }
+        }
+        s(st.content, "height", &format!("{}px", tops[n]));
     });
 }
 
@@ -4060,14 +4204,13 @@ fn list_cursor(entry: &ListEntry) -> Option<usize> {
 /// Scroll `row` into view if it is not fully there, the way a native list does when the
 /// keyboard walks off the visible edge. Whichever edge it went past is the one it comes back
 /// to, so a held arrow key scrolls a line at a time instead of recentering on every step.
-fn list_reveal_row(host: u32, row: usize, row_height: f64) {
+fn list_reveal_row(host: u32, (top, bottom): (f64, f64)) {
     let mut view = [0.0_f64; 2];
     unsafe { day_dom_list_viewport(host, view.as_mut_ptr()) };
     let (offset, vh) = (view[0], view[1]);
     if vh <= 0.0 {
         return; // not laid out yet; the fill that follows builds from the top anyway
     }
-    let (top, bottom) = (row as f64 * row_height, (row + 1) as f64 * row_height);
     let y = if top < offset {
         top
     } else if bottom > offset + vh {
@@ -4136,12 +4279,12 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
             } else {
                 Event::SelectionChanged(row as i64)
             };
-            Some((st.node, ev, row, st.row_height.max(1.0)))
+            Some((st.node, ev, st.row_span(row)))
         });
-        let Some((node, ev, row, row_height)) = moved else {
+        let Some((node, ev, span)) = moved else {
             return 0;
         };
-        list_reveal_row(host, row, row_height);
+        list_reveal_row(host, span);
         emit(node, ev);
         1
     })
@@ -4151,13 +4294,36 @@ fn list_patch(el: u32, p: &ListPatch) {
     match p {
         ListPatch::Reload | ListPatch::Splice(_) => post_local(move || list_populate(el)),
         // No editing mode (Cap::ListEditing is Unsupported).
-        ListPatch::RowSizeInvalidated(_) | ListPatch::Editing(_) => {}
+        ListPatch::Editing(_) => {}
+        // A self-sizing row re-laid at a new height. This arrives inside day-core's layout
+        // pass, so the row moves on the next turn: record the height Day gave it (cell index
+        // is row index here), restack the rows after it, and build any the move revealed.
+        &ListPatch::RowSizeInvalidated { cell, height } => post_local(move || {
+            let moved = LISTS.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(st) = m.get_mut(&el).filter(|st| st.automatic) else {
+                    return false;
+                };
+                let Some(row) = st.cells.iter().position(|c| *c as usize == cell) else {
+                    return false;
+                };
+                if st.heights.len() <= row {
+                    st.heights.resize(row + 1, 0.0);
+                }
+                st.heights[row] = height;
+                true
+            });
+            if moved {
+                list_restack(el);
+                list_fill_window(el);
+            }
+        }),
         ListPatch::ScrollToEnd => unsafe { day_dom_scroll_edge(el, 1, 1) },
         ListPatch::ScrollToRow(row) => {
             let y = LISTS.with(|m| {
                 m.borrow()
                     .get(&el)
-                    .map(|st| *row as f64 * st.row_height)
+                    .map(|st| st.row_span(*row).0)
                     .unwrap_or(0.0)
             });
             // Also held for the next fill: a jump asked for before the first one (a list the

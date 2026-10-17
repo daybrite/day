@@ -2504,6 +2504,15 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > `DayListCell`s, which report the content view's narrower width through
 > `ListSource::layout_cell` so the row stays clear of both controls. The other toolkits answer
 > `Unsupported` and ignore it ([docs/list.md](docs/list.md#editing-mode)).
+> **Content-sized rows** (2026-10): `RowHeight::Automatic`, the default, used to size every
+> row at a fixed 44 points on most backends. Each backend now gives a row the height day-core
+> laid it at (`ListSource::cell_height`), and day-core sends
+> `ListPatch::RowSizeInvalidated { cell, height }` when a bound row is re-laid at another
+> height, applied by the backend after the layout pass. `day_core::note_text_size_changed()`
+> re-measures everything when the system text size changes under a running app (UIKit's
+> Dynamic Type notification and trait changes; Android recreates the activity on
+> `fontScale`). The `list-rows-size-to-content` conformance case guards it
+> ([docs/list.md](docs/list.md#row-heights)).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native

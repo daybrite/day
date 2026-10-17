@@ -279,6 +279,8 @@ unsafe extern "C" {
     ) -> *mut c_void;
     /// Bring the item count to `n`; rows past it are hidden, never removed (their cells live on).
     pub fn day_qt_list_set_count(w: *mut c_void, n: c_int);
+    pub fn day_qt_list_set_automatic(w: *mut c_void);
+    pub fn day_qt_list_set_row_height(w: *mut c_void, row: c_int, height: c_int);
     pub fn day_qt_list_attach_cell(w: *mut c_void, row: c_int, cell: *mut c_void);
     pub fn day_qt_list_cell_frame(
         w: *mut c_void,

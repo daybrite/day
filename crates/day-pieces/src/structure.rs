@@ -3128,11 +3128,11 @@ pub fn guarded_page(case: day_core::conformance::Case) -> AnyPiece {
 
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
-    use day_core::conformance::{Case, Drive};
+    use day_core::conformance::{Case, Drive, Fail};
     use day_geometry::Insets;
     use day_reactive::Signal;
     use day_spec::props::RowHeight;
-    use day_spec::{Cap, kinds};
+    use day_spec::{Cap, Font, kinds};
 
     use crate::*;
 
@@ -3229,6 +3229,169 @@ pub(crate) mod conformance {
                     d.assert_visible(&format!("row:Item {index}")).await?;
                 }
                 Ok(())
+            })
+    }
+
+    /// The rows of the self-sizing fixture, in order: key, font, text.
+    const SIZED: [(&str, Font, &str); 5] = [
+        ("small", Font::Caption2, "Small print"),
+        ("large", Font::LargeTitle, "Large"),
+        ("body", Font::Body, "Body text"),
+        (
+            "wrap",
+            Font::Footnote,
+            "A footnote long enough to wrap onto three lines or more in a narrow list, \
+             whatever the platform's type scale, so its row is several lines tall",
+        ),
+        ("end", Font::Body, "End"),
+    ];
+
+    /// The text the `body` row grows to: several lines at any platform's type scale.
+    const GROWN: &str = "Body text that grew long enough to wrap onto several lines, \
+        the way a row does when its content changes after it was first sized";
+
+    /// A self-sizing list of [`SIZED`] rows, each a bare label with the id `sized:<key>`, so
+    /// the label's frame is the row's whole height. `grown` swaps the `body` row's text.
+    fn sized_list(grown: Signal<bool>) -> List<Items<&'static str, &'static str>> {
+        list(
+            items(|| SIZED.iter().map(|r| r.0).collect(), |k: &&str| *k),
+            move |slot: ItemSlot<&'static str, &'static str>| {
+                // A label's font is fixed at build, and cells recycle: one arm per font, only
+                // the slot's own one built.
+                let arm = |key: &'static str, font: Font, text: &'static str| {
+                    when(
+                        move || slot.get() == key,
+                        move || {
+                            label(move || {
+                                if key == "body" && grown.get() {
+                                    GROWN.to_string()
+                                } else {
+                                    text.to_string()
+                                }
+                            })
+                            .font(font)
+                            .id_of(move || format!("sized:{}", slot.get()))
+                        },
+                    )
+                };
+                let [a, b, c, d, e] = SIZED;
+                column((
+                    arm(a.0, a.1, a.2),
+                    arm(b.0, b.1, b.2),
+                    arm(c.0, c.1, c.2),
+                    arm(d.0, d.1, d.2),
+                    arm(e.0, e.1, e.2),
+                ))
+                .spacing(0.0)
+            },
+        )
+        .row_height(RowHeight::Automatic)
+        .separators(false)
+    }
+
+    /// Each `sized:` row's Day height and native top, in window points, in row order.
+    fn sized_rows() -> Result<Vec<(&'static str, f64, f64)>, Fail> {
+        day_core::try_with_tree(|t| {
+            SIZED
+                .iter()
+                .map(|(key, ..)| {
+                    let id = format!("sized:{key}");
+                    let node = t
+                        .find_by_id(&id)
+                        .ok_or_else(|| Fail(format!("no element {id:?}")))?;
+                    let day = t
+                        .node_frame(node)
+                        .ok_or_else(|| Fail(format!("{id:?} has no Day frame")))?;
+                    let native = t
+                        .read_native(node)
+                        .and_then(|n| n.frame)
+                        .ok_or_else(|| Fail(format!("{id:?} has no native frame")))?;
+                    Ok((*key, day.size.height, native.origin.y))
+                })
+                .collect()
+        })
+        .unwrap_or_else(|| Err(Fail("the tree is busy".into())))
+    }
+
+    /// Every row is as tall as its content: the next row starts exactly one row height below
+    /// it, give or take a chrome allowance (a GTK row's theme padding) that every row shares.
+    /// A row the platform held at a fixed height either clips its content (the next row starts
+    /// too soon) or leaves a gap that differs from row to row.
+    fn rows_fit() -> Result<Vec<(&'static str, f64, f64)>, Fail> {
+        let rows = sized_rows()?;
+        let chrome = (rows[1].2 - rows[0].2) - rows[0].1;
+        for pair in rows.windows(2) {
+            let ((key, height, top), (_, _, next)) = (pair[0], pair[1]);
+            let pitch = next - top;
+            if pitch + 0.5 < height {
+                return Err(Fail(format!(
+                    "row {key:?} is {height:.1} tall but the next row starts {pitch:.1} below \
+                     it: the native row clips its content"
+                )));
+            }
+            if (pitch - height - chrome).abs() > 1.5 {
+                return Err(Fail(format!(
+                    "row {key:?} is {height:.1} tall and the next row starts {pitch:.1} below \
+                     it, {:.1} more than its height, where the first row's allowance is \
+                     {chrome:.1}: the native row did not take its content's height",
+                    pitch - height
+                )));
+            }
+        }
+        Ok(rows)
+    }
+
+    fn height_of(rows: &[(&str, f64, f64)], key: &str) -> f64 {
+        rows.iter().find(|r| r.0 == key).map_or(0.0, |r| r.1)
+    }
+
+    /// An `Automatic` list sizes each row to its content: small and large text, a wrapped
+    /// paragraph, and a row whose text grows and shrinks after it was first sized.
+    #[day_macros::test(day_core)]
+    fn list_rows_size_to_content() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .proves(kinds::LIST_CELL)
+            .page(|| {
+                let grown = Signal::new(false);
+                column((
+                    button("Grow")
+                        .action(move || grown.update(|g| *g = !*g))
+                        .id("grow"),
+                    sized_list(grown).id("list").width(240.0).height(480.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_visible("sized:end").await?;
+                d.shot("sized-rows").await?;
+                let rows = rows_fit()?;
+                // The fixture means what it says: the type sizes differ, and the paragraph
+                // wrapped at the list's width.
+                let (small, large) = (height_of(&rows, "small"), height_of(&rows, "large"));
+                d.check(
+                    large > small * 1.5,
+                    "a large-title row is taller than a caption row",
+                )?;
+                let body = height_of(&rows, "body");
+                d.check(
+                    height_of(&rows, "wrap") > body * 1.5,
+                    "the footnote wrapped",
+                )?;
+                // A row re-laid at a new height after it was first sized.
+                d.tap("grow").await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                d.shot("sized-rows-grown").await?;
+                let grew = rows_fit()?;
+                d.check(height_of(&grew, "body") > body * 1.5, "the body row grew")?;
+                d.tap("grow").await?;
+                d.wait_idle().await?;
+                d.pause(0.3).await?;
+                let shrank = rows_fit()?;
+                d.check(
+                    (height_of(&shrank, "body") - body).abs() < 1.0,
+                    "the body row shrank back",
+                )
             })
     }
 
@@ -3530,6 +3693,7 @@ pub(crate) mod conformance {
         list_rows_realize,
         list_follows_source,
         list_append_then_scroll,
+        list_rows_size_to_content,
         list_select_and_activate,
         list_reorder_moves_row,
         list_delete_row,

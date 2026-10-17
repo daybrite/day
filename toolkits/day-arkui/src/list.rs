@@ -48,8 +48,12 @@ use crate::node::{self, Handle};
 struct List {
     adapter: ArkUI_NodeAdapterHandle,
     host_id: u64,
-    /// px; 0 = content-sized
+    /// px; 0 = content-sized (`RowHeight::Automatic`): each cell then takes the height Day
+    /// laid its row at, set after every bind and on `ListPatch::RowSizeInvalidated`.
     row_h: f32,
+    /// A content-sized list's live heights, px, by LIST_ITEM: what the drop slot hit-tests
+    /// against, since the rows have no common pitch.
+    heights: HashMap<usize, f32>,
     /// Rows report taps as selection and paint the programmatic set (docs/list.md).
     selectable: bool,
     /// Bumped per reload so every row gets a FRESH adapter item id (see GET_NODE_ID): the
@@ -232,6 +236,12 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                     let inner = node::child_at(cell, 0);
                     // Build (fresh) or rebind (recycled).
                     crate::list_bind(dl.host_id, idx, inner);
+                    if dl.row_h <= 0.0 {
+                        // Content-sized: the height Day just laid the row at. Left unset, the
+                        // item only wraps its Stack, whose children are placed, not measured.
+                        let height = crate::list_cell_height(dl.host_id, inner);
+                        size_row(dl, cell, inner, height);
+                    }
                     // A rebound cell inherits its row's programmatic selection state.
                     paint_cell(dl, cell, idx as i32);
                     OH_ArkUI_NodeAdapterEvent_SetItem(ev, cell);
@@ -255,6 +265,38 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
     });
 }
 
+/// Give a content-sized list's cell (the LIST_ITEM and the Stack the row mounts in) the row's
+/// height in vp. A zero height (a bind that skipped under a day-core borrow) leaves it as is.
+fn size_row(dl: &mut List, cell: Handle, inner: Handle, height_vp: f64) {
+    if height_vp <= 0.0 || cell.is_null() || inner.is_null() {
+        return;
+    }
+    node::set_f32(cell, Attr::NODE_HEIGHT, height_vp as f32);
+    node::set_f32(inner, Attr::NODE_HEIGHT, height_vp as f32);
+    dl.heights
+        .insert(cell as usize, (height_vp * node::density()) as f32);
+}
+
+/// `ListPatch::RowSizeInvalidated`: the row mounted in `inner` (a cell's Stack) was re-laid at
+/// `height_vp` after it was first sized. Called posted, out of the day-core borrow; a uniform
+/// list's rows keep their declared height.
+pub fn resize_row(n: Handle, inner: Handle, height_vp: f64) {
+    let dl = list_ptr(n);
+    if dl.is_null() || inner.is_null() {
+        return;
+    }
+    // SAFETY: a live list; no map borrow is held.
+    let dl = unsafe { &mut *dl };
+    if dl.row_h > 0.0 {
+        return;
+    }
+    let cell = node::parent(inner);
+    // Only a cell this list still binds: a pooled one gets its height on its next bind.
+    if dl.rows.contains_key(&(cell as usize)) && !dl.pool.contains(&cell) {
+        size_row(dl, cell, inner, height_vp);
+    }
+}
+
 /// Create the list's adapter, binding it to `host_id` so the row callbacks can find the
 /// source. `row_h_vp` is the uniform row height in vp (0 = content-sized).
 pub fn init(
@@ -275,6 +317,7 @@ pub fn init(
         adapter,
         host_id,
         row_h: (row_h_vp * node::density()) as f32,
+        heights: HashMap::new(),
         selectable,
         generation: 0,
         pending_scroll: None,
@@ -394,10 +437,11 @@ pub fn on_drag_start(ev: *mut ArkUI_NodeEvent) {
     }
 }
 
-/// The slot under a drag event's touch point, in the list's row grid.
+/// The slot under a drag event's touch point: in the list's row grid, or for a content-sized
+/// list the live row under it.
 fn drag_slot(dl: &List, de: *mut ohos_sys::arkui::drag_and_drop::ArkUI_DragEvent) -> i32 {
     if dl.row_h <= 0.0 {
-        return -1;
+        return measured_slot(dl, de);
     }
     let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
     // SAFETY: a live list node and drag event.
@@ -414,6 +458,45 @@ fn drag_slot(dl: &List, de: *mut ohos_sys::arkui::drag_and_drop::ArkUI_DragEvent
         return -1;
     }
     ((y / dl.row_h) as i32).clamp(0, n - 1)
+}
+
+/// A content-sized list's drop slot: the bound row whose cell spans the touch point, else the
+/// nearest one above or below it (rows have no common pitch to divide by).
+fn measured_slot(dl: &List, de: *mut ohos_sys::arkui::drag_and_drop::ArkUI_DragEvent) -> i32 {
+    // SAFETY: a live drag event and live adapter.
+    let (touch, n) = unsafe {
+        (
+            OH_ArkUI_DragEvent_GetTouchPointYToWindow(de),
+            OH_ArkUI_NodeAdapter_GetTotalNodeCount(dl.adapter) as i32,
+        )
+    };
+    if n <= 0 {
+        return -1;
+    }
+    // (row, top, bottom) of every bound cell, in window px.
+    let spans: Vec<(i32, f32, f32)> = dl
+        .rows
+        .iter()
+        .filter(|(cell, _)| !dl.pool.contains(&(**cell as Handle)))
+        .filter_map(|(cell, row)| {
+            let height = *dl.heights.get(cell)?;
+            let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
+            // SAFETY: a live cell node.
+            unsafe { OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(*cell as Handle, &mut pos) };
+            Some((*row, pos.y as f32, pos.y as f32 + height))
+        })
+        .collect();
+    let hit = spans
+        .iter()
+        .find(|(_, top, bottom)| touch >= *top && touch < *bottom)
+        .or_else(|| {
+            spans
+                .iter()
+                .filter(|(_, top, _)| touch < *top)
+                .min_by(|a, b| a.1.total_cmp(&b.1))
+        })
+        .or_else(|| spans.iter().max_by(|a, b| a.2.total_cmp(&b.2)));
+    hit.map_or(-1, |(row, ..)| (*row).clamp(0, n - 1))
 }
 
 /// A drop over the list node: vet through the app's guard and commit through the sync seam; a

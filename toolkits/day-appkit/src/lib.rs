@@ -3204,6 +3204,21 @@ struct ListIvars {
     /// The row-token order this table currently displays — the baseline `permutation_moves`
     /// diffs a Reload against (docs/list.md: a same-set reorder animates as row moves).
     tokens: RefCell<Vec<u64>>,
+    /// `RowHeight::Automatic` (docs/list.md "Row heights"): each row is as tall as Day laid
+    /// it, through `tableView:heightOfRow:`. A uniform list never answers that selector, so
+    /// NSTableView keeps its fixed-pitch fast path.
+    automatic: bool,
+    /// Each self-sizing row's height by row token, as Day last laid it. By token, not row: a
+    /// splice or a drag moves rows without rebinding them.
+    heights: RefCell<std::collections::HashMap<u64, f64>>,
+    /// The row token each bound cell shows, so `RowSizeInvalidated` (which names the cell)
+    /// finds the height it corrects.
+    cell_tokens: RefCell<std::collections::HashMap<usize, u64>>,
+    /// The height a row nobody has bound yet is given: the last one Day measured, so a list
+    /// of like rows scrolls without its rows jumping as they arrive.
+    estimate: std::cell::Cell<f64>,
+    /// A height pass is posted and not yet run (`post_row_heights` coalesces).
+    heights_pending: std::cell::Cell<bool>,
 }
 
 define_class!(
@@ -3217,6 +3232,18 @@ define_class!(
     unsafe impl NSControlTextEditingDelegate for DayListData {}
 
     impl DayListData {
+        /// Only a self-sizing list answers `tableView:heightOfRow:`: NSTableView asks that
+        /// of every row on each reload, and a uniform list's fixed `rowHeight` is the fast
+        /// path. NSTableView reads this once, at `setDelegate:`, after `automatic` is set.
+        #[unsafe(method(respondsToSelector:))]
+        fn responds_to_selector(&self, selector: objc2::runtime::Sel) -> bool {
+            if selector == objc2::sel!(tableView:heightOfRow:) && !self.ivars().automatic {
+                false
+            } else {
+                unsafe { msg_send![super(self), respondsToSelector: selector] }
+            }
+        }
+
         #[unsafe(method(listViewportChanged:))]
         fn list_viewport_changed(&self, notification: &NSNotification) {
             ffi_guard::contain((), || {
@@ -3390,6 +3417,26 @@ define_class!(
     }
 
     unsafe impl NSTableViewDelegate for DayListData {
+        /// A self-sizing row's height (docs/list.md "Row heights"): the height Day laid it at
+        /// once it has been bound, the running estimate until then. Asked before the row's view
+        /// exists, often from inside `reloadData` under a day-core borrow, so it reads only this
+        /// table's own record and the source's token snapshot.
+        #[unsafe(method(tableView:heightOfRow:))]
+        fn height_of_row(&self, _tv: &NSTableView, row: isize) -> f64 {
+            ffi_guard::contain(44.0, || {
+                let ivars = self.ivars();
+                let token = ivars
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .filter(|s| row >= 0 && (row as usize) < (s.len)())
+                    .map(|s| (s.token_at)(row as usize));
+                token
+                    .and_then(|t| ivars.heights.borrow().get(&t).copied())
+                    .unwrap_or_else(|| ivars.estimate.get())
+            })
+        }
+
         #[unsafe(method_id(tableView:viewForTableColumn:row:))]
         fn view_for_row(
             &self,
@@ -3411,9 +3458,13 @@ define_class!(
                 // Day builds row content the first time it sees this cell, and rebinds
                 // (slot-write) when the cell is recycled. NSTableView calls this outside
                 // reloadData's stack, so the re-entry into with_tree is safe.
-                if let Some(source) = self.ivars().source.borrow().as_ref() {
+                let source = self.ivars().source.borrow().clone();
+                if let Some(source) = source {
                     let raw = Retained::as_ptr(&cell) as RawHandle;
                     (source.bind_row)(row as usize, raw);
+                    if self.ivars().automatic {
+                        self.note_row_height(tv, &source, row, raw);
+                    }
                 }
                 Some(cell)
             })
@@ -3601,7 +3652,13 @@ define_class!(
 );
 
 impl DayListData {
-    fn new(mtm: MainThreadMarker, node: NodeId, selectable: bool, multi: bool) -> Retained<Self> {
+    fn new(
+        mtm: MainThreadMarker,
+        node: NodeId,
+        selectable: bool,
+        multi: bool,
+        automatic: bool,
+    ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(ListIvars {
             node,
             source: RefCell::new(None),
@@ -3609,8 +3666,109 @@ impl DayListData {
             multi: std::cell::Cell::new(multi),
             suppress: std::cell::Cell::new(false),
             tokens: RefCell::new(Vec::new()),
+            automatic,
+            heights: RefCell::new(std::collections::HashMap::new()),
+            cell_tokens: RefCell::new(std::collections::HashMap::new()),
+            estimate: std::cell::Cell::new(44.0),
+            heights_pending: std::cell::Cell::new(false),
         });
         unsafe { msg_send![super(this), init] }
+    }
+
+    /// A self-sizing row was just bound to `cell`: record the height Day laid it at, and if
+    /// the table drew the row at another height (the estimate, or the row's old content),
+    /// correct it on the next turn. Not here: this runs inside NSTableView's own tiling.
+    fn note_row_height(
+        &self,
+        table: &NSTableView,
+        source: &ListSource,
+        row: isize,
+        cell: RawHandle,
+    ) {
+        let height = (source.cell_height)(cell);
+        if height <= 0.0 || row < 0 {
+            return;
+        }
+        let token = (source.token_at)(row as usize);
+        self.ivars()
+            .cell_tokens
+            .borrow_mut()
+            .insert(cell as usize, token);
+        self.ivars().heights.borrow_mut().insert(token, height);
+        self.ivars().estimate.set(height);
+        let drawn = unsafe { table.rectOfRow(row) }.size.height;
+        if (drawn - height).abs() > 0.5 {
+            self.post_row_heights(table);
+        }
+    }
+
+    /// `ListPatch::RowSizeInvalidated`: the row in `cell` was re-laid at `height`. Arrives under
+    /// the day-core borrow, so it only records the height; the table is told after the pass.
+    fn row_resized(&self, table: &NSTableView, cell: usize, height: f64) {
+        let token = self.ivars().cell_tokens.borrow().get(&cell).copied();
+        if let Some(token) = token {
+            self.ivars().heights.borrow_mut().insert(token, height);
+            self.post_row_heights(table);
+        }
+    }
+
+    /// Tell the table, on the next main-loop turn, about every row near the viewport whose drawn
+    /// height differs from the one Day laid it at. Coalesced: a pass that re-lays many rows
+    /// posts one correction.
+    fn post_row_heights(&self, table: &NSTableView) {
+        if self.ivars().heights_pending.replace(true) {
+            return;
+        }
+        // Raw +1 pointers across the post (the closure must be Send, which Retained is not;
+        // everything stays on the main thread).
+        let Some(this) = (unsafe { Retained::retain(self as *const Self as *mut Self) }) else {
+            return;
+        };
+        let this = Retained::into_raw(this) as usize;
+        let table = Retained::into_raw(table.retain()) as usize;
+        <AppKit as Platform>::post(Box::new(move || {
+            // Reclaim both +1s first, so every early return balances them.
+            let this = unsafe { Retained::from_raw(this as *mut DayListData) };
+            let table = unsafe { Retained::from_raw(table as *mut NSTableView) };
+            let (Some(this), Some(table)) = (this, table) else {
+                return;
+            };
+            this.ivars().heights_pending.set(false);
+            ffi_guard::contain((), || this.apply_row_heights(&table));
+        }));
+    }
+
+    fn apply_row_heights(&self, table: &NSTableView) {
+        let Some(source) = self.ivars().source.borrow().clone() else {
+            return;
+        };
+        let count = unsafe { table.numberOfRows() }.max(0) as usize;
+        let shown = unsafe { table.rowsInRect(table.visibleRect()) };
+        // The viewport and the rows AppKit prepares around it.
+        let first = shown.location.saturating_sub(8);
+        let last = (shown.location + shown.length + 8)
+            .min(count)
+            .min((source.len)());
+        let changed = objc2_foundation::NSMutableIndexSet::new();
+        {
+            let heights = self.ivars().heights.borrow();
+            for row in first..last {
+                if let Some(&height) = heights.get(&(source.token_at)(row)) {
+                    let drawn = unsafe { table.rectOfRow(row as isize) }.size.height;
+                    if (drawn - height).abs() > 0.5 {
+                        unsafe { changed.addIndex(row) };
+                    }
+                }
+            }
+        }
+        if changed.count() == 0 {
+            return;
+        }
+        // Unanimated: the row takes its content's height, it does not grow into it.
+        NSAnimationContext::beginGrouping();
+        NSAnimationContext::currentContext().setDuration(0.0);
+        unsafe { table.noteHeightOfRowsWithIndexesChanged(&changed) };
+        NSAnimationContext::endGrouping();
     }
 
     /// If this Reload is the same row set in a new order, the incremental `moveRowAtIndex`
@@ -7025,7 +7183,13 @@ impl Toolkit for AppKit {
                         &NSString::from_str("day.list.col"),
                     )
                 };
-                let data = DayListData::new(mtm, id, p.selectable, p.multi_select);
+                let data = DayListData::new(
+                    mtm,
+                    id,
+                    p.selectable,
+                    p.multi_select,
+                    p.row_height == RowHeight::Automatic,
+                );
                 unsafe {
                     if p.multi_select {
                         table.setAllowsMultipleSelection(true);
@@ -8027,10 +8191,14 @@ impl Toolkit for AppKit {
                         data.ivars().suppress.set(false);
                     }
                 }
-                // NSTableView has no per-row invalidation call here: a row keeps its height
-                // until the next Reload. `None` = a patch for another kind's enum. A desktop
-                // table has no editing mode (Cap::ListEditing is Unsupported).
-                Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {}
+                Some(ListPatch::RowSizeInvalidated { cell, height }) => {
+                    if let Some((table, data)) = list_entry(ptr_of(h)) {
+                        data.row_resized(&table, *cell, *height);
+                    }
+                }
+                // `None` = a patch for another kind's enum. A desktop table has no editing mode
+                // (Cap::ListEditing is Unsupported).
+                Some(ListPatch::Editing(_)) | None => {}
             },
             kinds::TREE => match patch.downcast_ref::<TreePatch>() {
                 Some(TreePatch::Reload) => {

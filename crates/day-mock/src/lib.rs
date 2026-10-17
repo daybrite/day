@@ -38,6 +38,10 @@ thread_local! {
     /// Rows a list shows at once; 0 = off (the default: unit tests bind by hand).
     static VIEWPORT_ROWS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     static VIEWPORTS: RefCell<HashMap<u64, Viewport>> = RefCell::new(HashMap::new());
+    /// Each bound viewport cell's row height, as the source reported it after the bind and
+    /// `ListPatch::RowSizeInvalidated` corrected it since: the cells stack by these heights,
+    /// which is where `read_native` finds a row's content in the window.
+    static CELL_HEIGHTS: RefCell<HashMap<u64, f64>> = RefCell::new(HashMap::new());
     /// Events a native toolkit would raise by itself (a cover's size and its dismissal), held
     /// like the viewport binds until the tree is free, with the sink to raise them through.
     static NATIVE_EVENTS: RefCell<Vec<NativeEvent>> = RefCell::new(Vec::new());
@@ -51,6 +55,8 @@ struct Viewport {
     visible: VisibleRows,
     bind_row: Rc<dyn Fn(u64, RawHandle)>,
     recycle: Rc<dyn Fn(RawHandle)>,
+    /// The bound row's height (`ListSource::cell_height`); a tree's rows report none.
+    cell_height: Option<Rc<dyn Fn(RawHandle) -> f64>>,
     /// A tree's disclosed rows, as `TreePatch::Expand` set them.
     expanded: std::collections::HashSet<u64>,
     /// The first row shown.
@@ -65,6 +71,62 @@ struct Viewport {
 /// The physical cell `slot` of list `host`: stable per list and slot, clear of widget handles.
 fn viewport_cell(host: u64, slot: usize) -> RawHandle {
     ((1u64 << 40) + host * 4096 + slot as u64) as RawHandle
+}
+
+/// The list and slot a viewport cell belongs to: [`viewport_cell`] inverted.
+fn viewport_slot(cell: u64) -> Option<(u64, usize)> {
+    let offset = cell.checked_sub(1u64 << 40)?;
+    Some((offset / 4096, (offset % 4096) as usize))
+}
+
+/// How far down its list viewport cell `cell` sits: the heights of the cells above it.
+fn viewport_cell_top(cell: u64) -> f64 {
+    let Some((host, slot)) = viewport_slot(cell) else {
+        return 0.0;
+    };
+    CELL_HEIGHTS.with(|h| {
+        let h = h.borrow();
+        (0..slot)
+            .map(|s| {
+                h.get(&(viewport_cell(host, s) as u64))
+                    .copied()
+                    .unwrap_or(0.0)
+            })
+            .sum()
+    })
+}
+
+/// Widget `id`'s frame in the window, as `NativeSnapshot::frame` is defined: its own frame
+/// moved by each ancestor's origin, and a list row's content by where its cell sits in the list.
+fn window_frame(s: &MockState, id: u64) -> Rect {
+    let Some(w) = s.widgets.get(&id) else {
+        return Rect::default();
+    };
+    let mut frame = w.frame;
+    let mut current = id;
+    // Bounded: a malformed test tree must not hang the probe.
+    for _ in 0..4096 {
+        let next = match s.widgets.get(&current) {
+            Some(w) if w.kind == kinds::LIST_CELL => viewport_slot(current).map(|(host, _)| {
+                frame.origin.y += viewport_cell_top(current);
+                host
+            }),
+            _ => s
+                .widgets
+                .iter()
+                .find(|(_, p)| p.children.contains(&current))
+                .map(|(k, _)| *k),
+        };
+        let Some(parent) = next else {
+            break;
+        };
+        if let Some(p) = s.widgets.get(&parent) {
+            frame.origin.x += p.frame.origin.x;
+            frame.origin.y += p.frame.origin.y;
+        }
+        current = parent;
+    }
+    frame
 }
 
 fn viewport_touch(host: u64, f: impl FnOnce(&mut Viewport)) {
@@ -94,7 +156,7 @@ fn viewport_flush() {
             .collect()
     });
     for host in dirty {
-        let Some((visible, bind_row, recycle, expanded, start, to_end, bound)) =
+        let Some((visible, bind_row, recycle, cell_height, expanded, start, to_end, bound)) =
             VIEWPORTS.with(|v| {
                 let mut v = v.borrow_mut();
                 let p = v.get_mut(&host)?;
@@ -103,6 +165,7 @@ fn viewport_flush() {
                     p.visible.clone(),
                     p.bind_row.clone(),
                     p.recycle.clone(),
+                    p.cell_height.clone(),
                     p.expanded.clone(),
                     p.start,
                     p.to_end,
@@ -121,7 +184,13 @@ fn viewport_flush() {
         };
         let count = rows.min(total - start.min(total));
         for slot in 0..count {
-            bind_row(rows_now[start + slot], viewport_cell(host, slot));
+            let cell = viewport_cell(host, slot);
+            bind_row(rows_now[start + slot], cell);
+            // A native list sizes the row once it is bound, from the height Day laid it at.
+            if let Some(height) = &cell_height {
+                let laid = height(cell);
+                CELL_HEIGHTS.with(|h| h.borrow_mut().insert(cell as u64, laid));
+            }
         }
         // Cells past a shrunk source go back to the pool, as a native list's would.
         for slot in count..bound {
@@ -970,15 +1039,36 @@ fn describe_image_source(source: &day_spec::ImageSource) -> String {
     }
 }
 
-pub fn text_size(text: &str, proposal: Proposal, wraps: bool) -> Size {
-    let needed = 8.0 * text.chars().count() as f64;
+pub fn text_size(text: &str, proposal: Proposal, wraps: bool, scale: f64) -> Size {
+    let needed = 8.0 * scale * text.chars().count() as f64;
+    let line = MOCK_LINE_H * scale;
     match (proposal.width, wraps) {
         (Some(w), true) if needed > w && w > 0.0 => {
             let lines = (needed / w).ceil();
-            Size::new(w, MOCK_LINE_H * lines)
+            Size::new(w, line * lines)
         }
-        _ => Size::new(needed, MOCK_LINE_H),
+        _ => Size::new(needed, line),
     }
+}
+
+/// A semantic style's size against `Body`, the mock's 8 × 16 cell: Apple's default point sizes
+/// (Body 17), so a large-title row measures taller than a caption row the way it does natively.
+/// `Body` and `Headline` stay exactly 1.0, the size every older mock expectation assumes.
+pub fn font_scale(style: Font) -> f64 {
+    let points = match style {
+        Font::LargeTitle => 34.0,
+        Font::Title => 28.0,
+        Font::Title2 => 22.0,
+        Font::Title3 => 20.0,
+        Font::Headline | Font::Body => 17.0,
+        Font::Subheadline => 15.0,
+        Font::Callout => 16.0,
+        Font::Footnote => 13.0,
+        Font::Caption => 12.0,
+        Font::Caption2 => 11.0,
+        Font::System(pt) | Font::Custom(_, pt) => pt,
+    };
+    points / 17.0
 }
 
 impl MockToolkit {
@@ -1474,7 +1564,10 @@ impl Toolkit for MockToolkit {
                         viewport_touch(h.0, |_| {});
                         format!("list splice {deltas:?}")
                     }
-                    ListPatch::RowSizeInvalidated(i) => format!("list row-size-invalidated {i}"),
+                    ListPatch::RowSizeInvalidated { cell, height } => {
+                        CELL_HEIGHTS.with(|h| h.borrow_mut().insert(*cell as u64, *height));
+                        format!("list row-size-invalidated {height}")
+                    }
                     ListPatch::ScrollToEnd => {
                         // Record that the host was asked to follow its last row (probe-visible).
                         w.flag = true;
@@ -1589,11 +1682,12 @@ impl Toolkit for MockToolkit {
         let w = s.widgets.get(&h.0).cloned().unwrap_or_default();
         let size = match kind {
             kinds::LABEL => {
-                let s = text_size(&w.text, p, w.flag);
+                let scale = w.font.map_or(1.0, |f| font_scale(f.style));
+                let s = text_size(&w.text, p, w.flag, scale);
                 Size::new(s.width.min(p.width.unwrap_or(s.width)), s.height)
             }
             kinds::BUTTON => {
-                let t = text_size(&w.text, Proposal::UNCONSTRAINED, false);
+                let t = text_size(&w.text, Proposal::UNCONSTRAINED, false, 1.0);
                 Size::new(t.width + 16.0, 24.0)
             }
             kinds::TOGGLE => Size::new(51.0, 31.0),
@@ -1853,6 +1947,7 @@ impl Toolkit for MockToolkit {
                         visible: Rc::new(visible),
                         bind_row: source.bind_row.clone(),
                         recycle: source.recycle.clone(),
+                        cell_height: None,
                         expanded: Default::default(),
                         start: 0,
                         to_end: false,
@@ -1882,6 +1977,7 @@ impl Toolkit for MockToolkit {
                             Rc::new(move |row, cell| bind(row as usize, cell))
                         },
                         recycle: source.recycle.clone(),
+                        cell_height: Some(source.cell_height.clone()),
                         expanded: Default::default(),
                         start: 0,
                         to_end: false,
@@ -2443,7 +2539,7 @@ impl Toolkit for MockToolkit {
             },
             enabled: Some(w.enabled),
             visible: None,
-            frame: Some(w.frame),
+            frame: Some(window_frame(&s, h.0)),
         }
     }
 

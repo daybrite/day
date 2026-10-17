@@ -1267,6 +1267,19 @@ pub fn note_appearance_changed() {
     }
 }
 
+/// The system text size changed under a running app (iOS Dynamic Type, a desktop's text
+/// scaling): every text measurement Day holds is stale. Backends call this from the platform's
+/// notification, once the native text has taken the new size. Day re-measures every node and
+/// re-lays every bound list row, so a content-sized row (docs/list.md "Row heights") takes its
+/// new height through `ListPatch::RowSizeInvalidated`. Skipped when the tree is busy or not
+/// installed yet: a tree built after the change measures at the new size anyway.
+pub fn note_text_size_changed() {
+    let _ = tree::try_with_tree(|t| {
+        t.invalidate_all_measurements();
+        t.layout_if_needed();
+    });
+}
+
 // The `.searchable()` hosts whose field is INLINE (docs/search.md), newest last: each has no
 // `day.search` bar item, so a caller holding that reserved id (dayscript's `toolbar:` step)
 // resolves it here and delivers `Event::SearchChanged` to the host, as the native field would.

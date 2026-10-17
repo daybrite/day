@@ -36,6 +36,8 @@ objc2-ui-kit = { workspace = true, features = [
     # `UIWindowScene.coordinateSpace` in favour of `effectiveGeometry.coordinateSpace`, and a
     # resizable window is exactly where measuring the SCREEN instead goes wrong.
     "UIWindowSceneGeometry",
+    # The system text size changing under a running app (Dynamic Type, docs/list.md "Row heights").
+    "UIContentSizeCategory",
     # Deep-link + launcher-shortcut intake at the scene delegate (docs/deep-links.md).
     "UIApplicationShortcutItem", "UIOpenURLContext", "block2",
     # The one screen `Toolkit::monitors` describes is named after the device (docs/windows.md).

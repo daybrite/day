@@ -9315,6 +9315,56 @@ fn list_editing_mode_patches_on_change_only() {
 }
 
 #[test]
+fn automatic_list_rows_report_a_changed_height() {
+    let tall = Signal::new(false);
+    let probe = boot(move || {
+        let rows = move |slot: ItemSlot<String, String>| {
+            column((
+                label(move || slot.get()),
+                when(move || tall.get(), || label("More")),
+            ))
+        };
+        column((
+            list(
+                items(|| vec!["first".to_string()], |s: &String| s.clone()),
+                rows,
+            )
+            .row_height(RowHeight::Automatic)
+            .id("automatic")
+            .height(100.0),
+            list(
+                items(|| vec!["second".to_string()], |s: &String| s.clone()),
+                rows,
+            )
+            .row_height(RowHeight::Uniform(40.0))
+            .id("uniform")
+            .height(100.0),
+        ))
+    });
+    let resized = || {
+        probe
+            .log()
+            .iter()
+            .filter(|line| line.contains("list row-size-invalidated"))
+            .count()
+    };
+    let lists = probe.find_by_kind("day.list");
+    for (i, (host, _)) in lists.iter().enumerate() {
+        probe.list_bind(*host, 0, MockHandle(100_000 + i as u64));
+    }
+    flush_sync();
+    // The first layout rides the bind: the host reads `cell_height` itself.
+    assert_eq!(resized(), 0);
+    tall.set(true);
+    flush_sync();
+    // Only the self-sizing row grew; the uniform one keeps its declared height.
+    assert_eq!(resized(), 1);
+    tall.set(false);
+    flush_sync();
+    assert_eq!(resized(), 2);
+}
+
+#[test]
 fn nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering() {
     let current = Signal::new(Option::<String>::None);
     let rows = Signal::new(vec!["a".to_string(), "b".to_string()]);

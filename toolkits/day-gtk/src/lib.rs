@@ -5810,18 +5810,34 @@ impl Toolkit for Gtk {
                     // The drop half (docs/list.md): every hovered slot is vetted through the
                     // app's guard — a denied slot answers no action, so GTK shows the forbidden
                     // cursor live; the drop commits through the sync seam and re-binds.
-                    let row_h = match p.row_height {
-                        RowHeight::Uniform(h) => h,
-                        // Automatic rows have no fixed pitch; approximate with the default row
-                        // request (documented docs/list.md limitation on GTK).
-                        RowHeight::Automatic => 44.0,
+                    let (row_h, automatic) = match p.row_height {
+                        RowHeight::Uniform(h) => (h, false),
+                        RowHeight::Automatic => (44.0, true),
                     };
                     let slot_at = {
                         let source = source.clone();
+                        let bound = bound.clone();
+                        let view = listview.downgrade();
                         move |y: f64| {
                             let n = source.borrow().as_ref().map(|s| (s.len)()).unwrap_or(0);
                             if n == 0 {
                                 return None;
+                            }
+                            // Self-sizing rows have no pitch to divide by: the slot is the bound
+                            // row under the pointer, its themed row widget's bounds in the
+                            // view's own (scrolled) coordinates, the same as `y`.
+                            if automatic && let Some(view) = view.upgrade() {
+                                let hit = bound.borrow().values().find_map(|li| {
+                                    let li = li.upgrade()?;
+                                    let row = li.child()?.parent()?;
+                                    let b = row.compute_bounds(&view)?;
+                                    let (top, bottom) =
+                                        (f64::from(b.y()), f64::from(b.y() + b.height()));
+                                    (y >= top && y < bottom).then(|| li.position() as usize)
+                                });
+                                if let Some(row) = hit {
+                                    return Some(row.min(n - 1));
+                                }
                             }
                             let abs = y + vadj.value();
                             Some(((abs / row_h) as usize).min(n - 1))
@@ -6473,9 +6489,24 @@ impl Toolkit for Gtk {
                         });
                     }
                 }
-                // GtkListView re-measures automatic rows on the next factory bind.
+                Some(ListPatch::RowSizeInvalidated { cell, .. }) => {
+                    // A self-sizing row Day re-laid at a new height: the DayCell answers it from
+                    // `cell_height` in `measure`, so it only has to be measured again. Deferred
+                    // past the tree borrow, which that measure would otherwise find held.
+                    let bound = LIST_STATE
+                        .with(|m| m.borrow().get(&widget_key(h)).map(|e| e.bound.clone()));
+                    if let Some(bound) = bound {
+                        let cell = *cell;
+                        gtk4::glib::idle_add_local_once(move || {
+                            let item = bound.borrow().get(&cell).and_then(|li| li.upgrade());
+                            if let Some(cell) = item.and_then(|li| li.child()) {
+                                cell.queue_resize();
+                            }
+                        });
+                    }
+                }
                 // No editing mode (Cap::ListEditing is Unsupported).
-                Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {}
+                Some(ListPatch::Editing(_)) | None => {}
             },
             kinds::TREE => match patch.downcast_ref::<TreePatch>() {
                 // ALL of these defer to an idle: they arrive inside a `with_tree` borrow, and

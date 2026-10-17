@@ -6271,8 +6271,16 @@ pub mod props {
         /// in, out, or across; one that cannot treats this as [`ListPatch::Reload`]. The
         /// data source answers with the final state throughout.
         Splice(Vec<RowDelta>),
-        /// An `Automatic`-height row's content size changed; the host re-measures just that row.
-        RowSizeInvalidated(usize),
+        /// An `Automatic`-height row was re-laid at a new height after its first layout (its
+        /// text changed, a wrapped line appeared, the backend corrected its width): the host
+        /// gives the row bound to physical cell `cell` (the handle `ListSource::bind_row` got,
+        /// as `usize`) the new `height`, padding included, the same value
+        /// `ListSource::cell_height` now answers for it.
+        ///
+        /// Sent from inside a day-core layout pass, with the tree borrowed: a host applies it
+        /// after the pass (posted to its main loop), never by asking the source anything
+        /// synchronously, which would read a `0.0` height (docs/list.md "Row heights").
+        RowSizeInvalidated { cell: usize, height: f64 },
         /// Imperatively scroll the native list so its last row is fully visible (a chat timeline
         /// sticking to the newest message). No-op when the list is empty (docs/list.md).
         ScrollToEnd,

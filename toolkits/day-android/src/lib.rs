@@ -495,6 +495,10 @@ mod imp {
         static LIST_CELLS: std::cell::RefCell<
             std::collections::HashMap<i64, std::collections::HashMap<i32, Gref>>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
+        /// The lists whose rows size themselves (`RowHeight::Automatic`), by node id: each bind
+        /// hands the native row the height day-core laid it at.
+        static LIST_AUTOMATIC: std::cell::RefCell<std::collections::HashSet<i64>> =
+            std::cell::RefCell::new(std::collections::HashSet::new());
         /// Programmatic selection per list (docs/list.md `ListPatch::Selected`): the Java side
         /// paints from this at bind (nativeListIsSelected) and on a sync
         /// (listPaintSelection walking the visible holders).
@@ -633,6 +637,30 @@ mod imp {
         })
     }
 
+    /// Give a self-sizing list's native row the height day-core laid its row at (docs/list.md
+    /// "Row heights"). Called right after `bind_row`, inside RecyclerView's own bind, which is
+    /// where a row's layout params belong: the layout manager measures the holder next. A
+    /// uniform list's rows keep the height their holders were made with.
+    fn size_list_cell(host_id: i64, source: &ListSource, cell: &JObject, raw: RawHandle) {
+        if !LIST_AUTOMATIC.with(|m| m.borrow().contains(&host_id)) {
+            return;
+        }
+        let height = (source.cell_height)(raw);
+        if height > 0.0 {
+            set_list_cell_height(cell, height);
+        }
+    }
+
+    /// Set one native row's height, in points (`DayBridge.setListCellHeight`).
+    fn set_list_cell_height(cell: &JObject, height: f64) {
+        let px = (height * DENSITY.with(|d| d.get())).round() as i32;
+        call_void(
+            "setListCellHeight",
+            "(Landroid/view/View;I)V",
+            &[JValue::Object(cell), JValue::Int(px)],
+        );
+    }
+
     /// Fill a recycled cell; the Java adapter's getView calls this. A stable GlobalRef per
     /// physical cell (keyed by identityHashCode under its list) gives day-core a consistent
     /// cell key. A JNI up-call entry running app row builders: contained like `list_len`.
@@ -676,6 +704,7 @@ mod imp {
                 LIST_BINDINGS.with(|m| m.borrow_mut().insert((host_id, hash), (index, token)));
                 if day_core::try_with_tree(|_| ()).is_some() {
                     (source.bind_row)(index, raw);
+                    size_list_cell(host_id, &source, &cell, raw);
                 } else {
                     // DayFixed.measure can make RecyclerView bind during Day's layout borrow.
                     // Core refuses reentry, but RecyclerView considers that empty holder bound
@@ -692,7 +721,9 @@ mod imp {
                             && index < (current.len)()
                             && (current.token_at)(index) == token
                         {
-                            (current.bind_row)(index, gref.as_obj().as_raw() as RawHandle);
+                            let raw = gref.as_obj().as_raw() as RawHandle;
+                            (current.bind_row)(index, raw);
+                            size_list_cell(host_id, &current, gref.as_obj(), raw);
                         }
                     }));
                 }
@@ -1396,6 +1427,7 @@ mod imp {
             LIST_CELLS.with(|m| m.borrow_mut().clear());
             LIST_BINDINGS.with(|m| m.borrow_mut().clear());
             LIST_SELECTED.with(|m| m.borrow_mut().clear());
+            LIST_AUTOMATIC.with(|m| m.borrow_mut().clear());
             NAV_MENU_ROWS.with(|m| m.borrow_mut().clear());
             NAV_SUITES.with(|m| m.borrow_mut().clear());
             WINDOW_BARS.with(|m| m.borrow_mut().clear());
@@ -2757,6 +2789,9 @@ mod imp {
                         m.borrow_mut()
                             .insert(handle.0.as_obj().as_raw() as usize, id.0 as i64)
                     });
+                    if p.row_height == RowHeight::Automatic {
+                        LIST_AUTOMATIC.with(|m| m.borrow_mut().insert(id.0 as i64));
+                    }
                     handle
                 }
                 Some(Builtin::Nav) => {
@@ -3815,12 +3850,33 @@ mod imp {
                             );
                         }
                     }
-                    // Not implemented: RowSizeInvalidated (the adapter re-measures on the next
-                    // notifyDataSetChanged).
+                    Some(ListPatch::RowSizeInvalidated { cell, height }) => {
+                        // A row re-laid at a new height after its bind (its text changed). This
+                        // arrives inside day-core's layout pass, so the resize waits for the next
+                        // turn, and it carries its height: nothing asks the source back.
+                        let key = h.0.as_obj().as_raw() as usize;
+                        let list = LIST_NODE.with(|m| m.borrow().get(&key).copied());
+                        let (cell, height) = (*cell, *height);
+                        if let Some(nid) = list {
+                            <Android as Platform>::post(Box::new(move || {
+                                // The cell's own GlobalRef, while its list still holds it.
+                                let gref = LIST_CELLS.with(|m| {
+                                    m.borrow().get(&nid).and_then(|cells| {
+                                        cells
+                                            .values()
+                                            .find(|g| g.as_obj().as_raw() as usize == cell)
+                                            .cloned()
+                                    })
+                                });
+                                if let Some(gref) = gref {
+                                    set_list_cell_height(gref.as_obj(), height);
+                                }
+                            }));
+                        }
+                    }
                     // No editing mode (Cap::ListEditing is Unsupported): rows drag and swipe
                     // as they are.
-                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
-                    }
+                    Some(ListPatch::Editing(_)) | None => {}
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {
@@ -3879,6 +3935,7 @@ mod imp {
                 LIST_SELECTED.with(|m| {
                     m.borrow_mut().remove(&nid);
                 });
+                LIST_AUTOMATIC.with(|m| m.borrow_mut().remove(&nid));
             }
             call_void(
                 "removeChild",

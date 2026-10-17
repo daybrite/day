@@ -3510,8 +3510,12 @@ class DayListDelegate : public QStyledItemDelegate {
 public:
     QListWidget *view; int rowH;
     DayListDelegate(QListWidget *v, int rh) : QStyledItemDelegate(v), view(v), rowH(rh > 0 ? rh : 1) {}
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &) const override {
-        return QSize(view->viewport()->width(), rowH);
+    // A self-sizing row (`RowHeight::Automatic`) carries the height Day laid it at as its
+    // item's size hint (`day_qt_list_set_row_height`); every other row stands the pitch.
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &index) const override {
+        const QVariant laid = index.data(Qt::SizeHintRole);
+        const int h = laid.isValid() ? laid.toSize().height() : 0;
+        return QSize(view->viewport()->width(), h > 0 ? h : rowH);
     }
 };
 
@@ -3714,6 +3718,22 @@ void day_qt_list_set_count(void *w, int n) {
     auto *l = static_cast<DayListWidget *>(w);
     while (l->count() < n) l->addItem(new QListWidgetItem());
     for (int i = 0; i < l->count(); ++i) l->item(i)->setHidden(i >= n);
+}
+
+// Rows of different heights (`RowHeight::Automatic`): the view stops assuming every row is as
+// tall as the first, and each row takes the height `day_qt_list_set_row_height` gives it.
+void day_qt_list_set_automatic(void *w) {
+    static_cast<DayListWidget *>(w)->setUniformItemSizes(false);
+}
+
+// Row `row` is `height` tall: Day laid its content at that height. The view re-lays its items
+// and moves the cells below with them.
+void day_qt_list_set_row_height(void *w, int row, int height) {
+    auto *l = static_cast<DayListWidget *>(w);
+    if (row < 0 || row >= l->count() || height <= 0) return;
+    QListWidgetItem *item = l->item(row);
+    if (item->sizeHint().height() == height) return;
+    item->setSizeHint(QSize(0, height));
 }
 
 // Attach Day's cell to row `row`; the view positions it over the item from here on.

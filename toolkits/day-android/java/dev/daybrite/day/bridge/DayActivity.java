@@ -44,6 +44,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         DayBridge.fastAnimations = "1".equals(getIntent().getStringExtra("day.env.DAY_TEST_FAST"));
         lastNightMode = DayBridge.isDarkMode();
         lastLocales = getResources().getConfiguration().getLocales().toLanguageTags();
+        lastFontScale = getResources().getConfiguration().fontScale;
         // The user's "Remove animations" switch has no configuration change to ride, so it is
         // watched directly (docs/accessibility.md); onDestroy takes the observer down.
         reduceMotionObserver = DayBridge.watchReduceMotion(this);
@@ -311,9 +312,15 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
         String locales = newConfig.getLocales().toLanguageTags();
         boolean nightChanged = night != lastNightMode;
         boolean localesChanged = !locales.equals(lastLocales);
-        if (!nightChanged && !localesChanged) return;
+        // The text size too (`fontScale`): a text view holds its size in pixels, converted
+        // from sp when it was set, so the views already built keep the old size, and so do
+        // Day's measurements of them. The re-mount rebuilds both at the new scale, and a list's
+        // content-sized rows with them (docs/list.md "Row heights").
+        boolean fontScaleChanged = newConfig.fontScale != lastFontScale;
+        if (!nightChanged && !localesChanged && !fontScaleChanged) return;
         lastNightMode = night;
         lastLocales = locales;
+        lastFontScale = newConfig.fontScale;
         // The change an app-level pick asked for has arrived; the recreation takes over the
         // idle gate from here (recreating()).
         recreateArmed = false;
@@ -327,6 +334,8 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
     private android.database.ContentObserver reduceMotionObserver;
     /** The language list the app was built in (BCP-47, comma-joined); seeded in onCreate. */
     private String lastLocales = "";
+    /** The system text scale the app was built at; seeded in onCreate. */
+    private float lastFontScale = 1f;
 
     // --- Recreation through a crossfade (docs/settings.md "Appearance on Android") ---------
     //
