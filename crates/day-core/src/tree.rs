@@ -1093,6 +1093,9 @@ pub trait TreeOps {
     /// Programmatically sync the list's selected rows (empty = clear). The toolkit applies
     /// without re-emitting a selection event.
     fn list_set_selected(&mut self, node: RNode, rows: Vec<usize>);
+    /// Enter or leave the list's native editing mode (`ListPatch::Editing`); a toolkit
+    /// without one ignores it.
+    fn list_set_editing(&mut self, node: RNode, on: bool);
     /// The list's driver, for the guard → commit path `list_try_reorder` runs outside the
     /// borrow (`None` when `node` hosts no list).
     fn list_driver(&mut self, node: RNode) -> Option<std::rc::Rc<crate::list::ListDriver>>;
@@ -2516,6 +2519,17 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 &handle,
                 kinds::LIST,
                 &day_spec::props::ListPatch::ScrollToRow(row.min(len - 1)) as &dyn Any,
+                None,
+            );
+        }
+    }
+
+    fn list_set_editing(&mut self, node: RNode, on: bool) {
+        if let Some(handle) = self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            self.toolkit.update(
+                &handle,
+                kinds::LIST,
+                &day_spec::props::ListPatch::Editing(on) as &dyn Any,
                 None,
             );
         }

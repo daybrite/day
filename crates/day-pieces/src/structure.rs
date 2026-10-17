@@ -493,6 +493,7 @@ pub struct List<S: RowSource> {
     swipe_leading: Option<SwipeProvider>,
     swipe_trailing: Option<SwipeProvider>,
     separators: Option<bool>,
+    editing: crate::Reactive<bool>,
 }
 
 /// The full-set selection callback, aliased for the field above.
@@ -600,6 +601,7 @@ where
         swipe_leading: None,
         swipe_trailing: None,
         separators: None,
+        editing: crate::Reactive::Const(false),
     }
 }
 
@@ -778,6 +780,18 @@ impl<S: RowSource + 'static> List<S> {
         self.separators = Some(on);
         self
     }
+
+    /// Put the list in the platform's editing mode (docs/list.md): on iOS, the rows show
+    /// their delete controls (where [`deletable`](Self::deletable) offers one) and reorder
+    /// grips (where [`reorderable`](Self::reorderable) moves them), and a tap still activates
+    /// the row. Reactive, so an Edit/Done button can toggle it, and the change animates.
+    ///
+    /// Probe `Cap::ListEditing`. The other toolkits have no separate editing mode: their
+    /// rows drag, swipe and open menus as they are, so the list renders as if this were off.
+    pub fn editing<M>(mut self, on: impl crate::IntoReactive<bool, M>) -> Self {
+        self.editing = on.into_reactive();
+        self
+    }
 }
 
 impl<S: RowSource + 'static> Piece for List<S> {
@@ -794,6 +808,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
             delete_label: self.delete_label.clone(),
             swipe_actions: self.swipe_leading.is_some() || self.swipe_trailing.is_some(),
             separators: self.separators,
+            editing: self.editing.get_untracked(),
         };
         let node = cx.leaf(
             kinds::LIST,
@@ -1059,10 +1074,17 @@ impl<S: RowSource + 'static> Piece for List<S> {
             watch(
                 move || conn2.refresh(),
                 move |toks: &Vec<u64>, _| {
-                    let is_echo = pending_echo.borrow_mut().take().is_some_and(|e| e == *toks);
+                    let pending = pending_echo.borrow_mut().take();
+                    let is_echo = pending.as_ref().is_some_and(|e| e == toks);
                     let unchanged = !conn.values_flow_by_reload() && *last.borrow() == *toks;
                     *last.borrow_mut() = toks.clone();
-                    if !is_echo && !unchanged {
+                    if !is_echo && pending.is_some() {
+                        // The native rows took a move or delete the app answered with some
+                        // other order. The source's deltas describe the change from its order
+                        // before the gesture, not from the rows on screen: reload instead.
+                        let _ = conn.take_row_events();
+                        list_reload(node);
+                    } else if !is_echo && !unchanged {
                         match conn.take_row_events() {
                             Some(deltas) if !deltas.is_empty() => list_splice(node, deltas),
                             Some(_) => {}
@@ -1100,6 +1122,20 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 move |row: &Option<usize>, _| {
                     if let Some(row) = row {
                         list_scroll_to_row(node, *row);
+                    }
+                },
+            );
+        }
+
+        // A reactive editing mode patches on change; the props carried the initial state.
+        if let editing @ crate::Reactive::Dyn(_) =
+            std::mem::replace(&mut self.editing, crate::Reactive::Const(false))
+        {
+            watch(
+                move || editing.get(),
+                move |on: &bool, old| {
+                    if old.is_some() {
+                        list_set_editing(node, *on);
                     }
                 },
             );
@@ -1488,6 +1524,7 @@ pub trait ListBuilder<S: RowSource + 'static>: Sized {
     fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self;
     fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self;
     fn separators(self, on: bool) -> Self;
+    fn editing<M>(self, on: impl crate::IntoReactive<bool, M>) -> Self;
 }
 
 impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
@@ -1551,6 +1588,9 @@ impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
     fn separators(self, on: bool) -> Self {
         List::separators(self, on)
     }
+    fn editing<M>(self, on: impl crate::IntoReactive<bool, M>) -> Self {
+        List::editing(self, on)
+    }
 }
 
 impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for Decorated<Inner> {
@@ -1613,6 +1653,9 @@ impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for D
     }
     fn separators(self, on: bool) -> Self {
         self.map_inner(|inner_piece| inner_piece.separators(on))
+    }
+    fn editing<M>(self, on: impl crate::IntoReactive<bool, M>) -> Self {
+        self.map_inner(|inner_piece| inner_piece.editing(on))
     }
 }
 

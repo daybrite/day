@@ -307,6 +307,10 @@ pub enum Step {
     /// provider menu is asked at the element's origin.
     ContextMenu {
         id: String,
+        /// Skip an absent element after UI transitions settle, as `tap` does: for idempotent
+        /// fixture cleanup through a row's menu.
+        #[serde(default)]
+        if_present: bool,
         #[serde(default)]
         item_id: Option<String>,
         #[serde(default)]

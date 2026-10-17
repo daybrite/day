@@ -3817,7 +3817,10 @@ mod imp {
                     }
                     // Not implemented: RowSizeInvalidated (the adapter re-measures on the next
                     // notifyDataSetChanged).
-                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
+                    // No editing mode (Cap::ListEditing is Unsupported): rows drag and swipe
+                    // as they are.
+                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
+                    }
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {

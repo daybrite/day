@@ -1058,11 +1058,22 @@ fn exec(step: Step, revision: u32) -> Reply {
             }
             Step::ContextMenu {
                 id,
+                if_present,
                 item_id,
                 item,
                 key,
                 path,
             } => {
+                if if_present {
+                    // The `tap` rule: absent counts only once the UI has settled.
+                    day_reactive::flush_sync();
+                    if !with_tree(|t| t.ui_idle()) {
+                        return Err(Reply::fail("ui transitions still settling", true));
+                    }
+                    if with_tree(|t| t.find_by_id(&id)).is_none() {
+                        return Ok(Reply::ok());
+                    }
+                }
                 let node = find(&id)?;
                 let items = with_tree(|t| t.context_menu_of(node)).ok_or_else(|| {
                     Reply::fail(

@@ -2218,6 +2218,12 @@ pub enum Cap {
     /// (`UISwipeActionsConfiguration`). `Unsupported` everywhere else: the affordance is
     /// absent, and the app's command lives in its explicit controls.
     ListSwipeActions,
+    /// The toolkit realizes `ListProps::editing` as the platform's list editing mode: rows
+    /// show their delete controls and reorder grips while the list is editing (docs/list.md).
+    /// `Native` on ios-uikit (`UITableView` editing). `Unsupported` everywhere else, where a
+    /// list has no separate editing mode: its rows already drag, swipe and open menus as they
+    /// are, and the list renders as if `editing` were off.
+    ListEditing,
     /// The toolkit realizes `kinds::TREE` as a hierarchical tree view (docs/tree.md):
     /// `Native` where a platform tree widget hosts Day-built rows (NSOutlineView, the UIKit
     /// sidebar list, GtkListView+TreeListModel, WinUI TreeView, ArkTS TreeView), `Emulated`
@@ -2558,7 +2564,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 76] = [
+    pub const ALL: [Cap; 77] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2635,6 +2641,7 @@ impl Cap {
         Cap::Split,
         Cap::TreeSections,
         Cap::CoverSheet,
+        Cap::ListEditing,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2717,6 +2724,7 @@ impl Cap {
             Cap::Split => 73,
             Cap::TreeSections => 74,
             Cap::CoverSheet => 75,
+            Cap::ListEditing => 76,
         }
     }
 }
@@ -6202,6 +6210,11 @@ pub mod props {
         /// mechanism ignores a force (the matrix in docs/list.md says which); rows there
         /// separate by their pitch alone.
         pub separators: Option<bool>,
+        /// The list starts in the platform's editing mode (docs/list.md): delete controls on
+        /// the rows `deletable` offers, reorder grips on the rows `reorderable` moves, and a
+        /// tap that still activates. Later changes arrive as [`ListPatch::Editing`]. Probe
+        /// [`crate::Cap::ListEditing`]; a backend without an editing mode ignores it.
+        pub editing: bool,
     }
 
     /// One row-level result-set change. Indexes are sequential (each delta describes the
@@ -6269,6 +6282,10 @@ pub mod props {
         /// Programmatic selection sync (row indices; empty = clear): toolkits apply without
         /// re-emitting a selection event, like every other programmatic sync.
         Selected(Vec<usize>),
+        /// Enter (`true`) or leave (`false`) the platform's list editing mode, animated
+        /// (docs/list.md, [`ListProps::editing`]). Ignored where `Cap::ListEditing` is
+        /// `Unsupported`.
+        Editing(bool),
     }
 }
 

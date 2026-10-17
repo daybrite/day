@@ -1487,6 +1487,7 @@ impl Toolkit for MockToolkit {
                         format!("list scroll-to-row {row}")
                     }
                     ListPatch::Selected(rows) => format!("list selected {rows:?}"),
+                    ListPatch::Editing(on) => format!("list editing {on}"),
                 }
             } else if let Some(p) = patch.downcast_ref::<TreePatch>() {
                 match p {

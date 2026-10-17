@@ -153,6 +153,11 @@ pub fn list_set_selected(node: RNode, rows: Vec<usize>) {
     with_tree(|t| t.list_set_selected(node, rows));
 }
 
+/// Enter or leave the list's native editing mode (`ListPatch::Editing`, docs/list.md).
+pub fn list_set_editing(node: RNode, on: bool) {
+    with_tree(|t| t.list_set_editing(node, on));
+}
+
 /// Programmatically reorder a list row through the same guard → commit path a native drag takes
 /// (docs/list.md): consult the piece's guard (which may retarget), rotate the snapshot, defer the
 /// app's `on_reorder`, and tell the native host to re-query. This is how the dayscript `reorder`

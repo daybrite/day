@@ -3128,7 +3128,8 @@ mod imp {
                             crate::list::paint_selection(h.0);
                         }
                     }
-                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
+                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
+                    }
                 },
                 // An external piece's own arkui renderer, if one registered for this kind. Without
                 // this, every registered piece realized correctly and then ignored every patch:

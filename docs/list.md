@@ -1,6 +1,6 @@
 ---
 title: "Native list"
-description: "The list piece over native table and collection views: virtualized rows, selection, swipe actions, and reorder."
+description: "The list piece over native table and collection views: virtualized rows, selection, swipe actions, reorder, and editing mode."
 ---
 
 <!--
@@ -296,7 +296,9 @@ has two calls: `can_move(from, proposed) -> accepted-index-or--1` for the live v
 `move_row(from, to)` for the commit, which rotates Day's row snapshot **before returning**, so
 `len`/`token_at`/`bind_row` answer in the new order while the native move animates, and defers
 the app's `on_reorder` through the event queue. When the app's own data change echoes back with
-exactly the committed token order, the piece skips the redundant `Reload`. On AppKit, a deferred
+exactly the committed token order, the piece skips the redundant `Reload`. When it answers with
+any other order, the piece reloads: a store's own row deltas describe the change from its order
+before the gesture, not from the rows the gesture already moved, so they cannot be replayed. On AppKit, a deferred
 native reload and retile reconciles the table after the drop callback, preserving its selection
 and scroll position. This keeps temporary drag geometry from becoming the final document scroll
 extent. The reconciliation drains the app callback first and safely skips a disposed list.
@@ -429,6 +431,41 @@ an aborted earlier run's leftover state) fails once instead of flipping state an
 every later run. An empty offer or an out-of-range action also fails, non-retryably. This is
 how a walkthrough exercises the wiring on every target, including the toolkits that show no
 affordance.
+
+## Editing mode
+
+```rust
+list(source, row)
+    .reorderable(true)
+    .on_reorder(|from, to| { /* … */ })
+    .deletable(true)
+    .on_delete(|index| { /* … */ })
+    .on_activate(|row| edit(row))
+    .editing(move || editing.get())   // or .editing(true) for a page that is always editing
+```
+
+`editing` puts the list in the platform's own editing mode, the one an Edit button enters on
+iOS: each row the delete seam offers shows the red delete control at its leading edge, each
+row the reorder seam moves shows a grip at its trailing edge, and a tap still activates the
+row, so a list of things to configure can open each one from the same screen. The value is
+reactive; a change animates the controls in or out. The delete control commits through the
+same `delete_guard` → `on_delete` path as the swipe, and the grip through the same
+`reorder_guard` → `on_reorder` path as a long-press drag.
+
+Probe `Cap::ListEditing`. Only UIKit has a separate editing mode: on the other toolkits a
+list's rows already drag, swipe, and open their menus as they are, so `editing` is ignored
+there and the list renders as it would without it. A screen that manages a list everywhere
+uses `.editing(true)` for iOS and keeps its explicit controls for the toolkits that answer
+`Unsupported` for `ListDelete`.
+
+| Backend | Mechanism |
+|---|---|
+| UIKit | `UITableView.setEditing(_:animated:)`, `editingStyleForRowAtIndexPath`, `commitEditingStyle`, `allowsSelectionDuringEditing` |
+| AppKit · GTK · Qt · XAML · web · Android · ArkUI | — (`Unsupported`; ignored) |
+
+While editing, UIKit narrows each cell's content view for the two controls. Rows are
+`DayListCell`s that report the narrower width through `ListSource::layout_cell`, so Day lays the
+row out to fit between them rather than under them.
 
 ## Separators
 

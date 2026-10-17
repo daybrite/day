@@ -85,8 +85,8 @@ pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};
 pub use list::{
     BuiltRow, ListDeleteDriver, ListDriver, ListReorderDriver, ListSwipeDriver, install_list,
-    list_reload, list_scroll_to_end, list_scroll_to_row, list_set_selected, list_splice,
-    list_try_delete, list_try_reorder, list_try_swipe,
+    list_reload, list_scroll_to_end, list_scroll_to_row, list_set_editing, list_set_selected,
+    list_splice, list_try_delete, list_try_reorder, list_try_swipe,
 };
 pub use menu::{
     dispatch_menu_action, has_app_menu, register_menu_action, register_scoped_menu_action,

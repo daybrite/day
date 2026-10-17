@@ -84,6 +84,7 @@ An app branches on this rather than on the target name.
 | `NavReorder` | N | – | N | N | N | – | N | E |
 | `ListDelete` | – | N | – | – | – | N | N | – |
 | `ListSwipeActions` | N | N | – | – | – | – | – | – |
+| `ListEditing` | – | N | – | – | – | – | – | – |
 | `Tree` | N | N | N | N | N | E | E | E |
 | `TreeMove` | N | – | – | – | – | – | – | – |
 | `TreeSections` | N | N | N | N | N | N | E | E |

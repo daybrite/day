@@ -271,7 +271,10 @@ by blending its bar into the content: flat and continuous with the panes at rest
 only once content scrolls beneath it. A `colorPrimary` band is the Material 2 look and reads, on a
 tiled tablet, as a stripe between the status bar and the panes. Only the OUTERMOST navigation host
 carries the window's items — a window can hold several, and giving each of them the same items
-painted a second app bar directly under the first.
+painted a second app bar directly under the first. In a tabbed window that is the outermost host
+on the tab that is showing: every tab's page stays attached, hidden while another tab is selected,
+so the bar moves to the selected tab's host whenever the selection changes. Left on the first
+tab's host, a second tab's commands were drawn on a bar nobody could see.
 
 Buttons, toggles and labels draw as themselves, a menu item drops its menu, and a segmented item
 becomes a pull-down of its segments with the chosen one checked (a segmented control has no room

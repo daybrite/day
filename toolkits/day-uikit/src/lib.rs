@@ -6192,6 +6192,78 @@ mod imp {
         TREE_STATE.with(|m| m.borrow().get(&key).cloned())
     }
 
+    // A list row: a UITableViewCell that re-lays its day row at the content view's OWN width
+    // whenever that differs from the width the row was laid at. In editing mode the table
+    // narrows the content view for the delete control and the reorder grip (docs/list.md
+    // "Editing mode"), and a row laid at the table's width would run underneath them.
+    struct ListCellIvars {
+        /// The content width last reported through `ListSource::layout_cell` (0 = none yet).
+        reported: std::cell::Cell<f64>,
+    }
+
+    define_class!(
+        #[unsafe(super(objc2_ui_kit::UITableViewCell))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayListCell"]
+        #[ivars = ListCellIvars]
+        struct DayListCell;
+
+        impl DayListCell {
+            #[unsafe(method(layoutSubviews))]
+            fn layout_subviews(&self) {
+                let _: () = unsafe { msg_send![super(self), layoutSubviews] };
+                day_spec::ffi_guard::contain((), || {
+                    let content = self.contentView();
+                    let width = content.bounds().size.width;
+                    if width <= 0.0 {
+                        return;
+                    }
+                    let mut cur = self.superview();
+                    while let Some(v) = cur {
+                        cur = v.superview();
+                        let Ok(table) = v.downcast::<objc2_ui_kit::UITableView>() else {
+                            continue;
+                        };
+                        // Outside editing the content view spans the table and the row was
+                        // laid at that width already; report only a width that differs from
+                        // it, and the table's width again once editing ends.
+                        let full = table.bounds().size.width;
+                        let reported = self.ivars().reported.get();
+                        if (width - full).abs() < 0.5 && (reported == 0.0 || reported == width) {
+                            break;
+                        }
+                        let entry = LIST_STATE.with(|m| {
+                            m.borrow().get(&(Retained::as_ptr(&table) as usize)).cloned()
+                        });
+                        let layout = entry.and_then(|(_, data)| {
+                            data.ivars().source.borrow().as_ref().map(|s| s.layout_cell.clone())
+                        });
+                        if let Some(f) = layout {
+                            self.ivars().reported.set(width);
+                            f(Retained::as_ptr(&content) as RawHandle, width);
+                        }
+                        break;
+                    }
+                });
+            }
+        }
+    );
+
+    impl DayListCell {
+        fn new(mtm: MainThreadMarker, ident: &NSString) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(ListCellIvars {
+                reported: std::cell::Cell::new(0.0),
+            });
+            unsafe {
+                msg_send![
+                    super(this),
+                    initWithStyle: objc2_ui_kit::UITableViewCellStyle::Default,
+                    reuseIdentifier: ident
+                ]
+            }
+        }
+    }
+
     // -----------------------------------------------------------------------
     // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
     // -----------------------------------------------------------------------
@@ -6252,15 +6324,8 @@ mod imp {
             ) -> Retained<objc2_ui_kit::UITableViewCell> {
                 let mtm = self.mtm();
                 let ident = NSString::from_str("day.cell");
-                let cell = unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }.unwrap_or_else(
-                    || unsafe {
-                        objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
-                            objc2_ui_kit::UITableViewCell::alloc(mtm),
-                            objc2_ui_kit::UITableViewCellStyle::Default,
-                            Some(&ident),
-                        )
-                    },
-                );
+                let cell = unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }
+                    .unwrap_or_else(|| Retained::into_super(DayListCell::new(mtm, &ident)));
                 // Day builds/rebinds its row content inside the cell's contentView. The bind
                 // runs day-core's row builder — contained (§8.5); a panicking row leaves the
                 // recycled cell blank rather than aborting.
@@ -6318,9 +6383,74 @@ mod imp {
                     }
                 });
             }
+
+            // --- editing mode (docs/list.md "Editing mode"): the delete control's commit. A
+            // swipe never lands here — the trailing swipe configuration carries its own
+            // handler — only the Delete button the red control reveals while editing.
+            #[unsafe(method(tableView:commitEditingStyle:forRowAtIndexPath:))]
+            fn commit_editing_style(
+                &self,
+                tv: &objc2_ui_kit::UITableView,
+                style: objc2_ui_kit::UITableViewCellEditingStyle,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) {
+                day_spec::ffi_guard::contain((), || {
+                    if style != objc2_ui_kit::UITableViewCellEditingStyle::Delete {
+                        return;
+                    }
+                    let row = unsafe { index_path.row() } as usize;
+                    let del = self
+                        .ivars()
+                        .source
+                        .borrow()
+                        .as_ref()
+                        .and_then(|s| s.delete.clone())
+                        .filter(|d| (d.can_delete)(row));
+                    if let Some(del) = del {
+                        // The seam shortens Day's snapshot first, so the native removal
+                        // animates against the count the data source now reports.
+                        (del.delete_row)(row);
+                        let paths =
+                            objc2_foundation::NSArray::from_retained_slice(&[index_path.retain()]);
+                        unsafe {
+                            tv.deleteRowsAtIndexPaths_withRowAnimation(
+                                &paths,
+                                objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                            )
+                        };
+                    }
+                });
+            }
         }
 
         unsafe impl UITableViewDelegate for DayListData {
+            // Editing mode's per-row control: the red delete control on a row `deletable`
+            // offers, none otherwise. Outside editing this answers the same, and the swipe
+            // configuration below supplies the actions; `None` there keeps a row the guard
+            // protects from falling back to UIKit's stock Delete swipe.
+            #[unsafe(method(tableView:editingStyleForRowAtIndexPath:))]
+            fn editing_style(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> objc2_ui_kit::UITableViewCellEditingStyle {
+                self.row_editing_style(unsafe { index_path.row() } as usize)
+            }
+
+            // A row without a delete control keeps its leading edge while editing, rather than
+            // indenting for a control it does not have.
+            #[unsafe(method(tableView:shouldIndentWhileEditingRowAtIndexPath:))]
+            fn should_indent_while_editing(
+                &self,
+                _tv: &objc2_ui_kit::UITableView,
+                index_path: &objc2_foundation::NSIndexPath,
+            ) -> objc2::runtime::Bool {
+                objc2::runtime::Bool::new(
+                    self.row_editing_style(unsafe { index_path.row() } as usize)
+                        != objc2_ui_kit::UITableViewCellEditingStyle::None,
+                )
+            }
+
             #[unsafe(method(tableView:didEndDisplayingCell:forRowAtIndexPath:))]
             fn did_end_displaying(
                 &self,
@@ -6613,6 +6743,25 @@ mod imp {
                 delete_label: RefCell::new(delete_label),
             });
             unsafe { msg_send![super(this), init] }
+        }
+
+        /// A row's editing control: Delete where the delete seam offers one, none otherwise.
+        /// It runs the app's guard closure, so it is contained (§8.5), answering none on panic.
+        fn row_editing_style(&self, row: usize) -> objc2_ui_kit::UITableViewCellEditingStyle {
+            day_spec::ffi_guard::contain(objc2_ui_kit::UITableViewCellEditingStyle::None, || {
+                let deletable = self
+                    .ivars()
+                    .source
+                    .borrow()
+                    .as_ref()
+                    .and_then(|s| s.delete.clone())
+                    .is_some_and(|d| (d.can_delete)(row));
+                if deletable {
+                    objc2_ui_kit::UITableViewCellEditingStyle::Delete
+                } else {
+                    objc2_ui_kit::UITableViewCellEditingStyle::None
+                }
+            })
         }
 
         /// The guard's verdict for `from -> to` through the sync seam (accepted index, or -1 —
@@ -8472,8 +8621,11 @@ mod imp {
                 | Cap::AppBadgeCount
                 | Cap::TextSelectable
                 | Cap::TextSpellCheck
-                // UITableView's own drag pipeline: long-press lift + gap, no editing mode.
+                // UITableView's own drag pipeline: long-press lift + gap, in and out of
+                // editing mode.
                 | Cap::ListReorder
+                // `UITableView` editing: delete controls and reorder grips (docs/list.md).
+                | Cap::ListEditing
                 // A list-layout UICollectionView over one diffable SECTION snapshot hosts
                 // day-built rows natively (docs/tree.md). `Cap::TreeMove` is deliberately
                 // not here yet: native finger-drag lands after seam parity — the dayscript
@@ -9133,6 +9285,12 @@ mod imp {
                             // + target-for-move delegate drive commit and the live guard.
                             table.setDragDelegate(Some(ProtocolObject::from_ref(&*data)));
                             table.setDragInteractionEnabled(true);
+                        }
+                        // Editing mode (docs/list.md): a tap still activates the row, as it
+                        // does in Settings' and Mail's edit lists.
+                        table.setAllowsSelectionDuringEditing(p.selectable);
+                        if p.editing {
+                            table.setEditing_animated(true, false);
                         }
                     }
                     let view = view_of(table.clone());
@@ -10084,6 +10242,17 @@ mod imp {
                                 table.scrollToRowAtIndexPath_atScrollPosition_animated(
                                     &ip, position, true,
                                 );
+                            }
+                        }));
+                    }
+                    Some(ListPatch::Editing(on)) => {
+                        let (key, on) = (ptr_of(h), *on);
+                        // Deferred: the animated change lays the cells out, and their
+                        // `layout_cell` re-lays rows, which needs the tree this patch holds.
+                        <Uikit as Platform>::post(Box::new(move || {
+                            let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                            if let Some((table, _)) = entry {
+                                unsafe { table.setEditing_animated(on, true) };
                             }
                         }));
                     }

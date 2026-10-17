@@ -4150,7 +4150,8 @@ pub extern "C" fn day_dom_list_key(host: u32, dir: u32, mods: u32) -> u32 {
 fn list_patch(el: u32, p: &ListPatch) {
     match p {
         ListPatch::Reload | ListPatch::Splice(_) => post_local(move || list_populate(el)),
-        ListPatch::RowSizeInvalidated(_) => {}
+        // No editing mode (Cap::ListEditing is Unsupported).
+        ListPatch::RowSizeInvalidated(_) | ListPatch::Editing(_) => {}
         ListPatch::ScrollToEnd => unsafe { day_dom_scroll_edge(el, 1, 1) },
         ListPatch::ScrollToRow(row) => {
             let y = LISTS.with(|m| {

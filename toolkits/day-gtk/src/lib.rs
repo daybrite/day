@@ -6474,7 +6474,8 @@ impl Toolkit for Gtk {
                     }
                 }
                 // GtkListView re-measures automatic rows on the next factory bind.
-                Some(ListPatch::RowSizeInvalidated(_)) | None => {}
+                // No editing mode (Cap::ListEditing is Unsupported).
+                Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {}
             },
             kinds::TREE => match patch.downcast_ref::<TreePatch>() {
                 // ALL of these defer to an idle: they arrive inside a `with_tree` borrow, and

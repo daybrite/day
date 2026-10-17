@@ -2497,6 +2497,13 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > to the host, where it aligns with the native selection and holds still under a swipe —
 > lowered on AppKit (grid mask), UIKit (`separatorStyle`), GTK (row CSS) and web (cell
 > border); the docs matrix tracks the rest.
+> **Editing mode** (2026-10): `.editing(reactive bool)` puts a list in the platform's own
+> editing mode (`ListProps::editing`, `ListPatch::Editing`, `Cap::ListEditing`). Only UIKit has
+> one: `UITableView` editing shows the delete control on rows the delete seam offers and the
+> reorder grip on rows the reorder seam moves, with taps still activating. Its rows are
+> `DayListCell`s, which report the content view's narrower width through
+> `ListSource::layout_cell` so the row stays clear of both controls. The other toolkits answer
+> `Unsupported` and ignore it ([docs/list.md](docs/list.md#editing-mode)).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -7217,7 +7224,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `expand` | `id`, `row`, `expanded?` | disclose/collapse a tree row by its `.row_id` string — emits the same `TreeExpanded` a native disclosure does ([docs/tree.md](docs/tree.md)); omitted `expanded` = true |
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `id` \| `item` \| `key`, `path?` | invoke an app-menu action. `id` names the item the app named with `MenuEntry::id` — the address that survives a locale change or a moving check mark, and the one to prefer; `item` matches a literal label, `key` a Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
-| `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), addressed as `menu` addresses one. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
+| `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
 | `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?` | drive a toolbar item by its id (`day.search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one), `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)) |

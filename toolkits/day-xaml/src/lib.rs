@@ -2440,8 +2440,9 @@ impl Toolkit for Xaml {
                         });
                     }
                     // Not implemented: RowSizeInvalidated — pooled cells re-measure on the next
-                    // populate.
-                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
+                    // populate. No editing mode (Cap::ListEditing is Unsupported).
+                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
+                    }
                 },
                 kinds::NAV_MENU => {
                     // Split navs drive the NavigationView pane; a plain ListView otherwise.

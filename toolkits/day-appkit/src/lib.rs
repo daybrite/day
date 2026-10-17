@@ -8028,8 +8028,9 @@ impl Toolkit for AppKit {
                     }
                 }
                 // NSTableView has no per-row invalidation call here: a row keeps its height
-                // until the next Reload. `None` = a patch for another kind's enum.
-                Some(ListPatch::RowSizeInvalidated(_)) | None => {}
+                // until the next Reload. `None` = a patch for another kind's enum. A desktop
+                // table has no editing mode (Cap::ListEditing is Unsupported).
+                Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {}
             },
             kinds::TREE => match patch.downcast_ref::<TreePatch>() {
                 Some(TreePatch::Reload) => {

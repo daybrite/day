@@ -3014,8 +3014,10 @@ impl Toolkit for Qt {
                         ffi::day_qt_list_set_selected(h.0, rows.as_ptr(), rows.len() as c_int);
                     }
                     // Not implemented: RowSizeInvalidated — every row stands the declared
-                    // pitch tall, and a Reload re-lays them all.
-                    Some(ListPatch::RowSizeInvalidated(_)) | None => {}
+                    // pitch tall, and a Reload re-lays them all. No editing mode
+                    // (Cap::ListEditing is Unsupported).
+                    Some(ListPatch::RowSizeInvalidated(_)) | Some(ListPatch::Editing(_)) | None => {
+                    }
                 },
                 _ => {
                     if let Some(update) = self.registry.get(kind).map(|r| r.update) {

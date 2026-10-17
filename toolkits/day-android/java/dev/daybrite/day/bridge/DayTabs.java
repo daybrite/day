@@ -393,7 +393,10 @@ public class DayTabs extends LinearLayout {
         for (int i = 0; i < pageViews.size(); i++) {
             pageViews.get(i).setVisibility(i == index ? View.VISIBLE : View.GONE);
         }
-        if (index >= 0 && index < pageViews.size()) fitPage(pageViews.get(index));
+        if (index >= 0 && index < pageViews.size()) {
+            fitPage(pageViews.get(index));
+            DayBridge.windowToolbarFollow(pageViews.get(index));
+        }
     }
 
     /**

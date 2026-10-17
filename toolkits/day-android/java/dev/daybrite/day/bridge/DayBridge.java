@@ -1828,7 +1828,13 @@ public final class DayBridge {
             View root = windowRootOf(host);
             if (root == null) return;
             DayNavHost owner = toolbarHostOf(root);
-            if (owner != null && owner != host) return;
+            if (owner != null && owner != host) {
+                // A tab page the window opens on can attach after the first tab's host, which
+                // claimed the bar from inside a hidden page: the shown host takes it over.
+                if (owner.isShown() || !host.isShown() || isInside(host, owner)) return;
+                owner.setWindowToolbar("");
+                owner.toolbarRoot = null;
+            }
             toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(host));
             host.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
             String spec = windowToolbarSpecs.get(root);
@@ -1839,6 +1845,41 @@ public final class DayBridge {
         } catch (Throwable t) {
             android.util.Log.e("Day", "window toolbar setup failed; continuing without it", t);
         }
+    }
+
+    /** A tab page has come to the front (DayTabs): the window's bar moves to the outermost
+     *  navigation host on that page. Every tab's page stays attached, hidden while another tab
+     *  shows, so the host that claimed the bar first is usually on a page nobody can see: a
+     *  second tab showed no commands at all, on its root or on any page pushed over it, while
+     *  its items sat on the first tab's hidden app bar. A page with no navigation host leaves
+     *  the bar where it is. */
+    static void windowToolbarFollow(View page) {
+        try {
+            View root = windowRootOf(page);
+            if (root == null) return;
+            DayNavHost next = findNavHost(page);
+            DayNavHost owner = toolbarHostOf(root);
+            if (next == null || next == owner) return;
+            if (owner != null) {
+                owner.setWindowToolbar("");
+                owner.toolbarRoot = null;
+            }
+            toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(next));
+            next.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
+            String spec = windowToolbarSpecs.get(root);
+            next.setWindowToolbar(spec == null ? "" : spec);
+            DayNavHost.WindowBar.undock(root);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar move failed; continuing", t);
+        }
+    }
+
+    /** Whether `v` sits somewhere under `ancestor`. */
+    private static boolean isInside(View v, View ancestor) {
+        for (android.view.ViewParent p = v.getParent(); p instanceof View; p = p.getParent()) {
+            if (p == ancestor) return true;
+        }
+        return false;
     }
 
     /** The host carrying a window's bar has left its window (a dismissed cover, a re-parented

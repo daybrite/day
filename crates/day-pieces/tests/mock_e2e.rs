@@ -9288,6 +9288,33 @@ fn list_selection_applies_on_mount_and_remount() {
 }
 
 #[test]
+fn list_editing_mode_patches_on_change_only() {
+    let editing = Signal::new(true);
+    let probe = boot(move || {
+        list(
+            items(|| vec!["first".to_string()], |s: &String| s.clone()),
+            |slot: ItemSlot<String, String>| label(move || slot.get()),
+        )
+        .editing(move || editing.get())
+    });
+    let patches = |on: bool| {
+        probe
+            .log()
+            .iter()
+            .filter(|line| line.contains(&format!("list editing {on}")))
+            .count()
+    };
+    // The initial state rides the props; only a change becomes a patch.
+    assert_eq!(patches(true), 0);
+    editing.set(false);
+    flush_sync();
+    assert_eq!(patches(false), 1);
+    editing.set(true);
+    flush_sync();
+    assert_eq!(patches(true), 1);
+}
+
+#[test]
 fn nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering() {
     let current = Signal::new(Option::<String>::None);
     let rows = Signal::new(vec!["a".to_string(), "b".to_string()]);
