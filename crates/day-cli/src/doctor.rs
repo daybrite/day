@@ -510,7 +510,7 @@ fn gtk_group() -> Group {
                 Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
                 • Linux  — `apt install libgtk-4-dev libadwaita-1-dev pkg-config`\n\
-                • Windows— MSYS2: `pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita`\n\
+                • Windows— MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita`\n\
                   (ARM64 hosts: the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages),\n\
                   plus a GNU Rust toolchain — MSVC cannot link MSYS2's import libraries:\n\
                   `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\

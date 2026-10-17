@@ -138,8 +138,10 @@ Rust toolchain, because MSVC cannot link MSYS2's import libraries, and the C++ s
 from pkg-config's flags, which an online-installer Qt does not ship:
 
 ```bash
-pacman -S mingw-w64-x86_64-qt6-base                              # Qt
-pacman -S mingw-w64-x86_64-gtk4 mingw-w64-x86_64-libadwaita      # GTK
+# Qt: run in the MINGW64 shell
+pacman -S mingw-w64-x86_64-qt6-base
+# GTK: run in the UCRT64 shell
+pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita
 rustup toolchain install stable-x86_64-pc-windows-gnu
 ```
 
