@@ -4239,6 +4239,7 @@ void* day_xaml_nav_new(unsigned long long id,
     nv.FlowDirection(rtl ? WUX::FlowDirection::RightToLeft : WUX::FlowDirection::LeftToRight);
     nv.IsSettingsVisible(false);
     nv.IsBackButtonVisible(WUXC::NavigationViewBackButtonVisible::Collapsed); // toggled per depth
+    nv.IsBackEnabled(false);
     if (stack) {
         // A push/pop stack has no menu: collapse the pane to a thin strip that just carries the
         // back button + the current page title in the header. IsPaneOpen defaults to TRUE, and in
@@ -4525,6 +4526,9 @@ void day_xaml_nav_set_back_visible(void* navh, int visible) {
         if (nv) {
             nv.IsBackButtonVisible(visible ? WUXC::NavigationViewBackButtonVisible::Visible
                                            : WUXC::NavigationViewBackButtonVisible::Collapsed);
+            // IsBackEnabled defaults to false, and a visible-but-disabled button is drawn greyed and
+            // never raises BackRequested, so enablement follows visibility.
+            nv.IsBackEnabled(visible != 0);
         }
     });
 }
