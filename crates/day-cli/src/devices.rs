@@ -1019,7 +1019,7 @@ pub fn shutdown(target: &str, id: &str) -> Result<i32, CliError> {
 fn run_sdk_tool(cmd: &mut Command, what: &str, feed: Option<&[u8]>) -> Result<(), CliError> {
     use std::io::{Read, Write};
     cmd.stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit())
+        .stderr(std::process::Stdio::piped())
         .stdin(if feed.is_some() {
             std::process::Stdio::piped()
         } else {
@@ -1033,23 +1033,126 @@ fn run_sdk_tool(cmd: &mut Command, what: &str, feed: Option<&[u8]>) -> Result<()
         // Dropped now so the tool sees EOF; it waits for that before deciding the answer is final.
         drop(si);
     }
-    if let Some(mut out) = child.stdout.take() {
+    // Drain both streams concurrently, retaining a bounded diagnostic tail for install
+    // retries. Errors such as a corrupt download can be printed on either stream.
+    fn tee(mut out: impl Read) -> Vec<u8> {
+        const TAIL: usize = 16 * 1024;
+        let mut tail = Vec::new();
         let mut buf = [0u8; 4096];
-        let mut err = std::io::stderr();
         while let Ok(n) = out.read(&mut buf) {
             if n == 0 {
                 break;
             }
+            let mut err = std::io::stderr().lock();
             let _ = err.write_all(&buf[..n]);
+            let _ = err.flush();
+            tail.extend_from_slice(&buf[..n]);
+            if tail.len() > TAIL {
+                tail.drain(..tail.len() - TAIL);
+            }
         }
+        tail
     }
+    let out = child.stdout.take().expect("stdout was piped");
+    let err = child.stderr.take().expect("stderr was piped");
+    let reader = std::thread::spawn(move || tee(out));
+    let stderr = tee(err);
+    let stdout = reader.join().unwrap_or_default();
     let st = child
         .wait()
         .map_err(|e| CliError::failure(format!("{what}: {e}")))?;
     if !st.success() {
-        return Err(CliError::failure(format!("{what} failed")));
+        return Err(CliError::failure(format!(
+            "{what} failed ({st})\n{}{}",
+            String::from_utf8_lossy(&stdout),
+            String::from_utf8_lossy(&stderr),
+        )));
     }
     Ok(())
+}
+
+fn retryable_sdk_download(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    if [
+        "no space left on device",
+        "permission denied",
+        "licenses have not been accepted",
+    ]
+    .iter()
+    .any(|reason| error.contains(reason))
+    {
+        return false;
+    }
+    [
+        "error on zipfile",
+        "zip end header not found",
+        "not in gzip format",
+        "unexpected end of zlib",
+        "connection reset",
+        "read timed out",
+        "failed to download package",
+    ]
+    .iter()
+    .any(|reason| error.contains(reason))
+}
+
+fn install_sdk_package_with(
+    package: &str,
+    mut install: impl FnMut() -> Result<(), CliError>,
+    mut wait: impl FnMut(std::time::Duration),
+) -> Result<(), CliError> {
+    for attempt in 1..=3 {
+        match install() {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt < 3 && retryable_sdk_download(&error.to_string()) => {
+                crate::ops::status(
+                    "Retrying",
+                    &format!(
+                        "SDK package {package} after a download/archive error (attempt {}/3)",
+                        attempt + 1
+                    ),
+                );
+                wait(std::time::Duration::from_secs(2 * attempt));
+            }
+            Err(error) => {
+                return Err(CliError::failure(format!(
+                    "could not install SDK package {package} (attempt {attempt}/3): {error}"
+                )));
+            }
+        }
+    }
+    unreachable!("the final attempt returns its result")
+}
+
+fn install_sdk_package(package: &str) -> Result<(), CliError> {
+    // sdkmanager verifies a previous download's checksum before reusing it. A corrupt
+    // archive is downloaded again; leave its managed staging data and other packages alone.
+    // Pin the SDK root even when sdkmanager comes from PATH: its default can otherwise
+    // differ from the SDK used by the cache, installed-package checks, and emulator.
+    install_sdk_package_with(
+        package,
+        || {
+            run_sdk_tool(
+                Command::new(cmdline_tool("sdkmanager"))
+                    .arg(format!(
+                        "--sdk_root={}",
+                        day_toolchain::android_sdk_dir().display()
+                    ))
+                    .arg(package),
+                "sdkmanager",
+                Some(&b"y\n".repeat(32)),
+            )
+        },
+        std::thread::sleep,
+    )
+}
+
+fn emulator_package_installed(sdk: &std::path::Path) -> bool {
+    let package = sdk.join("emulator");
+    package.join("package.xml").is_file()
+        && package
+            .join(format!("emulator{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
 }
 
 /// `day devices setup`: create (or refresh) one AVD from a device profile.
@@ -1110,30 +1213,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
         crate::ops::status("Found", &format!("system image {pkg}"));
     } else {
         crate::ops::status("Installing", &format!("system image {pkg}"));
-        // `--licenses` is not enough on a cold SDK: the install itself prompts, and a CI runner
-        // has no one to answer. Feeding `y` covers both.
-        run_sdk_tool(
-            // `--sdk_root` is not optional even though the tool has a default. A `sdkmanager`
-            // found on PATH (a Homebrew install, say) defaults to an SDK root of its own, so the
-            // image lands somewhere this command never looks: the "already installed?" check
-            // above reads `android_sdk_dir()`, and so does the CI cache. Measured: a download
-            // reported success and left `$ANDROID_HOME/system-images/android-33` empty, which
-            // re-downloads every run and caches nothing.
-            Command::new(cmdline_tool("sdkmanager"))
-                .arg(format!(
-                    "--sdk_root={}",
-                    day_toolchain::android_sdk_dir().display()
-                ))
-                .arg(&pkg),
-            "sdkmanager",
-            Some(&b"y\n".repeat(32)),
-        )
-        .map_err(|e| {
-            CliError::failure(format!(
-                "{e} — could not install {pkg}; check that the API level, tag and ABI exist \
-                 (`sdkmanager --list | grep system-images`)"
-            ))
-        })?;
+        install_sdk_package(&pkg)?;
     }
 
     // avdmanager takes its SDK root from where the tool lives (`-Dcom.android.sdkmanager.toolsdir`
@@ -1148,13 +1228,7 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
             "cmdline-tools into the SDK — avdmanager reads its SDK root from its own location, \
              and the copy on PATH points at a different one",
         );
-        run_sdk_tool(
-            Command::new(cmdline_tool("sdkmanager"))
-                .arg(format!("--sdk_root={}", sdk.display()))
-                .arg("cmdline-tools;latest"),
-            "sdkmanager",
-            Some(&b"y\n".repeat(32)),
-        )?;
+        install_sdk_package("cmdline-tools;latest")?;
     }
 
     // The `emulator` package, which `avdmanager create avd` refuses to run without: it checks the
@@ -1164,18 +1238,12 @@ pub fn setup(target: &str, spec: &SetupSpec<'_>) -> Result<i32, CliError> {
     // `--device`, because that is the only thing avdmanager's exit code can be attributed to
     // from the outside. Installing it here keeps the knowledge in the CLI, where a developer
     // standing up their first AVD gets it too; it is a no-op wherever the package is present.
-    if !day_toolchain::android_sdk_dir().join("emulator").is_dir() {
+    if !emulator_package_installed(&sdk) {
         crate::ops::status(
             "Installing",
             "the emulator package — avdmanager will not create an AVD without it",
         );
-        run_sdk_tool(
-            Command::new(cmdline_tool("sdkmanager"))
-                .arg(format!("--sdk_root={}", sdk.display()))
-                .arg("emulator"),
-            "sdkmanager",
-            Some(&b"y\n".repeat(32)),
-        )?;
+        install_sdk_package("emulator")?;
     }
 
     let existing = avd_names().iter().any(|a| a == &name);
@@ -2609,6 +2677,118 @@ fn ohos() -> Report {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    #[test]
+    fn sdk_install_recovers_from_corrupt_archive_on_either_stream() {
+        for stream in ["stdout", "stderr"] {
+            let marker =
+                std::env::temp_dir().join(format!("day-sdk-retry-{}-{stream}", std::process::id()));
+            let _ = std::fs::remove_file(&marker);
+            let mut attempts = 0;
+            let mut waits = Vec::new();
+            super::install_sdk_package_with(
+                "emulator",
+                || {
+                    attempts += 1;
+                    super::run_sdk_tool(
+                        std::process::Command::new("sh").args([
+                            "-c",
+                            r#"
+                                read answer
+                                test "$answer" = y || exit 2
+                                test "$3" = emulator || exit 3
+                                if test ! -f "$1"; then
+                                    touch "$1"
+                                    if test "$2" = stderr; then exec 1>&2; fi
+                                    printf 'Warning: An error occurred while preparing SDK package Android Emulator: Error on ZipFile unknown archive.\n'
+                                    exit 1
+                                fi
+                            "#,
+                            "sdkmanager",
+                            marker.to_str().unwrap(),
+                            stream,
+                            "emulator",
+                        ]),
+                        "sdkmanager",
+                        Some(b"y\n"),
+                    )
+                },
+                |delay| waits.push(delay.as_secs()),
+            ).unwrap();
+            assert_eq!(attempts, 2);
+            assert_eq!(waits, [2]);
+            std::fs::remove_file(marker).unwrap();
+        }
+    }
+
+    #[test]
+    fn sdk_install_stops_after_three_download_failures() {
+        let mut attempts = 0;
+        let mut waits = Vec::new();
+        let error = super::install_sdk_package_with(
+            "emulator",
+            || {
+                attempts += 1;
+                Err(crate::cli::CliError::failure(
+                    "Error on ZipFile unknown archive",
+                ))
+            },
+            |delay| waits.push(delay.as_secs()),
+        )
+        .unwrap_err()
+        .to_string();
+        assert_eq!(attempts, 3);
+        assert_eq!(waits, [2, 4]);
+        assert!(error.contains("SDK package emulator (attempt 3/3)"));
+        assert!(error.contains("Error on ZipFile unknown archive"));
+    }
+
+    #[test]
+    fn sdk_install_does_not_retry_configuration_or_disk_errors() {
+        for reason in [
+            "Failed to find package 'system-images;android-999;google_apis;x86_64'",
+            "licenses have not been accepted",
+            "Permission denied",
+            "No space left on device",
+            "could not run sdkmanager (No such file or directory)",
+            "Failed to download package: No space left on device",
+            "Error on ZipFile: Permission denied",
+        ] {
+            let mut attempts = 0;
+            let error = super::install_sdk_package_with(
+                "emulator",
+                || {
+                    attempts += 1;
+                    Err(crate::cli::CliError::failure(reason))
+                },
+                |_| panic!("a permanent error must not retry"),
+            )
+            .unwrap_err();
+            assert_eq!(attempts, 1);
+            assert!(error.to_string().contains(reason));
+        }
+    }
+
+    #[test]
+    fn emulator_install_requires_metadata_and_binary() {
+        let root =
+            std::env::temp_dir().join(format!("day-emulator-package-{}", std::process::id()));
+        let package = root.join("emulator");
+        std::fs::create_dir_all(package.join(".installer")).unwrap();
+        assert!(!super::emulator_package_installed(&root));
+        std::fs::write(package.join("package.xml"), "metadata").unwrap();
+        assert!(!super::emulator_package_installed(&root));
+        std::fs::write(
+            package.join(format!("emulator{}", std::env::consts::EXE_SUFFIX)),
+            "binary",
+        )
+        .unwrap();
+        assert!(super::emulator_package_installed(&root));
+        std::fs::remove_file(package.join("package.xml")).unwrap();
+        assert!(!super::emulator_package_installed(&root));
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     #[test]
     fn harmony_boot_supports_headless_and_always_waits() {
         for headless in [false, true] {
