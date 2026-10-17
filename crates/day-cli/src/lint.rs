@@ -469,7 +469,58 @@ fn scan_nav_keys(dir: &Path, out: &mut Vec<Hit>) {
                 }
             }
         }
+        // `.items(keys, item_for)` (docs/settings.md declares the Settings section this way):
+        // the keys are whatever the first argument returns, so its string literals are the
+        // section's keys (`|| vec![String::from("settings")]`). A key computed at run time
+        // stays unseen, as any non-literal key does.
+        for at in matches_of(src, ".items(") {
+            let args = &src[at + ".items(".len()..];
+            for literal in string_literals(first_argument(args)) {
+                out.push(Hit::found(path, src, literal));
+            }
+        }
     });
+}
+
+/// The text of a call's first argument: up to the first `,` or `)` outside any bracket or
+/// string literal.
+fn first_argument(args: &str) -> &str {
+    let mut depth = 0i32;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (i, c) in args.char_indices() {
+        if in_string {
+            match c {
+                _ if escaped => escaped = false,
+                '\\' => escaped = true,
+                '"' => in_string = false,
+                _ => {}
+            }
+            continue;
+        }
+        match c {
+            '"' => in_string = true,
+            '(' | '[' | '{' => depth += 1,
+            ')' | ']' | '}' if depth == 0 => return &args[..i],
+            ')' | ']' | '}' => depth -= 1,
+            ',' if depth == 0 => return &args[..i],
+            _ => {}
+        }
+    }
+    args
+}
+
+/// The contents of every plain `"…"` literal in `text`, each a subslice of it.
+fn string_literals(text: &str) -> Vec<&str> {
+    let mut found = Vec::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('"') {
+        let body = &rest[open + 1..];
+        let Some(close) = body.find('"') else { break };
+        found.push(&body[..close]);
+        rest = &body[close + 1..];
+    }
+    found
 }
 
 /// The first path segment of a route string (`"a/b?x=1"` → `"a"`), the part a lint can check
@@ -2591,6 +2642,24 @@ e = { PLATFORM() }
         assert_eq!(route_first_segment("controls"), "controls");
         assert_eq!(route_first_segment("a?x=1"), "a");
         assert_eq!(route_first_segment(""), "");
+    }
+
+    #[test]
+    fn nav_items_key_extraction() {
+        let dir = std::env::temp_dir().join(format!("day-lint-items-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("lib.rs"),
+            "fn root() {\n    nav(section)\n        .item(\"library\", label(\"Library\"), page)\n        .items(\n            || vec![String::from(\"settings\")],\n            |key: &String| item(key.clone(), \"Not a key\"),\n        );\n    list(items(|| rows(), |r| r.id)).items(|| names(\"x\"), |n| n);\n}\n",
+        )
+        .unwrap();
+        let mut out = Vec::new();
+        scan_nav_keys(&dir, &mut out);
+        let mut keys: Vec<String> = out.iter().map(|h| h.text.clone()).collect();
+        keys.sort();
+        // The item builder's label is not a key; any `.items(` first argument's literal is.
+        assert_eq!(keys, ["library", "settings", "x"]);
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

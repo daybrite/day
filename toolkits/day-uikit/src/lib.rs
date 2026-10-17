@@ -6577,19 +6577,45 @@ mod imp {
                 )
             }
 
+            /// The cell left the screen: park its row's dayscript ids. Deferred and re-checked,
+            /// as AppKit's `didRemoveRowView` is: a reload or batch update can dequeue the very
+            /// cell it is ending, bind it to a row, and only then report the old display ended.
+            /// Recycled there, a row on screen lost its ids, and `wait_for` on it failed (an iPad
+            /// catalog manager opened just as a catalog was added).
             #[unsafe(method(tableView:didEndDisplayingCell:forRowAtIndexPath:))]
             fn did_end_displaying(
                 &self,
-                _tv: &objc2_ui_kit::UITableView,
+                tv: &objc2_ui_kit::UITableView,
                 cell: &objc2_ui_kit::UITableViewCell,
                 _ip: &objc2_foundation::NSIndexPath,
             ) {
                 day_spec::ffi_guard::contain((), || {
-                    let source = self.ivars().source.borrow().clone();
-                    if let Some(source) = source {
-                        let content = cell.contentView();
-                        (source.recycle)(Retained::as_ptr(&content) as RawHandle);
-                    }
+                    let key = std::ptr::from_ref(tv) as usize;
+                    // A +1 across the post (the closure must be Send, which Retained is not;
+                    // everything stays on the main thread). UIKit may free an ended cell.
+                    let cell = Retained::into_raw(cell.retain()) as usize;
+                    <Uikit as Platform>::post(Box::new(move || {
+                        // Reclaim the +1 first, so every early return balances it.
+                        let cell = unsafe {
+                            Retained::from_raw(cell as *mut objc2_ui_kit::UITableViewCell)
+                        };
+                        let Some(cell) = cell else { return };
+                        let entry = LIST_STATE.with(|m| m.borrow().get(&key).cloned());
+                        let Some((table, data)) = entry else { return };
+                        if unsafe { table.indexPathForCell(&cell) }.is_some() {
+                            return; // displayed again: its ids are the live row's
+                        }
+                        let recycle = data
+                            .ivars()
+                            .source
+                            .borrow()
+                            .as_ref()
+                            .map(|s| s.recycle.clone());
+                        if let Some(recycle) = recycle {
+                            let content = cell.contentView();
+                            recycle(Retained::as_ptr(&content) as RawHandle);
+                        }
+                    }));
                 });
             }
 

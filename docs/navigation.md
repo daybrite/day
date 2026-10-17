@@ -696,7 +696,8 @@ which equals nesting depth for a single active chain. Two *sibling* surfaces mou
 absolute routes (or drive the signals directly) in such layouts.
 
 `day lint` cross-checks literal `navigate("…")` calls and dayscript `navigate:`/`assert_route:`
-routes against the declared keys in your sources (`.item("key", …)` call sites and
+routes against the declared keys in your sources (`.item("key", …)` call sites, the literals
+in the first argument of `.items(…)`, as in `.items(|| vec![String::from("settings")], …)`, and
 `routes! { … => "key" }` blocks): a route whose first segment nothing declares is reported
 (`day::lint::unknown-route`) rather than failing silently at runtime.
 
