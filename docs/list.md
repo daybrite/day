@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Native `list` (§10)
 
 `list` drives the platform's recycling list (`NSTableView` / `UITableView` /
-`RecyclerView` / `GtkListView` / `QListView`), so large collections get native
+`RecyclerView` / `GtkListView` / `QListView` / WinUI `ItemsRepeater`), so large collections get native
 virtualization, scroll physics, and platform behaviors. It is the one place Day's
 build-once model meets cell reuse, and the resolution is the same model: a row subtree is
 built once per physical cell and *rebound* (a single slot-write into its `ItemSlot`) every
@@ -22,6 +22,20 @@ anchor (fine for a dozen items; ten thousand would all be built up front). `list
 the rows the native widget currently shows.
 
 ## API: row sources, shared with `each`
+
+On **windows-winui**, `ItemsRepeater` and `StackLayout` own realization and scroll extents
+inside a native `ScrollViewer`. Its element factory reuses `ItemContainer` rows with Day
+content; it does not allocate a cell per source index. Selection, keyboard navigation,
+drag-and-drop, and content-sized rows follow the realized containers. A `SwipeControl`
+offers declared leading/trailing actions and guarded deletion, with the same commands in
+a native row context menu for mouse and keyboard use. Row content can still declare its
+own context menu. Action callbacks validate the row token and cell generation before use.
+The deprecated **windows-xaml** backend retains its emulated implementation; references
+to “XAML” below refer to that backend, not WinUI.
+
+`list-recycles-distant-rows` checks bounded row construction and rebound control actions;
+`list-shrink-and-regrow` checks emptying and repopulating a scrolled list. Run them with the
+other list cases using `day test --project apps/conformance -t windows-winui 'list-*'`.
 
 `list(source, row)` and `each(source, row)` take a **`RowSource`** (where the rows come from)
 and one row builder. Two sources ship:
@@ -361,6 +375,7 @@ Per-backend affordances:
 | GTK 4 | `DragSource`/`DropTarget` (native DnD framework) | row snapshot as drag icon; forbidden cursor on deny (no insertion line yet) | live (motion) |
 | Qt | `QDrag` over the emulated list | grabbed-cell pixmap, 2px insertion line, no-drop cursor | live (drag-move) |
 | XAML | WinRT `CanDrag`/`DragOver`/`Drop` over the emulated list | system drag visuals + live no-drop cursor | live (DragOver) |
+| WinUI | WinRT drag events on recycled `ItemContainer` rows | system drag visuals + live no-drop cursor | live (DragOver); target is the actual row, including variable heights |
 | ArkUI | `SetNodeDraggable` + `NODE_ON_DROP` | system drag preview; denied drops spring back | at drop (`SetDragResult`) |
 | web-dom | pointer-tracked (emulated — no native list reorder in the browser) | lifted cell + animated CSS gap, long-press on touch | live (every hovered slot) |
 | mock | `MockProbe::list_can_move` / `list_move` | op log | live |
@@ -395,7 +410,8 @@ which drops the row from Day's snapshot **before returning**, so `len`/`token_at
 answer for the shorter list while the native removal animates, and defers the app's
 `on_delete` through the event queue; the reorder half follows the same rule.
 
-**The desktop toolkits answer `Unsupported`** for the delete affordance: GTK, Qt and XAML have
+**WinUI supports deletion** through `SwipeControl` and the row context menu. Other desktop
+toolkits answer `Unsupported` for the delete affordance: GTK, Qt and XAML have
 no swipe idiom at all, and macOS's row actions (the swipe-actions section below rides them) do
 not carry the delete affordance yet. A list that must be editable everywhere pairs
 `.deletable()` with an explicit control (a menu item, a per-row button) and lets the mobile
@@ -409,6 +425,7 @@ on every target, including the desktops, where there is no gesture to simulate.
 |---|---|---|
 | UIKit | `trailingSwipeActionsConfigurationForRowAtIndexPath` | row tracks the finger, destructive action reveals behind it, full swipe commits |
 | Android | `ItemTouchHelper` swipe (`START`, so it is the trailing edge in RTL too) | row slides to reveal a red field carrying the label; `notifyItemRemoved` animates the close-up |
+| WinUI | `SwipeControl` trailing `SwipeItems` and `MenuFlyout` | reveal then press Delete; the guard is checked both when offering and invoking it |
 | AppKit · GTK · Qt · XAML · web | — | `Unsupported`: the delete affordance does not ride macOS's row actions yet, and the rest have no swipe idiom; use a menu item or a row button |
 | ArkUI | `NODE_LIST_ITEM_SWIPE_ACTION` | *not yet implemented* — the NDK exposes it; the shim does not build it yet |
 
@@ -448,15 +465,17 @@ looked up by position, so the handler always closes over the row's current state
 platforms without a glyph slot show the label alone.
 
 Edges are semantic, not geometric: `Leading` follows the reading direction (left in LTR, right
-in RTL), exactly as every platform's swipe API already spells it. A full swipe across
-activates the edge's first action. `destructive` takes the platform's destructive styling
+in RTL), exactly as every platform's swipe API already spells it. On Apple platforms a full
+swipe activates the edge's first action; WinUI uses reveal-and-press buttons. `destructive` takes the platform's destructive styling
 (red, on the Apple toolkits); `tint` colors the button where the platform honors one.
 
 Probe `Cap::ListSwipeActions`: **Native** on macOS (`NSTableView`'s
 `tableView:rowActionsForRow:edge:`, the two-finger Mail swipe) and iOS
 (`UISwipeActionsConfiguration`, sharing one pipeline with swipe-to-delete: on the trailing
 edge a `.deletable()` list offers its delete action first, then the row's own trailing offer).
-Everywhere else the answer is `Unsupported` and no affordance is drawn, so pair each action
+It is also **Native** on WinUI (`SwipeControl`, with labels, symbols and tints), which adds a
+mouse/keyboard `MenuFlyout` for the same actions. Everywhere else the answer is `Unsupported`
+and no affordance is drawn, so pair each action
 with an explicit control (a menu item, a toolbar button) for the rest, as the delete section
 advises.
 

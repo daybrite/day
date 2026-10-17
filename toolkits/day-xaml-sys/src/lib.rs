@@ -740,3 +740,61 @@ unsafe extern "C" {
     pub fn day_xaml_tree_forget(w: *mut c_void);
     pub fn day_xaml_nav_custom_sidebar(w: *mut c_void, page: *mut c_void);
 }
+
+#[cfg(feature = "winui")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct DayWinuiListCell {
+    pub cell: *mut std::ffi::c_void,
+    pub row: i32,
+    pub generation: u64,
+    pub width: f64,
+    pub visible: i32,
+}
+
+#[cfg(feature = "winui")]
+unsafe extern "C" {
+    pub fn day_winui_list_new(
+        pitch: f64,
+        selectable: i32,
+        activatable: i32,
+        reorderable: i32,
+        changed: extern "C" fn(*mut c_void),
+        selected: extern "C" fn(*mut c_void, i32, i32),
+        offer: extern "C" fn(*mut c_void, *mut c_void, i32),
+        action: extern "C" fn(*mut c_void, i32, u64, i32, i32),
+        can_move: extern "C" fn(*mut c_void, i32, i32) -> i32,
+        moved: extern "C" fn(*mut c_void, i32, i32),
+    ) -> *mut c_void;
+    pub fn day_winui_list_forget(host: *mut c_void);
+    pub fn day_winui_list_frame(host: *mut c_void, width: f64, height: f64);
+    pub fn day_winui_list_reload(host: *mut c_void, count: i32);
+    pub fn day_winui_list_layout(host: *mut c_void);
+    pub fn day_winui_list_cells(
+        host: *mut c_void,
+        out: *mut DayWinuiListCell,
+        capacity: i32,
+    ) -> i32;
+    pub fn day_winui_list_cell_size(
+        host: *mut c_void,
+        cell: *mut c_void,
+        generation: u64,
+        width: f64,
+        height: f64,
+    );
+    pub fn day_winui_list_scroll(host: *mut c_void, row: i32);
+    pub fn day_winui_list_select(host: *mut c_void, rows: *const i32, len: i32);
+    pub fn day_winui_list_actions_begin(host: *mut c_void, cell: *mut c_void);
+    pub fn day_winui_list_action_add(
+        host: *mut c_void,
+        cell: *mut c_void,
+        token: u64,
+        edge: i32,
+        index: i32,
+        label: *const c_char,
+        glyph: *const c_char,
+        destructive: i32,
+        color: *const f64,
+    );
+    pub fn day_winui_list_actions_end(host: *mut c_void, cell: *mut c_void);
+}

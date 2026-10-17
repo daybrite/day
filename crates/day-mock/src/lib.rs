@@ -1101,6 +1101,8 @@ impl Toolkit for MockToolkit {
             // presentations, and answers `dismiss`. Off, unit tests keep the toolbar-less
             // placement they assert (an `Automatic` search stays inline).
             Cap::Toolbar | Cap::Dialogs if VIEWPORT_ROWS.with(|r| r.get()) > 0 => Support::Native,
+            // Native-behavior mode binds its bounded viewport pool to new rows on scroll.
+            Cap::ListRecycling if VIEWPORT_ROWS.with(|r| r.get()) > 0 => Support::Native,
             // Records every toolbar edit and patch, search item included (probe-visible). The
             // mock still has no `Cap::Toolbar`, so an `Automatic` search stays inline.
             Cap::ToolbarSearch => {

@@ -32,7 +32,7 @@ pub(crate) fn glyph_for(s: Symbol) -> &'static str {
     glyph(s)
 }
 
-fn glyph(s: Symbol) -> &'static str {
+pub(super) fn glyph(s: Symbol) -> &'static str {
     match s {
         Symbol::Add => "E710",
         Symbol::Remove => "E738",

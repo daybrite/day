@@ -9811,3 +9811,6 @@ void day_xaml_nav_custom_sidebar(void *w, void *page) { guard([&] {
 } // extern "C"
 
 #include "transfer.inc"
+#ifdef DAY_WINUI
+#include "list-winui.inc"
+#endif

@@ -92,6 +92,7 @@ fn main() {
     println!("cargo:rustc-link-lib=shell32");
     println!("cargo:rerun-if-changed=src/shim.cpp");
     println!("cargo:rerun-if-changed=src/transfer.inc");
+    println!("cargo:rerun-if-changed=src/list-winui.inc");
     println!("cargo:rerun-if-changed=src/transfer-host.inc");
     println!("cargo:rerun-if-changed=build.rs");
 }

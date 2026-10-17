@@ -179,8 +179,10 @@ impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
     pub fn field<V: Clone>(self, f: impl FnOnce(&T) -> V) -> V {
         self.sig.with(f)
     }
+    /// Tracked identity read, so reactive ids and row actions follow cell recycling.
+    /// Read inside a closure, just like [`get`](Self::get).
     pub fn key(self) -> K {
-        self.key.get_untracked()
+        self.key.get()
     }
 }
 
@@ -3527,6 +3529,107 @@ pub(crate) mod conformance {
             })
     }
 
+    /// Distant jumps reuse a bounded number of row scopes and rebind their actions.
+    #[day_macros::test(day_core)]
+    fn list_recycles_distant_rows() -> Case {
+        let built = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let count = built.clone();
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListRecycling)
+            .requires_support("native list recycling", || {
+                if day_core::capability(Cap::ListRecycling) == day_spec::Support::Native {
+                    day_spec::Support::Native
+                } else {
+                    day_spec::Support::Unsupported
+                }
+            })
+            .page(move || {
+                count.set(0);
+                let count = count.clone();
+                let rows = Signal::new((0..2000).collect::<Vec<usize>>());
+                let jump = Signal::new(None);
+                let next = Signal::new(40usize);
+                let pressed = Signal::new(String::new());
+                column((
+                    button("Far").id("far").action(move || {
+                        jump.set(Some(next.get_untracked()));
+                        next.update(|n| *n += 40);
+                    }),
+                    button("Back").id("back").action(move || jump.set(Some(0))),
+                    label(move || pressed.get()).id("pressed"),
+                    list(items(move || rows.get(), |n: &usize| *n), move |slot| {
+                        count.set(count.get() + 1);
+                        button(move || format!("Row {}", slot.get()))
+                            .id_of(move || format!("row:{}", slot.key()))
+                            .action(move || pressed.set(format!("Pressed {}", slot.get())))
+                    })
+                    .row_height(RowHeight::Uniform(32.0))
+                    .scroll_to_row(jump)
+                    .height(160.0),
+                ))
+            })
+            .drive(move |d: Drive| {
+                let built = built.clone();
+                async move {
+                    d.assert_text("row:0", "Row 0").await?;
+                    // Distinct regions: retaining a cell for every visited index must fail.
+                    for row in (40..=1600).step_by(40) {
+                        d.tap("far").await?;
+                        d.assert_text(&format!("row:{row}"), &format!("Row {row}"))
+                            .await?;
+                        d.assert_missing("row:0").await?;
+                        d.tap(&format!("row:{row}")).await?;
+                        d.assert_text("pressed", &format!("Pressed {row}")).await?;
+                        d.tap("back").await?;
+                        d.assert_text("row:0", "Row 0").await?;
+                        d.tap("row:0").await?;
+                        d.assert_text("pressed", "Pressed 0").await?;
+                    }
+                    d.check(
+                        built.get() < 100,
+                        &format!(
+                            "recycling built {} row scopes for a five-row viewport",
+                            built.get()
+                        ),
+                    )
+                }
+            })
+    }
+
+    /// Emptying a scrolled list releases old ids; repopulating it can scroll again.
+    #[day_macros::test(day_core)]
+    fn list_shrink_and_regrow() -> Case {
+        Case::new()
+            .proves(kinds::LIST)
+            .page(|| {
+                let rows = Signal::new((0..300).map(|n| format!("Row {n}")).collect());
+                let jump = Signal::new(None);
+                column((
+                    button("Jump")
+                        .id("jump")
+                        .action(move || jump.set(Some(250))),
+                    button("Clear")
+                        .id("clear")
+                        .action(move || rows.set(Vec::new())),
+                    button("Restore").id("restore").action(move || {
+                        rows.set(vec!["New first".into(), "New last".into()]);
+                        jump.set(Some(1));
+                    }),
+                    names_list(rows).scroll_to_row(jump).height(160.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("jump").await?;
+                d.assert_text("row:Row 250", "Row 250").await?;
+                d.tap("clear").await?;
+                d.assert_missing("row:Row 250").await?;
+                d.tap("restore").await?;
+                d.assert_text("row:New first", "New first").await?;
+                d.assert_text("row:New last", "New last").await
+            })
+    }
+
     type Node = (String, Option<String>);
 
     /// A tree over `(name, parent)` rows, each row a label with the id `row:<name>`; the tree's
@@ -3699,5 +3802,7 @@ pub(crate) mod conformance {
         list_delete_row,
         list_swipe_action,
         list_scroll_to_row,
+        list_recycles_distant_rows,
+        list_shrink_and_regrow,
     }
 }
