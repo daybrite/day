@@ -32,6 +32,16 @@ python3 apps/conformance/scripts/harmony-long-press.py
 See [native-input tests](../../docs/testing.md#native-arkui-long-press-tests) for scope and
 limitations. The fixture is opt-in and does not replace the regular conformance root.
 
+Native alerts, prompts, and action sheets have a separate real-input suite using the same
+build and device setup:
+
+```sh
+python3 apps/conformance/scripts/harmony-dialogs.py
+```
+
+It checks native choices/text editing, Back/outside dismissal, sheet placement, queuing,
+and programmatic close races. See [dialog tests](../../docs/testing.md#native-arkui-dialog-tests).
+
 
 ## Generated native projects
 

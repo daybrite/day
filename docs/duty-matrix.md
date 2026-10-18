@@ -69,7 +69,7 @@ implement them, and this table proves it.
 | `native_back` | · | · | ✓ | · | · | · | ✓ | · | · | · |
 | `ui_idle` | · | ✓ | ✓ | · | · | · | ✓ | ✓ | ✓ | ✓ |
 | `present` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ |
+| `dismiss` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `open_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `share_support` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |
 | `share_url` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ | · |

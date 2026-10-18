@@ -127,6 +127,8 @@ pub enum DriveOp {
     AssertPresented(Option<String>),
     /// Answer the pending presentation: a button by position, or dismiss it (`None`).
     Respond(Option<usize>),
+    /// Confirm a prompt with text (including an empty string).
+    RespondText(String),
 }
 
 /// What [`Drive::assert_frame`] expects of an element's frame, in points; only the fields set
@@ -407,6 +409,11 @@ impl Drive {
     /// it for `None`.
     pub fn respond(&self, button: Option<usize>) -> OpFuture {
         self.op(DriveOp::Respond(button))
+    }
+
+    /// Confirm a pending text prompt.
+    pub fn respond_text(&self, text: &str) -> OpFuture {
+        self.op(DriveOp::RespondText(text.into()))
     }
 
     /// A plain assertion for a headless test: fails with `what` when `ok` is false.

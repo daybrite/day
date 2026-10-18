@@ -102,7 +102,7 @@ An app branches on this rather than on the target name.
 | `NavHeader` | – | N | – | – | N | N | N | – |
 | `Appearance` | N | N | N | – | N | ? | ? | N |
 | `AppMenu` | N | – | N | N | N | – | – | E |
-| `Dialogs` | N | N | N | N | N | N | – | N |
+| `Dialogs` | N | N | N | N | N | N | N | N |
 | `FileDialogs` | N | N | N | N | N | N | N | N |
 | `Animation` | N | N | N | N | N | N | N | N |
 | `Cover` | E | N | E | E | E | N | E | E |

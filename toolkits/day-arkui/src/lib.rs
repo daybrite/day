@@ -3932,7 +3932,7 @@ mod imp {
         }
 
         /// Native file open/save via the ArkTS `@kit.CoreFileKit` DocumentViewPicker (docs/files.md).
-        /// Alerts/prompts aren't wired on ArkUI yet, so those specs are ignored (like XAML).
+        /// Dialogs/prompts use the ArkTS native modal host (docs/dialogs.md).
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
             use day_spec::present::PresentSpec;
             match spec {
@@ -3952,9 +3952,14 @@ mod imp {
                         &spec.filters_joined(),
                     );
                 }
-                // Dialog / Prompt aren't implemented on ArkUI (a follow-up); ignore.
-                _ => {}
+                PresentSpec::Dialog { .. } | PresentSpec::Prompt { .. } => {
+                    crate::host_api::present_dialog(req, spec);
+                }
             }
+        }
+
+        fn dismiss(&mut self, req: u64) {
+            crate::host_api::dismiss_dialog(req);
         }
 
         fn open_url(&mut self, url: &str) {
@@ -4010,6 +4015,7 @@ mod imp {
                 | Cap::DragExternalExport
                 | Cap::DragMultipleItems => Support::Native,
                 Cap::FileDialogs => Support::Native,
+                Cap::Dialogs => Support::Native,
                 // `animateTo` interpolates opacity, transform and background color on ArkUI's
                 // compositor; frames move instantly, as on Android (§8.4).
                 Cap::Animation => Support::Native,

@@ -364,6 +364,13 @@ on the Oniro emulator:
   tree borrow, since either can synchronously request a row binding. Row jumps reveal with
   minimal movement; scrolling to the end aligns the last row with the viewport bottom.
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
+- **Dialogs and prompts** — `Cap::Dialogs` is native. The ArkTS `DayDialogs` host presents
+  native ArkUI controls through `PromptAction.openCustomDialog`: centered alerts/prompts and
+  bottom-aligned action sheets, including destructive/cancel roles and editable prompt text.
+  Requests are queued and closed by request ID, with Back/outside cancellation and cleanup
+  after disappearance. Content is a themed ArkUI builder, rather than Day-rendered overlay
+  controls. See [dialogs.md](dialogs.md#arkui-presentation-and-lifetime) for lifecycle and
+  primary-window ownership, and [testing.md](testing.md#native-arkui-dialog-tests) for real-input tests.
 - **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
   NDK gesture API, reported on the shared kind-11 wire in px). The existing toolkit hook
   `GestureKind::LongPress` uses ArkUI's one-finger, non-repeating, 500 ms recognizer and emits

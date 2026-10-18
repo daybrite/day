@@ -30,6 +30,13 @@ export const registerFilePicker: (
 // Report a picker result back to Day: the chosen local path, or "" if the user cancelled.
 export const onFileResult: (req: number, path: string) => void;
 
+// JSON-encoded dialog spec; result kind 0 = dismissed, 1 = button index, 2 = prompt text.
+export const registerDialogs: (
+  present: (req: number, spec: string) => void,
+  dismiss: (req: number) => void
+) => void;
+export const onDialogResult: (req: number, kind: number, index: number, text: string) => void;
+
 // Register the ArkTS permission prompter (docs/permissions.md). The callback is invoked (on the JS
 // thread) with a 0x1F-separated list of OS permission names; it must answer via
 // `onPermissionResult` with a bit mask of the grants, in the same order.

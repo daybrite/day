@@ -329,6 +329,30 @@ event test would not prove the recognizer works. The fixture does not introduce 
 Do not run this alongside another driver for the same app. It leaves the fixture visible for
 inspection; a normal `day launch` or `day test` restores the regular conformance app.
 
+### Native ArkUI dialog tests
+
+After building the conformance app for `harmony-arkui`, run:
+
+```sh
+python3 apps/conformance/scripts/harmony-dialogs.py
+```
+
+This requires one connected, unlocked HarmonyOS target and `hdc` on `PATH`; `--day` and
+`--hdc` can select other executables. It launches `DAY_NATIVE_DIALOG_TEST=1` and drives actual
+ArkUI dialog buttons, native text editing, IME submit, Back and the modal mask. Checks cover
+startup presentation, Unicode/quoted titles, prompt initial/empty/cancelled values,
+action-sheet indices and safe-area placement, concurrent requests, queued dismissal,
+closing during opening, immediate chained presentations, and light/dark surfaces. The fixture
+remains visible afterwards.
+
+The portable `confirm-native-*`, `prompt-native-*`, and `alert-sheet-preserves-button-indices`
+cases run in the regular conformance suite on targets with `Cap::Dialogs`. They explicitly
+select native presentation and answer through `respond` / `respond_text`, exercising the
+public future and toolkit dismissal contract. Those assertions inspect pending Day requests;
+they do not prove a native button was drawn or clicked. The separate Python suite supplies
+that evidence and is currently an explicit local/emulator check, not a shared CI step.
+Run only one driver for the app at a time.
+
 ## In CI
 
 `ci.yml`'s `conformance` job runs the app through `daybrite/actions`' `dayapp.yml` on all nine

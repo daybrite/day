@@ -86,11 +86,35 @@ Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fl
 | gtk | `AdwAlertDialog` (libadwaita 1.5; `response` signal) | `AdwAlertDialog` with a `GtkEntry` extra-child |
 | qt | `QMessageBox.open()` + `finished` (shim) | `QInputDialog.getText` (shim) |
 | android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + `TextInputLayout` |
+| arkui | ArkUI `PromptAction.openCustomDialog` modal with themed native `Text` / `Button` content; sheets align to the bottom | Same modal host with native `TextInput`, initial value, placeholder and IME submit |
 | mock | records the spec; resolved programmatically | same |
 | xaml | `ContentDialog` (unverified, no local Windows) | `ContentDialog` + `TextBox` |
 
 All backends use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.
+
+### ArkUI presentation and lifetime
+
+`Cap::Dialogs` is `Native`. `DayDialogs.ets` uses ArkUI's modal host, focus/keyboard handling,
+mask and Back dismissal. The content is a custom ArkUI builder made of native controls;
+retaining its `ComponentContent` lets Day close the exact request programmatically. It supports arbitrary
+button counts, preserves original indices and cancel roles, colors destructive choices with
+the system warning color, and scrolls long content. One or two alert buttons sit side by
+side; action-sheet choices are vertical and respect the bottom system-bar inset. Prompts
+return `Some("")` for an accepted empty field and `None` for cancellation.
+
+Requests are queued on the primary window's UI context. Each retains its own content and
+answer until the native dialog disappears; only then is the content disposed and its future
+answered. A continuation can immediately open another dialog. Programmatic dismissal also
+handles queued requests and requests whose open operation has not completed. Late native
+close callbacks cannot answer another request or overwrite an earlier scripted result.
+Opening failures and host teardown cancel affected requests. Registration precedes the Day
+root's startup so its first task can present. Secondary-window-specific ownership is not
+part of the current presentation contract; the ArkUI host uses the primary window.
+
+The [native-input regression suite](testing.md#native-arkui-dialog-tests) exercises actual
+ArkUI buttons, text editing, IME submit, Back and outside dismissal, in addition to the
+portable conformance cases for the public APIs and programmatic response path.
 
 ## Dayscript presentation modes
 

@@ -511,6 +511,7 @@ dependencies = [
  "napi-ohos",
  "ohos-sys",
  "ohos-sys-opaque-types",
+ "serde_json",
 ]
 
 [[package]]

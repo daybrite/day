@@ -50,6 +50,9 @@ thread_local! {
     static ENV: Cell<sys::napi_env> = const { Cell::new(ptr::null_mut()) };
     /// `(req, mode, name, src, filters)` (docs/files.md).
     static FILE_PICKER: Callback<FilePickerArgs> = const { RefCell::new(None) };
+    static DIALOG: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
+    static DISMISS_DIALOG: Callback<FnArgs<(f64,)>> = const { RefCell::new(None) };
+    static DIALOG_REQUESTS: RefCell<std::collections::HashSet<u64>> = RefCell::new(std::collections::HashSet::new());
     /// `(req, names)` (docs/permissions.md).
     static PERMISSIONS: Callback<FnArgs<(f64, String)>> = const { RefCell::new(None) };
     static PERMISSION_WAITERS: RefCell<HashMap<u64, extern "C" fn(u64, u64)>> = RefCell::new(HashMap::new());
@@ -294,6 +297,80 @@ pub fn register_file_picker(env: Env, callback: Registered<FilePickerArgs>, cach
 #[napi(js_name = "onFileResult")]
 pub fn on_file_result(req: f64, path: String) {
     crate::on_event(req as u64, K::PresentFile as i32, 0.0, &path);
+}
+
+/// Register before `start`: a root task may present on its first turn.
+#[napi(js_name = "registerDialogs")]
+pub fn register_dialogs(
+    env: Env,
+    present: Registered<FnArgs<(f64, String)>>,
+    dismiss: Registered<FnArgs<(f64,)>>,
+) {
+    remember(&env);
+    store(&DIALOG, present);
+    store(&DISMISS_DIALOG, dismiss);
+}
+
+/// Exactly one native answer per request, including close/failure callbacks arriving late.
+#[napi(js_name = "onDialogResult")]
+pub fn on_dialog_result(req: f64, kind: i32, index: i32, text: String) {
+    let req = req as u64;
+    if DIALOG_REQUESTS.with(|r| r.borrow_mut().remove(&req)) {
+        let result = day_spec::present::PresentResult::decode(kind, i64::from(index), text);
+        crate::emit(
+            day_spec::NodeId(req),
+            day_spec::Event::PresentResult { req, result },
+        );
+    }
+}
+
+pub fn present_dialog(req: u64, spec: &day_spec::present::PresentSpec) {
+    use day_spec::present::{ButtonRole, PresentSpec};
+    use serde_json::json;
+    let payload = match spec {
+        PresentSpec::Dialog {
+            title,
+            message,
+            buttons,
+            sheet,
+        } => json!({
+            "title": title, "message": message.as_deref().unwrap_or(""), "sheet": sheet,
+            "prompt": false, "initial": "", "placeholder": "",
+            "buttons": buttons.iter().map(|b| json!({
+                "label": b.label,
+                "role": match b.role { ButtonRole::Default => 0, ButtonRole::Cancel => 1, ButtonRole::Destructive => 2 },
+            })).collect::<Vec<_>>(),
+        }),
+        PresentSpec::Prompt {
+            title,
+            message,
+            placeholder,
+            initial,
+            ok,
+            cancel,
+        } => json!({
+            "title": title, "message": message.as_deref().unwrap_or(""), "sheet": false,
+            "prompt": true, "initial": initial, "placeholder": placeholder,
+            "buttons": [{"label": cancel, "role": 1}, {"label": ok, "role": 0}],
+        }),
+        _ => return,
+    };
+    DIALOG_REQUESTS.with(|r| r.borrow_mut().insert(req));
+    if call(
+        &DIALOG,
+        FnArgs::from((req as f64, payload.to_string())),
+        |_, _| (),
+    )
+    .is_none()
+    {
+        on_dialog_result(req as f64, 0, 0, String::new());
+    }
+}
+
+pub fn dismiss_dialog(req: u64) {
+    if DIALOG_REQUESTS.with(|r| r.borrow_mut().remove(&req)) {
+        call(&DISMISS_DIALOG, FnArgs::from((req as f64,)), |_, _| ());
+    }
 }
 
 /// `registerPermissions(cb)` (docs/permissions.md).

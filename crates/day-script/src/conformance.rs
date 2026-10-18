@@ -548,6 +548,7 @@ fn op_name(op: &DriveOp) -> String {
         DriveOp::DialogScripted(_) => "dialog_mode".into(),
         DriveOp::AssertPresented(_) => "assert_presented".into(),
         DriveOp::Respond(_) => "respond".into(),
+        DriveOp::RespondText(_) => "respond".into(),
     }
 }
 
@@ -627,6 +628,7 @@ fn step_for(op: &DriveOp) -> Result<Step, Fail> {
         DriveOp::AssertPresented(title) => json!({"op": "assert_presented", "title": title}),
         DriveOp::Respond(Some(button)) => json!({"op": "respond", "button": button}),
         DriveOp::Respond(None) => json!({"op": "respond", "dismiss": true}),
+        DriveOp::RespondText(text) => json!({"op": "respond", "text": text}),
     };
     serde_json::from_value(v).map_err(|e| Fail(format!("{}: {e}", op_name(op))))
 }

@@ -679,6 +679,7 @@ pub(crate) mod conformance {
             .requires(Cap::Dialogs)
             .page(asker)
             .drive(|d: Drive| async move {
+                d.dialogs_scripted(false).await?;
                 d.tap("ask").await?;
                 d.assert_presented(Some("Delete it?")).await?;
                 d.respond(Some(1)).await?;
@@ -694,6 +695,7 @@ pub(crate) mod conformance {
             .requires(Cap::Dialogs)
             .page(asker)
             .drive(|d: Drive| async move {
+                d.dialogs_scripted(false).await?;
                 d.tap("ask").await?;
                 d.assert_presented(None).await?;
                 d.respond(None).await?;
@@ -701,8 +703,103 @@ pub(crate) mod conformance {
             })
     }
 
+    fn prompt_asker() -> impl day_core::Piece {
+        let answer = Signal::new(String::from("pending"));
+        column((
+            label(move || answer.get()).id("answer"),
+            button("Ask").id("ask").action(move || {
+                let set = answer.setter();
+                day_core::task(async move {
+                    let value = prompt("Your name")
+                        .message("Enter a name")
+                        .placeholder("Name")
+                        .initial("Ada")
+                        .present()
+                        .await;
+                    set.set(format!("{value:?}"));
+                });
+            }),
+        ))
+    }
+
+    #[day_macros::test(day_core)]
+    fn prompt_native_answer() -> Case {
+        Case::new()
+            .requires(Cap::Dialogs)
+            .proves_cap(Cap::Dialogs)
+            .proves_duty("present")
+            .proves_duty("dismiss")
+            .page(prompt_asker)
+            .drive(|d: Drive| async move {
+                d.dialogs_scripted(false).await?;
+                d.tap("ask").await?;
+                d.assert_presented(Some("Your name")).await?;
+                d.respond_text("Zoë 東京\n\"quoted\"").await?;
+                d.assert_text("answer", "Some(\"Zoë 東京\\n\\\"quoted\\\"\")")
+                    .await?;
+                d.tap("ask").await?;
+                d.respond_text("").await?;
+                d.assert_text("answer", "Some(\"\")").await
+            })
+    }
+
+    #[day_macros::test(day_core)]
+    fn prompt_native_dismiss() -> Case {
+        Case::new()
+            .requires(Cap::Dialogs)
+            .proves_cap(Cap::Dialogs)
+            .page(prompt_asker)
+            .drive(|d: Drive| async move {
+                d.dialogs_scripted(false).await?;
+                d.tap("ask").await?;
+                d.assert_presented(Some("Your name")).await?;
+                d.respond(None).await?;
+                d.assert_text("answer", "None").await
+            })
+    }
+
+    #[day_macros::test(day_core)]
+    fn alert_sheet_preserves_button_indices() -> Case {
+        Case::new()
+            .requires(Cap::Dialogs)
+            .proves_cap(Cap::Dialogs)
+            .page(|| {
+                let answer = Signal::new(String::from("pending"));
+                column((
+                    label(move || answer.get()).id("answer"),
+                    button("Ask").id("ask").action(move || {
+                        let set = answer.setter();
+                        day_core::task(async move {
+                            let value = Alert::new("Choose an action")
+                                .sheet()
+                                .button("First", 10)
+                                .cancel("Cancel")
+                                .destructive("Delete", 30)
+                                .button("Last", 40)
+                                .present()
+                                .await;
+                            set.set(format!("{value:?}"));
+                        });
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.dialogs_scripted(false).await?;
+                d.tap("ask").await?;
+                d.assert_presented(Some("Choose an action")).await?;
+                d.respond(Some(2)).await?;
+                d.assert_text("answer", "Some(30)").await?;
+                d.tap("ask").await?;
+                d.respond(Some(1)).await?;
+                d.assert_text("answer", "None").await
+            })
+    }
+
     day_core::tests! {
         confirm_native_answer,
         confirm_native_dismiss,
+        prompt_native_answer,
+        prompt_native_dismiss,
+        alert_sheet_preserves_button_indices,
     }
 }

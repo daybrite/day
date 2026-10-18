@@ -24,6 +24,7 @@ import DayWindowAbility from './DayWindowAbility';
 import { DayToolbar, DayToolbarItem } from './DayToolbar';
 import { dayNavigation, registerDayNavigation } from './DayNavigation';
 import { DayCapture } from './DayCapture';
+import { DayDialogs } from './DayDialogs';
 
 @Entry
 @Component
@@ -34,6 +35,11 @@ struct Index {
   private coverHeightVp: number = 0;
   @State coverShown: boolean = false;
   private started: boolean = false;
+  private dialogs?: DayDialogs;
+
+  aboutToDisappear(): void {
+    this.dialogs?.dispose();
+  }
   @State windowMenus: DayToolbarItem[] = [];
   // The primary window's last status-bar request (docs/cover.md), so leaving fullscreen brings
   // back only the bars Day did not hide on purpose.
@@ -94,6 +100,7 @@ struct Index {
     }, Index.privacyGranted(this.getUIContext().getHostContext() as common.UIAbilityContext));
 
     const d = display.getDefaultDisplaySync();
+    this.dialogs = new DayDialogs(this.getUIContext());
     // native `start(nodeContent, widthVp, heightVp, density)` → day::arkui::start → launch_with.
     nativeEntry.start(this.content, widthVp, heightVp, d.densityPixels);
 
