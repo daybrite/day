@@ -352,6 +352,12 @@ on the Oniro emulator:
   handle for the canvas: ArkUI never lets a custom node (or a childless container) hold focus,
   and a button does, which is what gives a canvas the keyboard and its `.focused(..)` binding
   (`canvas::create`).
+- **Switch alignment** — Day clears the native Toggle's default outer margins. ArkUI adds
+  theme hot-zone margins otherwise, moving a switch below and to the right of its assigned
+  frame and into neighboring form rows. Native inspection uses the painted window position:
+  the layout-position query substitutes the explicit position and hides this offset. The
+  `labeled-nontext-controls-center` and `row-nontext-controls-center` conformance cases compare
+  native control/label centers and spacing, including after value changes.
 - **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
   500-row list only builds the visible cells. Native row containers fill the viewport width,
   including selection and hit testing. Reloads and programmatic scrolling run outside Day's

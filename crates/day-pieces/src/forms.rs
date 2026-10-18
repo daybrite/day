@@ -455,8 +455,9 @@ impl<Inner: FormSectionBuilder + Piece> FormSectionBuilder for Decorated<Inner> 
 /// The form pieces' `#[day::test]` cases, next to their constructors.
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
-    use day_core::conformance::{Case, Drive, FrameExpect};
+    use day_core::conformance::{Case, Drive, Fail, FrameExpect, TestResult};
     use day_reactive::Signal;
+    use day_spec::{Insets, kinds};
 
     use crate::*;
 
@@ -507,5 +508,195 @@ pub(crate) mod conformance {
             })
     }
 
-    day_core::tests! { form_sections, labeled_aligns_controls }
+    /// Compare native widgets, not just the layout's intended boxes. Native theme margins
+    /// can move a control after Day has centered it (ArkUI switches used to do this).
+    /// Both children have the same Day parent; native frames share window coordinates.
+    fn control_alignment(row_id: &str, control_id: &str) -> TestResult {
+        day_core::try_with_tree(|t| {
+            let row = t.find_by_id(row_id).ok_or_else(|| Fail(format!("no row {row_id}")))?;
+            let label = t.first_child(row).ok_or_else(|| Fail(format!("no label in {row_id}")))?;
+            let control = t.find_by_id(control_id).ok_or_else(|| Fail(format!("no control {control_id}")))?;
+            let frames = |node| -> Result<_, Fail> {
+                let day = t.node_frame(node).ok_or_else(|| Fail("no Day frame".into()))?;
+                let native = t.read_native(node).and_then(|n| n.frame)
+                    .ok_or_else(|| Fail(format!("{row_id}: native frame unavailable")))?;
+                Ok((day, native))
+            };
+            let (ld, ln) = frames(label)?;
+            let (cd, cn) = frames(control)?;
+            for (source, l, c) in [("Day", ld, cd), ("native", ln, cn)] {
+                let delta = c.origin.y + c.size.height / 2.0 - l.origin.y - l.size.height / 2.0;
+                if l.size.height <= 0.0 || c.size.height <= 0.0 || delta.abs() > 1.5 {
+                    return Err(Fail(format!("{row_id}: {source} control/label centers differ by {delta:.2}; label {l:?}, control {c:?}")));
+                }
+            }
+            // A common window offset is harmless, an extra control-only margin is not.
+            let dx = (cn.origin.x - ln.origin.x) - (cd.origin.x - ld.origin.x);
+            if dx.abs() > 1.5 {
+                return Err(Fail(format!("{row_id}: native control/label spacing shifted by {dx:.2}")));
+            }
+            Ok(())
+        }).unwrap_or_else(|| Err(Fail("the tree is busy".into())))
+    }
+
+    async fn controls_align(d: &Drive, pairs: &[(&str, &str)]) -> TestResult {
+        // Give native layout a turn after realization or a value change. Retry geometry,
+        // rather than depending on one fixed sleep on a loaded emulator.
+        for attempt in 0..100 {
+            let result = pairs
+                .iter()
+                .try_for_each(|(row, control)| control_alignment(row, control));
+            if result.is_ok() || attempt == 99 {
+                return result;
+            }
+            d.pause(0.02).await?;
+        }
+        unreachable!()
+    }
+
+    #[day_macros::test(day_core)]
+    fn labeled_nontext_controls_center() -> Case {
+        let a = Signal::new(false);
+        let b = Signal::new(true);
+        let value = Signal::new(0.5);
+        Case::new()
+            .proves(kinds::TOGGLE)
+            .proves(kinds::SLIDER)
+            .proves_duty("set_frame")
+            .page(move || {
+                column((
+                    // The Tree page's two labeled switches, outside a form.
+                    row((
+                        labeled("Multi", toggle(a).id("pair-a")).id("pair-a-row"),
+                        labeled("Lock", toggle(b).id("pair-b")).id("pair-b-row"),
+                    ))
+                    .spacing(16.0)
+                    .fit(RowFit::Wrap { run_spacing: 8.0 }),
+                    form((section((
+                        labeled("Updates", toggle(a).id("form-toggle")).id("form-toggle-row"),
+                        labeled("Level", slider(value).id("form-slider")).id("form-slider-row"),
+                    )),)),
+                ))
+                .spacing(12.0)
+                .width(300.0)
+            })
+            .drive(|d: Drive| async move {
+                let pairs = [
+                    ("pair-a-row", "pair-a"),
+                    ("pair-b-row", "pair-b"),
+                    ("form-toggle-row", "form-toggle"),
+                    ("form-slider-row", "form-slider"),
+                ];
+                controls_align(&d, &pairs).await?;
+                d.shot("centered-controls").await?;
+                d.toggle("pair-a", true).await?;
+                d.toggle("pair-b", false).await?;
+                d.wait_idle().await?;
+                controls_align(&d, &pairs).await
+            })
+    }
+
+    #[day_macros::test(day_core)]
+    fn row_nontext_controls_center() -> Case {
+        let on = Signal::new(true);
+        let value = Signal::new(0.5);
+        Case::new()
+            .proves(kinds::TOGGLE)
+            .proves(kinds::SLIDER)
+            .proves_duty("set_frame")
+            .page(move || {
+                column((
+                    row((label("Switch"), toggle(on).id("row-toggle")))
+                        .spacing(12.0)
+                        .id("toggle-row"),
+                    row((label("Level"), slider(value).id("row-slider")))
+                        .spacing(12.0)
+                        .id("slider-row"),
+                ))
+                .spacing(16.0)
+                .padding(Insets::all(18.0))
+            })
+            .drive(|d: Drive| async move {
+                let pairs = [("toggle-row", "row-toggle"), ("slider-row", "row-slider")];
+                controls_align(&d, &pairs).await?;
+                d.toggle("row-toggle", false).await?;
+                d.wait_idle().await?;
+                controls_align(&d, &pairs).await
+            })
+    }
+
+    /// Narrow inspector rows must wrap whole label/control pairs, and action bars must
+    /// keep their last button on screen rather than silently clipping it at the right edge.
+    #[day_macros::test(day_core)]
+    fn wrapped_controls_stay_inside_row() -> Case {
+        let on = Signal::new(false);
+        Case::new()
+            .proves(kinds::CONTAINER)
+            .proves(kinds::TOGGLE)
+            .proves(kinds::BUTTON)
+            .proves_duty("set_frame")
+            .page(move || {
+                column((
+                    row((
+                        labeled("Pause delivery", toggle(on).id("pause")).id("pause-row"),
+                        labeled("Go offline", toggle(on).id("offline")).id("offline-row"),
+                    ))
+                    .spacing(16.0)
+                    .fit(RowFit::Wrap { run_spacing: 8.0 })
+                    .id("wrapped-pairs")
+                    .width(220.0),
+                    row((
+                        button("Add task").id("add"),
+                        button("Delete selected").id("delete"),
+                        button("Undo").id("undo"),
+                        button("Redo").id("redo"),
+                    ))
+                    .spacing(8.0)
+                    .fit(RowFit::Wrap { run_spacing: 8.0 })
+                    .id("wrapped-actions")
+                    .width(220.0),
+                ))
+                .spacing(20.0)
+            })
+            .drive(|d: Drive| async move {
+                controls_align(&d, &[("pause-row", "pause"), ("offline-row", "offline")]).await?;
+                d.shot("wrapped-controls").await?;
+                day_core::with_tree(|t| {
+                    let frame = |id| {
+                        t.find_by_id(id)
+                            .and_then(|n| t.read_native(n))
+                            .and_then(|s| s.frame)
+                            .ok_or_else(|| Fail(format!("{id}: native frame unavailable")))
+                    };
+                    for (parent, children) in [
+                        ("wrapped-pairs", &["pause", "offline"][..]),
+                        ("wrapped-actions", &["add", "delete", "undo", "redo"][..]),
+                    ] {
+                        let bounds = frame(parent)?;
+                        for &id in children {
+                            let f = frame(id)?;
+                            d.check(
+                                f.origin.x >= bounds.origin.x - 1.5
+                                    && f.origin.y >= bounds.origin.y - 1.5
+                                    && f.origin.x + f.size.width
+                                        <= bounds.origin.x + bounds.size.width + 1.5
+                                    && f.origin.y + f.size.height
+                                        <= bounds.origin.y + bounds.size.height + 1.5,
+                                &format!("{id} {f:?} extends outside {parent} {bounds:?}"),
+                            )?;
+                        }
+                        let first = frame(children[0])?;
+                        let last = frame(children[children.len() - 1])?;
+                        d.check(
+                            last.origin.y >= first.origin.y + first.size.height,
+                            &format!("{parent}: controls did not wrap onto another line"),
+                        )?;
+                    }
+                    Ok(())
+                })
+            })
+    }
+
+    day_core::tests! { form_sections, labeled_aligns_controls,
+    labeled_nontext_controls_center, row_nontext_controls_center, wrapped_controls_stay_inside_row }
 }

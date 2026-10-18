@@ -29,8 +29,8 @@ use ohos_sys::arkui::native_node::{
     ArkUI_AttributeItem, ArkUI_NativeNodeAPI_1, ArkUI_NodeAttributeType as Attr,
     ArkUI_NodeCustomEvent, ArkUI_NodeCustomEventType, ArkUI_NodeDirtyFlag, ArkUI_NodeEvent,
     ArkUI_NodeEventType, ArkUI_NodeType, OH_ArkUI_GetContextByNode, OH_ArkUI_NodeContent_AddNode,
-    OH_ArkUI_NodeUtils_GetLayoutPositionInWindow, OH_ArkUI_NodeUtils_GetLayoutSize,
-    OH_ArkUI_NodeUtils_GetNodeType,
+    OH_ArkUI_NodeUtils_GetLayoutSize, OH_ArkUI_NodeUtils_GetNodeType,
+    OH_ArkUI_NodeUtils_GetPositionWithTranslateInWindow,
 };
 use ohos_sys::arkui::native_type::*;
 
@@ -219,8 +219,8 @@ pub fn node_type(n: Handle) -> Option<ArkUI_NodeType> {
     u32::try_from(t).ok().map(ArkUI_NodeType)
 }
 
-/// The node's laid-out frame in window coordinates, in px: the layout box, without the
-/// translate/scale channels. `None` when ArkUI refuses either query.
+/// The node's painted origin in window coordinates and unscaled layout size, in px.
+/// The origin includes native margins and translations. `None` when either query fails.
 pub fn layout_frame_px(n: Handle) -> Option<(f64, f64, f64, f64)> {
     let mut pos = ArkUI_IntOffset { x: 0, y: 0 };
     let mut size = ArkUI_IntSize {
@@ -229,7 +229,9 @@ pub fn layout_frame_px(n: Handle) -> Option<(f64, f64, f64, f64)> {
     };
     // SAFETY: queries on a live node into out-params that live across the calls.
     let ok = unsafe {
-        OH_ArkUI_NodeUtils_GetLayoutPositionInWindow(n, &mut pos) == 0
+        // The layout-position query substitutes NODE_POSITION for the painted offset,
+        // hiding native margins (and translations). Inspect where the widget really draws.
+        OH_ArkUI_NodeUtils_GetPositionWithTranslateInWindow(n, &mut pos) == 0
             && OH_ArkUI_NodeUtils_GetLayoutSize(n, &mut size) == 0
     };
     ok.then(|| {

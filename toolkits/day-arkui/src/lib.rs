@@ -2505,6 +2505,11 @@ mod imp {
                         return new_node(node::STACK);
                     };
                     let n = new_node(node::TOGGLE);
+                    // ArkUI's SwitchPattern adds theme hot-zone margins by default. Day
+                    // already allocates and positions the control's box; those margins
+                    // otherwise shift the painted switch down/right into the next row.
+                    // Keep the native switch and its hit handling, but own its outer spacing.
+                    node::set_margin(n.0, 0.0);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     TOGGLE_GATE.with(|m| {
                         m.borrow_mut().insert(
