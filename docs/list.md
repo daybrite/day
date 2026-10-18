@@ -139,7 +139,7 @@ updates the signal when the tree is available (a report during layout waits for 
 current borrow to end). The list owns no group
 model and adds no selectable header records. AppKit, UIKit, Android, GTK, Qt, XAML/WinUI,
 DOM and ArkUI report scroll changes; mock exposes `list_first_visible` for tests. GTK,
-XAML, Qt and DOM use the uniform row pitch, so floating headers require uniform rows there.
+XAML and DOM use the uniform row pitch, so floating headers require uniform rows there.
 The initial index is zero; clamp it when data shrinks. Native drag reordering retains its
 existing capability contract; apps can offer explicit move controls on all toolkits.
 
@@ -204,7 +204,7 @@ keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior
 | UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row` |
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
 | GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell`. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
-| Qt      | `QListWidget` + one item per row, Day's cell attached with `setIndexWidget` as it scrolls in | none — cells stay pinned to their row (Cap reports `Emulated`, DP-19) | the view owns selection, keys, focus, drag; Day owns the rows |
+| Qt      | `QListView` over a count-only `QAbstractListModel` and a delegate that paints only the item chrome; each cell a plain `QWidget` placed over its row as a viewport child | native — a bounded pool (the viewport plus overscan) the Rust side retargets on every window change: a row scrolling out parks its cell and `recycle`s it, a row scrolling in takes a spare and `bind_row` rebinds it | the view owns selection, keys, focus, drag; Day owns the rows. Cells are never index widgets: the view deletes those on removal. Every Qt callback into Day is posted |
 
 ## Row heights
 
@@ -229,7 +229,7 @@ anything synchronously.
 | UIKit | self-sizing cells: `UITableViewAutomaticDimension`, and `DayListCell` answers `systemLayoutSizeFittingSize:…` with the row's height at its content view's width; a change runs an unanimated `beginUpdates`/`endUpdates` |
 | Android | the holder's layout height, set after each bind |
 | GTK | `DayCell` measures from `cell_height`; a change queues a resize of the bound list item |
-| Qt | a size hint per item, with uniform item sizes off |
+| Qt | the model answers each row's `SizeHintRole`: the height Day laid it at, or for a row not measured yet the running average of the measured ones; heights are remembered per row token across reloads, and the changes of one turn land as one relayout that keeps the top row where it was |
 | web | rows stack by their measured heights; rows not built yet stand at the average |
 | XAML | rows stack by a running total of measured heights; rows not built yet stand at the average |
 | ArkUI | `NODE_HEIGHT` on the row's list item |
@@ -302,10 +302,10 @@ twice and shrinks once instead of restarting from wherever the last press ended.
 exactly what a click on the same row reports, so `on_select`/`on_selection` need no keyboard case.
 
 On the desktops this is the native widget's own behavior: nothing in Day sits ahead of the
-responder chain, so a focused table, outline or `QListWidget` gets its arrow keys the way it
+responder chain, so a focused table, outline or `QListView` gets its arrow keys the way it
 always would ([docs/menus.md](menus.md)). Qt earns it since 2026-09, when its list became a real
-`QListWidget` hosting Day's cells as index widgets; before that it was a scroll area of Day's own,
-and an arrow scrolled it. On **web-dom** there is no native list to inherit it from, so the
+Qt item view hosting Day's cells; before that it was a scroll area of Day's own, and an arrow
+scrolled it. On **web-dom** there is no native list to inherit it from, so the
 backend builds it: the host carries `role="listbox"` and the tab stop, cells carry `role="option"`
 and `aria-selected`, and the shim routes the keys into `day_dom_list_key`. Focus sits on the host
 rather than a row, because rows are recycled as the list scrolls and focus parked on one would
@@ -322,7 +322,7 @@ Reloads are deferred outside the tree borrow: UIKit may retire cells synchronous
 jumps to any row: set the signal to `Some(row)` and the native list scrolls it into view,
 realizing it if it was virtualized away (`ListPatch::ScrollToRow`, clamped to the count). The
 signal is the row rail's counterpart to `scroll(...).scroll_target(...)`. Backends without a native
-scroll-to-index (GTK ≤ 4.10, Qt, XAML, web) position by uniform row pitch; prefer
+scroll-to-index (GTK ≤ 4.10, XAML, web) position by uniform row pitch; prefer
 `RowHeight::Uniform` when jumping programmatically there.
 
 A Reload whose rows are the same set in a new order (a shuffle, a programmatic sort) animates
@@ -373,7 +373,7 @@ Per-backend affordances:
 | UIKit | drag delegate + `moveRow`/`targetIndexPathForMove` | long-press lift + gap, no editing mode | live (target-for-move) |
 | Android | `ItemTouchHelper` on the RecyclerView | long-press lift, elevation, incremental swaps | live per swap; `Retarget` reads as deny (the helper can't relocate the gap) |
 | GTK 4 | `DragSource`/`DropTarget` (native DnD framework) | row snapshot as drag icon; forbidden cursor on deny (no insertion line yet) | live (motion) |
-| Qt | `QDrag` over the emulated list | grabbed-cell pixmap, 2px insertion line, no-drop cursor | live (drag-move) |
+| Qt | `QDrag` over the `QListView` | grabbed-cell pixmap, 2px insertion line, no-drop cursor | live (drag-move) |
 | XAML | WinRT `CanDrag`/`DragOver`/`Drop` over the emulated list | system drag visuals + live no-drop cursor | live (DragOver) |
 | WinUI | WinRT drag events on recycled `ItemContainer` rows | system drag visuals + live no-drop cursor | live (DragOver); target is the actual row, including variable heights |
 | ArkUI | `SetNodeDraggable` + `NODE_ON_DROP` | system drag preview; denied drops spring back | at drop (`SetDragResult`) |
@@ -553,14 +553,15 @@ their own separation turns the native line off rather than showing both).
 | UIKit | the table's own `separatorStyle` (default on; `false` sets `.none`) |
 | GTK | a `border-bottom` on the ListView's `row` CSS nodes |
 | web | a `border-bottom` inside each cell frame (border-box) |
-| Qt · Android · XAML · ArkUI | *not lowered yet* — a force is ignored; rows separate by their pitch |
+| Qt | the delegate paints a hairline along each row's bottom edge (the palette's `Mid`, translucent) |
+| Android · XAML · ArkUI | *not lowered yet* — a force is ignored; rows separate by their pitch |
 
 ## Reorder + row-height caveat
 
-Rows drag within their own list only; nothing is draggable out of the app. On Qt, XAML and the
+Rows drag within their own list only; nothing is draggable out of the app. On XAML and the
 web, an `Automatic` list's drop slot comes from a uniform-pitch approximation, so a drag across
 rows of different heights can land a slot off; prefer `Uniform` heights for reorderable lists
-there. GTK and ArkUI find the row under the pointer, and AppKit, UIKit and Android use their
+there. GTK, Qt and ArkUI find the row under the pointer, and AppKit, UIKit and Android use their
 platform's own drag.
 
 ## Selection and activation

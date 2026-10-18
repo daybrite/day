@@ -8817,6 +8817,11 @@ mod imp {
                 // UITableView's own drag pipeline: long-press lift + gap, in and out of
                 // editing mode.
                 | Cap::ListReorder
+                // `Cap::ListRecycling` is deliberately NOT claimed yet: UITableView reuses
+                // queued cells but also discards surplus ones, and Day has no deallocation hook,
+                // so each discarded cell leaves its content view and row scope behind in day-core
+                // (the `list-recycles-distant-rows` case built 763 fresh cells for a five-row
+                // viewport on iOS 18). Claim it once discarded cells are released (docs/list.md).
                 // `UITableView` editing: delete controls and reorder grips (docs/list.md).
                 | Cap::ListEditing
                 // A list-layout UICollectionView over one diffable SECTION snapshot hosts

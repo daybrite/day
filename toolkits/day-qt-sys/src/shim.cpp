@@ -84,6 +84,10 @@
 #include <QCompleter>
 #include <QStringListModel> // the completer's model, reused rather than rebuilt (see set_suggestions)
 #include <QListWidget>
+#include <QListView>
+#include <QAbstractListModel>
+#include <QItemSelection>
+#include <QItemSelectionModel>
 #include <QResizeEvent>
 #include <QSplitter>
 #include <QSlider>
@@ -3492,56 +3496,193 @@ void day_qt_enable_gesture(void *w, uint64_t node, int kind, DayGestureCb cb) {
     } else widget->installEventFilter(f);
 }
 
-// --- the list (docs/list.md): a real QListWidget ---
-// One QListWidgetItem per row (cheap; a ten-thousand-row source is fine) and Day's own cell
-// widget attached to a row through `setIndexWidget` as it comes into view, so the rows are
-// laid out by Day and the LIST is Qt's: selection and its painting, the keyboard walker
-// (↑ ↓ Home End, shift ranges), focus and the tab stop, accessibility roles, the scroll bar,
-// and the drag-and-drop machinery. What Qt cannot do is recycle a widget-hosted row, which is
-// why realized cells stay pinned to their row for the list's life (the same append-only pool
-// the previous emulation kept) and `Cap` keeps answering `Emulated` for recycling.
+// --- the list (docs/list.md): a QListView over a count-only model ---
+// The view is Qt's: selection and its painting, the keyboard walker (↑ ↓ Home End, shift
+// ranges), focus and the tab stop, the scroll bar, and the drag-and-drop machinery. The model
+// holds a row COUNT and, for a self-sizing list, the heights Day has laid rows at; it carries no
+// per-row objects, so a million-row source costs the model nothing. The delegate paints only
+// the item chrome (selection, focus, alternate rows, the separator) and answers each row's
+// height; it never paints row content and never calls into Day, because Qt runs it inside
+// `QWidget::render` and snapshots.
+//
+// Day's rows are plain QWidgets placed over their items as children of the viewport — never
+// index widgets: `setIndexWidget` hands the widget to the view, which deletes it when the row
+// goes or another widget takes the slot, and day-core's cell map would dangle. Positioned from
+// `visualRect` on every scroll, resize and relayout (the scheme the tree uses), a cell can move
+// from one row to another, which is what lets the Rust side keep a bounded pool and recycle
+// cells as rows leave the viewport (`Cap::ListRecycling` is `Native`).
+//
+// Everything here that could re-enter Day — a window change, a viewport resize — is reported
+// through a callback the Rust side POSTS to the next loop turn: Qt delivers scroll, resize and
+// layout synchronously inside its own handlers (DESIGN.md §10).
 typedef void (*DayListSelectionCb)(uint64_t node, const int *rows, int count);
 typedef int (*DayListCanMoveCb)(uint64_t node, int from, int to);
 typedef void (*DayListMoveCb)(uint64_t node, int from, int to);
+typedef void (*DayListWindowCb)(uint64_t node);
 
-// Every row spans the viewport and stands `rowH` tall — asked of the delegate rather than
-// stored on ten thousand items, so a resize re-lays the rows without touching any of them.
-class DayListDelegate : public QStyledItemDelegate {
+static const char kDayListRowMime[] = "application/x-day-list-row";
+
+class DayListModel : public QAbstractListModel {
 public:
-    QListWidget *view; int rowH;
-    DayListDelegate(QListWidget *v, int rh) : QStyledItemDelegate(v), view(v), rowH(rh > 0 ? rh : 1) {}
-    // A self-sizing row (`RowHeight::Automatic`) carries the height Day laid it at as its
-    // item's size hint (`day_qt_list_set_row_height`); every other row stands the pitch.
-    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &index) const override {
-        const QVariant laid = index.data(Qt::SizeHintRole);
-        const int h = laid.isValid() ? laid.toSize().height() : 0;
-        return QSize(view->viewport()->width(), h > 0 ? h : rowH);
+    int n = 0;
+    // The height of a row Day has not measured: the pitch of a `Uniform` list, and for an
+    // `Automatic` one the running average of the rows it has laid (`day_qt_list_set_estimate`).
+    int estimate;
+    // row → the height Day laid it at (`Automatic` lists only; empty for `Uniform`).
+    QHash<int, int> heights;
+    bool reorderable;
+    DayListModel(int pitch, bool reorder, QObject *parent)
+        : QAbstractListModel(parent), estimate(pitch > 0 ? pitch : 1), reorderable(reorder) {}
+
+    int rowCount(const QModelIndex &parent = QModelIndex()) const override { return parent.isValid() ? 0 : n; }
+    int heightOf(int row) const {
+        const auto it = heights.constFind(row);
+        return it == heights.constEnd() ? estimate : *it;
+    }
+    QVariant data(const QModelIndex &ix, int role) const override {
+        if (role == Qt::SizeHintRole && ix.isValid()) return QSize(0, heightOf(ix.row()));
+        return {};
+    }
+    Qt::ItemFlags flags(const QModelIndex &ix) const override {
+        // Drops land BETWEEN rows (the view's above/below positions), never on one, so no item
+        // takes ItemIsDropEnabled; the root does, which is what the view's drag-move checks.
+        if (!ix.isValid()) return reorderable ? Qt::ItemIsDropEnabled : Qt::NoItemFlags;
+        Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemNeverHasChildren;
+        if (reorderable) f |= Qt::ItemIsDragEnabled;
+        return f;
+    }
+    Qt::DropActions supportedDropActions() const override { return Qt::MoveAction; }
+    Qt::DropActions supportedDragActions() const override { return Qt::MoveAction; }
+    QStringList mimeTypes() const override { return {QString::fromLatin1(kDayListRowMime)}; }
+    QMimeData *mimeData(const QModelIndexList &idx) const override {
+        auto *m = new QMimeData();
+        QByteArray rows;
+        for (const QModelIndex &ix : idx) rows.append(QByteArray::number(ix.row())).append(',');
+        m->setData(QString::fromLatin1(kDayListRowMime), rows);
+        return m;
+    }
+    // The drop commits through Day's own model (`DayListView::dropEvent`), never through Qt's.
+    bool dropMimeData(const QMimeData *, Qt::DropAction, int, int, const QModelIndex &) override { return false; }
+
+    // Bring the count to `m` with one insert or one remove of the difference. Rows keep their
+    // positions, so measured heights stay where they are; the trailing ones of a shrink go.
+    void setCount(int m) {
+        m = std::max(0, m);
+        if (m > n) {
+            beginInsertRows(QModelIndex(), n, m - 1);
+            n = m;
+            endInsertRows();
+        } else if (m < n) {
+            beginRemoveRows(QModelIndex(), m, n - 1);
+            for (int r = m; r < n; ++r) heights.remove(r);
+            n = m;
+            endRemoveRows();
+        }
+    }
+    // One sequential row delta (docs/list.md `ListPatch::Splice`): the rows shift, so the
+    // measured heights no longer belong to their rows and are dropped; the Rust side re-seeds
+    // the bound window from its token-keyed cache in the same call.
+    void insertAt(int at) {
+        at = std::clamp(at, 0, n);
+        heights.clear();
+        beginInsertRows(QModelIndex(), at, at);
+        ++n;
+        endInsertRows();
+    }
+    void removeAt(int at) {
+        if (at < 0 || at >= n) return;
+        heights.clear();
+        beginRemoveRows(QModelIndex(), at, at);
+        --n;
+        endRemoveRows();
+    }
+    void moveRow(int from, int to) {
+        if (from < 0 || from >= n || to < 0 || to >= n || from == to) return;
+        heights.clear();
+        // beginMoveRows wants the destination as the slot the row lands BEFORE, in the
+        // pre-move numbering: moving down, that is one past the target.
+        const int dest = to > from ? to + 1 : to;
+        if (!beginMoveRows(QModelIndex(), from, from, QModelIndex(), dest)) return;
+        endMoveRows();
+    }
+    void heightsChanged(int lo, int hi) {
+        if (n == 0) return;
+        lo = std::clamp(lo, 0, n - 1);
+        hi = std::clamp(hi, lo, n - 1);
+        emit dataChanged(index(lo), index(hi), {Qt::SizeHintRole});
     }
 };
 
-class DayListWidget;
+// Paints the item chrome under a transparent cell: the selection, focus and alternate-row
+// treatment the platform style gives a list item, with the (empty) text and icon left out, and
+// the row separator when the list asked for one.
+class DayListDelegate : public QStyledItemDelegate {
+public:
+    QListView *view; DayListModel *model; bool separators;
+    DayListDelegate(QListView *v, DayListModel *m, bool sep) : QStyledItemDelegate(v), view(v), model(m), separators(sep) {}
+    // Every row spans the viewport; its height is the model's (`Uniform` lists ask once).
+    QSize sizeHint(const QStyleOptionViewItem &, const QModelIndex &index) const override {
+        return QSize(view->viewport()->width(), model->heightOf(index.row()));
+    }
+    void paint(QPainter *p, const QStyleOptionViewItem &option, const QModelIndex &index) const override {
+        QStyleOptionViewItem opt(option);
+        initStyleOption(&opt, index);
+        opt.text.clear();
+        opt.icon = QIcon();
+        opt.features &= ~(QStyleOptionViewItem::HasDisplay | QStyleOptionViewItem::HasDecoration);
+        const QWidget *w = option.widget;
+        (w ? w->style() : QApplication::style())->drawControl(QStyle::CE_ItemViewItem, &opt, p, w);
+        if (separators && index.row() + 1 < model->n) {
+            QColor line = opt.palette.color(QPalette::Mid);
+            line.setAlpha(110);
+            p->fillRect(QRect(opt.rect.left(), opt.rect.bottom(), opt.rect.width(), 1), line);
+        }
+    }
+};
+
+class DayListView;
 // The list whose viewport took the last left press, until the button is released or a drag
 // begins — see `DayListDragWatcher`.
-static DayListWidget *g_list_pressed = nullptr;
+static DayListView *g_list_pressed = nullptr;
 static QPoint g_list_press_global;
 
-class DayListWidget : public QListWidget {
+class DayListView : public QListView {
 public:
-    uint64_t node; int rowH;
+    uint64_t node;
+    DayListModel *m;
     DayListSelectionCb onSelect = nullptr;
     DayListCanMoveCb can = nullptr;
     DayListMoveCb commit = nullptr;
-    // A programmatic selection sync must not echo back as a report.
+    DayListWindowCb onWindow = nullptr;
+    // A programmatic selection sync (or a model delta) must not echo back as a report.
     bool syncing = false;
+    // The row under the last left press, and the row a drag in flight carries. A reorderable
+    // list need not be selectable (docs/list.md), and a non-selectable view has no selection
+    // to drag, so the pressed row is what the drag takes.
+    int pressedRow = -1;
+    int dragRow = -1;
+    // The cells currently placed over rows, both ways: the pool on the Rust side decides which
+    // row a cell shows; the view only keeps each where its row is.
+    QHash<int, QWidget *> placed;
+    QHash<QWidget *, int> rowOfCell;
+    // Height changes are coalesced into one relayout per loop turn: every change is a full
+    // `doItemsLayout` on a non-uniform view, and a fill lays out a whole window of rows.
+    int dirtyLo = -1, dirtyHi = -1;
+    bool flushPosted = false;
 
-    DayListWidget(uint64_t n, int rh) : node(n), rowH(rh > 0 ? rh : 1) {
+    DayListView(uint64_t n, int rowH, bool reorderable, bool separators) : node(n) {
+        m = new DayListModel(rowH, reorderable, this);
+        setModel(m);
         setFrameShape(QFrame::NoFrame);
-        setItemDelegate(new DayListDelegate(this, rowH));
+        setItemDelegate(new DayListDelegate(this, m, separators));
         setUniformItemSizes(true);
         setSpacing(0);
         setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
         setResizeMode(QListView::Adjust);
+        // SinglePass: Batched lays the rows out across timer ticks and the scroll range is wrong
+        // until it finishes. A full pass over a million rows measured ~30 ms.
+        setLayoutMode(QListView::SinglePass);
         // Transparent like the scroll piece (day_qt_scroll_new): content behind the list shows
         // through, and — the same rule — never a stylesheet, or the bars stop being native.
         viewport()->setAutoFillBackground(false);
@@ -3557,34 +3698,96 @@ public:
 
     std::vector<int> selectedRows() const {
         std::vector<int> rows;
-        for (const QModelIndex &ix : selectedIndexes()) rows.push_back(ix.row());
+        for (const QModelIndex &ix : selectionModel()->selectedRows()) rows.push_back(ix.row());
         std::sort(rows.begin(), rows.end());
         return rows;
     }
 
     // A selected row's cell reads in the highlighted text color: the delegate paints the
-    // highlight behind the cell, and the cell's own labels would otherwise keep the plain
-    // text color over it (black on blue in light mode).
-    void paintSelection() {
-        for (int i = 0; i < count(); ++i) {
-            QWidget *w = indexWidget(model()->index(i, 0));
-            if (!w) continue;
-            const bool on = item(i)->isSelected();
-            if (on) {
-                QPalette p = w->palette();
-                p.setColor(QPalette::WindowText, p.color(QPalette::HighlightedText));
-                p.setColor(QPalette::Text, p.color(QPalette::HighlightedText));
-                w->setPalette(p);
-            } else {
-                w->setPalette(QPalette());
-            }
+    // highlight behind the cell, and the cell's own labels would otherwise keep the plain text
+    // color over it (black on blue in light mode). Only the placed cells, never the source.
+    void paintOne(int row, QWidget *w) {
+        if (selectionModel()->isSelected(m->index(row))) {
+            QPalette p = w->palette();
+            p.setColor(QPalette::WindowText, p.color(QPalette::HighlightedText));
+            p.setColor(QPalette::Text, p.color(QPalette::HighlightedText));
+            w->setPalette(p);
+        } else {
+            w->setPalette(QPalette());
         }
+    }
+    void paintSelection() {
+        for (auto it = placed.cbegin(); it != placed.cend(); ++it) paintOne(it.key(), it.value());
+    }
+
+    // Put `cell` over `row` (a cell coming from another row leaves it). The palette reset
+    // matters: a cell recycled from a selected row must not keep the highlighted text color.
+    void place(int row, QWidget *cell) {
+        if (cell->parentWidget() != viewport()) cell->setParent(viewport());
+        const auto old = rowOfCell.constFind(cell);
+        if (old != rowOfCell.constEnd()) placed.remove(old.value());
+        placed.insert(row, cell);
+        rowOfCell.insert(cell, row);
+        cell->setGeometry(visualRect(m->index(row)));
+        paintOne(row, cell);
+        cell->show();
+    }
+    // The cell left its row for the pool: hidden, parented where it is, never deleted.
+    void park(QWidget *cell) {
+        const auto it = rowOfCell.constFind(cell);
+        if (it != rowOfCell.constEnd()) {
+            placed.remove(it.value());
+            rowOfCell.erase(it);
+        }
+        cell->hide();
+    }
+    void placeAll() {
+        for (auto it = placed.cbegin(); it != placed.cend(); ++it)
+            it.value()->setGeometry(visualRect(m->index(it.key())));
+    }
+    void notifyWindow() {
+        if (onWindow) onWindow(node);
+    }
+
+    // Row `row` is `h` tall: queue the relayout (see `dirtyLo`).
+    void noteHeight(int row, int h) {
+        if (row < 0 || row >= m->n || h <= 0) return;
+        const auto it = m->heights.constFind(row);
+        if (it != m->heights.constEnd() && *it == h) return;
+        m->heights.insert(row, h);
+        markDirty(row, row);
+    }
+    void markDirty(int lo, int hi) {
+        dirtyLo = dirtyLo < 0 ? lo : std::min(dirtyLo, lo);
+        dirtyHi = std::max(dirtyHi, hi);
+        if (flushPosted) return;
+        flushPosted = true;
+        QTimer::singleShot(0, this, [this] { flushHeights(); });
+    }
+    // One relayout for every height that changed this turn, keeping the row at the top of the
+    // viewport where it was: Qt keeps the pixel offset, so a row above the viewport growing
+    // would otherwise slide the content under the pointer.
+    void flushHeights() {
+        flushPosted = false;
+        if (dirtyLo < 0) return;
+        const QModelIndex top = indexAt(QPoint(1, 1));
+        const int anchorRow = top.isValid() ? top.row() : -1;
+        const int anchorY = anchorRow >= 0 ? visualRect(top).top() : 0;
+        const int lo = dirtyLo, hi = dirtyHi;
+        dirtyLo = dirtyHi = -1;
+        m->heightsChanged(lo, hi);
+        doItemsLayout();
+        if (anchorRow >= 0 && anchorRow < m->n) {
+            const int ny = visualRect(m->index(anchorRow)).top();
+            if (ny != anchorY) verticalScrollBar()->setValue(verticalScrollBar()->value() + (ny - anchorY));
+        }
+        placeAll();
     }
 
     // Where a drop at `pos` lands, as the index Day's `move_row(from, to)` wants: the row the
     // dragged one ends up AT after it is removed and re-inserted (Vec::remove + insert).
     int dropTarget(const QPoint &pos, int from) {
-        const int n = count();
+        const int n = m->n;
         QModelIndex ix = indexAt(pos);
         if (!ix.isValid()) return n - 1;
         const int r = ix.row();
@@ -3599,49 +3802,71 @@ public:
     void beginDrag() { startDrag(Qt::MoveAction); }
 
 protected:
+    void scrollContentsBy(int dx, int dy) override {
+        QListView::scrollContentsBy(dx, dy);
+        placeAll();
+        notifyWindow();
+    }
+    void resizeEvent(QResizeEvent *e) override {
+        QListView::resizeEvent(e);
+        placeAll();
+        notifyWindow();
+    }
+    // After every relayout (a count change, a height change, a resize): the rows moved.
+    void updateGeometries() override {
+        QListView::updateGeometries();
+        placeAll();
+    }
     void mousePressEvent(QMouseEvent *e) override {
-        QListWidget::mousePressEvent(e);
+        QListView::mousePressEvent(e);
         // The press lands on the row's cell first and propagates here; Qt's click-to-focus
         // walk does not reach this view through the cell, so the list takes focus itself —
         // the keyboard walker and the focused selection color depend on it.
         if (!hasFocus()) setFocus(Qt::MouseFocusReason);
         // Arm the drag watcher: the moves that follow this press will not reach this view
         // (a QLabel in the row swallows them), so the watcher starts the drag for it.
-        if (dragEnabled() && e->button() == Qt::LeftButton
-            && indexAt(e->position().toPoint()).isValid()) {
+        const QModelIndex pressed = indexAt(e->position().toPoint());
+        pressedRow = pressed.isValid() ? pressed.row() : -1;
+        if (dragEnabled() && e->button() == Qt::LeftButton && pressed.isValid()) {
             g_list_pressed = this;
             g_list_press_global = e->globalPosition().toPoint();
         }
     }
     void mouseReleaseEvent(QMouseEvent *e) override {
         g_list_pressed = nullptr;
-        QListWidget::mouseReleaseEvent(e);
+        QListView::mouseReleaseEvent(e);
     }
-    // The drag pixmap is the row's own cell: the delegate paints nothing over an index widget,
-    // so QListWidget's default pixmap would be blank.
+    // The drag pixmap is the row's own cell: the delegate paints nothing over it, so the
+    // view's default pixmap would be blank.
     void startDrag(Qt::DropActions supported) override {
-        QModelIndexList idx = selectedIndexes();
+        // The pressed row leads: it is the row under the pointer when the drag began, and the
+        // only row there is when the list is not selectable.
+        QModelIndexList idx;
+        if (pressedRow >= 0 && pressedRow < m->n) idx.append(m->index(pressedRow));
+        for (const QModelIndex &ix : selectionModel()->selectedRows())
+            if (ix.row() != pressedRow) idx.append(ix);
         if (idx.isEmpty()) return;
-        QMimeData *mime = model()->mimeData(idx);
-        if (!mime) return;
+        dragRow = idx.first().row();
+        QMimeData *mime = m->mimeData(idx);
         QDrag *drag = new QDrag(this);
         drag->setMimeData(mime);
-        if (QWidget *w = indexWidget(idx.first())) drag->setPixmap(w->grab());
+        if (QWidget *w = placed.value(dragRow, nullptr)) drag->setPixmap(w->grab());
         drag->exec(supported, Qt::MoveAction);
+        dragRow = -1;
         setState(NoState);
     }
     // Every hovered slot is vetted synchronously through the app's guard (docs/list.md):
     // a denied slot shows Qt's no-drop cursor and no indicator.
     void dragMoveEvent(QDragMoveEvent *e) override {
-        QListWidget::dragMoveEvent(e);
-        const int from = currentRow();
+        QListView::dragMoveEvent(e);
+        const int from = dragRow;
         if (from < 0 || !can || can(node, from, dropTarget(e->position().toPoint(), from)) < 0)
             e->ignore();
     }
-    // The drop commits through Day's own model, never through QListWidget's internal move:
-    // Day's rows rebind into the same cells in the new order on the reload that follows.
+    // The drop commits through Day's own model, never through the view's internal move: Day's
+    // rows rebind into the placed cells in the new order on the reload that follows.
     void dropEvent(QDropEvent *e) override {
-        const int from = currentRow();
+        const int from = dragRow;
         const int accepted = (from >= 0 && can) ? can(node, from, dropTarget(e->position().toPoint(), from)) : -1;
         if (accepted >= 0 && accepted != from && commit) {
             commit(node, from, accepted);
@@ -3677,24 +3902,27 @@ protected:
         const QPoint gp = me->globalPosition().toPoint();
         if ((gp - g_list_press_global).manhattanLength() < QApplication::startDragDistance())
             return false;
-        DayListWidget *l = g_list_pressed;
+        DayListView *l = g_list_pressed;
         g_list_pressed = nullptr;
         l->beginDrag();
         return false;
     }
 };
 
-void *day_qt_list_new(uint64_t node, int row_h, int selectable, int multi, int reorderable,
-                      DayListSelectionCb on_select, void (*on_activate)(uint64_t, int), DayListCanMoveCb can, DayListMoveCb mv) {
+// `separators`: -1 = the platform default (none on a desktop), 0 = off, 1 = on.
+void *day_qt_list_new(uint64_t node, int row_h, int selectable, int multi, int reorderable, int separators,
+                      DayListSelectionCb on_select, void (*on_activate)(uint64_t, int), DayListCanMoveCb can,
+                      DayListMoveCb mv, DayListWindowCb on_window) {
     static bool watching = false;
     if (!watching) {
         watching = true;
         qApp->installEventFilter(new DayListDragWatcher());
     }
-    auto *l = new DayListWidget(node, row_h);
+    auto *l = new DayListView(node, row_h, reorderable != 0, separators == 1);
     l->onSelect = on_select;
-    QObject::connect(l, &QListWidget::itemActivated, l, [l, node, on_activate](QListWidgetItem *item) {
-        if (on_activate && item) on_activate(node, l->row(item));
+    l->onWindow = on_window;
+    QObject::connect(l, &QAbstractItemView::activated, l, [node, on_activate](const QModelIndex &ix) {
+        if (on_activate && ix.isValid()) on_activate(node, ix.row());
     });
     l->can = can;
     l->commit = mv;
@@ -3711,85 +3939,130 @@ void *day_qt_list_new(uint64_t node, int row_h, int selectable, int multi, int r
     return l;
 }
 
-// Bring the item count to `n`. Rows past a shrunk source are HIDDEN, never removed: removing
-// an item deletes the cell attached to it, and Day's cell map must not dangle (the cell is
-// parked through `recycle` and comes back on growth).
+// Bring the row count to `n`: one insert or one remove of the difference, no per-row work.
+// A row Qt drops that was selected fires no selection report (`syncing`).
 void day_qt_list_set_count(void *w, int n) {
-    auto *l = static_cast<DayListWidget *>(w);
-    while (l->count() < n) l->addItem(new QListWidgetItem());
-    for (int i = 0; i < l->count(); ++i) l->item(i)->setHidden(i >= n);
+    auto *l = static_cast<DayListView *>(w);
+    if (n == l->m->n) return;
+    l->syncing = true;
+    l->m->setCount(n);
+    l->syncing = false;
+}
+
+// One sequential row delta (`ListPatch::Splice`): kind 0 = insert at `a`, 1 = remove `a`,
+// 2 = move `a` to `b`. Selection and the current row follow their rows. Returns the count after.
+int day_qt_list_splice(void *w, int kind, int a, int b) {
+    auto *l = static_cast<DayListView *>(w);
+    l->syncing = true;
+    switch (kind) {
+    case 0: l->m->insertAt(a); break;
+    case 1: l->m->removeAt(a); break;
+    case 2: l->m->moveRow(a, b); break;
+    default: break;
+    }
+    l->syncing = false;
+    return l->m->n;
 }
 
 // Rows of different heights (`RowHeight::Automatic`): the view stops assuming every row is as
 // tall as the first, and each row takes the height `day_qt_list_set_row_height` gives it.
 void day_qt_list_set_automatic(void *w) {
-    static_cast<DayListWidget *>(w)->setUniformItemSizes(false);
+    static_cast<DayListView *>(w)->setUniformItemSizes(false);
 }
 
-// Row `row` is `height` tall: Day laid its content at that height. The view re-lays its items
-// and moves the cells below with them.
+// Row `row` is `height` tall: Day laid its content at that height. Coalesced into one relayout
+// per loop turn; the cells below move with their rows.
 void day_qt_list_set_row_height(void *w, int row, int height) {
-    auto *l = static_cast<DayListWidget *>(w);
-    if (row < 0 || row >= l->count() || height <= 0) return;
-    QListWidgetItem *item = l->item(row);
-    if (item->sizeHint().height() == height) return;
-    item->setSizeHint(QSize(0, height));
+    static_cast<DayListView *>(w)->noteHeight(row, height);
 }
 
-// Attach Day's cell to row `row`; the view positions it over the item from here on.
-void day_qt_list_attach_cell(void *w, int row, void *cell) {
-    auto *l = static_cast<DayListWidget *>(w);
-    if (row < 0 || row >= l->count()) return;
-    l->setIndexWidget(l->model()->index(row, 0), static_cast<QWidget *>(cell));
+// The height of a row Day has not measured yet (the running average of the ones it has).
+void day_qt_list_set_estimate(void *w, int height) {
+    auto *l = static_cast<DayListView *>(w);
+    if (height <= 0 || height == l->m->estimate) return;
+    l->m->estimate = height;
+    if (l->m->n > 0) l->markDirty(0, l->m->n - 1);
+}
+
+// Forget every measured height (a reload reorders the rows under them); the window is
+// re-seeded from the Rust side's token-keyed cache right after.
+void day_qt_list_clear_heights(void *w) {
+    auto *l = static_cast<DayListView *>(w);
+    if (l->m->heights.isEmpty()) return;
+    l->m->heights.clear();
+    if (l->m->n > 0) l->markDirty(0, l->m->n - 1);
+}
+
+// Show Day's cell over row `row`; the view keeps it there through every scroll and relayout.
+void day_qt_list_place_cell(void *w, int row, void *cell) {
+    auto *l = static_cast<DayListView *>(w);
+    if (row < 0 || row >= l->m->n) return;
+    l->place(row, static_cast<QWidget *>(cell));
+}
+
+// The cell went back to the pool: hidden, kept.
+void day_qt_list_park_cell(void *w, void *cell) {
+    static_cast<DayListView *>(w)->park(static_cast<QWidget *>(cell));
+}
+
+// How many cells sit over rows right now (tests).
+int day_qt_list_placed_count(void *w) {
+    return static_cast<DayListView *>(w)->placed.size();
 }
 
 // The row's frame in viewport coordinates — what the cell is laid out to.
 void day_qt_list_cell_frame(void *w, int row, int *x, int *y, int *width, int *height) {
-    auto *l = static_cast<DayListWidget *>(w);
+    auto *l = static_cast<DayListView *>(w);
     *x = *y = *width = *height = 0;
-    if (row < 0 || row >= l->count()) return;
-    const QRect r = l->visualItemRect(l->item(row));
+    if (row < 0 || row >= l->m->n) return;
+    const QRect r = l->visualRect(l->m->index(row));
     *x = r.x(); *y = r.y(); *width = r.width(); *height = r.height();
 }
 
 // The rows on screen, so the ones coming into view get built before they are looked at.
 void day_qt_list_visible_rows(void *w, int *first, int *last) {
-    auto *l = static_cast<DayListWidget *>(w);
+    auto *l = static_cast<DayListView *>(w);
     *first = 0; *last = -1;
-    if (l->count() == 0) return;
+    const int n = l->m->n;
+    if (n == 0) return;
     const int h = l->viewport()->height();
+    if (h <= 0) return;
     QModelIndex a = l->indexAt(QPoint(1, 1));
     QModelIndex b = l->indexAt(QPoint(1, std::max(0, h - 1)));
     *first = a.isValid() ? a.row() : 0;
-    *last = b.isValid() ? b.row() : l->count() - 1;
+    *last = b.isValid() ? b.row() : n - 1;
 }
 
 double day_qt_list_viewport_width(void *w) {
-    return static_cast<DayListWidget *>(w)->viewport()->width();
-}
-
-void day_qt_list_on_scroll(void *w, uint64_t node, void (*cb)(uint64_t)) {
-    auto *l = static_cast<DayListWidget *>(w);
-    QObject::connect(l->verticalScrollBar(), &QScrollBar::valueChanged, l, [node, cb](int) { cb(node); });
+    return static_cast<DayListView *>(w)->viewport()->width();
 }
 
 void day_qt_list_on_viewport_resized(void *w, void (*cb)(void *)) {
-    auto *l = static_cast<DayListWidget *>(w);
+    auto *l = static_cast<DayListView *>(w);
     auto *f = new DayPaneResizeFilter(l, cb);
     f->setParent(l->viewport());
     l->viewport()->installEventFilter(f);
 }
 
-// Programmatic selection sync (docs/list.md): no echo, and the cells repaint.
+// Programmatic selection sync (docs/list.md): no echo, and the cells repaint. Contiguous rows
+// go as one range, so a thousand selected rows are a handful of ranges, not a thousand selects.
 void day_qt_list_set_selected(void *w, const int *rows, int n) {
-    auto *l = static_cast<DayListWidget *>(w);
-    l->syncing = true;
-    l->clearSelection();
-    for (int i = 0; i < n; ++i) {
-        if (rows[i] >= 0 && rows[i] < l->count()) l->item(rows[i])->setSelected(true);
+    auto *l = static_cast<DayListView *>(w);
+    const int count = l->m->n;
+    std::vector<int> sorted;
+    for (int i = 0; i < n; ++i) if (rows[i] >= 0 && rows[i] < count) sorted.push_back(rows[i]);
+    std::sort(sorted.begin(), sorted.end());
+    sorted.erase(std::unique(sorted.begin(), sorted.end()), sorted.end());
+    QItemSelection sel;
+    for (size_t i = 0; i < sorted.size();) {
+        size_t j = i;
+        while (j + 1 < sorted.size() && sorted[j + 1] == sorted[j] + 1) ++j;
+        sel.select(l->m->index(sorted[i]), l->m->index(sorted[j]));
+        i = j + 1;
     }
-    if (n > 0 && rows[n - 1] >= 0 && rows[n - 1] < l->count())
-        l->setCurrentRow(rows[n - 1], QItemSelectionModel::NoUpdate);
+    l->syncing = true;
+    l->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
+    if (!sorted.empty()) l->selectionModel()->setCurrentIndex(l->m->index(sorted.back()), QItemSelectionModel::NoUpdate);
     l->syncing = false;
     l->paintSelection();
 }
@@ -3799,11 +4072,11 @@ void day_qt_list_set_selected(void *w, const int *rows, int n) {
 // an app that follows its own selection (Day News reveals the selected article) yanked the list
 // out from under every click. AppKit's scrollRowToVisible behaves the same way as this.
 void day_qt_list_scroll_to_row(void *w, int row) {
-    auto *l = static_cast<DayListWidget *>(w);
-    if (row >= 0 && row < l->count()) l->scrollToItem(l->item(row), QAbstractItemView::EnsureVisible);
+    auto *l = static_cast<DayListView *>(w);
+    if (row >= 0 && row < l->m->n) l->scrollTo(l->m->index(row), QAbstractItemView::EnsureVisible);
 }
 
-void day_qt_list_scroll_to_end(void *w) { static_cast<DayListWidget *>(w)->scrollToBottom(); }
+void day_qt_list_scroll_to_end(void *w) { static_cast<DayListView *>(w)->scrollToBottom(); }
 
 // --- focus (docs/focus.md) ---
 // kind: 1 = gained, 0 = lost, 2 = submitted (line-edit return key).

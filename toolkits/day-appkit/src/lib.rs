@@ -6430,6 +6430,9 @@ impl Toolkit for AppKit {
             | Cap::TextSpellCheck
             // NSTableView's own drag pipeline, with the `.gap` placeholder (docs/list.md).
             | Cap::NavReorder | Cap::ListReorder
+            // NSTableView's view-based reuse queue (`makeViewWithIdentifier`) hands Day's cells
+            // back for new rows; `didRemoveRowView` recycles them (docs/list.md).
+            | Cap::ListRecycling
             // NSTableView row actions: reveal-as-you-swipe buttons with the native full-slide
             // activation (docs/list.md).
             | Cap::ListSwipeActions

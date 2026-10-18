@@ -2480,6 +2480,9 @@ mod imp {
                 // ItemTouchHelper on the RecyclerView list: long-press lift, elevation,
                 // incremental swaps: the platform's own reorder (docs/list.md).
                 | Cap::ListReorder
+                // RecyclerView's holder pool: `onBindViewHolder` rebinds Day's cells for new
+                // rows and `onViewRecycled` parks them (docs/list.md).
+                | Cap::ListRecycling
                 // ItemTouchHelper's swipe half, with the Material red field revealing behind
                 // the row (docs/list.md).
                 | Cap::ListDelete

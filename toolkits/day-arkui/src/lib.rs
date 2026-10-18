@@ -4021,6 +4021,9 @@ mod imp {
                 // ArkUI's own drag pipeline (SetNodeDraggable + NODE_ON_DROP): long-press lift
                 // with the system preview; a denied drop springs back natively (docs/list.md).
                 Cap::NavReorder | Cap::ListReorder => Support::Native,
+                // The List's NodeAdapter pools its item nodes: a row scrolling in rebinds a
+                // pooled cell, one scrolling out parks it (docs/list.md).
+                Cap::ListRecycling => Support::Native,
                 // `NODE_LIST_ITEM_SWIPE_ACTION`: the row slides to reveal the app's delete
                 // button, ArkUI's own idiom for the gesture (docs/list.md).
                 Cap::ListDelete => Support::Native,

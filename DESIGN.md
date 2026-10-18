@@ -2334,10 +2334,10 @@ Per-toolkit notes beyond pane's baseline (the day-new duties):
   Windows.Graphics.Capture of the window on WinUI (`RenderTargetBitmap` where it is
   unavailable); `<canvas>` composite (web: best-effort).
 - **list hosts ([§10](#10-native-list-integration)):** `UICollectionView` / `RecyclerView` / `NSTableView` / `GtkListView` /
-  `ItemsRepeater` / virtualized DOM. **Qt is the honest exception**: `QListView` recycles
-  *delegate paintings*, not live `QWidget` rows (`setIndexWidget` is unvirtualized) — Qt's list
-  host is day-side emulated recycling behind the same RowHost protocol, reported as
-  `Support::Emulated` (DP-19).
+  `ItemsRepeater` / virtualized DOM / `QListView` over a count-only model. Qt's view recycles
+  *delegate paintings*, not live `QWidget` rows, so the recycling there is Day's: cells are
+  viewport children placed from `visualRect` and pooled to the viewport plus overscan, bound
+  and recycled through the same RowHost protocol and reported `Native` (DP-19's outcome).
 
 Two lifecycle realities that shape backends beyond pane's baseline:
 
@@ -2620,6 +2620,14 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    after the current list-state borrow ends; scroll fills remain coalesced. Deferred work
    rechecks that the list is still registered before accessing its native host. This avoids
    reentrant `RefCell` panics with Linux's scrollbar/layout behavior.
+   Outcome (2026-10): the `QListWidget` gave way to a `QListView` over a count-only
+   `QAbstractListModel` with a delegate that paints only the item chrome. Day's cells are
+   viewport children placed from `visualRect` — never index widgets, which the view deletes on
+   removal — and recycle through a pool bounded by the viewport plus overscan, so Qt answers
+   `Native` for `Cap::ListRecycling`. Measured heights ride a token-keyed cache, the height
+   changes of one turn land as one relayout that keeps the top row anchored, `ListPatch::Splice`
+   lands as model deltas so selection follows its rows, and the delegate draws forced
+   separators. A million-row source costs the model one count ([docs/list.md](docs/list.md)).
 
 This was the single hardest backend feature, deferred past the MVP by design — and the
 pre-reserved spec hooks did their job: it landed later as a defaulted duty with no breaking
@@ -6327,7 +6335,7 @@ implementation as noted above.
 | DP-16 | ~~row contract unification~~ | — | **resolved (owner, 2026-07-01): unified.** `each` and `list` share the `ItemSlot<T>` contract ([§5.4](#54-keyed-collections-each), [§10.1](#101-api--the-shared-itemslot-contract-unified-with-each--dp-16-resolved)) — one row function serves both, same-key value changes propagate automatically (`each_diff` dropped as subsumed); validated on day-mock in M1–M2 |
 | DP-17 | flush scheduling: when does the reactive drain run? | (A) synchronous fixpoint drain at batch end; layout in a coalesced posted callback (as specced [§3.3](#33-threading-model-and-the-turn-state-machine)); (B) always-posted flush (pane's literal model — simpler reentrancy, +1 turn latency on every event, fuzzier `wait_idle`) | **A** (already specced; this DP records the ratification) |
 | DP-18 | reading a disposed signal in **release** builds | (A) panic (floem/pane precedent, fail-fast); (B) log-once + default via try-path (leptos's panic-on-read is a notorious production footgun) | **A**, paired with the `try_*` doctrine of [§4.3](#43-scopes-and-disposal) — silent defaults hide real bugs and the no-op-write rule already covers legitimate async races |
-| DP-19 | Qt list recycling (QListView recycles delegate *paintings*, not live QWidget rows; `setIndexWidget` is unvirtualized) | (A) day-side emulated recycling: QAbstractScrollArea host + pooled cell QWidgets behind the same RowHost protocol, reported `Support::Emulated`; (B) painted `QStyledItemDelegate` fast path, rows restricted to text/icon/accessory | **A** default (preserves "any piece is a row"), B as a later optimization |
+| DP-19 | Qt list recycling (QListView recycles delegate *paintings*, not live QWidget rows; `setIndexWidget` is unvirtualized) | (A) day-side emulated recycling: QAbstractScrollArea host + pooled cell QWidgets behind the same RowHost protocol, reported `Support::Emulated`; (B) painted `QStyledItemDelegate` fast path, rows restricted to text/icon/accessory | **A** default (preserves "any piece is a row"), B as a later optimization. **Outcome (2026-10):** neither as written — the host is a real `QListView` and the recycling is Day's bounded pool of viewport-child cells over it, reported `Native` ([§10](#10-native-list-integration)); B stays open as a painted fast path for widget-free rows |
 | DP-20 | SwiftPM piece halves on cargo-driven targets (macos-appkit/gtk/qt have no Xcode project) | (A) `swift build` on `DayGeneratedPieces` + generated linker-args file into the cargo link (xcodebuild becomes ios-only); (B) promote macOS to a real Xcode project (kills the seconds-fast desktop loop) | **A** (already folded into [§16.5](#165-subcommands); needed for macos-gtk/qt regardless). **Outcome (2026-08):** both, in the end — macos-appkit gained the `platform/macos/` Xcode host project and is now dual-mode ([§16.5](#165-subcommands)), while A survives as the bare-cargo path (`DAY_MACOS_XCODE=0`, or no scaffold) and is still the only answer for macos-gtk/qt. The feared cost of B was real and is why the escape hatch exists: CI capture loops take the cargo path for speed. **Outcome (2026-08, later):** B alone — the bare-cargo macos-appkit path, its escape hatch, and the prepass were retired once every checkout carried the scaffold and CI proved the xcodebuild loop fast enough in practice; macos-appkit is single-mode ([§16.5](#165-subcommands)). macos-gtk/qt never used the prepass (the Swift halves are appkit-only), so nothing remains of A |
 | DP-21 | extensibility (pillar 4) in the MVP | (A) tier-1 combobox joins MVP acceptance; battery/dayffi defer to M9; scaffolds ship the (empty) generated-aggregator attachment points from M5; (B) A + one thin tier-2 slice (battery, apple+android) in M8 to force dayffi real before templates ossify (~1 milestone-week); (C) confirm full M9+ deferral and say pillar 4 ships unproven | **A** (folded into [§21](#21-mvp-definition-and-milestone-plan)), with **B as stretch** if schedule allows |
 | DP-22 | scriptability of tier-2/adopted-native piece *internals* (a ComboBox popup or WebView content is one opaque handle to the element index) | (A) optional `script_query`/`script_act` dayffi vtable entries + sub-element locator syntax (`stations-combo#item:3`) — additive, keeps pillar composition true; (B) scope the claim to root nodes + exposed props, with capability-flagged structured errors | **A** for MVP-adjacent pieces (ComboBox); at minimum [§2](#2-the-four-pillars)'s claim stays scoped as now written |

@@ -264,24 +264,37 @@ unsafe extern "C" {
     pub fn day_qt_scroll_content(w: *mut c_void) -> *mut c_void;
     pub fn day_qt_scroll_bar_inset(w: *mut c_void, vertical: c_int) -> c_int;
     pub fn day_qt_scroll_set_content_size(w: *mut c_void, cw: c_int, ch: c_int);
-    // The list (docs/list.md): a real QListWidget. Day's cell widgets are attached to rows as
-    // they scroll into view and stay pinned to them; selection, keys and drag are the view's.
+    // The list (docs/list.md): a QListView over a count-only model. Day's cells are placed
+    // over rows as viewport children and recycled through the Rust side's pool; selection,
+    // keys and drag are the view's.
     pub fn day_qt_list_new(
         node: u64,
         row_h: c_int,
         selectable: c_int,
         multi: c_int,
         reorderable: c_int,
+        separators: c_int,
         on_select: extern "C" fn(u64, *const c_int, c_int),
         on_activate: extern "C" fn(u64, c_int),
         can: extern "C" fn(u64, c_int, c_int) -> c_int,
         mv: extern "C" fn(u64, c_int, c_int),
+        on_window: extern "C" fn(u64),
     ) -> *mut c_void;
-    /// Bring the item count to `n`; rows past it are hidden, never removed (their cells live on).
+    /// Bring the row count to `n` with one model delta; no selection report for rows dropped.
     pub fn day_qt_list_set_count(w: *mut c_void, n: c_int);
+    /// One sequential row delta: kind 0 = insert at `a`, 1 = remove `a`, 2 = move `a` to `b`.
+    pub fn day_qt_list_splice(w: *mut c_void, kind: c_int, a: c_int, b: c_int) -> c_int;
     pub fn day_qt_list_set_automatic(w: *mut c_void);
+    /// Row `row` is `height` tall; coalesced into one relayout per loop turn.
     pub fn day_qt_list_set_row_height(w: *mut c_void, row: c_int, height: c_int);
-    pub fn day_qt_list_attach_cell(w: *mut c_void, row: c_int, cell: *mut c_void);
+    /// The height of a row Day has not measured yet.
+    pub fn day_qt_list_set_estimate(w: *mut c_void, height: c_int);
+    /// Forget every measured height (the rows moved under them).
+    pub fn day_qt_list_clear_heights(w: *mut c_void);
+    /// Show Day's cell over `row`; the view keeps it there through scrolls and relayouts.
+    pub fn day_qt_list_place_cell(w: *mut c_void, row: c_int, cell: *mut c_void);
+    /// The cell went back to the pool: hidden, never deleted.
+    pub fn day_qt_list_park_cell(w: *mut c_void, cell: *mut c_void);
     pub fn day_qt_list_cell_frame(
         w: *mut c_void,
         row: c_int,
@@ -293,7 +306,6 @@ unsafe extern "C" {
     /// The rows on screen (`last` < `first` before the view has laid anything out).
     pub fn day_qt_list_visible_rows(w: *mut c_void, first: *mut c_int, last: *mut c_int);
     pub fn day_qt_list_viewport_width(w: *mut c_void) -> c_double;
-    pub fn day_qt_list_on_scroll(w: *mut c_void, node: u64, cb: extern "C" fn(u64));
     pub fn day_qt_list_on_viewport_resized(w: *mut c_void, cb: extern "C" fn(*mut c_void));
     /// Programmatic selection sync: no echo back through `on_select`.
     pub fn day_qt_list_set_selected(w: *mut c_void, rows: *const c_int, n: c_int);
