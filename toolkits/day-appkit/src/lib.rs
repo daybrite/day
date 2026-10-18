@@ -8068,7 +8068,7 @@ impl Toolkit for AppKit {
                     // each delta gets its own begin/endUpdates batch (NSTableView's combined
                     // batch semantics re-interpret indexes; one-at-a-time stays literal).
                     // Row realization stays deferred, as with Reload.
-                    if let Some((table, _)) = list_entry(ptr_of(h)) {
+                    if let Some((table, data)) = list_entry(ptr_of(h)) {
                         use objc2_app_kit::NSTableViewAnimationOptions;
                         for d in deltas {
                             unsafe {
@@ -8090,6 +8090,14 @@ impl Toolkit for AppKit {
                                 }
                                 table.endUpdates();
                             }
+                        }
+                        // The displayed order matches the source again: refresh the cache a
+                        // committed drag keeps in step and `permutation_moves` compares, or the
+                        // next Reload finds a stale length and reloads flat instead of animating.
+                        if let Some(source) = data.ivars().source.borrow().as_ref() {
+                            let n = (source.len)();
+                            *data.ivars().tokens.borrow_mut() =
+                                (0..n).map(|i| (source.token_at)(i)).collect();
                         }
                     }
                     post_realize_visible_rows(ptr_of(h));

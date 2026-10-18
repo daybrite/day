@@ -180,31 +180,44 @@ and layout before returning, because the host measures the cell synchronously ri
 Per `LIST` node the tree holds:
 
 - a **row factory** supplied by the `list()` piece (type-erased over `T`): given a row index and a
-  cell-anchor `RNode`, it builds the row subtree and returns its `Scope` + root + slot-writer;
+  cell-anchor `RNode`, it builds the row subtree and returns a `BuiltRow`: the row's `Scope` and a
+  rebind writer that slot-writes another index into the row's `ItemSlot`;
 - a **snapshot** of the current items + their tokens, refreshed by an effect on the items closure;
-- a **cell map**: `RawHandle → BoundRow { anchor, scope, root, slot_writer, token }`.
+- a **cell map**: native cell → `BoundCell { anchor, active, scope, rebind, native_width,
+  laid_width, laid_height }`: the row each physical cell holds, whether it is on display, and
+  the width and height it was last laid at.
 
 `list_bind_row(host, index, cell)`:
 1. adopt `cell` into a cell-anchor `RNode` (a boundary node whose handle *is* the native cell,
    the same trick the window root uses);
-2. if the cell is new, run the row factory (build once); otherwise rebind: one slot-write of
-   `items[index]` into the existing row's signal, and update its token;
-3. `flush_now` the row scope + lay the row out within the cell bounds, synchronously.
+2. if the cell is new, run the row factory (build once); otherwise rebind: restore the row's
+   parked element ids and slot-write `items[index]` into the existing row's signal;
+3. flush the row scope and lay the row out within the cell bounds, synchronously; the host reads
+   `cell_height` right after.
+
+`recycle(cell)` parks the row's element ids and marks the cell inactive; its laid height is
+forgotten, so the next row it shows is sized afresh rather than reported as a change. A later
+`bind_row` of the same cell rebinds instead of building.
 
 When the items signal changes, the effect refreshes the snapshot and applies a `ListPatch::Reload`
-so the native widget re-queries the source. (Fine-grained insert/remove/move batching over the
-keyed diff, like `each`'s, is a reserved refinement; `Reload` is the v1 behavior.)
+so the native widget re-queries the source. A source connection that reports its own row events
+(a day-persistence query, for one) sends `ListPatch::Splice(Vec<RowDelta>)` instead: sequential
+`Insert`, `Remove` and `Move` deltas the host applies as native row changes, with the selection
+following its rows. A plain items closure has no such events and reloads.
 
 ## Per-backend mapping
 
 | Backend | Widget | Recycling | Notes |
 |---|---|---|---|
-| mock    | simulated viewport | yes (test-driven) | `MockProbe::scroll_list(range)` drives binds; exercises the driver |
+| mock    | simulated viewport | yes (test-driven) | `MockProbe::list_bind`/`list_recycle` drive binds and recycling; exercises the driver |
 | AppKit  | `NSTableView` (view-based) | native | `makeView`/`viewFor` → `bind_row`; `numberOfRows` → `len` |
 | UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row` |
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
-| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell`. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
+| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | within a page; not claimed | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell`. Across a far jump GtkListView tears item widgets down and sets up new ones, and Day has no release hook for a discarded cell yet, so the capability is not answered until it does. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
 | Qt      | `QListView` over a count-only `QAbstractListModel` and a delegate that paints only the item chrome; each cell a plain `QWidget` placed over its row as a viewport child | native — a bounded pool (the viewport plus overscan) the Rust side retargets on every window change: a row scrolling out parks its cell and `recycle`s it, a row scrolling in takes a spare and `bind_row` rebinds it | the view owns selection, keys, focus, drag; Day owns the rows. Cells are never index widgets: the view deletes those on removal. Every Qt callback into Day is posted |
+| ArkUI   | `List` + `NodeAdapter`; each cell a `ListItem` holding the row | native | adapter attach/detach → `bind_row`/`recycle`; item ids carry a generation so a reload never rebinds a stale cell |
+| WinUI   | `ItemsRepeater` + `StackLayout`; each cell an `ItemContainer` holding a `Canvas` for the row | native | the repeater's realization callbacks post `bind_row`/`recycle` (calling the source inside XAML layout would re-enter Day) |
+| web     | a DOM scroller with a slot per row | emulated | rows in view plus an overscan are built; a row scrolled far away keeps its element |
 
 ## Row heights
 
@@ -246,9 +259,11 @@ activity on a `fontScale` change, as it does for a theme or language change, and
 rebuilt at the new scale. The desktop and web backends do not report a live change yet; the
 new size applies from the next launch.
 
-The `list-rows-size-to-content` conformance case checks it on every toolkit: rows in caption,
-body and large-title text and a wrapped paragraph each start exactly one row height below the
-previous row, natively, before and after one row grows and shrinks back.
+The `list-rows-size-to-content` conformance case checks it on every toolkit: caption, body and
+large-title rows and a wrapped footnote each take their content's height natively (every next
+row starts one row height below, allowing only for the chrome the host adds to each row), the
+large-title row is taller than the caption row, the wrapped row taller than the body row, and a
+body row that grows is re-laid at its new height and shrinks back.
 
 ## Building it (mock-first, like M0–M1)
 
@@ -322,12 +337,14 @@ Reloads are deferred outside the tree borrow: UIKit may retire cells synchronous
 jumps to any row: set the signal to `Some(row)` and the native list scrolls it into view,
 realizing it if it was virtualized away (`ListPatch::ScrollToRow`, clamped to the count). The
 signal is the row rail's counterpart to `scroll(...).scroll_target(...)`. Backends without a native
-scroll-to-index (GTK ≤ 4.10, XAML, web) position by uniform row pitch; prefer
+scroll-to-index (GTK, XAML, web) position by uniform row pitch; prefer
 `RowHeight::Uniform` when jumping programmatically there.
 
 A Reload whose rows are the same set in a new order (a shuffle, a programmatic sort) animates
 as native row moves on AppKit (`moveRowAtIndex` batch, the same animation a drag commit gets);
-other backends apply it instantly. Inserts, removals, and content changes always reload flat.
+other backends apply it instantly. A `Splice` from a source that reports row events animates its
+inserts and removals as native row changes on AppKit, UIKit (one delta at a time; a splice of
+several reloads) and Qt; the other backends and every content change reload flat.
 
 ## Drag-to-reorder
 
@@ -427,7 +444,7 @@ on every target, including the desktops, where there is no gesture to simulate.
 | Android | `ItemTouchHelper` swipe (`START`, so it is the trailing edge in RTL too) | row slides to reveal a red field carrying the label; `notifyItemRemoved` animates the close-up |
 | WinUI | `SwipeControl` trailing `SwipeItems` and `MenuFlyout` | reveal then press Delete; the guard is checked both when offering and invoking it |
 | AppKit · GTK · Qt · XAML · web | — | `Unsupported`: the delete affordance does not ride macOS's row actions yet, and the rest have no swipe idiom; use a menu item or a row button |
-| ArkUI | `NODE_LIST_ITEM_SWIPE_ACTION` | *not yet implemented* — the NDK exposes it; the shim does not build it yet |
+| ArkUI | `NODE_LIST_ITEM_SWIPE_ACTION`: a trailing swipe-action item on each deletable row | the row slides to reveal the labeled action; pressing it runs the guard and commits |
 
 ## Swipe actions
 

@@ -1713,16 +1713,68 @@ struct NavMenuState {
     current: Rc<std::cell::Cell<Option<i32>>>,
 }
 
+thread_local! {
+    /// The newest pending scroll per list host (`scroll_list_when_laid`): a request that has to
+    /// wait for layout is superseded by the next one for the same host, so a burst of jumps
+    /// ends where the last of them pointed.
+    static LIST_SCROLL_SERIAL: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+}
+
 /// Scroll a list host to `row`, or to its end for `None` (`ListPatch::ScrollToRow` /
-/// `ScrollToEnd`). `GtkListView::scroll_to` needs v4_12 and Day targets v4_10, so this drives
-/// the scrolled window's vertical adjustment instead, at the row's offset by the uniform pitch
-/// (the extent over the count; docs/list.md notes the Automatic-height approximation).
+/// `ScrollToEnd`). `GtkListView::scroll_to` needs v4_12 and Day targets v4_10 (and on GTK 4.20
+/// it realized the row without moving the view), so this drives the scrolled window's vertical
+/// adjustment instead, at the row's offset by the uniform pitch (the extent over the count;
+/// docs/list.md notes the Automatic-height approximation).
 ///
-/// On the frame clock rather than at once or on the next idle: the request can arrive before
-/// the deferred reload (`schedule_list_resize`) has filled the model, or before the list has
-/// laid out the rows it filled, and either way the extent would say there is nothing to
-/// scroll. It waits until the model has rows and the extent covers them, a few frames at most.
+/// At once when the list is laid out, which is the common case. Otherwise on the frame clock:
+/// the request can arrive before the deferred reload (`schedule_list_resize`) has filled the
+/// model, or before the list has laid out the rows it filled, and either way the extent would
+/// say there is nothing to scroll; it then waits until the model has rows and the extent covers
+/// them, a few frames at most. Deferring every request was wrong: GTK runs a frame's tick
+/// callbacks newest first, and a burst of jumps that all waited for one frame landed on the
+/// oldest, so a `scroll_to_row` could end at the previous target.
 fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
+    /// The row count of the host's list, or 0 before a model is set.
+    fn count(sw: &gtk4::ScrolledWindow) -> usize {
+        sw.child()
+            .and_then(|c| c.downcast::<gtk4::ListView>().ok())
+            .and_then(|lv| lv.model())
+            .map(|m| m.n_items() as usize)
+            .unwrap_or(0)
+    }
+    /// The vertical offset of `row` (its end for `None`) by the uniform pitch.
+    fn offset(adj: &gtk4::Adjustment, n: usize, row: Option<usize>) -> f64 {
+        let end = adj.upper() - adj.page_size();
+        match row {
+            Some(row) => ((adj.upper() / n as f64) * row as f64).min(end),
+            None => end,
+        }
+    }
+    let key = widget_key(sw.upcast_ref());
+    let adj = sw.vadjustment();
+    if count(sw) > 0 && adj.upper() > adj.page_size() {
+        // Laid out: on the next main-loop turn, in request order. Not here: the patch arrives
+        // inside day-core's tree borrow, and the view's reaction to the new offset reaches
+        // `recycle` for the rows that left, which needs that borrow to park their ids. A request
+        // still waiting for this host's layout is superseded.
+        LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
+        let sw = sw.clone();
+        gtk4::glib::idle_add_local_full(gtk4::glib::Priority::DEFAULT, move || {
+            let n = count(&sw);
+            if n > 0 {
+                let adj = sw.vadjustment();
+                adj.set_value(offset(&adj, n, row));
+            }
+            gtk4::glib::ControlFlow::Break
+        });
+        return;
+    }
+    let serial = LIST_SCROLL_SERIAL.with(|m| {
+        let mut m = m.borrow_mut();
+        let serial = m.get(&key).map_or(1, |s| s + 1);
+        m.insert(key, serial);
+        serial
+    });
     // The callback is an `Fn`, so the frame count lives in a cell.
     let frames = std::cell::Cell::new(0u32);
     sw.add_tick_callback(move |sw, _| {
@@ -1732,29 +1784,25 @@ fn scroll_list_when_laid(sw: &gtk4::ScrolledWindow, row: Option<usize>) {
             Some(sw) => sw,
             None => return gtk4::glib::ControlFlow::Break,
         };
-        let n = sw
-            .child()
-            .and_then(|c| c.downcast::<gtk4::ListView>().ok())
-            .and_then(|lv| lv.model())
-            .map(|m| m.n_items() as f64)
-            .unwrap_or(0.0);
+        // A newer request for this host took over.
+        if LIST_SCROLL_SERIAL.with(|m| m.borrow().get(&key) != Some(&serial)) {
+            return gtk4::glib::ControlFlow::Break;
+        }
+        let n = count(sw);
         let adj = sw.vadjustment();
         // Laid out: the rows overflow the viewport, or have had a few frames to (a list that
         // fits has nothing to scroll, and waiting longer would not change that).
-        let laid = n > 0.0 && (adj.upper() > adj.page_size() || frames >= 4);
+        let laid = n > 0 && (adj.upper() > adj.page_size() || frames >= 4);
         if !laid {
             return if frames < 60 {
                 gtk4::glib::ControlFlow::Continue
             } else {
+                LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
                 gtk4::glib::ControlFlow::Break
             };
         }
-        let end = adj.upper() - adj.page_size();
-        let y = match row {
-            Some(row) => ((adj.upper() / n) * row as f64).min(end),
-            None => end,
-        };
-        adj.set_value(y);
+        LIST_SCROLL_SERIAL.with(|m| m.borrow_mut().remove(&key));
+        adj.set_value(offset(&adj, n, row));
         gtk4::glib::ControlFlow::Break
     });
 }
@@ -4449,9 +4497,13 @@ impl Toolkit for Gtk {
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
             | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
-            // GtkListView's factory binds and unbinds Day's `DayCell`s as rows come and go
-            // (docs/list.md).
-            | Cap::ListRecycling
+            // `Cap::ListRecycling` is deliberately NOT claimed yet: GtkListView's factory
+            // binds and unbinds Day's `DayCell`s as rows come and go, but across a far jump it
+            // tears item widgets down and sets up new ones, and Day has no release hook for
+            // the cells it discards, so their row scopes stay behind in day-core and every
+            // jump builds fresh ones (the `list-recycles-distant-rows` case built 244 row
+            // scopes for a five-row viewport on GTK 4.20, Linux and macOS alike). Claim it once
+            // the factory's `teardown` releases the cell (docs/list.md).
             // GtkListView + GtkTreeListModel + GtkTreeExpander host day-built rows natively
             // (docs/tree.md). `Cap::TreeMove` is deliberately NOT here yet: the native drag
             // half lands after the seam parity — dayscript's `tree_move:` drives the seam
@@ -5756,6 +5808,12 @@ impl Toolkit for Gtk {
                     )
                 };
                 day_list_rows(&listview);
+                // Activation (docs/list.md): the view's own `activate` — a double-click or
+                // Enter on a row — reaches the app as `ListActivated`, as the tree's does.
+                listview.set_single_click_activate(false);
+                listview.connect_activate(move |_, row| {
+                    ffi_guard::contain((), || emit(id, Event::ListActivated(row as usize)))
+                });
                 // Host-drawn row separators (docs/list.md): a border on the ListView's own
                 // `row` CSS nodes, which sit exactly at the row boundary — aligned with the
                 // native selection. One global provider serves every separated list.

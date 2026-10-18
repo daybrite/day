@@ -790,28 +790,40 @@ mod imp {
     /// delta describes the set as the previous ones left it), so each gets its own batch —
     /// UITableView's combined-batch index rules would re-interpret them.
     fn apply_row_deltas(table: &objc2_ui_kit::UITableView, deltas: &[day_spec::props::RowDelta]) {
+        // Day's deltas are sequential, each counted against the list as the one before left
+        // it. UITableView counts every batch against the data source, which already answers
+        // the FINAL length. A single delta satisfies both. Several cannot: the first batch
+        // closes on a row count the source contradicts, and UIKit raises its row-count
+        // inconsistency exception. Those splices reload flat instead — the right rows, without
+        // the per-row animation — until the deltas are folded into one batch.
+        let d = match deltas {
+            [] => return,
+            [d] => d,
+            _ => {
+                unsafe { table.reloadData() };
+                return;
+            }
+        };
         let path =
             |row: usize| objc2_foundation::NSIndexPath::indexPathForRow_inSection(row as isize, 0);
-        for d in deltas {
-            unsafe {
-                table.beginUpdates();
-                match d {
-                    day_spec::props::RowDelta::Insert(i) => table
-                        .insertRowsAtIndexPaths_withRowAnimation(
-                            &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
-                            objc2_ui_kit::UITableViewRowAnimation::Automatic,
-                        ),
-                    day_spec::props::RowDelta::Remove(i) => table
-                        .deleteRowsAtIndexPaths_withRowAnimation(
-                            &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
-                            objc2_ui_kit::UITableViewRowAnimation::Automatic,
-                        ),
-                    day_spec::props::RowDelta::Move(from, to) => {
-                        table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to))
-                    }
+        unsafe {
+            table.beginUpdates();
+            match d {
+                day_spec::props::RowDelta::Insert(i) => table
+                    .insertRowsAtIndexPaths_withRowAnimation(
+                        &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
+                        objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                    ),
+                day_spec::props::RowDelta::Remove(i) => table
+                    .deleteRowsAtIndexPaths_withRowAnimation(
+                        &objc2_foundation::NSArray::from_retained_slice(&[path(*i)]),
+                        objc2_ui_kit::UITableViewRowAnimation::Automatic,
+                    ),
+                day_spec::props::RowDelta::Move(from, to) => {
+                    table.moveRowAtIndexPath_toIndexPath(&path(*from), &path(*to))
                 }
-                table.endUpdates();
             }
+            table.endUpdates();
         }
     }
 

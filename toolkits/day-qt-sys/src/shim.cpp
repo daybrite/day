@@ -5269,7 +5269,8 @@ void day_qt_tree_select(void *w, const uint64_t *tokens, int len) {
 }
 void day_qt_tree_reveal(void *w, uint64_t token) {
     auto *t = static_cast<DayTreeWidget *>(w); auto i=t->nodes.find(token);
-    if(i!=t->nodes.end()) t->scrollToItem(i->second); t->sync();
+    if(i!=t->nodes.end()) t->scrollToItem(i->second);
+    t->sync();
 }
 
 } // extern "C"

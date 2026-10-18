@@ -3574,11 +3574,14 @@ pub(crate) mod conformance {
                 async move {
                     d.assert_text("row:0", "Row 0").await?;
                     // Distinct regions: retaining a cell for every visited index must fail.
+                    // Row 1, not row 0, is the one that must go: GtkListView keeps its
+                    // focused item's widget realized wherever the view scrolls, and row 0
+                    // holds the focus here (the first item at start, then every `back` tap).
                     for row in (40..=1600).step_by(40) {
                         d.tap("far").await?;
                         d.assert_text(&format!("row:{row}"), &format!("Row {row}"))
                             .await?;
-                        d.assert_missing("row:0").await?;
+                        d.assert_missing("row:1").await?;
                         d.tap(&format!("row:{row}")).await?;
                         d.assert_text("pressed", &format!("Pressed {row}")).await?;
                         d.tap("back").await?;

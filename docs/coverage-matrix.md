@@ -77,7 +77,7 @@ An app branches on this rather than on the target name.
 | `DragDeferredReceipt` | – | – | N | – | N | – | – | – |
 | `DragFilePromises` | – | – | – | – | – | – | – | – |
 | `DragExternalMove` | – | – | – | – | – | – | – | – |
-| `ListRecycling` | N | – | N | N | N | N | N | E |
+| `ListRecycling` | N | – | – | N | N | N | N | E |
 | `UndoBridge` | N | N | – | – | – | – | – | – |
 | `EditBridge` | N | N | – | – | – | – | – | N |
 | `ListReorder` | N | N | N | N | N | N | N | E |

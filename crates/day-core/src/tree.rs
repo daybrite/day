@@ -2723,6 +2723,11 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             .and_then(|s| s.cells.get_mut(&key))
             .map(|b| {
                 b.active = false;
+                // The next row this cell shows is laid afresh by its `bind_row`, and the host
+                // reads `cell_height` right after; a height left over from the previous row
+                // would make that first layout look like a change and raise a spurious
+                // `RowSizeInvalidated`.
+                b.laid_height = None;
                 b.anchor
             })
         else {
