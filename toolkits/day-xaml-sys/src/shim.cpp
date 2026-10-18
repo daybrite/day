@@ -5190,6 +5190,12 @@ void* day_xaml_toggle_new(int on, unsigned long long id, void (*cb)(unsigned lon
     t.IsOn(on != 0);
     t.OnContent(winrt::box_value(winrt::hstring{}));
     t.OffContent(winrt::box_value(winrt::hstring{}));
+    // The default style reserves 154px (MinWidth) for the On/Off text beside the knob. Day's
+    // toggle has no such text, so the control is the knob alone (40px), like every other
+    // toolkit's switch: with the floor left in place a `labeled` pair in a narrow wrapped row
+    // overran its container by the empty text column (conformance
+    // `wrapped-controls-stay-inside-row`).
+    t.MinWidth(0.0);
     t.Toggled([id, cb](WF::IInspectable const& s, WUX::RoutedEventArgs const&) {
         cb(id, s.as<WUXC::ToggleSwitch>().IsOn() ? 1 : 0);
     });

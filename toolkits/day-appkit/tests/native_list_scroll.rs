@@ -82,7 +82,12 @@ mod native {
     fn check_scrolling(table: &NSTableView, rows: &[u64]) {
         let scroll = table.enclosingScrollView().unwrap();
         assert_eq!(table.numberOfRows(), rows.len() as isize);
-        assert!((table.frame().size.height - rows.len() as f64 * 44.).abs() < 1.);
+        assert!(
+            (table.frame().size.height - rows.len() as f64 * 44.).abs() < 1.,
+            "table height {} for {} rows",
+            table.frame().size.height,
+            rows.len()
+        );
         for row in [rows.len() - 1, 0, rows.len() / 2, 0] {
             table.scrollRowToVisible(row as isize);
             table.layoutSubtreeIfNeeded();
@@ -210,6 +215,9 @@ mod native {
                     std::process::exit(0);
                 });
                 // Synthetic UI shaped like settings: a fixed-height native list inside a scroll.
+                // Uniform rows: the extent arithmetic below (44 pt a row, a last-row offset past
+                // 2000 pt) is the fixed-pitch table's; an Automatic list sizes each row to its
+                // label (docs/list.md "Row heights") and has its own conformance cases.
                 scroll(
                     column((
                         label("Synthetic list fixture"),
@@ -234,6 +242,7 @@ mod native {
                                 r.insert(to, v);
                             })
                         })
+                        .row_height(RowHeight::Uniform(44.))
                         .height(280.)
                         .grow_w()
                         .id("fixture-list"),
