@@ -180,8 +180,8 @@ mod imp {
         /// value; a matching event is the echo and is swallowed, a differing one is the
         /// user and clears the cell.
         static TEXT_ECHO: RefCell<HashMap<u64, String>> = RefCell::new(HashMap::new());
-        /// Text fields, by day node (docs/textfield.md). ArkUI has no read-only attribute for
-        /// a TextInput, so the backend refuses the edits itself; see [`InputField`].
+        /// Text inputs and areas, by day node (docs/textfield.md, docs/textarea.md). ArkUI has
+        /// no read-only attribute, so the backend refuses edits itself; see [`InputField`].
         static INPUT_FIELDS: RefCell<HashMap<u64, InputField>> = RefCell::new(HashMap::new());
         static SLIDER_ECHO: RefCell<HashMap<u64, f64>> = RefCell::new(HashMap::new());
         /// Toggle gates (§4.4), by day node. A value-match cell is not enough for a switch:
@@ -1431,6 +1431,8 @@ mod imp {
         watched: bool,
         /// The text a read-only field shows; `None` while the field takes edits.
         held: Option<String>,
+        /// `Some` for a TextArea, carrying its live selection policy; `None` for TextInput.
+        area_selectable: Option<bool>,
     }
 
     /// Whether node `id` is a text field that refuses edits now.
@@ -1441,16 +1443,53 @@ mod imp {
     /// A change event from text input `n`: when node `id` is read-only, put its text back if
     /// the change got past the will-edit events, and say the event is not the app's to see.
     pub(crate) fn hold_read_only(n: Handle, id: u64, text: &str) -> bool {
-        let held = INPUT_FIELDS.with(|m| m.borrow().get(&id).and_then(|f| f.held.clone()));
+        let held = INPUT_FIELDS.with(|m| {
+            m.borrow().get(&id).and_then(|f| {
+                f.held
+                    .clone()
+                    .map(|text| (text, f.area_selectable.is_some()))
+            })
+        });
         match held {
-            Some(held) => {
+            Some((held, area)) => {
                 if held != text {
-                    node::set_input_text(n, &held);
+                    if area {
+                        node::set_textarea_text(n, &held);
+                    } else {
+                        node::set_input_text(n, &held);
+                    }
                 }
                 true
             }
             None => false,
         }
+    }
+
+    pub(crate) fn area_unselectable(id: u64) -> bool {
+        INPUT_FIELDS.with(|m| {
+            m.borrow()
+                .get(&id)
+                .is_some_and(|f| f.area_selectable == Some(false))
+        })
+    }
+
+    fn set_area_editable(n: Handle, id: u64, editable: bool) {
+        let held = (!editable).then(|| node::textarea_text(n));
+        INPUT_FIELDS.with(|m| {
+            if let Some(f) = m.borrow_mut().get_mut(&id) {
+                f.held = held;
+            }
+        });
+        node::set_textarea_editable(n, editable);
+    }
+
+    fn set_area_selectable(n: Handle, id: u64, selectable: bool) {
+        INPUT_FIELDS.with(|m| {
+            if let Some(f) = m.borrow_mut().get_mut(&id) {
+                f.area_selectable = Some(selectable);
+            }
+        });
+        node::set_textarea_selectable(n, selectable);
     }
 
     /// User input reached node `id`: if it is a switch, its next change is the user's.
@@ -2448,6 +2487,17 @@ mod imp {
                     };
                     let n = new_node(node::TEXT_AREA);
                     CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
+                    TEXT_ECHO.with(|m| m.borrow_mut().insert(id.0, p.text.clone()));
+                    INPUT_FIELDS.with(|m| {
+                        m.borrow_mut().insert(
+                            id.0,
+                            InputField {
+                                held: (!p.editable).then(|| p.text.clone()),
+                                area_selectable: Some(p.selectable),
+                                ..Default::default()
+                            },
+                        )
+                    });
                     TEXTAREA_LINES.with(|m| {
                         m.borrow_mut()
                             .insert(n.0 as usize, (p.min_lines, p.max_lines))
@@ -2455,7 +2505,10 @@ mod imp {
                     node::set_textarea_text(n.0, &p.text);
                     node::set_textarea_placeholder(n.0, &p.placeholder);
                     node::register_event(n.0, node::EV_TEXT_AREA_CHANGE, id.0);
-                    node::enable_focus(n.0, id.0, true);
+                    node::watch_textarea_edits(n.0, id.0);
+                    node::set_textarea_editable(n.0, p.editable);
+                    node::set_textarea_selectable(n.0, p.selectable);
+                    node::enable_focus(n.0, id.0, false);
                     n
                 }
                 // Option picker (docs/picker.md). A menu picker is HarmonyOS's own dropdown, the
@@ -3068,15 +3121,32 @@ mod imp {
                     _ => {}
                 },
                 kinds::TEXT_AREA => {
-                    if let Some(TextAreaPatch::SetText(text)) =
-                        patch.downcast_ref::<TextAreaPatch>()
-                    {
-                        if let Some(nid) =
-                            CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied())
-                        {
-                            TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
+                    let nid = CTRL_NODE.with(|m| m.borrow().get(&(h.0 as usize)).copied());
+                    match patch.downcast_ref::<TextAreaPatch>() {
+                        Some(TextAreaPatch::SetText(text)) => {
+                            if let Some(nid) = nid {
+                                TEXT_ECHO.with(|m| m.borrow_mut().insert(nid, text.clone()));
+                                INPUT_FIELDS.with(|m| {
+                                    if let Some(f) = m.borrow_mut().get_mut(&nid)
+                                        && f.held.is_some()
+                                    {
+                                        f.held = Some(text.clone());
+                                    }
+                                });
+                            }
+                            node::set_textarea_text(h.0, text);
                         }
-                        node::set_textarea_text(h.0, text);
+                        Some(TextAreaPatch::SetEditable(on)) => {
+                            if let Some(nid) = nid {
+                                set_area_editable(h.0, nid, *on);
+                            }
+                        }
+                        Some(TextAreaPatch::SetSelectable(on)) => {
+                            if let Some(nid) = nid {
+                                set_area_selectable(h.0, nid, *on);
+                            }
+                        }
+                        _ => {}
                     }
                 }
                 kinds::PICKER if piece::is_piece(h) => match patch.downcast_ref::<PickerPatch>() {
@@ -4072,6 +4142,8 @@ mod imp {
                 // Derived from NODE_FONT_SIZE: ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
                 Cap::TextRuns => Support::Native,
+                // Native TextArea, with edit vetoes and selection collapse enforced by Day.
+                Cap::TextEditable | Cap::TextSelectable => Support::Emulated,
                 // ArkTS arms (src/host.rs): present wherever `day build` staged them.
                 Cap::Appearance => crate::host::color_mode_support(),
                 Cap::AppBadgeCount => crate::host::badge_support(),

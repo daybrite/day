@@ -248,7 +248,7 @@ impl<S: Binding<String>> TextArea<S> {
     /// Submit on Enter: a plain Enter runs `f` instead of inserting a newline, the chat-composer
     /// contract. Shift+Enter still inserts a line break on the desktop toolkits; Android's soft
     /// keyboard shows a Send action; iOS's return key submits. Backends without the intercept
-    /// (web-dom today) keep inserting newlines, so pair this with a visible send button. The
+    /// (web-dom and ArkUI today) keep inserting newlines, so pair this with a visible send button. The
     /// bound `text` signal is already up to date when `f` runs.
     pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
         self.on_submit = Some(Rc::new(f));
@@ -731,6 +731,50 @@ pub(crate) mod conformance {
             .drive(|d: Drive| async move { d.assert_text("area", "Fixed").await })
     }
 
+    /// Changing editor policies must preserve content and programmatic updates. Native input
+    /// rejection/selection needs the OS-input drivers; Drive::input injects a Day event.
+    #[day_macros::test(day_core)]
+    fn text_area_attributes_reactive() -> Case {
+        let text = Signal::new("First\nsecond".to_owned());
+        let editable = Signal::new(true);
+        let selectable = Signal::new(true);
+        Case::new()
+            .proves(kinds::TEXT_AREA)
+            .requires(Cap::TextEditable)
+            .requires(Cap::TextSelectable)
+            .page(move || {
+                column((
+                    text_area(text)
+                        .editable(editable)
+                        .selectable(selectable)
+                        .id("area"),
+                    label(move || text.get()).id("model"),
+                    button("Lock").id("lock").action(move || {
+                        editable.set(false);
+                        selectable.set(false);
+                    }),
+                    button("Replace")
+                        .id("replace")
+                        .action(move || text.set("Updated\n東京".into())),
+                    button("Unlock").id("unlock").action(move || {
+                        selectable.set(true);
+                        editable.set(true);
+                    }),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.tap("lock").await?;
+                d.assert_text("area", "First\nsecond").await?;
+                d.tap("replace").await?;
+                d.assert_text("area", "Updated\n東京").await?;
+                d.assert_text("model", "Updated\n東京").await?;
+                d.tap("unlock").await?;
+                d.assert_text("area", "Updated\n東京").await?;
+                d.input("area", "Back to editing").await?;
+                d.assert_text("model", "Back to editing").await
+            })
+    }
+
     day_core::tests! {
         picker_select,
         picker_segmented,
@@ -742,5 +786,6 @@ pub(crate) mod conformance {
         text_area_multiline,
         text_area_read_only,
         text_area_unselectable,
+        text_area_attributes_reactive,
     }
 }

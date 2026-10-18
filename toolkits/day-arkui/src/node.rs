@@ -838,8 +838,70 @@ pub fn set_textarea_text(n: Handle, s: &str) {
     set_str(n, Attr::NODE_TEXT_AREA_TEXT, s);
 }
 
+pub fn textarea_text(n: Handle) -> String {
+    get_item(n, Attr::NODE_TEXT_AREA_TEXT).map_or_else(String::new, |it| text_of(it.string))
+}
+
 pub fn set_textarea_placeholder(n: Handle, s: &str) {
     set_str(n, Attr::NODE_TEXT_AREA_PLACEHOLDER, s);
+}
+
+/// TextArea has no persistent read-only or selection-enable property in the API 18 SDK.
+/// Veto edits and collapse selection while retaining the native editor and its scrolling.
+pub fn watch_textarea_edits(n: Handle, id: u64) {
+    use ArkUI_NodeEventType as Ev;
+    for event in [
+        Ev::NODE_TEXT_AREA_ON_WILL_INSERT,
+        Ev::NODE_TEXT_AREA_ON_WILL_DELETE,
+        Ev::NODE_TEXT_AREA_ON_TEXT_SELECTION_CHANGE,
+        Ev::NODE_ON_KEY_PRE_IME,
+    ] {
+        register_event(n, event, id);
+    }
+}
+
+pub fn set_textarea_editable(n: Handle, editable: bool) {
+    set_i32(
+        n,
+        Attr::NODE_TEXT_AREA_ENABLE_KEYBOARD_ON_FOCUS,
+        i32::from(editable),
+    );
+    set_i32(
+        n,
+        Attr::NODE_TEXT_AREA_SHOW_KEYBOARD_ON_FOCUS,
+        i32::from(editable),
+    );
+    set_i32(
+        n,
+        Attr::NODE_TEXT_AREA_ENABLE_AUTO_FILL,
+        i32::from(editable),
+    );
+    // End an existing input session too. This alone would not prevent future edits.
+    if !editable {
+        set_i32(n, Attr::NODE_TEXT_AREA_EDITING, 0);
+    }
+}
+
+pub fn collapse_textarea_selection(n: Handle, end: i32) {
+    if end >= 0 {
+        set_values(
+            n,
+            Attr::NODE_TEXT_AREA_TEXT_SELECTION,
+            &[i32v(end), i32v(end)],
+        );
+    }
+}
+
+pub fn set_textarea_selectable(n: Handle, selectable: bool) {
+    set_i32(
+        n,
+        Attr::NODE_TEXT_AREA_SELECTION_MENU_HIDDEN,
+        i32::from(!selectable),
+    );
+    if !selectable {
+        let end = get_i32(n, Attr::NODE_TEXT_AREA_TEXT_SELECTION, 1).unwrap_or(0);
+        collapse_textarea_selection(n, end);
+    }
 }
 
 /// The picker wheel's options (docs/picker.md): a ';'-joined range, whose type must ride in

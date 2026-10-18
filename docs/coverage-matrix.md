@@ -108,8 +108,8 @@ An app branches on this rather than on the target name.
 | `Cover` | E | N | E | E | E | N | E | E |
 | `CoverSheet` | N | N | – | – | – | – | – | – |
 | `StatusBarHidden` | – | N | – | – | – | N | N | – |
-| `TextEditable` | N | N | N | N | N | N | – | N |
-| `TextSelectable` | N | N | – | N | E | N | – | N |
+| `TextEditable` | N | N | N | N | N | N | E | N |
+| `TextSelectable` | N | N | – | N | E | N | E | N |
 | `TextSpellCheck` | N | N | – | – | N | N | – | N |
 | `MultiWindow` | N | ? | N | N | N | N | ? | – |
 | `AppBadgeCount` | N | N | ? | ? | N | – | ? | E |

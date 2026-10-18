@@ -138,9 +138,44 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 }
                 // A field that has been read-only asks before each edit (docs/textfield.md).
                 // The answer is always written: ArkUI reads the slot whether or not it was set.
-                Ev::NODE_TEXT_INPUT_ON_WILL_INSERT | Ev::NODE_TEXT_INPUT_ON_WILL_DELETE => {
+                Ev::NODE_TEXT_INPUT_ON_WILL_INSERT
+                | Ev::NODE_TEXT_INPUT_ON_WILL_DELETE
+                | Ev::NODE_TEXT_AREA_ON_WILL_INSERT
+                | Ev::NODE_TEXT_AREA_ON_WILL_DELETE => {
                     let mut allow = [crate::node::i32v(i32::from(!crate::is_read_only(id)))];
                     OH_ArkUI_NodeEvent_SetReturnNumberValue(ev, allow.as_mut_ptr(), 1);
+                }
+                Ev::NODE_TEXT_AREA_ON_TEXT_SELECTION_CHANGE => {
+                    if crate::area_unselectable(id)
+                        && let (Some(start), Some(end)) = (component(0), component(1))
+                        && start.i32_ != end.i32_
+                    {
+                        crate::node::collapse_textarea_selection(
+                            OH_ArkUI_NodeEvent_GetNodeHandle(ev),
+                            end.i32_,
+                        );
+                    }
+                }
+                Ev::NODE_ON_KEY_PRE_IME => {
+                    let input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
+                    if !input.is_null() && crate::area_unselectable(id) {
+                        let mut held = 0;
+                        OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &mut held);
+                        let code = ArkUI_KeyCode(OH_ArkUI_KeyEvent_GetKeyCode(input));
+                        // Copy/Cut must not race an asynchronous selection-collapse event.
+                        let ctrl =
+                            held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64 != 0;
+                        if ctrl
+                            && matches!(
+                                code,
+                                ArkUI_KeyCode::ARKUI_KEYCODE_A
+                                    | ArkUI_KeyCode::ARKUI_KEYCODE_C
+                                    | ArkUI_KeyCode::ARKUI_KEYCODE_X
+                            )
+                        {
+                            OH_ArkUI_KeyEvent_SetConsumed(input, true);
+                        }
+                    }
                 }
                 // A touch on a switch arms its gate (`TOGGLE_GATE`); only switches register it.
                 Ev::NODE_TOUCH_EVENT => crate::arm_toggle(id),

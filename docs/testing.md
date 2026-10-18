@@ -351,6 +351,25 @@ select native presentation and answer through `respond` / `respond_text`, exerci
 public future and toolkit dismissal contract. Those assertions inspect pending Day requests;
 they do not prove a native button was drawn or clicked. The separate Python suite supplies
 that evidence and is currently an explicit local/emulator check, not a shared CI step.
+
+### Native ArkUI text-area tests
+
+After building the conformance app for `harmony-arkui`, run:
+
+```sh
+python3 apps/conformance/scripts/harmony-textarea.py
+```
+
+Requires one unlocked target and `hdc` on `PATH` (`--day`/`--hdc` override executables). The
+`DAY_NATIVE_TEXTAREA_TEST=1` fixture starts read-only. OS input checks typing/deletion/newlines,
+copy/cut/paste, app writes, reactive editing/selection changes, long-press selection, keyboard
+selection, and unmount/remount. Assertions read both the native TextArea and the bound model.
+Only fixture buttons and assertions use Day's driver; no text events are injected.
+
+Run this separately from other drivers for the same app. It leaves the fixture visible; normal
+`day launch`/`day test` restores the test host. The portable `text-area-attributes-reactive` case
+checks content preservation through policy changes on supporting backends. This native-input
+suite supplies the OS-input evidence and is an explicit emulator check, not a shared CI step.
 Run only one driver for the app at a time.
 
 ## In CI

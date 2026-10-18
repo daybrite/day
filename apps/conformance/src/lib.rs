@@ -12,6 +12,8 @@ use day::prelude::*;
 mod native_dialogs;
 #[cfg(target_env = "ohos")]
 mod native_long_press;
+#[cfg(target_env = "ohos")]
+mod native_textarea;
 
 // Entry point for the mobile hosts; a desktop build enters through src/main.rs.
 day::day_start!(options: window(), root);
@@ -35,6 +37,10 @@ day::resources!();
 /// The first window's content: the registered GUI cases to browse, inside the test host that
 /// shows each case alone while `day test` drives it.
 pub fn root() -> impl Piece {
+    #[cfg(target_env = "ohos")]
+    if std::env::var_os("DAY_NATIVE_TEXTAREA_TEST").is_some() {
+        return native_textarea::page().any();
+    }
     #[cfg(target_env = "ohos")]
     if std::env::var_os("DAY_NATIVE_DIALOG_TEST").is_some() {
         return native_dialogs::page().any();

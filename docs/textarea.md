@@ -59,8 +59,8 @@ gates its three toggles that way):
 
 | attribute | Cap | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|---|---|
-| editable | `Cap::TextEditable` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | follow-up |
-| selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | emulated | follow-up |
+| editable | `Cap::TextEditable` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | emulated |
+| selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | emulated | emulated |
 | spell-check | `Cap::TextSpellCheck` | ✓ | ✓ | — (none built in) | — (none) | ✓ | ✓ | follow-up |
 
 GTK's `GtkTextView` is always selectable (no toggle), and neither GTK nor Qt ships a built-in
@@ -70,9 +70,19 @@ spell-checker (that needs libspelling/gspell or Hunspell).
 `IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a `TextBlock` /
 `RichTextBlock` property and `TextBox` carries no equivalent, so `.selectable(false)` is EMULATED:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
-which is the other route to Copy / Select All. The **ArkUI** editor supports all three natively but
-its shim doesn't expose the setters yet, a documented follow-up; until then it reports
-`Unsupported` for all three and ignores the props.
+which is the other route to Copy / Select All.
+
+**ArkUI** keeps its native `ARKUI_NODE_TEXT_AREA` and emulates editable/selectable policy. The
+API 18 C interface has no persistent read-only or selection-enable property: `EDITING=false`
+only ends the current editing session. Day vetoes native insert/delete callbacks while read-only,
+suppresses keyboard activation/autofill, and restores the held text if an input path bypasses the
+veto. Rejected changes never reach the binding; programmatic writes update the held value.
+Read-only text remains selectable and copyable when `.selectable(true)`.
+
+With `.selectable(false)`, Day hides the native selection menu, collapses selection-change events
+to a caret, and intercepts Select All/Copy/Cut shortcuts before the IME. Typing remains enabled
+when `.editable(true)`. Both policies apply at creation and reactively, without replacing the
+editor. They report `Support::Emulated`; spell-check remains `Unsupported`.
 
 It is the multi-line sibling of `text_field` ([docs/forms.md](forms.md)): a field is one line and submits on
 Return; a text area keeps newlines. Both raise the soft keyboard through the focus system
@@ -101,11 +111,19 @@ The Day-Matrix app's composer (a standalone Day app) is the shipped consumer. A 
 (`crates/day-pieces/tests/mock_e2e.rs` `picker_and_text_area_are_built_in`) asserts the two-way binding
 round-trips.
 
+The portable conformance cases cover initial read-only/unselectable editors and preserving
+multiline text through reactive policy changes and programmatic writes. The
+[native ArkUI input suite](testing.md#native-arkui-text-area-tests) additionally exercises actual
+keyboard, clipboard and touch input; injected Day events cannot prove native input rejection.
+
 ## Follow-ups
 
-- **XAML + ArkUI attribute setters**: `TextBox`/`ARKUI_NODE_TEXT_AREA` support editable/selectable/
-  spell-check natively, but their shims don't expose the setters yet; they report `Unsupported` and
-  ignore the props for now.
+- **ArkUI submit-on-enter**: `.on_submit(...)` is not yet wired to the native TextArea submit
+  event/IME action. UIKit and Android already implement it. This is the next small editor-parity
+  item: wire the action, preserve ordinary multiline input, and test hardware Enter, Shift+Enter,
+  and the soft-keyboard action through native input.
+- **ArkUI spell-check**: still unsupported; verify an appropriate SDK/IME contract before
+  advertising it. The API 18 C TextArea interface has no spell-check toggle.
 - Styled text is a different control: `day-piece-texteditor` edits a whole `StyledText` — the
   document labels render and `.markdown()` produces — in each platform's rich-text view
   ([docs/texteditor.md](texteditor.md)). `text_area` stays the plain-text one.

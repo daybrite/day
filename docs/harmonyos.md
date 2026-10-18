@@ -346,6 +346,12 @@ on the Oniro emulator:
   ([docs/size-classes.md](size-classes.md)).
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
+- **Text areas** — native `TextArea` with live read-only and selection policies. Day vetoes edits
+  and restores text for input paths that bypass the veto; selection-disabled editors collapse
+  native ranges and suppress selection menus/clipboard shortcuts. Both capabilities report
+  `Emulated` because the API 18 C editor lacks equivalent persistent properties. Read-only
+  text can still be copied, and app writes still replace its contents. Spell-check remains
+  unsupported. See [textarea.md](textarea.md) and the [native-input tests](testing.md#native-arkui-text-area-tests).
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
   with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text): the gauge + shapes pages.
   The custom node sits inside a plain, unpadded, transparent `ARKUI_NODE_BUTTON` that is day's

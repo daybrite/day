@@ -2387,7 +2387,8 @@ pub enum Cap {
     /// The toolkit's `text_area` can be made read-only (`TextAreaProps::editable = false`).
     TextEditable,
     /// The toolkit's `text_area` selectability can be toggled (`TextAreaProps::selectable`).
-    /// `Unsupported` where selection is always on (GTK) or the editor isn't wired (ArkUI).
+    /// `Unsupported` where selection is always on (GTK); `Emulated` where the backend
+    /// collapses native selections itself (XAML, ArkUI).
     TextSelectable,
     /// The toolkit's `text_area` has built-in spell-check/autocorrect (`TextAreaProps::spellcheck`).
     /// `Unsupported` where the toolkit ships none (GTK, Qt, ArkUI).
