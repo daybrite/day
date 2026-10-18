@@ -441,7 +441,7 @@ pub fn measure_label(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
         return (0.0, 0.0);
     }
     if child_count(n) > 0 {
-        return measure(n, max_w, max_h);
+        return measure_text_box(n, max_w, max_h);
     }
     // One probe for the thread's life, not a fresh node per measurement. Creating and disposing
     // a Text leaks inside ArkUI (OpenHarmony 6.1): measured on the emulator, a Showcase grid
@@ -461,20 +461,38 @@ pub fn measure_label(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
         p.get()
     });
     if probe.is_null() {
-        return measure(n, max_w, max_h);
+        return measure_text_box(n, max_w, max_h);
     }
     for attr in TEXT_MEASURE_ATTRS {
         api_call!(resetAttribute(probe, attr));
         copy_attr(n, probe, attr);
     }
     mark_dirty(probe, ArkUI_NodeDirtyFlag::NODE_NEED_MEASURE);
-    let size = measure(probe, max_w, max_h);
+    let size = measure_text_box(probe, max_w, max_h);
     // Nothing to size on the copy: a styled label keeps its text in SPAN children (which
     // getTotalChildCount doesn't count) and an empty content, so measure it directly.
     if size.0 <= 0.0 {
-        return measure(n, max_w, max_h);
+        return measure_text_box(n, max_w, max_h);
     }
     size
+}
+
+/// ArkUI's getMeasuredSize truncates its floating-point frame width to integer pixels.
+/// Feeding that width back into a Text can wrap its last word (e.g. "Row 31") onto a
+/// clipped second line. Reserve the lost fractional pixel without exceeding the proposal.
+fn measure_text_box(n: Handle, max_w: f64, max_h: f64) -> (f64, f64) {
+    let (w, h) = measure(n, max_w, max_h);
+    let w = if w > 0.0 {
+        let padded = w + 1.0 / density();
+        if max_w > 0.0 {
+            padded.min(max_w)
+        } else {
+            padded
+        }
+    } else {
+        w
+    };
+    (w, h)
 }
 
 thread_local! {

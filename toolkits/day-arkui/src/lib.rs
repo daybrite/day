@@ -2141,7 +2141,10 @@ mod imp {
         // Walk the C-API ancestors up to a window root: the primary root, the cover layer above
         // it, or a secondary window's. The walk stops short of one where a node sits in an
         // ArkTS host (a Navigation page, a piece), whose own visibility is out of reach.
-        let primary = ROOT.with(|r| r.borrow().as_ref().map(|(h, _)| h.0 as usize));
+        // `Platform::run` consumes ROOT when it hands the handle to day-core. Native
+        // inspection runs after that handoff, so use the lifetime-long root record,
+        // as window snapshots do, or every primary-window frame stays unread.
+        let primary = ROOT_KEEP.with(|r| r.get().map(|(root, _, _)| root));
         let cover = COVER_ROOT.with(|r| r.get()).map(|(p, _, _)| p);
         let secondaries: Vec<usize> =
             SECONDARY.with(|s| s.borrow().iter().map(|(_, p)| *p).collect());
@@ -3123,9 +3126,28 @@ mod imp {
                             }));
                         }
                     }
-                    Some(ListPatch::ScrollToEnd) => crate::list::scroll_to_end(h.0),
-                    Some(ListPatch::ScrollToRow(row)) => {
-                        crate::list::scroll_to_row(h.0, *row as u32)
+                    Some(p @ (ListPatch::ScrollToEnd | ListPatch::ScrollToRow(_))) => {
+                        // Scrolling can synchronously ask the adapter to bind cells, just
+                        // like a reload. Inside update the core tree is borrowed, so those
+                        // binds would be skipped permanently. Queue after pending reloads
+                        // and reject work for a disposed/replaced list at the same address.
+                        let n = h.0 as usize;
+                        let owner = LIST_NODE.with(|m| m.borrow().get(&n).copied());
+                        let row = match p {
+                            ListPatch::ScrollToRow(row) => Some(*row as u32),
+                            _ => None,
+                        };
+                        if let Some(owner) = owner {
+                            crate::main_thread::post_local(Box::new(move || {
+                                if LIST_NODE.with(|m| m.borrow().get(&n).copied()) != Some(owner) {
+                                    return;
+                                }
+                                match row {
+                                    Some(row) => crate::list::scroll_to_row(n as Handle, row),
+                                    None => crate::list::scroll_to_end(n as Handle),
+                                }
+                            }));
+                        }
                     }
                     Some(ListPatch::RowSizeInvalidated { cell, height }) => {
                         // A content-sized row re-laid at a new height: resize its cell, posted

@@ -353,7 +353,10 @@ on the Oniro emulator:
   and a button does, which is what gives a canvas the keyboard and its `.focused(..)` binding
   (`canvas::create`).
 - **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
-  500-row list only builds the visible cells.
+  500-row list only builds the visible cells. Native row containers fill the viewport width,
+  including selection and hit testing. Reloads and programmatic scrolling run outside Day's
+  tree borrow, since either can synchronously request a row binding. Row jumps reveal with
+  minimal movement; scrolling to the end aligns the last row with the viewport bottom.
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
 - **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
   NDK gesture API, reported on the shared kind-11 wire in px). Long-press is not wired.
@@ -371,12 +374,14 @@ on the Oniro emulator:
   over the duration, so it overshoots and settles like every other backend, nudged to end exactly
   on the target (ArkUI jumps to the target when a curve ends elsewhere). `apply` runs instantly
   when the node has no UI context yet. `set_frame` is not animated.
-- **Label measurement** — a label measures on a fresh copy of its Text node
+- **Label measurement** — a label measures on a detached, reusable Text probe
   (`node::measure_label`): after a Text's `NODE_TEXT_CONTENT` changes, ArkUI's `measureNode`
   keeps returning the previous text's size until its own layout pass runs (`markDirty` and a
   changed constraint don't clear it), so a readout that grew was laid out at its old width and
-  wrapped. The copy costs about 80 µs per measure on the emulator. Styled labels (spans) still
-  measure directly.
+  wrapped. The probe resets its text and font attributes between measurements, avoiding repeated
+  native node allocation. Measured widths reserve one physical pixel, capped by the proposal,
+  because ArkUI truncates fractional widths in `getMeasuredSize`; using the truncated width can
+  wrap a short label onto a clipped second line. Styled labels (spans) still measure directly.
 - **Button measurement** — a title button measures a fresh copy (`node::measure_button`), for
   the stale-size reason labels do. An icon button (the Row `apply_button_content` inserts) is
   sized from that Row plus the capsule's padding, calibrated once from a fresh "M" button against

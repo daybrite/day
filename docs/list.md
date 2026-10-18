@@ -247,7 +247,8 @@ anything synchronously.
 | XAML | rows stack by a running total of measured heights; rows not built yet stand at the average |
 | ArkUI | `NODE_HEIGHT` on the row's list item |
 
-The XAML and ArkUI rows have not been run on a device yet.
+ArkUI's automatic row heights are covered by `list-rows-size-to-content`, verified on the
+OpenHarmony 7.0 phone emulator. The XAML rows have not been run on a device yet.
 
 ### A text size change while the app runs
 

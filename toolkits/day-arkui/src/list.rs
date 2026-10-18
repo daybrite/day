@@ -6,9 +6,9 @@
 //!
 //! A cell is a LIST_ITEM wrapping an inner Stack that Day mounts the row subtree into. Cells
 //! scrolled out of view are pushed to a REUSE POOL rather than disposed, so the inner Stack
-//! pointer stays stable and day-core's cell cache rebinds it (Day's `recycle` is a no-op; cells
-//! "stay cached"). Row counts, binds and the reorder/delete seams come from `lib.rs`'s list
-//! callbacks.
+//! pointer stays stable and day-core's cell cache rebinds it. Recycling parks the subtree's
+//! element ids until its next bind. Row counts, binds and the reorder/delete seams come from
+//! `lib.rs`'s list callbacks.
 
 // Node handles are opaque runtime tokens (see node.rs), never dereferenced here.
 #![allow(clippy::not_unsafe_ptr_arg_deref)]
@@ -36,7 +36,7 @@ use ohos_sys::arkui::native_node::{
     OH_ArkUI_NodeUtils_GetLayoutPositionInWindow,
 };
 use ohos_sys::arkui::native_type::{
-    ArkUI_IntOffset, ArkUI_ListItemSwipeActionOption, ArkUI_TextAlignment,
+    ArkUI_IntOffset, ArkUI_ListItemSwipeActionOption, ArkUI_ScrollAlignment, ArkUI_TextAlignment,
     OH_ArkUI_ListItemSwipeActionItem_Create, OH_ArkUI_ListItemSwipeActionItem_SetContent,
     OH_ArkUI_ListItemSwipeActionItem_SetOnActionWithUserData,
     OH_ArkUI_ListItemSwipeActionOption_Create, OH_ArkUI_ListItemSwipeActionOption_Dispose,
@@ -207,6 +207,11 @@ unsafe extern "C" fn adapter_receiver(ev: *mut ArkUI_NodeAdapterEvent) {
                         None => {
                             let cell = node::create(node::LIST_ITEM);
                             let inner = node::create(node::STACK);
+                            // Day's adopted anchor owns its contents, not its native frame.
+                            // Fill the list's width explicitly so the selection/touch target
+                            // covers the row instead of hugging its absolutely placed label.
+                            node::set_f32(cell, Attr::NODE_WIDTH_PERCENT, 1.0);
+                            node::set_f32(inner, Attr::NODE_WIDTH_PERCENT, 1.0);
                             if dl.row_h > 0.0 {
                                 let h = dl.row_h / node::density() as f32;
                                 node::set_f32(cell, Attr::NODE_HEIGHT, h);
@@ -560,11 +565,7 @@ pub fn reload(n: Handle) {
     if count > 0
         && let Some(index) = dl.pending_scroll.take()
     {
-        node::set_i32(
-            n,
-            Attr::NODE_LIST_SCROLL_TO_INDEX,
-            (index as i32).min(count as i32 - 1),
-        );
+        reveal_row(n, (index as i32).min(count as i32 - 1));
     }
 }
 
@@ -577,7 +578,15 @@ pub fn scroll_to_end(n: Handle) {
     // SAFETY: a live adapter.
     let last = unsafe { OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) } as i32 - 1;
     if last >= 0 {
-        node::set_i32(n, Attr::NODE_LIST_SCROLL_TO_INDEX, last);
+        node::set_values(
+            n,
+            Attr::NODE_LIST_SCROLL_TO_INDEX,
+            &[
+                node::i32v(last),
+                node::i32v(0),
+                node::i32v(ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_END.0 as i32),
+            ],
+        );
     }
 }
 
@@ -590,14 +599,24 @@ pub fn scroll_to_row(n: Handle, index: u32) {
     // SAFETY: a live adapter.
     let count = unsafe { OH_ArkUI_NodeAdapter_GetTotalNodeCount((*dl).adapter) } as i32;
     if count > 0 {
-        node::set_i32(
-            n,
-            Attr::NODE_LIST_SCROLL_TO_INDEX,
-            (index as i32).min(count - 1),
-        );
+        reveal_row(n, (index as i32).min(count - 1));
     } else {
         // No rows yet: the jump waits for the reload that brings them (`reload`).
         // SAFETY: a live list (checked non-null above).
         unsafe { (*dl).pending_scroll = Some(index) };
     }
+}
+
+/// Reveal with the least movement, leaving an already-visible row in place. ArkUI's
+/// default START alignment moves even visible rows to the top of the viewport.
+fn reveal_row(n: Handle, index: i32) {
+    node::set_values(
+        n,
+        Attr::NODE_LIST_SCROLL_TO_INDEX,
+        &[
+            node::i32v(index),
+            node::i32v(0),
+            node::i32v(ArkUI_ScrollAlignment::ARKUI_SCROLL_ALIGNMENT_AUTO.0 as i32),
+        ],
+    );
 }
