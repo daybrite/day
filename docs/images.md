@@ -170,6 +170,11 @@ that clip when the native node's area changes and retains each drawable only unt
 is replaced or its node is disposed. Decoding currently runs on the UI thread; this renderer
 does not introduce background decoding, caching, or downsampling of large source images.
 
+Android keeps native outline clipping for hardware rendering and applies the same shape to
+`draw(Canvas)` when drawing into a software bitmap. Outline clipping alone does not mask
+`window_image()` snapshots. The software path clips both the placeholder background and image,
+and is rebuilt when the view changes size.
+
 The piece's portable `remote-image-*` conformance cases sample captured pixels for initial
 loading, replacement, clearing, invalid data, recovery, disposal/remounting, fit/fill, and
 clipping of both images and placeholders, including after layout changes. They require a

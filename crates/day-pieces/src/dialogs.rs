@@ -665,6 +665,9 @@ pub(crate) mod conformance {
                     });
                 })
                 .id("ask"),
+            // A focus target without an IME: opening the keyboard here would change the
+            // viewport inherited by the next test on mobile toolkits.
+            rectangle().frame(40.0, 40.0).focusable().id("after-dialog"),
         ))
     }
 
@@ -683,7 +686,11 @@ pub(crate) mod conformance {
                 d.tap("ask").await?;
                 d.assert_presented(Some("Delete it?")).await?;
                 d.respond(Some(1)).await?;
-                d.assert_text("answer", "answer yes").await
+                d.assert_text("answer", "answer yes").await?;
+                // A completed modal must release native focus to the underlying page,
+                // including when a scripted answer arrives before its first frame.
+                d.focus("after-dialog").await?;
+                d.assert_focused("after-dialog", true).await
             })
     }
 
@@ -699,7 +706,9 @@ pub(crate) mod conformance {
                 d.tap("ask").await?;
                 d.assert_presented(None).await?;
                 d.respond(None).await?;
-                d.assert_text("answer", "answer no").await
+                d.assert_text("answer", "answer no").await?;
+                d.focus("after-dialog").await?;
+                d.assert_focused("after-dialog", true).await
             })
     }
 

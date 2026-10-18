@@ -8807,6 +8807,12 @@ fn dialog_finisher(
     dialog: adw::AlertDialog,
 ) -> Rc<dyn Fn(day_spec::present::PresentResult)> {
     let answered = Rc::new(std::cell::Cell::new(false));
+    let closed = Rc::new(std::cell::Cell::new(false));
+    let did_close = closed.clone();
+    dialog.connect_closed(move |_| did_close.set(true));
+    // The response signal retains this finisher; keeping the dialog strongly here
+    // would keep both alive after the native host removes it.
+    let dialog = dialog.downgrade();
     Rc::new(move |result| {
         if answered.replace(true) {
             return;
@@ -8815,7 +8821,31 @@ fn dialog_finisher(
         NAV_DIALOGS.with(|m| {
             m.borrow_mut().remove(&req);
         });
+        let Some(dialog) = dialog.upgrade() else {
+            return;
+        };
         dialog.close();
+        if !closed.get() {
+            // libadwaita 1.5 opens the sheet on its first mapped frame ticks. Closing
+            // before those ticks sets an already-closed sheet to closed, then the pending
+            // open runs anyway, leaving the dialog host's content unfocusable. Replay the
+            // close on frame ticks until the native `closed` signal confirms completion.
+            // No strong widget capture: disposal also drops this callback.
+            let closed = closed.clone();
+            dialog.add_tick_callback(move |dialog, _| {
+                ffi_guard::contain(gtk4::glib::ControlFlow::Break, || {
+                    if closed.get() || dialog.root().is_none() {
+                        return gtk4::glib::ControlFlow::Break;
+                    }
+                    dialog.close();
+                    if closed.get() {
+                        gtk4::glib::ControlFlow::Break
+                    } else {
+                        gtk4::glib::ControlFlow::Continue
+                    }
+                })
+            });
+        }
     })
 }
 

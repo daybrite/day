@@ -93,6 +93,13 @@ Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fl
 All backends use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.
 
+GTK keeps an early programmatic close pending until the native dialog confirms closure.
+On libadwaita 1.5, a dialog can still have a scheduled opening frame when the answer
+arrives; a single close at that point can leave the underlying page unable to receive
+focus. Day retries the close on frame ticks until closure or removal from the window.
+The shared confirmation conformance tests check that both answering and dismissing a
+dialog let the underlying page receive focus again, without opening a software keyboard.
+
 ### ArkUI presentation and lifetime
 
 `Cap::Dialogs` is `Native`. `DayDialogs.ets` uses ArkUI's modal host, focus/keyboard handling,
