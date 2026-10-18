@@ -8,6 +8,9 @@
 
 use day::prelude::*;
 
+#[cfg(target_env = "ohos")]
+mod native_long_press;
+
 // Entry point for the mobile hosts; a desktop build enters through src/main.rs.
 day::day_start!(options: window(), root);
 
@@ -30,6 +33,10 @@ day::resources!();
 /// The first window's content: the registered GUI cases to browse, inside the test host that
 /// shows each case alone while `day test` drives it.
 pub fn root() -> impl Piece {
+    #[cfg(target_env = "ohos")]
+    if std::env::var_os("DAY_NATIVE_LONG_PRESS_TEST").is_some() {
+        return native_long_press::page().any();
+    }
     // The web has no link-time registry; each crate's roster registers its tests at launch
     // (a no-op everywhere else).
     day::builtin_tests::register_tests();
@@ -45,5 +52,5 @@ pub fn root() -> impl Piece {
     day_piece_settings::conformance::register_tests();
     day_piece_texteditor::conformance::register_tests();
     day_piece_stepper::conformance::register_tests();
-    day::test_host(day::builtin_tests::test_pages)
+    day::test_host(day::builtin_tests::test_pages).any()
 }

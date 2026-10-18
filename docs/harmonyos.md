@@ -365,7 +365,18 @@ on the Oniro emulator:
   minimal movement; scrolling to the end aligns the last row with the viewport bottom.
 - **Tabs** — an `ARKUI_NODE_SWIPER` pager with a dot indicator.
 - **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
-  NDK gesture API, reported on the shared kind-11 wire in px). Long-press is not wired.
+  NDK gesture API, reported on the shared kind-11 wire in px). The existing toolkit hook
+  `GestureKind::LongPress` uses ArkUI's one-finger, non-repeating, 500 ms recognizer and emits
+  `Event::LongPress` once on acceptance, with coordinates local to the native target in Day
+  points. Normal priority preserves ArkUI's gesture arbitration with scrolling and dragging.
+  A child long-press target takes precedence over an enclosing draggable list row inside the
+  child's hit region; the rest of the row remains draggable. Do not cover a reorderable row
+  with a competing long-press target if dragging must work across the whole row. Also,
+  repeated registration for the same node/event target is idempotent, and node disposal
+  detaches and releases the recognizer. This is low-level hook support: Day does not yet expose
+  a public `.on_long_press` modifier, and this does not add native context menus. UIKit and
+  Android likewise use long presses internally for menus/dragging without implementing this
+  generic hook. See [native-input regression tests](testing.md#native-arkui-long-press-tests).
 - **Scrolling** (§7.6) — `scroll()` is a real `ARKUI_NODE_SCROLL` whose day children live in a
   shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
   extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.

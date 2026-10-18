@@ -297,11 +297,37 @@ person can open any case on any toolkit and look at it, while a run shows each c
 depends on `day` by path with the `conformance` feature, so it is built against the commit it
 sits in and never against a published Day.
 
-Only its own files are committed: `Cargo.toml`, `src/`, `dayscript/` and `generate.sh`. The
+Only its own files are committed: `Cargo.toml`, `src/`, `dayscript/`, `scripts/` and `generate.sh`. The
 scaffold around them (`Day.toml`, `build.rs`, `resource/`, the `platform/` host projects) is
 `day new app` output, which `generate.sh` writes from the checkout's own template, so the app
 never runs on a host project an older template wrote. Run it once after a clone and again
 after a template change; CI runs it on every leg.
+
+### Native ArkUI long-press tests
+
+`apps/conformance/scripts/harmony-long-press.py` checks the existing
+`GestureKind::LongPress` toolkit hook with real OS touch input. After building the conformance
+app for `harmony-arkui`, run it with one connected, unlocked emulator/device and `hdc` on `PATH`:
+
+```sh
+target/debug/day --project apps/conformance build -t harmony-arkui
+python3 apps/conformance/scripts/harmony-long-press.py
+# Use another CLI binary with --day /path/to/day; --hdc selects the hdc executable.
+```
+
+The driver launches an opt-in root (`DAY_NATIVE_LONG_PRESS_TEST=1`), obtains coordinates from
+the native UI hierarchy, and injects touches using the SDK's `uinput` tool. Day's engine only
+controls fixture buttons and reads assertions; it never synthesizes a long-press event.
+Checks cover short taps, one callback per hold despite repeated registration, local point
+coordinates at the actual display density, scroll cancellation, disposal during a pending
+hold, removal from the acceptance handler, repeated remounting, and native list drag arbitration
+(the child hook owns its hit region; the rest of the row still drags). This is a separate
+native-input suite, not a registered `day test` case or part of the shared CI conformance run; a synthetic
+event test would not prove the recognizer works. The fixture does not introduce a public
+`.on_long_press` API. Normal launches without the environment flag retain the usual test host.
+
+Do not run this alongside another driver for the same app. It leaves the fixture visible for
+inspection; a normal `day launch` or `day test` restores the regular conformance app.
 
 ## In CI
 

@@ -154,6 +154,7 @@ pub fn dispose(n: Handle) {
         return;
     }
     crate::transfer::forget(n);
+    crate::gesture::forget(n);
     crate::canvas::forget(n);
     crate::list::forget(n);
     forget_a11y(n);

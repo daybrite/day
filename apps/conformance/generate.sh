@@ -5,7 +5,7 @@
 # Regenerate the conformance app's scaffold from THIS checkout's app template (docs/testing.md).
 #
 # Only the app's own files are source: Cargo.toml (the checkout's crates by path, with the
-# `conformance` feature), src/, dayscript/, README.md and this script. The rest (Day.toml,
+# `conformance` feature), src/, dayscript/, scripts/, README.md and this script. The rest (Day.toml,
 # build.rs, resource/ and the platform/ host projects) is `day new app` output, written fresh
 # here so the app never runs on a host project an older template wrote. CI runs this as the
 # conformance call's `setup-command`; run it once after a clone, and again after a template

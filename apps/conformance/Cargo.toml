@@ -46,6 +46,12 @@ day-piece-settings = { path = "../../pieces/day-piece-settings", features = ["co
 day-piece-texteditor = { path = "../../pieces/day-piece-texteditor", features = ["conformance"] }
 day-piece-stepper = { path = "../../pieces/day-piece-stepper", features = ["conformance"] }
 
+[target.'cfg(target_env = "ohos")'.dependencies]
+# The opt-in native-input fixture exercises an existing toolkit hook without adding a
+# public piece modifier just for the test.
+day-core = { path = "../../crates/day-core" }
+day-spec = { path = "../../crates/day-spec" }
+
 [build-dependencies]
 day-build = { path = "../../crates/day-build" }
 

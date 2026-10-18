@@ -15,7 +15,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > CTM transform ops (`Save`/`Restore`/`Concat`), and `.on_tap`/`.on_drag` gestures ship on all
 > five backends (AppKit, GTK, Qt, UIKit, Android) and are demonstrated by the showcase "Shapes"
 > playground. ArkUI also delivers `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan
-> recognizer on the shared kind-11 gesture wire); long-press is still unwired there. Since then: `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
+> recognizer on the shared kind-11 gesture wire), plus the low-level `GestureKind::LongPress`
+> hook (native recognition; no public `.on_long_press` modifier yet). Since then:
+> `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
 > already-replayed `Shape::Line`/`Shape::Polygon` ops, §3.1), fractional placement with
 > `.at(fx, fy, fw, fh)`, and the `shape_group`/`shape_group_fn` composites that flatten many
 > shapes into one canvas leaf (§3.6). This document is the SwiftUI
@@ -355,11 +357,12 @@ already works today.
 
 ## 6. Interaction & gestures
 
-The shape's canvas leaf is a real native view; when the event channel delivers
-`Event::Tap/LongPress` for it, the shape does path-precise hit testing in Rust (D5) via
-`Geometry::contains(point)` before firing `.on_tap`/`.on_long_press`. A kind with no cheap
-containment test falls back to its bounding box. This needs no backend work beyond the gesture
-events Day already plans.
+The shape's canvas leaf is a real native view. For taps, the shape does path-precise hit
+testing in Rust (D5) via `Geometry::contains(point)` before firing `.on_tap`. A kind with no
+cheap containment test falls back to its bounding box. The planned long-press equivalent
+would reuse this hit testing, but neither a shape `.on_long_press` nor a general public
+modifier exists yet. ArkUI implements the existing low-level `GestureKind::LongPress` hook
+and delivers `Event::LongPress`; that alone does not expose the event on the shape builder.
 
 ## 7. Gradients & `ShapeStyle` (linear + radial: DONE; angular: later)
 

@@ -5,7 +5,7 @@ The app `day test` runs Day's own piece tests in. Each `#[day::test]` case in
 toolkit and look at it, and the engine can drive it. See
 [docs/testing.md](../../docs/testing.md).
 
-Only the app's own files are committed: `Cargo.toml`, `src/`, `dayscript/` and
+Only the app's own files are committed: `Cargo.toml`, `src/`, `dayscript/`, `scripts/` and
 `generate.sh`. The scaffold around them (`Day.toml`, `build.rs`, `resource/`, `platform/`) is
 `day new app` output that `generate.sh` writes from this checkout's template, so it never
 falls behind the template. Run it once after a clone, and again after a template change:
@@ -19,6 +19,18 @@ cargo run -q -p day-cli -- --project apps/conformance test -p ios-uikit --list
 ```
 
 The same cases run on the mock toolkit under `cargo test -p day-script --test conformance`.
+
+The separate ArkUI long-press fixture exercises real OS touches, including gesture
+arbitration and disposal. Build the app, connect one unlocked HarmonyOS emulator/device,
+and run (with `hdc` on `PATH`):
+
+```sh
+target/debug/day --project apps/conformance build -t harmony-arkui
+python3 apps/conformance/scripts/harmony-long-press.py
+```
+
+See [native-input tests](../../docs/testing.md#native-arkui-long-press-tests) for scope and
+limitations. The fixture is opt-in and does not replace the regular conformance root.
 
 
 ## Generated native projects
