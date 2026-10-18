@@ -159,6 +159,7 @@ pub fn dispose(n: Handle) {
     forget_a11y(n);
     label_runs_clear(n);
     api_call!(disposeNode(n));
+    crate::images::forget_node(n);
 }
 
 /// Dispose `n` and everything under it, deepest first. Only for a subtree this backend built
@@ -869,7 +870,20 @@ pub fn set_slider(n: Handle, v: f64) {
 
 /// An image node's source: a `resource://RAWFILE/<path>` URI, a file path, a URL or base64.
 pub fn set_image_src(n: Handle, s: &str) {
-    set_str(n, Attr::NODE_IMAGE_SRC, s);
+    if set_str(n, Attr::NODE_IMAGE_SRC, s) == 0 {
+        crate::images::forget_node(n);
+    }
+}
+
+/// Decode and display encoded image bytes. Empty or invalid bytes clear the previous image.
+/// The node retains its drawable until replacement or disposal; callers need not retain bytes.
+pub fn set_image_bytes(n: Handle, bytes: &[u8]) {
+    if n.is_null() {
+        return;
+    }
+    reset(n, Attr::NODE_IMAGE_SRC);
+    crate::images::forget_node(n);
+    crate::images::node_set_bytes(n, bytes);
 }
 
 /// Scaling (§18.3): `ArkUI_ObjectFit` CONTAIN=0 / COVER=1 / FILL=3.

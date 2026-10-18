@@ -7,9 +7,10 @@
 //! image messages), where the app fetches `mxc://` bytes off the UI thread via the SDK and pushes
 //! them into a signal; this piece only turns bytes into a native image.
 //!
-//! Unlike day's built-in `image` (which loads a bundled asset by name), the source here is
-//! `Signal<Option<Arc<Vec<u8>>>>`: `None` shows the placeholder color; `Some(bytes)` decodes and
-//! displays. The `Arc<Vec<u8>>` is shared, so pushing a large buffer from a background decode is a
+//! The source is `Signal<Option<Arc<Vec<u8>>>>`: `None` shows the placeholder color;
+//! `Some(bytes)` decodes and displays, restoring the placeholder if decoding fails. Day's
+//! built-in `image` also accepts bytes, but keeps the preceding image on a failed replacement.
+//! The `Arc<Vec<u8>>` is shared, so pushing a large buffer from a background fetch is a
 //! refcount bump, not a copy. The piece is a growing leaf that fills its frame (constrain it with
 //! `.frame(w, h)`); avatars occupy their box even before any bytes arrive.
 //!
@@ -234,7 +235,7 @@ impl Piece for RemoteImage {
 // and `#[path]` keeps the files grouped next to lib.rs (the day-piece-searchfield layout).
 // ---------------------------------------------------------------------------
 
-day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml);
+day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, arkui, xaml);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
@@ -290,7 +291,7 @@ pub mod conformance {
     use day_reactive::Signal;
     use day_spec::{Cap, Color};
 
-    use super::{KIND, remote_image};
+    use super::{ContentMode, KIND, remote_image};
 
     /// A 4×2 PNG, red on the left half, blue on the right.
     const RED_BLUE: [u8; 76] = [
@@ -300,6 +301,27 @@ pub mod conformance {
         0xcf, 0xc0, 0x00, 0x44, 0x60, 0xe2, 0x3f, 0x03, 0x32, 0x07, 0x00, 0x67, 0xb2, 0x07, 0xf9,
         0xf7, 0x92, 0x56, 0x82, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60,
         0x82,
+    ];
+
+    /// A 1×1 opaque green PNG, deliberately a different size as well as a different color.
+    const GREEN: [u8; 69] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
+        0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x60,
+        0xf8, 0xcf, 0x00, 0x00, 0x02, 0x02, 0x01, 0x00, 0x7b, 0x09, 0x81, 0x78, 0x00, 0x00, 0x00,
+        0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+    ];
+
+    /// A 60×20 PNG with equal red, green, blue vertical bands. Filling a square crops to
+    /// green; fitting or stretching preserves the red/blue edges, so these modes differ.
+    const STRIPES: [u8; 104] = [
+        0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44,
+        0x52, 0x00, 0x00, 0x00, 0x3c, 0x00, 0x00, 0x00, 0x14, 0x08, 0x02, 0x00, 0x00, 0x00, 0x5e,
+        0x61, 0xc9, 0x7e, 0x00, 0x00, 0x00, 0x2f, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0xed, 0xce,
+        0xb1, 0x09, 0x00, 0x00, 0x0c, 0xc3, 0xb0, 0xfc, 0xff, 0x74, 0xfb, 0x43, 0x4a, 0x37, 0x81,
+        0x57, 0x83, 0x32, 0x49, 0x5d, 0x7f, 0x1e, 0x67, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68, 0x68,
+        0x68, 0x68, 0x68, 0x68, 0x68, 0xe8, 0x8f, 0x79, 0x01, 0x39, 0x0f, 0xab, 0x8d, 0x85, 0x9c,
+        0x89, 0x2d, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
     ];
 
     /// Until bytes arrive the placeholder color shows; once they do, the image draws.
@@ -329,7 +351,191 @@ pub mod conformance {
             })
     }
 
-    day_core::tests! { remote_image_shows_bytes }
+    /// A replacement must not keep the old pixels; absent, empty and corrupt sources all
+    /// restore the placeholder. Unmounting must release native resources and reactive watchers.
+    #[day_macros::test(day_core)]
+    fn remote_image_replaces_clears_and_remounts() -> Case {
+        Case::new()
+            .proves(KIND)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let source = Signal::new(Some(Arc::new(RED_BLUE.to_vec())));
+                let shown = Signal::new(true);
+                column((
+                    row((
+                        button("Green")
+                            .action(move || source.set(Some(Arc::new(GREEN.to_vec()))))
+                            .id("green"),
+                        button("Clear").action(move || source.set(None)).id("clear"),
+                        button("Empty")
+                            .action(move || source.set(Some(Arc::new(Vec::new()))))
+                            .id("empty"),
+                    )),
+                    row((
+                        button("Invalid")
+                            .action(move || source.set(Some(Arc::new(vec![1, 2, 3]))))
+                            .id("invalid"),
+                        button("Mount")
+                            .action(move || shown.set(!shown.get()))
+                            .id("mount"),
+                    )),
+                    when(
+                        move || shown.get(),
+                        move || {
+                            remote_image(source)
+                                .placeholder_color(Color::hex(0x808080))
+                                .id("image")
+                                .frame(120.0, 60.0)
+                        },
+                    ),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("image", 0.2, 0.5, "#ff0000").await?;
+                for action in ["clear", "empty", "invalid"] {
+                    d.tap("green").await?;
+                    d.sample_pixel("image", 0.2, 0.5, "#00ff00").await?;
+                    d.tap(action).await?;
+                    d.sample_pixel("image", 0.2, 0.5, "#808080").await?;
+                }
+                for _ in 0..3 {
+                    d.tap("mount").await?;
+                    d.assert_missing("image").await?;
+                    d.tap("green").await?; // Update while disposed: no stale native callback.
+                    d.tap("mount").await?;
+                    d.sample_pixel("image", 0.8, 0.5, "#00ff00").await?;
+                    d.tap("clear").await?;
+                    d.sample_pixel("image", 0.8, 0.5, "#808080").await?;
+                }
+                Ok(())
+            })
+    }
+
+    /// Fit letterboxes; Fill covers the frame without stretching the image.
+    #[day_macros::test(day_core)]
+    fn remote_image_fit_and_fill() -> Case {
+        Case::new()
+            .proves(KIND)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let source = Signal::new(Some(Arc::new(STRIPES.to_vec())));
+                column((
+                    remote_image(source)
+                        .content_mode(ContentMode::Fit)
+                        .placeholder_color(Color::hex(0x808080))
+                        .id("fit")
+                        .frame(100.0, 100.0),
+                    remote_image(source)
+                        .content_mode(ContentMode::Fill)
+                        .placeholder_color(Color::hex(0x808080))
+                        .id("fill")
+                        .frame(100.0, 100.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.sample_pixel("fit", 0.2, 0.1, "#808080").await?;
+                d.sample_pixel("fit", 0.2, 0.5, "#ff0000").await?;
+                d.sample_pixel("fit", 0.8, 0.5, "#0000ff").await?;
+                d.sample_pixel("fill", 0.1, 0.1, "#00ff00").await?;
+                d.sample_pixel("fill", 0.9, 0.9, "#00ff00").await?;
+                // Pixel assertions wait for the native render checkpoint; capture afterwards.
+                d.shot("default").await
+            })
+    }
+
+    /// A circle is centered with diameter min(width, height), not a capsule/ellipse. Both
+    /// image and placeholder are clipped; a rounded rectangle must keep its straight edges.
+    #[day_macros::test(day_core)]
+    fn remote_image_clips_image_and_placeholder() -> Case {
+        Case::new()
+            .proves(KIND)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let source = Signal::new(Some(Arc::new(GREEN.to_vec())));
+                column((
+                    button("Clear").action(move || source.set(None)).id("clear"),
+                    remote_image(source)
+                        .circle()
+                        .placeholder_color(Color::hex(0x808080))
+                        .id("wide")
+                        .frame(120.0, 60.0),
+                    remote_image(source)
+                        .circle()
+                        .placeholder_color(Color::hex(0x808080))
+                        .id("tall")
+                        .frame(60.0, 120.0),
+                    remote_image(source)
+                        .rounded(20.0)
+                        .placeholder_color(Color::hex(0x808080))
+                        .id("rounded")
+                        .frame(120.0, 60.0),
+                ))
+                .background(Color::hex(0x000000))
+            })
+            .drive(|d: Drive| async move {
+                for color in ["#00ff00", "#808080"] {
+                    for id in ["wide", "tall", "rounded"] {
+                        d.sample_pixel(id, 0.5, 0.5, color).await?;
+                        d.sample_pixel(id, 0.02, 0.02, "#000000").await?;
+                    }
+                    d.sample_pixel("wide", 0.1, 0.5, "#000000").await?;
+                    d.sample_pixel("tall", 0.5, 0.1, "#000000").await?;
+                    d.sample_pixel("rounded", 0.1, 0.5, color).await?;
+                    d.shot(if color == "#00ff00" {
+                        "default"
+                    } else {
+                        "placeholder"
+                    })
+                    .await?;
+                    d.tap("clear").await?;
+                }
+                Ok(())
+            })
+    }
+
+    /// Resizing the same native view must move its circular clip, without rebuilding it.
+    #[day_macros::test(day_core)]
+    fn remote_image_circle_follows_layout() -> Case {
+        Case::new()
+            .proves(KIND)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let source = Signal::new(Some(Arc::new(GREEN.to_vec())));
+                let narrow = Signal::new(false);
+                // Keep the sampled view directly in the root row: sample_pixel uses the
+                // Day frame, which is relative to the nearest native parent.
+                row((
+                    remote_image(source).circle().id("image"),
+                    when(move || narrow.get(), || label("").frame(60.0, 60.0)),
+                    button("Resize")
+                        .action(move || narrow.set(!narrow.get()))
+                        .id("resize")
+                        .frame(80.0, 60.0),
+                ))
+                .spacing(0.0)
+                .frame(260.0, 60.0)
+                .background(Color::hex(0x000000))
+            })
+            .drive(|d: Drive| async move {
+                for width in [180.0, 120.0, 180.0] {
+                    d.assert_size("image", width, 60.0).await?;
+                    d.sample_pixel("image", 0.5, 0.5, "#00ff00").await?;
+                    d.sample_pixel("image", 0.1, 0.5, "#000000").await?;
+                    // A stale 180-wide clip would miss this point after shrinking to 120.
+                    d.sample_pixel("image", 0.4, 0.5, "#00ff00").await?;
+                    d.tap("resize").await?;
+                }
+                Ok(())
+            })
+    }
+
+    day_core::tests! {
+        remote_image_shows_bytes,
+        remote_image_replaces_clears_and_remounts,
+        remote_image_fit_and_fill,
+        remote_image_clips_image_and_placeholder,
+        remote_image_circle_follows_layout,
+    }
 }
 
 #[cfg(test)]

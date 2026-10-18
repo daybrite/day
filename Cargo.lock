@@ -1070,6 +1070,7 @@ dependencies = [
  "cc",
  "day-android",
  "day-appkit",
+ "day-arkui",
  "day-core",
  "day-gtk",
  "day-macros",

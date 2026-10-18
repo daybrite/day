@@ -13,7 +13,7 @@ build = "build.rs"
 # supplied reactively, the source of a Matrix client's avatars and inline image messages. The app
 # fetches `mxc://` bytes off-thread via the SDK and pushes them into a `Signal<Option<Arc<Vec<u8>>>>`;
 # this piece renders bytes → native image (NSImage / UIImage / GdkTexture / QPixmap / Bitmap /
-# BitmapImage), with a placeholder rectangle while the source is `None` or a decode fails. Like the
+# BitmapImage / ArkUI Image), with a placeholder while the source is `None` or a decode fails. Like the
 # other standalone pieces it carries both its front-end (Rust) and its per-toolkit backend (objc2 /
 # gtk-rs / C++ shim / Android Java) without touching any core day crate. See docs/extending.md.
 
@@ -26,6 +26,7 @@ gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QWidget + QPixmap), Qt libs linked by day-qt-sys
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayRemoteImage Java factory
+arkui = ["dep:day-arkui"]
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (an Image/Ellipse boxed via day-xaml-sys's
 # day_xaml_box functions, like the picker/media xaml pieces). Windows-only, built in CI, not
 # verified locally (see the caveat at the top of lib-xaml-shim.cpp). mock has no renderer; its
@@ -40,7 +41,7 @@ mock = []
 # into an app build (Tier A.2), so an app depends on this piece with a plain `{ workspace = true }`
 # and no per-backend feature fan-out in its own Cargo.toml.
 [package.metadata.day.piece]
-backends = ["appkit", "gtk", "qt", "uikit", "mdc", "xaml", "winui", "mock"]
+backends = ["appkit", "gtk", "qt", "uikit", "mdc", "arkui", "xaml", "winui", "mock"]
 
 [dependencies]
 day-macros = { workspace = true, optional = true }
@@ -57,6 +58,7 @@ day-gtk = { workspace = true, optional = true }
 day-qt = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
+day-arkui = { workspace = true, optional = true }
 day-xaml = { workspace = true, optional = true }
 day-xaml-sys = { workspace = true, optional = true }
 gtk4 = { workspace = true, optional = true }

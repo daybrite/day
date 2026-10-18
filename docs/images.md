@@ -149,6 +149,32 @@ UIKit and Android also treat the default source (`ImageSource::Named(String::new
 explicit clear when patching an existing image view. An unresolved nonempty name or a source
 the backend cannot decode retains the preceding image, so it is not a loading placeholder.
 
+## Reactive remote-image views
+
+`day-piece-remote-image` provides `remote_image(Signal<Option<Arc<Vec<u8>>>>)` for avatars
+and downloaded image content. `remote_image_url(url)` fetches through `day-part-http` and feeds
+the same view. The app does not need to decode the bytes first. Unlike the built-in `image`
+replacement behavior above, `None`, an empty buffer, or invalid image bytes restores the
+placeholder color instead of keeping the preceding image.
+
+The native renderers cover AppKit, UIKit, GTK, Qt, Android, XAML/WinUI, and ArkUI. Day enables
+the renderer through the piece's backend metadata when building the app. ArkUI uses a native
+`Image` node and the Image Kit decoder, with no ArkTS component or extra permission needed for
+the bytes-only path. Network fetching still needs the app's network permission.
+
+`ContentMode::Fill` fills the bounds while preserving aspect ratio and cropping the excess;
+`Fit` preserves the entire image and shows the placeholder in the letterbox margins.
+`.rounded(radius)` and `.circle()` clip both the image and its placeholder. A circle is
+centered with diameter `min(width, height)`, including in a non-square frame. ArkUI updates
+that clip when the native node's area changes and retains each drawable only until its source
+is replaced or its node is disposed. Decoding currently runs on the UI thread; this renderer
+does not introduce background decoding, caching, or downsampling of large source images.
+
+The piece's portable `remote-image-*` conformance cases sample captured pixels for initial
+loading, replacement, clearing, invalid data, recovery, disposal/remounting, fit/fill, and
+clipping of both images and placeholders, including after layout changes. They require a
+renderer and snapshot support, but no network connection.
+
 ## Lifetime
 
 A `Bitmap` releases its pixels when the last clone drops, through `Toolkit::release_image`. The

@@ -397,6 +397,12 @@ on the Oniro emulator:
 - **Canvas images** — `DrawOp::Image` draws the decoded pixelmap with
   `OH_Drawing_CanvasDrawPixelMapRect`, preceded by a fully transparent rect: a custom node's
   recording whose only content is pixel map draws renders nothing.
+- **Remote images** — `day-piece-remote-image` has a native Image-node renderer, automatically
+  enabled by its `arkui` feature metadata. Reactive PNG/JPEG bytes replace the displayed image;
+  absent, empty, or invalid bytes restore the placeholder. Fit/fill scaling and rounded or
+  centered circular clipping apply to both content and placeholder. Drawables are retained
+  until replacement or node disposal. See [images.md](images.md#reactive-remote-image-views)
+  for behavior, conformance coverage, and decoding limits.
 - **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 

@@ -16,7 +16,9 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ptr;
 
-use ohos_sys::arkui::drawable_descriptor::OH_ArkUI_DrawableDescriptor_CreateFromPixelMap;
+use ohos_sys::arkui::drawable_descriptor::{
+    OH_ArkUI_DrawableDescriptor_CreateFromPixelMap, OH_ArkUI_DrawableDescriptor_Dispose,
+};
 use ohos_sys::arkui::native_node::{ArkUI_NodeAttributeType as Attr, OH_ArkUI_GetNodeSnapshot};
 use ohos_sys::multimedia::image_kit::native_image::common::{Image_MimeType, ImageResult};
 use ohos_sys::multimedia::image_kit::native_image::image_packer::{
@@ -39,6 +41,34 @@ use crate::node::Handle;
 
 thread_local! {
     static BITMAPS: RefCell<HashMap<u64, *mut OH_PixelmapNative>> = RefCell::new(HashMap::new());
+    // NODE_IMAGE_SRC borrows its descriptor. Keep it alive until the source is replaced or
+    // the node disposed, rather than leaking a descriptor on every reactive image update.
+    static NODE_DRAWABLES: RefCell<HashMap<usize, Drawable>> = RefCell::new(HashMap::new());
+}
+
+struct Drawable(*mut std::ffi::c_void);
+
+impl Drop for Drawable {
+    fn drop(&mut self) {
+        // SAFETY: this descriptor was created here and is no longer used by its image node.
+        unsafe { OH_ArkUI_DrawableDescriptor_Dispose(self.0.cast()) };
+    }
+}
+
+/// Release the descriptor after a node's source has been replaced, reset, or disposed.
+pub(crate) fn forget_node(n: Handle) {
+    NODE_DRAWABLES.with(|m| m.borrow_mut().remove(&(n as usize)));
+}
+
+fn node_set_pixelmap(n: Handle, pm: *mut OH_PixelmapNative) {
+    // SAFETY: a live pixelmap; the descriptor retains its image and is kept for the node.
+    let dd = unsafe { OH_ArkUI_DrawableDescriptor_CreateFromPixelMap(pm) };
+    if !dd.is_null() {
+        let drawable = Drawable(dd.cast());
+        if crate::node::set_object(n, Attr::NODE_IMAGE_SRC, dd.cast()) == 0 {
+            NODE_DRAWABLES.with(|m| m.borrow_mut().insert(n as usize, drawable));
+        }
+    }
 }
 
 pub fn bitmap(id: u64) -> *mut OH_PixelmapNative {
@@ -186,23 +216,19 @@ pub fn encode(id: u64, mime: &str, quality: Option<u32>) -> Option<Vec<u8>> {
 }
 
 /// Point an image node at a decoded bitmap: `NODE_IMAGE_SRC` takes a drawable descriptor object
-/// rather than a `resource://` string. The node takes its own reference; disposing the
-/// descriptor here would blank the image.
+/// rather than a `resource://` string. Keep the descriptor until replacement or disposal.
 pub fn node_set_bitmap(n: Handle, id: u64) {
     let pm = bitmap(id);
     if n.is_null() || pm.is_null() {
         return;
     }
-    // SAFETY: a live pixelmap; the descriptor becomes the node's.
-    let dd = unsafe { OH_ArkUI_DrawableDescriptor_CreateFromPixelMap(pm) };
-    if !dd.is_null() {
-        crate::node::set_object(n, Attr::NODE_IMAGE_SRC, dd.cast());
-    }
+    node_set_pixelmap(n, pm);
 }
 
 /// Point an image node at raw encoded bytes: realize has no `BitmapId` to look up (the app never
 /// decoded these through day-core), so they are decoded here, handed to the node as a drawable
-/// descriptor, and the temporary pixelmap released: the node holds its own reference by then.
+/// descriptor, and the temporary pixelmap released. As for the built-in image on the other
+/// backends, an invalid replacement retains the previous source (docs/images.md).
 pub fn node_set_bytes(n: Handle, bytes: &[u8]) {
     if n.is_null() || bytes.is_empty() {
         return;
@@ -210,14 +236,9 @@ pub fn node_set_bytes(n: Handle, bytes: &[u8]) {
     let Some((pm, _, _, _)) = decode_bytes(bytes) else {
         return;
     };
-    // SAFETY: a pixelmap decoded above, released once the node holds its descriptor.
-    unsafe {
-        let dd = OH_ArkUI_DrawableDescriptor_CreateFromPixelMap(pm);
-        if !dd.is_null() {
-            crate::node::set_object(n, Attr::NODE_IMAGE_SRC, dd.cast());
-        }
-        OH_PixelmapNative_Release(pm);
-    }
+    node_set_pixelmap(n, pm);
+    // SAFETY: the temporary pixelmap decoded above; the drawable holds its own image reference.
+    unsafe { OH_PixelmapNative_Release(pm) };
 }
 
 /// Render a mounted node to PNG bytes (docs/window-image.md), entirely native and SYNCHRONOUS:

@@ -55,7 +55,7 @@ nothing derived from `realize` can.
 | `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | `day-piece-map` | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
 | `day-piece-pullrefresh` | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | · |
+| `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
 | `day-piece-stepper` | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
 | `day-piece-swiftui` | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
