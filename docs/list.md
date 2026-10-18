@@ -33,7 +33,7 @@ own context menu. Action callbacks validate the row token and cell generation be
 The deprecated **windows-xaml** backend retains its emulated implementation; references
 to “XAML” below refer to that backend, not WinUI.
 
-`list-recycles-distant-rows` checks bounded row construction and rebound control actions;
+`list-recycles-distant-rows` checks that distant jumps keep a bounded number of rows alive and rebind their actions; `list-releases-discarded-rows` churns a list by jumps, shrinks, regrowth and reorders and checks the same bound;
 `list-shrink-and-regrow` checks emptying and repopulating a scrolled list. Run them with the
 other list cases using `day test --project apps/conformance -t windows-winui 'list-*'`.
 
@@ -158,6 +158,7 @@ pub struct ListSource {
     pub token_at: Rc<dyn Fn(usize) -> u64>,     // stable per-row identity for the native widget
     pub bind_row: Rc<dyn Fn(usize, RawHandle)>, // build-or-rebind row `i` into this native cell
     pub recycle: Rc<dyn Fn(RawHandle)>,         // cell leaving the viewport: its ids park until the next bind
+    pub release: Rc<dyn Fn(RawHandle)>,         // host discarded the cell for good: its row is disposed
     pub layout_cell: Rc<dyn Fn(RawHandle, f64)>, // re-lay that cell's row at the width the platform gave it
     pub cell_height: Rc<dyn Fn(RawHandle) -> f64>, // the row's laid height, padding included (a self-measuring cell's height)
 }
@@ -199,6 +200,14 @@ Per `LIST` node the tree holds:
 forgotten, so the next row it shows is sized afresh rather than reported as a change. A later
 `bind_row` of the same cell rebinds instead of building.
 
+`release(cell)` is the host's goodbye: it discarded the cell for good (GTK's factory
+`teardown`, a `UITableViewCell` deallocating), so Day disposes the row built there, scope,
+nodes and ids, exactly as it does for every cell when the list itself goes. Pools discard
+cells on a far jump (UITableView handed back 465 fresh cells over one run of the recycling
+case, GtkListView 244), and without this call each discarded cell left one dead row behind. The call is safe inside a day-core borrow (a host often tears cells down from inside
+a reload or a removal Day started): the work is held for the borrow's end, never dropped. A
+handle seen again after its release is a new cell and builds afresh.
+
 When the items signal changes, the effect refreshes the snapshot and applies a `ListPatch::Reload`
 so the native widget re-queries the source. A source connection that reports its own row events
 (a day-persistence query, for one) sends `ListPatch::Splice(Vec<RowDelta>)` instead: sequential
@@ -209,11 +218,11 @@ following its rows. A plain items closure has no such events and reloads.
 
 | Backend | Widget | Recycling | Notes |
 |---|---|---|---|
-| mock    | simulated viewport | yes (test-driven) | `MockProbe::list_bind`/`list_recycle` drive binds and recycling; exercises the driver |
+| mock    | simulated viewport | yes (test-driven) | `MockProbe::list_bind`/`list_recycle`/`list_release` drive binds, pooling and discards; exercises the driver |
 | AppKit  | `NSTableView` (view-based) | native | `makeView`/`viewFor` → `bind_row`; `numberOfRows` → `len` |
-| UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row` |
+| UIKit   | `UITableView` + reuse id | native | `cellForRowAt` → `bind_row`; `didEndDisplaying` → `recycle`; the cell's `dealloc` → `release` (the table discards surplus cells as well as reusing them) |
 | Android | `RecyclerView` + `Adapter` | native | `onBindViewHolder` → `bind_row` |
-| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | within a page; not claimed | factory `bind`/`unbind` → `bind_row`/`recycle`; the cell's `size_allocate` → `layout_cell`. Across a far jump GtkListView tears item widgets down and sets up new ones, and Day has no release hook for a discarded cell yet, so the capability is not answered until it does. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
+| GTK 4   | `GtkListView` + `GtkListItemFactory`; each cell a `DayCell`, a custom container that asks for no width and lays the row out at the width the themed `row` node grants it | native | factory `bind`/`unbind` → `bind_row`/`recycle`, `teardown` → `release`; the cell's `size_allocate` → `layout_cell`. GtkListView keeps up to 200 spare items by design and rebinds them, so a five-row viewport settles at about 205 rows alive; items beyond that are torn down and released. A `Reload` splices only the row-count difference and re-binds the bound cells in place, top to bottom: replacing every model item would make GtkListView destroy each row widget and build a second set |
 | Qt      | `QListView` over a count-only `QAbstractListModel` and a delegate that paints only the item chrome; each cell a plain `QWidget` placed over its row as a viewport child | native — a bounded pool (the viewport plus overscan) the Rust side retargets on every window change: a row scrolling out parks its cell and `recycle`s it, a row scrolling in takes a spare and `bind_row` rebinds it | the view owns selection, keys, focus, drag; Day owns the rows. Cells are never index widgets: the view deletes those on removal. Every Qt callback into Day is posted |
 | ArkUI   | `List` + `NodeAdapter`; each cell a `ListItem` holding the row | native | adapter attach/detach → `bind_row`/`recycle`; item ids carry a generation so a reload never rebinds a stale cell |
 | WinUI   | `ItemsRepeater` + `StackLayout`; each cell an `ItemContainer` holding a `Canvas` for the row | native | the repeater's realization callbacks post `bind_row`/`recycle` (calling the source inside XAML layout would re-enter Day) |

@@ -122,6 +122,7 @@ fn main() {
             token_at: Rc::new(move |i| rows_for_token.borrow()[i]),
             bind_row: Rc::new(|_, _| {}),
             recycle: Rc::new(|_| {}),
+            release: Rc::new(|_| {}),
             layout_cell: Rc::new(|_, _| {}),
             cell_height: Rc::new(|_| 0.0),
             reorder: None,
@@ -227,6 +228,7 @@ fn main() {
                 }
             }),
             recycle: Rc::new(|_| {}),
+            release: Rc::new(|_| {}),
             layout_cell: Rc::new(|_, _| {}),
             cell_height: Rc::new(|_| 0.0),
             reorder: None,

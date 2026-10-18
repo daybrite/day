@@ -3529,14 +3529,45 @@ pub(crate) mod conformance {
             })
     }
 
-    /// Distant jumps reuse a bounded number of row scopes and rebind their actions.
+    /// Counts the rows a list has alive: one per row built, one less per row disposed. A
+    /// guard rides in each row's label closure, which the row's scope owns, so a cell the
+    /// host merely pooled still counts (its row is intact and rebinds) and a cell the host
+    /// discarded stops counting once `ListSource::release` disposed its row.
+    struct RowAlive(std::rc::Rc<std::cell::Cell<usize>>);
+
+    impl RowAlive {
+        fn new(live: &std::rc::Rc<std::cell::Cell<usize>>) -> Self {
+            live.set(live.get() + 1);
+            RowAlive(live.clone())
+        }
+    }
+
+    impl Drop for RowAlive {
+        fn drop(&mut self) {
+            self.0.set(self.0.get().saturating_sub(1));
+        }
+    }
+
+    /// The most rows a five-row viewport may have alive once the host has settled: its own
+    /// pool and nothing visited earlier. The pools measured: AppKit 5, Qt 21 (the viewport plus
+    /// two overscans), the mock 20, Android and UIKit a few dozen, and GtkListView 205: it
+    /// keeps up to 200 spare items by design (`GTK_LIST_VIEW_MAX_LIST_ITEMS`) and rebinds them.
+    /// A leak grows with every row visited instead, and the cases visit many more rows than
+    /// this, so the bound stays tight against it.
+    const ROWS_ALIVE_BOUND: usize = 256;
+
+    /// Distant jumps keep a bounded number of rows alive and rebind their actions.
     #[day_macros::test(day_core)]
     fn list_recycles_distant_rows() -> Case {
         let built = std::rc::Rc::new(std::cell::Cell::new(0usize));
-        let count = built.clone();
+        let live = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let (count, alive) = (built.clone(), live.clone());
         Case::new()
             .proves(kinds::LIST)
             .proves_cap(Cap::ListRecycling)
+            // 180 jumps, each settled by a bounded wait: 5 s on GTK, 19 s on Qt, 57 s on
+            // the iOS simulator.
+            .timeout(180.0)
             .requires_support("native list recycling", || {
                 if day_core::capability(Cap::ListRecycling) == day_spec::Support::Native {
                     day_spec::Support::Native
@@ -3546,8 +3577,9 @@ pub(crate) mod conformance {
             })
             .page(move || {
                 count.set(0);
-                let count = count.clone();
-                let rows = Signal::new((0..2000).collect::<Vec<usize>>());
+                alive.set(0);
+                let (count, alive) = (count.clone(), alive.clone());
+                let rows = Signal::new((0..4000).collect::<Vec<usize>>());
                 let jump = Signal::new(None);
                 let next = Signal::new(40usize);
                 let pressed = Signal::new(String::new());
@@ -3560,9 +3592,13 @@ pub(crate) mod conformance {
                     label(move || pressed.get()).id("pressed"),
                     list(items(move || rows.get(), |n: &usize| *n), move |slot| {
                         count.set(count.get() + 1);
-                        button(move || format!("Row {}", slot.get()))
-                            .id_of(move || format!("row:{}", slot.key()))
-                            .action(move || pressed.set(format!("Pressed {}", slot.get())))
+                        let guard = RowAlive::new(&alive);
+                        button(move || {
+                            let _ = &guard;
+                            format!("Row {}", slot.get())
+                        })
+                        .id_of(move || format!("row:{}", slot.key()))
+                        .action(move || pressed.set(format!("Pressed {}", slot.get())))
                     })
                     .row_height(RowHeight::Uniform(32.0))
                     .scroll_to_row(jump)
@@ -3570,14 +3606,17 @@ pub(crate) mod conformance {
                 ))
             })
             .drive(move |d: Drive| {
-                let built = built.clone();
+                let (built, live) = (built.clone(), live.clone());
                 async move {
                     d.assert_text("row:0", "Row 0").await?;
                     // Distinct regions: retaining a cell for every visited index must fail.
                     // Row 1, not row 0, is the one that must go: GtkListView keeps its
                     // focused item's widget realized wherever the view scrolls, and row 0
                     // holds the focus here (the first item at start, then every `back` tap).
-                    for row in (40..=1600).step_by(40) {
+                    // Ninety regions out and back: some nine hundred rows visited, so a host
+                    // that keeps a row per visited cell overshoots `ROWS_ALIVE_BOUND` several
+                    // times over, where every pool measured stays under it.
+                    for row in (40..=3600).step_by(40) {
                         d.tap("far").await?;
                         d.assert_text(&format!("row:{row}"), &format!("Row {row}"))
                             .await?;
@@ -3589,10 +3628,136 @@ pub(crate) mod conformance {
                         d.tap("row:0").await?;
                         d.assert_text("pressed", "Pressed 0").await?;
                     }
+                    // Settled: a host that releases discarded cells on a later turn (a
+                    // posted dealloc, a teardown held for a borrow) has had it.
+                    d.wait_idle().await?;
+                    d.pause(0.3).await?;
                     d.check(
-                        built.get() < 100,
+                        live.get() <= ROWS_ALIVE_BOUND,
                         &format!(
-                            "recycling built {} row scopes for a five-row viewport",
+                            "{} rows alive after 180 jumps of a five-row viewport ({} built): \
+                             discarded cells keep their rows",
+                            live.get(),
+                            built.get()
+                        ),
+                    )
+                }
+            })
+    }
+
+    /// Shrinking, regrowing, reordering and jumping discard cells by every path a host has;
+    /// the rows built in them go with them, and no row answers for a cell it no longer has.
+    #[day_macros::test(day_core)]
+    fn list_releases_discarded_rows() -> Case {
+        const TOTAL: usize = 3000;
+        const STRIDE: usize = 1237;
+        let built = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let live = std::rc::Rc::new(std::cell::Cell::new(0usize));
+        let (count, alive) = (built.clone(), live.clone());
+        Case::new()
+            .proves(kinds::LIST)
+            .proves_cap(Cap::ListRecycling)
+            .timeout(90.0)
+            .requires_support("native list recycling", || {
+                if day_core::capability(Cap::ListRecycling) == day_spec::Support::Native {
+                    day_spec::Support::Native
+                } else {
+                    day_spec::Support::Unsupported
+                }
+            })
+            .page(move || {
+                count.set(0);
+                alive.set(0);
+                let (count, alive) = (count.clone(), alive.clone());
+                let rows = Signal::new((0..TOTAL).collect::<Vec<usize>>());
+                let jump = Signal::new(None);
+                let at = Signal::new(0usize);
+                let pressed = Signal::new(String::new());
+                column((
+                    // A stride coprime with the count walks the whole list in a scattered
+                    // order, so consecutive jumps never share a cell.
+                    button("Far").id("far").action(move || {
+                        let next = (at.get_untracked() + STRIDE) % TOTAL;
+                        at.set(next);
+                        jump.set(Some(next));
+                    }),
+                    // Five rows fill the viewport exactly, so after the shrink every row is on
+                    // screen wherever the host clamps its scroll offset.
+                    button("Shrink")
+                        .id("shrink")
+                        .action(move || rows.set((0..5).collect())),
+                    button("Regrow")
+                        .id("regrow")
+                        .action(move || rows.set((0..TOTAL).collect())),
+                    // The same rows in a new order: a reload that keeps every token.
+                    button("Rotate")
+                        .id("rotate")
+                        .action(move || rows.update(|r| r.rotate_left(7))),
+                    label(move || pressed.get()).id("pressed"),
+                    list(items(move || rows.get(), |n: &usize| *n), move |slot| {
+                        count.set(count.get() + 1);
+                        let guard = RowAlive::new(&alive);
+                        button(move || {
+                            let _ = &guard;
+                            format!("Row {}", slot.get())
+                        })
+                        .id_of(move || format!("row:{}", slot.key()))
+                        .action(move || pressed.set(format!("Pressed {}", slot.get())))
+                    })
+                    .row_height(RowHeight::Uniform(32.0))
+                    .scroll_to_row(jump)
+                    .height(160.0),
+                ))
+            })
+            .drive(move |d: Drive| {
+                let (built, live) = (built.clone(), live.clone());
+                async move {
+                    d.assert_text("row:0", "Row 0").await?;
+                    let (mut at, mut rotation) = (0usize, 0usize);
+                    // The key of the row at index `i` after `rotation` left-rotations.
+                    let key_at = |i: usize, rotation: usize| (i + rotation) % TOTAL;
+                    for _ in 0..10 {
+                        // A jump lands, and the row it lands on works.
+                        at = (at + STRIDE) % TOTAL;
+                        d.tap("far").await?;
+                        let key = key_at(at, rotation);
+                        d.assert_text(&format!("row:{key}"), &format!("Row {key}"))
+                            .await?;
+                        d.tap(&format!("row:{key}")).await?;
+                        d.assert_text("pressed", &format!("Pressed {key}")).await?;
+                        // Two jumps back to back: the second one wins.
+                        d.tap("far").await?;
+                        d.tap("far").await?;
+                        at = (at + 2 * STRIDE) % TOTAL;
+                        let key = key_at(at, rotation);
+                        d.assert_text(&format!("row:{key}"), &format!("Row {key}"))
+                            .await?;
+                        // Shrinking under the viewport discards the rows past the new end;
+                        // none of them may still answer.
+                        d.tap("shrink").await?;
+                        d.assert_text("row:3", "Row 3").await?;
+                        if key >= 5 {
+                            d.assert_missing(&format!("row:{key}")).await?;
+                        }
+                        d.tap("regrow").await?;
+                        // The same set in a new order (regrowing restored the original one),
+                        // then a jump into it.
+                        d.tap("rotate").await?;
+                        rotation = 7;
+                        at = (at + STRIDE) % TOTAL;
+                        d.tap("far").await?;
+                        let key = key_at(at, rotation);
+                        d.assert_text(&format!("row:{key}"), &format!("Row {key}"))
+                            .await?;
+                    }
+                    d.wait_idle().await?;
+                    d.pause(0.3).await?;
+                    d.check(
+                        live.get() <= ROWS_ALIVE_BOUND,
+                        &format!(
+                            "{} rows alive after the churn ({} built): discarded cells keep \
+                             their rows",
+                            live.get(),
                             built.get()
                         ),
                     )
@@ -3806,6 +3971,7 @@ pub(crate) mod conformance {
         list_swipe_action,
         list_scroll_to_row,
         list_recycles_distant_rows,
+        list_releases_discarded_rows,
         list_shrink_and_regrow,
     }
 }

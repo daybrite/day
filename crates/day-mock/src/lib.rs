@@ -573,6 +573,22 @@ impl MockProbe {
         }
     }
 
+    /// Simulate the native list discarding a physical `cell` for good, the factory-teardown /
+    /// cell-dealloc moment: Day disposes the row it built there, so its ids are gone rather
+    /// than parked and the next [`Self::list_bind`] of the same handle builds afresh
+    /// (docs/list.md).
+    pub fn list_release(&self, host: MockHandle, cell: MockHandle) {
+        let f = self
+            .state
+            .borrow()
+            .list_sources
+            .get(&host.0)
+            .map(|s| s.release.clone());
+        if let Some(f) = f {
+            f(cell.0 as RawHandle);
+        }
+    }
+
     /// Consult the list's reorder guard the way a native validate hook would: the accepted
     /// target index, or -1 when the guard denies. `i64::MIN` when the list is not reorderable
     /// (no `.reorderable()`).

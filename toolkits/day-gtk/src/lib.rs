@@ -4497,13 +4497,11 @@ impl Toolkit for Gtk {
             // GTK's own DnD framework (DragSource/DropTarget) drives row reorder; the drop gap
             // indicator is the drag icon + forbidden cursor (docs/list.md has the nuance).
             | Cap::DragDeferredReceipt | Cap::DragDrop | Cap::DragExternalImport | Cap::DragExternalExport | Cap::DragMultipleItems | Cap::DragFileReferences | Cap::NavReorder | Cap::ListReorder
-            // `Cap::ListRecycling` is deliberately NOT claimed yet: GtkListView's factory
-            // binds and unbinds Day's `DayCell`s as rows come and go, but across a far jump it
-            // tears item widgets down and sets up new ones, and Day has no release hook for
-            // the cells it discards, so their row scopes stay behind in day-core and every
-            // jump builds fresh ones (the `list-recycles-distant-rows` case built 244 row
-            // scopes for a five-row viewport on GTK 4.20, Linux and macOS alike). Claim it once
-            // the factory's `teardown` releases the cell (docs/list.md).
+            // GtkListView's factory binds and unbinds Day's `DayCell`s as rows come and go,
+            // and across a far jump it tears item widgets down and sets up new ones; the
+            // factory's `teardown` releases the row Day built in a discarded cell, so the
+            // rows alive stay bounded by the view's own pool (docs/list.md).
+            | Cap::ListRecycling
             // GtkListView + GtkTreeListModel + GtkTreeExpander host day-built rows natively
             // (docs/tree.md). `Cap::TreeMove` is deliberately NOT here yet: the native drag
             // half lands after the seam parity — dayscript's `tree_move:` drives the seam
@@ -5674,8 +5672,12 @@ impl Toolkit for Gtk {
                 // the ScrolledWindow below is created — carry it through a shared cell.
                 let host_key: Rc<std::cell::Cell<usize>> = Rc::new(std::cell::Cell::new(0));
                 let reorderable = p.reorderable;
+                // Each list item's cell, by the item: GTK detaches the child before it emits
+                // `teardown`, so the teardown handler finds it here, not on the item.
+                let cells: Rc<RefCell<HashMap<usize, DayCell>>> = Rc::default();
                 factory.connect_setup({
                     let host_key = host_key.clone();
+                    let cells = cells.clone();
                     move |_, item| {
                         if let Some(li) = item.downcast_ref::<gtk4::ListItem>() {
                             // Each physical cell is a `DayCell` — a GtkFixed that asks for no width
@@ -5683,6 +5685,9 @@ impl Toolkit for Gtk {
                             // never drag the list wider than its frame (day#35). Day fills it via
                             // bind_row as before.
                             let cell = DayCell::new();
+                            cells
+                                .borrow_mut()
+                                .insert(li.as_ptr() as usize, cell.clone());
                             // Clipped, not visible: a row is laid at the list's width for the
                             // instant between `bind_row` and the correction, and that must not
                             // paint over the pane next door.
@@ -5768,6 +5773,40 @@ impl Toolkit for Gtk {
                                 && let Some(src) = source.borrow().as_ref()
                             {
                                 (src.recycle)(cell.as_ptr() as RawHandle);
+                            }
+                        });
+                    }
+                });
+                factory.connect_teardown({
+                    let source = source.clone();
+                    let bound = bound.clone();
+                    let cells = cells.clone();
+                    // GTK is done with this list item for good (a far jump, a shrink, the
+                    // list going away): its `DayCell` goes with it, so release the row Day
+                    // built there, or that row's scope, nodes and ids outlive the cell in
+                    // day-core, one dead row per discarded cell (docs/list.md). day-core
+                    // holds the cell until the release runs, so the pointer stays this cell's;
+                    // a teardown inside a day-core borrow (a reload or a removal Day started)
+                    // is held for the borrow's end rather than dropped.
+                    move |_, item| {
+                        ffi_guard::contain((), || {
+                            let Some(li) = item.downcast_ref::<gtk4::ListItem>() else {
+                                return;
+                            };
+                            let Some(cell) = cells.borrow_mut().remove(&(li.as_ptr() as usize))
+                            else {
+                                return;
+                            };
+                            let key = cell.as_ptr() as usize;
+                            bound.borrow_mut().remove(&key);
+                            LIST_CELL_ROWS.with(|t| {
+                                t.remove(key);
+                            });
+                            if li.child().is_some() {
+                                li.set_child(None::<&gtk4::Widget>);
+                            }
+                            if let Some(src) = source.borrow().as_ref() {
+                                (src.release)(cell.as_ptr() as RawHandle);
                             }
                         });
                     }

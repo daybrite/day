@@ -1871,6 +1871,12 @@ pub struct ListSource {
     pub bind_row: std::rc::Rc<dyn Fn(usize, RawHandle)>,
     /// The native cell left the viewport; Day may drop per-cell bookkeeping (optional).
     pub recycle: std::rc::Rc<dyn Fn(RawHandle)>,
+    /// The native host is done with this cell for good (a `GtkListItemFactory::teardown`, a
+    /// `UITableViewCell` deallocating): Day disposes the row it built there, its scope, nodes
+    /// and element ids. Without this a host that discards cells, as every pool does on a far
+    /// jump, leaves one dead row behind in day-core per discarded cell. Safe inside a day-core
+    /// borrow (the work is held for the borrow's end) and for a cell Day never saw.
+    pub release: std::rc::Rc<dyn Fn(RawHandle)>,
     /// Re-lay the row bound to this cell at `width`, called from the cell's own native layout
     /// pass, the hook [`TreeSource::layout_cell`] already gives trees. day-core lays a row at the
     /// `LIST`'s width first, which is right wherever the cell is the row itself; a backend

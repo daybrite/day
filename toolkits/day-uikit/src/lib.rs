@@ -6262,6 +6262,14 @@ mod imp {
     struct ListCellIvars {
         /// The content width last reported through `ListSource::layout_cell` (0 = none yet).
         reported: std::cell::Cell<f64>,
+        /// The table this cell was made for (its `LIST_STATE` key) and that list's node: a
+        /// deallocating cell has no superview left to find them by, and the node tells a
+        /// later table at the same address apart from this one.
+        table: usize,
+        node: NodeId,
+        /// The content view's address, the key `bind_row` used: recorded at creation so
+        /// `dealloc` has nothing to ask the cell for.
+        content: std::cell::Cell<usize>,
     }
 
     define_class!(
@@ -6372,23 +6380,72 @@ mod imp {
             None
         }
 
-        fn new(mtm: MainThreadMarker, ident: &NSString) -> Retained<Self> {
+        fn new(
+            mtm: MainThreadMarker,
+            ident: &NSString,
+            table: usize,
+            node: NodeId,
+        ) -> Retained<Self> {
             let this = Self::alloc(mtm).set_ivars(ListCellIvars {
                 reported: std::cell::Cell::new(0.0),
+                table,
+                node,
+                content: std::cell::Cell::new(0),
             });
-            unsafe {
+            let this: Retained<Self> = unsafe {
                 msg_send![
                     super(this),
                     initWithStyle: objc2_ui_kit::UITableViewCellStyle::Default,
                     reuseIdentifier: ident
                 ]
+            };
+            this.ivars()
+                .content
+                .set(Retained::as_ptr(&this.contentView()) as usize);
+            this
+        }
+    }
+
+    /// `dealloc` (the macro routes `Drop` there): UITableView is done with this cell for good.
+    /// It reuses queued cells but also discards surplus ones, and every discarded cell used to
+    /// leave the row Day built in its content view behind in day-core. Release that row
+    /// (docs/list.md). Posted, because a cell can deallocate inside a reload Day is applying.
+    /// Nothing is retained here: a first version took the content view and the list entry
+    /// along on the post, and UITableView then died on its own "dataSource is not set"
+    /// assertion mid-layout on iOS 18; copying the addresses recorded at creation does not.
+    /// The content key stays this cell's until the release runs, because day-core holds the
+    /// content view until then; the node id keeps a later table at the same address from
+    /// being mistaken for this one.
+    impl Drop for DayListCell {
+        fn drop(&mut self) {
+            let (table, node) = (self.ivars().table, self.ivars().node);
+            let content = self.ivars().content.get();
+            if content == 0 {
+                return;
             }
+            <Uikit as Platform>::post(Box::new(move || {
+                let release = LIST_STATE.with(|m| {
+                    let m = m.borrow();
+                    let (_, data) = m.get(&table)?;
+                    if data.ivars().node != node {
+                        return None;
+                    }
+                    let source = data.ivars().source.borrow();
+                    source.as_ref().map(|s| s.release.clone())
+                });
+                if let Some(release) = release {
+                    release(content as RawHandle);
+                }
+            }));
         }
     }
 
     // -----------------------------------------------------------------------
     // DayListData — UITableView data source + delegate for the recycling list (docs/list.md, §10)
     // -----------------------------------------------------------------------
+
+    /// The association key under which a list's table retains its `DayListData`.
+    static LIST_DATA_SOURCE_KEY: u8 = 0;
 
     struct ListIvars {
         node: NodeId,
@@ -6462,8 +6519,12 @@ mod imp {
             ) -> Retained<objc2_ui_kit::UITableViewCell> {
                 let mtm = self.mtm();
                 let ident = NSString::from_str("day.cell");
-                let cell = unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }
-                    .unwrap_or_else(|| Retained::into_super(DayListCell::new(mtm, &ident)));
+                let table = std::ptr::from_ref(tv) as usize;
+                let node = self.ivars().node;
+                let cell =
+                    unsafe { tv.dequeueReusableCellWithIdentifier(&ident) }.unwrap_or_else(|| {
+                        Retained::into_super(DayListCell::new(mtm, &ident, table, node))
+                    });
                 // Day builds/rebinds its row content inside the cell's contentView. The bind
                 // runs day-core's row builder — contained (§8.5); a panicking row leaves the
                 // recycled cell blank rather than aborting.
@@ -8829,11 +8890,10 @@ mod imp {
                 // UITableView's own drag pipeline: long-press lift + gap, in and out of
                 // editing mode.
                 | Cap::ListReorder
-                // `Cap::ListRecycling` is deliberately NOT claimed yet: UITableView reuses
-                // queued cells but also discards surplus ones, and Day has no deallocation hook,
-                // so each discarded cell leaves its content view and row scope behind in day-core
-                // (the `list-recycles-distant-rows` case built 763 fresh cells for a five-row
-                // viewport on iOS 18). Claim it once discarded cells are released (docs/list.md).
+                // UITableView reuses queued cells and discards surplus ones; a discarded
+                // `DayListCell` releases the row Day built in it from `dealloc`, so the rows
+                // alive stay bounded by the table's own pool (docs/list.md).
+                | Cap::ListRecycling
                 // `UITableView` editing: delete controls and reorder grips (docs/list.md).
                 | Cap::ListEditing
                 // A list-layout UICollectionView over one diffable SECTION snapshot hosts
@@ -9492,6 +9552,18 @@ mod imp {
                         }
                         table.setDataSource(Some(ProtocolObject::from_ref(&*data)));
                         table.setDelegate(Some(ProtocolObject::from_ref(&*data)));
+                        // The table owns its data source for as long as it lives, not only
+                        // while Day's `LIST_STATE` entry does: UITableView holds `dataSource`
+                        // weakly, and a table that lays out once more after its node went (a
+                        // page still animating out, a late pass) asserts "UITableView
+                        // dataSource is not set" and takes the app down. The source's closures
+                        // are safe to call after the node is gone (they find no list).
+                        objc2::ffi::objc_setAssociatedObject(
+                            std::ptr::from_ref::<objc2::runtime::AnyObject>(&table).cast_mut(),
+                            std::ptr::addr_of!(LIST_DATA_SOURCE_KEY).cast(),
+                            std::ptr::from_ref::<objc2::runtime::AnyObject>(&data).cast_mut(),
+                            objc2::ffi::OBJC_ASSOCIATION_RETAIN_NONATOMIC,
+                        );
                         // Separators are UIKit's default; only a forced OFF changes anything
                         // (docs/list.md) — a list whose rows draw their own separation turns
                         // the native line off rather than showing both.
@@ -10517,9 +10589,16 @@ mod imp {
             TARGETS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
-            LIST_STATE.with(|m| {
-                m.borrow_mut().remove(&ptr_of(&h));
-            });
+            if let Some((table, _)) = LIST_STATE.with(|m| m.borrow_mut().remove(&ptr_of(&h)))
+                && table.window().is_some()
+            {
+                // Diagnostic for the "dataSource is not set" class: the table may still lay
+                // out after this; its data source lives on as the table's associated object.
+                log::debug!(
+                    "day-uikit: list released while still in a window ({} rows)",
+                    unsafe { table.numberOfRowsInSection(0) }
+                );
+            }
             TREE_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });

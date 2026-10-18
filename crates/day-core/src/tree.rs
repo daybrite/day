@@ -1095,6 +1095,8 @@ pub trait TreeOps {
     /// source instead of destroying them): clear the cell subtree's element ids so stale rows
     /// stop answering dayscript lookups. The cell itself stays pooled; the next bind re-ids it.
     fn list_recycle_cell(&mut self, node: RNode, key: usize);
+    /// The host discarded cell `key` of list `node` for good: dispose the row built in it.
+    fn list_release_cell(&mut self, node: RNode, key: usize);
     /// Apply a data change: the native host re-queries the source.
     fn list_reload(&mut self, node: RNode);
     fn list_splice(&mut self, node: RNode, deltas: Vec<day_spec::props::RowDelta>);
@@ -2734,6 +2736,19 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             return;
         };
         self.clear_subtree_ids(anchor);
+    }
+
+    fn list_release_cell(&mut self, node: RNode, key: usize) {
+        // Unknown cell (never bound, or released twice): nothing to do.
+        let Some(cell) = self.lists.get_mut(&node).and_then(|s| s.cells.remove(&key)) else {
+            return;
+        };
+        // The same teardown `collect_and_release` gives every cell when the list goes
+        // (docs/list.md): the row's reactive graph, then its nodes. The anchor's own handle
+        // is the host's cell and is only dropped, never queued for release (`LIST_CELL`);
+        // the handles under it are Day's and go through the release queue as usual.
+        cell.scope.dispose();
+        self.remove_subtree_impl(cell.anchor);
     }
 
     fn tree_reload(&mut self, node: RNode) {

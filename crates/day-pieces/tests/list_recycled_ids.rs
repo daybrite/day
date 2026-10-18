@@ -90,3 +90,112 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
         "static id restored after a cross-row rebind"
     );
 }
+
+/// Whether the dayscript ids of a row built in `cell` are registered right now.
+fn row_answers(key: u64) -> bool {
+    has_id(&format!("row-{key}")) || has_id("row-label")
+}
+
+#[test]
+fn a_released_cell_takes_its_row_with_it_and_a_rebind_builds_afresh() {
+    let built = std::rc::Rc::new(std::cell::Cell::new(0usize));
+    let count = built.clone();
+    let rows = Signal::new((0..20u64).collect::<Vec<u64>>());
+    let probe = boot(move || {
+        list(
+            items(move || rows.get(), |n: &u64| n.to_string()),
+            move |slot: ItemSlot<u64, String>| {
+                count.set(count.get() + 1);
+                column((label(move || format!("row {}", slot.get())).id("row-label"),))
+                    .id_of(move || format!("row-{}", slot.get()))
+            },
+        )
+        .row_height(RowHeight::Uniform(40.0))
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    let cell = MockHandle(9500);
+    probe.list_bind(host, 3, cell);
+    flush_sync();
+    assert!(row_answers(3) && built.get() == 1);
+
+    // The host discards the cell: the row goes with it, ids included, with nothing parked to
+    // come back later.
+    probe.list_release(host, cell);
+    assert!(
+        !row_answers(3),
+        "a released cell's ids are gone, not parked"
+    );
+    probe.list_bind(host, 3, cell);
+    flush_sync();
+    assert!(!row_answers(3) || built.get() == 2);
+    assert_eq!(
+        built.get(),
+        2,
+        "the same handle, seen again, is a new cell: built afresh"
+    );
+    assert!(row_answers(3), "…and answers again");
+
+    // Releasing a cell Day never saw, or one twice, is a no-op.
+    probe.list_release(host, MockHandle(9999));
+    probe.list_release(host, cell);
+    probe.list_release(host, cell);
+    assert!(!row_answers(3));
+    assert_eq!(built.get(), 2);
+
+    // Recycle, then release: the pooled cell's parked ids do not survive the release.
+    probe.list_bind(host, 5, cell);
+    flush_sync();
+    assert_eq!(built.get(), 3);
+    probe.list_recycle(host, cell);
+    assert!(!row_answers(5), "parked while pooled");
+    probe.list_release(host, cell);
+    probe.list_bind(host, 5, cell);
+    flush_sync();
+    assert_eq!(
+        built.get(),
+        4,
+        "a rebind after the release builds, it does not restore"
+    );
+    assert!(row_answers(5));
+}
+
+#[test]
+fn a_release_inside_a_tree_borrow_is_held_not_dropped() {
+    let rows = Signal::new((0..20u64).collect::<Vec<u64>>());
+    let probe = boot(move || {
+        list(
+            items(move || rows.get(), |n: &u64| n.to_string()),
+            |slot: ItemSlot<u64, String>| {
+                column((label(move || format!("row {}", slot.get())).id("row-label"),))
+                    .id_of(move || format!("row-{}", slot.get()))
+            },
+        )
+        .row_height(RowHeight::Uniform(40.0))
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    let cell = MockHandle(9600);
+    probe.list_bind(host, 0, cell);
+    flush_sync();
+    assert!(has_id("row-0"));
+    // A host that tears a cell down from inside work Day started (a reload, a removal) calls
+    // release while the tree is borrowed. The park would be skipped there; the release must
+    // not be, or the row leaks: it runs at the borrow's end.
+    with_tree(|_| {
+        probe.list_release(host, cell);
+        assert!(
+            with_tree_is_borrowed(),
+            "the release must wait: the tree is ours right now"
+        );
+    });
+    assert!(
+        !has_id("row-0"),
+        "the held release ran once the borrow ended"
+    );
+}
+
+/// Whether the tree cannot be entered right now (a borrow is live).
+fn with_tree_is_borrowed() -> bool {
+    day_core::try_with_tree(|_| ()).is_none()
+}

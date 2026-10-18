@@ -317,6 +317,15 @@ pub(crate) fn make_source(node: RNode, driver: Rc<ListDriver>) -> ListSource {
         recycle: Rc::new(move |cell| {
             let _ = try_with_tree(|t| t.list_recycle_cell(node, cell as usize));
         }),
+        // The host's goodbye to a cell: dispose the row built in it. Never dropped under a
+        // borrow, unlike the park above: a host tears cells down from inside a reload or a
+        // removal Day itself started, and a release lost there is the leak this seam closes.
+        release: Rc::new(move |cell| {
+            let key = cell as usize;
+            crate::tree::run_posted_or_defer(Box::new(move || {
+                let _ = try_with_tree(|t| t.list_release_cell(node, key));
+            }));
+        }),
         delete: d_delete.delete.as_ref().map(|_| day_spec::ListDelete {
             can_delete: {
                 let d = d_delete.clone();

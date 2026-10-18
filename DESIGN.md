@@ -2628,6 +2628,12 @@ The backend's list host owns scrolling and recycling; Day owns row *content*:
    changes of one turn land as one relayout that keeps the top row anchored, `ListPatch::Splice`
    lands as model deltas so selection follows its rows, and the delegate draws forced
    separators. A million-row source costs the model one count ([docs/list.md](docs/list.md)).
+   Outcome (2026-10, cell release): `ListSource` gained `release(cell)`, the host's goodbye to
+   a cell it discarded for good (GTK's factory `teardown`, a `UITableViewCell` deallocating);
+   day-core disposes the row built there as it does for every cell when the list goes. Pools
+   discard cells on far jumps, and before this each discarded cell left a dead row behind in
+   day-core; GTK and UIKit answer `Native` for `Cap::ListRecycling` on the strength of it, and
+   the recycling conformance cases count rows alive rather than rows built.
 
 This was the single hardest backend feature, deferred past the MVP by design — and the
 pre-reserved spec hooks did their job: it landed later as a defaulted duty with no breaking

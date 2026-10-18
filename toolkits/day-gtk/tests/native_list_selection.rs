@@ -73,6 +73,7 @@ fn main() {
                 move |row, cell| binds.borrow_mut().push((row, cell as usize))
             }),
             recycle: Rc::new(|_| {}),
+            release: Rc::new(|_| {}),
             layout_cell: Rc::new(|_, _| {}),
             cell_height: Rc::new(|_| 0.0),
             reorder: None,
