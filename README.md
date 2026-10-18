@@ -53,7 +53,7 @@ maintenance a target gets today, independent of how complete its backend is.
 | `windows-qt` | Windows | Qt 6 | 4 · Development | none |
 | `windows-xaml` | Windows | system XAML | 5 · Deprecated | `.msix` and installer |
 
-All of them build in CI on every push (the `windows-winui` legs are written but have not run on
+All of them except `windows-xaml` build in CI on every push (the `windows-winui` legs are written but have not run on
 GitHub yet). Every target except the Windows development combos and HarmonyOS also runs the
 Showcase app's full dayscript walkthrough there, and those captures are what the
 [gallery](https://daybrite.dev/gallery/) shows. The Tier 4 combos exist for compatibility testing

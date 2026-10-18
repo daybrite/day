@@ -12,7 +12,7 @@
 # On Windows, invoke it through the interpreter, `python scripts\launch-showcase.py desktop`
 # (the `python3` alias there is a Microsoft Store stub that only offers to install Python).
 #
-# Each argument is either a platform-toolkit name (`macos-appkit`, `windows-xaml`, …) or one of the
+# Each argument is either a platform-toolkit name (`macos-appkit`, `windows-winui`, …) or one of the
 # symbolic groups:
 #
 #     desktop   every desktop target this host can build (macOS: appkit, gtk, qt)

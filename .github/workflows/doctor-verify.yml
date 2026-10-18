@@ -71,7 +71,6 @@ jobs:
           - android-mdc
           - harmony-arkui
           - windows-winui
-          - windows-xaml
           - windows-qt
           - windows-gtk
         # Only the runner each combo needs: the toolkit column went with the setup ladder, which
@@ -86,7 +85,6 @@ jobs:
           - { combo: android-mdc,   os: ubuntu-latest }
           - { combo: harmony-arkui, os: ubuntu-latest }
           - { combo: windows-winui, os: windows-latest }
-          - { combo: windows-xaml,  os: windows-latest }
           - { combo: windows-qt,    os: windows-latest }
           - { combo: windows-gtk,   os: windows-latest }
         # windows-winui is newer than the latest published CLI; verify it on `main` until a

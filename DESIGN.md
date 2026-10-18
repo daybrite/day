@@ -209,7 +209,10 @@ Seven **primary targets** (OS–toolkit combinations), all shipped:
 `windows-xaml` is the same XAML backend built against system XAML (`Windows.UI.Xaml` in XAML
 Islands) instead of WinUI 3. It was the Windows target until `windows-winui` replaced it; it is
 now **deprecated** (Tier 5): it still builds, packs and runs for projects that have not moved
-(`day project add-target windows-winui`), and new projects do not get it.
+(`day project add-target windows-winui`), and new projects do not get it. Since 2026-10 nothing
+builds or drives it in CI: the `windows-xaml` legs (scaffold check, conformance, Showcase,
+`doctor-verify`) are gone, the sample apps, piece demos and the shared `dayapp.yml` no longer
+know the target, and only the toolkit crate, the CLI target and `day pack` keep it alive.
 
 An eighth backend, **`day-mock`**, is headless: it records toolkit ops and answers deterministic
 measurements, so the whole pipeline is unit-testable without a display ([§3.2](#32-crates)). A ninth,

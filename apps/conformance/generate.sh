@@ -27,7 +27,7 @@ else
 fi
 
 # Every target the CLI ships, so the app can be driven wherever `day test` runs.
-targets=macos-appkit,ios-uikit,android-mdc,macos-gtk,macos-qt,linux-gtk,linux-qt,windows-winui,windows-xaml,harmony-arkui,web-dom
+targets=macos-appkit,ios-uikit,android-mdc,macos-gtk,macos-qt,linux-gtk,linux-qt,windows-winui,harmony-arkui,web-dom
 
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT

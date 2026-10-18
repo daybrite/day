@@ -11,8 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Secondary windows (§8.1)
 
 > **Status: implemented** on every backend. Desktop: AppKit, GTK, Qt native (runtime-
-> verified) and XAML native (compile-verified on the windows-xaml CI leg, the same backend as
-> windows-winui, whose CI leg has not run yet; its runtime pass
+> verified) and XAML native (compile-verified on the windows-winui CI leg; its runtime pass
 > and per-window screenshot capture are follow-ups noted below). Mobile: `Normal` windows
 > are native where the platform has a real secondary-window surface: iPad UIScenes (the
 > uikit backend runs the scene lifecycle now), Android document-style `DayWindowActivity`

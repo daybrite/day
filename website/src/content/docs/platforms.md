@@ -55,7 +55,7 @@ tests, including navigation, input, dialogs, and screenshots. Captures appear in
 | `macos-qt` | [Tier 4](/docs/platforms#support-tiers) | Full | None |
 | `windows-gtk` | [Tier 4](/docs/platforms#support-tiers) | Best-effort | None |
 | `windows-qt` | [Tier 4](/docs/platforms#support-tiers) | Best-effort | None |
-| `windows-xaml` (deprecated) | [Tier 5](/docs/platforms#support-tiers) | Full | `.msix`, installer |
+| `windows-xaml` (deprecated) | [Tier 5](/docs/platforms#support-tiers) | None | `.msix`, installer |
 
 Android emulator failures do not block CI, but build failures do. HarmonyOS build and packaging
 failures block CI; its QEMU emulator checks tolerate failures. Windows GTK and Qt jobs are marked
