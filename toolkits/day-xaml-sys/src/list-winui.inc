@@ -116,7 +116,6 @@ static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<Winui
     });
     cell->root.PointerPressed([weak, wc](auto const&, auto const&) {
         auto l = weak.lock(); auto c = wc.lock();
-        std::fprintf(stderr, "LIST press %d drag=%d\n", c ? c->row : -1, l ? l->reorderable : 0);
         if (l && l->host && c && c->row >= 0) l->offer(l->host, c->handle, c->row);
     });
     // Refresh menus opened with the keyboard as well as those opened by a pointer.
@@ -130,7 +129,6 @@ static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<Winui
         cell->root.AllowDrop(true);
         cell->root.DragStarting([weak, wc](auto const&, WUX::DragStartingEventArgs const& e) {
             auto l = weak.lock(); auto c = wc.lock();
-            std::fprintf(stderr, "LIST start %d\n", c ? c->row : -1);
             if (!l || !l->host || !c || c->row < 0 || l->can_move(l->host, c->row, c->row) < 0) {
                 e.Cancel(true); return;
             }
@@ -143,7 +141,6 @@ static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<Winui
         });
         cell->root.DragOver([weak, wc](auto const&, WUX::DragEventArgs const& e) {
             auto l = weak.lock(); auto c = wc.lock();
-            std::fprintf(stderr, "LIST over %d\n", c ? c->row : -1);
             if (!l || !l->host || !c || c->row < 0) return;
             auto from = l->drag.lock();
             if (!from || from->generation != l->drag_generation || from->row < 0) return;
@@ -152,7 +149,6 @@ static std::shared_ptr<WinuiListCell> winui_list_make_cell(std::shared_ptr<Winui
         });
         cell->root.Drop([weak, wc](auto const&, WUX::DragEventArgs const& e) {
             auto l = weak.lock(); auto c = wc.lock();
-            std::fprintf(stderr, "LIST drop %d\n", c ? c->row : -1);
             if (!l || !l->host || !c || c->row < 0) return;
             auto from = l->drag.lock(); l->drag.reset();
             if (!from || from->generation != l->drag_generation || from->row < 0) return;

@@ -685,53 +685,51 @@ pub(super) fn new(id: NodeId, p: &ListProps) -> *mut c_void {
 }
 
 pub(super) fn patch(h: &WinHandle, patch: &ListPatch) {
-    unsafe {
-        match Some(patch) {
-            Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
-                schedule_list_populate(h.0 as usize)
-            }
-            Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
-            Some(ListPatch::ScrollToRow(row)) => schedule_list_scroll_row(h.0 as usize, *row),
-            Some(ListPatch::Selected(rows)) => {
-                // Programmatic selection sync (empty = clear): repaint, no re-emit.
-                LIST_STATE.with(|m| {
-                    if let Some(st) = m.borrow_mut().get_mut(&(h.0 as usize)) {
-                        st.selected = rows.iter().copied().collect();
-                        st.anchor = rows.last().copied();
-                        list_paint_selection(st);
-                    }
-                });
-            }
-            Some(ListPatch::RowSizeInvalidated { cell, height }) => {
-                // A content-sized row re-laid at a new height: record it against the
-                // row its cell holds (cell index == row), and let the posted fill move
-                // the cells, out of the day-core layout pass this arrives from.
-                let resized = LIST_STATE.with(|m| {
-                    let mut m = m.borrow_mut();
-                    let Some(st) = m.get_mut(&(h.0 as usize)) else {
-                        return false;
-                    };
-                    let Some(row) = st
-                        .cells
-                        .iter()
-                        .position(|&c| c as usize == *cell)
-                        .filter(|_| st.automatic)
-                    else {
-                        return false;
-                    };
-                    if let Some(slot) = st.heights.get_mut(row) {
-                        *slot = Some(*height);
-                        st.relayout = true;
-                    }
-                    st.relayout
-                });
-                if resized {
-                    schedule_list_fill(h.0 as usize);
-                }
-            }
-            // No editing mode (Cap::ListEditing is Unsupported).
-            Some(ListPatch::Editing(_)) | None => {}
+    match Some(patch) {
+        Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
+            schedule_list_populate(h.0 as usize)
         }
+        Some(ListPatch::ScrollToEnd) => schedule_list_scroll_end(h.0 as usize),
+        Some(ListPatch::ScrollToRow(row)) => schedule_list_scroll_row(h.0 as usize, *row),
+        Some(ListPatch::Selected(rows)) => {
+            // Programmatic selection sync (empty = clear): repaint, no re-emit.
+            LIST_STATE.with(|m| {
+                if let Some(st) = m.borrow_mut().get_mut(&(h.0 as usize)) {
+                    st.selected = rows.iter().copied().collect();
+                    st.anchor = rows.last().copied();
+                    list_paint_selection(st);
+                }
+            });
+        }
+        Some(ListPatch::RowSizeInvalidated { cell, height }) => {
+            // A content-sized row re-laid at a new height: record it against the
+            // row its cell holds (cell index == row), and let the posted fill move
+            // the cells, out of the day-core layout pass this arrives from.
+            let resized = LIST_STATE.with(|m| {
+                let mut m = m.borrow_mut();
+                let Some(st) = m.get_mut(&(h.0 as usize)) else {
+                    return false;
+                };
+                let Some(row) = st
+                    .cells
+                    .iter()
+                    .position(|&c| c as usize == *cell)
+                    .filter(|_| st.automatic)
+                else {
+                    return false;
+                };
+                if let Some(slot) = st.heights.get_mut(row) {
+                    *slot = Some(*height);
+                    st.relayout = true;
+                }
+                st.relayout
+            });
+            if resized {
+                schedule_list_fill(h.0 as usize);
+            }
+        }
+        // No editing mode (Cap::ListEditing is Unsupported).
+        Some(ListPatch::Editing(_)) | None => {}
     }
 }
 

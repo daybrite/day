@@ -342,9 +342,7 @@ extern "C" fn offer(host: *mut c_void, cell: *mut c_void, row: i32) {
         if let Some(swipe) = &source.swipe {
             for (edge, code) in [(SwipeEdge::Leading, 0), (SwipeEdge::Trailing, 1)] {
                 for (index, action) in (swipe.actions_at)(row, edge).into_iter().enumerate() {
-                    let color = action
-                        .tint
-                        .map(|c| [c.r as f64, c.g as f64, c.b as f64, c.a as f64]);
+                    let color = action.tint.map(|c| [c.r, c.g, c.b, c.a]);
                     unsafe {
                         ffi::day_winui_list_action_add(
                             host,

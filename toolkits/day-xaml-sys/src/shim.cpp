@@ -3012,11 +3012,11 @@ static const char* day_xaml_key_name(winrt::Windows::System::VirtualKey k, int m
 // `Windows.UI.Xaml.Controls.Control`, NOT of `UIElement` — that is `Microsoft.UI.Xaml` (WinUI 3),
 // where both moved up to `UIElement`. So nothing an app DRAWS could ever hear a key without a
 // Control around it, and the canvas is handed out as a focusable `ContentControl` HOST whose
-// Content is the Canvas — the same one-line trick the window's focus sink is built from.
+// Content is a persistent hit-test panel around the drawing Canvas.
 //
 // The handle day holds is the HOST, so `day_xaml_set_geometry` positions and sizes that;
 // `Stretch` on both content alignments passes the size it is given straight through to the
-// Canvas inside, which would otherwise measure to nothing and draw at 0x0. Every drawing entry
+// drawing Canvas inside, which would otherwise measure to nothing and draw at 0x0. Every drawing entry
 // point unwraps the handle with `canvas_of`.
 //
 // `handles` asks Rust whether the app claimed this key: an unclaimed arrow is left unhandled so
@@ -3026,16 +3026,21 @@ void* day_xaml_canvas_new(unsigned long long id,
                           void (*cb)(unsigned long long, const char*, int)) try {
     WUXC::Canvas c;
     // The drawing is replaced every frame. Keep it entirely outside hit testing so
-    // XAML's press/release recognizer stays on the persistent host while its children
+    // XAML's press/release recognizer stays on a persistent surface while its children
     // are repainted. Disabling individual shapes is insufficient: clearing the Canvas
     // also invalidates gestures targeting that Canvas itself.
     c.IsHitTestVisible(false);
+    // ContentControl's default WinUI template does not paint its Background. Give
+    // it a real, persistent panel to hit, including empty pixels. Repainting only
+    // clears c's children, so taps and ancestor drag sources survive animation.
+    WUXC::Grid surface;
+    surface.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
+    surface.Children().Append(c);
     WUXC::ContentControl host;
-    host.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
     host.IsTabStop(true);
     host.HorizontalContentAlignment(WUX::HorizontalAlignment::Stretch);
     host.VerticalContentAlignment(WUX::VerticalAlignment::Stretch);
-    host.Content(c);
+    host.Content(surface);
     // A press focuses the persistent host, the way clicking a text box does.
     host.PointerPressed([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
         if (auto ctl = s.try_as<WUXC::Control>()) ctl.Focus(WUX::FocusState::Pointer);
@@ -3064,7 +3069,11 @@ static WUXC::Canvas canvas_of(void* h) {
     auto& e = elem(h);
     if (auto c = e.try_as<WUXC::Canvas>()) return c;
     if (auto host = e.try_as<WUXC::ContentControl>()) {
-        if (auto content = host.Content()) return content.try_as<WUXC::Canvas>();
+        if (auto content = host.Content()) {
+            if (auto c = content.try_as<WUXC::Canvas>()) return c;
+            if (auto surface = content.try_as<WUXC::Grid>(); surface && surface.Children().Size())
+                return surface.Children().GetAt(0).try_as<WUXC::Canvas>();
+        }
     }
     return nullptr;
 }
