@@ -246,9 +246,9 @@ impl<S: Binding<String>> TextArea<S> {
     }
 
     /// Submit on Enter: a plain Enter runs `f` instead of inserting a newline, the chat-composer
-    /// contract. Shift+Enter still inserts a line break on the desktop toolkits; Android's soft
-    /// keyboard shows a Send action; iOS's return key submits. Backends without the intercept
-    /// (web-dom and ArkUI today) keep inserting newlines, so pair this with a visible send button. The
+    /// contract. Shift+Enter still inserts a line break on desktop and ArkUI; Android and
+    /// ArkUI show a Send action on the soft keyboard; iOS's return key submits. Backends without
+    /// the intercept (web-dom today) keep inserting newlines, so pair this with a visible send button. The
     /// bound `text` signal is already up to date when `f` runs.
     pub fn on_submit(mut self, f: impl Fn() + 'static) -> Self {
         self.on_submit = Some(Rc::new(f));
@@ -694,6 +694,44 @@ pub(crate) mod conformance {
             })
     }
 
+    /// Submission observes the latest bound text and may clear the composer. This checks
+    /// the public event contract; native drivers separately prove keyboard/IME routing.
+    #[day_macros::test(day_core)]
+    fn text_area_submit() -> Case {
+        let text = Signal::new(String::new());
+        let sent = Signal::new(String::new());
+        let count = Signal::new(0u32);
+        Case::new()
+            .proves(kinds::TEXT_AREA)
+            .page(move || {
+                column((
+                    text_area(text)
+                        .min_lines(3)
+                        .on_submit(move || {
+                            sent.set(text.get_untracked());
+                            count.update(|n| *n += 1);
+                            text.set(String::new());
+                        })
+                        .id("area"),
+                    label(move || sent.get()).id("sent"),
+                    label(move || count.get().to_string()).id("count"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.input("area", "first\n東京").await?;
+                d.assert_text("count", "0").await?;
+                d.submit("area").await?;
+                d.assert_text("sent", "first\n東京").await?;
+                d.assert_text("count", "1").await?;
+                d.assert_text("area", "").await?;
+                d.input("area", "next").await?;
+                d.submit("area").await?;
+                d.assert_text("sent", "next").await?;
+                d.assert_text("count", "2").await?;
+                d.assert_text("area", "").await
+            })
+    }
+
     /// A read-only text area shows what its signal holds.
     #[day_macros::test(day_core)]
     fn text_area_read_only() -> Case {
@@ -784,6 +822,7 @@ pub(crate) mod conformance {
         picker_disabled,
         text_area_binding,
         text_area_multiline,
+        text_area_submit,
         text_area_read_only,
         text_area_unselectable,
         text_area_attributes_reactive,

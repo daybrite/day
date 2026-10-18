@@ -54,6 +54,17 @@ struct Index {
     }
     this.started = true;
     DayCapture.register(0, this.getUIContext());
+    // API 18's C editor lacks a Shift+Enter binding and insert-text controller. Rust
+    // temporarily selects the newline action; this dispatch keeps the edit in ArkUI's
+    // own selection/IME/undo pipeline. The numeric ID identifies the actual native node.
+    nativeEntry.registerTextAreaKey((node: number): boolean => {
+      const event: KeyEvent = {
+        type: KeyType.Down, keyCode: 2054, keyText: 'Enter', keySource: KeySource.Keyboard,
+        deviceId: 0, metaKey: 0, timestamp: Date.now(), intentionCode: -1,
+        stopPropagation: (): void => {}
+      };
+      return this.getUIContext().dispatchKeyEvent(node, event);
+    });
     nativeEntry.registerCoverLayer(this.coverContent, (shown: boolean): void => {
       this.coverShown = shown;
     });

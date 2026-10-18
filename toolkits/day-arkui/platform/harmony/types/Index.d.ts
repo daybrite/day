@@ -73,6 +73,10 @@ export const registerResourceManager: (resourceManager: Object) => void;
 // equivalent). The callback is invoked on the JS thread with every URL Day wants opened.
 export const registerOpenUrl: (callback: (url: string) => void) => void;
 
+// Dispatch native Enter to a TextArea's numeric ArkUI node ID. Used for Shift+Enter while
+// Rust temporarily selects the newline action; return whether ArkUI handled the key.
+export const registerTextAreaKey: (callback: (node: number) => boolean) => void;
+
 // Register the ArkTS status-bar control (docs/cover.md): called on the JS thread with `true` while
 // a mounted `status_bar_hidden` asks for the bar hidden and `false` when none does. The window's
 // `setSpecificSystemBarEnabled('status', …)` lives in ArkTS. A request made before registration

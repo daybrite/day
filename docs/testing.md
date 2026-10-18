@@ -370,6 +370,24 @@ Run this separately from other drivers for the same app. It leaves the fixture v
 `day launch`/`day test` restores the test host. The portable `text-area-attributes-reactive` case
 checks content preservation through policy changes on supporting backends. This native-input
 suite supplies the OS-input evidence and is an explicit emulator check, not a shared CI step.
+
+For TextArea `.on_submit(...)`, run the companion suite:
+
+```sh
+python3 apps/conformance/scripts/harmony-textarea-submit.py
+```
+
+It launches `DAY_NATIVE_TEXTAREA_SUBMIT_TEST=1` and uses real Enter/Shift+Enter keys, native paste,
+and the soft keyboard's **Send** button. It checks callback counts and current bound text,
+Unicode selection/caret handling, native undo/redo, read-only suppression, callbacks that clear
+or remove the editor, remounting, and ordinary multiline editors. The soft-keyboard check requires an IME
+whose Send button is exposed as `Send` in the native accessibility tree (the test emulator's
+English keyboard); it never substitutes a synthetic submit event for that check.
+
+The portable `text-area-submit` case checks the public callback and clearing contract using
+injected text/submit events on every backend. As with text-field submission, this portable
+case alone cannot prove native keyboard support.
+
 Run only one driver for the app at a time.
 
 ## In CI

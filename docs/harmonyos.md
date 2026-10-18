@@ -352,6 +352,9 @@ on the Oniro emulator:
   `Emulated` because the API 18 C editor lacks equivalent persistent properties. Read-only
   text can still be copied, and app writes still replace its contents. Spell-check remains
   unsupported. See [textarea.md](textarea.md) and the [native-input tests](testing.md#native-arkui-text-area-tests).
+  `.on_submit(...)` uses the native Send action and submit event. Shift+Enter dispatches the
+  native newline action through the ArkTS host, retaining selection and undo/redo; plain
+  text areas keep multiline Enter behavior.
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
   with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text): the gauge + shapes pages.
   The custom node sits inside a plain, unpadded, transparent `ARKUI_NODE_BUTTON` that is day's

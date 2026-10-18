@@ -42,6 +42,7 @@ type MenuArgs = FnArgs<(String, String, String, String, String)>;
 type SearchArgs = FnArgs<(f64, i32, String, String)>;
 
 thread_local! {
+    static TEXTAREA_KEY: Callback<FnArgs<(i32,)>> = const { RefCell::new(None) };
     /// `(revision, window)`: RenderService-backed capture checkpoints.
     static CAPTURE: Callback<FnArgs<(f64, f64)>> = const { RefCell::new(None) };
     static CAPTURE_FENCES: RefCell<HashMap<u64, day_spec::capture::Fence>> = RefCell::new(HashMap::new());
@@ -175,6 +176,25 @@ pub(crate) fn bridges<'env>(env: &'env Env) -> Option<Object<'env>> {
 }
 
 // ---- exports ------------------------------------------------------------------------------
+
+#[napi(js_name = "registerTextAreaKey")]
+pub fn register_textarea_key(env: Env, callback: Registered<FnArgs<(i32,)>>) {
+    remember(&env);
+    store(&TEXTAREA_KEY, callback);
+}
+
+/// Dispatch native Enter to a TextArea by its native unique ID (not a Day NodeId).
+/// Missing custom/older hosts report false; callers must not replace the text as a fallback
+/// because doing so would bypass the editor's undo and composition handling.
+pub(crate) fn textarea_enter(id: i32) -> bool {
+    call(&TEXTAREA_KEY, (id,).into(), |env, value| {
+        let mut handled = false;
+        // SAFETY: the live callback result is read inside its handle scope.
+        unsafe { sys::napi_get_value_bool(env.raw(), value.raw(), &mut handled) };
+        handled
+    })
+    .unwrap_or(false)
+}
 
 #[napi(js_name = "registerCoverLayer")]
 pub fn register_cover_layer(env: Env, content: Unknown, callback: Registered<FnArgs<(bool,)>>) {

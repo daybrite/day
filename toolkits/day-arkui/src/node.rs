@@ -882,6 +882,18 @@ pub fn set_textarea_editable(n: Handle, editable: bool) {
     }
 }
 
+/// Keep the multiline editor, but replace the IME newline action with Send. Hardware
+/// Enter follows the same native action; paste is still ordinary text insertion.
+pub fn enable_textarea_submit(n: Handle, id: u64) {
+    set_i32(
+        n,
+        Attr::NODE_TEXT_AREA_ENTER_KEY_TYPE,
+        ArkUI_EnterKeyType::ARKUI_ENTER_KEY_TYPE_SEND.0 as i32,
+    );
+    set_i32(n, Attr::NODE_TEXT_AREA_BLUR_ON_SUBMIT, 0);
+    register_event(n, ArkUI_NodeEventType::NODE_TEXT_AREA_ON_SUBMIT, id);
+}
+
 pub fn collapse_textarea_selection(n: Handle, end: i32) {
     if end >= 0 {
         set_values(

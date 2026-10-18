@@ -1433,6 +1433,8 @@ mod imp {
         held: Option<String>,
         /// `Some` for a TextArea, carrying its live selection policy; `None` for TextInput.
         area_selectable: Option<bool>,
+        /// Only TextAreas built with `.on_submit` handle the native submit action.
+        submit_on_enter: bool,
     }
 
     /// Whether node `id` is a text field that refuses edits now.
@@ -1471,6 +1473,42 @@ mod imp {
                 .get(&id)
                 .is_some_and(|f| f.area_selectable == Some(false))
         })
+    }
+
+    pub(crate) fn area_can_submit(id: u64) -> bool {
+        INPUT_FIELDS.with(|m| {
+            m.borrow()
+                .get(&id)
+                .is_some_and(|f| f.submit_on_enter && f.held.is_none())
+        })
+    }
+
+    /// API 18 has no Shift+Enter binding. Dispatch Enter through the native editor under
+    /// its newline action, preserving selection, IME handling and native undo history.
+    #[allow(deprecated)] // API 18 has NODE_UNIQUE_ID, not the newer node-ID accessor.
+    pub(crate) fn area_newline(n: Handle, id: u64) {
+        use ohos_sys::arkui::native_node::ArkUI_NodeAttributeType as Attr;
+        use ohos_sys::arkui::native_type::ArkUI_EnterKeyType as Key;
+        if let Some(unique) = node::get_i32(n, Attr::NODE_UNIQUE_ID, 0) {
+            node::set_i32(
+                n,
+                Attr::NODE_TEXT_AREA_ENTER_KEY_TYPE,
+                Key::ARKUI_ENTER_KEY_TYPE_NEW_LINE.0 as i32,
+            );
+            let handled = crate::host_api::textarea_enter(unique);
+            // Native editing may call app code that removes the editor. Never touch a
+            // released/reused handle on the way back out of the dispatch.
+            if CTRL_NODE.with(|m| m.borrow().get(&(n as usize)).copied()) == Some(id) {
+                node::set_i32(
+                    n,
+                    Attr::NODE_TEXT_AREA_ENTER_KEY_TYPE,
+                    Key::ARKUI_ENTER_KEY_TYPE_SEND.0 as i32,
+                );
+            }
+            if !handled {
+                log::warn!("day-arkui: Shift+Enter requires the staged ArkTS key-dispatch host");
+            }
+        }
     }
 
     fn set_area_editable(n: Handle, id: u64, editable: bool) {
@@ -2494,6 +2532,7 @@ mod imp {
                             InputField {
                                 held: (!p.editable).then(|| p.text.clone()),
                                 area_selectable: Some(p.selectable),
+                                submit_on_enter: p.submit_on_enter,
                                 ..Default::default()
                             },
                         )
@@ -2506,6 +2545,9 @@ mod imp {
                     node::set_textarea_placeholder(n.0, &p.placeholder);
                     node::register_event(n.0, node::EV_TEXT_AREA_CHANGE, id.0);
                     node::watch_textarea_edits(n.0, id.0);
+                    if p.submit_on_enter {
+                        node::enable_textarea_submit(n.0, id.0);
+                    }
                     node::set_textarea_editable(n.0, p.editable);
                     node::set_textarea_selectable(n.0, p.selectable);
                     node::enable_focus(n.0, id.0, false);

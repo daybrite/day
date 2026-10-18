@@ -38,6 +38,10 @@ day::resources!();
 /// shows each case alone while `day test` drives it.
 pub fn root() -> impl Piece {
     #[cfg(target_env = "ohos")]
+    if std::env::var_os("DAY_NATIVE_TEXTAREA_SUBMIT_TEST").is_some() {
+        return native_textarea::submission_page().any();
+    }
+    #[cfg(target_env = "ohos")]
     if std::env::var_os("DAY_NATIVE_TEXTAREA_TEST").is_some() {
         return native_textarea::page().any();
     }

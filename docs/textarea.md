@@ -89,6 +89,25 @@ Return; a text area keeps newlines. Both raise the soft keyboard through the foc
 ([docs/focus.md](focus.md)), and keyboard avoidance (the focused editor scrolling clear of the keyboard) applies
 to both.
 
+### Submission
+
+`.on_submit(f)` turns a text area into a composer: Enter calls `f` with the bound text already
+current, rather than inserting a newline. The callback can read or clear the signal. Without
+this modifier, Enter keeps its ordinary multiline behavior.
+
+On **ArkUI**, the native editor advertises **Send** to the IME and routes
+`NODE_TEXT_AREA_ON_SUBMIT` to the callback. Hardware Enter and the soft-keyboard Send button use
+the same native action. Submission leaves the editor focused, does not clear the text unless
+the callback does so, and is ignored while read-only. Pasting multiline text does not submit.
+Shift+Enter inserts a newline at the current selection. API 18 has no Shift+Enter binding or
+insert-text controller API, so Day dispatches an unmodified Enter through the ArkTS host while
+temporarily selecting the native newline action. ArkUI performs the edit, preserving Unicode
+selection, caret placement, and native undo/redo. The pre-IME modifier mask is empty on the
+tested runtime, so Day reads its pressed-key list to recognize Shift and Ctrl reliably.
+Custom ArkTS hosts must adopt the staged host's `registerTextAreaKey` callback for Shift+Enter;
+without it, the shortcut is ignored with a diagnostic rather than replacing text outside the
+native editing pipeline. `day build` stages this callback automatically for standard hosts.
+
 ## Per-backend native realization
 
 | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
@@ -118,10 +137,6 @@ keyboard, clipboard and touch input; injected Day events cannot prove native inp
 
 ## Follow-ups
 
-- **ArkUI submit-on-enter**: `.on_submit(...)` is not yet wired to the native TextArea submit
-  event/IME action. UIKit and Android already implement it. This is the next small editor-parity
-  item: wire the action, preserve ordinary multiline input, and test hardware Enter, Shift+Enter,
-  and the soft-keyboard action through native input.
 - **ArkUI spell-check**: still unsupported; verify an appropriate SDK/IME contract before
   advertising it. The API 18 C TextArea interface has no spell-check toggle.
 - Styled text is a different control: `day-piece-texteditor` edits a whole `StyledText` — the

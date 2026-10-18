@@ -18,6 +18,7 @@ use ohos_sys::arkui::native_node::{
 };
 use ohos_sys::arkui::ui_input_event::{
     ArkUI_ModifierKeyName, OH_ArkUI_UIInputEvent_GetModifierKeyStates,
+    OH_ArkUI_UIInputEvent_GetPressedKeys,
 };
 
 /// The day name for a keycode the route carries, or `None` for every other key
@@ -158,14 +159,63 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 }
                 Ev::NODE_ON_KEY_PRE_IME => {
                     let input = OH_ArkUI_NodeEvent_GetInputEvent(ev);
-                    if !input.is_null() && crate::area_unselectable(id) {
+                    if !input.is_null() {
                         let mut held = 0;
                         OH_ArkUI_UIInputEvent_GetModifierKeyStates(input, &mut held);
+                        // The API 18 pre-IME payload leaves modifierKeyState at zero, but
+                        // supplies pressedKeyCodes. Read that list instead of tracking held
+                        // keys across focus changes (which could leave a modifier stuck).
+                        let mut pressed = [0; 32];
+                        let mut len = pressed.len() as i32;
+                        if OH_ArkUI_UIInputEvent_GetPressedKeys(
+                            input,
+                            pressed.as_mut_ptr(),
+                            &mut len,
+                        ) == 0
+                        {
+                            for &key in pressed.iter().take(len.max(0) as usize) {
+                                let modifier = match ArkUI_KeyCode(key) {
+                                    ArkUI_KeyCode::ARKUI_KEYCODE_SHIFT_LEFT
+                                    | ArkUI_KeyCode::ARKUI_KEYCODE_SHIFT_RIGHT => {
+                                        ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0
+                                    }
+                                    ArkUI_KeyCode::ARKUI_KEYCODE_CTRL_LEFT
+                                    | ArkUI_KeyCode::ARKUI_KEYCODE_CTRL_RIGHT => {
+                                        ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0
+                                    }
+                                    ArkUI_KeyCode::ARKUI_KEYCODE_ALT_LEFT
+                                    | ArkUI_KeyCode::ARKUI_KEYCODE_ALT_RIGHT => {
+                                        ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_ALT.0
+                                    }
+                                    _ => 0,
+                                };
+                                held |= modifier as u64;
+                            }
+                        }
                         let code = ArkUI_KeyCode(OH_ArkUI_KeyEvent_GetKeyCode(input));
+                        if crate::area_can_submit(id)
+                            && held == ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_SHIFT.0 as u64
+                            && matches!(
+                                code,
+                                ArkUI_KeyCode::ARKUI_KEYCODE_ENTER
+                                    | ArkUI_KeyCode::ARKUI_KEYCODE_NUMPAD_ENTER
+                            )
+                        {
+                            // Consume before editing: an app may remove this node in its
+                            // TextChanged handler. Only key-down inserts, never key-up.
+                            OH_ArkUI_KeyEvent_SetConsumed(input, true);
+                            if OH_ArkUI_KeyEvent_GetType(input)
+                                == ArkUI_KeyEventType::ARKUI_KEY_EVENT_DOWN
+                            {
+                                crate::area_newline(OH_ArkUI_NodeEvent_GetNodeHandle(ev), id);
+                            }
+                            return;
+                        }
                         // Copy/Cut must not race an asynchronous selection-collapse event.
                         let ctrl =
                             held & ArkUI_ModifierKeyName::ARKUI_MODIFIER_KEY_CTRL.0 as u64 != 0;
-                        if ctrl
+                        if crate::area_unselectable(id)
+                            && ctrl
                             && matches!(
                                 code,
                                 ArkUI_KeyCode::ARKUI_KEYCODE_A
@@ -209,6 +259,11 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                 Ev::NODE_ON_BLUR => crate::on_event(id, K::FocusChanged as i32, 0.0, ""),
                 Ev::NODE_TEXT_INPUT_ON_SUBMIT => {
                     crate::on_event(id, K::Submitted as i32, 0.0, "");
+                }
+                Ev::NODE_TEXT_AREA_ON_SUBMIT => {
+                    if crate::area_can_submit(id) {
+                        crate::on_event(id, K::Submitted as i32, 0.0, "");
+                    }
                 }
                 // The non-text keys, for a focused node whose app asked for them
                 // (docs/menus.md). Consumed only when claimed: an unclaimed arrow keeps
