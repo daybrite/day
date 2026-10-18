@@ -170,8 +170,8 @@ mod imp {
         /// ReloadAllItems bursts dropped adapter ADDs, so coalesce to one per drain.
         static LIST_RELOAD_PENDING: RefCell<std::collections::HashSet<usize>> =
             RefCell::new(std::collections::HashSet::new());
-        /// Control handle → day node, for the echo cells below (a patch sees only the handle;
-        /// the echoed event carries only the node).
+        /// Control/label handle → day node, for echo cells and rebuilt link spans (a patch
+        /// sees only the handle; the event carries only the node).
         static CTRL_NODE: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
         /// Programmatic-set echo cells (§4.4): ArkUI fires onChange for programmatic sets
         /// too, so a value day just wrote comes straight back as a change event, and a
@@ -884,6 +884,7 @@ mod imp {
     /// styled Text is a small subtree. Day's own layout still treats the label as a leaf, because
     /// ArkUI measures the spans itself and reports the Text's size.
     fn set_label_runs(n: Handle, text: &str, runs: &[day_spec::TextRun]) {
+        let id = CTRL_NODE.with(|m| m.borrow().get(&(n as usize)).copied());
         if runs.is_empty() {
             // Plain text goes back on the Text itself; `runs_begin` cleared it when runs arrived.
             // Any spans go first: a Text still holding them would keep drawing them.
@@ -913,8 +914,15 @@ mod imp {
                 style.underline = r.underline.is_on();
                 style.color = r.color.map(argb);
                 style.background = r.background.map(argb);
+                if r.link.is_some() {
+                    // SPAN click handlers do not supply link styling. Match the public
+                    // Link's tint, while preserving an author's explicit run color.
+                    style.color.get_or_insert(0xFF00_7AFF);
+                    style.underline = true;
+                }
             }
-            node::label_runs_add(n, slice, style);
+            let link = id.zip(run.and_then(|r| r.link.as_deref()));
+            node::label_runs_add(n, slice, style, link);
         };
         let mut at = 0usize;
         for r in runs {
@@ -1595,6 +1603,7 @@ mod imp {
         let node_id = NodeId(id);
         let ev = match kind {
             k if k == K::Pressed as i32 => Event::Pressed,
+            k if k == K::LinkActivated as i32 => Event::LinkActivated(text.to_owned()),
             // SelectionChanged (swiper tab / menu row), carried as the index in `num`.
             k if k == K::SelectionChanged as i32 => Event::SelectionChanged(num as i64),
             k if k == K::ListActivated as i32 => Event::ListActivated(num as usize),
@@ -2467,6 +2476,7 @@ mod imp {
                         return new_node(node::STACK);
                     };
                     let n = new_node(node::TEXT);
+                    CTRL_NODE.with(|m| m.borrow_mut().insert(n.0 as usize, id.0));
                     node::set_text(n.0, &p.text);
                     if !p.wraps {
                         node::label_single_line(n.0);
@@ -4183,7 +4193,8 @@ mod imp {
                 Cap::Tree | Cap::TreeSections => Support::Emulated,
                 // Derived from NODE_FONT_SIZE: ArkUI publishes no baseline (docs/baseline.md).
                 Cap::BaselineAlignment => Support::Emulated,
-                Cap::TextRuns => Support::Native,
+                // Native spans own link hit testing, including spans wrapped across lines.
+                Cap::TextRuns | Cap::TextLinks => Support::Native,
                 // Native TextArea, with edit vetoes and selection collapse enforced by Day.
                 Cap::TextEditable | Cap::TextSelectable => Support::Emulated,
                 // ArkTS arms (src/host.rs): present wherever `day build` staged them.

@@ -390,6 +390,27 @@ case alone cannot prove native keyboard support.
 
 Run only one driver for the app at a time.
 
+## Native ArkUI link tests
+
+After building the conformance app for `harmony-arkui`, run:
+
+```sh
+python3 apps/conformance/scripts/harmony-links.py
+```
+
+The script launches `DAY_NATIVE_LINK_TEST=1` on the connected emulator. It uses OS taps in
+native Text bounds for every link activation; Day's driver only operates fixture controls
+and checks results. It verifies multiple targets in one label, Unicode targets, plain text
+and trailing whitespace, first/last wrapped lines, selectable labels, `TextBuilder` links,
+repeated target changes, linked/plain transitions, removal/remounting and default navigation.
+The fixture uses fixed text and font sizes; run at the emulator's default font scale. These
+tests do not claim keyboard traversal or screen-reader coverage. Run separately from other
+drivers for the app. A normal `day launch` or `day test` restores the regular test host.
+
+The portable `label-link-runs-reactive` conformance case checks native text preservation
+through rebuilding links and switching to/from plain text on all supporting targets. Existing
+mock tests cover the shared `LinkActivated` handler, custom-handler and route policies.
+
 ## In CI
 
 `ci.yml`'s `conformance` job runs the app through `daybrite/actions`' `dayapp.yml` on all nine

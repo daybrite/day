@@ -123,7 +123,9 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeEvent) {
                     // A selectable list CELL's click is a row selection, not a press: resolved
                     // through the adapter's row map (cells carry no day node id).
                     let n = OH_ArkUI_NodeEvent_GetNodeHandle(ev);
-                    if !crate::list::cell_click(n) {
+                    if let Some((label, target)) = crate::node::span_link(n) {
+                        crate::on_event(label, K::LinkActivated as i32, 0.0, &target);
+                    } else if !crate::list::cell_click(n) {
                         crate::on_event(id, K::Pressed as i32, 0.0, "");
                     }
                 }

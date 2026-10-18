@@ -2000,6 +2000,39 @@ pub(crate) mod conformance {
             })
     }
 
+    /// Replacing link runs, clearing them and restoring them preserves the native text.
+    /// Native input suites separately exercise each platform's span hit testing.
+    #[day_macros::test(day_core)]
+    fn label_link_runs_reactive() -> Case {
+        let text = Signal::new("😀 [Alpha](#alpha) / [Beta](#beta)".to_string());
+        Case::new()
+            .proves(kinds::LABEL)
+            .requires(Cap::TextRuns)
+            .page(move || {
+                column((
+                    label(text).markdown().id("links"),
+                    button("Replace").id("replace").action(move || {
+                        text.set("[東京](#tokyo) then [again](#again)".into());
+                    }),
+                    button("Plain")
+                        .id("plain")
+                        .action(move || text.set("Plain 😀".into())),
+                    button("Restore")
+                        .id("restore")
+                        .action(move || text.set("[Restored](#restored)".into())),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("links", "😀 Alpha / Beta").await?;
+                d.tap("replace").await?;
+                d.assert_text("links", "東京 then again").await?;
+                d.tap("plain").await?;
+                d.assert_text("links", "Plain 😀").await?;
+                d.tap("restore").await?;
+                d.assert_text("links", "Restored").await
+            })
+    }
+
     /// A selectable label still shows its text. Every toolkit implements label selection
     /// (`set_selectable`); `Cap::TextSelectable` is the text area's toggle, not this.
     #[day_macros::test(day_core)]
@@ -2403,6 +2436,7 @@ pub(crate) mod conformance {
         label_text,
         label_reactive,
         label_runs,
+        label_link_runs_reactive,
         label_selectable,
         progress_value,
         spinner_renders,

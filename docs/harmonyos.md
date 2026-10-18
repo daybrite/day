@@ -346,6 +346,10 @@ on the Oniro emulator:
   ([docs/size-classes.md](size-classes.md)).
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
+- **Inline links** — native clickable `SPAN` children route their original targets through
+  `Event::LinkActivated`. Markdown, `TextBuilder` and standalone `link(...)` use the same
+  path, including wrapped text and reactive updates. `Cap::TextLinks` reports `Native`.
+  See [text-runs.md](text-runs.md) and the [native tap tests](testing.md#native-arkui-link-tests).
 - **Text areas** — native `TextArea` with live read-only and selection policies. Day vetoes edits
   and restores text for input paths that bypass the veto; selection-disabled editors collapse
   native ranges and suppress selection menus/clipboard shortcuts. Both capabilities report

@@ -127,7 +127,7 @@ Link activation is `Cap::TextLinks`, and it is narrower than rendering:
 | XAML | `Hyperlink.Click` |
 | web-dom | the anchor's click, with its navigation cancelled |
 | AppKit | the native field editor reports to the `DayLabel` text-field subclass |
-| ArkUI | **not yet** |
+| ArkUI | native `NODE_ON_CLICK` on each link's `SPAN` |
 
 Every one of these reports the target to the app rather than opening it itself, so a label's
 `.on_link()` decides. Its default calls `open_link`: a leading `#` navigates to the route after
@@ -135,6 +135,19 @@ the hash, and other targets open through `Toolkit::open_url`. This also applies 
 with `TextBuilder::link`; see [markdown links](./markdown.md#links) for the route contract and
 custom-handler behavior. Where activation is missing the run still draws as a link; the tap does
 nothing.
+
+**ArkUI keeps hit testing in the native text layout.** Each linked span reports its original
+target to the owning label, including Unicode, custom schemes and `#route` targets. Plain
+spans do not register clicks. Wrapped spans activate on their glyphs across lines, without
+turning the label's trailing whitespace into a link. Links receive a default blue tint and
+underline; explicit run colors remain intact. Replacing runs, returning to plain text, or
+disposing a label unregisters its old span callbacks before releasing the nodes.
+
+The [native link suite](testing.md#native-arkui-link-tests) exercises OS taps, selection-enabled
+labels, reactive targets, removal from a handler and default route navigation. The portable
+`label-link-runs-reactive` case checks native text through linked/plain/relinked transitions;
+injected taps alone do not prove span hit testing. Per-link keyboard traversal and screen-reader
+activation are not covered by this native tap suite.
 
 Some backend details affect how runs are built.
 
@@ -174,5 +187,5 @@ string or something a user typed.
 
 ## What `Cap` answers
 
-`Cap::TextRuns` is Native on all eight backends. `Cap::TextLinks` is Native on seven (AppKit,
-GTK, Qt, UIKit, Android, XAML, web-dom) and Unsupported on ArkUI.
+`Cap::TextRuns` and `Cap::TextLinks` are Native on all eight backends (AppKit, GTK, Qt,
+UIKit, Android, XAML, ArkUI and web-dom).

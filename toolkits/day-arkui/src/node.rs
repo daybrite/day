@@ -633,6 +633,8 @@ thread_local! {
     /// list stacked its spans after the old ones), and `native_text` reads each span's own
     /// NODE_SPAN_CONTENT through it.
     static LABEL_SPANS: RefCell<HashMap<usize, Vec<Handle>>> = RefCell::new(HashMap::new());
+    /// Native span handle -> owning Day label and original link target.
+    static SPAN_LINKS: RefCell<HashMap<usize, (u64, String)>> = RefCell::new(HashMap::new());
 }
 
 /// Remove and dispose a label's spans, last to first: before new runs, and when the label goes
@@ -640,9 +642,20 @@ thread_local! {
 pub fn label_runs_clear(n: Handle) {
     let spans = LABEL_SPANS.with(|m| m.borrow_mut().remove(&(n as usize)));
     for c in spans.unwrap_or_default().into_iter().rev() {
+        if SPAN_LINKS
+            .with(|m| m.borrow_mut().remove(&(c as usize)))
+            .is_some()
+        {
+            api_call!(unregisterNodeEvent(c, EV_CLICK));
+        }
         remove_child(n, c);
         api_call!(disposeNode(c));
     }
+}
+
+/// Copy the target before dispatch: app code may rebuild or dispose the label in its handler.
+pub fn span_link(n: Handle) -> Option<(u64, String)> {
+    SPAN_LINKS.with(|m| m.borrow().get(&(n as usize)).cloned())
 }
 
 /// The spans [`label_runs_add`] attached to `n`, in order (empty for a plain label).
@@ -665,7 +678,7 @@ pub struct RunStyle {
 }
 
 /// Append one run as a SPAN child.
-pub fn label_runs_add(n: Handle, text: &str, style: RunStyle) {
+pub fn label_runs_add(n: Handle, text: &str, style: RunStyle, link: Option<(u64, &str)>) {
     let span = create(SPAN);
     if span.is_null() {
         return;
@@ -719,6 +732,13 @@ pub fn label_runs_add(n: Handle, text: &str, style: RunStyle) {
     }
     if let Some(color) = style.color {
         set_u32(span, Attr::NODE_FONT_COLOR, color);
+    }
+    if let Some((id, target)) = link {
+        SPAN_LINKS.with(|m| {
+            m.borrow_mut()
+                .insert(span as usize, (id, target.to_owned()))
+        });
+        register_event(span, EV_CLICK, id);
     }
     add_child(n, span);
     LABEL_SPANS.with(|m| m.borrow_mut().entry(n as usize).or_default().push(span));
