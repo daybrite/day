@@ -913,6 +913,7 @@ tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-ad
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
 nav(section)                       // sidebar / tabs / segmented, per NavStyle
+    .refreshable(busy, refresh)    //   native UIKit/Android sidebar pull; app-owned busy state
     .content_list(build)           //   the Mail shape's middle column (2026-08): a resident
                                    //   Pane::List page — a real contentList split item on
                                    //   appkit, the uikit triple-column supplementary column,
@@ -2643,6 +2644,19 @@ pre-reserved spec hooks did their job: it landed later as a defaulted duty with 
 change. `scroll(column(each(…)))` remains the honest choice for small collections.
 
 ### §10.5 Navigation and presentation
+
+`Nav::refreshable(busy, action)` is an app-owned refresh request/state contract on native
+UIKit and Android sidebar menus. Their UIRefreshControl/SwipeRefreshLayout owns the pull
+gesture; state patches only render the indicator and do not request work. Busy requests
+are suppressed, declined requests explicitly end the indicator, and scope disposal removes
+the handler. Other presentations/toolkits retain explicit commands. Compact content-list
+activation always presents the resident list, even for an already-selected route after
+initial UIKit collapse or native Back. UIKit coalesces pending requests, waits for transitions,
+and checks native controller ownership before presenting, preventing duplicate pushes during
+rapid Back/selection. Pending work is invalidated by a newer request or host disposal; this
+does not duplicate native stack ownership.
+See [sidebar refresh and activation](docs/navigation.md#sidebar-pull-to-refresh) and
+[the regression tests](crates/day-pieces/tests/nav_refresh.rs).
 
 Android navigation-suite menu items use `View.generateViewId()`, with an explicit mapping back
 to Day row indices. Material copies item IDs onto row views; using raw indices collides with

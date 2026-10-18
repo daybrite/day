@@ -47,6 +47,7 @@ public class DayAndroidPlugin implements Plugin<Project> {
     static final List<String> SHIM_DEPENDENCIES = List.of(
             "com.google.android.material:material:1.14.0",
             "androidx.fragment:fragment:1.8.5",
+            "androidx.swiperefreshlayout:swiperefreshlayout:1.2.0",
             "androidx.transition:transition:1.5.1");
 
     @Override

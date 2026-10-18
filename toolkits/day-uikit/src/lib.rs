@@ -946,7 +946,9 @@ mod imp {
                     }
                     let node = self.ivars().node;
                     let obj: &AnyObject = sender.as_ref();
-                    if let Some(sw) = obj.downcast_ref::<UISwitch>() {
+                    if obj.downcast_ref::<objc2_ui_kit::UIRefreshControl>().is_some() {
+                        emit(node, Event::RefreshRequested);
+                    } else if let Some(sw) = obj.downcast_ref::<UISwitch>() {
                         emit(node, Event::ToggleChanged(unsafe { sw.isOn() }));
                     } else if let Some(sl) = obj.downcast_ref::<UISlider>() {
                         emit(node, Event::ValueChanged(unsafe { sl.value() } as f64));
@@ -2720,6 +2722,8 @@ mod imp {
         /// of the stack (docs/navigation.md): UIKit's `viewControllers` is read whenever a
         /// change is computed, and a page that has already left it is simply not there.
         day_pop: std::cell::Cell<bool>,
+        /// Pending column request only; native viewControllers remains the stack authority.
+        pending_list: std::cell::Cell<Option<u64>>,
         _delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
@@ -4251,6 +4255,70 @@ mod imp {
         set(true);
         f();
         set(false);
+    }
+
+    /// Coalesce list presentation requests and wait for UIKit's current push/pop. Calling
+    /// showColumn twice during a pop queues two pushes of the SAME supplementary controller.
+    /// The ticket is pending work, not a stack mirror; presence is always read from UIKit.
+    fn request_compact_list(host: usize, show: bool) {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let ticket = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let primary = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            state.pending_list.set(show.then_some(ticket));
+            Some(state.split.as_ref()?.primary_nav.clone())
+        });
+        if show {
+            apply_compact_list(host, ticket);
+        } else if let Some(primary) = primary {
+            // Remove before any following destination push; never animate this model pop.
+            with_day_pop(&primary, || unsafe {
+                let _ = primary.popToRootViewControllerAnimated(false);
+            });
+        }
+    }
+
+    fn apply_compact_list(host: usize, ticket: u64) {
+        let found = NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let state = m.get(&host)?;
+            if state.pending_list.get() != Some(ticket) || !state.is_collapsed() {
+                return None; // superseded, disposed, or expanded while waiting
+            }
+            let parts = state.split.as_ref()?;
+            Some((
+                parts.split_vc.clone(),
+                parts.primary_nav.clone(),
+                parts.supplementary_nav.clone()?,
+                parts.list_vc.borrow().clone()?,
+            ))
+        });
+        let Some((split, primary, supplementary, list)) = found else {
+            return;
+        };
+        let transitioning = unsafe { primary.transitionCoordinator() }.is_some()
+            || unsafe { supplementary.transitionCoordinator() }.is_some()
+            || unsafe { split.transitionCoordinator() }.is_some();
+        if transitioning {
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || apply_compact_list(host, ticket));
+            });
+            return;
+        }
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow().get(&host) {
+                state.pending_list.set(None);
+            }
+        });
+        if owner_of(&primary, &list).is_none() {
+            note_ui_transition();
+            unsafe {
+                split.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Supplementary);
+            }
+        }
     }
 
     /// A pop the USER started on `nav` has been issued — the back button (UIKit calls
@@ -9226,6 +9294,7 @@ mod imp {
                                 host_node: id,
                                 split,
                                 day_pop: std::cell::Cell::new(false),
+                                pending_list: std::cell::Cell::new(None),
                                 _delegate: delegate,
                                 search,
                             },
@@ -9928,6 +9997,41 @@ mod imp {
                 }
                 // Data-driven sidebar rows (docs/navigation.md): rebuild the UITableView rows.
                 kinds::NAV_MENU => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::RefreshPatch>() {
+                        let Some(scroll) = h.downcast_ref::<UIScrollView>() else {
+                            return;
+                        };
+                        let Some(node) = NAV_MENUS
+                            .with(|m| m.borrow().get(&ptr_of(h)).map(|(d, _)| d.ivars().node))
+                        else {
+                            return;
+                        };
+                        let mtm = MainThreadMarker::new().expect("UIKit updates on main");
+                        let control = unsafe { scroll.refreshControl() }.unwrap_or_else(|| {
+                            let control = unsafe { objc2_ui_kit::UIRefreshControl::new(mtm) };
+                            let target = DayTarget::new(mtm, node);
+                            unsafe {
+                                control.addTarget_action_forControlEvents(
+                                    Some(&target),
+                                    sel!(fire:),
+                                    UIControlEvents::ValueChanged,
+                                );
+                                scroll.setRefreshControl(Some(&control));
+                                // An empty or short sidebar must still be pullable.
+                                scroll.setAlwaysBounceVertical(true);
+                            }
+                            TARGETS.with(|m| m.borrow_mut().insert(ptr_of(h), target));
+                            control
+                        });
+                        unsafe {
+                            if p.refreshing {
+                                control.beginRefreshing();
+                            } else {
+                                control.endRefreshing();
+                            }
+                        }
+                        return;
+                    }
                     if let Some(NavMenuPatch::Items {
                         items,
                         icons,
@@ -10122,8 +10226,6 @@ mod imp {
                             /// Collapsed triple only: the content list joins or leaves the
                             /// merged stack through UIKit's own column APIs.
                             TripleList {
-                                svc: Retained<objc2_ui_kit::UISplitViewController>,
-                                primary: Retained<DayNavController>,
                                 show: bool,
                             },
                             None,
@@ -10167,12 +10269,7 @@ mod imp {
                                 // collapsed stack on the first tap instead of waiting for a
                                 // detail push to bring it along.
                                 NavPatch::ListInStack(show) if collapsed_triple => {
-                                    let parts = state.split.as_ref().expect("triple");
-                                    Act::TripleList {
-                                        svc: parts.split_vc.clone(),
-                                        primary: parts.primary_nav.clone(),
-                                        show: *show,
-                                    }
+                                    Act::TripleList { show: *show }
                                 }
                                 NavPatch::ListInStack(_) => Act::None,
                                 // Per-destination content list: a column while expanded, an
@@ -10184,12 +10281,7 @@ mod imp {
                                     if !state.is_collapsed() {
                                         Act::Column
                                     } else if collapsed_triple {
-                                        let parts = state.split.as_ref().expect("triple");
-                                        Act::TripleList {
-                                            svc: parts.split_vc.clone(),
-                                            primary: parts.primary_nav.clone(),
-                                            show: *v,
-                                        }
+                                        Act::TripleList { show: *v }
                                     } else {
                                         Act::None
                                     }
@@ -10205,25 +10297,9 @@ mod imp {
                             },
                             // The host the destination calls for (`SplitParts::list_shown`).
                             Act::Column => rehost_split(ptr_of(h)),
-                            Act::TripleList { svc, primary, show } => {
-                                note_ui_transition();
-                                modal_after_idle(move || unsafe {
-                                    if *DIAG_NAV {
-                                        log::debug!("DAYDIAG exec TripleList show={show}");
-                                    }
-                                    if show {
-                                        svc.showColumn(
-                                            objc2_ui_kit::UISplitViewControllerColumn::Supplementary,
-                                        );
-                                    } else {
-                                        // This removes the outgoing list before the queued
-                                        // destination push. An animated pop finishes after that
-                                        // push and can discard its newly shown secondary column.
-                                        with_day_pop(&primary, || {
-                                            let _ = primary.popToRootViewControllerAnimated(false);
-                                        });
-                                    }
-                                });
+                            Act::TripleList { show } => {
+                                let host = ptr_of(h);
+                                modal_after_idle(move || request_compact_list(host, show));
                             }
                             Act::None => {}
                         }

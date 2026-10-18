@@ -1357,12 +1357,14 @@ type IconProgressSource<K> = Rc<dyn Fn() -> Vec<(K, Option<f64>)>>;
 ///     .item("settings", tr("settings"), settings_page)
 /// ```
 type DocumentEvent = Rc<dyn Fn(&Event)>;
+type RefreshSource = (Reactive<bool>, Rc<dyn Fn()>);
 
 pub struct Nav<S: Binding<K>, K: Route = String> {
     selection: S,
     documents: Option<day_spec::props::DocumentTabsConfig>,
     document_event: Option<DocumentEvent>,
     icon_progress: Option<IconProgressSource<K>>,
+    refresh: Option<RefreshSource>,
     style: NavStyle,
     title: TextSource,
     header: Option<Box<dyn FnOnce() -> AnyPiece>>,
@@ -1619,6 +1621,7 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
         documents: None,
         document_event: None,
         icon_progress: None,
+        refresh: None,
         style: NavStyle::default(),
         pending_section: None,
         sidebar_toggle: true,
@@ -1644,6 +1647,22 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
 }
 
 impl<K: Route, S: Binding<K>> Nav<S, K> {
+    /// Add the platform's pull-to-refresh control to the sidebar rows (docs/navigation.md).
+    /// UIKit uses UIRefreshControl, Android SwipeRefreshLayout. Other toolkits can ignore
+    /// this affordance, so retain a Refresh command for keyboard/accessibility users.
+    /// `refreshing` is app-owned: set it synchronously when accepting a request and clear it
+    /// on completion, failure or cancellation. Repeated pulls while busy are ignored. A
+    /// declined request stops the indicator immediately. Programmatic state writes never
+    /// call `action`. The handler and state bindings live only as long as this navigation.
+    pub fn refreshable<M>(
+        mut self,
+        refreshing: impl IntoReactive<bool, M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.refresh = Some((refreshing.into_reactive(), Rc::new(action)));
+        self
+    }
+
     pub(crate) fn document_mode(
         mut self,
         config: day_spec::props::DocumentTabsConfig,
@@ -2914,6 +2933,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             Vec::new()
         };
         let document_event = sel.document_event.clone();
+        let refresh = sel.refresh;
+        let list_pred_click = sel.content_list_pred.clone();
+        let pres_click = presentation_cell.clone();
+        let detail_visible_click = sel.detail_visible;
         let menu_piece = if let Some(collapsed) = sel.collapsed_sections {
             section_sidebar(
                 items.clone(),
@@ -2956,6 +2979,39 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                     Boundary::No,
                 );
                 mh.set(Some(node));
+                if let Some((refreshing, action)) = refresh {
+                    let refreshing = Rc::new(refreshing);
+                    let state = refreshing.clone();
+                    bind(
+                        move || state.get(),
+                        move |busy| {
+                            with_tree(|t| {
+                                t.patch(
+                                    node,
+                                    Box::new(day_spec::props::RefreshPatch { refreshing: *busy }),
+                                    false,
+                                )
+                            });
+                        },
+                    );
+                    mcx.on(node, move |event| {
+                        if matches!(event, Event::RefreshRequested) {
+                            if !day_reactive::untrack(|| refreshing.get()) {
+                                action();
+                            }
+                            // Re-apply even when the state did not change: the user may have
+                            // pulled an empty/offline library and the app declined the work.
+                            let busy = day_reactive::untrack(|| refreshing.get());
+                            with_tree(|t| {
+                                t.patch(
+                                    node,
+                                    Box::new(day_spec::props::RefreshPatch { refreshing: busy }),
+                                    false,
+                                )
+                            });
+                        }
+                    });
+                }
                 if let Some(event) = document_event {
                     mcx.on(node, move |ev| event(ev));
                 }
@@ -2969,6 +3025,19 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         let label = ts.borrow().get(*i as usize).cloned();
                         day_core::note_navigation(&k.key(), label.as_deref());
                         s.write(k.clone());
+                        // Activation is not just selection. UIKit can leave the supplementary
+                        // column offstage after its initial collapse, or after native back,
+                        // even though this route is already selected. Re-present the list on
+                        // EVERY tap, including a tap on the highlighted row. Do not rebuild it.
+                        if merged_list
+                            && pres_click.get() == NavPresentation::Stack
+                            && detail_visible_click.is_some_and(|visible| !visible.peek())
+                            && list_pred_click.as_ref().is_none_or(|p| p(k))
+                        {
+                            with_tree(|t| {
+                                t.patch(host, Box::new(NavPatch::ListInStack(true)), false)
+                            });
+                        }
                     }
                 });
                 node
@@ -3298,6 +3367,9 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 // until the app opens a row. The selection is recorded as current; the
                 // `detail_visible` bind re-enters here to perform the deferred push.
                 if interposed && !detail_visible.expect("gated implies Some").peek() {
+                    // A selected list can still be offstage after UIKit's initial collapse.
+                    // Route changes must present it too, without adding another back owner.
+                    with_tree(|t| t.patch(host, Box::new(NavPatch::ListInStack(true)), false));
                     *current.borrow_mut() = Some(key.to_string());
                     sync_menu(Some(idx));
                     return;
@@ -4999,6 +5071,11 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
 /// [`Nav`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
 /// to the piece it wraps, so generic modifiers and typed ones chain in any order.
 pub trait NavBuilder<K: Route>: Sized {
+    fn refreshable<M>(
+        self,
+        refreshing: impl IntoReactive<bool, M>,
+        action: impl Fn() + 'static,
+    ) -> Self;
     fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self;
     fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self;
     fn restore_sections(self, key: impl Into<String>) -> Self;
@@ -5046,6 +5123,13 @@ pub trait NavBuilder<K: Route>: Sized {
 }
 
 impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
+    fn refreshable<M>(
+        self,
+        refreshing: impl IntoReactive<bool, M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        Nav::refreshable(self, refreshing, action)
+    }
     fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self {
         Nav::collapsed_sections(self, state)
     }
@@ -5149,6 +5233,13 @@ impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
 }
 
 impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> {
+    fn refreshable<M>(
+        self,
+        refreshing: impl IntoReactive<bool, M>,
+        action: impl Fn() + 'static,
+    ) -> Self {
+        self.map_inner(|inner| inner.refreshable(refreshing, action))
+    }
     fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self {
         self.map_inner(|inner| inner.collapsed_sections(state))
     }

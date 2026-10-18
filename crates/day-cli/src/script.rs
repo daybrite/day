@@ -397,7 +397,27 @@ fn shot_dir(
     dir.join(variant.or(locale).unwrap_or("default"))
 }
 
-/// Whole-screen Android capture is accepted only between two successful window checks.
+/// How many times a capture that arrives damaged is taken again before the step fails.
+const ANDROID_CAPTURE_ATTEMPTS: usize = 3;
+
+/// Whether `bytes` decode as a whole PNG: every chunk's checksum, the compressed image data, and
+/// the end marker. `adb exec-out` can damage a frame on its way off the device: on 2026-10-18 an
+/// API 24 emulator delivered one with a bad checksum in its image data, which started like a PNG,
+/// passed every step, and then stopped the app's website build at the first tool that read it.
+fn png_intact(bytes: &[u8]) -> Result<(), String> {
+    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes))
+        .read_info()
+        .map_err(|e| e.to_string())?;
+    let size = reader
+        .output_buffer_size()
+        .ok_or("the frame is too large to decode")?;
+    let mut frame = vec![0; size];
+    reader.next_frame(&mut frame).map_err(|e| e.to_string())?;
+    reader.finish().map_err(|e| e.to_string())
+}
+
+/// Whole-screen Android capture is accepted only between two successful window checks, and only
+/// when the frame decodes; a damaged frame is taken again, up to [`ANDROID_CAPTURE_ATTEMPTS`].
 fn android_screenshot(serial: &str, path: &Path) -> Result<(), String> {
     if path.exists() {
         std::fs::remove_file(path).map_err(|e| e.to_string())?;
@@ -405,15 +425,28 @@ fn android_screenshot(serial: &str, path: &Path) -> Result<(), String> {
     // A system dialog left over the app would be captured with it. Only emulators
     // permit automatic dismissal; physical devices are inspected without mutation.
     crate::mobile::clear_system_dialogs(serial)?;
-    let mut cmd = Command::new(day_toolchain::adb_bin());
-    cmd.args(["-s", serial, "exec-out", "screencap", "-p"]);
-    // Do not use the verbose text-command helper: its tee would log PNG bytes.
-    let out = cmd.output().map_err(|e| e.to_string())?;
-    if !out.status.success() || !out.stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
-        return Err("adb screencap failed or returned no PNG".into());
+    let mut damaged = String::new();
+    for attempt in 1..=ANDROID_CAPTURE_ATTEMPTS {
+        let mut cmd = Command::new(day_toolchain::adb_bin());
+        cmd.args(["-s", serial, "exec-out", "screencap", "-p"]);
+        // Do not use the verbose text-command helper: its tee would log PNG bytes.
+        let out = cmd.output().map_err(|e| e.to_string())?;
+        if !out.status.success() || !out.stdout.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Err("adb screencap failed or returned no PNG".into());
+        }
+        if let Err(e) = png_intact(&out.stdout) {
+            eprintln!(
+                "  (capture {attempt} of {ANDROID_CAPTURE_ATTEMPTS} arrived damaged: {e}; taking it again)"
+            );
+            damaged = e;
+            continue;
+        }
+        crate::mobile::verify_android_capture(serial)?;
+        return std::fs::write(path, &out.stdout).map_err(|e| e.to_string());
     }
-    crate::mobile::verify_android_capture(serial)?;
-    std::fs::write(path, &out.stdout).map_err(|e| e.to_string())
+    Err(format!(
+        "adb screencap returned a damaged PNG {ANDROID_CAPTURE_ATTEMPTS} times ({damaged})"
+    ))
 }
 
 #[cfg(all(test, unix))]
@@ -430,7 +463,7 @@ mod android_capture_tests {
             let path = PathBuf::from(std::env::var_os("DAY_TEST_CAPTURE_PATH").unwrap());
             std::fs::write(&path, b"stale image from previous run").unwrap();
             let result = android_screenshot("test-physical-device", &path);
-            if case == "clean" {
+            if case == "clean" || case == "damaged-once" {
                 assert!(result.is_ok(), "{result:?}");
                 assert!(
                     std::fs::read(&path)
@@ -462,15 +495,46 @@ case "$3" in
       *) echo '  Window #0 Window{abc u0 StatusBar}:' ;;
     esac ;;
   exec-out)
-    touch "$DAY_TEST_CAPTURE_PATH.captured"
     [ "$DAY_TEST_CAPTURE_CASE" = capture-failed ] && exit 1
     [ "$DAY_TEST_CAPTURE_CASE" = invalid-png ] && { echo 'not a PNG'; exit 0; }
-    printf '\211PNG\r\n\032\n' ;;
+    # A frame damaged on its way off the device: every time, or only the first time.
+    case "$DAY_TEST_CAPTURE_CASE" in
+      damaged) cat "$DAY_TEST_PNGS/damaged.png" ;;
+      damaged-once)
+        if [ -f "$DAY_TEST_CAPTURE_PATH.captured" ]; then cat "$DAY_TEST_PNGS/good.png"
+        else cat "$DAY_TEST_PNGS/damaged.png"; fi ;;
+      *) cat "$DAY_TEST_PNGS/good.png" ;;
+    esac
+    touch "$DAY_TEST_CAPTURE_PATH.captured" ;;
 esac
 "#,
         )
         .unwrap();
         std::fs::set_permissions(&adb, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // A real 16x8 PNG, and the same bytes with one flipped inside the image data, which is
+        // what the damaged capture held.
+        let mut good = Vec::new();
+        {
+            let mut enc = png::Encoder::new(&mut good, 16, 8);
+            enc.set_color(png::ColorType::Rgb);
+            enc.set_compression(png::Compression::NoCompression);
+            let mut w = enc.write_header().unwrap();
+            w.write_image_data(&[0x40; 16 * 8 * 3]).unwrap();
+        }
+        assert!(png_intact(&good).is_ok());
+        let mut damaged = good.clone();
+        let idat = damaged.windows(4).position(|w| w == b"IDAT").unwrap();
+        damaged[idat + 20] ^= 0xff;
+        assert!(
+            png_intact(&damaged).is_err(),
+            "a flipped byte must not decode"
+        );
+        // Apart from the captures, which are named after their cases and so include a
+        // `damaged.png` that the capture under test deletes before it begins.
+        let pngs = root.join("frames");
+        std::fs::create_dir_all(&pngs).unwrap();
+        std::fs::write(pngs.join("good.png"), &good).unwrap();
+        std::fs::write(pngs.join("damaged.png"), &damaged).unwrap();
         for case in [
             "clean",
             "probe-failed",
@@ -479,6 +543,8 @@ esac
             "appeared-during-capture",
             "capture-failed",
             "invalid-png",
+            "damaged",
+            "damaged-once",
         ] {
             let out = Command::new(std::env::current_exe().unwrap())
                 .args([
@@ -487,6 +553,7 @@ esac
                     "--nocapture",
                 ])
                 .env(CHILD, case)
+                .env("DAY_TEST_PNGS", &pngs)
                 .env("ANDROID_HOME", &root)
                 .env("DAY_TEST_CAPTURE_PATH", root.join(format!("{case}.png")))
                 .output()

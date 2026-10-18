@@ -127,6 +127,7 @@ public final class DayBridge {
     // Mirror of day_spec::bridge::BridgeKind (the shared wire table). day-android's
     // bridge_kinds_parity test reads this block and asserts each value against the Rust enum, so
     // edit both together. Public so piece-owned Java (the K_CUSTOM channel) can use them.
+    public static final int K_REFRESH_REQUESTED = 35;
     public static final int K_PRESSED = 0;
     public static final int K_TEXT_CHANGED = 1;
     public static final int K_TOGGLE_CHANGED = 2;
@@ -2783,9 +2784,36 @@ public final class DayBridge {
      *  opens a new group before the row at the same index ("" continues the current one), so the
      *  indices never shift when a heading is added.
      */
+    private static final class DayRefreshNavigationView extends NavigationView {
+        androidx.swiperefreshlayout.widget.SwipeRefreshLayout refresh;
+        ViewGroup menuList;
+        DayRefreshNavigationView(android.content.Context context) { super(context); }
+    }
+
+    /** Lazily add the native Android pull affordance; selection and long-press still go to
+     *  Material's original RecyclerView. The widget and listener die with the navigation view. */
+    public static void setNavRefreshing(View view, boolean busy) {
+        if (!(view instanceof DayRefreshNavigationView)) return;
+        DayRefreshNavigationView nav = (DayRefreshNavigationView) view;
+        if (nav.refresh == null) {
+            ViewGroup rows = navRecycler(nav);
+            if (rows == null) return;
+            nav.menuList = rows;
+            ViewGroup.LayoutParams layout = rows.getLayoutParams();
+            int index = nav.indexOfChild(rows);
+            nav.removeView(rows);
+            nav.refresh = new androidx.swiperefreshlayout.widget.SwipeRefreshLayout(nav.getContext());
+            nav.refresh.addView(rows, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            nav.refresh.setOnChildScrollUpCallback((parent, child) -> rows.canScrollVertically(-1));
+            nav.refresh.setOnRefreshListener(() -> nativeOnEvent(((Number) nav.getTag()).longValue(), K_REFRESH_REQUESTED, 0, null));
+            nav.addView(nav.refresh, index, layout);
+        }
+        nav.refresh.setRefreshing(busy);
+    }
+
     public static View makeNavMenu(final long id, String joinedItems, String joinedIcons,
             String joinedSections) {
-        NavigationView nav = new NavigationView(ctx);
+        NavigationView nav = new DayRefreshNavigationView(ctx);
         // The pane's own background is the window's; the drawer's elevated surface would read as
         // a second card floating inside the split (docs/navigation.md).
         nav.setBackgroundColor(android.graphics.Color.TRANSPARENT);
@@ -4019,6 +4047,8 @@ public final class DayBridge {
 
     /** A NavigationView's list, which is the RecyclerView it keeps as its only real child. */
     private static android.view.ViewGroup navRecycler(NavigationView nav) {
+        if (nav instanceof DayRefreshNavigationView && ((DayRefreshNavigationView) nav).menuList != null)
+            return ((DayRefreshNavigationView) nav).menuList;
         for (int i = 0; i < nav.getChildCount(); i++) {
             if (nav.getChildAt(i) instanceof androidx.recyclerview.widget.RecyclerView) {
                 return (android.view.ViewGroup) nav.getChildAt(i);

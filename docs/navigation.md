@@ -21,6 +21,41 @@ Keys implement [`Route`](#typed-routes). Start with strings, or use an app-defin
 you want the compiler to check destinations and their associated data. The string adapter
 (`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
 
+## Sidebar pull-to-refresh
+
+`nav(selection).refreshable(refreshing, action)` installs the native pull control on
+UIKit (`UIRefreshControl`) and Android (`SwipeRefreshLayout`) sidebar menus, including
+lists shorter than the viewport. The native scroll view owns gesture arbitration: a pull
+starts only at the top, without intercepting ordinary row taps, long presses or scrolling.
+Android wraps the Material menu's RecyclerView inside its NavigationView, preserving the
+navigation handle, presenter and context-menu ownership.
+
+The app owns the reactive boolean and must set it synchronously when accepting work,
+then clear it on success, failure or cancellation. `RefreshRequested` is a request event;
+`RefreshPatch` renders state and never emits that event. Busy requests are ignored and
+requests that start no work end the indicator immediately, even when the boolean remains
+false. Programmatic refresh uses the same indicator. Bindings and callbacks belong to the
+navigation scope; native targets/listeners are owned by the released sidebar view.
+
+This currently applies to native sidebar menus on UIKit and Android. Tabs, composed
+collapsible/reorderable sidebars, desktop, web and ArkUI do not provide this affordance.
+Keep an explicit Refresh command for accessibility, keyboard use and other platforms.
+
+## Compact sidebar activation
+
+A row activation must present the resident content-list column even when its route is
+already selected. Selection alone is insufficient: UIKit can show the feeds root after
+initial split collapse or native Back while the model already considers the list selected.
+For a merged content list in stack presentation, every native row selection that satisfies
+`content_list_for` reissues `ListInStack(true)` without rebuilding that list. The native
+stack remains authoritative for Back; this does not add a second stack mirror. UIKit
+coalesces pending list requests with a generation ticket, waits for active push/pop transitions,
+and checks the native stack for the list controller before showing the column. This avoids
+queuing duplicate pushes when Back is immediately followed by another section selection.
+A newer request, expansion or host disposal makes an older pending request inert. Test actual
+row taps, especially the initially highlighted row, empty lists and Back/reselect cycles;
+injecting a route change can miss this failure.
+
 ## Document tabs
 
 `document_tabs(tabs, new_label, close_label, title, content)` hosts documents with independent

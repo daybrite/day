@@ -41,6 +41,7 @@ mod bridge_kinds_parity {
         }
         let expect = [
             ("K_PRESSED", BridgeKind::Pressed),
+            ("K_REFRESH_REQUESTED", BridgeKind::RefreshRequested),
             ("K_TEXT_CHANGED", BridgeKind::TextChanged),
             ("K_TOGGLE_CHANGED", BridgeKind::ToggleChanged),
             ("K_VALUE_CHANGED", BridgeKind::ValueChanged),
@@ -1634,6 +1635,7 @@ mod imp {
         }
         let ev = match kind {
             K_PRESSED => Event::Pressed,
+            k if k == bridge::BridgeKind::RefreshRequested as i32 => Event::RefreshRequested,
             K_TEXT_CHANGED => {
                 let text = env.dstr(jstr).ok().unwrap_or_default();
                 Event::TextChanged(text)
@@ -3379,6 +3381,17 @@ mod imp {
                     }
                 }
                 kinds::NAV_MENU => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::RefreshPatch>() {
+                        with_env(|env| {
+                            let _ = env.dcall_static(
+                                BRIDGE,
+                                "setNavRefreshing",
+                                "(Landroid/view/View;Z)V",
+                                &[JValue::Object(h.0.as_obj()), JValue::Bool(p.refreshing)],
+                            );
+                        });
+                        return;
+                    }
                     match patch.downcast_ref::<NavMenuPatch>() {
                         // A data-driven `.items(signal, …)` block re-derived: rebuild the native
                         // rows so each click listener reports its current index; stale rows

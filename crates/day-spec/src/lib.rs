@@ -602,11 +602,13 @@ pub mod bridge {
         /// the window's root node, or [`crate::WINDOW_NODE`] for the primary. Decodes to
         /// [`crate::Event::WindowStateChanged`] through [`crate::WindowState::from_code`].
         WindowStateChanged = 34,
+        /// Native pull-to-refresh request; no payload.
+        RefreshRequested = 35,
     }
 
     impl BridgeKind {
         /// Every variant, for uniqueness/parity tests and exhaustive dispatch.
-        pub const ALL: [BridgeKind; 35] = [
+        pub const ALL: [BridgeKind; 36] = [
             BridgeKind::Pressed,
             BridgeKind::TextChanged,
             BridgeKind::ToggleChanged,
@@ -642,6 +644,7 @@ pub mod bridge {
             BridgeKind::DocumentOpened,
             BridgeKind::ReduceMotionChanged,
             BridgeKind::WindowStateChanged,
+            BridgeKind::RefreshRequested,
         ];
     }
 
@@ -893,6 +896,8 @@ pub enum Event {
     /// A native list committed a swipe-delete (docs/list.md): the row at this index is gone.
     /// Deferred through the event queue exactly as [`Event::ListReorder`] is.
     ListDelete(usize),
+    /// The native pull-to-refresh control requested an update. The app owns its busy state.
+    RefreshRequested,
     /// A native list activated a swipe action (docs/list.md): the user pressed button `action`
     /// (an index into the row's [`ListSwipe::actions_at`] offer for `edge`) on row `index`, or
     /// swiped clear across for the edge's first action. Emitted on the `LIST` node by the list
@@ -6171,6 +6176,14 @@ pub mod props {
         /// Rows self-size from their content (host re-measures on change; slower).
         #[default]
         Automatic,
+    }
+
+    /// Configure a navigation sidebar's native pull-to-refresh control. Not a synthetic pan:
+    /// supported toolkits own gesture arbitration and the progress indicator. A false state
+    /// ends a pull, including a request the application declines. Never emits an event.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct RefreshPatch {
+        pub refreshing: bool,
     }
 
     /// Native recycling list (docs/list.md). The host owns scrolling + cell reuse; Day supplies
