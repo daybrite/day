@@ -111,7 +111,7 @@ follows layout order).
 | UIKit | `EditingDidBegin` / `EditingDidEnd` targets on the text field; `EditingDidEndOnExit` is `Submitted` (registering it is also what makes Return dismiss the keyboard). | `becomeFirstResponder()` / `resignFirstResponder()` — focus **is** the keyboard on iOS. Buttons are not first-responder focusable. |
 | GTK 4 | `EventControllerFocus` (`enter`/`leave`) on entry, button, switch, and scale — it tracks focus-within, which covers `GtkEntry`'s inner `GtkText`. `Entry::activate` is `Submitted`. | `grab_focus()`, retried once at `map` if the widget isn't mapped yet (rule 4); resign via `root.set_focus(None)`, only while the widget holds focus-within. |
 | Qt 6 | `day_qt_enable_focus` — a `FocusIn`/`FocusOut` event filter (the `DayGestureFilter` pattern) on line edit, button, checkbox, and slider; popup-reason focus-outs are ignored (menus are transient). `returnPressed` is `Submitted`. | `setFocus(Qt::OtherFocusReason)` / `clearFocus()` (only while focused). Qt delivers focus events only in the *active* window, so the duty activates it first — via the OS when allowed, else app-locally (`QApplication::setActiveWindow`, kept by Qt for exactly this driving/embedding case). |
-| Android | `View.OnFocusChangeListener` on the inner `TextInputEditText` → event kind 16; `OnEditorActionListener` (IME action or hardware enter key-down) → `Submitted` (kind 17). | `DayBridge.focusView`: `requestFocus()` + `InputMethodManager.showSoftInput` on gain; on resign, hide the IME and `clearFocus()` — which lands on `DayActivity`'s focusable-in-touch-mode root instead of snapping to the first focusable field. |
+| Android | `View.OnFocusChangeListener` on the inner `TextInputEditText` → event kind 16; `OnEditorActionListener` (IME action or hardware enter key-down) → `Submitted` (kind 17). | `DayBridge.focusView`: `requestFocus()` + `InputMethodManager.showSoftInput` on gain; on resign, `WindowInsetsControllerCompat.hide(Type.ime())` and `clearFocus()` — which lands on `DayActivity`'s focusable-in-touch-mode root instead of snapping to the first focusable field. |
 | XAML | `GotFocus`/`LostFocus` per control (the shim was written for system XAML, which has no global focus event; the WinUI build keeps the same wiring) on button, toggle, slider, and text box; `KeyDown` Enter in a `TextBox` is `Submitted`. | `Control.Focus(FocusState::Programmatic)` (draws no focus visual); resign parks focus on an invisible 1×1 `ContentControl` sink (`IsTabStop` flipped around the call, so it never sits in the tab order). |
 | ArkUI | `NODE_ON_FOCUS` / `NODE_ON_BLUR` registered on button, text input, toggle, slider, and the canvas host; `NODE_TEXT_INPUT_ON_SUBMIT` is `Submitted`. | `OH_ArkUI_FocusRequest(node)` (typed non-focusable errors ignored — rule 2); resign via `OH_ArkUI_FocusClear(OH_ArkUI_GetContextByNode(node))`, guarded by `NODE_FOCUS_STATUS`. |
 | mock | logged op + `MockWidget.focused` | logged op |
@@ -161,7 +161,36 @@ that. On iOS a full-screen modal takes the presenting view out of the window, so
 behind a compact inspector sheet ([docs/inspector.md](inspector.md)) refuses focus until the
 sheet closes; the request lapses and the signal snaps back, which is rule 2.
 
+### Automatic keyboard dismissal on mobile
+
+Android observes editor focus per activity window, including text areas and native search
+fields. A deferred check keeps the IME open during editor-to-editor focus transfers, but hides
+it through `WindowInsetsControllerCompat.hide(Type.ime())` when no visible enabled editor
+remains. The dismissal intent survives late IME-show completion and is checked again after
+keyboard-inset layout; a newly focused editor clears it. A layout check covers hidden/disabled
+editors; subtree removal ends editing while the
+window token is still attached. Navigation fragments, departing tabs and dismissed covers end
+editing on the outgoing surface. The observer is detached with its window and does not hide
+the IME in a different window or transient popup. WebViews are conservatively treated as editor
+owners because HTML editing need not expose a native EditText.
+
+UIKit uses `endEditing(false)` on departing page/cover controllers, removed subtrees and hidden
+document pages. The call stays scoped to the outgoing surface and respects refusal to resign.
+Native focus events continue to update `.focused(...)` bindings. No app opt-in is required.
+
+Do not dismiss on every button tap, every reactive rebuild, or every Return key: formatting
+buttons, validation errors, multiline editors and Next-field chaining need to keep editing.
+When a submit action leaves its form visible, the app can clear its focus binding explicitly.
+When it replaces the form or navigates away, the framework dismisses automatically.
+
 ## 5. Testing it
+
+- **Native IME regression:** Day-News `scripts/test-android-keyboard.py` runs on a chosen
+  emulator with an isolated synthetic account, checking Android's actual `mInputShown`
+  state for field transfer, explicit release, navigation pop, login-form replacement and
+  cover dismissal. Its screenshots show the keyboard and the recovered settings surface.
+  UIKit uses the equivalent simulator flow and checks focus plus rendered keyboard visibility.
+
 
 - **Unit (mock):** two-way Bool binding, group moves without a `None` blip, mount-time
   `Some(K)` requests focus, `on_submit` fires (`day-pieces/tests/mock_e2e.rs`).

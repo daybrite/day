@@ -192,7 +192,17 @@ public class DayNavHost extends LinearLayout {
             listColumn.setOrientation(VERTICAL);
             listColumn.addView(listPane, new LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
-            split = new androidx.slidingpanelayout.widget.SlidingPaneLayout(ctx);
+            split = new androidx.slidingpanelayout.widget.SlidingPaneLayout(ctx) {
+                @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+                    super.onLayout(changed, l, t, r, b);
+                    // A child's remeasure can change isSlideable without changing this
+                    // view's bounds. OnLayoutChangeListener misses that pass, leaving a
+                    // compact destination with tiled chrome (and no Up button).
+                    syncPresentation();
+                    syncPane(depth());
+                    syncSectionBack();
+                }
+            };
             // The navigation model owns which pane is visible. A free pane drag can
             // otherwise reveal the feed list without popping its logical destination.
             split.setLockMode(androidx.slidingpanelayout.widget.SlidingPaneLayout.LOCK_MODE_LOCKED);
@@ -223,16 +233,6 @@ public class DayNavHost extends LinearLayout {
                             ViewGroup.LayoutParams.MATCH_PARENT);
             dp.weight = 1f;
             split.addView(pages, dp);
-            // Report every change of the platform's own answer. Layout is when it is decided,
-            // so this is where it is read.
-            split.addOnLayoutChangeListener(new OnLayoutChangeListener() {
-                @Override public void onLayoutChange(View v, int l, int t, int r, int b,
-                        int ol, int ot, int or, int ob) {
-                    syncPresentation();
-                    syncPane(depth());
-                    syncSectionBack();
-                }
-            });
             content = split;
         } else {
             // A permanent stack: pages only, no list pane, no tiling decision to observe.
@@ -326,7 +326,10 @@ public class DayNavHost extends LinearLayout {
     /** Stacked (one pane at a time)? A plain stack host always is; an adaptive host asks its
      *  SlidingPaneLayout, whose measure pass owns the answer (docs/size-classes.md). */
     private boolean stacked() {
-        return split == null || split.isSlideable();
+        // Before the first measure, isSlideable is false even on a phone. Use the
+        // same conservative stacked default as the model until onLayout reports
+        // the actual presentation, then keep all chrome on that settled answer.
+        return split == null || lastSlideable;
     }
 
     private void syncSearchVisibility(int depth) {
@@ -1053,9 +1056,9 @@ public class DayNavHost extends LinearLayout {
 
     private void syncChrome() {
         toolbar.setTitle(titles.isEmpty() ? rootTitle : titles.get(titles.size() - 1));
-        // Only a stacked presentation needs an up-arrow: when both panes are tiled the list is
-        // already on screen, so there is nowhere for "back" to go (docs/size-classes.md).
-        showUpArrow(!titles.isEmpty() && stacked());
+        // The tiled base section has its list alongside it. Nested pages still need Up
+        // to return to that section; compact pages always need it to reach the root.
+        showUpArrow(!titles.isEmpty() && (stacked() || titles.size() > 1));
         // Edge-to-edge mode: per-page chrome (docs/navigation.md). An immersive page keeps the
         // floating scrim bar over full-bleed content; the root and unmarked pages get a solid
         // colorPrimary bar, which also backs the status-bar area (the app bar carries the
@@ -1210,8 +1213,10 @@ public class DayNavHost extends LinearLayout {
                         android.R.attr.homeAsUpIndicator, tv, true);
             }
             toolbar.setNavigationIcon(tv.resourceId);
+            toolbar.setNavigationContentDescription(androidx.appcompat.R.string.abc_action_bar_up_description);
         } else {
             toolbar.setNavigationIcon(null);
+            toolbar.setNavigationContentDescription(null);
         }
     }
 
@@ -1228,6 +1233,13 @@ public class DayNavHost extends LinearLayout {
 
         PageFragment(View content) {
             this.content = content;
+        }
+
+        @Override public void onPause() {
+            // replace/pop removes the outgoing fragment. An activity pause alone must
+            // preserve editing (e.g. the user briefly switches apps or opens a permission UI).
+            if (isRemoving()) DayKeyboard.endEditing(content);
+            super.onPause();
         }
 
         @Override public View onCreateView(LayoutInflater inflater, ViewGroup container,

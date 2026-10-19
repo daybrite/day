@@ -107,6 +107,7 @@ public class DayActivity extends androidx.fragment.app.FragmentActivity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(wrapper);
+        DayKeyboard.install(getWindow().getDecorView());
         // A recreation (a theme or language switch): the previous activity's last frame goes
         // over the window now, before anything of this one draws, and comes down once the
         // re-mounted tree has settled (mountSettled).

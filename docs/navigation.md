@@ -1048,7 +1048,11 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   matching Android’s [two-pane navigation guidance](https://developer.android.com/develop/ui/views/layout/twopane).
   Compact section Back clears the selector and explicitly closes the sliding pane; wide
   section changes replace the current content without accumulating history. Free pane
-  dragging is locked so pane visibility cannot diverge from selection.
+  dragging is locked so pane visibility cannot diverge from selection. Toolbar chrome uses
+  the same conservative stacked default as the model before native measurement, then follows
+  the settled presentation after every layout pass (even with unchanged outer bounds).
+  Compact destinations and tiled nested pages expose a localized Up button. Only the tiled
+  base section omits it, because its root list is already visible alongside it.
   A nested push is a `replace()` back-stack transaction carrying `MaterialSharedAxis`
   transitions. Each page view is a transition group, so the push and pop move the page as
   one view: left to the framework's default, the transition animates the page's leaf views

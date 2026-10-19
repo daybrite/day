@@ -47,6 +47,7 @@ public class DayWindowActivity extends androidx.fragment.app.FragmentActivity {
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT,
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT));
         setContentView(wrapper);
+        DayKeyboard.install(getWindow().getDecorView());
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(wrapper,
                 new androidx.core.view.OnApplyWindowInsetsListener() {
             @Override public androidx.core.view.WindowInsetsCompat onApplyWindowInsets(

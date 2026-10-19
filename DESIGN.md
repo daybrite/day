@@ -1488,7 +1488,14 @@ hop needed a dedicated protocol — this cannot be retrofitted after the spec fr
 > margins, UIKit observes `UIKeyboardWillChangeFrame` (clamping the root to the keyboard top and
 > revealing the focused field via `scrollRectToVisible`), ArkUI uses `KeyboardAvoidMode.RESIZE`
 > plus the host's `onAreaChange` → `resized()` NAPI. The
-> soft keyboard is raised/dismissed through the focus system ([docs/focus.md](docs/focus.md)). The
+> soft keyboard is raised/dismissed through the focus system ([docs/focus.md](docs/focus.md)).
+> Android also reconciles window-local editor loss after the UI turn: switching between editors
+> preserves the IME, while a removed, hidden, disabled or unfocused editor without a successor
+> releases it through `WindowInsetsControllerCompat`. Dismissal intent survives late IME-show
+> completion and is reconciled after inset layout until a new editor takes focus. Navigation/cover departure ends editing
+> before detachment. UIKit ends editing in departing page/cover controllers and removed subtrees.
+> Ordinary button taps and backgrounding do not blanket-dismiss editing; callers can still
+> explicitly clear `.focused(...)` when submitting a form that stays onscreen. The
 > `env::safe_area()` / `env::keyboard_insets()` *signals* and `.ignore_safe_area(edges)` are
 > **not implemented** — no app has needed to read the values directly yet. The policy below
 > remains the design of record for when one does. **The scroll-root rule shipped on UIKit
@@ -7955,3 +7962,15 @@ columns, stack navigation, tab wrappers and docked window toolbars. Bars are non
 so native controller layout reserves their space. Nested scroll content such as a reader
 webview inside a pager cannot show text behind navigation controls, even when UIKit cannot
 infer its scroll-edge state. Dynamic colors follow system and window appearance changes.
+
+Android adaptive navigation reconciles its measured stacked/tiled presentation after every
+`SlidingPaneLayout.onLayout`, including passes whose outer bounds are unchanged. Child
+remeasure can change `isSlideable`; an outer-bounds listener alone misses those changes.
+Before measurement, chrome uses the model's conservative stacked default, not the native
+container's unmeasured `false` value. Otherwise startup hides Up and the first compact layout
+matches the cached default, skipping the repaint that would restore it. Compact destinations always
+show a localized Up action; tiled nested destinations also show Up to their base section, while a tiled
+base section has its root list alongside it. UIKit retains the native back item alongside app
+toolbar items, and ArkUI hides Back only for a tiled base destination. Real-touch coverage is in
+Day-News `tests/android-up.py` (including cold-launch selected Today) and
+`tests/ios-navigation/NavigationTests.swift::testRootReachableFromSmartFeeds`.

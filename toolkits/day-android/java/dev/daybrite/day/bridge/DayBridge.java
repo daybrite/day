@@ -1578,10 +1578,11 @@ public final class DayBridge {
                 imm.showSoftInput(target, 0);
             }
         } else if (target.hasFocus()) {
-            if (imm != null) imm.hideSoftInputFromWindow(target.getWindowToken(), 0);
-            // Android focus is never "nowhere": DayActivity's root is focusable-in-touch-mode,
-            // so clearing lands there instead of snapping back to the first focusable field.
-            target.clearFocus();
+            if (target.onCheckIsTextEditor() || target instanceof android.webkit.WebView) {
+                DayKeyboard.endEditing(target);
+            } else {
+                target.clearFocus();
+            }
         }
     }
 
@@ -1766,6 +1767,7 @@ public final class DayBridge {
     public static void removeChild(View child) {
         // See addChild: a presented cover shell is native-owned.
         if (child instanceof DayCover && ((DayCover) child).presented) return;
+        DayKeyboard.endEditing(child);
         // Nav pages route through their host (looked up by view, since the FragmentManager may
         // have the page detached mid-transition, so the parent chain can't be relied on).
         DayNavHost navHost = DayNavHost.pageHosts.get(child);
@@ -3371,7 +3373,10 @@ public final class DayBridge {
         return v.getBaseline();
     }
 
-    public static void setEnabled(View v, boolean b) { v.setEnabled(b); }
+    public static void setEnabled(View v, boolean b) {
+        if (!b) DayKeyboard.endEditing(v);
+        v.setEnabled(b);
+    }
 
     public static View makeCanvas(long id) { return new DayCanvasView(ctx, id); }
     public static void setCanvasOps(View v, double[] nums, String textsJoined) {

@@ -4743,6 +4743,29 @@ mod imp {
         edge
     }
 
+    // Navigation pages end editing on departure (push, pop and tab selection). Keep the
+    // request scoped to the outgoing view, so an incoming page's first responder survives.
+    define_class!(
+        #[unsafe(super(UIViewController))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayPageVC"]
+        struct DayPageVC;
+
+        unsafe impl NSObjectProtocol for DayPageVC {}
+
+        impl DayPageVC {
+            #[unsafe(method(viewWillDisappear:))]
+            fn view_will_disappear(&self, animated: bool) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewWillDisappear: animated];
+                    if let Some(view) = self.viewIfLoaded() {
+                        view.endEditing(false);
+                    }
+                }
+            }
+        }
+    );
+
     /// The cover node a `DayCoverVC` presents, for the sheet's own dismissal report, and how
     /// it presents: UIKit makes a fresh presentation controller for every presentation, so the
     /// sheet's detents and delegate are applied each time the VC goes up (`configure_sheet`),
@@ -4789,6 +4812,16 @@ mod imp {
         /// The presented cover is the VC UIKit consults for system-gesture deferral, so the
         /// `defers_system_gestures` union applies while a game/cover is up.
         impl DayCoverVC {
+            #[unsafe(method(viewWillDisappear:))]
+            fn view_will_disappear(&self, animated: bool) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewWillDisappear: animated];
+                    if let Some(view) = self.viewIfLoaded() {
+                        view.endEditing(false);
+                    }
+                }
+            }
+
             #[unsafe(method(preferredScreenEdgesDeferringSystemGestures))]
             fn preferred_edges(&self) -> UIRectEdge {
                 rect_edges()
@@ -5200,6 +5233,9 @@ mod imp {
             unsafe {
                 if let Some(view) = vc.view() {
                     view.setFrame(host.bounds());
+                    if i != state.selected && !view.isHidden() {
+                        view.endEditing(false);
+                    }
                     view.setHidden(i != state.selected);
                 }
             }
@@ -9426,7 +9462,8 @@ mod imp {
                     let outer = DayNavPageView::new(mtm, id);
                     let content = unsafe { UIView::new(mtm) };
                     unsafe { outer.addSubview(&content) };
-                    let vc = unsafe { UIViewController::new(mtm) };
+                    let vc: Retained<UIViewController> =
+                        Retained::into_super(unsafe { msg_send![DayPageVC::alloc(mtm), init] });
                     unsafe {
                         vc.setView(Some(&outer));
                         vc.setTitle(Some(&NSString::from_str(&p.title)));
@@ -11054,6 +11091,8 @@ mod imp {
         }
 
         fn remove(&mut self, parent: &Handle, child: &Handle) {
+            // Conditional forms can disappear without a controller transition (e.g. login).
+            unsafe { child.endEditing(false) };
             let document = DOCUMENT_HOSTS.with(|m| {
                 let mut m = m.borrow_mut();
                 let Some(state) = m.get_mut(&ptr_of(parent)) else {

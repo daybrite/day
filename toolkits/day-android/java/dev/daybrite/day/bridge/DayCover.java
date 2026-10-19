@@ -143,6 +143,7 @@ public class DayCover extends FrameLayout {
         this.dismissDisabled = dismissDisabled;
         ViewGroup root = ((android.app.Activity) DayBridge.ctx)
                 .findViewById(android.R.id.content);
+        if (!presented) DayKeyboard.endEditing(root);
         if (half) {
             presentSheet(root);
             return;
@@ -295,6 +296,7 @@ public class DayCover extends FrameLayout {
      *  re-present throw "No view found for id" from FragmentStateManager. A `GONE` view
      *  neither lays out nor draws, so hiding costs nothing. */
     void dismissCover() {
+        DayKeyboard.endEditing(this);
         if (backCb != null) {
             backCb.remove();
             backCb = null;

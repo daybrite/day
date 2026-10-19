@@ -391,7 +391,9 @@ public class DayTabs extends LinearLayout {
 
     private void showPage(int index) {
         for (int i = 0; i < pageViews.size(); i++) {
-            pageViews.get(i).setVisibility(i == index ? View.VISIBLE : View.GONE);
+            View page = pageViews.get(i);
+            if (i != index && page.getVisibility() == View.VISIBLE) DayKeyboard.endEditing(page);
+            page.setVisibility(i == index ? View.VISIBLE : View.GONE);
         }
         if (index >= 0 && index < pageViews.size()) {
             fitPage(pageViews.get(index));
