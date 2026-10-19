@@ -2101,6 +2101,67 @@ fn content_list_emulated_gates_detail_on_visibility() {
     );
 }
 
+/// Filtering a collapsed sidebar after Back updates rows without opening a destination.
+#[test]
+fn content_list_filter_after_back_stays_on_sidebar() {
+    let selection = Signal::new(String::new());
+    let filtered = Signal::new(false);
+    let detail = Signal::new(false);
+    let probe = boot_content_list(
+        day_spec::Support::Emulated,
+        Size::new(400.0, 600.0),
+        move || {
+            nav(selection)
+                .style(NavStyle::Sidebar)
+                .content_list(|| label("Fixture articles"))
+                .detail_visible(detail)
+                .items(
+                    move || {
+                        if filtered.get() {
+                            vec!["unread"]
+                        } else {
+                            vec!["unread", "read"]
+                        }
+                    },
+                    |key| item(*key, *key),
+                )
+                .destination(|_: &String| label("Fixture detail"))
+                .any()
+        },
+    );
+    flush_sync();
+    let host = probe.find_by_kind("day.nav")[0].1.node;
+    probe.emit(
+        NodeId(host),
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert_eq!(selection.get_untracked(), "");
+    let mark = probe.log_len();
+    filtered.set(true);
+    flush_sync();
+    assert_eq!(selection.get_untracked(), "", "filtering must not navigate");
+    assert!(
+        !probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav list in-stack=true"))
+    );
+    // A deliberate tap still opens the remaining destination.
+    let menu = probe.find_by_kind("day.nav_menu")[0].1.node;
+    probe.emit(NodeId(menu), Event::SelectionChanged(0));
+    flush_sync();
+    assert_eq!(selection.get_untracked(), "unread");
+    assert!(
+        probe
+            .log_since(mark)
+            .iter()
+            .any(|l| l.contains("nav list in-stack=true"))
+    );
+}
+
 /// The composed gated flow in a chrome presentation (docs/navigation.md): a compact adaptive
 /// nav's list-backed tab is a nested navigation host, with the list at its root and the detail
 /// a push with a native back and the app's `detail_title` on its bar, not an in-place swap.

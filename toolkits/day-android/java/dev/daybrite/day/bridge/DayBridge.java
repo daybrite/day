@@ -2990,18 +2990,27 @@ public final class DayBridge {
      *  Best-effort and called after makeNavMenu/updateNavMenu, exactly like setNavMenuTints: a
      *  throw on the nav host's own build path takes the whole tree down with it, and a decoration
      *  is never worth that. */
-    public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints) {
+    public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints, String joinedTexts) {
         try {
             if (!(navMenu instanceof NavigationView)) return;
             java.util.List<MenuItem> rows = navItems((NavigationView) navMenu);
             String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
             String[] tints = joinedTints.isEmpty() ? new String[0] : joinedTints.split("\u001f", -1);
+            String[] texts = joinedTexts.isEmpty() ? new String[0] : joinedTexts.split("\u001f", -1);
             float d = ctx.getResources().getDisplayMetrics().density;
-            for (int i = 0; i < rows.size() && i < icons.length; i++) {
+            for (int i = 0; i < rows.size(); i++) {
                 MenuItem row = rows.get(i);
-                android.graphics.drawable.Drawable badge = drawableByName(ctx, icons[i]);
+                android.graphics.drawable.Drawable badge = i < icons.length ? drawableByName(ctx, icons[i]) : null;
+                String text = i < texts.length ? texts[i] : "";
+                android.widget.TextView count = new android.widget.TextView(ctx);
+                count.setTextAppearance(android.R.style.TextAppearance_Material_Body2);
+                count.setTextColor(MaterialColors.getColor(navMenu, com.google.android.material.R.attr.colorOnSurfaceVariant));
+                count.setText(text);
+                count.setGravity(android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END);
+                count.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
+                        -2, -2, android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END));
                 if (badge == null) {
-                    row.setActionView(null);
+                    row.setActionView(text.isEmpty() ? null : count);
                     continue;
                 }
                 // The end slot is a menu item's action view here, which NavigationView lays out
@@ -3022,7 +3031,18 @@ public final class DayBridge {
                 if (tint != 0) {
                     iv.setImageTintList(android.content.res.ColorStateList.valueOf((int) tint));
                 }
-                row.setActionView(iv);
+                if (text.isEmpty()) {
+                    row.setActionView(iv);
+                } else {
+                    android.widget.LinearLayout accessories = new android.widget.LinearLayout(ctx);
+                    accessories.setOrientation(android.widget.LinearLayout.HORIZONTAL);
+                    accessories.setGravity(android.view.Gravity.CENTER_VERTICAL);
+                    accessories.addView(count);
+                    android.widget.LinearLayout.LayoutParams iconParams = new android.widget.LinearLayout.LayoutParams(sz, sz);
+                    iconParams.setMarginStart((int) (6 * d));
+                    accessories.addView(iv, iconParams);
+                    row.setActionView(accessories);
+                }
             }
         } catch (Throwable t) {
             android.util.Log.e("Day", "nav menu badges skipped", t);

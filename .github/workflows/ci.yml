@@ -6,8 +6,9 @@
 # launch` itself), `--locked` everywhere, emulator boot handled by the runner action's polling.
 #
 # daybrite.dev rides along as two jobs of its own lane (`website`, `website-deploy`, at the end):
-# they depend on none of the framework legs, and the website-only triggers (the daily schedule,
-# the `gallery-published` dispatch, a `website-only` manual run) run nothing else.
+# they depend on none of the framework legs, and the website-only triggers (the
+# `gallery-published` dispatch, a `website-only` manual run) run nothing else. The daily
+# schedule runs the whole workflow, framework lane included.
 name: ci
 
 on:
@@ -37,12 +38,16 @@ on:
           its gallery, say) without the framework's build matrix.
         type: boolean
         default: false
-  # The two triggers below run the website lane alone (see the gate at `jobs:`).
   schedule:
-    # 06:00 UTC daily. The apps' own pipelines run on pushes to their repositories, so this is
-    # what carries a newly published screenshot set onto daybrite.dev without anyone asking.
+    # 06:00 UTC daily: the complete run (every framework job and the website lane) on `main`
+    # as it stands, whether or not anything was pushed. A day without commits still sees a
+    # runner image, a toolchain, an emulator or a dependency move, and this is where that
+    # shows up before the next push lands on top of it. The apps' own pipelines run on pushes
+    # to their repositories, so the website half is also what carries a newly published
+    # screenshot set onto daybrite.dev without anyone asking. Ran website-only until 2026-10.
     - cron: "0 6 * * *"
-  # An app's CI can POST this to refresh daybrite.dev the moment its gallery goes live:
+  # The trigger below runs the website lane alone (see the gate at `jobs:`). An app's CI can
+  # POST it to refresh daybrite.dev the moment its gallery goes live:
   #   gh api repos/daybrite/day/dispatches -f event_type=gallery-published
   repository_dispatch:
     types: [gallery-published]
@@ -75,14 +80,14 @@ env:
   DAY_SHOWCASE_REF: ${{ vars.DAY_SHOWCASE_REF }}
 
 jobs:
-  # The framework lane is gated on not being a website-only run (the daily schedule, a
-  # `gallery-published` dispatch, or a manual run with `website-only` checked). Actions has no
+  # The framework lane is gated on not being a website-only run (a `gallery-published`
+  # dispatch, or a manual run with `website-only` checked). Actions has no
   # workflow-level `if`, so the condition sits on each job with no `needs` and on `release`, the
   # one job that runs on `!cancelled()`; everything else chains off those through `needs` and is
   # skipped with them. A new root job needs the same line.
   fmt:
     name: rustfmt
-    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -92,7 +97,7 @@ jobs:
       - run: cargo fmt --all -- --check
 
   clippy:
-    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -113,7 +118,7 @@ jobs:
   # reads as decisions rather than as noise someone silenced. Run `typos` locally to reproduce
   # this job exactly; `typos --write-changes` applies what it can fix on its own.
   spelling:
-    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -123,7 +128,7 @@ jobs:
       - uses: crate-ci/typos@v1.50.1
 
   duty-matrix-drift:
-    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -299,7 +304,7 @@ jobs:
   release:
     name: release
     # `!cancelled()` would also run this on a website-only run, whose CLI builds never happened.
-    if: ${{ !cancelled() && !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !cancelled() && !inputs.website-only && github.event_name != 'repository_dispatch' }}
     needs: [toolkit, day-cli-macos, day-cli-linux, day-cli-windows]
     runs-on: ubuntu-24.04
     permissions:
@@ -1263,7 +1268,7 @@ jobs:
   windows-gnu:
     name: host-test (windows-gnu)
     # Experimental + packs no release artifact: skip on tags, and on website-only runs like every root job.
-    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: windows-2025
     continue-on-error: true
     defaults:
@@ -1300,7 +1305,7 @@ jobs:
       - name: Test host-portable crates
         run: scripts/ci/host-test.sh
   msrv:
-    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -1319,7 +1324,7 @@ jobs:
   # either to each combo's `needs:` to make it a hard gate.
   # ---------------------------------------------------------------------------
   deny:
-    if: ${{ !inputs.website-only && github.event_name != 'schedule' && github.event_name != 'repository_dispatch' }}
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
@@ -1399,8 +1404,8 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # website: daybrite.dev (DESIGN.md §20.1, step 6). Its own lane: it needs none of the framework
-  # legs, and the website-only triggers (the daily schedule, `gallery-published`, a `website-only`
-  # dispatch) run nothing but these two jobs.
+  # legs, and the website-only triggers (`gallery-published`, a `website-only` dispatch) run
+  # nothing but these two jobs.
   #
   # It used to be gated on nine platform legs finishing so it could collect their screenshot
   # artifacts, then (2026-09) its own workflow. It needs neither: the gallery is assembled from

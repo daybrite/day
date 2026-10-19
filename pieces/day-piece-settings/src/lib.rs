@@ -1406,6 +1406,12 @@ pub fn open() -> bool {
 /// Present the navigation presentation as a cover (a Done button closes it): the mobile path
 /// when no nav item is mounted.
 fn open_cover(inst: Rc<Installed>) -> bool {
+    // A newly presented Settings cover starts at its group list. Keep the current
+    // page when merely focusing a cover that is already open. `open_at` applies its
+    // requested group after this call, so deep links still land on that group.
+    if day_core::window_by_key(day_core::windows::PREFERENCES_KEY).is_none() {
+        inst.path.set(Vec::new());
+    }
     day_core::open_window(
         Some(day_core::windows::PREFERENCES_KEY),
         day_spec::WindowOptions {

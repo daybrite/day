@@ -3005,16 +3005,24 @@ mod imp {
                             &[JValue::Object(handle.0.as_obj()), JValue::Object(&st)],
                         );
                         // The trailing status glyph (docs/navigation.md), same best-effort rule.
+                        let texts = p
+                            .badges
+                            .iter()
+                            .map(|s| s.as_deref().unwrap_or(""))
+                            .collect::<Vec<_>>()
+                            .join("\u{1f}");
+                        let counts = jstr(env, &texts);
                         let sb = jstr(env, &joined_badge_icons);
                         let sbt = jstr(env, &joined_badge_tints);
                         let _ = env.dcall_static(
                             BRIDGE,
                             "setNavMenuBadges",
-                            "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
+                            "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
                             &[
                                 JValue::Object(handle.0.as_obj()),
                                 JValue::Object(&sb),
                                 JValue::Object(&sbt),
+                                JValue::Object(&counts),
                             ],
                         );
                         // The active indicator the model already carries: a rebuilt sidebar
@@ -3402,6 +3410,7 @@ mod imp {
                             icons,
                             tints,
                             menus,
+                            badges,
                             badge_icons,
                             badge_tints,
                             sections,
@@ -3460,16 +3469,23 @@ mod imp {
                                     "(Landroid/view/View;Ljava/lang/String;)V",
                                     &[JValue::Object(h.0.as_obj()), JValue::Object(&st)],
                                 );
+                                let texts = badges
+                                    .iter()
+                                    .map(|s| s.as_deref().unwrap_or(""))
+                                    .collect::<Vec<_>>()
+                                    .join("\u{1f}");
+                                let counts = jstr(env, &texts);
                                 let sb = jstr(env, &joined_badge_icons);
                                 let sbt = jstr(env, &joined_badge_tints);
                                 let _ = env.dcall_static(
                                     BRIDGE,
                                     "setNavMenuBadges",
-                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
+                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
                                     &[
                                         JValue::Object(h.0.as_obj()),
                                         JValue::Object(&sb),
                                         JValue::Object(&sbt),
+                                        JValue::Object(&counts),
                                     ],
                                 );
                                 let sm = jstr(env, &joined_menus);

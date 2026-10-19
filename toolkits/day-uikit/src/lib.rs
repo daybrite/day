@@ -2765,6 +2765,7 @@ mod imp {
     thread_local! {
         /// A re-measure for a text size change is posted and has not run yet.
         static TEXT_SIZE_PENDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        static APPEARANCE_PENDING: Cell<bool> = const { Cell::new(false) };
     }
 
     /// Re-measure everything Day laid out (`day_core::note_text_size_changed`) on the next turn
@@ -2780,15 +2781,34 @@ mod imp {
         });
     }
 
+    /// Native system colors update themselves; app palette closures need Day's signal too.
+    /// Defer and coalesce across pages/windows so UIKit can finish propagating traits and
+    /// a synchronous setOverrideUserInterfaceStyle never re-enters the borrowed Day tree.
+    fn schedule_appearance_refresh() {
+        if APPEARANCE_PENDING.with(|p| p.replace(true)) {
+            return;
+        }
+        dispatch2::DispatchQueue::main().exec_async(|| {
+            APPEARANCE_PENDING.with(|p| p.set(false));
+            day_spec::ffi_guard::contain((), day_core::note_appearance_changed);
+        });
+    }
+
     /// A Day host view's traits changed: if the text size category is not the one it had, the
     /// labels under it have just taken a new size (docs/list.md "Row heights"). The app-wide
     /// notification covers the views in a window when the setting changes; this covers the
     /// rest, a tab or a page that was off screen then and only gets the new traits when it is
     /// shown, after the re-measure that notification ran.
-    fn note_trait_text_size(view: &UIView, previous: Option<&objc2_ui_kit::UITraitCollection>) {
+    fn note_host_traits(view: &UIView, previous: Option<&objc2_ui_kit::UITraitCollection>) {
         use objc2_ui_kit::UITraitEnvironment as _;
+        let traits = view.traitCollection();
+        if previous
+            .is_none_or(|old| unsafe { old.userInterfaceStyle() != traits.userInterfaceStyle() })
+        {
+            schedule_appearance_refresh();
+        }
         let Some(previous) = previous else { return };
-        let now = unsafe { view.traitCollection().preferredContentSizeCategory() };
+        let now = unsafe { traits.preferredContentSizeCategory() };
         let before = unsafe { previous.preferredContentSizeCategory() };
         if !now.isEqualToString(&before) {
             schedule_text_size_remeasure();
@@ -2834,7 +2854,7 @@ mod imp {
                 previous: Option<&objc2_ui_kit::UITraitCollection>,
             ) {
                 let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
-                day_spec::ffi_guard::contain((), || note_trait_text_size(self, previous));
+                day_spec::ffi_guard::contain((), || note_host_traits(self, previous));
             }
 
             #[unsafe(method(layoutSubviews))]
@@ -4936,7 +4956,7 @@ mod imp {
                 previous: Option<&objc2_ui_kit::UITraitCollection>,
             ) {
                 let _: () = unsafe { msg_send![super(self), traitCollectionDidChange: previous] };
-                day_spec::ffi_guard::contain((), || note_trait_text_size(self, previous));
+                day_spec::ffi_guard::contain((), || note_host_traits(self, previous));
             }
 
             #[unsafe(method(layoutSubviews))]
@@ -5455,6 +5475,7 @@ mod imp {
         icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
         /// Trailing status glyphs per row, resolved the same way as `icons`.
         icon_progress: RefCell<Vec<(usize, Option<f64>)>>,
+        badges: RefCell<Vec<Option<String>>>,
         badge_icons: RefCell<Vec<Option<Retained<objc2_ui_kit::UIImage>>>>,
         /// Tint for `badge_icons`; `None` keeps the neutral template look.
         badge_tints: RefCell<Vec<Option<day_spec::Color>>>,
@@ -5572,6 +5593,7 @@ mod imp {
                     .unwrap_or_else(|| NSString::from_str(""));
                 let img = self.ivars().icons.borrow().get(row).and_then(|o| o.clone());
                 let tint = self.ivars().tints.borrow().get(row).copied().flatten();
+                let badge_text = self.ivars().badges.borrow().get(row).cloned().flatten();
                 let bimg = self
                     .ivars()
                     .badge_icons
@@ -5627,7 +5649,12 @@ mod imp {
                             &cell.defaultBackgroundConfiguration(),
                         ));
                     }
-                    cell.setAccessories(&nav_accessories(mtm, bimg.as_deref(), btint));
+                    cell.setAccessories(&nav_accessories(
+                        mtm,
+                        badge_text.as_deref(),
+                        bimg.as_deref(),
+                        btint,
+                    ));
                     let progress = self
                         .ivars()
                         .icon_progress
@@ -5824,10 +5851,20 @@ mod imp {
     /// its own `layoutSubviews`.
     fn nav_accessories(
         mtm: MainThreadMarker,
+        text: Option<&str>,
         badge: Option<&objc2_ui_kit::UIImage>,
         badge_tint: Option<day_spec::Color>,
     ) -> Retained<objc2_foundation::NSArray<objc2_ui_kit::UICellAccessory>> {
         let mut items: Vec<Retained<objc2_ui_kit::UICellAccessory>> = Vec::new();
+        if let Some(text) = text.filter(|s| !s.is_empty()) {
+            let label = unsafe {
+                objc2_ui_kit::UICellAccessoryLabel::initWithText(
+                    objc2_ui_kit::UICellAccessoryLabel::alloc(mtm),
+                    &NSString::from_str(text),
+                )
+            };
+            items.push(objc2::rc::Retained::into_super(label));
+        }
         if let Some(img) = badge {
             let iv = unsafe {
                 objc2_ui_kit::UIImageView::initWithImage(
@@ -5906,6 +5943,7 @@ mod imp {
             icons: &[Option<String>],
             tints: &[Option<day_spec::Color>],
             menus: &[Vec<day_spec::MenuItem>],
+            badges: &[Option<String>],
             badge_icons: &[Option<String>],
             badge_tints: &[Option<day_spec::Color>],
             sections: &[Option<String>],
@@ -5916,6 +5954,7 @@ mod imp {
                 items: RefCell::new(items.iter().map(|s| NSString::from_str(s)).collect()),
                 icons: RefCell::new(resolved),
                 icon_progress: RefCell::new(Vec::new()),
+                badges: RefCell::new(badges.to_vec()),
                 badge_icons: RefCell::new(resolve_nav_images(badge_icons)),
                 badge_tints: RefCell::new(badge_tints.to_vec()),
                 tints: RefCell::new(tints.to_vec()),
@@ -5977,6 +6016,7 @@ mod imp {
             icons: &[Option<String>],
             tints: &[Option<day_spec::Color>],
             menus: &[Vec<day_spec::MenuItem>],
+            badges: &[Option<String>],
             badge_icons: &[Option<String>],
             badge_tints: &[Option<day_spec::Color>],
             sections: &[Option<String>],
@@ -5988,6 +6028,7 @@ mod imp {
             *self.ivars().menus.borrow_mut() = menus.to_vec();
             *self.ivars().icons.borrow_mut() = resolve_nav_images(icons);
             self.ivars().icon_progress.borrow_mut().clear();
+            *self.ivars().badges.borrow_mut() = badges.to_vec();
             *self.ivars().badge_icons.borrow_mut() = resolve_nav_images(badge_icons);
             *self.ivars().badge_tints.borrow_mut() = badge_tints.to_vec();
         }
@@ -9359,6 +9400,7 @@ mod imp {
                         &p.icons,
                         &p.tints,
                         &p.menus,
+                        &p.badges,
                         &p.badge_icons,
                         &p.badge_tints,
                         &p.sections,
@@ -10037,6 +10079,7 @@ mod imp {
                         icons,
                         tints,
                         menus,
+                        badges,
                         badge_icons,
                         badge_tints,
                         selected,
@@ -10051,6 +10094,7 @@ mod imp {
                                     icons,
                                     tints,
                                     menus,
+                                    badges,
                                     badge_icons,
                                     badge_tints,
                                     sections,
@@ -12510,21 +12554,25 @@ mod imp {
             if override_style != Style::Unspecified {
                 return override_style == Style::Dark;
             }
-            // With the primary window overridden on its own, the ambient collection may carry
-            // that override; the screen's does not, and answers for the system.
-            let primary_own = SCENES.with(|s| {
-                s.borrow()
-                    .iter()
-                    .find(|e| e.node.is_none() && e.appearance.get().is_some())
-                    .map(|e| e.window.clone())
-            });
-            if let Some(scene) = primary_own.and_then(|w| w.windowScene()) {
+            // Read a persistent trait environment, not currentTraitCollection: the latter
+            // is scoped to UIKit callbacks and can be stale/default on our deferred queue.
+            // A per-window override is not the app-wide answer, so use its screen instead.
+            let primary = SCENES
+                .with(|s| {
+                    s.borrow()
+                        .iter()
+                        .find(|e| e.node.is_none())
+                        .map(|e| (e.window.clone(), e.appearance.get().is_some()))
+                })
+                .or_else(|| WINDOW.with(|w| w.borrow().clone().map(|w| (w, false))));
+            if let Some((window, own_override)) = primary {
                 use objc2_ui_kit::UITraitEnvironment as _;
-                let screen = scene.screen();
-                return unsafe { screen.traitCollection().userInterfaceStyle() } == Style::Dark;
+                if own_override && let Some(scene) = window.windowScene() {
+                    return unsafe { scene.screen().traitCollection().userInterfaceStyle() }
+                        == Style::Dark;
+                }
+                return unsafe { window.traitCollection().userInterfaceStyle() } == Style::Dark;
             }
-            // No override in force, so the ambient collection IS the system appearance, and the
-            // system's own changes arrive through `traitCollectionDidChange` after propagation.
             unsafe {
                 objc2_ui_kit::UITraitCollection::currentTraitCollection().userInterfaceStyle()
                     == Style::Dark

@@ -585,11 +585,13 @@ mod imp {
     /// (`day/<name>.svg`), which ArkUI renders natively and `NODE_IMAGE_FILL_COLOR` recolors:
     /// the row's tint when given, else a secondary theme foreground. A raster name falls
     /// back to `day/<name>.png`, drawn as authored (fill color has no effect on rasters).
+    #[allow(clippy::too_many_arguments)]
     fn build_nav_menu(
         menu: NodeId,
         items: &[String],
         icons: &[Option<String>],
         tints: &[Option<day_spec::Color>],
+        badges: &[Option<String>],
         badge_icons: &[Option<String>],
         badge_tints: &[Option<day_spec::Color>],
         sections: &[Option<String>],
@@ -600,6 +602,7 @@ mod imp {
             items,
             icons,
             tints,
+            badges,
             badge_icons,
             badge_tints,
             sections,
@@ -618,11 +621,13 @@ mod imp {
     /// A section title (docs/navigation.md) is a plain text node ahead of its group's first row.
     /// It registers no click id, so [`MENU_ROWS`] keeps Day's own row indices however many titles
     /// sit above a row, and the hairline a title replaces is left out.
+    #[allow(clippy::too_many_arguments)]
     fn build_nav_menu_rows(
         menu: NodeId,
         items: &[String],
         icons: &[Option<String>],
         tints: &[Option<day_spec::Color>],
+        badges: &[Option<String>],
         badge_icons: &[Option<String>],
         badge_tints: &[Option<day_spec::Color>],
         sections: &[Option<String>],
@@ -664,6 +669,19 @@ mod imp {
             // The trailing status glyph (docs/navigation.md), between the growing label and the
             // chevron so it sits at the row's end without displacing the disclosure arrow.
             let mut after_label = child + 1;
+            if let Some(text) = badges
+                .get(i)
+                .and_then(|v| v.as_deref())
+                .filter(|v| !v.is_empty())
+            {
+                let count = new_node(node::TEXT);
+                node::set_text(count.0, text);
+                node::set_font_size(count.0, 14.0);
+                themed(owner, count.0, Paint::Font, 0x9900_0000, 0x99FF_FFFF);
+                node::set_margin(count.0, 4.0);
+                node::insert_child(row.0, count.0, after_label);
+                after_label += 1;
+            }
             if let Some(Some(name)) = badge_icons.get(i) {
                 let badge = row_icon(owner, name, badge_tints.get(i).copied().flatten(), 16.0);
                 node::set_margin(badge.0, 4.0);
@@ -2789,6 +2807,7 @@ mod imp {
                         &p.items,
                         &p.icons,
                         &p.tints,
+                        &p.badges,
                         &p.badge_icons,
                         &p.badge_tints,
                         &p.sections,
@@ -2976,6 +2995,7 @@ mod imp {
                         items,
                         icons,
                         tints,
+                        badges,
                         badge_icons,
                         badge_tints,
                         sections,
@@ -3006,6 +3026,7 @@ mod imp {
                             items,
                             icons,
                             tints,
+                            badges,
                             badge_icons,
                             badge_tints,
                             sections,

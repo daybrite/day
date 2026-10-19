@@ -3913,7 +3913,12 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 // gone, move to the first row that survived rather than blanking the pane.
                 let mut cur2 = sel_e.peek().key();
                 let pres_now = pres_e.get();
-                if (pres_now.is_split() || pres_now.rows_are_chrome() || native_list)
+                // A collapsed native content list may have returned to its sidebar root.
+                // Background count changes and filtering are not navigation requests: keep
+                // that empty selection until a row tap or an explicit route activates it.
+                if (pres_now.is_split()
+                    || pres_now.rows_are_chrome()
+                    || (native_list && pres_now != NavPresentation::Stack))
                     && cur2.is_empty()
                     && let Some(k) = keys.first().cloned()
                 {

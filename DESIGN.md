@@ -1770,6 +1770,9 @@ pub trait Toolkit: Sized + 'static {
     fn defer_system_gestures(&mut self, edges: Edges) {}   // the shield union (docs/cover.md)
     fn set_status_bar_hidden(&mut self, hidden: bool) {}   // any mounted status_bar_hidden (Cap::StatusBarHidden)
     fn dark_mode(&mut self) -> bool {}     // current appearance, for app-painted opaque surfaces
+    // UIKit host trait changes coalesce note_appearance_changed onto the main queue.
+    // Read settled window traits (screen traits for a per-window override), not the
+    // callback-scoped ambient collection, so reactive palettes follow system changes.
     fn reduce_motion(&mut self) -> bool { false } // the user's reduce-motion setting; a flip calls
                                                   // day_core::note_motion_changed (Cap::ReduceMotion, §8.4)
     fn set_appearance(&mut self, dark: Option<bool>) {}  // runtime light/dark/system override (Cap::Appearance)
@@ -5816,9 +5819,11 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    rendered both empty while the Showcase's site served no usable index; the last good deploy now
    stays live instead.
    The lane runs on every push and pull request with the rest of `ci.yml`, and alone on the
-   website-only triggers: a daily schedule, a `gallery-published` `repository_dispatch` an app's CI
+   website-only triggers: a `gallery-published` `repository_dispatch` an app's CI
    can send, and a `workflow_dispatch` with `website-only` checked (each root framework job carries
-   the gate; Actions has no workflow-level `if`). The `website` job builds the rustdoc bundle into
+   the gate; Actions has no workflow-level `if`). The daily schedule (06:00 UTC) was a
+   website-only trigger until 2026-10; it now runs the complete workflow on `main`, so a
+   runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The `website` job builds the rustdoc bundle into
    `dist/api` — Pages deploys one artifact, so the job that feeds the deploy assembles all of it —
    which makes it the does-rustdoc-still-build check on crate changes too; the separate `api-docs`
    job it replaced is gone. The `screenshots-<combo>` artifacts the platform legs upload stay, as
@@ -7918,3 +7923,22 @@ transfer records per session/global scope. HTTP exchanges and WebSocket lifetime
 from physical sockets; rates include idle time and simulated bytes are labeled separately. Only
 traffic through this part is observable. Details and examples live in [docs/http.md](docs/http.md) and
 `parts/day-part-http/README.md`; regression tests are in `parts/day-part-http/tests/simulation.rs`.
+
+### Mobile navigation badges
+
+`NavMenuProps::badges` and `NavMenuPatch::Items::badges` carry the same reactive,
+index-aligned text on mobile and desktop. UIKit uses `UICellAccessoryLabel` (iOS 14+)
+beside optional status glyphs and the disclosure arrow; Android NavigationView uses
+an action-view label beside any glyph; ArkUI inserts a themed trailing text node.
+Empty badges draw nothing. Counts are supplied/formatted by the app and do not alter
+route keys, row indices or selection. See `docs/navigation.md`.
+
+Collapsed content-list navigation treats an empty selection after Back as the sidebar root.
+Re-deriving rows (filtering, counts, locale changes) preserves that root instead of applying
+the initial first-item fallback. Row activation and explicit routes still open the list.
+Regression: `content_list_filter_after_back_stays_on_sidebar` in `day-pieces/tests/mock_e2e.rs`.
+
+When an app supplies its own mobile Settings toolbar affordance instead of a navigation row,
+`Prefs::open()` presents the existing native preferences cover. A newly opened cover starts
+at the group list; focusing an already-open cover preserves its page, and `open_at` selects
+the requested group after presentation. Done closes the cover without changing the app route.
