@@ -488,7 +488,7 @@ impl<T: Clone + 'static, F: Fn() -> T + 'static> IntoReactive<T, FnMark> for F {
 pub(crate) mod conformance {
     use day_core::conformance::{Case, Drive};
     use day_reactive::Signal;
-    use day_spec::{Color, Role, Shape, kinds};
+    use day_spec::{Cap, Color, Role, Shape, kinds};
 
     use crate::*;
 
@@ -527,7 +527,40 @@ pub(crate) mod conformance {
             })
     }
 
-    day_core::tests! { canvas_a11y_value }
+    /// Native layout must not turn a canvas into a focus scope with no focusable children.
+    #[day_macros::test(day_core)]
+    fn canvas_focus_after_layout() -> Case {
+        Case::new()
+            .proves(kinds::CANVAS)
+            .proves_duty("focus")
+            .requires(Cap::Snapshot)
+            .page(|| {
+                column((
+                    canvas(|d, size| {
+                        d.fill(
+                            Shape::Rect(day_spec::Rect::from_size(size)),
+                            Color::hex(0xff0000),
+                        );
+                    })
+                    .frame(80.0, 60.0)
+                    .id("painted"),
+                    canvas(|_, _| {}).frame(40.0, 40.0).id("empty"),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                // A real rendered frame, rather than a timing delay: requesting focus before
+                // ArkUI's first native layout hid its canvas host's loss of focusability.
+                d.shot("before-focus").await?;
+                d.sample_pixel("painted", 0.5, 0.5, "#ff0000").await?;
+                d.focus("painted").await?;
+                d.assert_focused("painted", true).await?;
+                d.sample_pixel("painted", 0.5, 0.5, "#ff0000").await?;
+                d.focus("empty").await?;
+                d.assert_focused("empty", true).await
+            })
+    }
+
+    day_core::tests! { canvas_a11y_value, canvas_focus_after_layout }
 }
 
 #[cfg(test)]

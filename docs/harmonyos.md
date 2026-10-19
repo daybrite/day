@@ -361,10 +361,11 @@ on the Oniro emulator:
   text areas keep multiline Enter behavior.
 - **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
   with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text): the gauge + shapes pages.
-  The custom node sits inside a plain, unpadded, transparent `ARKUI_NODE_BUTTON` that is day's
-  handle for the canvas: ArkUI never lets a custom node (or a childless container) hold focus,
-  and a button does, which is what gives a canvas the keyboard and its `.focused(..)` binding
-  (`canvas::create`).
+  Day holds a Stack containing the custom surface and a transparent, unpadded button with an
+  empty label. The button receives focus and keys for the canvas; the Stack lays out both
+  siblings and owns accessibility. Keeping drawing outside the button avoids its native
+  switch between text layout and a focus scope with no focusable children. This preserves
+  drawing and `.focused(..)` after native layout (`canvas::create`; [focus.md](focus.md)).
 - **Switch alignment** — Day clears the native Toggle's default outer margins. ArkUI adds
   theme hot-zone margins otherwise, moving a switch below and to the right of its assigned
   frame and into neighboring form rows. Native inspection uses the painted window position:

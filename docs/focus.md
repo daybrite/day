@@ -141,12 +141,20 @@ that has it hears the arrows and a text field that takes it gets them back.
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
 | web-dom | a `tabindex` | a `pointerdown` listener |
 | XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members and a Panel is not a Control; WinUI 3 moved both up to `UIElement`, but the WinUI build keeps the same host | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
-| ArkUI | the `NODE_FOCUSABLE` attribute, on the transparent button that hosts the custom drawing node: ArkUI ignores the flag on an `ARKUI_NODE_CUSTOM` and on a childless container ([docs/harmonyos.md](harmonyos.md)) | ArkUI's own focus handling |
+| ArkUI | a focusable Stack containing a custom drawing surface and a transparent focus button; the scope's focus request reaches that button ([docs/harmonyos.md](harmonyos.md)) | ArkUI's own focus handling |
 | Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung `.on_key` on: in touch mode a focus move can dismiss a raised soft keyboard |
 
 Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,
 `focus`/`blur`, `GotFocus`/`LostFocus`, `NODE_ON_FOCUS`/`NODE_ON_BLUR`, `onFocusChanged`), so `.focused(signal)`
 binds two-way and `assert_focused` can see it.
+
+ArkUI's drawing surface and focus button are siblings. A button with custom content becomes
+a focus scope during native layout, and the custom drawing node cannot hold focus. Giving
+that outer button a label preserves focus but switches it to text measurement, which skips
+the drawing surface. A Stack lays out both siblings; its transparent button has an empty
+label and reports focus and keys for the canvas. The private button is hidden from
+accessibility, which remains on the host. The portable `canvas-focus-after-layout` case
+checks drawing and focus on painted and empty canvases after a rendered frame.
 
 **A view that is not in a window cannot hold the keyboard**, and Day does not work around
 that. On iOS a full-screen modal takes the presenting view out of the window, so a canvas

@@ -23,7 +23,9 @@ use ohos_sys::arkui::native_node::{
     OH_ArkUI_NodeCustomEvent_GetDrawContextInDraw, OH_ArkUI_NodeCustomEvent_GetEventType,
     OH_ArkUI_NodeCustomEvent_GetUserData,
 };
-use ohos_sys::arkui::native_type::{ArkUI_ButtonType, OH_ArkUI_DrawContext_GetCanvas};
+use ohos_sys::arkui::native_type::{
+    ArkUI_AccessibilityMode, ArkUI_ButtonType, OH_ArkUI_DrawContext_GetCanvas,
+};
 use ohos_sys::drawing::brush::*;
 use ohos_sys::drawing::canvas::*;
 use ohos_sys::drawing::matrix::*;
@@ -59,45 +61,59 @@ thread_local! {
     static PATH_CACHE: RefCell<HashMap<i64, *mut OH_Drawing_Path>> = RefCell::new(HashMap::new());
 }
 
-thread_local! {
-    /// Canvas host → the custom node inside it that draws. The host is the handle day holds
-    /// (laid out, focused, gestured, keyed); the surface fills it and replays the display list.
-    static SURFACES: RefCell<HashMap<usize, Handle>> = RefCell::new(HashMap::new());
+struct CanvasNodes {
+    surface: Handle,
+    focus: Handle,
 }
 
-/// Build a canvas for day node `id`: a focus-holding host with a custom node filling it,
-/// returned as day's handle (null when ArkUI could not make either).
+thread_local! {
+    /// Day owns the Stack host; its drawing surface and focus button are private children.
+    static SURFACES: RefCell<HashMap<usize, CanvasNodes>> = RefCell::new(HashMap::new());
+}
+
+/// Build a canvas for day node `id`, returning its Stack host (null on allocation failure).
 ///
-/// Two nodes because the custom node cannot hold focus: ArkUI accepts `NODE_FOCUSABLE` on an
-/// `ARKUI_NODE_CUSTOM` (the call succeeds) but keeps reporting it unfocusable, a focus
-/// request lands nowhere, and no focus event ever fires, so a canvas could neither take the
-/// keyboard (docs/menus.md) nor satisfy a `.focused(..)` binding (docs/focus.md). A container
-/// does not help either: a Stack is a focus scope, and a scope with no focusable child is not
-/// focusable itself. A Button is a focus NODE, so one hosts the canvas: plain (not a capsule),
-/// unpadded, with no background of its own, so nothing of the button shows or presses, and the
-/// surface draws over its whole frame. The host carries the focus flag, the focus pair and the
-/// key event; the surface, sized to fill it, carries only the draw callback.
+/// A custom drawing node cannot hold focus. A button with custom content becomes a focus
+/// scope during layout, while a labeled button only measures its text child. Keep drawing
+/// and focus as siblings: the Stack lays out both, and focus requests on its scope reach the
+/// transparent button with an explicitly empty label. Only that button reports focus/keys;
+/// accessibility and Day's gestures belong to the host.
 pub fn create(id: u64) -> Handle {
-    let host = node::create(ArkUI_NodeType::ARKUI_NODE_BUTTON);
+    let host = node::create(node::STACK);
     if host.is_null() {
         return host;
     }
-    node::set_i32(
-        host,
-        Attr::NODE_BUTTON_TYPE,
-        ArkUI_ButtonType::ARKUI_BUTTON_TYPE_NORMAL.0 as i32,
-    );
-    node::set_u32(host, Attr::NODE_BACKGROUND_COLOR, 0);
-    node::set_f32(host, Attr::NODE_PADDING, 0.0);
-    node::set_f32(host, Attr::NODE_BORDER_RADIUS, 0.0);
     let surface = node::create(node::CUSTOM);
     if surface.is_null() {
         node::dispose_raw(host);
         return surface;
     }
+    let focus = node::create(ArkUI_NodeType::ARKUI_NODE_BUTTON);
+    if focus.is_null() {
+        node::dispose_raw(surface);
+        node::dispose_raw(host);
+        return focus;
+    }
+    node::set_i32(
+        focus,
+        Attr::NODE_BUTTON_TYPE,
+        ArkUI_ButtonType::ARKUI_BUTTON_TYPE_NORMAL.0 as i32,
+    );
+    node::set_u32(focus, Attr::NODE_BACKGROUND_COLOR, 0);
+    node::set_f32(focus, Attr::NODE_PADDING, 0.0);
+    node::set_f32(focus, Attr::NODE_BORDER_RADIUS, 0.0);
+    node::set_button_label(focus, "");
+    node::set_i32(
+        focus,
+        Attr::NODE_ACCESSIBILITY_MODE,
+        ArkUI_AccessibilityMode::ARKUI_ACCESSIBILITY_MODE_DISABLED_FOR_DESCENDANTS.0 as i32,
+    );
     node::set_f32(surface, Attr::NODE_WIDTH_PERCENT, 1.0);
     node::set_f32(surface, Attr::NODE_HEIGHT_PERCENT, 1.0);
+    node::set_f32(focus, Attr::NODE_WIDTH_PERCENT, 1.0);
+    node::set_f32(focus, Attr::NODE_HEIGHT_PERCENT, 1.0);
     node::add_child(host, surface);
+    node::add_child(host, focus);
     node::add_custom_event_receiver(surface, receiver);
     node::register_custom_event(
         surface,
@@ -106,10 +122,14 @@ pub fn create(id: u64) -> Handle {
         surface.cast(),
     );
     node::set_i32(host, Attr::NODE_FOCUSABLE, 1);
-    node::register_event(host, Ev::NODE_ON_FOCUS, id);
-    node::register_event(host, Ev::NODE_ON_BLUR, id);
-    node::register_event(host, Ev::NODE_ON_KEY_EVENT, id);
-    SURFACES.with(|s| s.borrow_mut().insert(host as usize, surface));
+    node::set_i32(focus, Attr::NODE_FOCUSABLE, 1);
+    node::register_event(focus, Ev::NODE_ON_FOCUS, id);
+    node::register_event(focus, Ev::NODE_ON_BLUR, id);
+    node::register_event(focus, Ev::NODE_ON_KEY_EVENT, id);
+    SURFACES.with(|s| {
+        s.borrow_mut()
+            .insert(host as usize, CanvasNodes { surface, focus })
+    });
     host
 }
 
@@ -118,7 +138,7 @@ fn surface_of(host: Handle) -> Handle {
     SURFACES.with(|s| {
         s.borrow()
             .get(&(host as usize))
-            .copied()
+            .map(|nodes| nodes.surface)
             .unwrap_or(ptr::null_mut())
     })
 }
@@ -141,16 +161,16 @@ pub fn set_ops(host: Handle, nums: &[f64], texts: &[String]) {
     node::mark_dirty(n, ArkUI_NodeDirtyFlag::NODE_NEED_RENDER);
 }
 
-/// A node is being disposed: when it is a canvas host, drop its surface's display list and
-/// the surface itself (day holds only the host), so neither entry can alias a recycled node
-/// address. Any other node is left alone.
+/// Drop the display list and both private children before the host is disposed.
 pub fn forget(host: Handle) {
-    let Some(surface) = SURFACES.with(|s| s.borrow_mut().remove(&(host as usize))) else {
+    let Some(nodes) = SURFACES.with(|s| s.borrow_mut().remove(&(host as usize))) else {
         return;
     };
-    CANVASES.with(|c| c.borrow_mut().remove(&(surface as usize)));
-    node::remove_child(host, surface);
-    node::dispose_raw(surface);
+    CANVASES.with(|c| c.borrow_mut().remove(&(nodes.surface as usize)));
+    node::remove_child(host, nodes.focus);
+    node::dispose_raw(nodes.focus);
+    node::remove_child(host, nodes.surface);
+    node::dispose_raw(nodes.surface);
 }
 
 unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeCustomEvent) {
