@@ -75,6 +75,9 @@ Platform access rules:
   verbatim.
 - **iOS 14+** shows the system "app pasted from …" banner when `get_text()` reads the pasteboard;
   `has_text()` uses `hasStrings`, the pre-check Apple provides that does not trigger the banner.
+  Prefer the asynchronous typed `read` API in UI actions: it performs the native read on a
+  worker so a delayed provider or paste authorization cannot block the main thread. The legacy
+  `get_text()` helper remains synchronous.
 
 ## What it shows about the extension system
 

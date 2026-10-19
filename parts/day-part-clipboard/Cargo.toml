@@ -29,6 +29,7 @@ objc2 = { workspace = true }
 objc2-foundation = { workspace = true, features = ["NSString", "NSData", "NSArray", "NSDictionary"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
+day-async = { workspace = true }
 objc2-ui-kit = { workspace = true, features = ["UIPasteboard"] }
 objc2 = { workspace = true }
 objc2-foundation = { workspace = true, features = ["NSString", "NSData", "NSArray", "NSDictionary"] }

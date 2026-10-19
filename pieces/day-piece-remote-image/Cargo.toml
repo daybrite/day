@@ -24,7 +24,7 @@ conformance = ["dep:day-macros"]
 appkit = ["dep:day-appkit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 gtk = ["dep:day-gtk", "dep:gtk4"]
 qt = ["dep:day-qt"]                 # + build.rs compiles src/lib-qt-shim.cpp (QWidget + QPixmap), Qt libs linked by day-qt-sys
-uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation"]
+uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation", "dep:objc2-core-foundation", "dep:objc2-quartz-core"]
 mdc = ["dep:day-android"]        # + [package.metadata.day.android] carries the DayRemoteImage Java factory
 arkui = ["dep:day-arkui"]
 # XAML: build.rs compiles src/lib-xaml-shim.cpp (an Image/Ellipse boxed via day-xaml-sys's
@@ -66,7 +66,8 @@ objc2 = { workspace = true, optional = true }
 objc2-app-kit = { workspace = true, optional = true, features = ["NSView", "NSResponder", "NSImage", "NSColor", "NSBezierPath", "NSGraphics"] }
 objc2-foundation = { workspace = true, optional = true, features = ["NSString", "NSData", "NSGeometry"] }
 objc2-core-foundation = { workspace = true, default-features = true, optional = true, features = ["CFCGTypes"] }
-objc2-ui-kit = { workspace = true, optional = true, features = ["UIView", "UIResponder", "UIImage", "UIImageView", "UIColor"] }
+objc2-ui-kit = { workspace = true, optional = true, features = ["UIView", "UIResponder", "UIImage", "UIImageView", "UIColor", "UIBezierPath"] }
+objc2-quartz-core = { workspace = true, optional = true, features = ["CALayer", "CAShapeLayer"] }
 
 [build-dependencies]
 day-toolchain = { workspace = true }

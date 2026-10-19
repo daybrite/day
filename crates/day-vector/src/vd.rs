@@ -92,8 +92,15 @@ pub fn to_vector_drawable(tree: &usvg::Tree) -> Result<String, Unsupported> {
     if has_gradient {
         xml.push_str("    xmlns:aapt=\"http://schemas.android.com/aapt\"\n");
     }
-    // 24 dp intrinsic size, the Material icon convention; Day layouts size the view anyway.
-    xml.push_str("    android:width=\"24dp\"\n    android:height=\"24dp\"\n");
+    // Preserve the authored size as well as its aspect ratio. ImageView uses the
+    // intrinsic dimensions for fit/crop, independently of the viewport. Normalizing
+    // a wide glyph to 24x3 dp also loses its ratio when Android rounds the dimensions
+    // to pixels (63x8 at 420 dpi), shifting fine detail even in a correctly sized view.
+    xml.push_str(&format!(
+        "    android:width=\"{}dp\"\n    android:height=\"{}dp\"\n",
+        fnum(vw),
+        fnum(vh),
+    ));
     xml.push_str(&format!(
         "    android:viewportWidth=\"{}\"\n    android:viewportHeight=\"{}\">\n",
         fnum(vw),
@@ -450,6 +457,27 @@ mod tests {
         assert!(xml.contains("android:pathData=\"M"));
         // Well-formed XML (roxmltree accepts it; same parser class aapt2 uses).
         roxmltree::Document::parse(&xml).unwrap();
+    }
+
+    #[test]
+    fn intrinsic_dimensions_preserve_wide_and_tall_viewports() {
+        const ANDROID: &str = "http://schemas.android.com/apk/res/android";
+        for (width, height, expected_width, expected_height) in [
+            (80, 40, "80dp", "40dp"),
+            (40, 80, "40dp", "80dp"),
+            (64, 8, "64dp", "8dp"),
+            (24, 24, "24dp", "24dp"),
+        ] {
+            let svg = format!(
+                "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 {width} {height}'>\
+                 <rect width='{width}' height='{height}'/></svg>"
+            );
+            let xml = to_vector_drawable(&tree(&svg)).unwrap();
+            let document = roxmltree::Document::parse(&xml).unwrap();
+            let vector = document.root_element();
+            assert_eq!(vector.attribute((ANDROID, "width")), Some(expected_width));
+            assert_eq!(vector.attribute((ANDROID, "height")), Some(expected_height));
+        }
     }
 
     #[test]

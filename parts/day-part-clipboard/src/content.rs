@@ -74,7 +74,20 @@ pub fn read(preferred: &[&str]) -> ClipboardFuture<Option<Representation>> {
     {
         super::web_content::read(preferred)
     }
-    #[cfg(not(all(target_family = "wasm", target_os = "unknown")))]
+    #[cfg(target_os = "ios")]
+    {
+        // UIPasteboard may wait for an external provider or paste authorization. Returning
+        // a ready future after a synchronous read still blocks the caller's UI thread.
+        let preferred: Vec<String> = preferred.iter().map(|m| (*m).to_owned()).collect();
+        let read = day_async::spawn_blocking(move || {
+            objc2::rc::autoreleasepool(|_| {
+                let preferred: Vec<&str> = preferred.iter().map(String::as_str).collect();
+                super::imp::read_content(&preferred)
+            })
+        });
+        Box::pin(async move { read.await.map_err(|_| Error::Unavailable)? })
+    }
+    #[cfg(not(any(target_os = "ios", all(target_family = "wasm", target_os = "unknown"))))]
     {
         Box::pin(std::future::ready(super::imp::read_content(preferred)))
     }

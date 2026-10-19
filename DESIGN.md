@@ -2347,6 +2347,9 @@ Per-toolkit notes beyond pane's baseline (the day-new duties):
   `View.draw(Canvas)`; `gtk_widget_snapshot` → cairo surface; `QWidget::grab`;
   Windows.Graphics.Capture of the window on WinUI (`RenderTargetBitmap` where it is
   unavailable); `<canvas>` composite (web: best-effort).
+  UIKit's in-process renderer explicitly uses standard-range sRGB, independent of the display
+  gamut, so PNG consumers and pixel assertions receive the same color values as AppKit's
+  sRGB conversion. External simulator screenshots retain the platform's capture format.
 - **list hosts ([§10](#10-native-list-integration)):** `UICollectionView` / `RecyclerView` / `NSTableView` / `GtkListView` /
   `ItemsRepeater` / virtualized DOM / `QListView` over a count-only model. Qt's view recycles
   *delegate paintings*, not live `QWidget` rows, so the recycling there is Day's: cells are
@@ -5465,6 +5468,19 @@ Dark/light theming is native per toolkit ([§6.3](#63-semantic-theme-tokens)), f
 > `ImageSource` carries all three forms (`Named`, `Bytes`, `Decoded`) through the same `image`
 > piece; `Draw::image` draws a decoded handle on a canvas. Per-backend decode/encode/metadata
 > support: [docs/images.md](docs/images.md).
+> AppKit implements aspect-fill by expanding the native image view's aspect-fit drawing about
+> its center and clipping to its bounds, preserving SVG detail and template tinting. Reactive
+> button styling preserves native image placement when replacing an attributed title. Tinted
+> buttons use resolution-independent image drawing to color the original template's alpha;
+> bordered `NSButton` does not reliably honor `contentTintColor`. The original image is retained
+> in a release-swept side table so removing a tint restores native template rendering. The bezel
+> remains native, including its inactive-window treatment.
+> UIKit remote images use a centered shape-layer mask for `.circle()`, recomputed on layout;
+> rounded corners alone produce a capsule in a rectangular frame. Both image and placeholder
+> share the mask. The `vector-*` and `remote-image-*` conformance cases cover these contracts.
+> Android VectorDrawable emission preserves the SVG's intrinsic dimensions. Its viewport alone
+> is insufficient: ImageView's fit/crop transform uses
+> the drawable's intrinsic width and height, so square metadata would distort nonsquare art.
 > Image-source patches keep the native view alive. UIKit and Android clear it when patched to
 > the default empty named source; an unresolved nonempty source retains the preceding image.
 > Async recycled rows should bind a bundled placeholder until a result matching the current
@@ -7485,6 +7501,10 @@ production teardown behavior is unchanged.
 representations (`Content`, `Representation`). `day::clipboard` re-exports the API;
 existing text functions remain available. Reads/writes start at the call site and return
 local futures so the browser can capture a live clipboard event before its lifetime ends.
+On iOS, typed reads run on the bounded blocking pool with their own autorelease pool;
+`UIPasteboard` can wait for an external provider or paste authorization, so evaluating the
+read synchronously before returning its future can deadlock the UI. The legacy synchronous
+text helper retains its synchronous contract.
 Writes report accepted MIME types, rather than claiming every platform supports arbitrary
 formats, and reads negotiate in caller preference order. There is no stale-copy fallback
 in the new API. Apps defer Cut deletion until successful publication.

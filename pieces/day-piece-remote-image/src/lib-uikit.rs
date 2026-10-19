@@ -3,11 +3,9 @@
 
 // ---------------------------------------------------------------------------
 // UIKit: a UIImageView subclass. UIImageView has real aspect-fill/-fit via `contentMode`, and
-// `clipsToBounds` + `layer.cornerRadius` gives the rounded/circle clip; `backgroundColor` is the
-// placeholder shown while there's no image. The circle radius depends on the size, so a
-// `layoutSubviews` override recomputes `layer.cornerRadius` on every resize. A SetBytes patch swaps
-// the image (nil → clears to the placeholder). The layer is touched via `msg_send!` so this piece
-// needs no objc2-quartz-core dependency.
+// `clipsToBounds` + `layer.cornerRadius` gives rounded corners; a shape mask gives a centered
+// circle even in a nonsquare frame. `backgroundColor` is the placeholder, clipped with the image.
+// `layoutSubviews` updates the mask on resize. A SetBytes patch swaps the image (nil clears it).
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -15,14 +13,15 @@ use super::*;
 use day_spec::NodeId;
 use day_uikit::Uikit;
 use objc2::rc::Retained;
-use objc2::runtime::AnyObject;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send};
-use objc2_core_foundation::{CGFloat, CGRect};
+use objc2_core_foundation::{CGFloat, CGPoint, CGRect, CGSize};
 use objc2_foundation::NSData;
-use objc2_ui_kit::{UIColor, UIImage, UIImageView, UIView, UIViewContentMode};
+use objc2_quartz_core::CAShapeLayer;
+use objc2_ui_kit::{UIBezierPath, UIColor, UIImage, UIImageView, UIView, UIViewContentMode};
 
 struct ImageIvars {
     clip: Clip,
+    circle_mask: Option<Retained<CAShapeLayer>>,
 }
 
 define_class!(
@@ -39,19 +38,33 @@ define_class!(
             let b: CGRect = self.bounds();
             let radius: CGFloat = match self.ivars().clip {
                 Clip::None => 0.0,
-                Clip::Circle => b.size.width.min(b.size.height) / 2.0,
+                Clip::Circle => 0.0,
                 Clip::Rounded(r) => r,
             };
-            let layer: Retained<AnyObject> = unsafe { msg_send![self, layer] };
-            let _: () = unsafe { msg_send![&layer, setCornerRadius: radius] };
+            let layer = self.layer();
+            layer.setCornerRadius(radius);
+            if let Some(mask) = &self.ivars().circle_mask {
+                let diameter = b.size.width.min(b.size.height);
+                let circle = CGRect::new(
+                    CGPoint::new((b.size.width - diameter) / 2.0, (b.size.height - diameter) / 2.0),
+                    CGSize::new(diameter, diameter),
+                );
+                mask.setFrame(b);
+                mask.setPath(Some(&UIBezierPath::bezierPathWithOvalInRect(circle).CGPath()));
+            }
         }
     }
 );
 
 impl RemoteImageView {
     fn new(mtm: MainThreadMarker, p: &RemoteImageProps) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(ImageIvars { clip: p.clip });
+        let circle_mask = matches!(p.clip, Clip::Circle).then(CAShapeLayer::layer);
+        let this = Self::alloc(mtm).set_ivars(ImageIvars { clip: p.clip, circle_mask });
         let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+        if let Some(mask) = &this.ivars().circle_mask {
+            // This newly allocated mask belongs only to this view and is not a sublayer.
+            unsafe { this.layer().setMask(Some(mask)) };
+        }
         this.setContentMode(match p.mode {
             ContentMode::Fill => UIViewContentMode::ScaleAspectFill,
             ContentMode::Fit => UIViewContentMode::ScaleAspectFit,

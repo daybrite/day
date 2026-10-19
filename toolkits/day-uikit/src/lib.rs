@@ -8466,9 +8466,19 @@ mod imp {
         // SAFETY: main thread (a Toolkit duty); the renderer draws synchronously inside the block.
         let image: Retained<objc2_ui_kit::UIImage> = unsafe {
             use objc2::AllocAnyThread as _;
-            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds(
+            // Captures are consumed as sRGB pixels by dayscript and image clients. The
+            // display's preferred format can be Display P3, whose green bytes differ even
+            // for an sRGB source image. Render into sRGB rather than merely retagging it.
+            let traits = objc2_ui_kit::UITraitCollection::traitCollectionWithDisplayGamut(
+                objc2_ui_kit::UIDisplayGamut::SRGB,
+            );
+            let format =
+                objc2_ui_kit::UIGraphicsImageRendererFormat::formatForTraitCollection(&traits);
+            format.setPreferredRange(objc2_ui_kit::UIGraphicsImageRendererFormatRange::Standard);
+            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithBounds_format(
                 objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
                 bounds,
+                &format,
             );
             let v: Retained<UIView> = Retained::from(view);
             let block = block2::RcBlock::new(

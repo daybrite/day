@@ -113,6 +113,8 @@ day_core::tls_group! {
     /// `ButtonPatch::Title` would otherwise replace it with a plain one and lose the color.
     static BUTTON_STYLES: RefCell<HashMap<usize, day_spec::props::ButtonStyleSpec>> =
         RefCell::new(HashMap::new());
+    /// Original template images, retained across tint changes and swept on view release.
+    static BUTTON_IMAGES: SideTable<Retained<objc2_app_kit::NSImage>> = SideTable::new();
     /// Each button's selected state (`ButtonProps::selected`), keyed by its view pointer: what
     /// the `action:` handler restores after a click toggles a push-on/push-off button, and the
     /// buttons whose `state` `read_native` reports as `checked`.
@@ -4879,9 +4881,15 @@ fn apply_button_content(
     let style = BUTTON_STYLES
         .with(|m| m.borrow().get(&ptr_of(btn)).copied())
         .unwrap_or_default();
+    BUTTON_IMAGES.with(|images| {
+        images.remove(ptr_of(btn));
+        if let Some(image) = &image {
+            images.insert(ptr_of(btn), image.clone());
+        }
+    });
     set_button_title(btn, title, style);
+    set_button_image(btn, style);
     unsafe {
-        btn.setImage(image.as_deref());
         btn.setImagePosition(if image.is_none() {
             objc2_app_kit::NSCellImagePosition::NoImage
         } else if icon_only {
@@ -4896,6 +4904,43 @@ fn apply_button_content(
         }
         let tooltip = (icon_only && image.is_some()).then(|| NSString::from_str(title));
         btn.setToolTip(tooltip.as_deref());
+    }
+}
+
+/// Bordered buttons do not reliably apply contentTintColor to template images. Keep
+/// the native button, but supply an image that draws the original vector's alpha in
+/// the requested contrast color at the destination resolution.
+fn set_button_image(btn: &NSButton, style: day_spec::props::ButtonStyleSpec) {
+    use day_spec::props::ButtonStyleSpec as S;
+    let image = BUTTON_IMAGES.with(|images| images.with(ptr_of(btn), |image| image.clone()));
+    let image = image.map(|source| {
+        let S::Tinted(fill) = style else {
+            return source;
+        };
+        let size = source.size();
+        let ink = nscolor(S::on_tint(fill));
+        let draw = block2::RcBlock::new(move |rect: NSRect| {
+            source.drawInRect_fromRect_operation_fraction(
+                rect,
+                NSRect::ZERO,
+                objc2_app_kit::NSCompositingOperation::SourceOver,
+                1.0,
+            );
+            unsafe {
+                ink.setFill();
+                objc2_app_kit::NSRectFillUsingOperation(
+                    rect,
+                    objc2_app_kit::NSCompositingOperation::SourceIn,
+                );
+            }
+            objc2::runtime::Bool::YES
+        });
+        objc2_app_kit::NSImage::imageWithSize_flipped_drawingHandler(size, false, &draw)
+    });
+    unsafe {
+        let position = btn.imagePosition();
+        btn.setImage(image.as_deref());
+        btn.setImagePosition(position);
     }
 }
 
@@ -4948,12 +4993,13 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
         btn.setContentTintColor(ink.as_deref());
     }
     set_button_title(btn, &title, style);
+    set_button_image(btn, style);
 }
 
 /// Set a button's title, coloring it for the tint where there is one.
 ///
-/// `contentTintColor` is NOT the seam for this: on a bordered `NSButton` it tints template
-/// IMAGES, and AppKit keeps drawing the title in its own control text color — which is how a
+/// `contentTintColor` is NOT the seam for this: on a bordered `NSButton`,
+/// AppKit keeps drawing the title in its own control text color — which is how a
 /// white-on-rust button came out black-on-rust. An ATTRIBUTED title is the documented way to
 /// control the text color, so that is what a tinted button gets.
 ///
@@ -4965,9 +5011,15 @@ fn set_button_title(
     style: day_spec::props::ButtonStyleSpec,
 ) {
     use day_spec::props::ButtonStyleSpec as S;
+    // Changing an attributed title can reset NSButton's image placement. A reactive
+    // tint must keep an icon-only button icon-only, including its native template tint.
+    let position = unsafe { btn.imagePosition() };
     let S::Tinted(fill) = style else {
         // Plain title: AppKit picks the label color that suits the bezel it is drawing.
-        unsafe { btn.setTitle(&NSString::from_str(title)) };
+        unsafe {
+            btn.setTitle(&NSString::from_str(title));
+            btn.setImagePosition(position);
+        }
         return;
     };
     unsafe {
@@ -4996,8 +5048,53 @@ fn set_button_title(
             Some(&attrs),
         );
         btn.setAttributedTitle(&s);
+        btn.setImagePosition(position);
     }
 }
+
+// NSImageView supports aspect-fit but not aspect-fill. Expand its native drawing about
+// the center and clip to the view; this retains vector rendering and template tinting.
+define_class!(
+    #[unsafe(super(objc2_app_kit::NSImageView))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayFillImageView"]
+    struct FillImageView;
+
+    impl FillImageView {
+        #[unsafe(method(drawRect:))]
+        fn draw_rect(&self, dirty: NSRect) {
+            let bounds = self.bounds();
+            let image = unsafe { self.image() };
+            let Some(size) = image.map(|image| image.size()).filter(|size| {
+                size.width > 0.0 && size.height > 0.0
+                    && bounds.size.width > 0.0 && bounds.size.height > 0.0
+            }) else {
+                let _: () = unsafe { msg_send![super(self), drawRect: dirty] };
+                return;
+            };
+            let x = bounds.size.width / size.width;
+            let y = bounds.size.height / size.height;
+            let scale = x.max(y) / x.min(y);
+            let cx = bounds.origin.x + bounds.size.width / 2.0;
+            let cy = bounds.origin.y + bounds.size.height / 2.0;
+            NSGraphicsContext::saveGraphicsState_class();
+            objc2_app_kit::NSBezierPath::bezierPathWithRect(bounds).addClip();
+            let transform = NSAffineTransform::transform();
+            transform.translateXBy_yBy(cx, cy);
+            transform.scaleBy(scale);
+            transform.translateXBy_yBy(-cx, -cy);
+            transform.concat();
+            let _: () = unsafe { msg_send![super(self), drawRect: bounds] };
+            NSGraphicsContext::restoreGraphicsState_class();
+        }
+
+        #[unsafe(method(setFrameSize:))]
+        fn set_frame_size(&self, size: NSSize) {
+            let _: () = unsafe { msg_send![super(self), setFrameSize: size] };
+            NSView::setNeedsDisplay(self, true);
+        }
+    }
+);
 
 fn bezier(shape: &day_spec::Shape) -> Option<objc2::rc::Retained<objc2_app_kit::NSBezierPath>> {
     use day_spec::Shape;
@@ -7382,9 +7479,18 @@ impl Toolkit for AppKit {
                 let Some(p) = props_of::<ImageProps>(kind, "appkit", props) else {
                     return placeholder_view(mtm, kind);
                 };
-                let iv = unsafe { objc2_app_kit::NSImageView::new(mtm) };
-                // Scaling (§18.3): NSImageView has no crop-fill, so Fit/Fill both scale-to-fit
-                // proportionally; Stretch scales each axis independently.
+                let iv: Retained<objc2_app_kit::NSImageView> =
+                    if p.content_mode == ContentMode::Fill {
+                        let view: Retained<FillImageView> =
+                            unsafe { msg_send![FillImageView::alloc(mtm), init] };
+                        Retained::from(
+                            <FillImageView as AsRef<objc2_app_kit::NSImageView>>::as_ref(&view),
+                        )
+                    } else {
+                        unsafe { objc2_app_kit::NSImageView::new(mtm) }
+                    };
+                // Fill expands the native aspect-fit drawing in FillImageView; Stretch
+                // scales each axis independently, and Fit keeps the stock image view.
                 let scaling = match p.content_mode {
                     ContentMode::Stretch => objc2_app_kit::NSImageScaling::ScaleAxesIndependently,
                     _ => objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown,

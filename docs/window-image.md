@@ -90,6 +90,11 @@ no window on screen yet, a zero-size window, a compositor that declined.
 | HarmonyOS (ArkUI) | `OH_ArkUI_GetNodeSnapshot` + the native image packer |
 | web-dom | unsupported |
 
+AppKit and UIKit in-process PNG captures use sRGB. UIKit explicitly selects an sRGB renderer
+with standard dynamic range, so a wide-gamut display does not change the bytes that
+`sample_pixel` compares. This converts the rendered colors; it does not relabel P3 bytes.
+External `simctl` screenshots keep their own color profile.
+
 Two of these were the second thing tried:
 
 **AppKit prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
