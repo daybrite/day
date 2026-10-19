@@ -1605,21 +1605,14 @@ mod imp {
         })
     }
 
-    /// A `.searchable()` sidebar's field, PINNED under the list's title (docs/search.md).
-    ///
-    /// It used to hide behind a pull-down, which is the phone idiom: a list that owns the whole
-    /// screen can trade the field for a row of content and give it back on a pull. A sidebar
-    /// cannot — it is a narrow permanent column beside the detail it filters, the field belongs
-    /// to it the way Settings' does, and one you have to know to pull for is one nobody finds.
-    ///
-    /// One rule, not two. Deciding it per presentation means asking `isCollapsed`, which answers
-    /// nothing on a host that has not met a window yet and never changes again on a device that
-    /// only ever has one shape — so the field's presence would depend on whether a rotation
-    /// happened to fire. A large title over a pinned field is a standard iOS configuration, and
-    /// it is the same one at both sizes.
-    fn pin_sidebar_search(item: &objc2_ui_kit::UINavigationItem, nav: &DayNavController) {
+    /// Large titles and optional scrolling search chrome for the sidebar's own controller.
+    fn configure_sidebar_search(
+        item: &objc2_ui_kit::UINavigationItem,
+        nav: &DayNavController,
+        hides: bool,
+    ) {
         unsafe {
-            item.setHidesSearchBarWhenScrolling(false);
+            item.setHidesSearchBarWhenScrolling(hides);
             item.setLargeTitleDisplayMode(
                 objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
             );
@@ -2746,6 +2739,7 @@ mod imp {
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
         /// searchable or its placement resolved elsewhere. Retained here because the navigation
         /// item does not own the updater.
+        search_hides_on_scroll: bool,
         search: Option<(
             Retained<objc2_ui_kit::UISearchController>,
             Retained<DaySearchUpdater>,
@@ -3578,7 +3572,7 @@ mod imp {
                         for vc in unsafe { nav.viewControllers() }.iter() {
                             let item = unsafe { vc.navigationItem() };
                             if unsafe { item.searchController() }.is_some() {
-                                pin_sidebar_search(&item, nav);
+                                configure_sidebar_search(&item, nav, state.search_hides_on_scroll);
                             }
                         }
                     }
@@ -4743,6 +4737,21 @@ mod imp {
         edge
     }
 
+    fn first_content_scroll(view: &UIView, depth: usize) -> Option<Retained<UIScrollView>> {
+        if let Some(scroll) = view.downcast_ref::<UIScrollView>() {
+            return Some(scroll.retain());
+        }
+        if depth == 0 {
+            return None;
+        }
+        for child in unsafe { view.subviews() }.iter() {
+            if let Some(scroll) = first_content_scroll(&child, depth - 1) {
+                return Some(scroll);
+            }
+        }
+        None
+    }
+
     // Navigation pages end editing on departure (push, pop and tab selection). Keep the
     // request scoped to the outgoing view, so an incoming page's first responder survives.
     define_class!(
@@ -4754,6 +4763,27 @@ mod imp {
         unsafe impl NSObjectProtocol for DayPageVC {}
 
         impl DayPageVC {
+            #[unsafe(method(viewDidLayoutSubviews))]
+            fn view_did_layout_subviews(&self) {
+                unsafe {
+                    let _: () = msg_send![super(self), viewDidLayoutSubviews];
+                    let item = self.navigationItem();
+                    if item.searchController().is_some() && item.hidesSearchBarWhenScrolling() {
+                        // Headers and a pinned sync footer make this a multi-child page.
+                        // Explicitly identify its list instead of relying on UIKit's
+                        // single-scroll-view discovery through the wrapper hierarchy.
+                        if let Some(view) = self.viewIfLoaded()
+                            && let Some(scroll) = first_content_scroll(&view, 12)
+                        {
+                            let edge = objc2_ui_kit::NSDirectionalRectEdge::Top;
+                            if self.contentScrollViewForEdge(edge).as_deref() != Some(&*scroll) {
+                                self.setContentScrollView_forEdge(Some(&scroll), edge);
+                            }
+                        }
+                    }
+                }
+            }
+
             #[unsafe(method(viewWillDisappear:))]
             fn view_will_disappear(&self, animated: bool) {
                 unsafe {
@@ -9450,6 +9480,10 @@ mod imp {
                                 column_request: std::cell::Cell::new(None),
                                 _delegate: delegate,
                                 search,
+                                search_hides_on_scroll: p
+                                    .search
+                                    .as_ref()
+                                    .is_some_and(|s| s.hides_on_scroll),
                             },
                         )
                     });
@@ -9487,8 +9521,10 @@ mod imp {
                     let vc = DayCoverVC::new(mtm, id, sheet, half);
                     unsafe {
                         vc.setView(Some(&outer));
-                        vc.setModalPresentationStyle(if sheet {
+                        vc.setModalPresentationStyle(if half {
                             UIModalPresentationStyle::PageSheet
+                        } else if sheet {
+                            UIModalPresentationStyle::FormSheet
                         } else {
                             UIModalPresentationStyle::FullScreen
                         });
@@ -11026,7 +11062,14 @@ mod imp {
                     let item = unsafe { vc.navigationItem() };
                     unsafe {
                         item.setSearchController(Some(sc));
-                        pin_sidebar_search(&item, &state.nav);
+                        configure_sidebar_search(&item, &state.nav, state.search_hides_on_scroll);
+                        if let Some(parts) = state.split.as_ref() {
+                            configure_sidebar_search(
+                                &item,
+                                &parts.primary_nav,
+                                state.search_hides_on_scroll,
+                            );
+                        }
                         vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);
                         vc.setExtendedLayoutIncludesOpaqueBars(true);
                     }

@@ -2036,15 +2036,15 @@ public final class DayBridge {
      * wrapped, for the same reason `setNavMenu` above is: a throw on `makeNavHost`'s own path
      * aborts the native tree build and leaves the app blank, so decoration never rides it.
      *
-     * No auto-hide. iOS reveals its field by over-scrolling past the top of the list; Material has
-     * no equivalent gesture, so the field stays put (docs/search.md).
+     * Scrolling chrome is opt-in: Material's scroll/enter-always app bar returns on a
+     * downward scroll; pinned search remains the default (docs/search.md).
      */
-    public static void setNavSearch(View navHost, long id, String prompt, String text) {
+    public static void setNavSearch(View navHost, long id, String prompt, String text, boolean hidesOnScroll) {
         if (!(navHost instanceof DayNavHost)) {
             return;
         }
         try {
-            ((DayNavHost) navHost).setSearch(id, prompt, text);
+            ((DayNavHost) navHost).setSearch(id, prompt, text, hidesOnScroll);
         } catch (Throwable t) {
             android.util.Log.e("Day", "nav search setup failed; continuing without it", t);
         }

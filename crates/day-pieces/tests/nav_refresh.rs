@@ -108,3 +108,52 @@ fn selected_row_activation_presents_the_resident_list_again() {
     );
     day_core::uninstall_tree();
 }
+
+#[test]
+fn sidebar_footer_reserves_space_without_recreating_menu_or_destination() {
+    let selection = Signal::new(None::<String>);
+    let busy = Signal::new(false);
+    let probe = boot(move || {
+        nav(selection)
+            .style(NavStyle::Sidebar)
+            .item(Some("all".to_string()), "All", || label("Fixture articles"))
+            .id("fixture-nav")
+            .footer(move || {
+                when(
+                    move || busy.get(),
+                    || label("Fixture sync progress").height(40.0).grow_w(),
+                )
+            })
+            .any()
+    });
+    let (menu, initial) = probe.find_by_kind(kinds::NAV_MENU)[0].clone();
+    busy.set(true);
+    flush_sync();
+    let syncing = probe.widget(menu);
+    assert_eq!(syncing.node, initial.node);
+    assert_eq!(syncing.frame.size.height, initial.frame.size.height - 40.0);
+    let footer = probe
+        .find_by_kind(kinds::LABEL)
+        .into_iter()
+        .find(|(_, widget)| widget.text == "Fixture sync progress")
+        .expect("footer is mounted on the root page")
+        .0;
+    selection.set(Some("all".to_string()));
+    flush_sync();
+    assert_eq!(probe.widget(footer).text, "Fixture sync progress");
+    assert_eq!(probe.find_by_kind(kinds::NAV_MENU).len(), 1);
+    busy.set(false);
+    flush_sync();
+    assert_eq!(
+        probe.widget(menu).frame.size.height,
+        initial.frame.size.height
+    );
+    assert!(
+        probe
+            .find_by_kind(kinds::LABEL)
+            .iter()
+            .all(|(_, widget)| widget.text != "Fixture sync progress"),
+        "completed work releases the footer and returns its space to the menu"
+    );
+    day_core::uninstall_tree();
+}

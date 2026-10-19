@@ -5875,6 +5875,9 @@ pub mod props {
         /// Empty-state prompt.
         pub prompt: String,
         pub placement: SearchPlacement,
+        /// Opt into native scrolling search/title chrome on mobile. Default false keeps
+        /// the field pinned. Desktop toolbar search is unchanged.
+        pub hides_on_scroll: bool,
         /// Scope titles, empty = no scope bar. One-of-N: a `UISearchBar` scope bar, a Material
         /// `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
         /// `NSSegmentedControl` (docs/search.md has the per-backend table).

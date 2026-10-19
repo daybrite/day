@@ -52,6 +52,8 @@ mod layout;
 pub mod lifecycle;
 pub mod list;
 mod memory_profile;
+mod modal_sheet;
+pub use modal_sheet::ComposedSheet;
 pub mod menu;
 mod nav;
 mod present;

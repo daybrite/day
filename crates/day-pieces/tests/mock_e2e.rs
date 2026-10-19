@@ -6038,6 +6038,44 @@ fn set_title_reaches_the_backend() {
 }
 
 #[test]
+fn preferences_fallback_adapts_to_width_without_changing_other_windows() {
+    for (width, kind, sheet) in [
+        (390.0, day_spec::WindowKind::Preferences, false),
+        (1024.0, day_spec::WindowKind::Preferences, true),
+        (1024.0, day_spec::WindowKind::Normal, false),
+    ] {
+        let probe = boot(|| label("fixture main"));
+        probe.set_no_multi_window(true);
+        day_core::set_size_class(day_spec::SizeClass::from_size(width, 900.0));
+        probe.clear_log();
+        let window = day_core::open_window(
+            None,
+            win_options("Fixture settings", 520.0, 640.0),
+            kind,
+            || label("fixture modal content").grow().any(),
+        );
+        flush_sync();
+        assert!(probe.log().iter().any(|entry| entry.contains("day.cover")
+            && entry.contains(&format!("sheet={sheet} half=false"))));
+        let node = NodeId(probe.find_by_kind("day.cover")[0].1.node);
+        probe.emit(node, Event::FrameChanged(Size::new(width, 900.0)));
+        flush_sync();
+        let content = probe
+            .find_by_kind("day.label")
+            .into_iter()
+            .find(|(_, widget)| widget.text == "fixture modal content")
+            .unwrap()
+            .1;
+        assert_eq!(content.frame.size.width, if sheet { 640.0 } else { width });
+        assert_eq!(content.frame.size.height, if sheet { 620.0 } else { 900.0 });
+        window.close();
+        probe.emit(node, Event::CoverHidden);
+        flush_sync();
+        assert!(!window.is_open());
+    }
+}
+
+#[test]
 fn fallback_presents_as_cover_and_close_dismisses() {
     let probe = boot(|| label("main").any());
     probe.set_no_multi_window(true);

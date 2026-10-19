@@ -998,8 +998,9 @@ fn revive_if_dismissing(root: RNode) {
     });
 }
 
-/// The fallback tier: present the window content as a fullscreen cover in the primary
-/// window (docs/cover.md semantics: NavBack dismisses, `Event::CoverHidden` confirms).
+/// The fallback tier: present window content modally in the primary window. Preferences
+/// prefer a sheet on regular-width windows and remain fullscreen on compact windows.
+/// NavBack dismisses; `Event::CoverHidden` confirms (docs/cover.md).
 fn open_as_cover(
     key: Option<&str>,
     kind: WindowKind,
@@ -1008,11 +1009,16 @@ fn open_as_cover(
 ) -> WindowHandle {
     let size: Rc<RefCell<Option<Size>>> = Rc::default();
     let primary = with_tree(|t| t.root_node());
+    let sheet = kind == WindowKind::Preferences
+        && crate::window_size_class_untracked(primary)
+            .is_some_and(|size| size.width != day_spec::WidthClass::Compact);
+    let composed_sheet =
+        sheet && crate::capability(day_spec::Cap::CoverSheet) == day_spec::Support::Unsupported;
     let cover = {
         let mut cx = BuildCx::new(primary);
         cx.native(
             kinds::COVER,
-            &CoverProps::default(),
+            &CoverProps { sheet, half: false },
             Rc::new(crate::CoverLayout { size: size.clone() }),
             crate::Flex::default(),
             Boundary::Yes,
@@ -1070,14 +1076,18 @@ fn open_as_cover(
         crate::toolbar::with_window(cover, || {
             let piece = build();
             let mut cx = BuildCx::new(cover);
-            let _ = piece.build(&mut cx);
+            if composed_sheet {
+                let _ = crate::ComposedSheet { content: piece }.build(&mut cx);
+            } else {
+                let _ = piece.build(&mut cx);
+            }
         })
     });
     with_tree(|t| {
         t.patch(
             cover,
             Box::new(CoverPatch::Present {
-                background: None,
+                background: composed_sheet.then_some(day_spec::Color::CLEAR),
                 dismiss_disabled: false,
             }),
             false,

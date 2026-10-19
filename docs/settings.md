@@ -287,3 +287,13 @@ the singleton reopen. The starter's `dayscript/demo.yaml` navigates to `settings
 script, `screenshot: { name: s, window: day.preferences }` (or `day.about`) captures the panel
 instead of the primary window, and `menu: { key: day-about }` / `menu: { key: day-check-for-updates }`
 dispatch the injected role items, which carry no id of their own.
+
+### Settings on tablet widths
+
+The standalone navigation Settings surface uses the `WindowKind::Preferences` modal fallback.
+It stays fullscreen on compact windows and requests a sheet on regular-width windows by
+default; applications need no special configuration. UIKit supplies its native form sheet,
+and backends without native sheets (including Android and HarmonyOS) center the shared
+640-by-620 maximum card over a modal scrim. Done and native Back close
+the same keyed surface; closing and reopening resets the Settings path as before. Embedded
+settings pages and desktop Preferences windows keep their existing presentation.

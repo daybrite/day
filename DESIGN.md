@@ -2737,6 +2737,13 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   image when reuse or asynchronous discovery switches between these source classes,
 >   because template rendering is established when the image is realized. This also applies
 >   to trailing badge images; explicit tints still request monochrome rendering.
+> - **Sidebar footer** — `nav(…).footer(build)` places a piece below the sidebar's
+>   scrolling menu, with the menu taking the remaining height. The footer belongs to the
+>   resident root page and disappears with that page when a compact navigation host pushes
+>   its list or detail. Its reactive contents may follow window size classes without rebuilding
+>   navigation. Like `header`, it is a sidebar slot, not tab/rail chrome; no native backend API
+>   is required. See [navigation](docs/navigation.md) and `day-pieces/tests/nav_refresh.rs`.
+>
 > - **The content list** *(2026-08)* — `nav(…).content_list(build)` adds the Mail shape's
 >   middle column as a third pane role: `Pane::List`, one resident page whose content follows
 >   the app's signals. `Cap::NavContentList` carries where it lands — `Native` on macos-appkit
@@ -7846,7 +7853,7 @@ transient screen. Registration never subscribes or performs application operatio
 
 `cover(...).sheet()` requests a modal sheet with the same signal-driven ownership and dismissal
 contract as a cover. AppKit presents an attached NSWindow sheet and reclaims its parent/content
-references on dismissal or handle release. UIKit uses PageSheet. Those two answer
+references on dismissal or handle release. UIKit uses FormSheet for modal sheets and PageSheet for half-height detents. Those two answer
 `Cap::CoverSheet` = Native; everywhere else the `cover` piece composes the sheet (2026-10): on a
 window wider than compact, a clear cover holding a dimmed fill and a card in the window's own
 color (`SurfaceRole::Window`), centered at AppKit's sheet proportions; on a compact window, the
@@ -7974,3 +7981,27 @@ base section has its root list alongside it. UIKit retains the native back item 
 toolbar items, and ArkUI hides Back only for a tiled base destination. Real-touch coverage is in
 Day-News `tests/android-up.py` (including cold-launch selected Today) and
 `tests/ios-navigation/NavigationTests.swift::testRootReachableFromSmartFeeds`.
+
+
+Preferences modal fallback (2026-10): `WindowKind::Preferences` uses `CoverProps::sheet` on
+regular-width primary windows and fullscreen covers on compact windows. This is the shared
+default used by day-piece-settings, including its toolbar entry, without an app-specific flag.
+UIKit uses its native form sheet, keeping tablet Settings narrower than a full page. Backends without `Cap::CoverSheet` use the same rounded
+640-by-620 maximum card and modal scrim as `cover().sheet()`: `ComposedSheet` now lives in
+day-core so both paths share its layout and semantic surface color. Actual cover bounds
+continue to drive layout, keyboard dismissal and Back keep their existing lifecycle, and
+other window kinds and embedded settings are unchanged. See [settings](docs/settings.md).
+
+Scrolling navigation search (2026-10): `Nav::search_hides_on_scroll(bool)` is an opt-in
+`SearchProps` contract, default false. UIKit uses `hidesSearchBarWhenScrolling` and identifies
+the page's content scroll view explicitly, including multi-child root pages with headers or
+pinned footers. Android uses a CoordinatorLayout/AppBarLayout scroll/enter-always host scoped
+to root-list nested scrolls. The compact root lends its MaterialToolbar to the scrolling
+app bar; destinations and tiled layouts keep that same toolbar outside CoordinatorLayout,
+structurally pinning navigation even during late root fling/snap callbacks. Sidebar search
+still scrolls on wide layouts. Every chrome reconciliation includes search visibility and
+toolbar placement, including selected sections that deliberately do not create native
+history entries. Editing expands search. Native Day-News regression tests exercise entering
+feed and smart-feed lists with expanded, partially collapsed and collapsed root chrome and
+actual Up taps.
+Desktop search placement and query ownership remain unchanged. See [search](docs/search.md).

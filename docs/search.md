@@ -93,28 +93,26 @@ Each platform keeps its own convention.
 
 | backend | where | resting state | how it is revealed |
 |---|---|---|---|
-| ios-uikit | `UISearchController` on the root page's `navigationItem` | visible, pinned under the title | always there (`hidesSearchBarWhenScrolling` off) |
-| android-mdc | Material `SearchBar` above the nav list | visible, scroll-away | always there; returns on scroll up |
+| ios-uikit | `UISearchController` on the root page's `navigationItem` | pinned by default | opt-in: search and large title collapse while scrolling, search returns at the top |
+| android-mdc | Material `TextInputLayout` over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
-iOS PINS the field rather than hiding it behind a pull-down (2026-09). The hide is a phone
-idiom — a list that owns the whole screen can trade the field for a row of content — and a sidebar
-is not that: it is a narrow permanent column beside the detail it filters, and a field you have to
-know to pull for is one nobody finds. Deciding it per presentation would mean asking
-`isCollapsed`, which answers nothing on a host that has not met a window yet and never changes
-again on a device that only ever has one shape, so the field's presence would turn on whether a
-rotation happened to fire. One rule at both sizes, with a large title above it — a standard iOS
-configuration either way.
+Call `.search_hides_on_scroll(true)` after `.searchable(query)` to opt into scrolling chrome.
+Desktop toolbar search is unchanged. UIKit explicitly associates the root page's scroll view
+with its top edge, so a header or a pinned footer does not prevent native large-title/search
+collapse. This applies to both the compact stack and the iPad sidebar.
 
-Android has **no** `hidesSearchBarWhenScrolling` equivalent. Material's `SearchBar` supports
-fixed / scroll-away / lift-on-scroll through `CoordinatorLayout` behaviors, but scroll-away hides
-on scroll down and returns on scroll up; there is no pull-past-the-top reveal. Forcing the iOS
-gesture onto Android would make a Day app the only one on the device that behaves that way.
-
-Day uses `SearchBar` **without** expanding it into Material's full-screen `SearchView`.
-`SearchView` is an overlay showing its own results list, and on a searchable navigation surface
-the list underneath is already the result set, so the overlay would mean maintaining a second
-copy of it.
+Android uses `CoordinatorLayout` and Material `AppBarLayout` scroll/enter-always/snap flags.
+Only nested scrolls originating in the root navigation list move this chrome. The search
+field is kept expanded during editing. On compact destinations the search field is hidden
+and the same MaterialToolbar is moved outside the scrolling CoordinatorLayout, where Up,
+title and actions stay pinned. On wide layouts the toolbar is also pinned, while the sidebar
+search can scroll independently. Only the compact root places the toolbar in the scroll-away
+app bar. Selection, push, pop and layout changes reconcile this together with the title and
+Up action, including section selections that do not enter FragmentManager history. A late
+root fling cannot move the destination toolbar because it no longer belongs to the app bar. The list content is sized to the visible area so pinned
+footers remain on screen. Immersive hosts retain their existing floating chrome. The field
+continues to filter the existing list; it does not open a separate full-screen SearchView.
 
 ## One model, one writer
 

@@ -137,6 +137,7 @@ let section = Signal::new("home".to_string());
 nav(section)                       // adaptive by default; .style() pins a shape
     .title(tr("app-title"))
     .header(sidebar_header)             // optional piece above the list
+    .footer(sidebar_status)             // pinned below the scrolling list, on the root page
     .item("home",     tr("home"),     home_page)
     .item("settings", tr("settings"), settings_page)
 ```

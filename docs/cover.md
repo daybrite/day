@@ -209,7 +209,7 @@ reopen it, and a "link me to this screen" URL point at a modal.
 
 | Toolkit | Present | Dismiss request | Hidden report |
 |---|---|---|---|
-| uikit | `DayCoverVC` (fullscreen modal, or a page sheet for `.sheet()` / `.half_sheet()`) over a `DayNavPageView`, through the dialog FIFO | none fullscreen; a sheet's pull-down arrives as `NavBack` from the presentation controller's delegate | dismiss completion block (immediate when the sheet is already down) |
+| uikit | `DayCoverVC` (fullscreen modal, a form sheet for `.sheet()`, or a page sheet for `.half_sheet()`) over a `DayNavPageView`, through the dialog FIFO | none fullscreen; a sheet's pull-down arrives as `NavBack` from the presentation controller's delegate | dismiss completion block (immediate when the sheet is already down) |
 | android | `DayCover` shell re-homed onto the activity content root, slide-up `ValueAnimator` | `OnBackPressedCallback` → `NavBack` | slide-out completion, shell becomes GONE |
 | arkui | Stack re-homed into a dedicated full-window NodeContent layer above Navigation and its NavDestinations (no transition) | native Back targets the top cover, honoring the dismissal shield | posted immediately on dismiss |
 | mock | patch recorded (`flag` = presented) | tests emit it | tests emit it |
@@ -225,7 +225,7 @@ fixed when the piece is built; omit `.sheet()` to keep the fullscreen cover.
 | Toolkit | Presentation |
 |---|---|
 | appkit | a native sheet attached to the primary window, the window less a margin, at most 640 by 620 |
-| uikit | `PageSheet`; its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
+| uikit | `FormSheet` (a narrow modal panel on iPad, adapting to compact windows); its pull-down arrives as the cover's back request, so the bound signal follows what the user did |
 | android, arkui, gtk, qt, xaml, dom | composed (`Cap::CoverSheet` = `Unsupported`): on a window wider than compact, the cover turns clear and holds a dimmed fill with a rounded card in the window's own color (`SurfaceRole::Window`), centered at AppKit's proportions; on a compact window, the full-window cover |
 
 The composed card decides compact or wide when the sheet opens, and keeps its place in the

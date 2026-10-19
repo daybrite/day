@@ -11,7 +11,7 @@ use std::rc::Rc;
 
 use day_core::*;
 use day_reactive::{Scope, Signal, bind, bind_seeded};
-use day_spec::{Event, Proposal, Rect, Size, kinds};
+use day_spec::{Event, Size, kinds};
 
 use crate::*;
 
@@ -1368,6 +1368,7 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     style: NavStyle,
     title: TextSource,
     header: Option<Box<dyn FnOnce() -> AnyPiece>>,
+    footer: Option<Box<dyn FnOnce() -> AnyPiece>>,
     sources: Vec<ItemSource<K>>,
     /// Builds the page for a key with no static item (a data-driven item from `.items`).
     destination: Option<DestFn<K>>,
@@ -1419,6 +1420,7 @@ struct SearchSpec {
     query: Signal<String>,
     prompt: Option<TextSource>,
     placement: day_spec::props::SearchPlacement,
+    hides_on_scroll: bool,
     /// Scope titles and the signal holding the chosen index. Empty titles = no scope bar.
     scopes: Vec<TextSource>,
     scope: Option<Signal<usize>>,
@@ -1471,6 +1473,7 @@ impl SearchSpec {
                 .unwrap_or_default(),
             // The resolved placement, so a backend reads a decision rather than a request.
             placement: Self::resolve(self.placement),
+            hides_on_scroll: self.hides_on_scroll,
             scopes: self.scopes.iter().map(TextSource::initial).collect(),
             scope: self.scope.map(|s| s.get_untracked()).unwrap_or(0),
         }
@@ -1627,6 +1630,7 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
         sidebar_toggle: true,
         title: TextSource::Static(String::new()),
         header: None,
+        footer: None,
         sources: Vec::new(),
         destination: None,
         routed: true,
@@ -1826,6 +1830,13 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     /// An optional piece shown above the sidebar list (a logo, app name…).
     pub fn header<P: Piece>(mut self, build: impl FnOnce() -> P + 'static) -> Self {
         self.header = Some(Box::new(move || AnyPiece::new(build())));
+        self
+    }
+    /// An optional piece pinned below the sidebar list, outside its scroll area.
+    /// It belongs to the root page: stacked destinations do not carry it along.
+    /// Like [`Self::header`], this slot applies to sidebar navigation, not tab/rail chrome.
+    pub fn footer<P: Piece>(mut self, build: impl FnOnce() -> P + 'static) -> Self {
+        self.footer = Some(Box::new(move || AnyPiece::new(build())));
         self
     }
     /// Pin the presentation instead of letting the window's size decide (docs/size-classes.md).
@@ -2088,6 +2099,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
             query,
             prompt: None,
             placement: day_spec::props::SearchPlacement::Automatic,
+            hides_on_scroll: false,
             scopes: Vec::new(),
             scope: None,
             suggestions: None,
@@ -2099,6 +2111,15 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     pub fn search_prompt<M>(mut self, prompt: impl IntoText<M>) -> Self {
         if let Some(s) = self.search.as_mut() {
             s.prompt = Some(prompt.into_text());
+        }
+        self
+    }
+
+    /// Allow mobile search and title chrome to collapse as the root list scrolls.
+    /// Call after `searchable`. Defaults to false; desktop toolbar search is unchanged.
+    pub fn search_hides_on_scroll(mut self, hide: bool) -> Self {
+        if let Some(search) = self.search.as_mut() {
+            search.hides_on_scroll = hide;
         }
         self
     }
@@ -3054,6 +3075,10 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 .spacing(4.0)
                 .align(HAlign::Leading)
                 .any(),
+        };
+        let content = match sel.footer {
+            Some(footer) => column((content.grow(), footer())).grow().any(),
+            None => content,
         };
         with_nav_host(Some(host_cx.clone()), || {
             let mut pcx = BuildCx::new(root_page);
@@ -4927,7 +4952,7 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
                         let content = (build)(r);
                         let mut c = BuildCx::new(node);
                         if card {
-                            let _ = ComposedSheet { content }.build(&mut c);
+                            let _ = day_core::ComposedSheet { content }.build(&mut c);
                         } else {
                             let _ = content.build(&mut c);
                         }
@@ -5093,6 +5118,7 @@ pub trait NavBuilder<K: Route>: Sized {
     fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self;
     fn badge_tint(self, color: day_spec::Color) -> Self;
     fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self;
+    fn footer<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self;
     fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self;
     fn item<M, P: Piece>(
         self,
@@ -5122,6 +5148,7 @@ pub trait NavBuilder<K: Route>: Sized {
     fn sidebar_toggle(self, on: bool) -> Self;
     fn searchable(self, query: Signal<String>) -> Self;
     fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self;
+    fn search_hides_on_scroll(self, hide: bool) -> Self;
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self;
     fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self;
     fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self;
@@ -5168,6 +5195,9 @@ impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
     }
     fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
         Nav::header(self, build)
+    }
+    fn footer<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
+        Nav::footer(self, build)
     }
     fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
         Nav::presentation(self, presentation)
@@ -5226,6 +5256,9 @@ impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
     fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
         Nav::search_prompt(self, prompt)
     }
+    fn search_hides_on_scroll(self, hide: bool) -> Self {
+        Nav::search_hides_on_scroll(self, hide)
+    }
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
         Nav::search_placement(self, placement)
     }
@@ -5278,6 +5311,9 @@ impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> 
     }
     fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
         self.map_inner(|inner_piece| inner_piece.header(build))
+    }
+    fn footer<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
+        self.map_inner(|inner_piece| inner_piece.footer(build))
     }
     fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
         self.map_inner(|inner_piece| inner_piece.presentation(presentation))
@@ -5336,6 +5372,9 @@ impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> 
     fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
         self.map_inner(|inner_piece| inner_piece.search_prompt(prompt))
     }
+    fn search_hides_on_scroll(self, hide: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.search_hides_on_scroll(hide))
+    }
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
         self.map_inner(|inner_piece| inner_piece.search_placement(placement))
     }
@@ -5390,113 +5429,6 @@ impl<K: Route, Inner: NavStackBuilder<K> + Piece> NavStackBuilder<K> for Decorat
     }
     fn restore(self, key: impl Into<String>) -> Self {
         self.map_inner(|inner_piece| inner_piece.restore(key))
-    }
-}
-
-/// The dimming laid over the page under a composed sheet.
-const SHEET_SCRIM: day_spec::Color = day_spec::Color::rgba(0.0, 0.0, 0.0, 0.32);
-/// A composed sheet card's corner radius.
-const SHEET_RADIUS: f64 = 12.0;
-
-/// A composed modal sheet (docs/cover.md "Modal sheet"): the cover's content on a card in the
-/// window's own background color, centered over a dimmed fill that spans the cover. The cover
-/// itself is clear and takes every click, so the page shows through but stays out of reach.
-struct ComposedSheet {
-    content: AnyPiece,
-}
-
-impl Piece for ComposedSheet {
-    fn build(self, cx: &mut BuildCx) -> RNode {
-        let fill = Flex {
-            grow_w: true,
-            grow_h: true,
-            ..Default::default()
-        };
-        let node = cx.native(
-            kinds::CONTAINER,
-            &day_spec::props::ContainerProps::default(),
-            Rc::new(SheetLayout),
-            fill,
-            Boundary::Yes,
-        );
-        cx.under(node, |cx| {
-            cx.native(
-                kinds::CONTAINER,
-                &day_spec::props::ContainerProps {
-                    background: Some(SHEET_SCRIM),
-                    ..Default::default()
-                },
-                Rc::new(FillLayout),
-                fill,
-                Boundary::No,
-            );
-            let card = cx.native(
-                kinds::CONTAINER,
-                &day_spec::props::ContainerProps {
-                    background: None,
-                    corner_radius: SHEET_RADIUS,
-                    clips: true,
-                    role: Some(day_spec::SurfaceRole::Window),
-                },
-                Rc::new(FillLayout),
-                fill,
-                Boundary::Yes,
-            );
-            cx.under(card, |cx| {
-                let _ = self.content.build(cx);
-            });
-        });
-        node
-    }
-}
-
-/// A composed sheet card's size in a cover `area` large: the native AppKit sheet's proportions
-/// (the window less a margin, at most 640 by 620), never larger than the area itself.
-fn sheet_card_size(area: Size) -> Size {
-    Size::new(
-        (area.width - 40.0).clamp(320.0, 640.0).min(area.width),
-        (area.height - 80.0).clamp(300.0, 620.0).min(area.height),
-    )
-}
-
-/// [`ComposedSheet`]'s layout: the dimmed fill over the whole cover, the card centered on it.
-struct SheetLayout;
-
-impl Layout for SheetLayout {
-    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
-        Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
-    }
-    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
-        let area = bounds.size;
-        if let Some(&scrim) = children.first() {
-            cx.place_child(scrim, Rect::from_size(area));
-        }
-        if let Some(&card) = children.get(1) {
-            let size = sheet_card_size(area);
-            cx.place_child(
-                card,
-                Rect::new(
-                    ((area.width - size.width) / 2.0).floor(),
-                    ((area.height - size.height) / 2.0).floor(),
-                    size.width,
-                    size.height,
-                ),
-            );
-        }
-    }
-}
-
-/// One child filling the container: the dimmed fill (no children) and the card's content.
-struct FillLayout;
-
-impl Layout for FillLayout {
-    fn measure(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], p: Proposal) -> Size {
-        Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0))
-    }
-    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
-        for &child in children {
-            cx.place_child(child, Rect::from_size(bounds.size));
-        }
     }
 }
 

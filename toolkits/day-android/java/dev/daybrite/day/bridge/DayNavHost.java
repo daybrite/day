@@ -91,6 +91,10 @@ public class DayNavHost extends LinearLayout {
     EditText searchEdit;
     /** Suppresses the echo while day writes the app's query back into the field. */
     boolean searchSyncing;
+    private androidx.coordinatorlayout.widget.CoordinatorLayout scrollingChrome;
+    private View scrollingContent;
+    private int chromeOffset;
+    private boolean scrollingSearchShown;
     final FrameLayout pages;
     /// The adaptive host (docs/size-classes.md). SlidingPaneLayout decides at MEASURE time
     /// whether both panes fit: side by side on a tablet, one-at-a-time on a phone, with no size
@@ -332,11 +336,52 @@ public class DayNavHost extends LinearLayout {
         return split == null || lastSlideable;
     }
 
+    /** Navigation controls must not inherit the root search area's scroll offset.
+     * Keep the same MaterialToolbar (and its actions) outside CoordinatorLayout on
+     * destinations and tiled layouts. Only the compact root lends it to AppBarLayout.
+     * This structural separation also protects Up from a late root fling/snap callback. */
+    private void syncToolbarPlacement(int depth) {
+        boolean pinned = depth > 0 || !stacked();
+        ViewGroup parent = (ViewGroup) toolbar.getParent();
+        ViewGroup target = pinned ? this : appBar;
+        if (parent == target) return;
+        parent.removeView(toolbar);
+        if (pinned) {
+            addView(toolbar, indexOfChild(scrollingChrome), new LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            toolbar.setBackgroundColor(themeColor(
+                    com.google.android.material.R.attr.colorSurface, 0xFFFFFFFF));
+        } else {
+            appBar.addView(toolbar, 0, new AppBarLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            toolbar.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+        }
+        appBar.setExpanded(true, false);
+    }
+
     private void syncSearchVisibility(int depth) {
         if (searchLayout != null) {
             // Tiled, the list it filters never leaves the screen, so the field stays too.
             boolean show = depth == 0 || !stacked();
             searchLayout.setVisibility(show ? View.VISIBLE : View.GONE);
+            if (scrollingChrome != null) {
+                syncToolbarPlacement(depth);
+                boolean scroll = show && !searchEdit.hasFocus();
+                int flags = scroll ? AppBarLayout.LayoutParams.SCROLL_FLAG_SCROLL
+                        | AppBarLayout.LayoutParams.SCROLL_FLAG_ENTER_ALWAYS
+                        | AppBarLayout.LayoutParams.SCROLL_FLAG_SNAP : 0;
+                for (View child : new View[] { toolbar, searchLayout }) {
+                    if (child.getParent() != appBar) continue;
+                    AppBarLayout.LayoutParams lp = (AppBarLayout.LayoutParams) child.getLayoutParams();
+                    if (lp.getScrollFlags() != flags) { lp.setScrollFlags(flags); child.setLayoutParams(lp); }
+                }
+                AppBarLayout.LayoutParams searchParams = (AppBarLayout.LayoutParams) searchLayout.getLayoutParams();
+                int width = !stacked() ? Math.round(NAV_SIDEBAR_DP * getResources().getDisplayMetrics().density)
+                        : ViewGroup.LayoutParams.MATCH_PARENT;
+                if (searchParams.width != width) { searchParams.width = width; searchLayout.setLayoutParams(searchParams); }
+                if (!scroll || show != scrollingSearchShown) appBar.setExpanded(true, false);
+                scrollingSearchShown = show;
+            }
         }
     }
 
@@ -382,7 +427,6 @@ public class DayNavHost extends LinearLayout {
             }
         }
         knownEntries = now;
-        syncSearchVisibility(depth());
         syncPane(depth());
         syncChrome();
     }
@@ -461,10 +505,10 @@ public class DayNavHost extends LinearLayout {
      * underneath already is the result set. An editable filter-in-place field is the control this
      * actually needs.
      *
-     * No auto-hide: iOS reveals its field by over-scrolling past the top of the list, and Material
-     * has no equivalent gesture, so the field stays put.
+     * Optional scrolling uses Material's scroll/enter-always app bar. The field is
+     * expanded while editing and chrome is restored before leaving the root list.
      */
-    void setSearch(final long id, String prompt, String text) {
+    void setSearch(final long id, String prompt, String text, boolean hidesOnScroll) {
         if (searchLayout != null) {
             return; // already installed
         }
@@ -500,7 +544,9 @@ public class DayNavHost extends LinearLayout {
         box.setLayoutParams(lp);
         searchLayout = box;
         searchEdit = edit;
-        if (listColumn != null) {
+        if (hidesOnScroll && !DayActivity.edgeToEdge) {
+            installScrollingSearch(box, pad);
+        } else if (listColumn != null) {
             // Inside the list pane, above the list: the field belongs to the surface it filters
             // (docs/search.md), and tiled that surface is one pane rather than the whole window.
             listColumn.addView(box, 0);
@@ -512,6 +558,57 @@ public class DayNavHost extends LinearLayout {
         // A surface can be built with pages already stacked (a launch deep link), so start from
         // the current depth rather than assuming the root.
         syncSearchVisibility(depth());
+    }
+
+    /** Native nested-scroll chrome, scoped to the feed list rather than sibling articles. */
+    private void installScrollingSearch(TextInputLayout box, int pad) {
+        scrollingContent = split != null ? split : pages;
+        removeView(appBar);
+        removeView(scrollingContent);
+        scrollingChrome = new androidx.coordinatorlayout.widget.CoordinatorLayout(getContext());
+        androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams contentParams =
+                new androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        contentParams.setBehavior(new AppBarLayout.ScrollingViewBehavior());
+        scrollingChrome.addView(scrollingContent, contentParams);
+        androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams barParams =
+                new androidx.coordinatorlayout.widget.CoordinatorLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        barParams.setBehavior(new AppBarLayout.Behavior() {
+            @Override public boolean onStartNestedScroll(
+                    androidx.coordinatorlayout.widget.CoordinatorLayout parent, AppBarLayout child,
+                    View directTargetChild, View target, int axes, int type) {
+                View feedPage = listPane != null ? listPane : pages;
+                View current = target;
+                while (current != feedPage && current.getParent() instanceof View) {
+                    current = (View) current.getParent();
+                }
+                return current == feedPage && (depth() == 0 || !stacked())
+                        && searchLayout.getVisibility() == View.VISIBLE
+                        && !searchEdit.hasFocus()
+                        && super.onStartNestedScroll(parent, child, directTargetChild, target, axes, type);
+            }
+        });
+        scrollingChrome.addView(appBar, barParams);
+        AppBarLayout.LayoutParams searchParams = new AppBarLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        searchParams.setMargins(pad, pad / 2, pad, pad / 2);
+        appBar.addView(box, searchParams);
+        addView(scrollingChrome, new LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+        appBar.addOnOffsetChangedListener((bar, offset) -> {
+            chromeOffset = offset;
+            sizeScrollingContent();
+        });
+        scrollingChrome.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> sizeScrollingContent());
+        searchEdit.setOnFocusChangeListener((view, focused) -> syncSearchVisibility(depth()));
+    }
+
+    /** Keep pinned page footers inside the viewport as the app bar grows/shrinks. */
+    private void sizeScrollingContent() {
+        if (scrollingChrome.getHeight() <= 0) return;
+        int height = Math.max(0, scrollingChrome.getHeight() - appBar.getHeight() - chromeOffset);
+        ViewGroup.LayoutParams lp = scrollingContent.getLayoutParams();
+        if (lp.height != height) { lp.height = height; scrollingContent.setLayoutParams(lp); }
     }
 
     void focusSearch() {
@@ -1049,12 +1146,14 @@ public class DayNavHost extends LinearLayout {
         // Chrome differs: a visible list needs no up-arrow to get back to it, and the inline
         // search field filters a list that is now always on screen.
         syncChrome();
-        syncSearchVisibility(depth());
         // num 1.0 = split (both panes), 0.0 = stacked.
         DayBridge.nativeOnEvent(hostNode, DayBridge.K_NAV_PRESENTATION, slideable ? 0.0 : 1.0, null);
     }
 
     private void syncChrome() {
+        // Selection-only transactions intentionally do not enter FragmentManager history.
+        // Reconcile search/scrolling here too, on EVERY navigation path, not just resync().
+        syncSearchVisibility(depth());
         toolbar.setTitle(titles.isEmpty() ? rootTitle : titles.get(titles.size() - 1));
         // The tiled base section has its list alongside it. Nested pages still need Up
         // to return to that section; compact pages always need it to reach the root.
@@ -1162,7 +1261,6 @@ public class DayNavHost extends LinearLayout {
         if (split != null && titles.size() == 1 && myEntries() == 0) {
             titles.clear();
             immersives.clear();
-            syncSearchVisibility(0);
             syncPane(0);
             syncChrome();
             return;

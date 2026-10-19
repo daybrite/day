@@ -2882,12 +2882,13 @@ mod imp {
                             let _ = env.dcall_static(
                                 BRIDGE,
                                 "setNavSearch",
-                                "(Landroid/view/View;JLjava/lang/String;Ljava/lang/String;)V",
+                                "(Landroid/view/View;JLjava/lang/String;Ljava/lang/String;Z)V",
                                 &[
                                     JValue::Object(host.0.as_obj()),
                                     JValue::Long(idj),
                                     JValue::Object(&pr),
                                     JValue::Object(&tx),
+                                    JValue::Bool(sp.hides_on_scroll),
                                 ],
                             );
                             if env.exception_check() {
