@@ -940,7 +940,7 @@ jobs:
           # ("Install dpkg-dev then re-run the plugin"). Runners normally have it via
           # build-essential; asking for it explicitly costs nothing and removes the assumption.
           sudo apt-get install -y --no-install-recommends dpkg-dev
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/linuxdeploy" \
+          curl -fsSL --retry 5 --retry-all-errors -o "$RUNNER_TEMP/linuxdeploy" \
             https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
 
           # The two plugins are not distributed the same way, which is what broke this step:
@@ -956,14 +956,14 @@ jobs:
           case "$TOOLKIT" in
             qt)
               PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-qt"
-              curl -fsSL --retry 3 -o "$PLUGIN" \
+              curl -fsSL --retry 5 --retry-all-errors -o "$PLUGIN" \
                 "https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage"
               ;;
             gtk)
               # Pinned to a commit rather than `master`: with no releases to track, an unpinned
               # branch is a third party editing this job's behavior without a pull request.
               PLUGIN="$RUNNER_TEMP/linuxdeploy-plugin-gtk.sh"
-              curl -fsSL --retry 3 -o "$PLUGIN" \
+              curl -fsSL --retry 5 --retry-all-errors -o "$PLUGIN" \
                 "https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh"
               ;;
             *)
@@ -1131,7 +1131,7 @@ jobs:
           C="$HOME/ohos-clt/command-line-tools"
           if [ ! -f "$C/hvigor/bin/hvigorw.js" ]; then
             mkdir -p ~/ohos-clt && cd ~/ohos-clt
-            curl -fSL -o clt.zip "$CLT_URL"
+            curl -fSL --retry 5 --retry-all-errors -o clt.zip "$CLT_URL"
             unzip -q -o clt.zip && rm -f clt.zip
           fi
           # hvigor/ohpm are pure JS; run them with the runner's node (docs/harmonyos.md),
