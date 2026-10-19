@@ -74,6 +74,7 @@
 #include <winrt/Windows.UI.ViewManagement.h> // UISettings: the system accent color, reduce motion
 #include <winrt/Windows.UI.Text.h>
 #include <dwrite.h> // IDWriteFontCollection: the platform font list (docs/fonts.md)
+#include <d2d1.h> // vector stroke expansion and geometry unions for PathIcon
 #include <winrt/Windows.UI.Xaml.Interop.h> // TypeName: WinUI 3 still uses the system one
 #include <winrt/Windows.Storage.h>         // StorageFile (file-picker results)
 #include <winrt/Windows.Storage.Pickers.h> // FileOpenPicker / FileSavePicker
@@ -5943,6 +5944,8 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
     }
 }
 
+#include "vector-icon.inc"
+
 // The same geometry as a `PathIcon`, for the slots that demand an IconElement (nav rows).
 // PathIcon draws its geometry in its OWN coordinates with no scaling of its own, so the source
 // viewport is mapped onto `box` here; an untinted icon leaves Foreground alone and inherits the
@@ -5950,13 +5953,10 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
 void* day_xaml_vector_icon_new(const char* spec, unsigned int argb, int tinted, double box) {
     Geom g = parse_geom(spec);
     if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
-    // One Geometry for the icon: an IconElement carries a single color anyway, so the shapes
-    // concatenate into one figure list rather than losing their per-shape paints twice over.
-    std::string all;
-    bool even_odd = g.shapes.front().even_odd;
-    for (auto const& sh : g.shapes) all += sh.data;
     try {
-        auto geo = geometry_from_data(all, even_odd);
+        // PathIcon fills its Data; a stroked SVG path is a centerline, not a filled outline.
+        // Expand strokes and union each painted area, preserving holes and per-shape fill rules.
+        auto geo = icon_painted_geometry(g);
         if (!geo) return nullptr;
         double s = box / (g.w > g.h ? g.w : g.h);
         WUXM::ScaleTransform st;

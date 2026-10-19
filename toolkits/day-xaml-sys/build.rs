@@ -82,6 +82,7 @@ fn main() {
     println!("cargo:rustc-link-lib=gdiplus"); // window snapshot PNG encoding
     println!("cargo:rustc-link-lib=dwmapi"); // dark title bar opt-in (DwmSetWindowAttribute)
     println!("cargo:rustc-link-lib=dwrite"); // the system font collection (docs/fonts.md)
+    println!("cargo:rustc-link-lib=d2d1"); // stroked vector geometry in native IconElement slots
     // D3D11CreateDevice / CreateDirect3D11DeviceFromDXGIDevice: WinUI's window capture
     // (Windows.Graphics.Capture hands frames back as D3D11 textures).
     println!("cargo:rustc-link-lib=d3d11");
@@ -93,6 +94,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/shim.cpp");
     println!("cargo:rerun-if-changed=src/transfer.inc");
     println!("cargo:rerun-if-changed=src/list-winui.inc");
+    println!("cargo:rerun-if-changed=src/vector-icon.inc");
     println!("cargo:rerun-if-changed=src/transfer-host.inc");
     println!("cargo:rerun-if-changed=build.rs");
 }

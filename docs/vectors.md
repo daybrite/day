@@ -128,6 +128,11 @@ where it stroked, so an outline glyph stays an outline rather than becoming a si
 XAML has no geometry to draw (art outside the convertible subset) the tint degrades to a
 monochrome `BitmapIcon` over the raster (still tinted, but from the 256 px cache).
 
+Windows navigation and toolbar slots use a filled `PathIcon`. Before assigning its geometry,
+the backend widens SVG strokes into outlines and unions the painted shapes with Direct2D.
+This preserves stroke widths, caps, joins, and holes without rasterizing; concatenating the
+original centerlines would incorrectly fill outline icons into solid silhouettes.
+
 Nav-menu rows have their own arm, `item(…).icon_tint(color)` ([docs/navigation.md](navigation.md)): per-row
 recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (pixel recolor), Qt
 (`QPainter` SourceIn over the pixmap), Android (compound-drawable `setTint`, best-effort after
