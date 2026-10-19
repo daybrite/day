@@ -1612,18 +1612,26 @@ mod imp {
         })
     }
 
-    /// Large titles and optional scrolling search chrome for the sidebar's own controller.
+    /// Native search drawer policy for the sidebar's own controller.
     fn configure_sidebar_search(
         item: &objc2_ui_kit::UINavigationItem,
         nav: &DayNavController,
         hides: bool,
+        initially_hidden: bool,
     ) {
         unsafe {
-            item.setHidesSearchBarWhenScrolling(hides);
-            item.setLargeTitleDisplayMode(
-                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always,
-            );
-            nav.navigationBar().setPrefersLargeTitles(true);
+            item.setHidesSearchBarWhenScrolling(hides || initially_hidden);
+            item.setLargeTitleDisplayMode(if initially_hidden {
+                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Never
+            } else {
+                objc2_ui_kit::UINavigationItemLargeTitleDisplayMode::Always
+            });
+            nav.navigationBar().setPrefersLargeTitles(!initially_hidden);
+            if initially_hidden && os_at_least(16) {
+                item.setPreferredSearchBarPlacement(
+                    objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
+                );
+            }
         }
     }
 
@@ -2803,6 +2811,7 @@ mod imp {
         /// searchable or its placement resolved elsewhere. Retained here because the navigation
         /// item does not own the updater.
         search_hides_on_scroll: bool,
+        search_initially_hidden: bool,
         search: Option<(
             Retained<objc2_ui_kit::UISearchController>,
             Retained<DaySearchUpdater>,
@@ -3335,8 +3344,9 @@ mod imp {
 
     /// Inline search on a `.searchable()` surface (docs/search.md).
     ///
-    /// The iOS convention: a `UISearchController` on the ROOT page's `navigationItem`, hidden
-    /// until the list is pulled down (`hidesSearchBarWhenScrolling`, the default). It is not a
+    /// A `UISearchController` on the ROOT page's `navigationItem`. Search is pinned by
+    /// default; opting into initially hidden search uses a compact title and native drawer.
+    /// It is not a
     /// toolbar item — the phones have no toolbar — so the placement resolver hands it here
     /// instead, and the field belongs to the navigation surface it filters.
     struct SearchUpdaterIvars {
@@ -3626,8 +3636,8 @@ mod imp {
                 for root in roots {
                     reapply_window_toolbar(root);
                 }
-                // The search field follows it too (docs/search.md): pinned beside the detail,
-                // behind a pull-down once the columns merge. Both stacks are walked because the
+                // The search policy follows its owning column (docs/search.md), including
+                // the compact-title drawer opt-in. Both stacks are walked because the
                 // sidebar page lives in the primary column expanded and in the merged one
                 // collapsed, and only the page that has the controller is touched.
                 if state.search.is_some() {
@@ -3635,7 +3645,12 @@ mod imp {
                         for vc in unsafe { nav.viewControllers() }.iter() {
                             let item = unsafe { vc.navigationItem() };
                             if unsafe { item.searchController() }.is_some() {
-                                configure_sidebar_search(&item, nav, state.search_hides_on_scroll);
+                                configure_sidebar_search(
+                                    &item,
+                                    nav,
+                                    state.search_hides_on_scroll,
+                                    state.search_initially_hidden,
+                                );
                             }
                         }
                     }
@@ -5762,6 +5777,7 @@ mod imp {
                     // reserving a blank band.
                     content.setText(title.as_deref().map(NSString::from_str).as_deref());
                     view.setContentConfiguration(Some(ProtocolObject::from_ref(&*content)));
+                    view.setBackgroundConfiguration(Some(&floating_header_background(self.mtm())));
                 }
                 // ListCell -> Cell -> ReusableView: the supplementary method answers in the base.
                 objc2::rc::Retained::into_super(objc2::rc::Retained::into_super(view))
@@ -6016,6 +6032,37 @@ mod imp {
     /// The reuse identifier for a sidebar section heading.
     const NAV_HEADER_ID: &str = "day.nav.header";
 
+    /// A pinned header must occlude the rows underneath it. Keep UIKit's header
+    /// configuration, but make its surface opaque and flush with the list edges.
+    /// Retain the semantic UIColor (not a resolved CGColor) so appearance changes
+    /// update already-visible headers without needing to dequeue them again.
+    fn floating_header_background(
+        mtm: MainThreadMarker,
+    ) -> Retained<objc2_ui_kit::UIBackgroundConfiguration> {
+        use objc2_ui_kit::{
+            NSDirectionalEdgeInsets, NSDirectionalRectEdge, UIBackgroundConfiguration,
+        };
+        let background = if os_at_least(18) {
+            UIBackgroundConfiguration::listHeaderConfiguration(mtm)
+        } else {
+            // The adaptive constructor is iOS 18+. This sidebar-specific constructor
+            // is the corresponding native configuration on iOS 14–17.
+            #[allow(deprecated)]
+            UIBackgroundConfiguration::listSidebarHeaderConfiguration(mtm)
+        };
+        background.setBackgroundColor(Some(&UIColor::secondarySystemBackgroundColor()));
+        background.setVisualEffect(None);
+        background.setCornerRadius(0.0);
+        background.setBackgroundInsets(NSDirectionalEdgeInsets {
+            top: 0.0,
+            leading: 0.0,
+            bottom: 0.0,
+            trailing: 0.0,
+        });
+        background.setEdgesAddingLayoutMarginsToBackgroundInsets(NSDirectionalRectEdge::empty());
+        background
+    }
+
     /// The sidebar list's layout. `headers` turns section headings on: left off for a list that
     /// declares none, so a flat list reserves no band where a heading would go.
     fn nav_list_layout(
@@ -6040,9 +6087,29 @@ mod imp {
             } else {
                 objc2_ui_kit::UICollectionLayoutListHeaderMode::None
             });
-            objc2::rc::Retained::into_super(
-                objc2_ui_kit::UICollectionViewCompositionalLayout::layoutWithListConfiguration(
-                    &config,
+            // Build each native list section explicitly so its supplementary heading
+            // floats until the following group pushes it away, including on iOS 15.
+            let provider = block2::RcBlock::new(
+                move |_: isize,
+                      environment: NonNull<
+                    ProtocolObject<dyn objc2_ui_kit::NSCollectionLayoutEnvironment>,
+                >|
+                      -> *mut objc2_ui_kit::NSCollectionLayoutSection {
+                    let section = objc2_ui_kit::NSCollectionLayoutSection::
+                        sectionWithListConfiguration_layoutEnvironment(
+                            &config,
+                            environment.as_ref(),
+                        );
+                    for header in section.boundarySupplementaryItems() {
+                        header.setPinToVisibleBounds(true);
+                    }
+                    Retained::autorelease_return(section)
+                },
+            );
+            Retained::into_super(
+                objc2_ui_kit::UICollectionViewCompositionalLayout::initWithSectionProvider(
+                    objc2_ui_kit::UICollectionViewCompositionalLayout::alloc(mtm),
+                    block2::RcBlock::as_ptr(&provider),
                 ),
             )
         }
@@ -9547,6 +9614,10 @@ mod imp {
                                     .search
                                     .as_ref()
                                     .is_some_and(|s| s.hides_on_scroll),
+                                search_initially_hidden: p
+                                    .search
+                                    .as_ref()
+                                    .is_some_and(|s| s.initially_hidden),
                             },
                         )
                     });
@@ -11125,12 +11196,18 @@ mod imp {
                     let item = unsafe { vc.navigationItem() };
                     unsafe {
                         item.setSearchController(Some(sc));
-                        configure_sidebar_search(&item, &state.nav, state.search_hides_on_scroll);
+                        configure_sidebar_search(
+                            &item,
+                            &state.nav,
+                            state.search_hides_on_scroll,
+                            state.search_initially_hidden,
+                        );
                         if let Some(parts) = state.split.as_ref() {
                             configure_sidebar_search(
                                 &item,
                                 &parts.primary_nav,
                                 state.search_hides_on_scroll,
+                                state.search_initially_hidden,
                             );
                         }
                         vc.setEdgesForExtendedLayout(objc2_ui_kit::UIRectEdge::All);

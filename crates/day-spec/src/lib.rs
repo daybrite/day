@@ -5878,6 +5878,9 @@ pub mod props {
         /// Opt into native scrolling search/title chrome on mobile. Default false keeps
         /// the field pinned. Desktop toolbar search is unchanged.
         pub hides_on_scroll: bool,
+        /// Start the UIKit navigation search drawer collapsed, with a compact toolbar title.
+        /// Implies scrolling search on UIKit; ignored by other backends. Default false.
+        pub initially_hidden: bool,
         /// Scope titles, empty = no scope bar. One-of-N: a `UISearchBar` scope bar, a Material
         /// `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
         /// `NSSegmentedControl` (docs/search.md has the per-backend table).

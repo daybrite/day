@@ -190,6 +190,9 @@ public final class DayBridge {
         final android.widget.BaseExpandableListAdapter adapter;
         DaySectionTree(long id, int height, boolean choose) {
             super(ctx); host=id; rowHeight=height; selectable=choose;
+            // AbsListView defaults to non-nested scrolling. Sectioned navigation must
+            // forward scroll deltas to the host's Material AppBarLayout, like RecyclerView.
+            setNestedScrollingEnabled(true);
             setDividerHeight(0);
             setOnGroupClickListener((parent, view, group, ignored) -> {
                 int row=roots.get(group);
@@ -2792,6 +2795,103 @@ public final class DayBridge {
         DayRefreshNavigationView(android.content.Context context) { super(context); }
     }
 
+    /** Floating group headings over Material's recycled navigation rows. Use the native
+     *  subheader layout and public menu IDs, never Material's private adapter positions or
+     *  view-type numbers: filtering, starred rows and empty groups can all change those. */
+    private static final class NavSectionHeaders extends RecyclerView.ItemDecoration {
+        final NavigationView nav;
+        final TextView heading;
+        int floatingBottom;
+        NavSectionHeaders(NavigationView nav, RecyclerView rows) {
+            this.nav = nav;
+            heading = (TextView) android.view.LayoutInflater.from(nav.getContext()).inflate(
+                    com.google.android.material.R.layout.design_navigation_item_subheader,
+                    rows, false);
+            // The painted heading is not a destination. Suppress taps through it,
+            // while leaving drag gestures with RecyclerView's normal scroll handling.
+            rows.addOnItemTouchListener(new RecyclerView.SimpleOnItemTouchListener() {
+                float downX, downY;
+                boolean onHeading;
+                final int slop = android.view.ViewConfiguration.get(nav.getContext()).getScaledTouchSlop();
+                @Override public boolean onInterceptTouchEvent(RecyclerView view, MotionEvent event) {
+                    if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                        downX = event.getX(); downY = event.getY();
+                        onHeading = downY >= view.getPaddingTop() && downY < floatingBottom;
+                    } else if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
+                        if (Math.abs(event.getX() - downX) > slop || Math.abs(event.getY() - downY) > slop)
+                            onHeading = false;
+                    } else if (event.getActionMasked() == MotionEvent.ACTION_UP) {
+                        boolean consume = onHeading;
+                        onHeading = false;
+                        return consume;
+                    } else if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+                        onHeading = false;
+                    }
+                    return false;
+                }
+            });
+        }
+        @Override public void onDrawOver(android.graphics.Canvas canvas, RecyclerView rows,
+                RecyclerView.State state) {
+            // NavigationView applies its configured subheader insets after inflation.
+            // Copy those native metrics so the floating and in-list headings align.
+            for (int i = 0; i < rows.getChildCount(); i++) {
+                View child = rows.getChildAt(i);
+                if (child instanceof TextView) {
+                    heading.setPaddingRelative(child.getPaddingStart(), child.getPaddingTop(),
+                            child.getPaddingEnd(), child.getPaddingBottom());
+                    heading.setLayoutDirection(child.getLayoutDirection());
+                    break;
+                }
+            }
+            final int top = rows.getPaddingTop();
+            floatingBottom = top;
+            CharSequence title = null;
+            int nextTop = Integer.MAX_VALUE;
+            for (int i = 0; i < rows.getChildCount(); i++) {
+                View child = rows.getChildAt(i);
+                if (child.getBottom() <= top) continue;
+                if (child instanceof com.google.android.material.internal.NavigationMenuItemView) {
+                    if (title == null) {
+                        MenuItem item = ((com.google.android.material.internal.NavigationMenuItemView) child).getItemData();
+                        MenuItem group = item == null ? null
+                                : nav.getMenu().findItem(SECTION_ID_BASE + item.getGroupId());
+                        if (group == null) return; // Ungrouped rows have no floating title.
+                        title = group.getTitle();
+                    }
+                } else if (child instanceof TextView) {
+                    // This is Material's real subheader. Before it reaches the top it
+                    // needs no overlay; after that it supplies the current group title.
+                    if (title == null) {
+                        if (child.getTop() > top) return;
+                        title = ((TextView) child).getText();
+                    } else {
+                        nextTop = child.getTop();
+                        break;
+                    }
+                }
+            }
+            if (title == null) return;
+            heading.setText(title);
+            heading.setTextColor(MaterialColors.getColor(nav,
+                    com.google.android.material.R.attr.colorOnSurfaceVariant));
+            heading.setBackgroundColor(MaterialColors.getColor(nav,
+                    com.google.android.material.R.attr.colorSurface));
+            int width = rows.getWidth() - rows.getPaddingLeft() - rows.getPaddingRight();
+            heading.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+            int height = heading.getMeasuredHeight();
+            heading.layout(0, 0, width, height);
+            int y = Math.min(top, nextTop - height);
+            floatingBottom = y + height;
+            canvas.save();
+            canvas.clipRect(rows.getPaddingLeft(), top, rows.getWidth() - rows.getPaddingRight(), rows.getHeight());
+            canvas.translate(rows.getPaddingLeft(), y);
+            heading.draw(canvas);
+            canvas.restore();
+        }
+    }
+
     /** Lazily add the native Android pull affordance; selection and long-press still go to
      *  Material's original RecyclerView. The widget and listener die with the navigation view. */
     public static void setNavRefreshing(View view, boolean busy) {
@@ -2846,6 +2946,10 @@ public final class DayBridge {
             }
         });
         fillNavMenu(nav, joinedItems, joinedIcons, joinedSections);
+        ViewGroup rows = navRecycler(nav);
+        if (rows instanceof RecyclerView) {
+            ((RecyclerView) rows).addItemDecoration(new NavSectionHeaders(nav, (RecyclerView) rows));
+        }
         return nav;
     }
 

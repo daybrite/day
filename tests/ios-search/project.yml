@@ -1,0 +1,21 @@
+name: SearchProbe
+options:
+  bundleIdPrefix: dev.daybrite.probes
+settings:
+  base:
+    IPHONEOS_DEPLOYMENT_TARGET: '15.0'
+    SWIFT_VERSION: '5.0'
+    GENERATE_INFOPLIST_FILE: YES
+    CODE_SIGNING_ALLOWED: NO
+targets:
+  SearchProbe:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [SearchTests.swift]
+schemes:
+  SearchProbe:
+    build:
+      targets:
+        SearchProbe: [test]
+    test:
+      targets: [SearchProbe]

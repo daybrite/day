@@ -1421,6 +1421,7 @@ struct SearchSpec {
     prompt: Option<TextSource>,
     placement: day_spec::props::SearchPlacement,
     hides_on_scroll: bool,
+    initially_hidden: bool,
     /// Scope titles and the signal holding the chosen index. Empty titles = no scope bar.
     scopes: Vec<TextSource>,
     scope: Option<Signal<usize>>,
@@ -1474,6 +1475,7 @@ impl SearchSpec {
             // The resolved placement, so a backend reads a decision rather than a request.
             placement: Self::resolve(self.placement),
             hides_on_scroll: self.hides_on_scroll,
+            initially_hidden: self.initially_hidden,
             scopes: self.scopes.iter().map(TextSource::initial).collect(),
             scope: self.scope.map(|s| s.get_untracked()).unwrap_or(0),
         }
@@ -2100,6 +2102,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
             prompt: None,
             placement: day_spec::props::SearchPlacement::Automatic,
             hides_on_scroll: false,
+            initially_hidden: false,
             scopes: Vec::new(),
             scope: None,
             suggestions: None,
@@ -2120,6 +2123,18 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     pub fn search_hides_on_scroll(mut self, hide: bool) -> Self {
         if let Some(search) = self.search.as_mut() {
             search.hides_on_scroll = hide;
+        }
+        self
+    }
+
+    /// Start iOS navigation search hidden, revealing it by pulling down on the list.
+    /// Uses a compact toolbar title and implies scrolling search on UIKit. Defaults to
+    /// false. Call after `searchable`; other backends keep their existing presentation.
+    /// UIKit owns subsequent reveal/collapse transitions; returning from a destination
+    /// does not reset the query or force a new scroll position.
+    pub fn search_initially_hidden(mut self, hide: bool) -> Self {
+        if let Some(search) = self.search.as_mut() {
+            search.initially_hidden = hide;
         }
         self
     }
@@ -5149,6 +5164,7 @@ pub trait NavBuilder<K: Route>: Sized {
     fn searchable(self, query: Signal<String>) -> Self;
     fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self;
     fn search_hides_on_scroll(self, hide: bool) -> Self;
+    fn search_initially_hidden(self, hide: bool) -> Self;
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self;
     fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self;
     fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self;
@@ -5258,6 +5274,9 @@ impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
     }
     fn search_hides_on_scroll(self, hide: bool) -> Self {
         Nav::search_hides_on_scroll(self, hide)
+    }
+    fn search_initially_hidden(self, hide: bool) -> Self {
+        Nav::search_initially_hidden(self, hide)
     }
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
         Nav::search_placement(self, placement)
@@ -5374,6 +5393,9 @@ impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> 
     }
     fn search_hides_on_scroll(self, hide: bool) -> Self {
         self.map_inner(|inner_piece| inner_piece.search_hides_on_scroll(hide))
+    }
+    fn search_initially_hidden(self, hide: bool) -> Self {
+        self.map_inner(|inner_piece| inner_piece.search_initially_hidden(hide))
     }
     fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
         self.map_inner(|inner_piece| inner_piece.search_placement(placement))

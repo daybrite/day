@@ -93,7 +93,7 @@ Each platform keeps its own convention.
 
 | backend | where | resting state | how it is revealed |
 |---|---|---|---|
-| ios-uikit | `UISearchController` on the root page's `navigationItem` | pinned by default | opt-in: search and large title collapse while scrolling, search returns at the top |
+| ios-uikit | `UISearchController` on the root page's `navigationItem` | pinned by default | opt-in: search and large title collapse while scrolling; initially-hidden mode uses a compact title and pull-down drawer |
 | android-mdc | Material `TextInputLayout` over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
@@ -101,6 +101,25 @@ Call `.search_hides_on_scroll(true)` after `.searchable(query)` to opt into scro
 Desktop toolbar search is unchanged. UIKit explicitly associates the root page's scroll view
 with its top edge, so a header or a pinned footer does not prevent native large-title/search
 collapse. This applies to both the compact stack and the iPad sidebar.
+
+For a Mail-style iOS drawer, use `.search_initially_hidden(true)` after `.searchable(query)`:
+
+```rust,ignore
+nav(selection)
+    .searchable(query)
+    .search_hides_on_scroll(true) // optional Android scrolling search too
+    .search_initially_hidden(true)
+```
+
+The new flag defaults to `false`. On UIKit it implies scrolling search, keeps the title in
+one compact toolbar row, and starts the native search drawer collapsed. Pull down slightly
+on the list to reveal search. On iOS 16+ the drawer explicitly uses `Stacked` placement so
+an iPad does not substitute an always-visible inline field. iOS 15 uses its native stacked
+placement. UIKit owns subsequent scrolling, editing and navigation transitions: Day never
+resets the content offset or clears the query on layout, return navigation or rotation.
+Passing `false` preserves the previous large-title presentation and the independently chosen
+`search_hides_on_scroll` policy. Other backends ignore `search_initially_hidden`; their
+existing search placement and scrolling behavior are unchanged.
 
 Android uses `CoordinatorLayout` and Material `AppBarLayout` scroll/enter-always/snap flags.
 Only nested scrolls originating in the root navigation list move this chrome. The search

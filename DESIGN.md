@@ -8003,8 +8003,21 @@ still scrolls on wide layouts. Every chrome reconciliation includes search visib
 toolbar placement, including selected sections that deliberately do not create native
 history entries. Editing expands search. Native Day-News regression tests exercise entering
 feed and smart-feed lists with expanded, partially collapsed and collapsed root chrome and
-actual Up taps.
-Desktop search placement and query ownership remain unchanged. See [search](docs/search.md).
+actual Up taps. Android section trees (`ExpandableListView`) explicitly enable nested
+scrolling so their scroll deltas reach the same Material app bar as RecyclerView-based
+navigation. Without this, grouped navigation scrolls its rows but leaves opted-in search
+pinned. Desktop search placement and query ownership remain unchanged. See
+[search](docs/search.md).
+
+Initially collapsed UIKit search (2026-10): `Nav::search_initially_hidden(bool)` is a separate,
+default-false `SearchProps` preference. On UIKit it implies `hidesSearchBarWhenScrolling`,
+selects a compact navigation title, and forces stacked search placement on iOS 16+ (the
+native placement on iOS 15). That combination starts UIKit's own drawer collapsed and
+reveals it on a pull down. The policy follows the sidebar through split/stack changes;
+there is no one-shot scroll offset, delayed reattachment, or layout-time search reset.
+The app-owned query, native first responder and subsequent scroll position remain intact.
+Other backends ignore this preference and retain their existing search policies. Day-News
+and Day-Showcase opt in. Native gesture coverage is in `tests/ios-search`.
 
 UIKit split toolbar ownership follows each command's `ToolbarColumn`: sidebar and
 content-list commands stay over those columns, while window commands share the detail
@@ -8022,3 +8035,20 @@ the same path in navigation icons, badges, toolbar images and ordinary image pie
 missing or invalid files return no drawable, and remote URLs are not fetched by UI code.
 Asset streams are closed after decoding. Day-News' cached PNG favicons exercise this
 path on the Android emulator, with authored colors retained by untinted navigation rows.
+
+
+### Grouped navigation headers
+
+The ordinary `nav` sidebar is a noncollapsible grouped native list. UIKit builds native
+list sections with supplementary headings explicitly pinned to visible bounds. Their
+`UIBackgroundConfiguration` uses the native header style (adaptive on iOS 18+, sidebar-specific
+on iOS 14–17) with an opaque `secondarySystemBackgroundColor` surface, zero corner radius and
+no background insets. This is the default for Day's floating UIKit navigation headers:
+scrolling rows must not show through the title. The retained semantic `UIColor` responds to
+light/dark appearance changes in place; no resolved `CGColor` or app-specific patch is used.
+Android keeps Material NavigationView's recycled rows and draws its native subheader layout in a
+RecyclerView decoration. The next group pushes the floating heading away. Android resolves
+headings from public menu group IDs rather than private adapter positions, so search filtering
+and starred destinations can regroup without stale heading indices. Existing native search
+scroll behavior remains on the list. `collapsed_sections` remains a separate, opt-in tree
+presentation; Day-Showcase no longer opts into it or restores disclosure preferences.
