@@ -7942,3 +7942,16 @@ When an app supplies its own mobile Settings toolbar affordance instead of a nav
 `Prefs::open()` presents the existing native preferences cover. A newly opened cover starts
 at the group list; focusing an already-open cover preserves its page, and `open_at` selects
 the requested group after presentation. Done closes the cover without changing the app route.
+
+UIKit collapsed triple-column changes share a transition gate across supplementary and
+secondary columns, including the short interval before UIKit creates its coordinator after
+`showColumn`. Detail pop/push operations coalesce into one secondary update; an already
+visible secondary is updated without re-presenting its navigation controller. List visibility
+requests coalesce for both show and hide, preventing duplicate UIKit pushes during rapid routes.
+
+UIKit navigation bars use an opaque dynamic system background in standard, scroll-edge,
+compact and compact-scroll-edge appearances (iOS 15+). Shared configuration covers split
+columns, stack navigation, tab wrappers and docked window toolbars. Bars are non-translucent,
+so native controller layout reserves their space. Nested scroll content such as a reader
+webview inside a pager cannot show text behind navigation controls, even when UIKit cannot
+infer its scroll-edge state. Dynamic colors follow system and window appearance changes.

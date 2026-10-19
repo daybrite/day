@@ -57,6 +57,7 @@ objc2-ui-kit = { workspace = true, features = [
     "UIProgressView", "UIActivityIndicatorView",
     "UIScrollView", "UIAccessibility", "UIBezierPath", "UIImage", "UIImageView", "UITraitCollection", "NSAttributedString", "NSStringDrawing", "UIStringDrawing", "UIFont",
     "UINavigationController", "UINavigationBar", "UINavigationItem",
+    "UIBarAppearance", "UINavigationBarAppearance",
     # Adaptive navigation (docs/size-classes.md): the split host that collapses and expands
     # with the window's size class, and the delegate Day observes it through.
     "UISplitViewController",

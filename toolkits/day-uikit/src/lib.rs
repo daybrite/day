@@ -83,8 +83,8 @@ mod imp {
     };
     use objc2_ui_kit::{
         UIBarButtonItem, UIBarButtonItemStyle, UIBarPositioningDelegate,
-        UIGestureRecognizerDelegate, UINavigationBar, UINavigationBarDelegate,
-        UINavigationController, UINavigationItem,
+        UIGestureRecognizerDelegate, UINavigationBar, UINavigationBarAppearance,
+        UINavigationBarDelegate, UINavigationController, UINavigationItem,
     };
     use objc2_ui_kit::{
         UICollectionViewDataSource, UICollectionViewDelegate, UIScrollViewDelegate,
@@ -2017,6 +2017,21 @@ mod imp {
         }
     }
 
+    /// Keep navigation controls legible over nested scrolling content (including WKWebView
+    /// inside a pager). UIKit's implicit scroll-edge appearance is transparent, and it may
+    /// not track a nested scroll view's offset. Configure every height/edge state explicitly.
+    fn configure_navigation_bar(bar: &UINavigationBar, mtm: MainThreadMarker) {
+        let appearance = UINavigationBarAppearance::new(mtm);
+        appearance.configureWithOpaqueBackground();
+        // A dynamic system color follows both system appearance and a window theme override.
+        appearance.setBackgroundColor(Some(&UIColor::systemBackgroundColor()));
+        bar.setStandardAppearance(&appearance);
+        bar.setScrollEdgeAppearance(Some(&appearance));
+        bar.setCompactAppearance(Some(&appearance));
+        bar.setCompactScrollEdgeAppearance(Some(&appearance));
+        unsafe { bar.setTranslucent(false) };
+    }
+
     /// The window's own bar, built or refreshed: a UINavigationBar across the top of the
     /// window, carrying the items exactly as a page's own bar carries them — as optional
     /// groups, so a phone that cannot fit twelve commands folds the trailing ones into the
@@ -2041,6 +2056,7 @@ mod imp {
             WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).and_then(|w| w.docked.clone()));
         let bar = existing.unwrap_or_else(|| {
             let bar = UINavigationBar::initWithFrame(UINavigationBar::alloc(mtm), CGRect::ZERO);
+            configure_navigation_bar(&bar, mtm);
             let item = UINavigationItem::new(mtm);
             unsafe {
                 bar.setItems(Some(&objc2_foundation::NSArray::from_retained_slice(&[
@@ -2723,7 +2739,8 @@ mod imp {
         /// change is computed, and a page that has already left it is simply not there.
         day_pop: std::cell::Cell<bool>,
         /// Pending column request only; native viewControllers remains the stack authority.
-        pending_list: std::cell::Cell<Option<u64>>,
+        pending_list: std::cell::Cell<Option<(u64, bool)>>,
+        column_request: std::cell::Cell<Option<std::time::Instant>>,
         _delegate: Retained<DayNavDelegate>,
         /// Inline search (docs/search.md): the controller lives on the ROOT page's navigation
         /// item, so pulling the top-level list down reveals it. `None` when the surface is not
@@ -3201,7 +3218,10 @@ mod imp {
                 host: std::cell::Cell::new(host),
                 guarded: std::cell::Cell::new(false),
             });
-            unsafe { msg_send![super(this), init] }
+            let this: Retained<Self> = unsafe { msg_send![super(this), init] };
+            let bar = unsafe { this.navigationBar() };
+            configure_navigation_bar(&bar, mtm);
+            this
         }
 
         /// A pop just went through one of the overrides above: the user's, unless Day
@@ -4074,6 +4094,24 @@ mod imp {
     /// column, one UIKit column call per change, since that stack is driven only through
     /// UIKit's own APIs (docs/navigation.md).
     fn apply_ops(host: usize) {
+        // A collapsed column presentation queues UIKit's push until after the next CA
+        // commit. Serialize both detail changes and supplementary-column requests across
+        // that blind interval, then across the actual transition coordinator's lifetime.
+        if compact_column_transitioning(host)
+            || NAV_STATE.with(|m| {
+                m.borrow()
+                    .get(&host)
+                    .is_some_and(|s| s.pending_list.get().is_some())
+            })
+        {
+            let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+                .unwrap_or(dispatch2::DispatchTime::NOW);
+            let _ = dispatch2::DispatchQueue::main().after(when, move || {
+                day_spec::ffi_guard::contain((), || apply_ops(host));
+            });
+            return;
+        }
+
         let ops = NAV_OPS.with(|q| {
             let mut q = q.borrow_mut();
             let Some(entry) = q.get_mut(&host) else {
@@ -4112,47 +4150,53 @@ mod imp {
             return;
         };
         if triple && let Some(svc) = svc {
+            // Fold a route's pop+push (and any further route changes in this turn) into
+            // ONE secondary-column update. Calling showColumn once per push can queue
+            // duplicate pushes of the same secondary UINavigationController.
+            let old = NAV_STATE
+                .with(|m| m.borrow().get(&host).map(detail_pages))
+                .unwrap_or_default();
+            let mut details = old.clone();
             for op in ops {
                 match op {
                     NavOp::Push(vc) => {
-                        // Offstage content first, then UIKit pushes it onto the merged stack.
-                        let mut details = NAV_STATE
-                            .with(|m| m.borrow().get(&host).map(detail_pages))
-                            .unwrap_or_default();
-                        details.push(vc);
-                        if *DIAG_NAV {
-                            log::debug!("DAYDIAG exec TriplePush details={}", details.len());
-                        }
-                        let arr = objc2_foundation::NSArray::from_retained_slice(&details);
-                        unsafe {
-                            secondary.setViewControllers(&arr);
-                            svc.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Secondary);
+                        if !details.iter().any(|v| std::ptr::eq(&**v, &*vc)) {
+                            details.push(vc);
                         }
                     }
-                    NavOp::Pop(vc) => {
-                        // Through UIKit's own pop, to the entry below `vc` in whichever
-                        // controller holds it — the merged primary, or the secondary nested on
-                        // it. A page already gone is a no-op.
-                        let Some((owner, below)) = owner_of(&active, &vc) else {
-                            continue;
-                        };
-                        if *DIAG_NAV {
-                            log::debug!("DAYDIAG exec TriplePop to_root={}", below.is_none());
-                        }
-                        let pop = || unsafe {
-                            match &below {
-                                Some(b) => {
-                                    let _ = owner.popToViewController_animated(b, false);
-                                }
-                                None => {
-                                    let _ = owner.popToRootViewControllerAnimated(false);
-                                }
+                    NavOp::Pop(vc) => details.retain(|v| !std::ptr::eq(&**v, &*vc)),
+                }
+            }
+            if details.is_empty() {
+                if let Some(vc) = old.first()
+                    && let Some((owner, below)) = owner_of(&active, vc)
+                {
+                    let pop = || unsafe {
+                        match &below {
+                            Some(b) => {
+                                let _ = owner.popToViewController_animated(b, false);
                             }
-                        };
-                        match owner.downcast_ref::<DayNavController>() {
-                            Some(d) => with_day_pop(d, pop),
-                            None => pop(),
+                            None => {
+                                let _ = owner.popToRootViewControllerAnimated(false);
+                            }
                         }
+                    };
+                    match owner.downcast_ref::<DayNavController>() {
+                        Some(d) => with_day_pop(d, pop),
+                        None => pop(),
+                    }
+                    note_column_request(host);
+                }
+            } else {
+                let already_visible = !old.is_empty();
+                let arr = objc2_foundation::NSArray::from_retained_slice(&details);
+                unsafe {
+                    secondary.setViewControllers(&arr);
+                }
+                if !already_visible {
+                    note_column_request(host);
+                    unsafe {
+                        svc.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Secondary);
                     }
                 }
             }
@@ -4280,51 +4324,75 @@ mod imp {
     /// Coalesce list presentation requests and wait for UIKit's current push/pop. Calling
     /// showColumn twice during a pop queues two pushes of the SAME supplementary controller.
     /// The ticket is pending work, not a stack mirror; presence is always read from UIKit.
+    fn note_column_request(host: usize) {
+        note_ui_transition();
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow().get(&host) {
+                state.column_request.set(Some(std::time::Instant::now()));
+            }
+        });
+    }
+
+    fn compact_column_transitioning(host: usize) -> bool {
+        NAV_STATE.with(|m| {
+            let m = m.borrow();
+            let Some(state) = m.get(&host).filter(|s| s.is_collapsed()) else {
+                return false;
+            };
+            let Some(parts) = state.split.as_ref() else {
+                return false;
+            };
+            state
+                .column_request
+                .get()
+                .is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(250))
+                || unsafe { parts.primary_nav.transitionCoordinator() }.is_some()
+                || unsafe { state.nav.transitionCoordinator() }.is_some()
+                || parts
+                    .supplementary_nav
+                    .as_ref()
+                    .is_some_and(|n| unsafe { n.transitionCoordinator() }.is_some())
+                || unsafe { parts.split_vc.transitionCoordinator() }.is_some()
+        })
+    }
+
     fn request_compact_list(host: usize, show: bool) {
         static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let ticket = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let primary = NAV_STATE.with(|m| {
-            let m = m.borrow();
-            let state = m.get(&host)?;
-            state.pending_list.set(show.then_some(ticket));
-            Some(state.split.as_ref()?.primary_nav.clone())
+        NAV_STATE.with(|m| {
+            if let Some(state) = m.borrow().get(&host) {
+                state.pending_list.set(Some((ticket, show)));
+            }
         });
-        if show {
-            apply_compact_list(host, ticket);
-        } else if let Some(primary) = primary {
-            // Remove before any following destination push; never animate this model pop.
-            with_day_pop(&primary, || unsafe {
-                let _ = primary.popToRootViewControllerAnimated(false);
-            });
-        }
+        apply_compact_list(host, ticket, show);
     }
 
-    fn apply_compact_list(host: usize, ticket: u64) {
+    fn apply_compact_list(host: usize, ticket: u64, show: bool) {
         let found = NAV_STATE.with(|m| {
             let m = m.borrow();
             let state = m.get(&host)?;
-            if state.pending_list.get() != Some(ticket) || !state.is_collapsed() {
-                return None; // superseded, disposed, or expanded while waiting
+            if state.pending_list.get() != Some((ticket, show)) {
+                return None;
+            }
+            if !state.is_collapsed() {
+                state.pending_list.set(None);
+                return None;
             }
             let parts = state.split.as_ref()?;
             Some((
                 parts.split_vc.clone(),
                 parts.primary_nav.clone(),
-                parts.supplementary_nav.clone()?,
                 parts.list_vc.borrow().clone()?,
             ))
         });
-        let Some((split, primary, supplementary, list)) = found else {
+        let Some((split, primary, list)) = found else {
             return;
         };
-        let transitioning = unsafe { primary.transitionCoordinator() }.is_some()
-            || unsafe { supplementary.transitionCoordinator() }.is_some()
-            || unsafe { split.transitionCoordinator() }.is_some();
-        if transitioning {
+        if compact_column_transitioning(host) {
             let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
                 .unwrap_or(dispatch2::DispatchTime::NOW);
             let _ = dispatch2::DispatchQueue::main().after(when, move || {
-                day_spec::ffi_guard::contain((), || apply_compact_list(host, ticket));
+                day_spec::ffi_guard::contain((), || apply_compact_list(host, ticket, show));
             });
             return;
         }
@@ -4333,11 +4401,18 @@ mod imp {
                 state.pending_list.set(None);
             }
         });
-        if owner_of(&primary, &list).is_none() {
-            note_ui_transition();
-            unsafe {
-                split.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Supplementary);
+        if show {
+            if owner_of(&primary, &list).is_none() {
+                note_column_request(host);
+                unsafe {
+                    split.showColumn(objc2_ui_kit::UISplitViewControllerColumn::Supplementary);
+                }
             }
+        } else {
+            note_column_request(host);
+            with_day_pop(&primary, || unsafe {
+                let _ = primary.popToRootViewControllerAnimated(false);
+            });
         }
     }
 
@@ -9336,6 +9411,7 @@ mod imp {
                                 split,
                                 day_pop: std::cell::Cell::new(false),
                                 pending_list: std::cell::Cell::new(None),
+                                column_request: std::cell::Cell::new(None),
                                 _delegate: delegate,
                                 search,
                             },
@@ -10853,6 +10929,7 @@ mod imp {
                                 );
                             // The strip above already names the destination; a large title over
                             // every tab would say it twice.
+                            configure_navigation_bar(&n.navigationBar(), mtm);
                             n.navigationBar().setPrefersLargeTitles(false);
                             n
                         };
