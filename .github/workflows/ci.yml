@@ -562,7 +562,7 @@ jobs:
           targets: ${{ matrix.rust_target }}
       - uses: Swatinem/rust-cache@v2
       # WinUI compiles against the Windows App SDK's NuGet packages, which the build fetches on
-      # first use (~270 MB); the windows-winui job below keys the same cache.
+      # first use (~270 MB). The windows-winui scaffold job uses setup-day-deps' release cache.
       - name: Cache the Windows App SDK packages
         if: matrix.toolkit == 'winui'
         uses: actions/cache@v4
@@ -1198,7 +1198,7 @@ jobs:
         run: cargo ohos clippy --target aarch64-unknown-linux-ohos --lib --no-default-features --features arkui -- -D warnings -A clippy::missing_const_for_thread_local
   # WinUI 3 (docs/winui.md): the Windows scaffold check, plus the two things only this
   # stack needs: the Windows App SDK NuGet packages the build compiles against (~250 MB, cached
-  # under %LOCALAPPDATA%\day\winappsdk, keyed on the pinned versions in winappsdk.rs), and the
+  # under %LOCALAPPDATA%\day\winappsdk by setup-day-deps' pinned release), and the
   # Windows App Runtime a framework-dependent `day launch` binds to at startup.
   windows-winui:
     name: day-windows-winui
@@ -1214,27 +1214,16 @@ jobs:
           toolchain: stable
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Cache the Windows App SDK packages
-        uses: actions/cache@v4
+      # Share the app workflow's dependency setup, including its cached, checksum-verified
+      # NSIS installer and download retries. The old single-attempt Chocolatey install
+      # failed this job on an HTTP 503 before Clippy.
+      # This also owns the App SDK cache and runtime install, as in doctor-verify.yml.
+      - name: Set up Windows build and packaging dependencies
+        uses: daybrite/actions/.github/actions/setup-day-deps@v1
         with:
-          path: ~\AppData\Local\day\winappsdk
-          key: winappsdk-${{ runner.arch }}-${{ hashFiles('crates/day-toolchain/src/winappsdk.rs') }}
-      # The runtime release the pinned packages belong to (RUNTIME_VERSION in
-      # crates/day-toolchain/src/winappsdk.rs; keep the two in step). The bootstrapper binds the
-      # one `Microsoft.WindowsAppRuntime.2` framework package at that version or newer.
-      - name: Install the Windows App Runtime
-        shell: pwsh
-        run: |
-          $release = '2.5.1'
-          $arch = if ($env:RUNNER_ARCH -eq 'ARM64') { 'arm64' } else { 'x64' }
-          $mm = ($release -split '\.')[0..1] -join '.'
-          $url = "https://aka.ms/windowsappsdk/$mm/$release/windowsappruntimeinstall-$arch.exe"
-          Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\wasr.exe"
-          & "$env:RUNNER_TEMP\wasr.exe" --quiet --force
-          if ($LASTEXITCODE -ne 0) { throw "runtime installer exited $LASTEXITCODE" }
-          $pkg = Get-AppxPackage Microsoft.WindowsAppRuntime.2 | Where-Object { [version]$_.Version -ge [version]$release } | Select-Object -First 1
-          if (-not $pkg) { throw "Microsoft.WindowsAppRuntime.2 >= $release is not registered after the install" }
-          Write-Host "Windows App Runtime: $($pkg.Version)"
+          target: windows-winui
+          pack: true
+          rust: false
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
         with:
@@ -1247,14 +1236,6 @@ jobs:
           chmod +x "$BIN" 2>/dev/null || true
           echo "DAY_BIN=$BIN" >> "$GITHUB_ENV"
           echo "day CLI: $BIN"
-      - name: Install NSIS
-        shell: pwsh
-        run: |
-          choco install nsis -y --no-progress
-          $roots = @("$env:ProgramFiles\NSIS", "${env:ProgramFiles(x86)}\NSIS", "$env:ChocolateyInstall\bin", "$env:ChocolateyInstall\lib\nsis") | Where-Object { $_ -and (Test-Path $_) }
-          $exe = Get-ChildItem -Path $roots -Recurse -Filter makensis.exe -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-not $exe) { throw "makensis.exe not found after 'choco install nsis' (looked in: $($roots -join '; '))" }
-          "DAY_MAKENSIS=$($exe.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Clippy (winui backend)
         run: cargo clippy --locked -p day-xaml --features winui --all-targets
       - name: Scaffold check (new + lint + build + pack + rebuild + launch)
