@@ -163,6 +163,20 @@ theme changes), and `currentColor` on the web, so it also turns white on a selec
 template to the foreground, not to the authored art. A source swap on a template or tinted glyph
 re-cuts the mask from the new name, so a recycled row shows the icon it was rebound to.
 
+## Conformance
+
+The [conformance app](../apps/conformance/README.md) stages real SVG fixtures and runs
+`vector-*` pixel assertions on every active platform-toolkit target. It checks explicit tint,
+unpainted regions, stroke caps, both fill rules, multiple sizes, and a native button icon slot.
+Checking both painted and transparent regions prevents a missing icon from passing as an
+outline. The icon-slot case also exercises WinUI's stroke-to-filled-geometry conversion.
+
+A separate fine-detail fixture contains a line that is opaque at display size but never
+opaque in the 256px cache. Its pixel check and raster negative control catch that fallback
+being enlarged instead of drawing the vector. They do not prove the absence of every possible
+raster implementation. In particular, the current GTK and Qt standalone raster paths are
+expected to fail this case; there is no target exclusion concealing that limitation.
+
 ## Lint
 
 `day lint` validates every vector source: unreadable/unparseable art, glyph-embedded `<text>`

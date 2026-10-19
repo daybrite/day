@@ -18,7 +18,29 @@ cargo run -q -p day-cli -- --project apps/conformance test -p macos-appkit 'text
 cargo run -q -p day-cli -- --project apps/conformance test -p ios-uikit --list
 ```
 
-The same cases run on the mock toolkit under `cargo test -p day-script --test conformance`.
+The built-in cases also run on the mock toolkit under `cargo test -p day-script --test conformance`.
+
+The app additionally registers `vector-*` pixel cases in `src/vector_icons.rs`, using the SVG
+fixtures in `crates/day-vector/fixtures/conformance/`. `generate.sh` copies these into the app's
+generated resources, so they exercise the same staging and loading paths as application icons.
+Run them with:
+
+```sh
+target/debug/day test --project apps/conformance -t windows-winui 'vector-*' --shots always
+cargo test -p day-vector --test conformance_fixtures
+```
+
+These check tint, strokes and rounded caps, even-odd versus winding fills, three display sizes,
+and a native button's icon slot (the WinUI `PathIcon` path used by navigation and toolbars).
+The fine-detail case rejects enlargement of the 256px raster cache; its unit-test negative
+control proves that the cached image cannot meet the pixel tolerance. It is a rendering
+regression check, not a universal detector of rasterization at arbitrary resolutions.
+
+CI runs these cases on all twelve active platform-toolkit targets, with no platform skip list.
+They require screenshot support; the mock cannot verify pixels. GTK and Qt currently use the
+cached raster for standalone vectors, so the fine-detail case intentionally exposes that
+limitation as a failure until those renderers are corrected. Other targets must pass the
+same assertions; a local Windows pass alone does not establish their results.
 
 The separate ArkUI long-press fixture exercises real OS touches, including gesture
 arbitration and disposal. Build the app, connect one unlocked HarmonyOS emulator/device,

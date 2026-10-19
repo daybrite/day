@@ -683,7 +683,7 @@ jobs:
   # --- The conformance app: `day test` on every toolkit ---------------------------------------
   # The built-in pieces' `#[day::test]` cases (docs/testing.md), run inside apps/conformance
   # against THIS commit's crates (the app depends on them by path) with THIS run's CLI, on all
-  # nine targets through the shared app workflow: its simulator, emulator, xvfb and web-driver
+  # twelve active targets through the shared app workflow: its simulator, emulator, xvfb and web-driver
   # plumbing is what every app gets, and the conformance app is an app. Its one dayscript holds
   # the `run_tests` step; the runner prints one line per test and writes `conformance.json` and the
   # tests' captures into the screenshots directory, which the workflow uploads per target (and
@@ -697,7 +697,7 @@ jobs:
       contents: read
     uses: daybrite/actions/.github/workflows/dayapp.yml@v1
     with:
-      targets: macos-appkit, ios-uikit, android-mdc, linux-gtk, linux-qt, windows-winui, harmony-arkui, web-dom
+      targets: macos-appkit, ios-uikit, android-mdc, macos-gtk, macos-qt, linux-gtk, linux-qt, windows-winui, windows-gtk, windows-qt, harmony-arkui, web-dom
       day-source: artifact
       project-path: apps/conformance
       # The scaffold around the app's own files (Day.toml, build.rs, resource/, platform/) is

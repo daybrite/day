@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 8">
+  <!-- At the 256px fallback size this covers half a pixel and has no opaque pixel.
+       At 1024 points it is two points wide, with an opaque interior at fractional DPI too. -->
+  <rect fill="#00ff00" x="8.125" y="2" width="0.125" height="4"/>
+</svg>

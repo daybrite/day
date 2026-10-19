@@ -27,7 +27,7 @@ else
 fi
 
 # Every target the CLI ships, so the app can be driven wherever `day test` runs.
-targets=macos-appkit,ios-uikit,android-mdc,macos-gtk,macos-qt,linux-gtk,linux-qt,windows-winui,harmony-arkui,web-dom
+targets=macos-appkit,ios-uikit,android-mdc,macos-gtk,macos-qt,linux-gtk,linux-qt,windows-winui,windows-gtk,windows-qt,harmony-arkui,web-dom
 
 scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
@@ -49,4 +49,5 @@ for part in Day.toml build.rs resource platform; do
   rm -rf "${here:?}/$part"
   cp -R "$scratch/conformance/$part" "$here/$part"
 done
+cp "$repo"/crates/day-vector/fixtures/conformance/*.svg "$here/resource/vectors/"
 echo "regenerated the conformance app's scaffold in $here"

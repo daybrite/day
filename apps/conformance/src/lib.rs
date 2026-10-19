@@ -3,10 +3,12 @@
 
 //! The conformance app (docs/testing.md): every `#[day::test]` case the built-in pieces
 //! register, one route per case, so a person can open any case on any toolkit and `day test`
-//! can drive it. Nothing here is written per piece: the cases live beside the pieces in
-//! day-pieces, and `day::conformance` lists them.
+//! can drive it. Most cases live beside the pieces in day-pieces; cases that need bundled
+//! resources, such as vector icons, live in this app.
 
 use day::prelude::*;
+
+mod vector_icons;
 
 #[cfg(target_env = "ohos")]
 mod native_dialogs;
@@ -62,6 +64,7 @@ pub fn root() -> impl Piece {
     // The web has no link-time registry; each crate's roster registers its tests at launch
     // (a no-op everywhere else).
     day::builtin_tests::register_tests();
+    vector_icons::register_tests();
     day_piece_activity::conformance::register_tests();
     day_piece_colorpicker::conformance::register_tests();
     day_piece_combobox::conformance::register_tests();

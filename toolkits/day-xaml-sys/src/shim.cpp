@@ -748,6 +748,11 @@ static HWND winui_attach_island(WUXH::DesktopWindowXamlSource const& source, HWN
 struct AppWindow {
     HWND host{};
     HWND island{};
+#ifdef DAY_WINUI
+    // Origin for the most recent primary capture: WGC includes visible window chrome;
+    // the RenderTargetBitmap fallback contains only the XAML tree.
+    double capture_origin[2]{};
+#endif
     WUXH::DesktopWindowXamlSource source{ nullptr };
     WUX::Application app{ nullptr }; // keeps Application::Current + WindowsXamlManager alive
     void* dqc{}; // DispatcherQueueController — kept alive, never released
@@ -7054,7 +7059,9 @@ static int snapshot_wgc_png(HWND hwnd, const char* path) {
 // (snapshot_tree_png) only where Windows.Graphics.Capture is unavailable or fails, which loses
 // the frame and anything drawn outside the tree but still shows the content.
 static int snapshot_tree_png(WUX::UIElement const& root, HWND host, const char* path);
-static int snapshot_winui_png(WUX::UIElement const& root, HWND host, const char* path) {
+static int snapshot_winui_png(WUX::UIElement const& root, HWND host, const char* path,
+                              double* origin = nullptr) {
+    if (origin) origin[0] = origin[1] = 0.0;
     int rc = 13;
     try {
         rc = snapshot_wgc_png(host, path);
@@ -7062,7 +7069,21 @@ static int snapshot_winui_png(WUX::UIElement const& root, HWND host, const char*
         std::fprintf(stderr, "day-winui: window capture threw hr=0x%08X %ls\n",
                      static_cast<unsigned>(e.code()), e.message().c_str());
     }
-    if (rc == 0) return 0;
+    if (rc == 0) {
+        // WGC excludes the invisible resize margins but retains the visible border.
+        // Ignoring that border shifted narrow pixel assertions one pixel to the left.
+        RECT frame{};
+        POINT client{0, 0};
+        if (origin && SUCCEEDED(DwmGetWindowAttribute(host, DWMWA_EXTENDED_FRAME_BOUNDS,
+                                                      &frame, sizeof(frame))) &&
+            ClientToScreen(host, &client)) {
+            double scale = GetDpiForWindow(host) / 96.0;
+            if (scale <= 0.0) scale = 1.0;
+            origin[0] = (client.x - frame.left) / scale;
+            origin[1] = (client.y - frame.top) / scale;
+        }
+        return 0;
+    }
     std::fprintf(stderr, "day-winui: window capture failed (%d); capturing the XAML tree instead\n", rc);
     std::fflush(stderr);
     return snapshot_tree_png(root, host, path);
@@ -7130,7 +7151,7 @@ static int snapshot_tree_png(WUX::UIElement const& root, HWND host, const char* 
 int day_xaml_snapshot_png(void* win, const char* path) try {
     auto app = reinterpret_cast<AppWindow*>(win);
 #ifdef DAY_WINUI
-    return app ? snapshot_winui_png(app->root, app->host, path) : 1;
+    return app ? snapshot_winui_png(app->root, app->host, path, app->capture_origin) : 1;
 #else
     return app ? snapshot_hwnd_png(app->host, path) : 1;
 #endif
@@ -7146,13 +7167,15 @@ int day_xaml_snapshot_png(void* win, const char* path) try {
 // Where the content sits in the primary capture, in DIPs (`Toolkit::snapshot_origin`). The
 // system-XAML capture is the whole window rect: the title bar above and the invisible resize
 // borders on the left, right and bottom, so the client area's offset in that rect is what a
-// reader of the capture needs. WinUI answers nothing (nonzero): its capture's only extra area
-// is above the content, which is the reader's own rule, and a (0, 0) here turned that off.
+// reader of the capture needs. WinUI records the visible-frame offset with each WGC capture,
+// or (0, 0) when falling back to a capture of just the XAML tree.
 int day_xaml_snapshot_origin(void* win, double* out) try {
     auto app = reinterpret_cast<AppWindow*>(win);
     if (!app || !out) return 1;
 #ifdef DAY_WINUI
-    return 3;
+    out[0] = app->capture_origin[0];
+    out[1] = app->capture_origin[1];
+    return 0;
 #else
     if (!app->host) return 1;
     RECT r{};

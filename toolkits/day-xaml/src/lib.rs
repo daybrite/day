@@ -3343,7 +3343,7 @@ impl Toolkit for Xaml {
 
     /// The content's offset in the capture: the system-XAML capture is the whole window rect,
     /// title bar and resize borders included (the shim's `day_xaml_snapshot_origin`). WinUI
-    /// answers `None`, leaving the reader's rule (extra rows are above the content).
+    /// reports its visible-frame offset, or zero for the XAML-tree capture fallback.
     fn snapshot_origin(&mut self, _root: &WinHandle) -> Option<Point> {
         if self.window.is_null() {
             return None;
