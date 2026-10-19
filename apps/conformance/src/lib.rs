@@ -70,6 +70,7 @@ pub fn root() -> impl Piece {
     day_piece_combobox::conformance::register_tests();
     day_piece_datetime::conformance::register_tests();
     day_piece_map::conformance::register_tests();
+    day_piece_pager::conformance::register_tests();
     day_piece_pullrefresh::conformance::register_tests();
     day_piece_rating::conformance::register_tests();
     day_piece_remote_image::conformance::register_tests();

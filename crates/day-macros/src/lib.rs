@@ -201,6 +201,57 @@ pub fn java_class(input: TokenStream) -> TokenStream {
     java::java_class(input)
 }
 
+/// The code day-build generated for a crate's `day_bridge::bridge!` block (docs/bridge.md),
+/// read from `$OUT_DIR/day-bridge/mod.rs` and emitted as this macro's output. `bridge!` expands
+/// to it; nothing else should call it.
+///
+/// Emitted rather than `include!`d so the code is attributed to the `bridge!` call in the crate's
+/// source. A panic location in the generated code (the `java_class!` bindings' `unwrap`s, say)
+/// then records that file's path, which is the same wherever the project is built. Under
+/// `include!` it recorded the absolute `OUT_DIR` path, so two builds of one commit from
+/// different directories produced different libraries, and `day rebuild` failed.
+#[proc_macro]
+pub fn bridge_generated(_input: TokenStream) -> TokenStream {
+    let Ok(out_dir) = std::env::var("OUT_DIR") else {
+        return compile_error(
+            "day_bridge::bridge! needs the crate's build.rs to run \
+             `day_build::bridge::generate()`, which writes the generated code to OUT_DIR",
+        );
+    };
+    let path = std::path::Path::new(&out_dir)
+        .join("day-bridge")
+        .join("mod.rs");
+    let text = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) => {
+            return compile_error(&format!(
+                "day_bridge::bridge!: {}: {e} (does build.rs call day_build::bridge::generate()?)",
+                path.display()
+            ));
+        }
+    };
+    let code: TokenStream = match text.parse() {
+        Ok(code) => code,
+        Err(e) => {
+            return compile_error(&format!(
+                "day_bridge::bridge!: the generated code in {} does not parse: {e}",
+                path.display()
+            ));
+        }
+    };
+    // The build still rebuilds this crate when the generated file changes, as it did under
+    // `include!`: `include_bytes!` registers the file, and an unused constant leaves nothing in
+    // the binary.
+    let mut out: TokenStream = format!(
+        "const _: &[u8] = ::core::include_bytes!({:?});",
+        path.display().to_string()
+    )
+    .parse()
+    .unwrap_or_default();
+    out.extend(code);
+    out
+}
+
 /// Per-property observation for a struct; see day-model's crate docs and `docs/model.md`.
 ///
 /// Generates typed field accessors on every `Source` of the struct (`store.name()`,

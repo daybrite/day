@@ -38,6 +38,7 @@ day-piece-colorpicker = { path = "../../pieces/day-piece-colorpicker", features 
 day-piece-combobox = { path = "../../pieces/day-piece-combobox", features = ["conformance"] }
 day-piece-datetime = { path = "../../pieces/day-piece-datetime", features = ["conformance"] }
 day-piece-map = { path = "../../pieces/day-piece-map", features = ["conformance"] }
+day-piece-pager = { path = "../../pieces/day-piece-pager", features = ["conformance"] }
 day-piece-pullrefresh = { path = "../../pieces/day-piece-pullrefresh", features = ["conformance"] }
 day-piece-rating = { path = "../../pieces/day-piece-rating", features = ["conformance"] }
 day-piece-remote-image = { path = "../../pieces/day-piece-remote-image", features = ["conformance"] }

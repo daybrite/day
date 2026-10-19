@@ -18,3 +18,5 @@ license.workspace = true
 day-spec = { workspace = true }
 # The oneshot future behind `Completion` and the token registry behind `Done` (docs/async.md).
 day-async = { workspace = true }
+# `bridge!` emits the generated code through day-macros' `bridge_generated` (see its docs).
+day-macros = { workspace = true }

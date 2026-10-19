@@ -170,6 +170,69 @@ impl Piece for Pager {
 }
 day_pieces::glue_modules!(uikit, mdc, arkui);
 
+/// The pager's conformance cases (docs/testing.md). `select` is the synthetic settle on every
+/// backend: it reports a reading-order position, which the pager maps through `order` to a slot.
+#[cfg(feature = "conformance")]
+pub mod conformance {
+    use day_core::conformance::{Case, Drive};
+    use day_pieces::*;
+    use day_reactive::Signal;
+
+    use super::{KIND, PagerState, pager};
+
+    /// Selecting a position commits that position's slot, and reversing the order maps the same
+    /// position to a different slot without rebuilding a page.
+    #[day_macros::test(day_core)]
+    fn pager_selection_commits_the_slot_in_reading_order() -> Case {
+        Case::new()
+            .proves(KIND)
+            .page(|| {
+                let state = Signal::new(PagerState {
+                    order: vec![0, 1, 2],
+                    selected: 0,
+                    epoch: 1,
+                });
+                let busy = Signal::new(false);
+                let committed = Signal::new(String::from("none"));
+                column((
+                    label(move || format!("slot {}", committed.get())).id("pager-state"),
+                    button("Reverse")
+                        .action(move || {
+                            state.update(|s| {
+                                s.order.reverse();
+                                s.epoch += 1;
+                            })
+                        })
+                        .id("pager-reverse"),
+                    pager(
+                        state,
+                        busy,
+                        vec![
+                            label("Page A").any(),
+                            label("Page B").any(),
+                            label("Page C").any(),
+                        ],
+                        move |slot| {
+                            committed.set(slot.to_string());
+                            state.update(|s| s.selected = slot);
+                        },
+                    )
+                    .id("pager")
+                    .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.select("pager", 1).await?;
+                d.assert_text("pager-state", "slot 1").await?;
+                d.tap("pager-reverse").await?;
+                d.select("pager", 0).await?;
+                d.assert_text("pager-state", "slot 2").await
+            })
+    }
+
+    day_core::tests! { pager_selection_commits_the_slot_in_reading_order }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -4111,11 +4111,18 @@ main-loop post** (`day_reactive::on_main`), because Day's UI is single-threaded 
 cannot be built without it.
 
 **Lowering, and why [§5.1](#51-authoring-surface-functions-and-builders-no-macros) still holds.** A crate's bridge sections sit inside one
-`day_bridge::bridge!` block — a `macro_rules!` that **discards its body** and expands to an
-`include!` of generated code in `OUT_DIR`. There is no procedural macro: the real parser is
-day-build reading the crate's own source text, exactly as `day-build/src/swiftui.rs` already parses
-`.swift` to generate `crate::swiftui::*`. So the framework still requires no macro anywhere, and a
-crate that uses no bridge sees nothing.
+`day_bridge::bridge!` block — a `macro_rules!` that **discards its body** and expands to the
+generated code in `OUT_DIR`. The real parser is day-build reading the crate's own source text,
+exactly as `day-build/src/swiftui.rs` already parses `.swift` to generate `crate::swiftui::*`. So
+the framework still requires no macro anywhere, and a crate that uses no bridge sees nothing.
+
+> [!NOTE]
+> **Revised 2026-10-20.** The generated file was `include!`d. It is now read by a small
+> procedural macro, `day_macros::bridge_generated`, that emits it as the `bridge!` call's
+> expansion, because an `include!`d file's panic locations record its absolute `OUT_DIR` path: once
+> the JVM arms generated `java_class!` bindings (§15.7), whose expansion unwraps, a bridged part's
+> library depended on where the project was built, and `day rebuild` failed. Attributed to the
+> `bridge!` call, the locations name the crate's own source file.
 
 **Two generators, no new host machinery.** day-build (in `build.rs`, on any host, with no foreign
 toolchain) emits the Rust externs, wrappers, and the C/C++ translation units cargo compiles, so

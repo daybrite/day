@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 
 [features]
+# The piece's `#[day::test]` cases (docs/testing.md): compiled only into a test build, which
+# the conformance app turns on.
+conformance = ["dep:day-macros"]
 uikit = ["dep:day-uikit", "dep:objc2", "dep:objc2-ui-kit", "dep:objc2-foundation"]
 mdc = ["dep:day-android"]
 arkui = ["dep:day-arkui"]
@@ -20,6 +23,7 @@ day-pieces.workspace = true
 day-spec.workspace = true
 day-reactive.workspace = true
 linkme.workspace = true
+day-macros = { workspace = true, optional = true }
 day-uikit = { workspace = true, optional = true }
 day-android = { workspace = true, optional = true }
 day-arkui = { workspace = true, optional = true }

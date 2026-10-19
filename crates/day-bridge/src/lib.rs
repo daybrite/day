@@ -710,11 +710,15 @@ pub mod arkts {
 
 /// Declare a crate's bridge: the API and its per-platform implementations.
 ///
-/// **The body is discarded.** This macro expands to nothing but an `include!` of the code
-/// day-build generated from the same source text, which is what lets an arm contain Swift, Kotlin,
-/// ArkTS, JavaScript, C, or C++; the tokens are never resolved by rustc, only lexed. It is also
-/// why daybridge needs no procedural macro, and why DESIGN.md §5.1's "no required macro anywhere in
+/// **The body is discarded.** This macro expands to the code day-build generated from the same
+/// source text, which is what lets an arm contain Swift, Kotlin, ArkTS, JavaScript, C, or C++; the
+/// tokens are never resolved by rustc, only lexed. DESIGN.md §5.1's "no required macro anywhere in
 /// the framework" still holds: this is opt-in sugar that lowers to plain generated Rust.
+///
+/// The generated file is read by a small procedural macro (`day_macros::bridge_generated`) rather
+/// than `include!`d, so its code is attributed to this call in the crate's source. A panic location
+/// in it then names a path that is the same wherever the project is built; an `include!`d file's
+/// location is its absolute `OUT_DIR` path, which made `day rebuild` fail on bridged parts.
 ///
 /// Foreign code inside an arm must nevertheless *lex* as Rust tokens, which idiomatic JavaScript and
 /// ArkTS do not: a backtick is not a Rust token, and `'zh-CN'` lexes as a malformed lifetime. That
@@ -722,9 +726,12 @@ pub mod arkts {
 #[macro_export]
 macro_rules! bridge {
     ($($body:tt)*) => {
-        include!(concat!(env!("OUT_DIR"), "/day-bridge/mod.rs"));
+        $crate::__bridge_generated!();
     };
 }
+
+#[doc(hidden)]
+pub use day_macros::bridge_generated as __bridge_generated;
 
 #[cfg(test)]
 mod tests {

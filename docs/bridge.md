@@ -47,7 +47,10 @@ in a foreign language would add a toolchain to the build and buy nothing.
 ## The file
 
 Everything bridge-related in a crate lives inside one `day_bridge::bridge!` block. The macro
-discards its body; the generated Rust arrives through an `include!` of `OUT_DIR/day-bridge/mod.rs`.
+discards its body; the generated Rust in `OUT_DIR/day-bridge/mod.rs` arrives as the macro's
+expansion. It is read by a small procedural macro rather than `include!`d, so a panic location in
+it names the `bridge!` call's source file rather than the absolute `OUT_DIR` path, and the library
+is the same wherever the project is built (`day rebuild`).
 
 ```rust
 day_bridge::bridge! {
