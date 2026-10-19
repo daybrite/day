@@ -8005,3 +8005,20 @@ history entries. Editing expands search. Native Day-News regression tests exerci
 feed and smart-feed lists with expanded, partially collapsed and collapsed root chrome and
 actual Up taps.
 Desktop search placement and query ownership remain unchanged. See [search](docs/search.md).
+
+UIKit split toolbar ownership follows each command's `ToolbarColumn`: sidebar and
+content-list commands stay over those columns, while window commands share the detail
+bar. Collapsing the split merges the visible contributions again. The expanded list
+omits its duplicated root navigation title; the controller retains it for collapsed
+navigation. On iOS 15 (and plain shared tab bars), a bounded three-control policy reserves
+one slot for UIKit's localized More menu. Navigation, then Primary actions take priority;
+other actions retain their labels, enabled/check state, submenus, and command dispatch
+inside the menu. iOS 16+ navigation bars retain native optional item groups. Regression
+coverage: `day-uikit/src/toolbar_policy.rs` and Day-News' iPad toolbar UI checks.
+
+Android's shared drawable resolver accepts absolute filesystem paths and local `file:`
+URIs before bundled drawable/asset lookup. Downloaded images therefore render through
+the same path in navigation icons, badges, toolbar images and ordinary image pieces;
+missing or invalid files return no drawable, and remote URLs are not fetched by UI code.
+Asset streams are closed after decoding. Day-News' cached PNG favicons exercise this
+path on the Android emulator, with authored colors retained by untinted navigation rows.

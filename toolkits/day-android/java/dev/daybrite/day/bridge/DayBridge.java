@@ -3607,11 +3607,25 @@ public final class DayBridge {
         iv.setImageDrawable(d.mutate());
         return iv;
     }
-    /** Load a bundled image by name (docs/navigation.md) as a mutable Drawable: a processed
-     *  `res/drawable/<name>` resource (aapt2-crunched), else a raw asset by path; null if neither
-     *  resolves or `name` is empty. Callers tint it (nav rows) or let the widget tint it (tabs). */
+    /** Resolve bundled artwork or a downloaded local image. Absolute paths and local file:
+     *  URIs are files, never AssetManager names. All image channels (views, navigation rows,
+     *  badges and toolbars) share this resolver and preserve authored colors unless tinted. */
     static android.graphics.drawable.Drawable drawableByName(Context c, String name) {
         if (name == null || name.isEmpty()) return null;
+        String filePath = null;
+        if (new java.io.File(name).isAbsolute()) {
+            filePath = name;
+        } else if (name.startsWith("file:")) {
+            android.net.Uri uri = android.net.Uri.parse(name);
+            String authority = uri.getAuthority();
+            if (authority != null && !authority.isEmpty() && !"localhost".equals(authority)) return null;
+            filePath = uri.getPath();
+            if (filePath == null || !new java.io.File(filePath).isAbsolute()) return null;
+        }
+        if (filePath != null) {
+            android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeFile(filePath);
+            return bitmap == null ? null : new android.graphics.drawable.BitmapDrawable(c.getResources(), bitmap);
+        }
         int id = c.getResources().getIdentifier(name, "drawable", c.getPackageName());
         if (id != 0) return c.getResources().getDrawable(id, c.getTheme());
         // A weight variant with no art of its own resolves to the base glyph (docs/vectors.md):
@@ -3623,9 +3637,9 @@ public final class DayBridge {
                 if (!base.isEmpty()) return drawableByName(c, base);
             }
         }
-        try {
+        try (java.io.InputStream stream = c.getAssets().open(name)) {
             android.graphics.Bitmap bm =
-                    android.graphics.BitmapFactory.decodeStream(c.getAssets().open(name));
+                    android.graphics.BitmapFactory.decodeStream(stream);
             if (bm != null) return new android.graphics.drawable.BitmapDrawable(c.getResources(), bm);
         } catch (Exception e) {
             // fall through to null

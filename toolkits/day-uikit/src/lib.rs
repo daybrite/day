@@ -25,6 +25,8 @@ mod nav_progress;
 mod picker;
 #[cfg(target_os = "ios")]
 mod textarea;
+#[cfg(any(target_os = "ios", test))]
+mod toolbar_policy;
 #[cfg(target_os = "ios")]
 mod transfer;
 /// Set a `UITextInputTraits` integer property on a `UITextView` (0 = on/default, 1 = off) —
@@ -1522,20 +1524,17 @@ mod imp {
 
     // ── Where a window's bar goes ──────────────────────────────────────────────────────
     //
-    // The NAVIGATION BAR of the page that is showing, at every width: the detail column's on
-    // an expanded split, the merged stack's when it has collapsed or on a phone. The items go
-    // in as iOS 16 item groups, one per item, ahead of the page's own trailing bar actions, so
-    // what the bar cannot fit folds into its overflow menu rather than crowding the title —
-    // which is why an app declares its least-used items last. No bottom bar anywhere, and the
-    // sidebar and list columns carry none of it: one bar per window, on the content it acts on.
+    // Each expanded column receives its own commands; window commands ride the detail.
+    // Collapsed stacks merge the visible contributions. iOS 16 item groups handle overflow
+    // natively; older/plain bars use a bounded set of buttons and a native UIMenu.
 
     /// Where one navigation controller shows its window's bar.
     #[derive(Clone, Copy, PartialEq, Eq)]
     enum BarPlacement {
         /// In the navigation bar: the stack that is showing pages.
         NavBar,
-        /// Nowhere: an expanded split's sidebar or list column.
-        None,
+        /// One column of an expanded split.
+        Column(day_spec::ToolbarColumn),
         /// Not this controller's concern: a stack nested inside another host's page. The
         /// window's bar rides the outer host, and a nested stack is left entirely alone — a
         /// toolbar-visibility call on it during its own push transition cancels the push on
@@ -1583,22 +1582,30 @@ mod imp {
                 };
                 // Read UIKit directly: presentation notifications can trail the merge.
                 let expanded = !unsafe { parts.split_vc.isCollapsed() };
-                if same_nav(&parts.primary_nav, nav)
-                    || parts
-                        .supplementary_nav
-                        .as_ref()
-                        .is_some_and(|n| same_nav(n, nav))
-                {
-                    // Expanded, these columns show the sidebar and the list; collapsed, the
-                    // primary IS the stack showing pages.
+                if same_nav(&parts.primary_nav, nav) {
                     return if expanded {
-                        BarPlacement::None
+                        BarPlacement::Column(day_spec::ToolbarColumn::Sidebar)
+                    } else {
+                        BarPlacement::NavBar
+                    };
+                }
+                if parts
+                    .supplementary_nav
+                    .as_ref()
+                    .is_some_and(|n| same_nav(n, nav))
+                {
+                    return if expanded {
+                        BarPlacement::Column(day_spec::ToolbarColumn::List)
                     } else {
                         BarPlacement::NavBar
                     };
                 }
                 if same_nav(&s.nav, nav) {
-                    return BarPlacement::NavBar;
+                    return if expanded {
+                        BarPlacement::Column(day_spec::ToolbarColumn::Detail)
+                    } else {
+                        BarPlacement::NavBar
+                    };
                 }
             }
             BarPlacement::NavBar
@@ -1763,10 +1770,24 @@ mod imp {
         // it acts on and the overflow eats from the trailing end (docs/toolbars.md). A column
         // that is not showing pages takes only its own page's items — the window's act on the
         // detail, which is one column over.
-        let window_items: Vec<day_spec::ToolbarItem> = match placement {
-            BarPlacement::NavBar => bar_controls(&items),
-            BarPlacement::None | BarPlacement::Nested => Vec::new(),
+        let column = match placement {
+            BarPlacement::Column(column) => Some(column),
+            _ => None,
         };
+        let window_items: Vec<_> = bar_controls(&items)
+            .into_iter()
+            .filter(|item| crate::toolbar_policy::belongs_to_column(item.column, column))
+            .collect();
+        // The expanded list already labels its content. Keep the controller title for
+        // collapsed navigation/back history, but omit the duplicate root title in its bar.
+        unsafe {
+            let title = if column == Some(day_spec::ToolbarColumn::List) {
+                Some(NSString::from_str(""))
+            } else {
+                vc.title()
+            };
+            vc.navigationItem().setTitle(title.as_deref());
+        }
         apply_chrome(mtm, vc, root, &window_items);
         // The BOTTOM BAR is `UINavigationController`'s own, and it is hidden unless a page put
         // something on it (docs/toolbars.md). `apply_chrome` has just set this page's items, so
@@ -1832,7 +1853,21 @@ mod imp {
         // Item groups, and the overflow they give a bar, are iOS 16's (`trailingItemGroups`,
         // `UIBarButtonItemGroup`'s fixed/optional constructors); iOS 15 takes plain items.
         let groups_ok = groups_ok && os_at_least(16);
-        let all: Vec<day_spec::ToolbarItem> = window_items.to_vec();
+        let (all, overflow): (Vec<_>, Vec<_>) = if groups_ok {
+            (window_items.to_vec(), Vec::new())
+        } else {
+            let visible = crate::toolbar_policy::legacy_visible(window_items);
+            let mut shown = Vec::new();
+            let mut hidden = Vec::new();
+            for (index, item) in window_items.iter().enumerate() {
+                if visible.contains(&index) {
+                    shown.push(item.clone());
+                } else {
+                    hidden.push(item.clone());
+                }
+            }
+            (shown, hidden)
+        };
 
         let take = |ps: &[P], all: &[day_spec::ToolbarItem]| -> Vec<day_spec::ToolbarItem> {
             all.iter()
@@ -1929,7 +1964,35 @@ mod imp {
                 // the app's first-declared item leftmost, the order every other backend draws.
                 let mut flat: Vec<day_spec::ToolbarItem> = trailing.clone();
                 flat.extend(secondary.clone());
-                let built = build_toolbar_items(mtm, root, &flat, &mut targets);
+                let mut built = build_toolbar_items(mtm, root, &flat, &mut targets);
+                if !overflow.is_empty() {
+                    let bars = build_toolbar_items(mtm, root, &overflow, &mut targets);
+                    let children: Vec<_> = overflow
+                        .iter()
+                        .zip(&bars)
+                        .filter_map(|(control, bar)| menu_representation(mtm, control, root, bar))
+                        .collect();
+                    let menu = UIMenu::menuWithChildren(
+                        &objc2_foundation::NSArray::from_retained_slice(&children),
+                        mtm,
+                    );
+                    // UIKit has a localized system More tab item, but no More bar-item
+                    // constant. Reuse its localized name with Day's More symbol.
+                    let system_more = objc2_ui_kit::UITabBarItem::initWithTabBarSystemItem_tag(
+                        objc2_ui_kit::UITabBarItem::alloc(mtm),
+                        objc2_ui_kit::UITabBarSystemItem::More,
+                        0,
+                    );
+                    let more = UIBarButtonItem::initWithImage_menu(
+                        UIBarButtonItem::alloc(mtm),
+                        menu_image(Some(&day_spec::Icon::Symbol(day_spec::Symbol::More)))
+                            .as_deref(),
+                        Some(&menu),
+                    );
+                    more.setAccessibilityLabel(system_more.title().as_deref(), mtm);
+                    let _: () = msg_send![&*more, setAccessibilityIdentifier: &*NSString::from_str("day-toolbar-overflow")];
+                    built.insert(0, more);
+                }
                 let ordered: Vec<_> = built.into_iter().rev().collect();
                 item.setRightBarButtonItems(Some(&objc2_foundation::NSArray::from_retained_slice(
                     &ordered,
