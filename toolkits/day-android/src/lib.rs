@@ -10,6 +10,10 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+// `java_class!` names the jni crate as `::day_android::jni` (see there), which this crate's own
+// bindings need to resolve too.
+extern crate self as day_android;
+
 #[cfg(target_os = "android")]
 pub use imp::*;
 
@@ -223,6 +227,13 @@ mod picker;
 #[cfg(target_os = "android")]
 mod textarea;
 
+/// A typed binding to one Java class (docs/android-jni.md): `jni::bind_java_type!` with Day's
+/// policies applied. Java names are kept verbatim; classes load through the app's class loader;
+/// native methods catch panics and log a returned error; every binding is resolved by `init`; and
+/// the class and members bound are kept from R8. Call bound methods inside [`java`].
+#[cfg(target_os = "android")]
+pub use day_macros::java_class;
+
 #[cfg(target_os = "android")]
 pub mod ext;
 #[cfg(target_os = "android")]
@@ -299,11 +310,7 @@ mod imp {
         }
     }
 
-    use jni::objects::{Global, JClass, JObject, JString, JValue, JValueOwned};
-    use jni::signature::{
-        FieldSignature, MethodSignature, RuntimeFieldSignature, RuntimeMethodSignature,
-    };
-    use jni::strings::JNIString;
+    use jni::objects::{Global, JClass, JObject, JString};
     use jni::{Env, JavaVM};
     use linkme::distributed_slice;
 
@@ -312,135 +319,6 @@ mod imp {
     /// `Arc`-backed sharing `GlobalRef` had in 0.21, which `AHandle: Clone` (a day-core `Handle`)
     /// requires. The underlying JNI global ref is released when the last `Arc` owner drops.
     type Gref = std::sync::Arc<Global<JObject<'static>>>;
-
-    /// jni 0.22 compat: `&str`-ergonomic wrappers over the typed name/signature API. In 0.22
-    /// `call_*`/`find_class`/`get_static_field` take `AsRef<JNIStr>` names and pre-parsed
-    /// `MethodSignature`/`FieldSignature` rather than `&str`; these adapt at runtime so the many
-    /// call sites keep passing plain string literals. Public so piece/part crates with their own
-    /// Android JNI code share one adapter: `use day_android::DayEnv;`.
-    pub trait DayEnv<'l> {
-        fn dcall_static(
-            &mut self,
-            class: &str,
-            name: &str,
-            sig: &str,
-            args: &[JValue],
-        ) -> jni::errors::Result<JValueOwned<'l>>;
-        fn dcall(
-            &mut self,
-            obj: &JObject,
-            name: &str,
-            sig: &str,
-            args: &[JValue],
-        ) -> jni::errors::Result<JValueOwned<'l>>;
-        fn dfield(
-            &mut self,
-            class: &str,
-            name: &str,
-            sig: &str,
-        ) -> jni::errors::Result<JValueOwned<'l>>;
-        fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>>;
-        fn dstr(&self, s: &JString) -> jni::errors::Result<String>;
-    }
-    /// After a failed JNI call, a Java exception may be pending on the env, and calling
-    /// almost any further JNI function in that state is undefined behavior per the JNI
-    /// spec. Every `DayEnv` wrapper funnels its error path through here (describe = stack
-    /// trace to logcat, then clear), so an `Err` from `dcall`/`dcall_static`/`dfield` is
-    /// always safe to ignore or handle without the call site remembering the clear.
-    fn clear_pending(env: &Env, class: &str, name: &str) {
-        if env.exception_check() {
-            log::warn!("day-android: JNI call {class}.{name} threw (cleared; trace in logcat):");
-            env.exception_describe();
-            env.exception_clear();
-        }
-    }
-
-    impl<'l> DayEnv<'l> for Env<'l> {
-        fn dcall_static(
-            &mut self,
-            class: &str,
-            name: &str,
-            sig: &str,
-            args: &[JValue],
-        ) -> jni::errors::Result<JValueOwned<'l>> {
-            let sig = sig.parse::<RuntimeMethodSignature>()?;
-            // Resolve through dfind, whose app-ClassLoader fallback makes app classes reachable
-            // from Rust-spawned threads (a plain name lookup here would use the system loader).
-            let cls = self.dfind(class)?;
-            let r = self.call_static_method(
-                &cls,
-                JNIString::from(name),
-                MethodSignature::from(&sig),
-                args,
-            );
-            if r.is_err() {
-                clear_pending(self, class, name);
-            }
-            r
-        }
-        fn dcall(
-            &mut self,
-            obj: &JObject,
-            name: &str,
-            sig: &str,
-            args: &[JValue],
-        ) -> jni::errors::Result<JValueOwned<'l>> {
-            let sig = sig.parse::<RuntimeMethodSignature>()?;
-            let r = self.call_method(
-                obj,
-                JNIString::from(name),
-                MethodSignature::from(&sig),
-                args,
-            );
-            if r.is_err() {
-                clear_pending(self, "<obj>", name);
-            }
-            r
-        }
-        fn dfield(
-            &mut self,
-            class: &str,
-            name: &str,
-            sig: &str,
-        ) -> jni::errors::Result<JValueOwned<'l>> {
-            let sig = sig.parse::<RuntimeFieldSignature>()?;
-            // Same app-ClassLoader routing as dcall_static; see dfind.
-            let cls = self.dfind(class)?;
-            let r = self.get_static_field(&cls, JNIString::from(name), FieldSignature::from(&sig));
-            if r.is_err() {
-                clear_pending(self, class, name);
-            }
-            r
-        }
-        fn dfind(&mut self, name: &str) -> jni::errors::Result<JClass<'l>> {
-            match self.find_class(JNIString::from(name)) {
-                Ok(c) => Ok(c),
-                Err(e) => {
-                    // A Rust-spawned thread attaches with only the system class loader, which
-                    // cannot see app classes: clear the pending ClassNotFoundException and
-                    // retry through the app loader cached at init.
-                    self.exception_clear();
-                    let Some(loader) = APP_CLASS_LOADER.get() else {
-                        return Err(e);
-                    };
-                    let dotted = name.replace('/', ".");
-                    let jname = self.new_string(&dotted)?;
-                    let obj = self
-                        .dcall(
-                            loader,
-                            "loadClass",
-                            "(Ljava/lang/String;)Ljava/lang/Class;",
-                            &[JValue::Object(&jname)],
-                        )?
-                        .l()?;
-                    self.cast_local::<JClass>(obj)
-                }
-            }
-        }
-        fn dstr(&self, s: &JString) -> jni::errors::Result<String> {
-            Ok(s.mutf8_chars(self)?.to_string())
-        }
-    }
 
     use day_spec::bridge;
     use day_spec::props::*;
@@ -567,12 +445,9 @@ mod imp {
             });
             with_env(|env| {
                 let data = jstr(env, &data);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "treeReload",
-                    "(Landroid/view/View;Ljava/lang/String;)V",
-                    &[JValue::Object(handle.0.as_obj()), JValue::Object(&data)],
-                );
+                let _ = java_in(env, |env| {
+                    DayBridge::treeReload(env, handle.0.as_obj(), &data)
+                });
             });
         }));
     }
@@ -584,22 +459,12 @@ mod imp {
                 // outside the core update borrow so their Day IDs can actually be cleared.
                 let (host, token, open) = (host.clone(), *token, *open);
                 Android::post(Box::new(move || {
-                    call_void(
-                        "treeExpand",
-                        "(Landroid/view/View;JZ)V",
-                        &[
-                            JValue::Object(host.0.as_obj()),
-                            JValue::Long(token as i64),
-                            JValue::Bool(open),
-                        ],
-                    )
+                    bridge(|env| DayBridge::treeExpand(env, host.0.as_obj(), token as i64, open))
                 }));
             }
-            TreePatch::Reveal(token) => call_void(
-                "treeReveal",
-                "(Landroid/view/View;J)V",
-                &[JValue::Object(host.0.as_obj()), JValue::Long(*token as i64)],
-            ),
+            TreePatch::Reveal(token) => {
+                bridge(|env| DayBridge::treeReveal(env, host.0.as_obj(), *token as i64))
+            }
             TreePatch::Selected(tokens) => {
                 if let Some(id) = LIST_NODE.with(|m| {
                     m.borrow()
@@ -621,11 +486,7 @@ mod imp {
                     });
                     LIST_SELECTED.with(|m| m.borrow_mut().insert(id, selected));
                 }
-                call_void(
-                    "treeSelection",
-                    "(Landroid/view/View;)V",
-                    &[JValue::Object(host.0.as_obj())],
-                );
+                bridge(|env| DayBridge::treeSelection(env, host.0.as_obj()));
             }
         }
     }
@@ -655,11 +516,7 @@ mod imp {
     /// Set one native row's height, in points (`DayBridge.setListCellHeight`).
     fn set_list_cell_height(cell: &JObject, height: f64) {
         let px = (height * DENSITY.with(|d| d.get())).round() as i32;
-        call_void(
-            "setListCellHeight",
-            "(Landroid/view/View;I)V",
-            &[JValue::Object(cell), JValue::Int(px)],
-        );
+        bridge(|env| DayBridge::setListCellHeight(env, cell, px));
     }
 
     /// Fill a recycled cell; the Java adapter's getView calls this. A stable GlobalRef per
@@ -667,10 +524,7 @@ mod imp {
     /// cell key. A JNI up-call entry running app row builders: contained like `list_len`.
     pub fn list_bind(env: &mut Env, host_id: i64, position: i32, cell: JObject) {
         day_spec::ffi_guard::contain((), || {
-            let hash = env
-                .dcall(&cell, "hashCode", "()I", &[])
-                .and_then(|v| v.i())
-                .unwrap_or(0);
+            let hash = framework::System::identityHashCode(env, &cell).unwrap_or(0);
             let cached = LIST_CELLS.with(|m| {
                 m.borrow()
                     .get(&host_id)
@@ -734,9 +588,9 @@ mod imp {
                     && let Some(token) = tokens.get(position as usize)
                 {
                     (source.bind_row)(*token, raw);
-                    let width = env
-                        .dcall(&cell, "getWidth", "()I", &[])
-                        .and_then(|v| v.i())
+                    // SAFETY: a list cell is the DayFixed View the adapter created.
+                    let width = unsafe { env.as_cast_unchecked::<framework::View>(&cell) }
+                        .getWidth(env)
                         .unwrap_or(0);
                     if width > 0 {
                         (source.layout_cell)(raw, width as f64 / DENSITY.with(|d| d.get()));
@@ -752,10 +606,7 @@ mod imp {
     /// A JNI up-call entry: contained.
     pub fn list_recycle(env: &mut Env, host_id: i64, cell: JObject) {
         day_spec::ffi_guard::contain((), || {
-            let hash = env
-                .dcall(&cell, "hashCode", "()I", &[])
-                .and_then(|v| v.i())
-                .unwrap_or(0);
+            let hash = framework::System::identityHashCode(env, &cell).unwrap_or(0);
             LIST_BINDINGS.with(|m| m.borrow_mut().remove(&(host_id, hash)));
             let gref = LIST_CELLS.with(|m| {
                 m.borrow()
@@ -786,15 +637,15 @@ mod imp {
         })
     }
 
-    pub fn transfer_call(
-        env: &mut Env,
+    pub fn transfer_call<'l>(
+        env: &mut Env<'l>,
         kind: i32,
         token: i64,
         x: f64,
         y: f64,
         bytes: jni::objects::JByteArray,
         local: bool,
-    ) -> Result<jni::sys::jbyteArray, jni::errors::Error> {
+    ) -> Result<jni::objects::JByteArray<'l>, jni::errors::Error> {
         use day_spec::transfer::*;
         let input = env.convert_byte_array(&bytes)?;
         let output = day_spec::ffi_guard::contain(Vec::new(), || match kind {
@@ -839,19 +690,19 @@ mod imp {
             }
             _ => Vec::new(),
         });
-        Ok(env.byte_array_from_slice(&output)?.into_raw())
+        env.byte_array_from_slice(&output)
     }
-    fn transfer_install(h: &AHandle, method: &str) {
-        with_env(|env| {
-            let _ = env.dcall_static(
-                "dev/daybrite/day/bridge/DayTransfer",
-                method,
-                "(Landroid/view/View;J)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Long(h.0.as_obj().as_raw() as i64),
-                ],
-            );
+    /// Make `h` a drag source (`DayTransfer.source`) or a drop target (`DayTransfer.target`),
+    /// keyed by its view pointer.
+    fn transfer_install(h: &AHandle, source: bool) {
+        let view = h.0.as_obj();
+        let token = view.as_raw() as i64;
+        bridge(|env| {
+            if source {
+                DayTransfer::source(env, view, token)
+            } else {
+                DayTransfer::target(env, view, token)
+            }
         });
     }
 
@@ -930,17 +781,386 @@ mod imp {
 
     pub const BRIDGE: &str = "dev/daybrite/day/bridge/DayBridge";
 
+    // DayBridge (java/dev/daybrite/day/bridge/DayBridge.java): every static method Rust calls,
+    // named exactly as Java names it (docs/android-jni.md). `init` resolves the whole class, so a
+    // method renamed or retyped on the Java side stops a debug or scripted launch by name.
+    crate::java_class! {
+        pub DayBridge => dev.daybrite.day.bridge.DayBridge,
+        methods {
+        static fn addChild(parent: android.view.View, child: android.view.View),
+        static fn announce(text: JString, urgent: jboolean),
+        static fn baselineAt(v: android.view.View, w_px: jint, h_px: jint) -> jint,
+        static fn cacheDirPath() -> JString,
+        static fn cancelFrame(token: jlong),
+        static fn canSetAppearance() -> jboolean,
+        static fn canSetLauncherShortcuts() -> jboolean,
+        static fn closeWindow(node: jlong),
+        static fn coverDismiss(cover: android.view.View),
+        static fn coverPresent(cover: android.view.View, bg: jint, has_bg: jboolean, dismiss_disabled: jboolean),
+        static fn coverSetDismissDisabled(cover: android.view.View, d: jboolean),
+        static fn dismissPresent(req: jlong),
+        static fn displayInfo() -> JString,
+        static fn documentNavChrome(suite: android.view.View, visible: jboolean),
+        static fn documentNavSuite(suite: android.view.View, new_label: JString, close_label: JString, can_add: jboolean),
+        static fn enableGesture(v: android.view.View, id: jlong, is_drag: jboolean),
+        static fn enableHover(v: android.view.View, id: jlong),
+        static fn enableKeys(v: android.view.View, id: jlong),
+        static fn enablePan(v: android.view.View, id: jlong),
+        static fn focusNavSearch(nav_host: android.view.View),
+        static fn focusView(v: android.view.View, focused: jboolean),
+        static fn focusWindow(node: jlong),
+        static fn fontFamilies() -> JString,
+        static fn imageDecode(id: jlong, bytes: jbyte[]) -> JString,
+        static fn imageEncode(id: jlong, format: JString, quality: jint, fit_w: jdouble, fit_h: jdouble) -> jbyte[],
+        static fn imageRelease(id: jlong),
+        static fn isDarkMode() -> jboolean,
+        static fn listPaintSelection(v: android.view.View, host_id: jlong),
+        static fn listReload(v: android.view.View),
+        static fn listScrollToEnd(v: android.view.View),
+        static fn listScrollToRow(v: android.view.View, row: jint),
+        static fn localeTags() -> JString,
+        static fn makeButton(id: jlong, title: JString) -> android.view.View,
+        static fn makeCanvas(id: jlong) -> android.view.View,
+        static fn makeContainer() -> android.view.View,
+        static fn makeCover(node: jlong, half: jboolean) -> android.view.View,
+        static fn makeDivider(vertical: jboolean) -> android.view.View,
+        static fn makeImage(name: JString, mode: jint, tint: jint) -> android.view.View,
+        static fn makeImageBitmap(id: jlong, mode: jint) -> android.view.View,
+        static fn makeImageBytes(bytes: jbyte[], mode: jint) -> android.view.View,
+        static fn makeLabel(text: JString) -> android.view.View,
+        static fn makeList(host_id: jlong, row_height_px: jint, selectable: jboolean, reorderable: jboolean, deletable: jboolean, delete_label: JString) -> android.view.View,
+        static fn makeNavHost(id: jlong, title: JString, adaptive: jboolean, tile_min_dp: jfloat) -> android.view.View,
+        static fn makeNavMenu(id: jlong, joined_items: JString, joined_icons: JString, joined_sections: JString) -> android.view.View,
+        static fn makeNavPage(id: jlong) -> android.view.View,
+        static fn makeNavSuite(id: jlong, initial: jint) -> android.view.View,
+        static fn makeProgress(determinate: jboolean, fraction: jdouble) -> android.view.View,
+        static fn makeScroll(horizontal: jboolean) -> android.view.View,
+        static fn makeSlider(id: jlong, value: jdouble, min: jdouble, max: jdouble) -> android.view.View,
+        static fn makeTextField(id: jlong, value: JString, placeholder: JString) -> android.view.View,
+        static fn makeToggle(id: jlong, value: jboolean, enabled: jboolean) -> android.view.View,
+        static fn makeTree(id: jlong, height: jint, selectable: jboolean) -> android.view.View,
+        static fn markNavChromePage(page: android.view.View),
+        static fn measureHeight(v: android.view.View) -> jint,
+        static fn measureHeightForWidth(v: android.view.View, w_px: jint) -> jint,
+        static fn measureText(text: JString, size: jdouble, weight: jint, italic: jboolean, family: JString) -> JString,
+        static fn measureWidth(v: android.view.View) -> jint,
+        static fn mountSettled(),
+        static fn moveChild(parent: android.view.View, child: android.view.View, index: jint),
+        static fn nativeBack() -> jboolean,
+        static fn navLoad(key: JString) -> JString,
+        static fn navPop(host: android.view.View),
+        static fn navPush(host: android.view.View, title: JString, immersive: jboolean),
+        static fn navSave(key: JString, value: JString),
+        static fn navSetGuard(host: android.view.View, on: jboolean),
+        static fn navSetTitle(host: android.view.View, title: JString),
+        static fn navTake(key: JString) -> JString,
+        static fn openUrl(url: JString),
+        static fn openWindow(node: jlong, title: JString),
+        static fn prepareSnapshot(host: android.view.View, revision: jlong) -> jint,
+        static fn present(req: jlong, sheet: jboolean, title: JString, message: JString, buttons_joined: JString, roles_joined: JString),
+        static fn presentFileOpen(req: jlong, title: JString, filters_joined: JString),
+        static fn presentFileSave(req: jlong, title: JString, suggested: JString, src_path: JString, filters_joined: JString),
+        static fn presentPrompt(req: jlong, title: JString, message: JString, placeholder: JString, initial: JString, ok: JString, cancel: JString),
+        static fn readNative(v: android.view.View) -> JString[],
+        static fn reduceMotion() -> jboolean,
+        static fn removeChild(child: android.view.View),
+        static fn reorderNavSuite(suite: android.view.View, order: JString),
+        static fn requestFrame(token: jlong),
+        static fn scrollToRect(v: android.view.View, x: jint, y: jint, w: jint, h: jint, animated: jboolean),
+        static fn setA11y(v: android.view.View, label: JString, hint: JString, value: JString, id: JString, role: jint, level: jint, hidden: jboolean, selected: jint),
+        static fn setAppearance(mode: jint),
+        static fn setAppMenu(spec: JString),
+        static fn setButtonContent(view: android.view.View, title: JString, icon_name: JString, icon_only: jboolean),
+        static fn setButtonSelected(v: android.view.View, on: jboolean),
+        static fn setButtonStyle(v: android.view.View, kind: jint, argb: jint, fg_argb: jint),
+        static fn setCanvasOps(v: android.view.View, nums: jdouble[], texts_joined: JString),
+        static fn setContextMenu(v: android.view.View, spec: JString),
+        static fn setDeferSystemGestures(on: jboolean),
+        static fn setDocumentTabKeys(menu: android.view.View, keys: JString),
+        static fn setEnabled(v: android.view.View, b: jboolean),
+        static fn setFrame(v: android.view.View, x: jint, y: jint, w: jint, h: jint),
+        static fn setImageBitmap(v: android.view.View, id: jlong),
+        static fn setImageBytes(v: android.view.View, bytes: jbyte[]),
+        static fn setImageName(v: android.view.View, name: JString),
+        static fn setImageTint(v: android.view.View, tint: jint),
+        static fn setInputTraits(v: android.view.View, secure: jboolean, read_only: jboolean, purpose: jint, submit_label: jint),
+        static fn setLabel(v: android.view.View, text: JString),
+        static fn setLabelColor(v: android.view.View, argb: jint, on: jboolean),
+        static fn setLabelFont(v: android.view.View, sp: jfloat, weight: jint, italic: jboolean, family: JString, tabular: jboolean),
+        static fn setLabelRuns(v: android.view.View, node: jlong, text: JString, starts: jint[], ends: jint[], flags: jint[], colors: jint[], backgrounds: jint[], scales: jint[], links_joined: JString),
+        static fn setLabelSecondary(v: android.view.View, on: jboolean),
+        static fn setLabelSingleLine(view: android.view.View),
+        static fn setLauncherShortcuts(packed: JString),
+        static fn setListCellHeight(cell: android.view.View, px: jint),
+        static fn setNavMenuBadges(nav_menu: android.view.View, joined_icons: JString, joined_tints: JString, joined_texts: JString),
+        static fn setNavMenuSelected(nav_menu: android.view.View, index: jint),
+        static fn setNavMenuTints(nav_menu: android.view.View, joined_tints: JString),
+        static fn setNavRefreshing(view: android.view.View, busy: jboolean),
+        static fn setNavRowMenus(nav_menu: android.view.View, joined_specs: JString),
+        static fn setNavSearch(nav_host: android.view.View, id: jlong, prompt: JString, text: JString, hides_on_scroll: jboolean),
+        static fn setNavSearchText(nav_host: android.view.View, text: JString),
+        static fn setNavSuiteRows(menu: android.view.View, titles: JString, icons: JString, menu_node: jlong),
+        static fn setNavSuiteSelected(suite: android.view.View, index: jint),
+        static fn setOpacity(v: android.view.View, alpha: jfloat, dur_ms: jint, curve: jint),
+        static fn setPlaceholder(v: android.view.View, value: JString),
+        static fn setPrimaryWindowTitle(title: JString),
+        static fn setProgress(v: android.view.View, fraction: jdouble),
+        static fn setScrollContent(v: android.view.View, w: jint, h: jint),
+        static fn setSectionCard(v: android.view.View, radius_px: jfloat),
+        static fn setSlider(v: android.view.View, value: jdouble, ignored_min: jdouble),
+        static fn setStatusBarHidden(hidden: jboolean),
+        static fn setSurface(v: android.view.View, argb: jint, has_bg: jboolean, radius_px: jfloat, clips: jboolean),
+        static fn setTextField(v: android.view.View, value: JString),
+        static fn setToggle(v: android.view.View, value: jboolean),
+        static fn setTransform(v: android.view.View, tx: jfloat, ty: jfloat, sx: jfloat, sy: jfloat, rot: jfloat, dur_ms: jint, curve: jint),
+        static fn setWindowSecure(node: jlong, on: jboolean),
+        static fn setWindowState(node: jlong, code: jint),
+        static fn setWindowSurface(v: android.view.View, radius_px: jfloat, clips: jboolean),
+        static fn setWindowTitle(node: jlong, title: JString),
+        static fn setWindowToolbar(root: android.view.View, spec: JString),
+        static fn shareUrl(url: JString, title: JString) -> jboolean,
+        static fn snapshotOrigin(root: android.view.View) -> JString,
+        static fn treeExpand(view: android.view.View, token: jlong, open: jboolean),
+        static fn treeReload(view: android.view.View, data: JString),
+        static fn treeReveal(view: android.view.View, token: jlong),
+        static fn treeSelection(view: android.view.View),
+        static fn uiIdle() -> jboolean,
+        static fn updateNavMenu(v: android.view.View, joined_items: JString, joined_icons: JString, joined_sections: JString),
+        static fn updateWindowToolbar(root: android.view.View, id: JString, op: jint, num: jdouble),
+        static fn windowImage(chrome: jboolean) -> jbyte[],
+            // Read by pieces outside the toolkit (day-piece-break's crash store root).
+            static fn filesDirPath() -> JString,
+            static fn postMain(token: jlong),
+            static fn postMainDelayed(token: jlong, delay_ms: jlong),
+        },
+        // Java's way into Rust, registered when `init` resolves the binding (nativeStart and
+        // nativeStartWindow stay with the app's `day_start_android!`: they start the app's root).
+        native_methods {
+            static fn nativeOnEvent(id: jlong, kind: jint, num: jdouble, text: JString),
+            static fn nativeHandlesKeys(id: jlong) -> jboolean,
+            static fn nativeRunPosted(token: jlong),
+            static fn nativeDoFrame(token: jlong, frame_time_nanos: jlong),
+            static fn nativeListLen(host_id: jlong) -> jint,
+            static fn nativeListBind(host_id: jlong, position: jint, cell: android.view.View),
+            static fn nativeListRecycle(host_id: jlong, cell: android.view.View),
+            static fn nativeListIsSelected(host_id: jlong, position: jint) -> jboolean,
+            static fn nativeListCanDrop(host_id: jlong, from: jint, to: jint) -> jboolean,
+            static fn nativeListMove(host_id: jlong, from: jint, to: jint) -> jboolean,
+            static fn nativeListCanDelete(host_id: jlong, index: jint) -> jboolean,
+            static fn nativeListDelete(host_id: jlong, index: jint) -> jboolean,
+        },
+        fields {
+            static ctx: android.content.Context,
+        },
+    }
+
+    /// Android and Java classes the toolkit calls instance methods on, each bound where the
+    /// method is declared. Platform classes are never shrunk by R8, so their keep rules change
+    /// nothing; the bindings give the calls types and the startup check a say.
+    pub(crate) mod framework {
+        crate::java_class! {
+            pub System => java.lang.System,
+            methods {
+                static fn identityHashCode(object: JObject) -> jint,
+            },
+        }
+
+        crate::java_class! {
+            pub Context => android.content.Context,
+            methods {
+                fn getAssets() -> android.content.res.AssetManager,
+            },
+        }
+
+        crate::java_class! {
+            pub View => android.view.View,
+            methods {
+                fn getWidth() -> jint,
+                fn setPointerIcon(icon: android.view.PointerIcon),
+            },
+        }
+
+        crate::java_class! {
+            pub TextView => android.widget.TextView,
+            methods {
+                fn setTextIsSelectable(selectable: jboolean),
+            },
+        }
+
+        crate::java_class! {
+            pub PointerIcon => android.view.PointerIcon,
+            methods {
+                static fn getSystemIcon(context: android.content.Context, kind: jint)
+                    -> android.view.PointerIcon,
+            },
+        }
+    }
+
+    // DayTransfer (java/dev/daybrite/day/bridge/DayTransfer.java): drag-and-drop sources and
+    // targets (docs/drag-and-drop.md).
+    crate::java_class! {
+        DayTransfer => dev.daybrite.day.bridge.DayTransfer,
+        methods {
+            static fn source(view: android.view.View, token: jlong),
+            static fn target(view: android.view.View, token: jlong),
+            static fn release(view: android.view.View),
+        },
+        native_methods {
+            static fn nativeCall(kind: jint, token: jlong, x: jdouble, y: jdouble, bytes: jbyte[],
+                local: jboolean) -> jbyte[],
+        },
+    }
+
+    /// The natives `DayBridge` declares, each forwarding to the function that does the work.
+    /// jni's wrapper around each catches a panic and logs a returned error, so none of these
+    /// can unwind into the JVM.
+    impl DayBridgeNativeInterface for DayBridgeAPI {
+        type Error = jni::errors::Error;
+
+        fn nativeOnEvent<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            id: i64,
+            kind: i32,
+            num: f64,
+            text: JString<'l>,
+        ) -> Result<(), Self::Error> {
+            dispatch_event(env, id, kind, num, &text);
+            Ok(())
+        }
+
+        fn nativeHandlesKeys<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            id: i64,
+        ) -> Result<bool, Self::Error> {
+            Ok(handles_keys(id))
+        }
+
+        fn nativeRunPosted<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            token: i64,
+        ) -> Result<(), Self::Error> {
+            run_posted(token);
+            Ok(())
+        }
+
+        fn nativeDoFrame<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            token: i64,
+            frame_time_nanos: i64,
+        ) -> Result<(), Self::Error> {
+            run_frame(token, frame_time_nanos);
+            Ok(())
+        }
+
+        fn nativeListLen<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+        ) -> Result<i32, Self::Error> {
+            Ok(i32::try_from(list_len(host_id)).unwrap_or(i32::MAX))
+        }
+
+        fn nativeListBind<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            position: i32,
+            cell: JObject<'l>,
+        ) -> Result<(), Self::Error> {
+            list_bind(env, host_id, position, cell);
+            Ok(())
+        }
+
+        fn nativeListRecycle<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            cell: JObject<'l>,
+        ) -> Result<(), Self::Error> {
+            list_recycle(env, host_id, cell);
+            Ok(())
+        }
+
+        fn nativeListIsSelected<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            position: i32,
+        ) -> Result<bool, Self::Error> {
+            Ok(list_is_selected(host_id, position))
+        }
+
+        fn nativeListCanDrop<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            from: i32,
+            to: i32,
+        ) -> Result<bool, Self::Error> {
+            Ok(list_can_drop(host_id, from, to))
+        }
+
+        fn nativeListMove<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            from: i32,
+            to: i32,
+        ) -> Result<bool, Self::Error> {
+            Ok(list_move(host_id, from, to))
+        }
+
+        fn nativeListCanDelete<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            index: i32,
+        ) -> Result<bool, Self::Error> {
+            Ok(list_can_delete(host_id, index))
+        }
+
+        fn nativeListDelete<'l>(
+            _env: &mut Env<'l>,
+            _class: JClass<'l>,
+            host_id: i64,
+            index: i32,
+        ) -> Result<bool, Self::Error> {
+            Ok(list_delete(host_id, index))
+        }
+    }
+
+    impl DayTransferNativeInterface for DayTransferAPI {
+        type Error = jni::errors::Error;
+
+        #[allow(clippy::too_many_arguments)]
+        fn nativeCall<'l>(
+            env: &mut Env<'l>,
+            _class: JClass<'l>,
+            kind: i32,
+            token: i64,
+            x: f64,
+            y: f64,
+            bytes: jni::objects::JByteArray<'l>,
+            local: bool,
+        ) -> Result<jni::objects::JByteArray<'l>, Self::Error> {
+            transfer_call(env, kind, token, x, y, bytes, local)
+        }
+    }
+
     #[derive(Clone)]
     pub struct AHandle(pub Gref);
 
     static JAVA_VM: OnceLock<JavaVM> = OnceLock::new();
-    /// GlobalRef to the DayBridge class: FindClass from spawned native threads uses the system
-    /// class loader and cannot see app classes, so cache the class on the main thread at init.
-    static BRIDGE_CLASS: OnceLock<Global<JClass<'static>>> = OnceLock::new();
-    /// GlobalRef to the app's ClassLoader (taken from the DayBridge class at init), so `dfind`
-    /// can resolve app classes from Rust-spawned threads too: their `FindClass` sees only the
-    /// system loader, and parts like day-part-http call Java from the caller's worker thread.
-    static APP_CLASS_LOADER: OnceLock<Global<JObject<'static>>> = OnceLock::new();
+    /// GlobalRef to the app's ClassLoader (taken from the DayBridge class at init), so a
+    /// `java_class!` binding resolves app classes from Rust-spawned threads too: their
+    /// `FindClass` sees only the system loader, and parts like day-part-http call Java from the
+    /// caller's worker thread.
+    static APP_CLASS_LOADER: OnceLock<Global<jni::objects::JClassLoader<'static>>> =
+        OnceLock::new();
 
     // --- Bundled data resources via the NDK AAssetManager (§18.3) --------------------------------
     // `resource("name")` reads the APK asset `name` with a zero-copy pointer into the (uncompressed)
@@ -980,27 +1200,17 @@ mod imp {
 
     /// Capture the `AAssetManager` from `DayBridge.ctx.getAssets()` and register the opener (init).
     fn register_resource_opener(env: &mut Env) {
-        let Ok(ctx) = env
-            .dfield(BRIDGE, "ctx", "Landroid/content/Context;")
-            .and_then(|f| f.l())
-        else {
+        // Held globally: the native manager is valid only while its Java one is reachable.
+        let Some(keepalive) = java_in(env, |env| {
+            let ctx = DayBridge::ctx(env)?;
+            // SAFETY: `DayBridge.ctx` is declared `android.content.Context`.
+            let am = unsafe { env.as_cast_unchecked::<framework::Context>(&ctx) }.getAssets(env)?;
+            env.new_global_ref(am)
+        }) else {
             return;
         };
-        let Ok(am) = env
-            .dcall(
-                &ctx,
-                "getAssets",
-                "()Landroid/content/res/AssetManager;",
-                &[],
-            )
-            .and_then(|r| r.l())
-        else {
-            return;
-        };
-        let Ok(keepalive) = env.new_global_ref(&am) else {
-            return;
-        };
-        let aam = unsafe { aasset::AAssetManager_fromJava(env.get_raw(), am.as_raw()) };
+        let aam =
+            unsafe { aasset::AAssetManager_fromJava(env.get_raw(), keepalive.as_obj().as_raw()) };
         if aam.is_null() {
             return;
         }
@@ -1091,10 +1301,197 @@ mod imp {
         })
     }
 
+    /// Run `f` with this thread attached to the JVM.
+    ///
+    /// A Java exception still pending when `f` returns is described to logcat and cleared: a
+    /// binding call whose error was dropped must not leave one behind, where it would fail every
+    /// JNI call after it and, back in Java, be thrown from whatever called into Rust. Calls that
+    /// care about the failure go through [`java`], which clears at the call.
     pub fn with_env<R>(f: impl FnOnce(&mut Env) -> R) -> R {
         let vm = JAVA_VM.get().expect("day-android: init() not called");
-        vm.attach_current_thread(|env| Ok::<R, jni::errors::Error>(f(env)))
-            .expect("attach_current_thread")
+        vm.attach_current_thread(|env| {
+            let out = f(env);
+            if env.exception_check() {
+                env.exception_describe();
+                env.exception_clear();
+            }
+            Ok::<R, jni::errors::Error>(out)
+        })
+        .expect("attach_current_thread")
+    }
+
+    /// Run `f` with an attached `Env`, where `?` works on every JNI call inside.
+    ///
+    /// The scope for calls through a [`java_class!`](crate::java_class) binding. Those return
+    /// `jni::errors::Result` and leave a thrown Java exception pending, and almost any JNI call
+    /// made with one pending is undefined behavior. An `Err` here is logged, the exception is
+    /// described to logcat and cleared, and the caller gets `None`, so a failed call can be
+    /// ignored or substituted without the call site remembering the clear.
+    pub fn java<R>(f: impl FnOnce(&mut Env) -> jni::errors::Result<R>) -> Option<R> {
+        with_env(|env| java_in(env, f))
+    }
+
+    /// [`java`] for code that already holds an `Env`: a `with_native` tweak, a native method's
+    /// body, a binding's `realize`.
+    pub fn java_in<R>(
+        env: &mut Env,
+        f: impl FnOnce(&mut Env) -> jni::errors::Result<R>,
+    ) -> Option<R> {
+        match f(env) {
+            Ok(v) => Some(v),
+            Err(e) => {
+                log::warn!("day-android: Java call failed: {e}");
+                if env.exception_check() {
+                    env.exception_describe();
+                    env.exception_clear();
+                }
+                None
+            }
+        }
+    }
+
+    /// `obj` as the bound class `T`, for calling `T`'s instance methods on a View Day holds (a
+    /// tweak's `with_native` handle, say). The cast is checked (`IsInstanceOf`), and the result
+    /// is a local reference of this call's frame, so it never outlives `env`.
+    pub fn downcast<'l, T: jni::refs::Reference>(
+        env: &mut Env<'l>,
+        obj: &JObject,
+    ) -> jni::errors::Result<T::Kind<'l>> {
+        let local = env.new_local_ref(obj)?;
+        env.cast_local::<T>(local)
+    }
+
+    /// A View returned by a Java factory, as a Day handle: `Err` for a null View, which a
+    /// factory returns when it could not build one.
+    pub fn view_handle(env: &mut Env, view: JObject) -> jni::errors::Result<AHandle> {
+        if view.is_null() {
+            return Err(jni::errors::Error::NullPtr("factory returned a null View"));
+        }
+        Ok(AHandle(std::sync::Arc::new(env.new_global_ref(view)?)))
+    }
+
+    /// A piece's native view, made by a Java factory through a [`java_class!`](crate::java_class)
+    /// binding: the factory's View as a Day handle, or, when the factory throws or returns null,
+    /// the visible `⟨what⟩` placeholder. A failed make must not panic inside realize: the panic
+    /// would unwind through a JNI up-call and abort the process.
+    ///
+    /// ```ignore
+    /// day_android::realize("activity", |env| DayActivity::makeActivity(env, true, false))
+    /// ```
+    pub fn realize<F>(what: &str, make: F) -> AHandle
+    where
+        F: for<'a, 'l> FnOnce(&'a mut Env<'l>) -> jni::errors::Result<JObject<'l>>,
+    {
+        java(|env| {
+            let view = make(env)?;
+            view_handle(env, view)
+        })
+        .unwrap_or_else(|| {
+            log::warn!("day-android: {what}: the Java factory failed; substituting a placeholder");
+            AHandle(with_env(|env| placeholder_view(env, what)))
+        })
+    }
+
+    pub use linkme;
+
+    /// One Java class bound by [`java_class!`](crate::java_class): its name, and the lookup that
+    /// resolves the class, every bound method and field, and registers its native methods.
+    pub struct JavaClassCheck {
+        pub name: &'static str,
+        /// The API level the binding needs (`since = 26`); 0 for every level. Below it the check
+        /// skips the binding, and its callers ask [`sdk_int`] before calling.
+        pub since: i32,
+        pub resolve: fn(&mut Env) -> jni::errors::Result<()>,
+    }
+
+    /// The device's API level (`Build.VERSION.SDK_INT`), read once from the system property
+    /// behind it, so it needs no JNI and works before `init`. 0 if the property cannot be read.
+    pub fn sdk_int() -> i32 {
+        static SDK: OnceLock<i32> = OnceLock::new();
+        *SDK.get_or_init(|| {
+            unsafe extern "C" {
+                fn __system_property_get(name: *const c_char, value: *mut c_char) -> c_int;
+            }
+            // PROP_VALUE_MAX, from <sys/system_properties.h>.
+            let mut value = [0u8; 92];
+            // SAFETY: the name is a NUL-terminated literal and `value` is PROP_VALUE_MAX bytes,
+            // the most the call writes, terminator included.
+            let len = unsafe {
+                __system_property_get(
+                    c"ro.build.version.sdk".as_ptr(),
+                    value.as_mut_ptr().cast::<c_char>(),
+                )
+            };
+            let len = usize::try_from(len).unwrap_or(0).min(value.len());
+            std::str::from_utf8(&value[..len])
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or(0)
+        })
+    }
+
+    /// Every [`java_class!`](crate::java_class) binding linked into the app.
+    #[distributed_slice]
+    pub static JAVA_CLASSES: [JavaClassCheck];
+
+    /// Resolve every binding once, at start, so a Java class that is missing from the build or a
+    /// method whose signature no longer matches is reported by name when the app launches, rather
+    /// than on the page that first calls it.
+    ///
+    /// In a debug build, and in any scripted run (`DAYSCRIPT_PORT` set), a failure ends the
+    /// process after naming every mismatch: a binding that fails takes its whole class with it,
+    /// and a walkthrough drives pieces through Day rather than the native widget, so a piece
+    /// rendering as a placeholder would otherwise pass. A release build outside a script carries
+    /// on, and the calls through that binding fail softly through [`java`].
+    fn check_java_classes(env: &mut Env) {
+        let started = std::time::Instant::now();
+        let mut failed = 0;
+        let sdk = sdk_int();
+        for class in JAVA_CLASSES {
+            if sdk < class.since {
+                continue;
+            }
+            if let Err(e) = (class.resolve)(env) {
+                failed += 1;
+                if env.exception_check() {
+                    env.exception_describe();
+                    env.exception_clear();
+                }
+                // stderr, not `log::`: this runs from `init`, before `crate::start` installs the
+                // logger, and stdio already reaches logcat.
+                eprintln!(
+                    "day-android: Java binding {} does not match the app's classes: {e}",
+                    class.name.replace(' ', "")
+                );
+            }
+        }
+        eprintln!(
+            "day-android: resolved {} Java binding(s) in {:.2} ms ({failed} failed)",
+            JAVA_CLASSES.len(),
+            started.elapsed().as_secs_f64() * 1000.0
+        );
+        let strict = cfg!(debug_assertions) || std::env::var_os("DAYSCRIPT_PORT").is_some();
+        if failed > 0 && strict {
+            eprintln!(
+                "day-android: stopping: {failed} Java binding(s) do not match the classes in this \
+                 build (above). Rebuild after changing Java, or fix the binding's signature."
+            );
+            std::process::abort();
+        }
+    }
+
+    /// The `load_class` hook every [`java_class!`](crate::java_class) binding uses: the app's
+    /// class loader, cached at `init`, so a binding first used on a thread Rust started still
+    /// finds app classes. That thread's own loader is the system one, which cannot (see `dfind`).
+    pub fn load_app_class<'l, T: jni::refs::Reference>(
+        env: &mut Env<'l>,
+        context: &jni::refs::LoaderContext,
+        initialize: bool,
+    ) -> jni::errors::Result<JClass<'l>> {
+        let Some(loader) = APP_CLASS_LOADER.get() else {
+            return context.load_class_for_type::<T>(env, initialize);
+        };
+        jni::refs::LoaderContext::Loader(loader).load_class_for_type::<T>(env, initialize)
     }
 
     /// Whether the JVM has been cached, i.e. whether [`with_env`] can run at all.
@@ -1116,23 +1513,27 @@ mod imp {
         }
     }
 
-    /// View a `java.lang.String` object as a `JString`. String return values arrive as a
-    /// `JObject` from `JValueOwned::l()`; casting is safe because `JString` is a transparent
-    /// wrapper over the same `jobject`. Public: piece/part crates reading Java strings use it.
-    pub fn as_jstring<'a>(obj: JObject<'a>) -> JString<'a> {
-        // Safety: same repr (a jobject); caller guarantees the object is a java.lang.String.
-        unsafe { std::mem::transmute(obj) }
+    /// The Java `String` a call returns, read into Rust inside [`java_in`]: `None` when the call
+    /// throws or returns null.
+    pub fn java_string<F>(env: &mut Env, call: F) -> Option<String>
+    where
+        F: for<'a, 'l> FnOnce(&'a mut Env<'l>) -> jni::errors::Result<JString<'l>>,
+    {
+        java_in(env, |env| {
+            let s = call(env)?;
+            if s.is_null() {
+                return Ok(None);
+            }
+            string_of(env, &s).map(Some)
+        })
+        .flatten()
     }
 
-    /// Call a DayBridge static returning a View, as a shared global ref (public helper).
-    ///
-    /// Never panics on a Java throw: this is the funnel for every builtin realize, and it
-    /// runs inside a JNI up-call; a panic unwinding out of that frame aborts the process,
-    /// which shipped as the "splash-only blank app" failure. On error the pending exception
-    /// is described-and-cleared (stack trace in logcat, via the `DayEnv` wrappers) and a
-    /// visible `⟨method⟩` placeholder label stands in, so one broken view cannot take down
-    /// the whole tree build. [`try_make_view`] is the fallible form for callers that want
-    /// to handle the failure themselves.
+    /// A Java `String` as a Rust `String` (MUTF-8 decoded).
+    pub fn string_of(env: &Env, s: &JString) -> jni::errors::Result<String> {
+        Ok(s.mutf8_chars(env)?.to_string())
+    }
+
     /// Pack a color the way `android.graphics.Color` wants it (`0xAARRGGBB`, as a signed int).
     pub fn argb(c: day_spec::Color) -> i32 {
         let f = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u32;
@@ -1148,17 +1549,9 @@ mod imp {
     ) {
         let title = jstr(env, title);
         let icon = jstr(env, &icon_name(icon));
-        let _ = env.dcall_static(
-            BRIDGE,
-            "setButtonContent",
-            "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
-            &[
-                JValue::Object(view.as_obj()),
-                JValue::Object(&title),
-                JValue::Object(&icon),
-                JValue::Bool(icon_only),
-            ],
-        );
+        let _ = java_in(env, |env| {
+            DayBridge::setButtonContent(env, view.as_obj(), &title, &icon, icon_only)
+        });
     }
 
     /// Style a button in place through the bridge. The view stays a `MaterialButton`, so its
@@ -1174,17 +1567,9 @@ mod imp {
             S::Compact => (4, day_spec::Color::CLEAR),
             S::Plain => (5, day_spec::Color::CLEAR),
         };
-        let _ = env.dcall_static(
-            BRIDGE,
-            "setButtonStyle",
-            "(Landroid/view/View;III)V",
-            &[
-                JValue::Object(v.as_obj()),
-                JValue::Int(kind),
-                JValue::Int(argb(fill)),
-                JValue::Int(argb(S::on_tint(fill))),
-            ],
-        );
+        let _ = java_in(env, |env| {
+            DayBridge::setButtonStyle(env, v.as_obj(), kind, argb(fill), argb(S::on_tint(fill)))
+        });
     }
 
     /// Send a label's text + runs across in one call (docs/text-runs.md).
@@ -1279,83 +1664,61 @@ mod imp {
             .join("\u{1f}");
         let s = jstr(env, text);
         let jl = jstr(env, &joined);
-        let _ = env.dcall_static(
-            BRIDGE,
-            "setLabelRuns",
-            "(Landroid/view/View;JLjava/lang/String;[I[I[I[I[I[ILjava/lang/String;)V",
-            &[
-                JValue::Object(v.as_obj()),
-                JValue::Long(node),
-                JValue::Object(&s),
-                JValue::Object(&sa),
-                JValue::Object(&se),
-                JValue::Object(&sf),
-                JValue::Object(&sc),
-                JValue::Object(&sb),
-                JValue::Object(&sz),
-                JValue::Object(&jl),
-            ],
-        );
+        let _ = java_in(env, |env| {
+            DayBridge::setLabelRuns(env, v.as_obj(), node, &s, &sa, &se, &sf, &sc, &sb, &sz, &jl)
+        });
     }
 
-    pub fn make_view(env: &mut Env, method: &str, sig: &str, args: &[JValue]) -> Gref {
-        match try_make_view(env, method, sig, args) {
+    /// A View from a `DayBridge` factory, or the visible `⟨what⟩` placeholder when the factory
+    /// throws or returns null (degrade loudly, keep the tree building).
+    fn bridge_view<F>(env: &mut Env, what: &str, make: F) -> Gref
+    where
+        F: for<'a, 'l> FnOnce(&'a mut Env<'l>) -> jni::errors::Result<JObject<'l>>,
+    {
+        match try_bridge_view(env, make) {
             Ok(g) => g,
             Err(e) => {
                 log::warn!(
-                    "day-android: DayBridge.{method} failed ({e}); substituting a placeholder view"
+                    "day-android: DayBridge.{what} failed ({e}); substituting a placeholder view"
                 );
-                placeholder_view(env, method)
+                placeholder_view(env, what)
             }
         }
     }
 
-    /// [`make_view`] without the placeholder fallback: `Err` on a Java throw (already
-    /// cleared), a wrong return type, or a null View.
-    pub fn try_make_view(
-        env: &mut Env,
-        method: &str,
-        sig: &str,
-        args: &[JValue],
-    ) -> Result<Gref, jni::errors::Error> {
-        try_make_view_on(env, BRIDGE, method, sig, args)
-    }
-
-    /// [`try_make_view`] against an arbitrary staged class: piece crates calling their
-    /// Java factory (docs/bridge.md) share the same non-panicking path.
-    pub fn try_make_view_on(
-        env: &mut Env,
-        class: &str,
-        method: &str,
-        sig: &str,
-        args: &[JValue],
-    ) -> Result<Gref, jni::errors::Error> {
-        let obj = env.dcall_static(class, method, sig, args)?.l()?;
-        if obj.is_null() {
-            return Err(jni::errors::Error::NullPtr("factory returned a null View"));
+    /// [`bridge_view`] without the placeholder: `Err` on a Java throw (described and cleared) or
+    /// a null View.
+    fn try_bridge_view<F>(env: &mut Env, make: F) -> Result<Gref, jni::errors::Error>
+    where
+        F: for<'a, 'l> FnOnce(&'a mut Env<'l>) -> jni::errors::Result<JObject<'l>>,
+    {
+        let made = match make(env) {
+            Ok(view) => view_handle(env, view).map(|h| h.0),
+            Err(e) => Err(e),
+        };
+        if made.is_err() && env.exception_check() {
+            env.exception_describe();
+            env.exception_clear();
         }
-        Ok(std::sync::Arc::new(env.new_global_ref(obj)?))
+        made
     }
 
     /// The visible stand-in for a native make that failed: the same `⟨name⟩` label the
     /// missing-renderer path shows (degrade loudly, keep the tree building).
     pub fn placeholder_view(env: &mut Env, what: &str) -> Gref {
-        let text = jstr(env, &format!("⟨{what}⟩"));
-        try_make_view(
-            env,
-            "makeLabel",
-            "(Ljava/lang/String;)Landroid/view/View;",
-            &[JValue::Object(&text)],
-        )
+        let text = format!("⟨{what}⟩");
+        try_bridge_view(env, |env| {
+            let text = JString::from_str(env, &text)?;
+            DayBridge::makeLabel(env, &text)
+        })
         // The bridge itself cannot build a plain label: nothing can render. Aborting
         // here is warranted, and it is the only remaining panic on this path.
         .expect("day-android: DayBridge.makeLabel unavailable — bridge not staged?")
     }
 
-    fn call_void(method: &str, sig: &str, args: &[JValue]) {
-        with_env(|env| {
-            let _ = env.dcall_static(BRIDGE, method, sig, args);
-        });
+    /// One `DayBridge` call made for its effect, inside [`java`]: a throw is logged and cleared.
+    fn bridge(call: impl FnOnce(&mut Env) -> jni::errors::Result<()>) {
+        let _ = java(call);
     }
 
     /// Lower an `AnimSpec` to `(duration_ms, curve_code)` for `DayBridge` (§8.4). `None` ⇒ `(0, 0)`,
@@ -1382,32 +1745,25 @@ mod imp {
     /// realize and on a reactive background patch.
     fn apply_surface(h: &AHandle, bg: Option<day_spec::Color>, corner_radius: f64, clips: bool) {
         let d = DENSITY.with(|x| x.get());
-        call_void(
-            "setSurface",
-            "(Landroid/view/View;IZFZ)V",
-            &[
-                JValue::Object(h.0.as_obj()),
-                JValue::Int(bg.map(argb_i32).unwrap_or(0)),
-                JValue::Bool(bg.is_some()),
-                JValue::Float((corner_radius * d) as f32),
-                JValue::Bool(clips),
-            ],
-        );
+        bridge(|env| {
+            DayBridge::setSurface(
+                env,
+                h.0.as_obj(),
+                bg.map(argb_i32).unwrap_or(0),
+                bg.is_some(),
+                (corner_radius * d) as f32,
+                clips,
+            )
+        });
     }
 
-    fn measure_call(h: &AHandle, method: &str) -> f64 {
-        with_env(|env| {
-            // Runs inside the layout pass (a JNI up-call): a Java throw must degrade to a
-            // zero measurement, not a panic-abort. The wrapper already cleared the exception.
-            env.dcall_static(
-                BRIDGE,
-                method,
-                "(Landroid/view/View;)I",
-                &[JValue::Object(h.0.as_obj())],
-            )
-            .and_then(|v| v.i())
-            .unwrap_or(0) as f64
-        })
+    /// A `DayBridge` measurement of `h`'s View, in px. Runs inside the layout pass (a JNI
+    /// up-call): a Java throw degrades to a zero measurement, never a panic-abort.
+    fn measure_call<F>(h: &AHandle, measure: F) -> f64
+    where
+        F: for<'a, 'l> FnOnce(&'a mut Env<'l>, &JObject) -> jni::errors::Result<i32>,
+    {
+        java(|env| measure(env, h.0.as_obj())).unwrap_or(0) as f64
     }
 
     /// Initialize globals from the Activity's nativeStart (called by `day::android_start`).
@@ -1439,21 +1795,23 @@ mod imp {
             if let Ok(vm) = env.get_java_vm() {
                 let _ = JAVA_VM.set(vm);
             }
-            if let Ok(cls) = env.dfind(BRIDGE) {
-                // Any app class's getClassLoader() yields the loader that can see every app class;
-                // cache it here on the main thread, where FindClass still resolves app classes.
-                if let Ok(loader) = env
-                    .dcall(&cls, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])
-                    .and_then(|v| v.l())
-                    && let Ok(g) = env.new_global_ref(loader)
-                {
+            // Any app class's getClassLoader() yields the loader that can see every app class;
+            // cache it here on the main thread, where FindClass still resolves app classes.
+            let loader = env
+                .find_class(jni::jni_str!("dev/daybrite/day/bridge/DayBridge"))
+                .and_then(|cls| cls.get_class_loader(env))
+                .and_then(|loader| env.new_global_ref(loader));
+            match loader {
+                Ok(g) => {
                     let _ = APP_CLASS_LOADER.set(g);
                 }
-                if let Ok(global) = env.new_global_ref(cls) {
-                    let _ = BRIDGE_CLASS.set(global);
+                Err(e) => {
+                    env.exception_clear();
+                    eprintln!("day-android: the app class loader is unavailable ({e})");
                 }
             }
             register_resource_opener(env);
+            check_java_classes(env);
             let d = density_ as f64;
             DENSITY.with(|x| x.set(d));
             // Only fails when the JNI global-ref table is already exhausted; without a root
@@ -1468,17 +1826,12 @@ mod imp {
             // Android's OS temp dir isn't app-writable; use the app cache dir for the file-save
             // staging area (docs/files.md) so `save_file(..)` can write its temp before handing
             // off to SAF.
-            if let Ok(dir) = env
-                .dcall_static(BRIDGE, "cacheDirPath", "()Ljava/lang/String;", &[])
-                .and_then(|v| v.l())
+            if let Some(path) = java_in(env, |env| {
+                let dir = DayBridge::cacheDirPath(env)?;
+                string_of(env, &dir)
+            }) && !path.is_empty()
             {
-                // cacheDirPath returns a java.lang.String; view the object as a JString to read it.
-                let jstr: JString = unsafe { std::mem::transmute(dir) };
-                if let Ok(path) = env.dstr(&jstr)
-                    && !path.is_empty()
-                {
-                    day_spec::present::set_app_temp_dir(path);
-                }
+                day_spec::present::set_app_temp_dir(path);
             }
         });
     }
@@ -1577,7 +1930,7 @@ mod imp {
 
     fn dispatch_event_inner(env: &mut Env, id: i64, kind: i32, num: f64, jstr: &JString) {
         if kind == K_CUSTOM {
-            let text = env.dstr(jstr).ok().unwrap_or_default();
+            let text = string_of(env, jstr).ok().unwrap_or_default();
             // DayActivity is about to recreate itself (DayBridge.willRecreate): the route goes
             // into the activity's instance state before the tree it belongs to is torn down.
             if text == "day:will-recreate" {
@@ -1624,7 +1977,9 @@ mod imp {
             }
         }
 
-        if kind == K_CUSTOM && env.dstr(jstr).ok().as_deref() == Some("day-list-first-visible") {
+        if kind == K_CUSTOM
+            && string_of(env, jstr).ok().as_deref() == Some("day-list-first-visible")
+        {
             let source = LIST_SOURCES.with(|map| map.borrow().get(&id).cloned());
             if let Some(source) = source
                 && let Some(report) = &source.first_visible
@@ -1637,14 +1992,14 @@ mod imp {
             K_PRESSED => Event::Pressed,
             k if k == bridge::BridgeKind::RefreshRequested as i32 => Event::RefreshRequested,
             K_TEXT_CHANGED => {
-                let text = env.dstr(jstr).ok().unwrap_or_default();
+                let text = string_of(env, jstr).ok().unwrap_or_default();
                 Event::TextChanged(text)
             }
             K_TOGGLE_CHANGED => Event::ToggleChanged(num != 0.0),
             K_VALUE_CHANGED => Event::ValueChanged(num),
             K_VALUE_COMMITTED => Event::ValueCommitted(num),
             // Inline search on the nav list (docs/search.md): the field's new text.
-            K_SEARCH_CHANGED => Event::SearchChanged(env.dstr(jstr).ok().unwrap_or_default()),
+            K_SEARCH_CHANGED => Event::SearchChanged(string_of(env, jstr).ok().unwrap_or_default()),
             // SlidingPaneLayout settled on a presentation; Day reconciles rather than drives.
             K_NAV_PRESENTATION => Event::NavPresentationChanged(if num >= 0.5 {
                 day_spec::props::NavPresentation::Split
@@ -1661,7 +2016,7 @@ mod imp {
             },
             // Nav page size report, "w,h" in px.
             K_FRAME_CHANGED => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 let Some((w, h)) = text.split_once(',') else {
                     return;
                 };
@@ -1673,13 +2028,13 @@ mod imp {
             }
             // Warm deep link: the nav piece handles RouteRequested.
             k if k == bridge::BridgeKind::DocumentOpened as i32 => {
-                if let Ok(path) = env.dstr(jstr) {
+                if let Ok(path) = string_of(env, jstr) {
                     day_core::request_open_files(vec![path]);
                 }
                 return;
             }
             K_DEEPLINK => {
-                let route: String = env.dstr(jstr).ok().unwrap_or_default();
+                let route: String = string_of(env, jstr).ok().unwrap_or_default();
                 day_core::request_open_url(&route);
                 return;
             }
@@ -1689,7 +2044,7 @@ mod imp {
                 result: day_spec::present::PresentResult::Button(num as i64),
             },
             K_PRESENT_TEXT => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::Text(text),
@@ -1702,7 +2057,7 @@ mod imp {
             // File-picker answer (docs/files.md): string = chosen locators (a cache path for open,
             // a content:// URI for save), joined by the unit separator. Reuse the `decode` tag 3.
             K_PRESENT_FILE => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 Event::PresentResult {
                     req: id as u64,
                     result: day_spec::present::PresentResult::decode(3, 0, text),
@@ -1711,7 +2066,7 @@ mod imp {
             // Gestures (docs/shapes.md): num = phase (0=tap 1=began 2=changed 3=ended),
             // string = "x,y,tx,ty" in px. Convert to dp like FrameChanged does.
             K_GESTURE => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
                     return;
@@ -1762,7 +2117,7 @@ mod imp {
             // JNI, so the tag is empty and the piece reads the primitive `num`/`text` payload. A piece
             // (e.g. day-piece-webview) calls `DayBridge.nativeOnEvent(id, 12, num, text)`.
             K_CUSTOM => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 Event::Custom { tag: "", num, text }
             }
             // A cover's hide slide finished (docs/cover.md): DayCover reports so Rust can
@@ -1770,17 +2125,17 @@ mod imp {
             K_COVER_HIDDEN => Event::CoverHidden,
             // A styled run's link was tapped (docs/text-runs.md): the ClickableSpan reports its
             // target, and day-core routes it to the label's `.on_link()`.
-            K_LINK_ACTIVATED => Event::LinkActivated(env.dstr(jstr).ok().unwrap_or_default()),
+            K_LINK_ACTIVATED => Event::LinkActivated(string_of(env, jstr).ok().unwrap_or_default()),
             // A key from a focused canvas (docs/menus.md): the day key name, with the modifier
             // mask in `num`. The canvas already asked whether this node claims keys.
             K_KEY => Event::Key(day_spec::KeyEvent {
-                key: env.dstr(jstr).ok().unwrap_or_default(),
+                key: string_of(env, jstr).ok().unwrap_or_default(),
                 modifiers: num as u8,
             }),
             // A toolbar item's value (docs/toolbars.md): "sel" carries a segment index, anything
             // else a toggle's new state. Plain buttons arrive as MENU_ACTION, like the menus.
             K_TOOLBAR_CHANGED => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 Event::ToolbarChanged {
                     action: id as u64,
                     value: if text == "sel" {
@@ -1806,7 +2161,7 @@ mod imp {
             // Safe-area report (edge-to-edge mode, docs/layout.md): update the global insets
             // signal; apps read `day::safe_area()`. Not an Event: nothing to route to a node.
             K_SAFE_AREA => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 4 {
                     return;
@@ -1834,7 +2189,7 @@ mod imp {
                 return;
             }
             K_WINDOW_RESIZED => {
-                let text: String = env.dstr(jstr).ok().unwrap_or_default();
+                let text: String = string_of(env, jstr).ok().unwrap_or_default();
                 let p: Vec<f64> = text.split(',').filter_map(|s| s.parse().ok()).collect();
                 if p.len() < 2 {
                     return;
@@ -2249,15 +2604,9 @@ mod imp {
     /// Best-effort, like the tint and badge follow-ups: a decoration is never worth taking the
     /// nav host's build path down with it (the navhost lesson, docs/navigation.md).
     fn nav_menu_select(env: &mut Env, h: &AHandle, sel: Option<usize>) {
-        let _ = env.dcall_static(
-            BRIDGE,
-            "setNavMenuSelected",
-            "(Landroid/view/View;I)V",
-            &[
-                JValue::Object(h.0.as_obj()),
-                JValue::Int(sel.map(|i| i as i32).unwrap_or(-1)),
-            ],
-        );
+        let _ = java_in(env, |env| {
+            DayBridge::setNavMenuSelected(env, h.0.as_obj(), sel.map(|i| i as i32).unwrap_or(-1))
+        });
         if env.exception_check() {
             env.exception_clear();
         }
@@ -2349,27 +2698,14 @@ mod imp {
         let (fit_w, fit_h) = spec.fit.map(|f| (f.width, f.height)).unwrap_or((0.0, 0.0));
         with_env(|env| {
             let jfmt = jstr(env, format);
-            let obj = env
-                .dcall_static(
-                    BRIDGE,
-                    "imageEncode",
-                    "(JLjava/lang/String;IDD)[B",
-                    &[
-                        JValue::Long(id.0 as i64),
-                        JValue::Object(&jfmt),
-                        JValue::Int(quality),
-                        JValue::Double(fit_w),
-                        JValue::Double(fit_h),
-                    ],
-                )
-                .ok()
-                .and_then(|v| v.l().ok())?;
-            if obj.is_null() {
-                return None;
-            }
-            // SAFETY: the call above returns a byte[] or null; null is handled just above.
-            let arr: jni::objects::JByteArray = unsafe { std::mem::transmute(obj) };
-            env.convert_byte_array(&arr).ok()
+            java_in(env, |env| {
+                let arr = DayBridge::imageEncode(env, id.0 as i64, &jfmt, quality, fit_w, fit_h)?;
+                if arr.is_null() {
+                    return Ok(None);
+                }
+                env.convert_byte_array(&arr).map(Some)
+            })
+            .flatten()
         })
         .ok_or(day_spec::ImageError::Encode)
     }
@@ -2380,16 +2716,13 @@ mod imp {
     /// base64 round trip for what is already binary.
     fn android_window_image(chrome: bool) -> Result<Vec<u8>, String> {
         with_env(|env| {
-            let obj = env
-                .dcall_static(BRIDGE, "windowImage", "(Z)[B", &[JValue::Bool(chrome)])
-                .map_err(|e| format!("windowImage: {e}"))?
-                .l()
-                .map_err(|e| format!("windowImage: {e}"))?;
-            if obj.is_null() {
+            let arr = DayBridge::windowImage(env, chrome).map_err(|e| {
+                env.exception_clear();
+                format!("windowImage: {e}")
+            })?;
+            if arr.is_null() {
                 return Err("no window to capture".to_string());
             }
-            // SAFETY: the call above returns a byte[] or null; null is handled just above.
-            let arr: jni::objects::JByteArray = unsafe { std::mem::transmute(obj) };
             env.convert_byte_array(&arr)
                 .map_err(|e| format!("windowImage: {e}"))
         })
@@ -2400,11 +2733,11 @@ mod imp {
 
         fn set_drag_source(&mut self, h: &AHandle, source: day_spec::transfer::Source) {
             TRANSFER_SOURCES.with(|t| t.insert(h.0.as_obj().as_raw() as usize, source));
-            transfer_install(h, "source");
+            transfer_install(h, true);
         }
         fn set_drop_target(&mut self, h: &AHandle, target: day_spec::transfer::Target) {
             TRANSFER_TARGETS.with(|t| t.insert(h.0.as_obj().as_raw() as usize, target));
-            transfer_install(h, "target");
+            transfer_install(h, false);
         }
         fn capability(&self, cap: Cap) -> Support {
             match cap {
@@ -2432,13 +2765,7 @@ mod imp {
                 // that does nothing.
                 Cap::Appearance => {
                     if with_env(|env| {
-                        env.dcall_static(
-                            "dev/daybrite/day/bridge/DayBridge",
-                            "canSetAppearance",
-                            "()Z",
-                            &[],
-                        )
-                        .and_then(|v| v.z())
+                        DayBridge::canSetAppearance(env)
                         .unwrap_or(false)
                     }) {
                         Support::Native
@@ -2523,8 +2850,7 @@ mod imp {
                 // ShortcutManager's dynamic shortcuts, from API 25 (docs/deep-links.md).
                 Cap::DynamicShortcuts => {
                     if with_env(|env| {
-                        env.dcall_static(BRIDGE, "canSetLauncherShortcuts", "()Z", &[])
-                            .and_then(|v| v.z())
+                        DayBridge::canSetLauncherShortcuts(env)
                             .unwrap_or(false)
                     }) {
                         Support::Native
@@ -2544,17 +2870,13 @@ mod imp {
 
         fn defer_system_gestures(&mut self, edges: day_spec::Edges) {
             // Any non-empty request enters swipe-to-reveal immersive mode (docs/cover.md).
-            call_void(
-                "setDeferSystemGestures",
-                "(Z)V",
-                &[JValue::Bool(!edges.is_empty())],
-            );
+            bridge(|env| DayBridge::setDeferSystemGestures(env, !edges.is_empty()));
         }
 
         fn set_status_bar_hidden(&mut self, hidden: bool) {
             // The insets controller hides the status bar; the edge-to-edge root then sees the
             // smaller top inset through its usual inset listener (docs/cover.md).
-            call_void("setStatusBarHidden", "(Z)V", &[JValue::Bool(hidden)]);
+            bridge(|env| DayBridge::setStatusBarHidden(env, hidden));
         }
 
         fn present(&mut self, req: u64, spec: &day_spec::present::PresentSpec) {
@@ -2566,19 +2888,9 @@ mod imp {
                     let message = jstr(env, spec.message().unwrap_or(""));
                     let buttons = jstr(env, &spec.buttons_joined());
                     let roles = jstr(env, &spec.roles_joined());
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "present",
-                        "(JZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                        &[
-                            JValue::Long(reqj),
-                            JValue::Bool(*sheet),
-                            JValue::Object(&title),
-                            JValue::Object(&message),
-                            JValue::Object(&buttons),
-                            JValue::Object(&roles),
-                        ],
-                    );
+                    let _ = java_in(env, |env| {
+                        DayBridge::present(env, reqj, *sheet, &title, &message, &buttons, &roles)
+                    });
                 }),
                 PresentSpec::Prompt {
                     placeholder,
@@ -2593,20 +2905,11 @@ mod imp {
                     let init = jstr(env, initial);
                     let okj = jstr(env, ok);
                     let cancelj = jstr(env, cancel);
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "presentPrompt",
-                        "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                        &[
-                            JValue::Long(reqj),
-                            JValue::Object(&title),
-                            JValue::Object(&message),
-                            JValue::Object(&ph),
-                            JValue::Object(&init),
-                            JValue::Object(&okj),
-                            JValue::Object(&cancelj),
-                        ],
-                    );
+                    let _ = java_in(env, |env| {
+                        DayBridge::presentPrompt(
+                            env, reqj, &title, &message, &ph, &init, &okj, &cancelj,
+                        )
+                    });
                 }),
                 // Storage Access Framework (docs/files.md). Java launches ACTION_OPEN_DOCUMENT /
                 // ACTION_CREATE_DOCUMENT and, on result, copies through the ContentResolver: open →
@@ -2614,16 +2917,9 @@ mod imp {
                 PresentSpec::OpenFile { .. } => with_env(|env| {
                     let title = jstr(env, spec.title());
                     let filters = jstr(env, &spec.filters_joined());
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "presentFileOpen",
-                        "(JLjava/lang/String;Ljava/lang/String;)V",
-                        &[
-                            JValue::Long(reqj),
-                            JValue::Object(&title),
-                            JValue::Object(&filters),
-                        ],
-                    );
+                    let _ = java_in(env, |env| {
+                        DayBridge::presentFileOpen(env, reqj, &title, &filters)
+                    });
                 }),
                 PresentSpec::SaveFile {
                     suggested_name,
@@ -2634,24 +2930,15 @@ mod imp {
                     let name = jstr(env, suggested_name);
                     let src = jstr(env, src_path);
                     let filters = jstr(env, &spec.filters_joined());
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "presentFileSave",
-                        "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                        &[
-                            JValue::Long(reqj),
-                            JValue::Object(&title),
-                            JValue::Object(&name),
-                            JValue::Object(&src),
-                            JValue::Object(&filters),
-                        ],
-                    );
+                    let _ = java_in(env, |env| {
+                        DayBridge::presentFileSave(env, reqj, &title, &name, &src, &filters)
+                    });
                 }),
             }
         }
 
         fn dismiss(&mut self, req: u64) {
-            call_void("dismissPresent", "(J)V", &[JValue::Long(req as i64)]);
+            bridge(|env| DayBridge::dismissPresent(env, req as i64));
         }
 
         fn share_support(&self) -> day_spec::Support {
@@ -2661,27 +2948,14 @@ mod imp {
             with_env(|env| {
                 let url = jstr(env, url);
                 let title = jstr(env, title);
-                env.dcall_static(
-                    BRIDGE,
-                    "shareUrl",
-                    "(Ljava/lang/String;Ljava/lang/String;)Z",
-                    &[JValue::Object(&url), JValue::Object(&title)],
-                )
-                .ok()
-                .and_then(|v| v.z().ok())
-                .unwrap_or(false)
+                java_in(env, |env| DayBridge::shareUrl(env, &url, &title)).unwrap_or(false)
             })
         }
 
         fn open_url(&mut self, url: &str) {
             with_env(|env| {
                 let u = jstr(env, url);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "openUrl",
-                    "(Ljava/lang/String;)V",
-                    &[JValue::Object(&u)],
-                );
+                let _ = java_in(env, |env| DayBridge::openUrl(env, &u));
             });
         }
 
@@ -2690,35 +2964,30 @@ mod imp {
             match Builtin::from_key(kind) {
                 Some(Builtin::Container) => {
                     let h = with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeContainer",
-                            "()Landroid/view/View;",
-                            &[],
-                        ))
+                        AHandle(bridge_view(env, "makeContainer", |env| {
+                            DayBridge::makeContainer(env)
+                        }))
                     });
                     if let Some(p) = props.downcast_ref::<ContainerProps>() {
                         if p.role == Some(day_spec::SurfaceRole::SectionCard) {
                             let d = DENSITY.with(|x| x.get());
-                            call_void(
-                                "setSectionCard",
-                                "(Landroid/view/View;F)V",
-                                &[
-                                    JValue::Object(h.0.as_obj()),
-                                    JValue::Float((p.corner_radius * d) as f32),
-                                ],
-                            );
+                            bridge(|env| {
+                                DayBridge::setSectionCard(
+                                    env,
+                                    h.0.as_obj(),
+                                    (p.corner_radius * d) as f32,
+                                )
+                            });
                         } else if p.role == Some(day_spec::SurfaceRole::Window) {
                             let d = DENSITY.with(|x| x.get());
-                            call_void(
-                                "setWindowSurface",
-                                "(Landroid/view/View;FZ)V",
-                                &[
-                                    JValue::Object(h.0.as_obj()),
-                                    JValue::Float((p.corner_radius * d) as f32),
-                                    JValue::Bool(p.clips),
-                                ],
-                            );
+                            bridge(|env| {
+                                DayBridge::setWindowSurface(
+                                    env,
+                                    h.0.as_obj(),
+                                    (p.corner_radius * d) as f32,
+                                    p.clips,
+                                )
+                            });
                         } else if p.background.is_some() || p.corner_radius > 0.0 || p.clips {
                             apply_surface(&h, p.background, p.corner_radius, p.clips);
                         }
@@ -2731,12 +3000,9 @@ mod imp {
                         .map(|p| p.horizontal)
                         .unwrap_or(false);
                     with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeScroll",
-                            "(Z)Landroid/view/View;",
-                            &[JValue::Bool(horizontal)],
-                        ))
+                        AHandle(bridge_view(env, "makeScroll", |env| {
+                            DayBridge::makeScroll(env, horizontal)
+                        }))
                     })
                 }
                 Some(Builtin::Tree) => {
@@ -2748,16 +3014,14 @@ mod imp {
                         RowHeight::Automatic => 36.0,
                     };
                     let handle = with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeTree",
-                            "(JIZ)Landroid/view/View;",
-                            &[
-                                JValue::Long(id.0 as i64),
-                                JValue::Int((height * DENSITY.with(|d| d.get())).round() as i32),
-                                JValue::Bool(p.selectable),
-                            ],
-                        ))
+                        AHandle(bridge_view(env, "makeTree", |env| {
+                            DayBridge::makeTree(
+                                env,
+                                id.0 as i64,
+                                (height * DENSITY.with(|d| d.get())).round() as i32,
+                                p.selectable,
+                            )
+                        }))
                     });
                     LIST_NODE.with(|m| {
                         m.borrow_mut()
@@ -2776,19 +3040,17 @@ mod imp {
                     };
                     let handle = with_env(|env| {
                         let del_label = jstr(env, &p.delete_label);
-                        AHandle(make_view(
-                            env,
-                            "makeList",
-                            "(JIZZZLjava/lang/String;)Landroid/view/View;",
-                            &[
-                                JValue::Long(id.0 as i64),
-                                JValue::Int((rowh * d).round() as i32),
-                                JValue::Bool(p.selectable),
-                                JValue::Bool(p.reorderable),
-                                JValue::Bool(p.deletable),
-                                JValue::Object(&del_label),
-                            ],
-                        ))
+                        AHandle(bridge_view(env, "makeList", |env| {
+                            DayBridge::makeList(
+                                env,
+                                id.0 as i64,
+                                (rowh * d).round() as i32,
+                                p.selectable,
+                                p.reorderable,
+                                p.deletable,
+                                &del_label,
+                            )
+                        }))
                     });
                     LIST_NODE.with(|m| {
                         m.borrow_mut()
@@ -2811,28 +3073,23 @@ mod imp {
                     // same contract `.tabSidebar` gives on iOS.
                     if p.presentation.rows_are_chrome() {
                         let host = with_env(|env| {
-                            AHandle(make_view(
-                                env,
-                                "makeNavSuite",
-                                "(JI)Landroid/view/View;",
-                                &[JValue::Long(idj), JValue::Int(0)],
-                            ))
+                            AHandle(bridge_view(env, "makeNavSuite", |env| {
+                                DayBridge::makeNavSuite(env, idj, 0)
+                            }))
                         });
                         if let Some(config) = &p.documents {
                             with_env(|env| {
                                 let new_label = jstr(env, &config.new_label);
                                 let close_label = jstr(env, &config.close_label);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "documentNavSuite",
-                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Z)V",
-                                    &[
-                                        JValue::Object(host.0.as_obj()),
-                                        JValue::Object(&new_label),
-                                        JValue::Object(&close_label),
-                                        JValue::Bool(config.can_add),
-                                    ],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::documentNavSuite(
+                                        env,
+                                        host.0.as_obj(),
+                                        &new_label,
+                                        &close_label,
+                                        config.can_add,
+                                    )
+                                });
                             });
                         }
                         NAV_SUITES
@@ -2852,19 +3109,12 @@ mod imp {
                     let adaptive = p.presentation != day_spec::props::NavPresentation::Stack;
                     let host = with_env(|env| {
                         let s = jstr(env, &p.title);
-                        AHandle(make_view(
-                            env,
-                            "makeNavHost",
-                            "(JLjava/lang/String;ZF)Landroid/view/View;",
-                            &[
-                                JValue::Long(idj),
-                                JValue::Object(&s),
-                                JValue::Bool(adaptive),
-                                // The tiling threshold comes from Day's breakpoint table, so
-                                // the platform's measure-time answer agrees with it.
-                                JValue::Float(day_spec::SizeClass::SPLIT_MIN_WIDTH as f32),
-                            ],
-                        ))
+                        // The tiling threshold comes from Day's breakpoint table, so the platform's
+                        // measure-time answer agrees with it.
+                        let split = day_spec::SizeClass::SPLIT_MIN_WIDTH as f32;
+                        AHandle(bridge_view(env, "makeNavHost", |env| {
+                            DayBridge::makeNavHost(env, idj, &s, adaptive, split)
+                        }))
                     });
                     // Inline search (docs/search.md): the field above the navigation list. The app
                     // bar holds actions, never a field (`Cap::ToolbarSearch` is unsupported), so
@@ -2879,18 +3129,16 @@ mod imp {
                         with_env(|env| {
                             let pr = jstr(env, &prompt);
                             let tx = jstr(env, &text);
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setNavSearch",
-                                "(Landroid/view/View;JLjava/lang/String;Ljava/lang/String;Z)V",
-                                &[
-                                    JValue::Object(host.0.as_obj()),
-                                    JValue::Long(idj),
-                                    JValue::Object(&pr),
-                                    JValue::Object(&tx),
-                                    JValue::Bool(sp.hides_on_scroll),
-                                ],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::setNavSearch(
+                                    env,
+                                    host.0.as_obj(),
+                                    idj,
+                                    &pr,
+                                    &tx,
+                                    sp.hides_on_scroll,
+                                )
+                            });
                             if env.exception_check() {
                                 env.exception_clear();
                             }
@@ -2899,12 +3147,9 @@ mod imp {
                     host
                 }
                 Some(Builtin::NavPage) => with_env(|env| {
-                    let h = AHandle(make_view(
-                        env,
-                        "makeNavPage",
-                        "(J)Landroid/view/View;",
-                        &[JValue::Long(idj)],
-                    ));
+                    let h = AHandle(bridge_view(env, "makeNavPage", |env| {
+                        DayBridge::makeNavPage(env, idj)
+                    }));
                     // A sidebar page inside a navigation suite is the page whose rows BECAME the
                     // chrome, so the suite keeps it attached but never shows it (drawing the rows
                     // again as a list would be the same navigation twice). Marked here because
@@ -2912,12 +3157,7 @@ mod imp {
                     let sidebar = day_spec::props_of::<NavPageProps>(kind, "android", props)
                         .is_some_and(|p| p.pane == day_spec::props::Pane::Sidebar);
                     if sidebar {
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "markNavChromePage",
-                            "(Landroid/view/View;)V",
-                            &[JValue::Object(h.0.as_obj())],
-                        );
+                        let _ = java_in(env, |env| DayBridge::markNavChromePage(env, h.0.as_obj()));
                     }
                     h
                 }),
@@ -2929,12 +3169,9 @@ mod imp {
                     let half = day_spec::props_of::<CoverProps>(kind, "android", props)
                         .is_some_and(|p| p.half);
                     with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeCover",
-                            "(JZ)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Bool(half)],
-                        ))
+                        AHandle(bridge_view(env, "makeCover", |env| {
+                            DayBridge::makeCover(env, idj, half)
+                        }))
                     })
                 }
                 Some(Builtin::NavMenu) => {
@@ -2971,17 +3208,9 @@ mod imp {
                         let s = jstr(env, &joined);
                         let si = jstr(env, &joined_icons);
                         let ss = jstr(env, &joined_sections);
-                        let handle = AHandle(make_view(
-                            env,
-                            "makeNavMenu",
-                            "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                            &[
-                                JValue::Long(idj),
-                                JValue::Object(&s),
-                                JValue::Object(&si),
-                                JValue::Object(&ss),
-                            ],
-                        ));
+                        let handle = AHandle(bridge_view(env, "makeNavMenu", |env| {
+                            DayBridge::makeNavMenu(env, idj, &s, &si, &ss)
+                        }));
                         // Keep the rows for `insert`, which is where a navigation suite above
                         // this menu can finally be found and handed them.
                         NAV_MENU_ROWS.with(|m| {
@@ -2999,12 +3228,9 @@ mod imp {
                         // decoration stays off makeNavMenu's critical path, so a tint problem
                         // can never abort the tree build (the navhost lesson).
                         let st = jstr(env, &joined_tints);
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setNavMenuTints",
-                            "(Landroid/view/View;Ljava/lang/String;)V",
-                            &[JValue::Object(handle.0.as_obj()), JValue::Object(&st)],
-                        );
+                        let _ = java_in(env, |env| {
+                            DayBridge::setNavMenuTints(env, handle.0.as_obj(), &st)
+                        });
                         // The trailing status glyph (docs/navigation.md), same best-effort rule.
                         let texts = p
                             .badges
@@ -3015,29 +3241,18 @@ mod imp {
                         let counts = jstr(env, &texts);
                         let sb = jstr(env, &joined_badge_icons);
                         let sbt = jstr(env, &joined_badge_tints);
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setNavMenuBadges",
-                            "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                            &[
-                                JValue::Object(handle.0.as_obj()),
-                                JValue::Object(&sb),
-                                JValue::Object(&sbt),
-                                JValue::Object(&counts),
-                            ],
-                        );
+                        let _ = java_in(env, |env| {
+                            DayBridge::setNavMenuBadges(env, handle.0.as_obj(), &sb, &sbt, &counts)
+                        });
                         // The active indicator the model already carries: a rebuilt sidebar
                         // (a language change, a data-driven item set) has to come back marking
                         // the same page rather than blank.
                         nav_menu_select(env, &handle, p.selected);
                         // Per-row context menus (docs/menus.md): same best-effort follow-up.
                         let sm = jstr(env, &joined_menus);
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setNavRowMenus",
-                            "(Landroid/view/View;Ljava/lang/String;)V",
-                            &[JValue::Object(handle.0.as_obj()), JValue::Object(&sm)],
-                        );
+                        let _ = java_in(env, |env| {
+                            DayBridge::setNavRowMenus(env, handle.0.as_obj(), &sm)
+                        });
                         if env.exception_check() {
                             env.exception_clear();
                         }
@@ -3051,61 +3266,42 @@ mod imp {
                     let (sp, weight, italic, tabular) = font_params(p.font);
                     with_env(|env| {
                         let s = jstr(env, &p.text);
-                        let view = make_view(
-                            env,
-                            "makeLabel",
-                            "(Ljava/lang/String;)Landroid/view/View;",
-                            &[JValue::Object(&s)],
-                        );
+                        let view =
+                            bridge_view(env, "makeLabel", |env| DayBridge::makeLabel(env, &s));
                         if !p.wraps {
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setLabelSingleLine",
-                                "(Landroid/view/View;)V",
-                                &[JValue::Object(view.as_obj())],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::setLabelSingleLine(env, view.as_obj())
+                            });
                         }
                         // A whole-label monospace ask rides the family parameter: "monospace" is
                         // Android's own alias for the system fixed-pitch face, so this is the same
                         // request `TypefaceSpan("monospace")` makes for a single run.
                         let fam = match (custom_family(p.font), p.font.monospace) {
-                            (Some(f), _) => JObject::from(jstr(env, f)),
-                            (None, true) => JObject::from(jstr(env, "monospace")),
-                            (None, false) => JObject::null(),
+                            (Some(f), _) => jstr(env, f),
+                            (None, true) => jstr(env, "monospace"),
+                            (None, false) => JString::default(),
                         };
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setLabelFont",
-                            "(Landroid/view/View;FIZLjava/lang/String;Z)V",
-                            &[
-                                JValue::Object(view.as_obj()),
-                                JValue::Float(sp),
-                                JValue::Int(weight),
-                                JValue::Bool(italic),
-                                JValue::Object(&fam),
-                                JValue::Bool(tabular),
-                            ],
-                        );
+                        let _ = java_in(env, |env| {
+                            DayBridge::setLabelFont(
+                                env,
+                                view.as_obj(),
+                                sp,
+                                weight,
+                                italic,
+                                &fam,
+                                tabular,
+                            )
+                        });
                         if let Some(col) = p.color {
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setLabelColor",
-                                "(Landroid/view/View;IZ)V",
-                                &[
-                                    JValue::Object(view.as_obj()),
-                                    JValue::Int(argb_i32(col)),
-                                    JValue::Bool(true),
-                                ],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::setLabelColor(env, view.as_obj(), argb_i32(col), true)
+                            });
                         } else if p.role == day_spec::props::TextRole::Secondary {
                             // The theme's own secondary color, resolved on the Java side so it
                             // follows the app's theme and the system's light/dark setting.
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setLabelSecondary",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(view.as_obj()), JValue::Bool(true)],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::setLabelSecondary(env, view.as_obj(), true)
+                            });
                         }
                         // A label patch carries no node id, and a link's ClickableSpan needs one
                         // to report through, so remember it here, where the id is in hand.
@@ -3123,24 +3319,14 @@ mod imp {
                     };
                     with_env(|env| {
                         let s = jstr(env, &p.title);
-                        let v = make_view(
-                            env,
-                            "makeButton",
-                            "(JLjava/lang/String;)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Object(&s)],
-                        );
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setEnabled",
-                            "(Landroid/view/View;Z)V",
-                            &[JValue::Object(v.as_obj()), JValue::Bool(p.enabled)],
-                        );
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setButtonSelected",
-                            "(Landroid/view/View;Z)V",
-                            &[JValue::Object(v.as_obj()), JValue::Bool(p.selected)],
-                        );
+                        let v = bridge_view(env, "makeButton", |env| {
+                            DayBridge::makeButton(env, idj, &s)
+                        });
+                        let _ =
+                            java_in(env, |env| DayBridge::setEnabled(env, v.as_obj(), p.enabled));
+                        let _ = java_in(env, |env| {
+                            DayBridge::setButtonSelected(env, v.as_obj(), p.selected)
+                        });
                         apply_button_style(env, &v, p.style);
                         if p.icon.is_some() {
                             apply_button_content(env, &v, &p.title, p.icon.as_ref(), p.icon_only);
@@ -3153,16 +3339,9 @@ mod imp {
                         return realize_placeholder(kind);
                     };
                     with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeToggle",
-                            "(JZZ)Landroid/view/View;",
-                            &[
-                                JValue::Long(idj),
-                                JValue::Bool(p.on),
-                                JValue::Bool(p.enabled),
-                            ],
-                        ))
+                        AHandle(bridge_view(env, "makeToggle", |env| {
+                            DayBridge::makeToggle(env, idj, p.on, p.enabled)
+                        }))
                     })
                 }
                 Some(Builtin::Slider) => {
@@ -3170,17 +3349,9 @@ mod imp {
                         return realize_placeholder(kind);
                     };
                     with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeSlider",
-                            "(JDDD)Landroid/view/View;",
-                            &[
-                                JValue::Long(idj),
-                                JValue::Double(p.value),
-                                JValue::Double(p.min),
-                                JValue::Double(p.max),
-                            ],
-                        ))
+                        AHandle(bridge_view(env, "makeSlider", |env| {
+                            DayBridge::makeSlider(env, idj, p.value, p.min, p.max)
+                        }))
                     })
                 }
                 Some(Builtin::Picker) => crate::picker::realize_any(self, props, id),
@@ -3193,24 +3364,18 @@ mod imp {
                     with_env(|env| {
                         let v = jstr(env, &p.text);
                         let ph = jstr(env, &p.placeholder);
-                        AHandle(make_view(
-                            env,
-                            "makeTextField",
-                            "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                            &[JValue::Long(idj), JValue::Object(&v), JValue::Object(&ph)],
-                        ))
+                        AHandle(bridge_view(env, "makeTextField", |env| {
+                            DayBridge::makeTextField(env, idj, &v, &ph)
+                        }))
                     })
                 }
                 Some(Builtin::Divider) => {
                     let vertical = day_spec::props_of::<DividerProps>(kind, "android", props)
                         .is_some_and(|p| p.vertical);
                     with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeDivider",
-                            "(Z)Landroid/view/View;",
-                            &[JValue::Bool(vertical)],
-                        ))
+                        AHandle(bridge_view(env, "makeDivider", |env| {
+                            DayBridge::makeDivider(env, vertical)
+                        }))
                     })
                 }
                 Some(Builtin::Progress) => {
@@ -3219,24 +3384,15 @@ mod imp {
                         return realize_placeholder(kind);
                     };
                     with_env(|env| {
-                        AHandle(make_view(
-                            env,
-                            "makeProgress",
-                            "(ZD)Landroid/view/View;",
-                            &[
-                                JValue::Bool(p.value.is_some()),
-                                JValue::Double(p.value.unwrap_or(0.0)),
-                            ],
-                        ))
+                        AHandle(bridge_view(env, "makeProgress", |env| {
+                            DayBridge::makeProgress(env, p.value.is_some(), p.value.unwrap_or(0.0))
+                        }))
                     })
                 }
                 Some(Builtin::Canvas) => with_env(|env| {
-                    AHandle(make_view(
-                        env,
-                        "makeCanvas",
-                        "(J)Landroid/view/View;",
-                        &[JValue::Long(idj)],
-                    ))
+                    AHandle(bridge_view(env, "makeCanvas", |env| {
+                        DayBridge::makeCanvas(env, idj)
+                    }))
                 }),
                 Some(Builtin::Image) => {
                     let Some(p) = day_spec::props_of::<ImageProps>(kind, "android", props) else {
@@ -3260,35 +3416,29 @@ mod imp {
                     with_env(|env| match &p.source {
                         day_spec::ImageSource::Named(named) => {
                             let s = jstr(env, named);
-                            AHandle(make_view(
-                                env,
-                                "makeImage",
-                                "(Ljava/lang/String;II)Landroid/view/View;",
-                                &[JValue::Object(&s), JValue::Int(mode), JValue::Int(tint)],
-                            ))
+                            AHandle(bridge_view(env, "makeImage", |env| {
+                                DayBridge::makeImage(env, &s, mode, tint)
+                            }))
                         }
                         day_spec::ImageSource::Bytes(bytes) => {
                             let Ok(arr) = env.byte_array_from_slice(bytes) else {
-                                return AHandle(make_view(
-                                    env,
-                                    "makeImageBytes",
-                                    "([BI)Landroid/view/View;",
-                                    &[JValue::Object(&JObject::null()), JValue::Int(mode)],
-                                ));
+                                return AHandle(bridge_view(env, "makeImageBytes", |env| {
+                                    DayBridge::makeImageBytes(
+                                        env,
+                                        jni::objects::JByteArray::default(),
+                                        mode,
+                                    )
+                                }));
                             };
-                            AHandle(make_view(
-                                env,
-                                "makeImageBytes",
-                                "([BI)Landroid/view/View;",
-                                &[JValue::Object(&arr), JValue::Int(mode)],
-                            ))
+                            AHandle(bridge_view(env, "makeImageBytes", |env| {
+                                DayBridge::makeImageBytes(env, &arr, mode)
+                            }))
                         }
-                        day_spec::ImageSource::Decoded(id) => AHandle(make_view(
-                            env,
-                            "makeImageBitmap",
-                            "(JI)Landroid/view/View;",
-                            &[JValue::Long(id.0 as i64), JValue::Int(mode)],
-                        )),
+                        day_spec::ImageSource::Decoded(id) => {
+                            AHandle(bridge_view(env, "makeImageBitmap", |env| {
+                                DayBridge::makeImageBitmap(env, id.0 as i64, mode)
+                            }))
+                        }
                     })
                 }
                 // A recycled list cell is adopted from the native list, never realized
@@ -3305,12 +3455,9 @@ mod imp {
                     warn_missing_renderer(kind);
                     with_env(|env| {
                         let s = jstr(env, &format!("⟨{kind}⟩"));
-                        AHandle(make_view(
-                            env,
-                            "makeLabel",
-                            "(Ljava/lang/String;)Landroid/view/View;",
-                            &[JValue::Object(&s)],
-                        ))
+                        AHandle(bridge_view(env, "makeLabel", |env| {
+                            DayBridge::makeLabel(env, &s)
+                        }))
                     })
                 }
             }
@@ -3337,12 +3484,9 @@ mod imp {
                                 // the bridge remembers which views were realized as one.
                                 let tint = image_tint(*c, false);
                                 with_env(|env| {
-                                    let _ = env.dcall_static(
-                                        BRIDGE,
-                                        "setImageTint",
-                                        "(Landroid/view/View;I)V",
-                                        &[JValue::Object(&h.0), JValue::Int(tint)],
-                                    );
+                                    let _ = java_in(env, |env| {
+                                        DayBridge::setImageTint(env, h.0.as_obj(), tint)
+                                    });
                                 });
                             }
                             // A source swap repaints the same view (docs/images.md), so an
@@ -3352,30 +3496,25 @@ mod imp {
                                 with_env(|env| match source {
                                     day_spec::ImageSource::Named(named) => {
                                         let s = jstr(env, named);
-                                        let _ = env.dcall_static(
-                                            BRIDGE,
-                                            "setImageName",
-                                            "(Landroid/view/View;Ljava/lang/String;)V",
-                                            &[JValue::Object(&h.0), JValue::Object(&s)],
-                                        );
+                                        let _ = java_in(env, |env| {
+                                            DayBridge::setImageName(env, h.0.as_obj(), &s)
+                                        });
                                     }
                                     day_spec::ImageSource::Bytes(bytes) => {
                                         if let Ok(arr) = env.byte_array_from_slice(bytes) {
-                                            let _ = env.dcall_static(
-                                                BRIDGE,
-                                                "setImageBytes",
-                                                "(Landroid/view/View;[B)V",
-                                                &[JValue::Object(&h.0), JValue::Object(&arr)],
-                                            );
+                                            let _ = java_in(env, |env| {
+                                                DayBridge::setImageBytes(env, h.0.as_obj(), &arr)
+                                            });
                                         }
                                     }
                                     day_spec::ImageSource::Decoded(id) => {
-                                        let _ = env.dcall_static(
-                                            BRIDGE,
-                                            "setImageBitmap",
-                                            "(Landroid/view/View;J)V",
-                                            &[JValue::Object(&h.0), JValue::Long(id.0 as i64)],
-                                        );
+                                        let _ = java_in(env, |env| {
+                                            DayBridge::setImageBitmap(
+                                                env,
+                                                h.0.as_obj(),
+                                                id.0 as i64,
+                                            )
+                                        });
                                     }
                                 });
                             }
@@ -3392,12 +3531,9 @@ mod imp {
                 kinds::NAV_MENU => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::RefreshPatch>() {
                         with_env(|env| {
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setNavRefreshing",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(p.refreshing)],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::setNavRefreshing(env, h.0.as_obj(), p.refreshing)
+                            });
                         });
                         return;
                     }
@@ -3442,34 +3578,20 @@ mod imp {
                                 let s = jstr(env, &joined);
                                 let si = jstr(env, &joined_icons);
                                 let ss = jstr(env, &joined_sections);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "updateNavMenu",
-                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                                    &[
-                                        JValue::Object(h.0.as_obj()),
-                                        JValue::Object(&s),
-                                        JValue::Object(&si),
-                                        JValue::Object(&ss),
-                                    ],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::updateNavMenu(env, h.0.as_obj(), &s, &si, &ss)
+                                });
                                 let keys = jstr(env, &document_keys.join("\u{1f}"));
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setDocumentTabKeys",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&keys)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::setDocumentTabKeys(env, h.0.as_obj(), &keys)
+                                });
                                 // A rebuilt menu comes back unchecked, so re-apply the selection
                                 // the patch carries with it.
                                 nav_menu_select(env, h, *selected);
                                 let st = jstr(env, &joined_tints);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setNavMenuTints",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&st)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::setNavMenuTints(env, h.0.as_obj(), &st)
+                                });
                                 let texts = badges
                                     .iter()
                                     .map(|s| s.as_deref().unwrap_or(""))
@@ -3478,24 +3600,19 @@ mod imp {
                                 let counts = jstr(env, &texts);
                                 let sb = jstr(env, &joined_badge_icons);
                                 let sbt = jstr(env, &joined_badge_tints);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setNavMenuBadges",
-                                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V",
-                                    &[
-                                        JValue::Object(h.0.as_obj()),
-                                        JValue::Object(&sb),
-                                        JValue::Object(&sbt),
-                                        JValue::Object(&counts),
-                                    ],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::setNavMenuBadges(
+                                        env,
+                                        h.0.as_obj(),
+                                        &sb,
+                                        &sbt,
+                                        &counts,
+                                    )
+                                });
                                 let sm = jstr(env, &joined_menus);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setNavRowMenus",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&sm)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::setNavRowMenus(env, h.0.as_obj(), &sm)
+                                });
                                 if env.exception_check() {
                                     env.exception_clear();
                                 }
@@ -3516,12 +3633,9 @@ mod imp {
                 kinds::NAV => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::DocumentTabsPatch>() {
                         with_env(|env| {
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "documentNavChrome",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(p.native)],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::documentNavChrome(env, h.0.as_obj(), p.native)
+                            });
                         });
                         return;
                     }
@@ -3533,12 +3647,8 @@ mod imp {
                         Some(day_spec::props::SearchPatch::Focus)
                     ) {
                         with_env(|env| {
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "focusNavSearch",
-                                "(Landroid/view/View;)V",
-                                &[JValue::Object(h.0.as_obj())],
-                            );
+                            let _ =
+                                java_in(env, |env| DayBridge::focusNavSearch(env, h.0.as_obj()));
                             if env.exception_check() {
                                 env.exception_clear();
                             }
@@ -3550,12 +3660,9 @@ mod imp {
                         let text = t.clone();
                         with_env(|env| {
                             let tx = jstr(env, &text);
-                            let _ = env.dcall_static(
-                                BRIDGE,
-                                "setNavSearchText",
-                                "(Landroid/view/View;Ljava/lang/String;)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Object(&tx)],
-                            );
+                            let _ = java_in(env, |env| {
+                                DayBridge::setNavSearchText(env, h.0.as_obj(), &tx)
+                            });
                             if env.exception_check() {
                                 env.exception_clear();
                             }
@@ -3565,38 +3672,21 @@ mod imp {
                         match p {
                             NavPatch::Pushed { title, immersive } => with_env(|env| {
                                 let s = jstr(env, title);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "navPush",
-                                    "(Landroid/view/View;Ljava/lang/String;Z)V",
-                                    &[
-                                        JValue::Object(h.0.as_obj()),
-                                        JValue::Object(&s),
-                                        JValue::Bool(*immersive),
-                                    ],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::navPush(env, h.0.as_obj(), &s, *immersive)
+                                });
                             }),
-                            NavPatch::Popped => call_void(
-                                "navPop",
-                                "(Landroid/view/View;)V",
-                                &[JValue::Object(h.0.as_obj())],
-                            ),
+                            NavPatch::Popped => bridge(|env| DayBridge::navPop(env, h.0.as_obj())),
                             NavPatch::Title(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "navSetTitle",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::navSetTitle(env, h.0.as_obj(), &s)
+                                });
                             }),
                             NavPatch::GuardTop(on) => with_env(|env| {
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "navSetGuard",
-                                    "(Landroid/view/View;Z)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::navSetGuard(env, h.0.as_obj(), *on)
+                                });
                             }),
                             // Unreachable: this backend answers `Cap::NavRepresent =
                             // Unsupported`, so the pieces layer never sends it. The plan for
@@ -3612,22 +3702,17 @@ mod imp {
                                         .collect::<Vec<_>>()
                                         .join(","),
                                 );
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "reorderNavSuite",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&text)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::reorderNavSuite(env, h.0.as_obj(), &text)
+                                });
                             }),
                             // The resident-page switch (docs/navigation.md): the app moved the
                             // selection, so the suite shows that page and syncs its chrome
                             // Without reporting the move back as a tap.
                             NavPatch::Select(i) => {
-                                call_void(
-                                    "setNavSuiteSelected",
-                                    "(Landroid/view/View;I)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
-                                );
+                                bridge(|env| {
+                                    DayBridge::setNavSuiteSelected(env, h.0.as_obj(), *i as i32)
+                                });
                             }
                             // Never arrives: this backend answers `Cap::NavContentList`
                             // Unsupported, so the pieces layer composes the pane itself
@@ -3642,26 +3727,21 @@ mod imp {
                             CoverPatch::Present {
                                 background,
                                 dismiss_disabled,
-                            } => call_void(
-                                "coverPresent",
-                                "(Landroid/view/View;IZZ)V",
-                                &[
-                                    JValue::Object(h.0.as_obj()),
-                                    JValue::Int(background.map(argb_i32).unwrap_or(0)),
-                                    JValue::Bool(background.is_some()),
-                                    JValue::Bool(*dismiss_disabled),
-                                ],
-                            ),
-                            CoverPatch::DismissDisabled(d) => call_void(
-                                "coverSetDismissDisabled",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*d)],
-                            ),
-                            CoverPatch::Dismiss => call_void(
-                                "coverDismiss",
-                                "(Landroid/view/View;)V",
-                                &[JValue::Object(h.0.as_obj())],
-                            ),
+                            } => bridge(|env| {
+                                DayBridge::coverPresent(
+                                    env,
+                                    h.0.as_obj(),
+                                    background.map(argb_i32).unwrap_or(0),
+                                    background.is_some(),
+                                    *dismiss_disabled,
+                                )
+                            }),
+                            CoverPatch::DismissDisabled(d) => bridge(|env| {
+                                DayBridge::coverSetDismissDisabled(env, h.0.as_obj(), *d)
+                            }),
+                            CoverPatch::Dismiss => {
+                                bridge(|env| DayBridge::coverDismiss(env, h.0.as_obj()))
+                            }
                         }
                     }
                 }
@@ -3670,34 +3750,28 @@ mod imp {
                         match p {
                             LabelPatch::Text(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setLabel",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                                );
+                                let _ =
+                                    java_in(env, |env| DayBridge::setLabel(env, h.0.as_obj(), &s));
                             }),
                             LabelPatch::Font(f) => {
                                 let (sp, weight, italic, tabular) = font_params(*f);
                                 let family = custom_family(*f);
                                 with_env(|env| {
                                     let fam = match family {
-                                        Some(name) => JObject::from(jstr(env, name)),
-                                        None => JObject::null(),
+                                        Some(name) => jstr(env, name),
+                                        None => JString::default(),
                                     };
-                                    let _ = env.dcall_static(
-                                        BRIDGE,
-                                        "setLabelFont",
-                                        "(Landroid/view/View;FIZLjava/lang/String;Z)V",
-                                        &[
-                                            JValue::Object(h.0.as_obj()),
-                                            JValue::Float(sp),
-                                            JValue::Int(weight),
-                                            JValue::Bool(italic),
-                                            JValue::Object(&fam),
-                                            JValue::Bool(tabular),
-                                        ],
-                                    );
+                                    let _ = java_in(env, |env| {
+                                        DayBridge::setLabelFont(
+                                            env,
+                                            h.0.as_obj(),
+                                            sp,
+                                            weight,
+                                            italic,
+                                            &fam,
+                                            tabular,
+                                        )
+                                    });
                                 });
                             }
                             LabelPatch::Runs(text, runs) => {
@@ -3710,15 +3784,14 @@ mod imp {
                                 with_env(|env| set_label_runs(env, node, &h.0, text, runs))
                             }
                             LabelPatch::Color(c) => {
-                                call_void(
-                                    "setLabelColor",
-                                    "(Landroid/view/View;IZ)V",
-                                    &[
-                                        JValue::Object(h.0.as_obj()),
-                                        JValue::Int(c.map(argb_i32).unwrap_or(0)),
-                                        JValue::Bool(c.is_some()),
-                                    ],
-                                );
+                                bridge(|env| {
+                                    DayBridge::setLabelColor(
+                                        env,
+                                        h.0.as_obj(),
+                                        c.map(argb_i32).unwrap_or(0),
+                                        c.is_some(),
+                                    )
+                                });
                             }
                         }
                     }
@@ -3737,23 +3810,15 @@ mod imp {
                             }),
                             ButtonPatch::Title(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setLabel",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                                );
+                                let _ =
+                                    java_in(env, |env| DayBridge::setLabel(env, h.0.as_obj(), &s));
                             }),
-                            ButtonPatch::Enabled(e) => call_void(
-                                "setEnabled",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
-                            ),
-                            ButtonPatch::Selected(on) => call_void(
-                                "setButtonSelected",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
-                            ),
+                            ButtonPatch::Enabled(e) => {
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                            }
+                            ButtonPatch::Selected(on) => {
+                                bridge(|env| DayBridge::setButtonSelected(env, h.0.as_obj(), *on))
+                            }
                             ButtonPatch::Style(s) => {
                                 with_env(|env| apply_button_style(env, &h.0, *s))
                             }
@@ -3763,36 +3828,25 @@ mod imp {
                 kinds::TOGGLE => {
                     if let Some(p) = patch.downcast_ref::<TogglePatch>() {
                         match p {
-                            TogglePatch::On(on) => call_void(
-                                "setToggle",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
-                            ),
-                            TogglePatch::Enabled(e) => call_void(
-                                "setEnabled",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
-                            ),
+                            TogglePatch::On(on) => {
+                                bridge(|env| DayBridge::setToggle(env, h.0.as_obj(), *on))
+                            }
+                            TogglePatch::Enabled(e) => {
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                            }
                         }
                     }
                 }
                 kinds::SLIDER => {
                     if let Some(p) = patch.downcast_ref::<SliderPatch>() {
                         match p {
-                            SliderPatch::Value(v) => call_void(
-                                "setSlider",
-                                "(Landroid/view/View;DD)V",
-                                &[
-                                    JValue::Object(h.0.as_obj()),
-                                    JValue::Double(*v),
-                                    JValue::Double(0.0), // min recovered from the widget tag
-                                ],
-                            ),
-                            SliderPatch::Enabled(e) => call_void(
-                                "setEnabled",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
-                            ),
+                            SliderPatch::Value(v) => {
+                                // min recovered from the widget tag
+                                bridge(|env| DayBridge::setSlider(env, h.0.as_obj(), *v, 0.0))
+                            }
+                            SliderPatch::Enabled(e) => {
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                            }
                         }
                     }
                 }
@@ -3800,11 +3854,7 @@ mod imp {
                     if let Some(ProgressPatch::Value(Some(v))) =
                         patch.downcast_ref::<ProgressPatch>()
                     {
-                        call_void(
-                            "setProgress",
-                            "(Landroid/view/View;D)V",
-                            &[JValue::Object(h.0.as_obj()), JValue::Double(*v)],
-                        );
+                        bridge(|env| DayBridge::setProgress(env, h.0.as_obj(), *v));
                     }
                 }
                 kinds::PICKER => crate::picker::update_any(self, h, patch),
@@ -3816,29 +3866,21 @@ mod imp {
                                 if !*from_native {
                                     with_env(|env| {
                                         let s = jstr(env, text);
-                                        let _ = env.dcall_static(
-                                            BRIDGE,
-                                            "setTextField",
-                                            "(Landroid/view/View;Ljava/lang/String;)V",
-                                            &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                                        );
+                                        let _ = java_in(env, |env| {
+                                            DayBridge::setTextField(env, h.0.as_obj(), &s)
+                                        });
                                     });
                                 }
                             }
                             TextFieldPatch::Placeholder(t) => with_env(|env| {
                                 let s = jstr(env, t);
-                                let _ = env.dcall_static(
-                                    BRIDGE,
-                                    "setPlaceholder",
-                                    "(Landroid/view/View;Ljava/lang/String;)V",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                                );
+                                let _ = java_in(env, |env| {
+                                    DayBridge::setPlaceholder(env, h.0.as_obj(), &s)
+                                });
                             }),
-                            TextFieldPatch::Enabled(e) => call_void(
-                                "setEnabled",
-                                "(Landroid/view/View;Z)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Bool(*e)],
-                            ),
+                            TextFieldPatch::Enabled(e) => {
+                                bridge(|env| DayBridge::setEnabled(env, h.0.as_obj(), *e))
+                            }
                         }
                     }
                 }
@@ -3846,26 +3888,14 @@ mod imp {
                     Some(ListPatch::Reload) | Some(ListPatch::Splice(_)) => {
                         // notifyDataSetChanged: getCount reads the snapshot, getView is deferred to
                         // the next layout, so it is safe inside a with_tree borrow.
-                        call_void(
-                            "listReload",
-                            "(Landroid/view/View;)V",
-                            &[JValue::Object(h.0.as_obj())],
-                        );
+                        bridge(|env| DayBridge::listReload(env, h.0.as_obj()));
                     }
                     Some(ListPatch::ScrollToEnd) => {
                         // Posts smoothScrollToPosition(count-1) on the RecyclerView (no-op if empty).
-                        call_void(
-                            "listScrollToEnd",
-                            "(Landroid/view/View;)V",
-                            &[JValue::Object(h.0.as_obj())],
-                        );
+                        bridge(|env| DayBridge::listScrollToEnd(env, h.0.as_obj()));
                     }
                     Some(ListPatch::ScrollToRow(row)) => {
-                        call_void(
-                            "listScrollToRow",
-                            "(Landroid/view/View;I)V",
-                            &[JValue::Object(h.0.as_obj()), JValue::Int(*row as i32)],
-                        );
+                        bridge(|env| DayBridge::listScrollToRow(env, h.0.as_obj(), *row as i32));
                     }
                     Some(ListPatch::Selected(rows)) => {
                         // Record, then repaint the visible holders; newly bound holders pick
@@ -3876,11 +3906,7 @@ mod imp {
                             LIST_SELECTED.with(|m| {
                                 m.borrow_mut().insert(nid, rows.iter().copied().collect());
                             });
-                            call_void(
-                                "listPaintSelection",
-                                "(Landroid/view/View;J)V",
-                                &[JValue::Object(h.0.as_obj()), JValue::Long(nid)],
-                            );
+                            bridge(|env| DayBridge::listPaintSelection(env, h.0.as_obj(), nid));
                         }
                     }
                     Some(ListPatch::RowSizeInvalidated { cell, height }) => {
@@ -3929,14 +3955,7 @@ mod imp {
             }
         }
         fn release(&mut self, h: AHandle) {
-            with_env(|env| {
-                let _ = env.dcall_static(
-                    "dev/daybrite/day/bridge/DayTransfer",
-                    "release",
-                    "(Landroid/view/View;)V",
-                    &[JValue::Object(h.0.as_obj())],
-                );
-            });
+            bridge(|env| DayTransfer::release(env, h.0.as_obj()));
             // A released window root drops its `SECONDARY` record (docs/windows.md teardown;
             // the activity itself already finished or is finishing).
             with_env(|env| {
@@ -3970,22 +3989,11 @@ mod imp {
                 });
                 LIST_AUTOMATIC.with(|m| m.borrow_mut().remove(&nid));
             }
-            call_void(
-                "removeChild",
-                "(Landroid/view/View;)V",
-                &[JValue::Object(h.0.as_obj())],
-            );
+            bridge(|env| DayBridge::removeChild(env, h.0.as_obj()));
         }
 
         fn insert(&mut self, parent: &AHandle, child: &AHandle, _index: usize) {
-            call_void(
-                "addChild",
-                "(Landroid/view/View;Landroid/view/View;)V",
-                &[
-                    JValue::Object(parent.0.as_obj()),
-                    JValue::Object(child.0.as_obj()),
-                ],
-            );
+            bridge(|env| DayBridge::addChild(env, parent.0.as_obj(), child.0.as_obj()));
             // A nav menu now has ancestors: if one of them is a navigation suite, its rows are
             // that suite's chrome. Best-effort and after the insert, like every other decoration
             // on this backend: a failure here must not abort the tree build.
@@ -3998,24 +4006,13 @@ mod imp {
                 with_env(|env| {
                     let t = jstr(env, &titles);
                     let i = jstr(env, &icons);
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "setNavSuiteRows",
-                        "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;J)V",
-                        &[
-                            JValue::Object(child.0.as_obj()),
-                            JValue::Object(&t),
-                            JValue::Object(&i),
-                            JValue::Long(node),
-                        ],
-                    );
+                    let _ = java_in(env, |env| {
+                        DayBridge::setNavSuiteRows(env, child.0.as_obj(), &t, &i, node)
+                    });
                     let keys = jstr(env, &keys);
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "setDocumentTabKeys",
-                        "(Landroid/view/View;Ljava/lang/String;)V",
-                        &[JValue::Object(child.0.as_obj()), JValue::Object(&keys)],
-                    );
+                    let _ = java_in(env, |env| {
+                        DayBridge::setDocumentTabKeys(env, child.0.as_obj(), &keys)
+                    });
                     if env.exception_check() {
                         env.exception_clear();
                     }
@@ -4024,62 +4021,48 @@ mod imp {
         }
 
         fn remove(&mut self, _parent: &AHandle, child: &AHandle) {
-            call_void(
-                "removeChild",
-                "(Landroid/view/View;)V",
-                &[JValue::Object(child.0.as_obj())],
-            );
+            bridge(|env| DayBridge::removeChild(env, child.0.as_obj()));
         }
 
         fn move_child(&mut self, parent: &AHandle, child: &AHandle, to: usize) {
-            call_void(
-                "moveChild",
-                "(Landroid/view/View;Landroid/view/View;I)V",
-                &[
-                    JValue::Object(parent.0.as_obj()),
-                    JValue::Object(child.0.as_obj()),
-                    JValue::Int(to as i32),
-                ],
-            );
+            bridge(|env| DayBridge::moveChild(env, parent.0.as_obj(), child.0.as_obj(), to as i32));
         }
 
         fn measure(&mut self, h: &AHandle, kind: PieceKind, p: Proposal) -> Size {
             let d = density();
             match kind {
                 kinds::LABEL => {
-                    let natural_w = measure_call(h, "measureWidth") / d;
+                    let natural_w = measure_call(h, |env, v| DayBridge::measureWidth(env, v)) / d;
                     match p.width {
                         Some(pw) if natural_w > pw => {
                             let wpx = (pw * d).round() as i32;
                             let hh = with_env(|env| {
-                                env.dcall_static(
-                                    BRIDGE,
-                                    "measureHeightForWidth",
-                                    "(Landroid/view/View;I)I",
-                                    &[JValue::Object(h.0.as_obj()), JValue::Int(wpx)],
-                                )
-                                .and_then(|v| v.i())
-                                .unwrap_or(0) as f64
+                                DayBridge::measureHeightForWidth(env, h.0.as_obj(), wpx)
+                                    .unwrap_or(0) as f64
                             });
                             Size::new(pw, hh / d)
                         }
-                        _ => Size::new(natural_w, measure_call(h, "measureHeight") / d),
+                        _ => Size::new(
+                            natural_w,
+                            measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d,
+                        ),
                     }
                 }
                 kinds::NAV_MENU => Size::new(
                     p.width.unwrap_or(320.0),
-                    p.height
-                        .unwrap_or_else(|| measure_call(h, "measureHeight") / d),
+                    p.height.unwrap_or_else(|| {
+                        measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d
+                    }),
                 ),
                 kinds::SLIDER => Size::new(
                     p.width.unwrap_or(180.0),
-                    (measure_call(h, "measureHeight") / d).max(24.0),
+                    (measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d).max(24.0),
                 ),
                 // `PICKER` falls to the native measureWidth/measureHeight default below.
                 kinds::TEXT_AREA => crate::textarea::measure_any(self, h, p),
                 kinds::TEXT_FIELD => Size::new(
                     p.width.unwrap_or(180.0),
-                    (measure_call(h, "measureHeight") / d).max(40.0),
+                    (measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d).max(40.0),
                 ),
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
                 kinds::LIST => Size::new(p.width.unwrap_or(0.0), p.height.unwrap_or(0.0)),
@@ -4090,18 +4073,20 @@ mod imp {
                 // and no width at all: the Showcase's sensor strip charts drew nothing here
                 // while they filled their rows on iOS.
                 kinds::CANVAS => Size::new(
-                    p.width
-                        .unwrap_or_else(|| measure_call(h, "measureWidth") / d),
-                    p.height
-                        .unwrap_or_else(|| measure_call(h, "measureHeight") / d),
+                    p.width.unwrap_or_else(|| {
+                        measure_call(h, |env, v| DayBridge::measureWidth(env, v)) / d
+                    }),
+                    p.height.unwrap_or_else(|| {
+                        measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d
+                    }),
                 ),
                 _ => {
                     if let Some(measure) = self.registry.get(kind).and_then(|r| r.measure) {
                         return measure(self, h, p);
                     }
                     Size::new(
-                        measure_call(h, "measureWidth") / d,
-                        measure_call(h, "measureHeight") / d,
+                        measure_call(h, |env, v| DayBridge::measureWidth(env, v)) / d,
+                        measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d,
                     )
                 }
             }
@@ -4115,20 +4100,13 @@ mod imp {
                 return None;
             }
             let d = density();
-            let px = with_env(|env| {
-                env.dcall_static(
-                    BRIDGE,
-                    "baselineAt",
-                    "(Landroid/view/View;II)I",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Int((size.width * d).round() as i32),
-                        JValue::Int((size.height * d).round() as i32),
-                    ],
+            let px = java(|env| {
+                DayBridge::baselineAt(
+                    env,
+                    h.0.as_obj(),
+                    (size.width * d).round() as i32,
+                    (size.height * d).round() as i32,
                 )
-                .ok()?
-                .i()
-                .ok()
             })?;
             (px >= 0).then(|| px as f64 / d)
         }
@@ -4138,31 +4116,21 @@ mod imp {
             // transform channel below (translationX/Y + scale/rotation), which composes on top of
             // the laid-out position without relayout (§8.4).
             let d = density();
-            call_void(
-                "setFrame",
-                "(Landroid/view/View;IIII)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Int((frame.origin.x * d).round() as i32),
-                    JValue::Int((frame.origin.y * d).round() as i32),
-                    JValue::Int((frame.size.width * d).round() as i32),
-                    JValue::Int((frame.size.height * d).round() as i32),
-                ],
-            );
+            bridge(|env| {
+                DayBridge::setFrame(
+                    env,
+                    h.0.as_obj(),
+                    (frame.origin.x * d).round() as i32,
+                    (frame.origin.y * d).round() as i32,
+                    (frame.size.width * d).round() as i32,
+                    (frame.size.height * d).round() as i32,
+                )
+            });
         }
 
         fn set_opacity(&mut self, h: &AHandle, opacity: f64, anim: Option<&AnimSpec>) {
             let (dur, curve) = anim_args(anim);
-            call_void(
-                "setOpacity",
-                "(Landroid/view/View;FII)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Float(opacity as f32),
-                    JValue::Int(dur),
-                    JValue::Int(curve),
-                ],
-            );
+            bridge(|env| DayBridge::setOpacity(env, h.0.as_obj(), opacity as f32, dur, curve));
         }
 
         fn set_transform(
@@ -4174,32 +4142,27 @@ mod imp {
         ) {
             let d = density();
             let (dur, curve) = anim_args(anim);
-            call_void(
-                "setTransform",
-                "(Landroid/view/View;FFFFFII)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Float((t.tx * d) as f32),
-                    JValue::Float((t.ty * d) as f32),
-                    JValue::Float(t.sx as f32),
-                    JValue::Float(t.sy as f32),
-                    JValue::Float(t.rotate_deg as f32),
-                    JValue::Int(dur),
-                    JValue::Int(curve),
-                ],
-            );
+            bridge(|env| {
+                DayBridge::setTransform(
+                    env,
+                    h.0.as_obj(),
+                    (t.tx * d) as f32,
+                    (t.ty * d) as f32,
+                    t.sx as f32,
+                    t.sy as f32,
+                    t.rotate_deg as f32,
+                    dur,
+                    curve,
+                )
+            });
         }
 
         fn set_selectable(&mut self, h: &AHandle, selectable: bool) -> Option<AHandle> {
             // A plain label is an android.widget.TextView; make its text selectable (long-press →
             // copy, docs/text.md). A direct instance call; no DayBridge method needed.
-            with_env(|env| {
-                let _ = env.dcall(
-                    h.0.as_obj(),
-                    "setTextIsSelectable",
-                    "(Z)V",
-                    &[JValue::Bool(selectable)],
-                );
+            bridge(|env| {
+                downcast::<framework::TextView>(env, h.0.as_obj())?
+                    .setTextIsSelectable(env, selectable)
             });
             None
         }
@@ -4239,17 +4202,13 @@ mod imp {
             // `LengthFilter` counts UTF-16 units, so a native bound would refuse text the
             // bound allows.
             with_env(|env| {
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setInputTraits",
-                    "(Landroid/view/View;ZZII)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Bool(traits.secure),
-                        JValue::Bool(traits.read_only),
-                        JValue::Int(purpose),
-                        JValue::Int(submit),
-                    ],
+                let _ = DayBridge::setInputTraits(
+                    env,
+                    h.0.as_obj(),
+                    traits.secure,
+                    traits.read_only,
+                    purpose,
+                    submit,
                 );
                 if env.exception_check() {
                     env.exception_clear();
@@ -4263,86 +4222,55 @@ mod imp {
             // release the view to the platform's own choice (docs/cursor.md). Only a mouse or
             // trackpad ever shows it; a finger never does, which is correct.
             let ty = pointer_icon_type(&cursor);
-            with_env(|env| {
+            bridge(|env| {
                 let icon = match ty {
                     None => JObject::null(),
                     Some(t) => {
-                        let Ok(ctx) = env
-                            .dfield(BRIDGE, "ctx", "Landroid/content/Context;")
-                            .and_then(|f| f.l())
-                        else {
-                            return;
-                        };
-                        match env
-                            .dcall_static(
-                                "android/view/PointerIcon",
-                                "getSystemIcon",
-                                "(Landroid/content/Context;I)Landroid/view/PointerIcon;",
-                                &[JValue::Object(&ctx), JValue::Int(t)],
-                            )
-                            .and_then(|v| v.l())
-                        {
-                            Ok(icon) => icon,
-                            Err(_) => return,
-                        }
+                        let ctx = DayBridge::ctx(env)?;
+                        framework::PointerIcon::getSystemIcon(env, &ctx, t)?.into()
                     }
                 };
-                let _ = env.dcall(
-                    h.0.as_obj(),
-                    "setPointerIcon",
-                    "(Landroid/view/PointerIcon;)V",
-                    &[JValue::Object(&icon)],
-                );
+                downcast::<framework::View>(env, h.0.as_obj())?.setPointerIcon(env, &icon)
             });
         }
 
         fn set_scroll_content(&mut self, h: &AHandle, content: Size) {
             let d = density();
-            call_void(
-                "setScrollContent",
-                "(Landroid/view/View;II)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Int((content.width * d).round() as i32),
-                    JValue::Int((content.height * d).round() as i32),
-                ],
-            );
+            bridge(|env| {
+                DayBridge::setScrollContent(
+                    env,
+                    h.0.as_obj(),
+                    (content.width * d).round() as i32,
+                    (content.height * d).round() as i32,
+                )
+            });
         }
 
         fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
             let d = density();
-            call_void(
-                "scrollToRect",
-                "(Landroid/view/View;IIIIZ)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Int((target.origin.x * d).round() as i32),
-                    JValue::Int((target.origin.y * d).round() as i32),
-                    JValue::Int((target.size.width * d).round() as i32),
-                    JValue::Int((target.size.height * d).round() as i32),
-                    JValue::Bool(animated),
-                ],
-            );
+            bridge(|env| {
+                DayBridge::scrollToRect(
+                    env,
+                    h.0.as_obj(),
+                    (target.origin.x * d).round() as i32,
+                    (target.origin.y * d).round() as i32,
+                    (target.size.width * d).round() as i32,
+                    (target.size.height * d).round() as i32,
+                    animated,
+                )
+            });
         }
 
         fn set_focusable(&mut self, h: &AHandle, node: NodeId, focusable: bool) {
             if focusable {
-                call_void(
-                    "enableKeys",
-                    "(Landroid/view/View;J)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Long(node.0 as i64)],
-                );
+                bridge(|env| DayBridge::enableKeys(env, h.0.as_obj(), node.0 as i64));
             }
         }
 
         fn focus(&mut self, h: &AHandle, _node: NodeId, focused: bool) {
             // DayBridge pairs the request with the IME (show on gain, hide on resign) and
             // resigns to the focusable content root, since Android focus is never "nowhere".
-            call_void(
-                "focusView",
-                "(Landroid/view/View;Z)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Bool(focused)],
-            );
+            bridge(|env| DayBridge::focusView(env, h.0.as_obj(), focused));
         }
 
         fn set_event_sink(&mut self, sink: EventSink) {
@@ -4353,11 +4281,7 @@ mod imp {
             // Pinch and pan are not delivered on this backend yet (docs/canvas.md "Zoom and
             // pan"), and must not fall through to the tap wire below.
             if kind == day_spec::GestureKind::Pan {
-                call_void(
-                    "enablePan",
-                    "(Landroid/view/View;J)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Long(node.0 as i64)],
-                );
+                bridge(|env| DayBridge::enablePan(env, h.0.as_obj(), node.0 as i64));
                 return;
             }
             if kind == day_spec::GestureKind::Pinch {
@@ -4367,23 +4291,11 @@ mod imp {
             // HOVER_* actions arrive only from a mouse or a stylus, so wiring it into the touch
             // path would mean testing for a pointer kind on every finger event.
             if matches!(kind, day_spec::GestureKind::Hover) {
-                call_void(
-                    "enableHover",
-                    "(Landroid/view/View;J)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Long(node.0 as i64)],
-                );
+                bridge(|env| DayBridge::enableHover(env, h.0.as_obj(), node.0 as i64));
                 return;
             }
             let is_drag = matches!(kind, day_spec::GestureKind::Drag);
-            call_void(
-                "enableGesture",
-                "(Landroid/view/View;JZ)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Long(node.0 as i64),
-                    JValue::Bool(is_drag),
-                ],
-            );
+            bridge(|env| DayBridge::enableGesture(env, h.0.as_obj(), node.0 as i64, is_drag));
         }
 
         fn set_context_menu(&mut self, h: &AHandle, _node: NodeId, items: &[day_spec::MenuItem]) {
@@ -4391,12 +4303,9 @@ mod imp {
             serialize_menu(items, &mut spec);
             with_env(|env| {
                 let jspec = jstr(env, &spec);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setContextMenu",
-                    "(Landroid/view/View;Ljava/lang/String;)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Object(&jspec)],
-                );
+                let _ = java_in(env, |env| {
+                    DayBridge::setContextMenu(env, h.0.as_obj(), &jspec)
+                });
             });
         }
 
@@ -4418,12 +4327,9 @@ mod imp {
             });
             with_env(|env| {
                 let jspec = jstr(env, &spec);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setWindowToolbar",
-                    "(Landroid/view/View;Ljava/lang/String;)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Object(&jspec)],
-                );
+                let _ = java_in(env, |env| {
+                    DayBridge::setWindowToolbar(env, h.0.as_obj(), &jspec)
+                });
                 if env.exception_check() {
                     env.exception_clear();
                 }
@@ -4450,17 +4356,9 @@ mod imp {
             };
             with_env(|env| {
                 let jid = jstr(env, item);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "updateWindowToolbar",
-                    "(Landroid/view/View;Ljava/lang/String;ID)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Object(&jid),
-                        JValue::Int(op),
-                        JValue::Double(num),
-                    ],
-                );
+                let _ = java_in(env, |env| {
+                    DayBridge::updateWindowToolbar(env, h.0.as_obj(), &jid, op, num)
+                });
                 if env.exception_check() {
                     env.exception_clear();
                 }
@@ -4474,12 +4372,7 @@ mod imp {
             serialize_menu(items, &mut spec);
             with_env(|env| {
                 let jspec = jstr(env, &spec);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setAppMenu",
-                    "(Ljava/lang/String;)V",
-                    &[JValue::Object(&jspec)],
-                );
+                let _ = java_in(env, |env| DayBridge::setAppMenu(env, &jspec));
             });
         }
 
@@ -4507,11 +4400,7 @@ mod imp {
                     m.borrow_mut().insert(nid, source);
                 });
             }
-            call_void(
-                "listReload",
-                "(Landroid/view/View;)V",
-                &[JValue::Object(host.0.as_obj())],
-            );
+            bridge(|env| DayBridge::listReload(env, host.0.as_obj()));
         }
 
         fn adopt(&mut self, raw: RawHandle) -> AHandle {
@@ -4545,16 +4434,7 @@ mod imp {
                 let Ok(title) = env.new_string(&options.title) else {
                     return false;
                 };
-                env.dcall_static(
-                    BRIDGE,
-                    "openWindow",
-                    "(JLjava/lang/String;)V",
-                    &[
-                        JValue::Long(id.0 as i64),
-                        JValue::Object(&JObject::from(title)),
-                    ],
-                )
-                .is_ok()
+                java_in(env, |env| DayBridge::openWindow(env, id.0 as i64, &title)).is_some()
             });
             if ok {
                 day_spec::WindowOpenReply::Pending
@@ -4566,12 +4446,7 @@ mod imp {
         fn close_window(&mut self, host: &AHandle) {
             with_env(|env| {
                 if let Some(node) = secondary_node_of(env, host) {
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "closeWindow",
-                        "(J)V",
-                        &[JValue::Long(node as i64)],
-                    );
+                    let _ = java_in(env, |env| DayBridge::closeWindow(env, node as i64));
                 }
             });
         }
@@ -4579,12 +4454,7 @@ mod imp {
         fn focus_window(&mut self, host: &AHandle) {
             with_env(|env| {
                 if let Some(node) = secondary_node_of(env, host) {
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "focusWindow",
-                        "(J)V",
-                        &[JValue::Long(node as i64)],
-                    );
+                    let _ = java_in(env, |env| DayBridge::focusWindow(env, node as i64));
                 }
             });
         }
@@ -4599,20 +4469,12 @@ mod imp {
                 let node = secondary_node_of(env, host).unwrap_or(0) as i64;
                 match change {
                     C::State(state) => {
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setWindowState",
-                            "(JI)V",
-                            &[JValue::Long(node), JValue::Int(state.code())],
-                        );
+                        let _ = java_in(env, |env| {
+                            DayBridge::setWindowState(env, node, state.code())
+                        });
                     }
                     C::ContentProtected(on) => {
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setWindowSecure",
-                            "(JZ)V",
-                            &[JValue::Long(node), JValue::Bool(*on)],
-                        );
+                        let _ = java_in(env, |env| DayBridge::setWindowSecure(env, node, *on));
                     }
                     // Size, position and stacking belong to the system and the user here.
                     // `Appearance` stays Unsupported too: the activities are FragmentActivity,
@@ -4628,15 +4490,11 @@ mod imp {
         /// work area inside the system bars and any cutout.
         fn monitors(&self) -> Vec<day_spec::Monitor> {
             let line = with_env(|env| {
-                let obj = env
-                    .dcall_static(BRIDGE, "displayInfo", "()Ljava/lang/String;", &[])
-                    .ok()?
-                    .l()
-                    .ok()?;
-                if obj.is_null() {
+                let info = DayBridge::displayInfo(env).ok()?;
+                if info.is_null() {
                     return None;
                 }
-                env.dstr(&as_jstring(obj)).ok()
+                string_of(env, &info).ok()
             });
             line.and_then(|l| parse_display_info(&l))
                 .into_iter()
@@ -4657,12 +4515,7 @@ mod imp {
                 .join("\u{1e}");
             with_env(|env| {
                 let jpacked = jstr(env, &packed);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setLauncherShortcuts",
-                    "(Ljava/lang/String;)V",
-                    &[JValue::Object(&jpacked)],
-                );
+                let _ = java_in(env, |env| DayBridge::setLauncherShortcuts(env, &jpacked));
             });
         }
 
@@ -4671,26 +4524,17 @@ mod imp {
                 let Ok(jtitle) = env.new_string(title) else {
                     return;
                 };
-                let jtitle = JObject::from(jtitle);
                 match secondary_node_of(env, host) {
                     Some(node) => {
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setWindowTitle",
-                            "(JLjava/lang/String;)V",
-                            &[JValue::Long(node as i64), JValue::Object(&jtitle)],
-                        );
+                        let _ = java_in(env, |env| {
+                            DayBridge::setWindowTitle(env, node as i64, &jtitle)
+                        });
                     }
                     // The primary is an ordinary window (docs/windows.md) and gets a recents
                     // card of its own, so it takes a label like any other; it just has no
                     // `day.node` to be addressed by.
                     None => {
-                        let _ = env.dcall_static(
-                            BRIDGE,
-                            "setPrimaryWindowTitle",
-                            "(Ljava/lang/String;)V",
-                            &[JValue::Object(&jtitle)],
-                        );
+                        let _ = java_in(env, |env| DayBridge::setPrimaryWindowTitle(env, &jtitle));
                     }
                 }
             });
@@ -4720,24 +4564,22 @@ mod imp {
                 let hint = jstr(env, a11y.hint.as_deref().unwrap_or(""));
                 let value = jstr(env, a11y.value.as_deref().unwrap_or(""));
                 let id = jstr(env, a11y.identifier.as_deref().unwrap_or(""));
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setA11y",
-                    "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;\
-                     Ljava/lang/String;IIZI)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Object(&label),
-                        JValue::Object(&hint),
-                        JValue::Object(&value),
-                        JValue::Object(&id),
-                        JValue::Int(role),
-                        JValue::Int(level),
-                        JValue::Bool(a11y.hidden),
-                        // -1 leaves the view's own selected state alone.
-                        JValue::Int(a11y.selected.map_or(-1, i32::from)),
-                    ],
-                );
+                // -1 leaves the view's own selected state alone.
+                let selected = a11y.selected.map_or(-1, i32::from);
+                let _ = java_in(env, |env| {
+                    DayBridge::setA11y(
+                        env,
+                        h.0.as_obj(),
+                        &label,
+                        &hint,
+                        &value,
+                        &id,
+                        role,
+                        level,
+                        a11y.hidden,
+                        selected,
+                    )
+                });
             });
         }
 
@@ -4747,29 +4589,17 @@ mod imp {
             if !vm_ready() {
                 return day_spec::NativeSnapshot::default();
             }
-            let slots: Vec<Option<String>> = with_env(|env| {
-                let Ok(obj) = env
-                    .dcall_static(
-                        BRIDGE,
-                        "readNative",
-                        "(Landroid/view/View;)[Ljava/lang/String;",
-                        &[JValue::Object(h.0.as_obj())],
-                    )
-                    .and_then(|r| r.l())
-                else {
-                    return Vec::new();
-                };
-                let Ok(arr) = jni::objects::JObjectArray::<JString>::cast_local(env, obj) else {
-                    return Vec::new();
-                };
-                let len = arr.len(env).unwrap_or(0);
-                (0..len)
-                    .map(|i| {
-                        let s = arr.get_element(env, i).ok()?;
-                        read_jstring(env, &s)
-                    })
-                    .collect()
-            });
+            let slots: Vec<Option<String>> = java(|env| {
+                let arr = DayBridge::readNative(env, h.0.as_obj())?;
+                let len = arr.len(env)?;
+                let mut slots = Vec::with_capacity(len);
+                for i in 0..len {
+                    let s = arr.get_element(env, i)?;
+                    slots.push(read_jstring(env, &s));
+                }
+                Ok(slots)
+            })
+            .unwrap_or_default();
             let slot = |i: usize| slots.get(i).cloned().flatten();
             let flag = |i: usize| slot(i).map(|s| s == "1");
             let found = flag(0) == Some(true);
@@ -4810,12 +4640,7 @@ mod imp {
         fn announce(&mut self, text: &str, urgent: bool) {
             with_env(|env| {
                 let text = jstr(env, text);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "announce",
-                    "(Ljava/lang/String;Z)V",
-                    &[JValue::Object(&text), JValue::Bool(urgent)],
-                );
+                let _ = java_in(env, |env| DayBridge::announce(env, &text, urgent));
             });
         }
 
@@ -4825,10 +4650,10 @@ mod imp {
             cb: day_spec::FrameCallback,
         ) -> day_spec::CancelFrame {
             let token = day_core::frame::native::register(cb);
-            call_void("requestFrame", "(J)V", &[JValue::Long(token as i64)]);
+            bridge(|env| DayBridge::requestFrame(env, token as i64));
             Box::new(move || {
                 day_core::frame::native::cancel(token);
-                call_void("cancelFrame", "(J)V", &[JValue::Long(token as i64)]);
+                bridge(|env| DayBridge::cancelFrame(env, token as i64));
             })
         }
 
@@ -4844,16 +4669,9 @@ mod imp {
                     return;
                 }
                 let joined = jstr(env, &texts.join("\u{1f}"));
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "setCanvasOps",
-                    "(Landroid/view/View;[DLjava/lang/String;)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Object(&arr),
-                        JValue::Object(&joined),
-                    ],
-                );
+                let _ = java_in(env, |env| {
+                    DayBridge::setCanvasOps(env, h.0.as_obj(), &arr, &joined)
+                });
             });
         }
 
@@ -4865,20 +4683,11 @@ mod imp {
                 return None;
             }
             let text = with_env(|env| {
-                let obj = env
-                    .dcall_static(
-                        BRIDGE,
-                        "snapshotOrigin",
-                        "(Landroid/view/View;)Ljava/lang/String;",
-                        &[JValue::Object(root.0.as_obj())],
-                    )
-                    .ok()?
-                    .l()
-                    .ok()?;
+                let obj = DayBridge::snapshotOrigin(env, root.0.as_obj()).ok()?;
                 if obj.is_null() {
                     return None;
                 }
-                env.dstr(&as_jstring(obj)).ok()
+                string_of(env, &obj).ok()
             })?;
             let (x, y) = text.split_once(',')?;
             Some(Point::new(x.parse().ok()?, y.parse().ok()?))
@@ -4889,15 +4698,11 @@ mod imp {
                 return Vec::new();
             }
             let text = with_env(|env| {
-                let obj = env
-                    .dcall_static(BRIDGE, "fontFamilies", "()Ljava/lang/String;", &[])
-                    .ok()?
-                    .l()
-                    .ok()?;
+                let obj = DayBridge::fontFamilies(env).ok()?;
                 if obj.is_null() {
                     return None;
                 }
-                env.dstr(&as_jstring(obj)).ok()
+                string_of(env, &obj).ok()
             });
             day_spec::parse_font_list(&text.unwrap_or_default())
         }
@@ -4916,26 +4721,10 @@ mod imp {
             let reply = with_env(|env| {
                 let jtext = jstr(env, text);
                 let jfamily = jstr(env, font.family_str());
-                let obj = env
-                    .dcall_static(
-                        BRIDGE,
-                        "measureText",
-                        "(Ljava/lang/String;DIZLjava/lang/String;)Ljava/lang/String;",
-                        &[
-                            JValue::Object(&jtext),
-                            JValue::Double(size),
-                            JValue::Int(i32::from(font.css_weight())),
-                            JValue::Bool(font.italic),
-                            JValue::Object(&jfamily),
-                        ],
-                    )
-                    .ok()?
-                    .l()
-                    .ok()?;
-                if obj.is_null() {
-                    return None;
-                }
-                env.dstr(&as_jstring(obj)).ok()
+                let weight = i32::from(font.css_weight());
+                java_string(env, |env| {
+                    DayBridge::measureText(env, &jtext, size, weight, font.italic, &jfamily)
+                })
             })?;
             // The eight numbers `DayBridge.measureText` joins, in the order `from_slots` reads.
             let mut out = [0.0f64; 8];
@@ -4955,20 +4744,7 @@ mod imp {
             let reply = if vm_ready() {
                 with_env(|env| {
                     let arr = env.byte_array_from_slice(bytes).ok()?;
-                    let obj = env
-                        .dcall_static(
-                            BRIDGE,
-                            "imageDecode",
-                            "(J[B)Ljava/lang/String;",
-                            &[JValue::Long(id.0 as i64), JValue::Object(&arr)],
-                        )
-                        .ok()?
-                        .l()
-                        .ok()?;
-                    if obj.is_null() {
-                        return None;
-                    }
-                    env.dstr(&as_jstring(obj)).ok()
+                    java_string(env, |env| DayBridge::imageDecode(env, id.0 as i64, &arr))
                 })
             } else {
                 None
@@ -5028,12 +4804,7 @@ mod imp {
             });
             if vm_ready() {
                 with_env(|env| {
-                    let _ = env.dcall_static(
-                        BRIDGE,
-                        "imageRelease",
-                        "(J)V",
-                        &[JValue::Long(id.0 as i64)],
-                    );
+                    let _ = DayBridge::imageRelease(env, id.0 as i64);
                 });
             }
         }
@@ -5059,12 +4830,7 @@ mod imp {
                 None => 2,
             };
             with_env(|env| {
-                let _ = env.dcall_static(
-                    "dev/daybrite/day/bridge/DayBridge",
-                    "setAppearance",
-                    "(I)V",
-                    &[mode.into()],
-                );
+                let _ = DayBridge::setAppearance(env, mode);
             });
         }
 
@@ -5075,16 +4841,7 @@ mod imp {
                 Some("light") => return false,
                 _ => {}
             }
-            with_env(|env| {
-                env.dcall_static(
-                    "dev/daybrite/day/bridge/DayBridge",
-                    "isDarkMode",
-                    "()Z",
-                    &[],
-                )
-                .and_then(|v| v.z())
-                .unwrap_or(false)
-            })
+            with_env(|env| DayBridge::isDarkMode(env).unwrap_or(false))
         }
 
         /// The user's "Remove animations" setting (docs/accessibility.md): the global animator
@@ -5092,16 +4849,7 @@ mod imp {
         /// registers reports each flip as `K_REDUCE_MOTION_CHANGED`, after which day-core asks
         /// here again.
         fn reduce_motion(&mut self) -> bool {
-            with_env(|env| {
-                env.dcall_static(
-                    "dev/daybrite/day/bridge/DayBridge",
-                    "reduceMotion",
-                    "()Z",
-                    &[],
-                )
-                .and_then(|v| v.z())
-                .unwrap_or(false)
-            })
+            with_env(|env| DayBridge::reduceMotion(env).unwrap_or(false))
         }
 
         /// The system back, pressed (dayscript's `nav_back: { native: true }`): through the
@@ -5109,16 +4857,7 @@ mod imp {
         /// manager's own pop run exactly as a gesture does (DayBridge.nativeBack). `false`
         /// when nothing would pop, since the dispatcher would finish the activity instead.
         fn native_back(&mut self) -> bool {
-            with_env(|env| {
-                env.dcall_static(
-                    "dev/daybrite/day/bridge/DayBridge",
-                    "nativeBack",
-                    "()Z",
-                    &[],
-                )
-                .and_then(|v| v.z())
-                .unwrap_or(false)
-            })
+            with_env(|env| DayBridge::nativeBack(env).unwrap_or(false))
         }
 
         /// Whether native transitions have settled (dayscript screenshots wait on this):
@@ -5132,14 +4871,7 @@ mod imp {
             with_env(|env| {
                 let null = JObject::null();
                 let obj = host.map(|h| h.0.as_obj()).unwrap_or(&null);
-                let ready = env
-                    .dcall_static(
-                        BRIDGE,
-                        "prepareSnapshot",
-                        "(Landroid/view/View;J)I",
-                        &[JValue::Object(obj), JValue::Long(i64::from(revision))],
-                    )
-                    .and_then(|v| v.i())
+                let ready = DayBridge::prepareSnapshot(env, obj, i64::from(revision))
                     .map_err(|e| format!("frame commit: {e}"))?;
                 Ok(if ready == 1 {
                     day_spec::capture::Readiness::Ready
@@ -5150,11 +4882,7 @@ mod imp {
         }
 
         fn ui_idle(&mut self) -> bool {
-            with_env(|env| {
-                env.dcall_static("dev/daybrite/day/bridge/DayBridge", "uiIdle", "()Z", &[])
-                    .and_then(|v| v.z())
-                    .unwrap_or(true)
-            })
+            with_env(|env| DayBridge::uiIdle(env).unwrap_or(true))
         }
     }
 
@@ -5177,31 +4905,13 @@ mod imp {
         };
         let k = jstr(env, REMOUNT_ROUTE_KEY);
         let v = jstr(env, &route);
-        let _ = env.dcall_static(
-            BRIDGE,
-            "navSave",
-            "(Ljava/lang/String;Ljava/lang/String;)V",
-            &[JValue::Object(&k), JValue::Object(&v)],
-        );
+        let _ = java_in(env, |env| DayBridge::navSave(env, &k, &v));
     }
 
     /// Read and clear a `DayBridge.navState` entry (`DayBridge.navTake`).
     fn nav_take(env: &mut Env, key: &str) -> Option<String> {
         let k = jstr(env, key);
-        let obj = env
-            .dcall_static(
-                BRIDGE,
-                "navTake",
-                "(Ljava/lang/String;)Ljava/lang/String;",
-                &[JValue::Object(&k)],
-            )
-            .ok()?
-            .l()
-            .ok()?;
-        if obj.is_null() {
-            return None;
-        }
-        env.dstr(&as_jstring(obj)).ok()
+        java_string(env, |env| DayBridge::navTake(env, &k))
     }
 
     /// A mount's first build is done (`day::android::start`, after the tree is up). On a
@@ -5232,7 +4942,7 @@ mod imp {
                 }
             }
             with_env(|env| {
-                let _ = env.dcall_static(BRIDGE, "mountSettled", "()V", &[]);
+                let _ = DayBridge::mountSettled(env);
             });
         });
     }
@@ -5252,20 +4962,7 @@ mod imp {
             }
             with_env(|env| {
                 let k = jstr(env, key);
-                let obj = env
-                    .dcall_static(
-                        BRIDGE,
-                        "navLoad",
-                        "(Ljava/lang/String;)Ljava/lang/String;",
-                        &[JValue::Object(&k)],
-                    )
-                    .ok()?
-                    .l()
-                    .ok()?;
-                if obj.is_null() {
-                    return None;
-                }
-                env.dstr(&as_jstring(obj)).ok()
+                java_string(env, |env| DayBridge::navLoad(env, &k))
             })
         }
 
@@ -5276,12 +4973,7 @@ mod imp {
             with_env(|env| {
                 let k = jstr(env, key);
                 let v = jstr(env, value);
-                let _ = env.dcall_static(
-                    BRIDGE,
-                    "navSave",
-                    "(Ljava/lang/String;Ljava/lang/String;)V",
-                    &[JValue::Object(&k), JValue::Object(&v)],
-                );
+                let _ = java_in(env, |env| DayBridge::navSave(env, &k, &v));
             });
         }
     }
@@ -5315,15 +5007,11 @@ mod imp {
                 return Vec::new();
             }
             let joined = with_env(|env| {
-                let obj = env
-                    .dcall_static(BRIDGE, "localeTags", "()Ljava/lang/String;", &[])
-                    .ok()?
-                    .l()
-                    .ok()?;
+                let obj = DayBridge::localeTags(env).ok()?;
                 if obj.is_null() {
                     return None;
                 }
-                env.dstr(&as_jstring(obj)).ok()
+                string_of(env, &obj).ok()
             });
             joined
                 .unwrap_or_default()
@@ -5336,24 +5024,9 @@ mod imp {
 
         fn post(f: Box<dyn FnOnce() + Send>) {
             let token = Box::into_raw(Box::new(f)) as i64;
-            with_env(|env| {
-                // Native-spawned threads see only the system class loader, so call through the
-                // JClass cached on the main thread at init rather than a name lookup.
-                let cls = BRIDGE_CLASS
-                    .get()
-                    .expect("day-android: bridge class not cached");
-                let sig = "(J)V".parse::<RuntimeMethodSignature>().expect("sig");
-                let res = env.call_static_method(
-                    &**cls,
-                    JNIString::from("postMain"),
-                    MethodSignature::from(&sig),
-                    &[JValue::Long(token)],
-                );
-                if res.is_err() {
-                    env.exception_describe();
-                    env.exception_clear();
-                }
-            });
+            // The binding loads DayBridge through the app class loader, so this works from the
+            // native-spawned threads that see only the system loader.
+            bridge(|env| DayBridge::postMain(env, token));
         }
 
         fn post_delayed(ms: u32, f: Box<dyn FnOnce() + Send>) {
@@ -5361,22 +5034,7 @@ mod imp {
             // `postDelayed`, which hands the token back through `nativeRunPosted` exactly like
             // `postMain`. No helper thread; the delay travels as a `long`, whole.
             let token = Box::into_raw(Box::new(f)) as i64;
-            with_env(|env| {
-                let cls = BRIDGE_CLASS
-                    .get()
-                    .expect("day-android: bridge class not cached");
-                let sig = "(JJ)V".parse::<RuntimeMethodSignature>().expect("sig");
-                let res = env.call_static_method(
-                    &**cls,
-                    JNIString::from("postMainDelayed"),
-                    MethodSignature::from(&sig),
-                    &[JValue::Long(token), JValue::Long(i64::from(ms))],
-                );
-                if res.is_err() {
-                    env.exception_describe();
-                    env.exception_clear();
-                }
-            });
+            bridge(|env| DayBridge::postMainDelayed(env, token, i64::from(ms)));
         }
     }
 }

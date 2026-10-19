@@ -9,13 +9,18 @@
 // at normal rates. The Java uses day-android's cached Context (DayBridge.ctx); Rust calls it through
 // day-android's re-exported `jni`.
 
-use day_android::DayEnv;
-use day_android::jni::objects::{JDoubleArray, JValue};
-use day_android::with_env;
+use day_android::java;
 
 use super::{SensorKind, SensorReading};
 
-const SENSORS_CLASS: &str = "dev/daybrite/day/sensors/DaySensors";
+// The shim (DaySensors.java, staged into the app's Gradle build by `day build`).
+day_android::java_class! {
+    DaySensors => dev.daybrite.day.sensors.DaySensors,
+    methods {
+        static fn isAvailable(kind: jint) -> jboolean,
+        static fn read(kind: jint) -> jdouble[],
+    },
+}
 
 /// The shim's sensor-kind code (DaySensors.java): 0 = accelerometer, 1 = gyroscope, 2 = magnetometer.
 fn kind_code(kind: SensorKind) -> i32 {
@@ -27,43 +32,24 @@ fn kind_code(kind: SensorKind) -> i32 {
 }
 
 pub fn is_available(kind: SensorKind) -> bool {
-    with_env(|env| {
-        env.dcall_static(
-            SENSORS_CLASS,
-            "isAvailable",
-            "(I)Z",
-            &[JValue::Int(kind_code(kind))],
-        )
-        .ok()
-        .and_then(|v| v.z().ok())
-        .unwrap_or(false)
-    })
+    java(|env| DaySensors::isAvailable(env, kind_code(kind))).unwrap_or(false)
 }
 
 pub fn sample(kind: SensorKind) -> Option<SensorReading> {
     // The shim's `read()` returns the latest sample as a double[3] {x, y, z}, or null when the
-    // missing or no event has arrived yet (the first call only registers the listener).
-    with_env(|env| {
-        let obj = env
-            .dcall_static(
-                SENSORS_CLASS,
-                "read",
-                "(I)[D",
-                &[JValue::Int(kind_code(kind))],
-            )
-            .ok()?
-            .l()
-            .ok()?;
-        if obj.is_null() {
-            return None;
+    // sensor is missing or no event has arrived yet (the first call only registers the listener).
+    java(|env| {
+        let arr = DaySensors::read(env, kind_code(kind))?;
+        if arr.is_null() {
+            return Ok(None);
         }
-        let arr: JDoubleArray = unsafe { std::mem::transmute(obj) };
         let mut xyz = [0.0f64; 3];
-        arr.get_region(env, 0, &mut xyz).ok()?;
-        Some(SensorReading {
+        arr.get_region(env, 0, &mut xyz)?;
+        Ok(Some(SensorReading {
             x: xyz[0],
             y: xyz[1],
             z: xyz[2],
-        })
+        }))
     })
+    .flatten()
 }

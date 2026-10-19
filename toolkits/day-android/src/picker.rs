@@ -6,18 +6,26 @@
 // factory (`dev.daybrite.day.piece.picker.DayPicker`) is bundled with this crate under
 // `android/java` and pulled into the app's Gradle build automatically via
 // `[package.metadata.day.android]`, so the piece carries its backend Java without touching
-// day-android. Rust calls its own class through the re-exported `jni` (day-android's `make_view`
-// is hardcoded to DayBridge; a standalone piece uses raw `call_static_method` on its class).
+// day-android. Rust calls it through a `java_class!` binding, the same way a standalone piece
+// calls its own class (docs/android-jni.md).
 // ---------------------------------------------------------------------------
 
-use crate::DayEnv;
-use crate::jni::objects::JValue;
-use crate::{AHandle, Android, with_env};
+use crate::jni::objects::JString;
+use crate::{AHandle, Android, java, with_env};
 use day_spec::NodeId;
 use day_spec::props::{PickerPatch, PickerProps, PickerStyle};
 
-/// This piece's Java class (in the crate's android/java, on the app classpath at build).
-const PICKER_CLASS: &str = "dev/daybrite/day/piece/picker/DayPicker";
+// This piece's Java class (in the crate's android/java, on the app classpath at build).
+crate::java_class! {
+    DayPicker => dev.daybrite.day.piece.picker.DayPicker,
+    methods {
+        static fn makePicker(id: jlong, style: jint, options: JString, selected: jint,
+            enabled: jboolean) -> android.view.View,
+        static fn setPickerSelected(view: android.view.View, selected: jint),
+        static fn setPickerEnabled(view: android.view.View, on: jboolean),
+        static fn setPickerOptions(view: android.view.View, node: jlong, options: JString),
+    },
+}
 
 day_core::tls_group! {
     /// Picker view → its node. An options patch adds Java views that must report clicks for
@@ -37,69 +45,36 @@ fn style_code(s: PickerStyle) -> i32 {
 
 fn make(_backend: &mut Android, p: &PickerProps, id: NodeId) -> AHandle {
     let joined = p.options.join("\n");
-    with_env(|env| {
-        // A Java throw (e.g. the staged DayPicker class missing from the app build) must
-        // not panic inside realize: the panic unwinds the JNI up-call and aborts the
-        // process. Degrade to the bridge's visible placeholder label instead.
-        let made = env.new_string(&joined).ok().and_then(|s| {
-            crate::try_make_view_on(
-                env,
-                PICKER_CLASS,
-                "makePicker",
-                "(JILjava/lang/String;IZ)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Int(style_code(p.style)),
-                    JValue::Object(&s),
-                    JValue::Int(p.selected as i32),
-                    JValue::Bool(p.enabled),
-                ],
-            )
-            .ok()
-        });
-        let h = AHandle(made.unwrap_or_else(|| {
-            log::warn!("day-android: DayPicker.makePicker failed; substituting a placeholder");
-            crate::placeholder_view(env, "picker")
-        }));
-        NODES.with(|m| m.insert(h.0.as_obj().as_raw() as usize, id.0));
-        h
-    })
+    let h = crate::realize("picker", |env| {
+        let options = JString::from_str(env, &joined)?;
+        DayPicker::makePicker(
+            env,
+            id.0 as i64,
+            style_code(p.style),
+            &options,
+            p.selected as i32,
+            p.enabled,
+        )
+    });
+    NODES.with(|m| m.insert(h.0.as_obj().as_raw() as usize, id.0));
+    h
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &PickerPatch) {
     match patch {
-        PickerPatch::Selected(i) => with_env(|env| {
-            let _ = env.dcall_static(
-                PICKER_CLASS,
-                "setPickerSelected",
-                "(Landroid/view/View;I)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Int(*i as i32)],
-            );
-        }),
-        PickerPatch::Enabled(on) => with_env(|env| {
-            let _ = env.dcall_static(
-                PICKER_CLASS,
-                "setPickerEnabled",
-                "(Landroid/view/View;Z)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
-            );
-        }),
-        PickerPatch::Options(opts) => with_env(|env| {
+        PickerPatch::Selected(i) => {
+            java(|env| DayPicker::setPickerSelected(env, h.0.as_obj(), *i as i32));
+        }
+        PickerPatch::Enabled(on) => {
+            java(|env| DayPicker::setPickerEnabled(env, h.0.as_obj(), *on));
+        }
+        PickerPatch::Options(opts) => {
             let joined = opts.join("\n");
-            let Ok(s) = env.new_string(&joined) else {
-                return;
-            };
-            let _ = env.dcall_static(
-                PICKER_CLASS,
-                "setPickerOptions",
-                "(Landroid/view/View;JLjava/lang/String;)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Long(node_of(h) as i64),
-                    JValue::Object(&s),
-                ],
-            );
-        }),
+            java(|env| {
+                let options = JString::from_str(env, &joined)?;
+                DayPicker::setPickerOptions(env, h.0.as_obj(), node_of(h) as i64, &options)
+            });
+        }
     }
 }
 

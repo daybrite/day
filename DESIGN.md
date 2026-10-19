@@ -106,6 +106,7 @@ the architecture-level view and the rationale.
 | tweaks — per-toolkit configuration of built-ins | [docs/tweaks.md](docs/tweaks.md) | [Addendum](#addendum-2026-07-09--tweaks-per-toolkit-configuration-of-built-in-pieces) |
 | extension packages — pieces, parts, `[package.metadata.day.*]` | [docs/extending.md](docs/extending.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | daybridge — foreign-language implementations of a Rust API (Swift/Kotlin/Java/ArkTS/JS/C/C++) | [docs/bridge.md](docs/bridge.md) | [§15.6](#156-daybridge-foreign-language-implementations-of-a-rust-api) |
+| Android JNI bindings — `java_class!`, the startup check, generated R8 keep rules | [docs/android-jni.md](docs/android-jni.md) | [§15.7](#157-typed-jni-bindings) |
 | scripting & agents — dayscript, recording (`day::record`, `--record`), `day drive`, MCP | [docs/agent.md](docs/agent.md), website dayscript reference | [§14](#14-scripting-dayscript) |
 | platform services ("parts": battery, network, sensors, clipboard, prefs, haptics, sound, wakelock, deviceinfo, http, downloads, permissions, location, fs) | [docs/battery.md](docs/battery.md), [docs/network.md](docs/network.md), [docs/sensors.md](docs/sensors.md), [docs/clipboard.md](docs/clipboard.md), [docs/prefs.md](docs/prefs.md), [docs/haptics.md](docs/haptics.md), [docs/sound.md](docs/sound.md), [docs/wakelock.md](docs/wakelock.md), [docs/deviceinfo.md](docs/deviceinfo.md), [docs/http.md](docs/http.md), [docs/downloads.md](docs/downloads.md), [docs/permissions.md](docs/permissions.md), [docs/location.md](docs/location.md), [docs/fs.md](docs/fs.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
 | bundled pieces (map, searchfield, combobox, color picker, …) and external ones (media, lottie, webview) | [docs/media.md](docs/media.md), [docs/map.md](docs/map.md), [day-piece-lottie](https://github.com/daybrite/day-piece-lottie), [day-piece-webview](https://github.com/daybrite/day-piece-webview), [docs/webview-eval.md](docs/webview-eval.md), [docs/searchfield.md](docs/searchfield.md), [docs/combobox.md](docs/combobox.md), [docs/colorpicker.md](docs/colorpicker.md) | [§15](#15-extensibility-pieces-parts-and-tweaks) |
@@ -3923,9 +3924,10 @@ reference generically, exactly once:
 - **android**: contributions land in `build/day/android/day-pieces.json`, which Day's Gradle
   plugin (§17.4) reads generically (srcDirs, dependencies, repositories) — no per-piece Gradle
   edits, ever. Permissions merge through a generated manifest overlay. Release builds minify
-  with R8: since Day reaches Java by name (JNI FindClass, `dcall_static`, reflection), `day build`
-  also folds in keep rules — day-android's own (the whole `dev.daybrite.day.**` namespace) plus each
-  app/piece's declared `proguard` file — so minification never renames a JNI-reached class out from
+  with R8: Rust reaches Java by name, so `day build` folds in keep rules — the ones every
+  `java_class!` binding records in the app's native library (`day-jni-keep.pro`, §15.7),
+  day-android's own (classes with natives), and each app/piece's declared `proguard` file for
+  what something reaches reflectively — so minification never renames a JNI-reached class out from
   under native code ([docs/extending.md](docs/extending.md)).
 - **apple**: the CLI generates a LOCAL SwiftPM package at `build/day/ios/DayPieces` whose
   `Package.swift` lists every piece's `swift-packages` and compiles every piece's staged Swift
@@ -4140,6 +4142,36 @@ compile under the mock toolkit.
 [day-part-speech](https://github.com/daybrite/day-part-speech) is the reference crate: one file,
 six arms (Swift, Java, ArkTS, JavaScript, C++, C) over each platform's text-to-speech API, plus
 the Rust fallback. It lives in its own repository, the first part to do so (§15.2).
+
+### §15.7 Typed JNI bindings
+
+> [!NOTE]
+> **Shipped 2026-10.** [docs/android-jni.md](docs/android-jni.md) is the normative reference.
+
+Every Rust-to-Java call on Android goes through a **binding**: `day_android::java_class!`
+(day-macros) declares one Java class's methods, fields and natives, and expands to jni's
+`bind_java_type!` with Day's policies applied. It replaced the hand-typed `DayEnv` helpers
+(`dcall_static` with a signature string per call), which parsed the signature and looked the class
+and method up on every call, found a mismatch only when that call ran, and gave R8 nothing to go on.
+
+- **Names are Java's.** `makeCombo` binds `makeCombo`; the macro passes every name explicitly and
+  allows `non_snake_case` on its generated items, so one search finds both sides.
+- **Calls are typed and cached.** Method IDs resolve once; a call costs about 20 ns in release
+  against 1 to 7 µs for the string-signature path it replaced. Calls run inside `java(|env| …)`,
+  which clears a thrown Java exception and returns `None`.
+- **The startup check.** Every binding joins `day_android::JAVA_CLASSES`, which `init` resolves:
+  a missing class or a renamed member is named at launch. In a debug build or a scripted run the
+  process stops there, because a piece rendering as its placeholder still passes a walkthrough.
+- **Natives.** `native_methods` are registered at that check and exported, and jni's wrapper catches
+  panics. day-android binds `DayBridge`'s natives; only `nativeStart`/`nativeStartWindow` stay in the
+  app's `day_start_android!`, because they name the app's root.
+- **R8.** Each binding writes its keep rule into the `day_keep` section of the native library; `day
+  build` reads it back into `day-jni-keep.pro`. The `dev.daybrite.day.**` namespace keep is gone, so
+  R8 shrinks and renames all of Day's Java that Rust does not call. `[android] optimize` (§19) turns
+  R8's optimizations on per app.
+
+daybridge's JVM arms (§15.6) generate a binding for their adapter class, so bridged parts get the
+same check and rules with no source change.
 
 ### §16.1 Design goals
 
@@ -5179,6 +5211,7 @@ capabilities = []                   # entitlements toggles understood by the gen
 cleartext-domains = ["127.0.0.1"]    # exact-host HTTP exceptions in generated hosts
 edge-to-edge = true                 # see §7.7 inset policy
 resource-overlays = ["platform/android/res"]
+optimize = false                    # R8 optimizations in release builds (§15.7); off by default
 
 [windows]
 app-sdk = "2.5"                     # WinAppSDK release pin (§9); designed, not read yet: day-toolchain pins 2.5.1
@@ -5205,7 +5238,8 @@ provider = "trusted-signing"        # §16.5 sign — provider enum
 ```
 
 `Day.toml [android]` carries HTTP policy (`cleartext-traffic`, default false;
-`cleartext-domains`, exact-host exceptions), `edge-to-edge`, and `resource-overlays`.
+`cleartext-domains`, exact-host exceptions), `edge-to-edge`, `resource-overlays`, and `optimize`
+(R8 optimizations for the release build, default false; §15.7).
 The previously sketched `min-sdk` and `target-sdk` keys remain unimplemented design options;
 they are not accepted by the manifest parser and are omitted from the example above.
 Overlays are app-relative native Android `res/` directories; later files replace earlier
@@ -7965,7 +7999,7 @@ index-aligned text on mobile and desktop. UIKit uses `UICellAccessoryLabel` (iOS
 beside optional status glyphs and the disclosure arrow; Android NavigationView uses
 an action-view label beside any glyph; ArkUI inserts a themed trailing text node.
 Empty badges draw nothing. Counts are supplied/formatted by the app and do not alter
-route keys, row indices or selection. See `docs/navigation.md`.
+route keys, row indices or selection. See [docs/navigation.md](docs/navigation.md).
 
 Collapsed content-list navigation treats an empty selection after Back as the sidebar root.
 Re-deriving rows (filtering, counts, locale changes) preserves that root instead of applying

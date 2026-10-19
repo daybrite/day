@@ -16,13 +16,30 @@
 
 use super::*;
 
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, DayEnv, with_env};
+use day_android::jni::objects::JString;
+use day_android::{AHandle, Android, java};
 use day_spec::sidetable::SideTable;
 use day_spec::{ListStyle, NodeId, ParagraphAlign, Proposal, Size};
 
-/// This piece's Java class (src/DayTextEditor.java, on the app classpath at build).
-const EDITOR_CLASS: &str = "dev/daybrite/day/piece/texteditor/DayTextEditor";
+// This piece's Java class (src/DayTextEditor.java, on the app classpath at build).
+day_android::java_class! {
+    DayTextEditor => dev.daybrite.day.piece.texteditor.DayTextEditor,
+    methods {
+        static fn makeEditor(id: jlong, text: JString, placeholder: JString, editable: jboolean,
+            spellcheck: jboolean, min_lines: jint, max_lines: jint, base_points: jfloat,
+            single_line: jboolean, code: jboolean) -> android.view.View,
+        static fn setRuns(view: android.view.View, starts: jint[], ends: jint[], flags: jint[],
+            colors: jint[], backgrounds: jint[], scales: jint[]),
+        static fn setParagraphs(view: android.view.View, starts: jint[], ends: jint[],
+            aligns: jint[], indents: jint[], markers: jint[]),
+        static fn setDocumentText(view: android.view.View, text: JString),
+        static fn setSelectionRange(view: android.view.View, start: jint, end: jint),
+        static fn setTypingStyle(view: android.view.View, flags: jint, color: jint,
+            background: jint, scale: jint),
+        static fn setEditable(view: android.view.View, on: jboolean),
+        static fn insertText(view: android.view.View, at: jint, text: JString),
+    },
+}
 
 /// One list level's indent, in dp, matching the Apple arms' points.
 const LEVEL_INDENT: f64 = 24.0;
@@ -83,7 +100,7 @@ fn style_flags(s: &RunStyle) -> i32 {
 
 /// Push runs and paragraphs into the live buffer, as two calls carrying flat arrays.
 fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[ParagraphRun]) {
-    with_env(|env| {
+    java(|env| {
         let mut starts = Vec::with_capacity(runs.len());
         let mut ends = Vec::with_capacity(runs.len());
         let mut flags = Vec::with_capacity(runs.len());
@@ -102,24 +119,9 @@ fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[Par
             backgrounds.push(r.background.map(argb).unwrap_or(0));
             scales.push((r.font.scale * 1000.0).round() as i32);
         }
-        if let Some([sa, se, sf, sc, sb, sz]) =
-            int_arrays(env, [&starts, &ends, &flags, &colors, &backgrounds, &scales])
-        {
-            let _ = env.dcall_static(
-                EDITOR_CLASS,
-                "setRuns",
-                "(Landroid/view/View;[I[I[I[I[I[I)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Object(&sa),
-                    JValue::Object(&se),
-                    JValue::Object(&sf),
-                    JValue::Object(&sc),
-                    JValue::Object(&sb),
-                    JValue::Object(&sz),
-                ],
-            );
-        }
+        let [sa, se, sf, sc, sb, sz] =
+            int_arrays(env, [&starts, &ends, &flags, &colors, &backgrounds, &scales])?;
+        DayTextEditor::setRuns(env, h.0.as_obj(), &sa, &se, &sf, &sc, &sb, &sz)?;
 
         let mut pstarts = Vec::with_capacity(paragraphs.len());
         let mut pends = Vec::with_capacity(paragraphs.len());
@@ -146,79 +148,46 @@ fn apply_attributes(h: &AHandle, text: &str, runs: &[TextRun], paragraphs: &[Par
                 MARKER_INDENT as i32
             });
         }
-        if let Some([pa, pe, al, ind, mk]) =
-            int_arrays(env, [&pstarts, &pends, &aligns, &indents, &markers])
-        {
-            let _ = env.dcall_static(
-                EDITOR_CLASS,
-                "setParagraphs",
-                "(Landroid/view/View;[I[I[I[I[I)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Object(&pa),
-                    JValue::Object(&pe),
-                    JValue::Object(&al),
-                    JValue::Object(&ind),
-                    JValue::Object(&mk),
-                ],
-            );
-        }
-    })
+        let [pa, pe, al, ind, mk] =
+            int_arrays(env, [&pstarts, &pends, &aligns, &indents, &markers])?;
+        DayTextEditor::setParagraphs(env, h.0.as_obj(), &pa, &pe, &al, &ind, &mk)
+    });
 }
 
-/// Allocate and fill N Java int arrays, or `None` if any allocation or copy fails; a failed JNI
-/// array is not something to paper over halfway through a patch.
+/// Allocate and fill N Java int arrays; a failed JNI array is not something to paper over
+/// halfway through a patch, so any failure ends the whole push.
 fn int_arrays<'a, const N: usize>(
     env: &mut day_android::jni::Env<'a>,
     src: [&Vec<i32>; N],
-) -> Option<[day_android::jni::objects::JIntArray<'a>; N]> {
+) -> day_android::jni::errors::Result<[day_android::jni::objects::JIntArray<'a>; N]> {
     let mut out = Vec::with_capacity(N);
     for v in src {
-        let arr = env.new_int_array(v.len()).ok()?;
-        arr.set_region(env, 0, v).ok()?;
+        let arr = env.new_int_array(v.len())?;
+        arr.set_region(env, 0, v)?;
         out.push(arr);
     }
-    out.try_into().ok()
+    out.try_into()
+        .map_err(|_| day_android::jni::errors::Error::WrongJValueType("int[]", "array count"))
 }
 
 fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
     let base_points = day_android::font_style(p.base).0 as f64;
-    let h = with_env(|env| {
-        let text = env.new_string(&p.doc.text).expect("document text");
-        let ph = env.new_string(&p.placeholder).expect("placeholder");
-        // `try_make_view_on`, not `make_view`: the latter looks the factory up on DayBridge, and
-        // this piece's factory is a staged class of its own (docs/bridge.md).
-        let made = day_android::try_make_view_on(
+    let h = day_android::realize("text_editor", |env| {
+        let text = JString::from_str(env, &p.doc.text)?;
+        let placeholder = JString::from_str(env, &p.placeholder)?;
+        DayTextEditor::makeEditor(
             env,
-            EDITOR_CLASS,
-            "makeEditor",
-            "(JLjava/lang/String;Ljava/lang/String;ZZIIFZZ)Landroid/view/View;",
-            &[
-                JValue::Long(id.0 as i64),
-                JValue::Object(&text),
-                JValue::Object(&ph),
-                JValue::Bool(p.editable),
-                JValue::Bool(p.spellcheck),
-                JValue::Int(p.min_lines as i32),
-                JValue::Int(p.max_lines as i32),
-                JValue::Float(base_points as f32),
-                JValue::Bool(p.single_line),
-                JValue::Bool(p.code),
-            ],
-        );
-        let view = match made {
-            Ok(v) => v,
-            Err(e) => {
-                // Degrade loudly, as every other native make does: a visible placeholder leaf
-                // rather than a panic inside a JNI up-call (§8.5).
-                log::warn!(
-                    "day-piece-texteditor: DayTextEditor.makeEditor failed ({e}); \
-                     substituting a placeholder view"
-                );
-                day_android::placeholder_view(env, "makeEditor")
-            }
-        };
-        AHandle(view)
+            id.0 as i64,
+            &text,
+            &placeholder,
+            p.editable,
+            p.spellcheck,
+            p.min_lines as i32,
+            p.max_lines as i32,
+            base_points as f32,
+            p.single_line,
+            p.code,
+        )
     });
     if !p.doc.runs.is_empty() || !p.doc.paragraphs.is_empty() {
         apply_attributes(&h, &p.doc.text, &p.doc.runs, &p.doc.paragraphs);
@@ -240,14 +209,9 @@ fn make(_backend: &mut Android, p: &EditorProps, id: NodeId) -> AHandle {
 fn update(_backend: &mut Android, h: &AHandle, patch: &EditorPatch) {
     match patch {
         EditorPatch::SetDocument(doc) => {
-            with_env(|env| {
-                let s = env.new_string(&doc.text).expect("document text");
-                let _ = env.dcall_static(
-                    EDITOR_CLASS,
-                    "setDocumentText",
-                    "(Landroid/view/View;Ljava/lang/String;)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                );
+            java(|env| {
+                let text = JString::from_str(env, &doc.text)?;
+                DayTextEditor::setDocumentText(env, h.0.as_obj(), &text)
             });
             STATE.with(|t| t.with(key(h), |st| st.text = doc.text.clone()));
             apply_attributes(h, &doc.text, &doc.runs, &doc.paragraphs);
@@ -265,61 +229,37 @@ fn update(_backend: &mut Android, h: &AHandle, patch: &EditorPatch) {
             let Some((start, len)) = utf16_range(&text, r) else {
                 return;
             };
-            with_env(|env| {
-                let _ = env.dcall_static(
-                    EDITOR_CLASS,
-                    "setSelectionRange",
-                    "(Landroid/view/View;II)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Int(start as i32),
-                        JValue::Int((start + len) as i32),
-                    ],
-                );
+            java(|env| {
+                DayTextEditor::setSelectionRange(
+                    env,
+                    h.0.as_obj(),
+                    start as i32,
+                    (start + len) as i32,
+                )
             });
         }
         EditorPatch::SetTypingStyle(s) => {
-            with_env(|env| {
-                let _ = env.dcall_static(
-                    EDITOR_CLASS,
-                    "setTypingStyle",
-                    "(Landroid/view/View;IIII)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Int(style_flags(s)),
-                        JValue::Int(s.color.map(argb).unwrap_or(0)),
-                        JValue::Int(s.background.map(argb).unwrap_or(0)),
-                        JValue::Int((s.font.scale * 1000.0).round() as i32),
-                    ],
-                );
+            java(|env| {
+                DayTextEditor::setTypingStyle(
+                    env,
+                    h.0.as_obj(),
+                    style_flags(s),
+                    s.color.map(argb).unwrap_or(0),
+                    s.background.map(argb).unwrap_or(0),
+                    (s.font.scale * 1000.0).round() as i32,
+                )
             });
         }
         EditorPatch::SetEditable(v) => {
-            with_env(|env| {
-                let _ = env.dcall_static(
-                    EDITOR_CLASS,
-                    "setEditable",
-                    "(Landroid/view/View;Z)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Bool(*v)],
-                );
-            });
+            java(|env| DayTextEditor::setEditable(env, h.0.as_obj(), *v));
         }
         EditorPatch::Insert { at, text } => {
             // The BYTE offset crosses as is: this arm's text cache is current only as of the
             // last patch, and an insert follows a keystroke the view reported since, so the
             // Java side converts against the live buffer instead.
-            with_env(|env| {
-                let s = env.new_string(text).expect("inserted text");
-                let _ = env.dcall_static(
-                    EDITOR_CLASS,
-                    "insertText",
-                    "(Landroid/view/View;ILjava/lang/String;)V",
-                    &[
-                        JValue::Object(h.0.as_obj()),
-                        JValue::Int(*at as i32),
-                        JValue::Object(&s),
-                    ],
-                );
+            java(|env| {
+                let text = JString::from_str(env, text)?;
+                DayTextEditor::insertText(env, h.0.as_obj(), *at as i32, &text)
             });
         }
     }

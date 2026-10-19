@@ -13,13 +13,27 @@
 //! `manifest-components` key), which rebuilds the notification from data persisted at schedule
 //! time. A reboot clears alarms, so a boot receiver re-arms them.
 
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::with_env;
+use day_android::java;
+use day_android::jni::objects::JString;
 
 use crate::{Capabilities, Channel, Importance, NotifId, Notification, NotifyError};
 
-const CLASS: &str = "dev/daybrite/day/notify/DayLocalNotify";
+// The shim (DayLocalNotify.java, staged into the app's Gradle build by `day build`).
+day_android::java_class! {
+    DayLocalNotify => dev.daybrite.day.notify.DayLocalNotify,
+    methods {
+        static fn isAvailable() -> jboolean,
+        static fn canScheduleExact() -> jboolean,
+        static fn createChannel(id: JString, name: JString, importance: jint, sound: jboolean),
+        static fn schedule(id: jint, at_ms: jlong, channel: JString, title: JString,
+            body: JString, route: JString, icon: JString, badge: jint, alarm_clock: jboolean)
+            -> jint,
+        static fn notifyNow(id: jint, channel: JString, title: JString, body: JString,
+            route: JString, icon: JString, badge: jint) -> jint,
+        static fn cancel(id: jint),
+        static fn cancelAll(),
+    },
+}
 
 /// Mirrors the shim's OK / ERR_DENIED / ERR_FAILED.
 fn to_result(code: i32) -> Result<(), NotifyError> {
@@ -30,17 +44,8 @@ fn to_result(code: i32) -> Result<(), NotifyError> {
     }
 }
 
-fn call_bool(method: &str) -> bool {
-    with_env(|env| {
-        env.dcall_static(CLASS, method, "()Z", &[])
-            .ok()
-            .and_then(|v| v.z().ok())
-            .unwrap_or(false)
-    })
-}
-
 pub(crate) fn capabilities() -> Capabilities {
-    let available = call_bool("isAvailable");
+    let available = java(|env| DayLocalNotify::isAvailable(env)).unwrap_or(false);
     Capabilities {
         post: available,
         // An alarm survives the app exiting, which is why scheduling goes through
@@ -56,7 +61,8 @@ pub(crate) fn capabilities() -> Capabilities {
         tap_route: available,
         // Android 12+ may withhold the exact-alarm grant, in which case `schedule` downgrades to
         // an inexact alarm rather than dropping it.
-        schedule_exact: available && call_bool("canScheduleExact"),
+        schedule_exact: available
+            && java(|env| DayLocalNotify::canScheduleExact(env)).unwrap_or(false),
     }
 }
 
@@ -76,24 +82,16 @@ fn importance_value(i: Importance) -> i32 {
 pub(crate) fn register_channel(channel: &Channel) {
     // Recorded locally too, so `post` can read the channel's sound/importance without a JNI hop.
     super::channels::remember(channel);
-    with_env(|env| {
-        let (Ok(id), Ok(name)) = (
-            env.new_string(channel.id()),
-            env.new_string(channel.display_name()),
-        ) else {
-            return;
-        };
-        let _ = env.dcall_static(
-            CLASS,
-            "createChannel",
-            "(Ljava/lang/String;Ljava/lang/String;IZ)V",
-            &[
-                JValue::Object(&id),
-                JValue::Object(&name),
-                JValue::Int(importance_value(channel.importance())),
-                JValue::Bool(channel.plays_sound()),
-            ],
-        );
+    java(|env| {
+        let id = JString::from_str(env, channel.id())?;
+        let name = JString::from_str(env, channel.display_name())?;
+        DayLocalNotify::createChannel(
+            env,
+            &id,
+            &name,
+            importance_value(channel.importance()),
+            channel.plays_sound(),
+        )
     });
 }
 
@@ -103,61 +101,38 @@ pub(crate) fn post(n: &Notification) -> Result<(), NotifyError> {
     // (status-bar icon, Doze-exempt). The channel's importance lives on the Rust side; Android's
     // channel can't answer this because Urgent and High both map to IMPORTANCE_HIGH there.
     let alarm_clock = super::channels::importance(n.channel_str()) == Importance::Urgent;
-    with_env(|env| {
-        let (Ok(channel), Ok(title), Ok(body), Ok(route), Ok(icon)) = (
-            env.new_string(n.channel_str()),
-            env.new_string(n.title_str()),
-            env.new_string(n.body_str()),
-            env.new_string(n.route_str()),
-            env.new_string(n.icon_str()),
-        ) else {
-            return Err(NotifyError::Failed("could not marshal strings".into()));
-        };
-        let id = JValue::Int(n.resolved_id().0 as i32);
-        let badge = JValue::Int(n.badge_count().unwrap_or(0) as i32);
-
-        let code = if let Some(at_ms) = fire_at {
+    let code = java(|env| {
+        let channel = JString::from_str(env, n.channel_str())?;
+        let title = JString::from_str(env, n.title_str())?;
+        let body = JString::from_str(env, n.body_str())?;
+        let route = JString::from_str(env, n.route_str())?;
+        let icon = JString::from_str(env, n.icon_str())?;
+        let id = n.resolved_id().0 as i32;
+        let badge = n.badge_count().unwrap_or(0) as i32;
+        match fire_at {
             // Absolute wall-clock time, because AlarmManager.RTC_WAKEUP takes one, and because
             // the boot receiver has to know when, not "how long from some forgotten start".
-            env.dcall_static(
-                CLASS,
-                "schedule",
-                "(IJLjava/lang/String;Ljava/lang/String;Ljava/lang/String;\
-                 Ljava/lang/String;Ljava/lang/String;IZ)I",
-                &[
-                    id,
-                    JValue::Long(at_ms),
-                    JValue::Object(&channel),
-                    JValue::Object(&title),
-                    JValue::Object(&body),
-                    JValue::Object(&route),
-                    JValue::Object(&icon),
-                    badge,
-                    JValue::Bool(alarm_clock),
-                ],
-            )
-        } else {
-            env.dcall_static(
-                CLASS,
-                "notifyNow",
-                "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;\
-                 Ljava/lang/String;Ljava/lang/String;I)I",
-                &[
-                    id,
-                    JValue::Object(&channel),
-                    JValue::Object(&title),
-                    JValue::Object(&body),
-                    JValue::Object(&route),
-                    JValue::Object(&icon),
-                    badge,
-                ],
-            )
-        };
-        match code.ok().and_then(|v| v.i().ok()) {
-            Some(c) => to_result(c),
-            None => Err(NotifyError::Failed("the notify shim did not answer".into())),
+            Some(at_ms) => DayLocalNotify::schedule(
+                env,
+                id,
+                at_ms,
+                &channel,
+                &title,
+                &body,
+                &route,
+                &icon,
+                badge,
+                alarm_clock,
+            ),
+            None => {
+                DayLocalNotify::notifyNow(env, id, &channel, &title, &body, &route, &icon, badge)
+            }
         }
-    })
+    });
+    match code {
+        Some(c) => to_result(c),
+        None => Err(NotifyError::Failed("the notify shim did not answer".into())),
+    }
 }
 
 /// Wall-clock milliseconds. `SystemTime` can be before the epoch only on a badly-set clock, where
@@ -170,13 +145,9 @@ fn now_ms() -> i64 {
 }
 
 pub(crate) fn cancel(id: NotifId) {
-    with_env(|env| {
-        let _ = env.dcall_static(CLASS, "cancel", "(I)V", &[JValue::Int(id.0 as i32)]);
-    });
+    java(|env| DayLocalNotify::cancel(env, id.0 as i32));
 }
 
 pub(crate) fn cancel_all() {
-    with_env(|env| {
-        let _ = env.dcall_static(CLASS, "cancelAll", "()V", &[]);
-    });
+    java(|env| DayLocalNotify::cancelAll(env));
 }

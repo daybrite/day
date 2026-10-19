@@ -13,65 +13,44 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_android::jni::objects::JString;
+use day_android::{AHandle, Android, java};
 use day_spec::{NodeId, Proposal, Size};
 
-/// This piece's Java class (src/DayCombo.java, on the app classpath at build).
-const COMBO_CLASS: &str = "dev/daybrite/day/piece/combobox/DayCombo";
+// This piece's Java class (src/DayCombo.java, on the app classpath at build).
+day_android::java_class! {
+    DayCombo => dev.daybrite.day.piece.combobox.DayCombo,
+    methods {
+        static fn makeCombo(id: jlong, items: JString, text: JString, placeholder: JString)
+            -> android.view.View,
+        static fn setComboItems(view: android.view.View, items: JString),
+        static fn setComboText(view: android.view.View, text: JString),
+    },
+}
 
 fn make(_backend: &mut Android, p: &ComboProps, id: NodeId) -> AHandle {
-    with_env(|env| {
-        // A Java throw (e.g. the staged DayCombo class missing from the app build) must not
-        // panic inside realize: the panic unwinds the JNI up-call and aborts the process
-        // (the "splash-only blank app" class). Degrade to the visible placeholder instead.
-        let made = env.new_string(p.items.join("\n")).ok().and_then(|items| {
-            let text = env.new_string(&p.text).ok()?;
-            let ph = env.new_string(&p.placeholder).ok()?;
-            day_android::try_make_view_on(
-                env,
-                COMBO_CLASS,
-                "makeCombo",
-                "(JLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Object(&items),
-                    JValue::Object(&text),
-                    JValue::Object(&ph),
-                ],
-            )
-            .ok()
-        });
-        AHandle(made.unwrap_or_else(|| {
-            log::warn!("day-piece-combobox: DayCombo.makeCombo failed; substituting a placeholder");
-            day_android::placeholder_view(env, "combo_box")
-        }))
+    day_android::realize("combo_box", |env| {
+        let items = JString::from_str(env, p.items.join("\n"))?;
+        let text = JString::from_str(env, &p.text)?;
+        let placeholder = JString::from_str(env, &p.placeholder)?;
+        DayCombo::makeCombo(env, id.0 as i64, &items, &text, &placeholder)
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &ComboPatch) {
     match patch {
-        ComboPatch::Items(items) => with_env(|env| {
-            let Ok(s) = env.new_string(items.join("\n")) else {
-                return;
-            };
-            let _ = env.dcall_static(
-                COMBO_CLASS,
-                "setComboItems",
-                "(Landroid/view/View;Ljava/lang/String;)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-            );
-        }),
-        ComboPatch::SetText(t) => with_env(|env| {
-            let Ok(s) = env.new_string(t) else { return };
-            let _ = env.dcall_static(
-                COMBO_CLASS,
-                "setComboText",
-                "(Landroid/view/View;Ljava/lang/String;)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-            );
-        }),
+        ComboPatch::Items(items) => {
+            java(|env| {
+                let items = JString::from_str(env, items.join("\n"))?;
+                DayCombo::setComboItems(env, h.0.as_obj(), &items)
+            });
+        }
+        ComboPatch::SetText(t) => {
+            java(|env| {
+                let text = JString::from_str(env, t)?;
+                DayCombo::setComboText(env, h.0.as_obj(), &text)
+            });
+        }
     }
 }
 

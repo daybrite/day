@@ -13,15 +13,20 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::DayEnv;
 use day_android::jni::Env;
-use day_android::jni::objects::{JObject, JValue};
-use day_android::{AHandle, Android, with_env};
+use day_android::jni::objects::{JByteArray, JObject};
+use day_android::{AHandle, Android, java};
 use day_spec::NodeId;
 
-/// This piece's Java class (src/DayRemoteImage.java, on the app classpath at build).
-const IMAGE_CLASS: &str = "dev/daybrite/day/piece/remoteimage/DayRemoteImage";
-const SET_BYTES_SIG: &str = "(Landroid/view/View;[B)V";
+// This piece's Java class (src/DayRemoteImage.java, on the app classpath at build).
+day_android::java_class! {
+    DayRemoteImage => dev.daybrite.day.piece.remoteimage.DayRemoteImage,
+    methods {
+        static fn makeImage(id: jlong, mode: jint, clip: jint, radius: jdouble, placeholder: jint)
+            -> android.view.View,
+        static fn setBytes(view: android.view.View, bytes: jbyte[]),
+    },
+}
 
 /// (clip discriminant, radius) for the Java factory: 0 none, 1 circle, 2 rounded.
 fn clip_args(clip: Clip) -> (i32, f64) {
@@ -46,59 +51,40 @@ fn argb(c: Color) -> i32 {
     ((ch(c.a) << 24) | (ch(c.r) << 16) | (ch(c.g) << 8) | ch(c.b)) as i32
 }
 
-/// Push bytes (or clear on `None`) into `view` via `DayRemoteImage.setBytes(View, byte[])`.
-fn push_bytes(env: &mut Env, view: &JObject, bytes: &Option<std::sync::Arc<Vec<u8>>>) {
+/// Push bytes (or clear on `None`, a null `byte[]`) into `view`.
+fn push_bytes(
+    env: &mut Env,
+    view: &JObject,
+    bytes: &Option<std::sync::Arc<Vec<u8>>>,
+) -> day_android::jni::errors::Result<()> {
     match bytes {
         Some(b) => {
-            let arr = env.byte_array_from_slice(b).expect("byte[]");
-            let _ = env.dcall_static(
-                IMAGE_CLASS,
-                "setBytes",
-                SET_BYTES_SIG,
-                &[JValue::Object(view), JValue::Object(&arr)],
-            );
+            let arr = env.byte_array_from_slice(b)?;
+            DayRemoteImage::setBytes(env, view, &arr)
         }
-        None => {
-            let null = JObject::null();
-            let _ = env.dcall_static(
-                IMAGE_CLASS,
-                "setBytes",
-                SET_BYTES_SIG,
-                &[JValue::Object(view), JValue::Object(&null)],
-            );
-        }
+        None => DayRemoteImage::setBytes(env, view, JByteArray::default()),
     }
 }
 
 fn make(_backend: &mut Android, p: &RemoteImageProps, id: NodeId) -> AHandle {
     let (clip, radius) = clip_args(p.clip);
-    with_env(|env| {
-        let view = env
-            .dcall_static(
-                IMAGE_CLASS,
-                "makeImage",
-                "(JIIDI)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Int(mode_code(p.mode)),
-                    JValue::Int(clip),
-                    JValue::Double(radius),
-                    JValue::Int(argb(p.placeholder)),
-                ],
-            )
-            .expect("DayRemoteImage.makeImage")
-            .l()
-            .expect("View");
-        push_bytes(env, &view, &p.bytes);
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(&view).expect("global ref"),
-        ))
+    day_android::realize("remote_image", |env| {
+        let view = DayRemoteImage::makeImage(
+            env,
+            id.0 as i64,
+            mode_code(p.mode),
+            clip,
+            radius,
+            argb(p.placeholder),
+        )?;
+        push_bytes(env, &view, &p.bytes)?;
+        Ok(view)
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &RemoteImagePatch) {
     let RemoteImagePatch::SetBytes(bytes) = patch;
-    with_env(|env| push_bytes(env, h.0.as_obj(), bytes));
+    java(|env| push_bytes(env, h.0.as_obj(), bytes));
 }
 
 day_pieces::renderer!(day_android::RENDERERS, Android,

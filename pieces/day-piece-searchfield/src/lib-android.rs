@@ -12,48 +12,32 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_android::jni::objects::JString;
+use day_android::{AHandle, Android, java};
 use day_spec::{NodeId, Proposal, Size};
 
-/// This piece's Java class (src/DaySearch.java, on the app classpath at build).
-const SEARCH_CLASS: &str = "dev/daybrite/day/piece/searchfield/DaySearch";
+// This piece's Java class (src/DaySearch.java, on the app classpath at build).
+day_android::java_class! {
+    DaySearch => dev.daybrite.day.piece.searchfield.DaySearch,
+    methods {
+        static fn makeSearch(id: jlong, placeholder: JString, text: JString) -> android.view.View,
+        static fn setSearchText(view: android.view.View, text: JString),
+    },
+}
 
 fn make(_backend: &mut Android, p: &SearchProps, id: NodeId) -> AHandle {
-    with_env(|env| {
-        let ph = env.new_string(&p.placeholder).expect("placeholder");
-        let init = env.new_string(&p.text).expect("initial");
-        let view = env
-            .dcall_static(
-                SEARCH_CLASS,
-                "makeSearch",
-                "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Object(&ph),
-                    JValue::Object(&init),
-                ],
-            )
-            .expect("DaySearch.makeSearch")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+    day_android::realize("search_field", |env| {
+        let placeholder = JString::from_str(env, &p.placeholder)?;
+        let text = JString::from_str(env, &p.text)?;
+        DaySearch::makeSearch(env, id.0 as i64, &placeholder, &text)
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &SearchPatch) {
     let SearchPatch::SetText(t) = patch;
-    with_env(|env| {
-        let s = env.new_string(t).expect("text");
-        let _ = env.dcall_static(
-            SEARCH_CLASS,
-            "setSearchText",
-            "(Landroid/view/View;Ljava/lang/String;)V",
-            &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-        );
+    java(|env| {
+        let text = JString::from_str(env, t)?;
+        DaySearch::setSearchText(env, h.0.as_obj(), &text)
     });
 }
 

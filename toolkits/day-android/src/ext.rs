@@ -4,18 +4,19 @@
 //! Tweaks (docs/tweaks.md): JNI access to the `android.view.View` behind a Day-created piece.
 //!
 //! `with_native` hands `f` the View's global reference, the concrete native **class name**, and an
-//! attached `Env` (the crate's own `with_env` helper), so `f` can call any View method. jni 0.22
-//! takes typed method names and signatures, so use the `jni_str!` / `jni_sig!` compile-time macros
-//! (or parse at runtime):
+//! attached `Env`, so `f` can call any View method through a `java_class!` binding
+//! (docs/android-jni.md):
 //!
 //! ```ignore
 //! use day_android::AndroidExt;
-//! use day_android::jni::{objects::JValue, signature::RuntimeMethodSignature, strings::JNIString};
-//! label("selectable").android(|view, class, env| {
-//!     // `class` is "android.widget.TextView" here.
-//!     let sig = "(Z)V".parse::<RuntimeMethodSignature>().unwrap();
-//!     let _ = env.call_method(view, JNIString::from("setTextIsSelectable"),
-//!                             (&sig).into(), &[JValue::Bool(true)]);
+//! day_android::java_class! {
+//!     TextView => android.widget.TextView,
+//!     methods { fn setTextIsSelectable(selectable: jboolean) },
+//! }
+//! label("selectable").android(|view, _class, env| {
+//!     day_android::java_in(env, |env| {
+//!         day_android::downcast::<TextView>(env, view)?.setTextIsSelectable(env, true)
+//!     });
 //! });
 //! ```
 //!

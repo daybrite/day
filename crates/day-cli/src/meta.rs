@@ -93,6 +93,10 @@ pub struct Android {
     pub cleartext_domains: Vec<String>,
     pub edge_to_edge: bool,
     pub resource_overlays: Vec<String>,
+    /// Let R8 optimize the release build (inlining, class merging, …), not only shrink and
+    /// rename it. Off by default: the optimizations act on every library in the APK, and some
+    /// libraries reflect on their own classes in ways their consumer rules do not cover.
+    pub optimize: bool,
 }
 
 fn deserialize_android<'de, D: serde::Deserializer<'de>>(

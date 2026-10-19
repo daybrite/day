@@ -293,48 +293,44 @@ manifest. `day-piece-webview` is the reference. (A piece can only add a permissi
 removes or narrows the app's own.)
 
 **Release minification (R8/ProGuard).** A `day build --profile release` (and `day pack`) minifies with
-R8: it shrinks unused code and **renames** classes and methods. But Day reaches Java from native
-(Rust) code *by name*: JNI `FindClass("dev/daybrite/day/piece/searchfield/DaySearch")`, `dcall_static` on a
-method name, WorkManager instantiating a `Worker` from its class-name string, Room looking up a
-`<Database>_Impl`. A renamed class breaks every one of those lookups, so an un-kept release APK
-installs and then crashes at launch (`NoClassDefFound` / `ClassNotFoundException` / `UnsatisfiedLinkError`).
+R8: it shrinks unused code and **renames** classes and methods. Native (Rust) code reaches Java *by
+name*, so whatever it calls has to survive under that name, and so does anything a library looks up
+reflectively (WorkManager instantiating a `Worker` from its class-name string, Room looking up a
+`<Database>_Impl`). A renamed class breaks the lookup, and the release APK installs and then fails at
+the first call.
 
-Two layers keep the right names.
+Three sources of keep rules cover it.
 
-- **The framework keeps its own namespace.** `day-android` ships a `proguard-rules.pro` (bundled by
-  `day build` from the crate, like the Java shim) that keeps all of `dev.daybrite.day.**` (the render
-  bridge and *every official Part/Piece shim*) plus every class with `native` methods. So a first-party
-  piece needs no rules of its own. It also sets `-dontoptimize`: AGP forces the `proguard-android-optimize`
-  base, whose aggressive optimizations break reflection-heavy libraries (WorkManager's Room database is
-  the classic casualty), and Day accepts the size cost for predictable release builds. R8 still
-  shrinks and renames everything a keep rule doesn't protect.
-
-- **Everything outside `dev.daybrite.day.**` keeps itself.** An **app**'s own JNI classes (its install
-  bridge, a background `Worker`) live in the *app's* package, and a **third-party piece** lives in its
-  own namespace. Neither is covered by the framework rule. Each ships a `proguard-rules.pro` and lists
-  it in `proguard = [...]`. `day build` collects all of them (framework + every piece + the app) into
-  the release build's proguard configuration, exactly like it collects Java dirs and Gradle deps. An app
-  also keeps here anything its *dependencies* reach reflectively that their own consumer rules miss
-  (e.g. `-keep class * extends androidx.room.RoomDatabase { *; }` for a WorkManager user).
+- **Bindings keep what Rust calls.** A piece or part reaches its Java through a
+  [`java_class!`](android-jni.md) binding, and each binding records a keep rule for exactly the class
+  and members it binds. `day build` reads those rules from the app's native library into
+  `day-jni-keep.pro`. A first-party or third-party piece that binds its Java needs no rules of its
+  own.
+- **The framework keeps natives and leaves the rest to R8.** `day-android`'s `proguard-rules.pro`
+  keeps every class with `native` methods (Java's way into Rust). Manifest components (activities,
+  services, providers, receivers) are kept by the rules AGP generates from the merged manifest.
+  R8's optimizations stay off (`proguard-dontoptimize.pro`) unless the app sets
+  `[android] optimize = true`.
+- **Reflection keeps itself.** An **app**'s or **piece**'s Java that something reaches reflectively,
+  and anything a *dependency* reaches that its own consumer rules miss, goes in a
+  `proguard-rules.pro` listed in `proguard = [...]`. `day build` collects these with the others.
 
 ```proguard
-# platform/android/proguard-rules.pro — keep the classes native code reaches by name.
--keep class com.example.mypiece.MyPieceView { *; }
+# platform/android/proguard-rules.pro: what a library looks up by name.
+-keep class * extends androidx.room.RoomDatabase { *; }
 ```
 
 Day's Gradle plugin reads `dayProguardFile` and `proguardFiles` from
-`day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-searchfield` (framework
-side) and App Fair's `platform/android/proguard-rules.pro` (app side) are the references.
+`day-pieces.json` and applies them in the `release` build type. `pieces/day-piece-searchfield` (a
+binding) and App Fair's `platform/android/proguard-rules.pro` (reflection, app side) are the
+references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
 `DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
-The Rust side calls its own Java class through the re-exported `jni` (`with_env` +
-`call_static_method` + `AHandle`); `day_android::make_view` is a convenience hardcoded to
-`DayBridge`, so a standalone piece calls `day_android::try_make_view_on(env, ITS_CLASS, …)` (the
-same non-panicking path with the class as a parameter) and falls back to `placeholder_view` on a
-throw. See
-`pieces/day-piece-searchfield/android/java/dev/daybrite/day/piece/searchfield/DaySearch.java`, and
-`pieces/day-piece-texteditor/src/lib-android.rs` for the fallback.
+The Rust side binds its Java class with `day_android::java_class!` and makes its View with
+`day_android::realize`, which falls back to the visible placeholder when the factory throws
+([docs/android-jni.md](android-jni.md)). `pieces/day-piece-searchfield/src/lib-android.rs` is the
+reference, with `src/DaySearch.java` beside it.
 
 > **Gradle configuration cache.** Day's Gradle plugin reads `day-pieces.json`, and the other files
 > `day build` generates under `build/day/android/`, at *configuration* time through
@@ -527,9 +523,12 @@ is what that generated code does on your behalf, and what to know when you write
 - **Any thread may call.** `day_android::with_env(|env| …)` attaches the calling thread to the
   JVM (and detaches scoped attachments). Blocking Java work runs on the caller's thread; keep
   it off the UI thread, exactly like any other blocking Rust.
-- **App classes resolve from any thread.** `env.dfind`/`dcall_static`/`dfield` fall back to the
+- **App classes resolve from any thread.** A `java_class!` binding loads its class through the
   app `ClassLoader` cached at startup, so a Rust-spawned worker resolves your sidecar class even
   though a bare JNI `FindClass` there only sees system classes.
+- **Calls clear their own exceptions.** Inside `day_android::java(|env| …)` a thrown Java exception
+  is described to logcat, cleared, and returned as `None`
+  ([docs/android-jni.md](android-jni.md#calling)).
 - **Post to the UI thread** with `DayBridge.main.post(...)` on the Java side; on the Rust side,
   capture a `day_reactive::Setter` ([docs/focus.md](focus.md), DESIGN §4.5) rather than touching UI state
   from a worker.

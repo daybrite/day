@@ -7,6 +7,7 @@
 //! (`#[derive]`): a struct in, typed per-field accessors for day-model out, with
 //! [`observable_impls!`] as the same expansion for derives layered on it.
 
+mod java;
 mod obs;
 mod svg;
 
@@ -176,6 +177,28 @@ fn compile_error(message: &str) -> TokenStream {
             // Unreachable: the message is a formatted Rust string literal.
             TokenStream::new()
         })
+}
+
+/// A typed binding to one Java class, for day-android and the pieces and parts built on it
+/// (docs/android-jni.md). Use it as `day_android::java_class!`, which re-exports it.
+///
+/// ```ignore
+/// day_android::java_class! {
+///     DayCombo => dev.daybrite.day.piece.combobox.DayCombo,
+///     methods {
+///         static fn makeCombo(id: jlong, items: JString) -> android.view.View,
+///         static fn setComboText(view: android.view.View, text: JString),
+///     },
+/// }
+/// ```
+///
+/// The grammar is jni's `bind_java_type!`. Names are Java's, verbatim: the binding above calls
+/// `DayCombo.makeCombo`, and a search for `makeCombo` finds both sides. The expansion also
+/// registers the class for day-android's startup check and records an R8 keep rule for exactly
+/// the class and members bound.
+#[proc_macro]
+pub fn java_class(input: TokenStream) -> TokenStream {
+    java::java_class(input)
 }
 
 /// Per-property observation for a struct; see day-model's crate docs and `docs/model.md`.

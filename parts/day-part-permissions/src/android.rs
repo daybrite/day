@@ -17,13 +17,29 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::with_env;
+use day_android::java;
+use day_android::jni::Env;
+use day_android::jni::objects::{JClass, JString};
+use day_android::jni::sys::jlong;
 
 use crate::{Gate, Permission, Status, classify_android, merge};
 
-const CLASS: &str = "dev/daybrite/day/permissions/DayPermissions";
+// The shim (DayPermissions.java, staged into the app's Gradle build by `day build`).
+day_android::java_class! {
+    DayPermissions => dev.daybrite.day.permissions.DayPermissions,
+    methods {
+        static fn sdkInt() -> jint,
+        static fn check(perm: JString) -> jint,
+        static fn isDeclared(perm: JString) -> jboolean,
+        static fn shouldShowRationale(perm: JString) -> jboolean,
+        static fn notificationsEnabled() -> jboolean,
+        static fn request(token: jlong, perms: JString),
+        static fn openSettings() -> jboolean,
+    },
+    native_methods {
+        static fn nativeResult(token: jlong, granted_mask: jlong),
+    },
+}
 /// The separator DayPermissions.java splits on (day_spec's C-ABI convention).
 const SEP: char = '\u{1f}';
 
@@ -40,14 +56,7 @@ type Pending = HashMap<
 /// version-gated branch below take its most conservative arm.
 fn sdk_int() -> i32 {
     static CACHE: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
-    *CACHE.get_or_init(|| {
-        with_env(|env| {
-            env.dcall_static(CLASS, "sdkInt", "()I", &[])
-                .ok()
-                .and_then(|v| v.i().ok())
-                .unwrap_or(0)
-        })
-    })
+    *CACHE.get_or_init(|| java(|env| DayPermissions::sdkInt(env)).unwrap_or(0))
 }
 
 /// The native permission ids a portable permission maps to on this device's API level.
@@ -105,56 +114,41 @@ fn native_ids(perm: Permission) -> Vec<&'static str> {
     }
 }
 
-fn call_bool(method: &str, perm: &str) -> bool {
-    with_env(|env| {
-        let Ok(s) = env.new_string(perm) else {
-            return false;
-        };
-        env.dcall_static(
-            CLASS,
-            method,
-            "(Ljava/lang/String;)Z",
-            &[JValue::Object(&s)],
-        )
-        .ok()
-        .and_then(|v| v.z().ok())
-        .unwrap_or(false)
+fn is_declared(perm: &str) -> bool {
+    java(|env| {
+        let perm = JString::from_str(env, perm)?;
+        DayPermissions::isDeclared(env, &perm)
     })
+    .unwrap_or(false)
+}
+
+fn should_show_rationale_for(perm: &str) -> bool {
+    java(|env| {
+        let perm = JString::from_str(env, perm)?;
+        DayPermissions::shouldShowRationale(env, &perm)
+    })
+    .unwrap_or(false)
 }
 
 fn is_granted(perm: &str) -> bool {
-    with_env(|env| {
-        let Ok(s) = env.new_string(perm) else {
-            return false;
-        };
-        env.dcall_static(
-            CLASS,
-            "check",
-            "(Ljava/lang/String;)I",
-            &[JValue::Object(&s)],
-        )
-        .ok()
-        .and_then(|v| v.i().ok())
-        .unwrap_or(0)
-            == 1
+    java(|env| {
+        let perm = JString::from_str(env, perm)?;
+        DayPermissions::check(env, &perm)
     })
+    .unwrap_or(0)
+        == 1
 }
 
 fn notifications_enabled() -> bool {
-    with_env(|env| {
-        env.dcall_static(CLASS, "notificationsEnabled", "()Z", &[])
-            .ok()
-            .and_then(|v| v.z().ok())
-            .unwrap_or(false)
-    })
+    java(|env| DayPermissions::notificationsEnabled(env)).unwrap_or(false)
 }
 
 /// The status of one native id, from the three probes [`classify_android`] folds.
 fn id_status(id: &str) -> Status {
     classify_android(
         is_granted(id),
-        call_bool("isDeclared", id),
-        call_bool("shouldShowRationale", id),
+        is_declared(id),
+        should_show_rationale_for(id),
     )
 }
 
@@ -214,7 +208,7 @@ pub fn can_prompt(perm: Permission) -> bool {
 pub fn should_show_rationale(perm: Permission) -> bool {
     native_ids(perm)
         .iter()
-        .any(|id| call_bool("shouldShowRationale", id))
+        .any(|id| should_show_rationale_for(id))
 }
 
 /// In-flight requests: token → (permission, the native ids asked for, the completion).
@@ -246,18 +240,11 @@ pub fn request(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
         .insert(token, (perm, ids.clone(), on_done));
 
     let joined = ids.join(&SEP.to_string());
-    let launched = with_env(|env| {
-        let Ok(s) = env.new_string(&joined) else {
-            return false;
-        };
-        env.dcall_static(
-            CLASS,
-            "request",
-            "(JLjava/lang/String;)V",
-            &[JValue::Long(token), JValue::Object(&s)],
-        )
-        .is_ok()
-    });
+    let launched = java(|env| {
+        let perms = JString::from_str(env, &joined)?;
+        DayPermissions::request(env, token, &perms)
+    })
+    .is_some();
     if !launched {
         // The shim never got the call, so nativeResult will never fire; resolve here instead of
         // leaving the future pending forever.
@@ -270,42 +257,38 @@ pub fn request(perm: Permission, on_done: Box<dyn FnOnce(Status) + Send>) {
 
 pub fn open_settings(_perm: Permission) -> bool {
     // Android has one destination: this app's details page. `perm` cannot narrow it further.
-    with_env(|env| {
-        env.dcall_static(CLASS, "openSettings", "()Z", &[])
-            .ok()
-            .and_then(|v| v.z().ok())
-            .unwrap_or(false)
-    })
+    java(|env| DayPermissions::openSettings(env)).unwrap_or(false)
 }
 
-/// The Java shim's result callback: bit `i` of `granted_mask` is set when the `i`th requested id
-/// was granted.
-///
-/// The final status folds the mask (authoritative for granted-ness, straight from the dialog) with
-/// fresh `isDeclared`/`shouldShowRationale` probes, since a fresh denial flips the rationale flag.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_daybrite_day_permissions_DayPermissions_nativeResult(
-    _env: day_android::jni::EnvUnowned<'_>,
-    _class: day_android::jni::objects::JClass<'_>,
-    token: day_android::jni::sys::jlong,
-    granted_mask: day_android::jni::sys::jlong,
-) {
-    let entry = pending_lock().as_mut().and_then(|m| m.remove(&token));
-    let Some((_perm, ids, on_done)) = entry else {
-        return; // already answered
-    };
-    let status = ids
-        .iter()
-        .enumerate()
-        .map(|(i, id)| {
-            let granted = i < 64 && (granted_mask & (1i64 << i)) != 0;
-            classify_android(
-                granted,
-                call_bool("isDeclared", id),
-                call_bool("shouldShowRationale", id),
-            )
-        })
-        .reduce(merge)
-        .unwrap_or(Status::Unsupported);
-    on_done(status);
+impl DayPermissionsNativeInterface for DayPermissionsAPI {
+    type Error = day_android::jni::errors::Error;
+
+    /// The Java shim's result callback: bit `i` of `granted_mask` is set when the `i`th requested
+    /// id was granted.
+    ///
+    /// The final status folds the mask (authoritative for granted-ness, straight from the dialog)
+    /// with fresh `isDeclared`/`shouldShowRationale` probes, since a fresh denial flips the
+    /// rationale flag.
+    fn nativeResult<'l>(
+        _env: &mut Env<'l>,
+        _class: JClass<'l>,
+        token: jlong,
+        granted_mask: jlong,
+    ) -> Result<(), Self::Error> {
+        let entry = pending_lock().as_mut().and_then(|m| m.remove(&token));
+        let Some((_perm, ids, on_done)) = entry else {
+            return Ok(()); // already answered
+        };
+        let status = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| {
+                let granted = i < 64 && (granted_mask & (1i64 << i)) != 0;
+                classify_android(granted, is_declared(id), should_show_rationale_for(id))
+            })
+            .reduce(merge)
+            .unwrap_or(Status::Unsupported);
+        on_done(status);
+        Ok(())
+    }
 }

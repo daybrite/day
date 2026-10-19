@@ -2870,44 +2870,33 @@ const ANDROID_IMPL: &str = r#"// Android: an EditText. This crate's Java factory
 // (kind 1 = TextChanged).
 
 use super::*;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, DayEnv, with_env};
+use day_android::jni::objects::JString;
+use day_android::{AHandle, Android, java};
 use day_spec::{NodeId, Proposal, Size};
 
-const FIELD_CLASS: &str = "__CLASSPATH__";
+// The Java factory, bound by its own names (docs/android-jni.md): a signature that stops matching
+// the Java is named when the app launches, and R8 keeps exactly these methods.
+day_android::java_class! {
+    Day__PASCAL__ => "__PKG_DOTS__.Day__PASCAL__",
+    methods {
+        static fn makeField(id: jlong, placeholder: JString, text: JString) -> android.view.View,
+        static fn setFieldText(view: android.view.View, text: JString),
+    },
+}
 
 fn make(_backend: &mut Android, p: &__PASCAL__Props, id: NodeId) -> AHandle {
-    with_env(|env| {
-        let ph = env.new_string(&p.placeholder).expect("placeholder");
-        let init = env.new_string(&p.text).expect("initial");
-        let view = env
-            .dcall_static(
-                FIELD_CLASS,
-                "makeField",
-                "(JLjava/lang/String;Ljava/lang/String;)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Object(&ph),
-                    JValue::Object(&init),
-                ],
-            )
-            .expect("Day__PASCAL__.makeField")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(env.new_global_ref(view).expect("global ref")))
+    day_android::realize("__SNAKE__", |env| {
+        let placeholder = JString::from_str(env, &p.placeholder)?;
+        let text = JString::from_str(env, &p.text)?;
+        Day__PASCAL__::makeField(env, id.0 as i64, &placeholder, &text)
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &__PASCAL__Patch) {
     let __PASCAL__Patch::SetText(t) = patch;
-    with_env(|env| {
-        let s = env.new_string(t).expect("text");
-        let _ = env.dcall_static(
-            FIELD_CLASS,
-            "setFieldText",
-            "(Landroid/view/View;Ljava/lang/String;)V",
-            &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-        );
+    java(|env| {
+        let text = JString::from_str(env, t)?;
+        Day__PASCAL__::setFieldText(env, h.0.as_obj(), &text)
     });
 }
 
@@ -3428,18 +3417,19 @@ mod tests {
 const PART_ANDROID: &str = r#"// Android: read through this crate's Java shim (Day__PASCAL__.java, declared by `java` in
 // [package.metadata.day.android]), staged into the app's Gradle build by `day build` without
 // touching day-android (it registers no renderer). The Java uses day-android's cached Context
-// (DayBridge.ctx); Rust calls it through day-android's re-exported `jni`.
+// (DayBridge.ctx); Rust calls it through a `java_class!` binding (docs/android-jni.md).
 
-use day_android::{DayEnv, with_env};
+use day_android::java;
 
-const CLASS: &str = "__CLASSPATH__";
+day_android::java_class! {
+    Day__PASCAL__ => "__PKG_DOTS__.Day__PASCAL__",
+    methods {
+        static fn read() -> jlong,
+    },
+}
 
 pub fn status() -> Option<super::Sample> {
-    let value: i64 = with_env(|env| {
-        env.dcall_static(CLASS, "read", "()J", &[])
-            .ok()
-            .and_then(|v| v.j().ok())
-    })?;
+    let value = java(|env| Day__PASCAL__::read(env))?;
     if value < 0 {
         return None; // -1 = unavailable (no Context / capability)
     }

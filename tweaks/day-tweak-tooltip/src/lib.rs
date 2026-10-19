@@ -37,21 +37,28 @@ fn apply(node: day_core::RNode, text: &str) {
     }
     #[cfg(all(feature = "mdc", target_os = "android"))]
     {
-        use day_android::DayEnv;
-        use day_android::jni::objects::{JObject, JValue};
-        let _ = day_android::with_native(node, |view, _class, env| {
-            // View.setTooltipText(CharSequence) — API 26+ (a String IS a CharSequence). Below 26
-            // the call throws and the `let _ =` swallows it: a no-op, not a crash.
-            if let Ok(js) = env.new_string(text) {
-                let s = JObject::from(js);
-                let _ = env.dcall(
-                    view,
-                    "setTooltipText",
-                    "(Ljava/lang/CharSequence;)V",
-                    &[JValue::Object(&s)],
-                );
-            }
-        });
+        // View.setTooltipText(CharSequence) arrived in API 26; below it there is nothing to set.
+        if day_android::sdk_int() >= 26 {
+            let _ = day_android::with_native(node, |view, _class, env| {
+                day_android::java_in(env, |env| {
+                    let text = day_android::jni::objects::JString::from_str(env, text)?;
+                    day_android::downcast::<android::View>(env, view)?.setTooltipText(env, &text)
+                });
+            });
+        }
+    }
+}
+
+/// `android.view.View`'s tooltip setter, the one call this tweak makes (a String IS a
+/// CharSequence).
+#[cfg(all(feature = "mdc", target_os = "android"))]
+mod android {
+    day_android::java_class! {
+        pub View => android.view.View,
+        since = 26,
+        methods {
+            fn setTooltipText(text: java.lang.CharSequence),
+        },
     }
 }
 

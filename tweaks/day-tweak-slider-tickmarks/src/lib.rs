@@ -119,33 +119,26 @@ fn apply(node: RNode, t: Tickmarks) {
     {
         // Material Slider: a step size yields visible ticks and snapping (Material always snaps
         // when stepped — `snap: false` is not honorable here, per the table above).
-        use day_android::DayEnv;
-        use day_android::jni::objects::JValue;
         let _ = day_android::with_native(node, |view, _class, env| {
-            let lo = env
-                .dcall(view, "getValueFrom", "()F", &[])
-                .and_then(|v| v.f())
-                .unwrap_or(0.0);
-            let hi = env
-                .dcall(view, "getValueTo", "()F", &[])
-                .and_then(|v| v.f())
-                .unwrap_or(1.0);
-            let step = (hi - lo) / (t.count.saturating_sub(1).max(1)) as f32;
-            let _ = env.dcall(view, "setStepSize", "(F)V", &[JValue::Float(step)]);
-            // A stepped Material slider requires every value to sit on the step grid — it
-            // hard-crashes at the next layout pass otherwise (BaseSlider.validateValues). Snap
-            // the current value now. NOTE: a programmatic setValue does not notify the bound
-            // Signal (fromUser=false), so an off-grid initial value diverges from the widget
-            // until the next user interaction — start stepped sliders on a grid value.
-            let value = env
-                .dcall(view, "getValue", "()F", &[])
-                .and_then(|v| v.f())
-                .unwrap_or(lo);
-            let snapped = (lo + ((value - lo) / step).round() * step).clamp(lo, hi);
-            if snapped != value {
-                let _ = env.dcall(view, "setValue", "(F)V", &[JValue::Float(snapped)]);
-            }
-            let _ = env.dcall(view, "setTickVisible", "(Z)V", &[JValue::Bool(true)]);
+            day_android::java_in(env, |env| {
+                let base = day_android::downcast::<android::BaseSlider>(env, view)?;
+                let lo = base.getValueFrom(env)?;
+                let hi = base.getValueTo(env)?;
+                let step = (hi - lo) / (t.count.saturating_sub(1).max(1)) as f32;
+                base.setStepSize(env, step)?;
+                // A stepped Material slider requires every value to sit on the step grid — it
+                // hard-crashes at the next layout pass otherwise (BaseSlider.validateValues).
+                // Snap the current value now. NOTE: a programmatic setValue does not notify the
+                // bound Signal (fromUser=false), so an off-grid initial value diverges from the
+                // widget until the next user interaction — start stepped sliders on a grid value.
+                let slider = day_android::downcast::<android::Slider>(env, view)?;
+                let value = slider.getValue(env)?;
+                let snapped = (lo + ((value - lo) / step).round() * step).clamp(lo, hi);
+                if snapped != value {
+                    slider.setValue(env, snapped)?;
+                }
+                base.setTickVisible(env, true)
+            });
         });
     }
     #[cfg(feature = "qt")]
@@ -227,4 +220,28 @@ fn apply(node: RNode, t: Tickmarks) {
         all(feature = "arkui", target_env = "ohos")
     )))]
     let _ = node; // UIKit (and mock): documented no-op — UISlider has no native tick API.
+}
+
+/// Material's slider, bound where each method is declared: the range, step and tick methods on
+/// `BaseSlider`, the value on `Slider`. An R8 keep rule names the declaring class, so binding the
+/// subclass would leave the inherited methods free to be renamed.
+#[cfg(all(feature = "mdc", target_os = "android"))]
+mod android {
+    day_android::java_class! {
+        pub BaseSlider => com.google.android.material.slider.BaseSlider,
+        methods {
+            fn getValueFrom() -> jfloat,
+            fn getValueTo() -> jfloat,
+            fn setStepSize(step: jfloat),
+            fn setTickVisible(visible: jboolean),
+        },
+    }
+
+    day_android::java_class! {
+        pub Slider => com.google.android.material.slider.Slider,
+        methods {
+            fn getValue() -> jfloat,
+            fn setValue(value: jfloat),
+        },
+    }
 }

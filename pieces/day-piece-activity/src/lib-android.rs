@@ -10,43 +10,27 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_android::{AHandle, Android, java};
 use day_spec::NodeId;
 
-/// This piece's Java class (src/DayActivity.java, on the app classpath at build).
-const ACTIVITY_CLASS: &str = "dev/daybrite/day/piece/activity/DayActivity";
+// This piece's Java class (src/DayActivity.java, on the app classpath at build).
+day_android::java_class! {
+    DayActivity => dev.daybrite.day.piece.activity.DayActivity,
+    methods {
+        static fn makeActivity(animating: jboolean, large: jboolean) -> android.view.View,
+        static fn setActivityAnimating(view: android.view.View, on: jboolean),
+    },
+}
 
 fn make(_backend: &mut Android, p: &ActivityProps, _id: NodeId) -> AHandle {
-    with_env(|env| {
-        // A Java throw must not panic inside realize (the panic unwinds the JNI up-call
-        // and aborts the process); degrade to the visible placeholder.
-        let made = day_android::try_make_view_on(
-            env,
-            ACTIVITY_CLASS,
-            "makeActivity",
-            "(ZZ)Landroid/view/View;",
-            &[JValue::Bool(p.animating), JValue::Bool(p.large)],
-        );
-        AHandle(made.unwrap_or_else(|_| {
-            log::warn!("day-piece-activity: DayActivity.makeActivity failed; substituting a placeholder");
-            day_android::placeholder_view(env, "activity")
-        }))
-    })
+    let (animating, large) = (p.animating, p.large);
+    day_android::realize("activity", |env| DayActivity::makeActivity(env, animating, large))
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &ActivityPatch) {
     match patch {
         ActivityPatch::Animating(on) => {
-            with_env(|env| {
-                let _ = env.dcall_static(
-                    ACTIVITY_CLASS,
-                    "setActivityAnimating",
-                    "(Landroid/view/View;Z)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
-                );
-            });
+            java(|env| DayActivity::setActivityAnimating(env, h.0.as_obj(), *on));
         }
     }
 }

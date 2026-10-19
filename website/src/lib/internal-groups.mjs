@@ -131,6 +131,7 @@ export const groups = [
       ['web', 'the `web-dom` backend — wasm build, dayscript bridge, static hosting'],
       ['extending', 'piece registration internals'],
       ['bridge', 'daybridge: foreign-language arms of a Rust API'],
+      ['android-jni', 'java_class! bindings: typed JNI calls, the startup check, R8 keep rules'],
       ['coverage-matrix', 'which piece kinds each backend renders (generated, CI-gated)'],
       ['duty-matrix', 'which backend implements which Toolkit duty (generated, CI-gated)'],
       ['recorder-matrix', 'event → recorded dayscript step coverage (generated, CI-gated)'],

@@ -93,9 +93,10 @@ permissions = [
     "android.permission.RECEIVE_BOOT_COMPLETED",
     "android.permission.SCHEDULE_EXACT_ALARM",
 ]
-proguard = ["platform/android/proguard-rules.pro"]
 # The alarm + boot receivers. Android instantiates these by name from the manifest, so without this
-# the APK installs, runs, and silently never delivers a scheduled notification.
+# the APK installs, runs, and silently never delivers a scheduled notification. Declared there,
+# they are kept from R8 by the rules AGP generates for manifest components; the shim's methods
+# Rust calls are kept by its `java_class!` binding (docs/android-jni.md).
 manifest-components = ["platform/android/components.xml"]
 
 [package.metadata.day.ios]

@@ -17,15 +17,25 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, DayEnv, with_env};
+use day_android::jni::objects::JString;
+use day_android::{AHandle, Android, java};
 use day_core::{BuildCx, Flex, Layout, LayoutOps, RNode, with_tree};
 use day_spec::{NodeId, Proposal, Rect, Size};
 
 /// The row's piece kind, registered under `day_android::RENDERERS`.
 const ROW_KIND: &str = "day-piece-settings.row";
-/// This piece's Java class (src/DaySettingsRow.java, on the app classpath at build).
-const ROW_CLASS: &str = "dev/daybrite/day/piece/settings/DaySettingsRow";
+// This piece's Java class (src/DaySettingsRow.java, on the app classpath at build).
+day_android::java_class! {
+    DaySettingsRow => dev.daybrite.day.piece.settings.DaySettingsRow,
+    methods {
+        static fn makeRow(title: JString, caption: JString, icon: JString, style: jint,
+            flags: jint, enabled: jboolean) -> android.view.View,
+        static fn setRowTexts(view: android.view.View, title: JString, caption: JString),
+        static fn setRowEnabled(view: android.view.View, on: jboolean),
+        static fn rowTextWidth(view: android.view.View) -> jfloat,
+        static fn rowTextHeight(view: android.view.View, width: jfloat) -> jfloat,
+    },
+}
 
 /// M3 list-item metrics, in dp (the Java side holds the same constants for its drawing).
 const PAD_H: f64 = 16.0;
@@ -101,91 +111,48 @@ enum RowPatch {
 // ---------------------------------------------------------------------------
 
 fn make(_backend: &mut Android, p: &RowProps, _id: NodeId) -> AHandle {
-    with_env(|env| {
-        let made = env.new_string(&p.title).and_then(|title| {
-            let caption = env.new_string(&p.caption)?;
-            let icon = env.new_string(&p.icon)?;
-            day_android::try_make_view_on(
-                env,
-                ROW_CLASS,
-                "makeRow",
-                "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;IIZ)Landroid/view/View;",
-                &[
-                    JValue::Object(&title),
-                    JValue::Object(&caption),
-                    JValue::Object(&icon),
-                    JValue::Int(p.style as i32),
-                    JValue::Int(p.flags),
-                    JValue::Bool(p.enabled),
-                ],
-            )
-        });
-        match made {
-            Ok(v) => AHandle(v),
-            Err(e) => {
-                log::warn!("day-piece-settings: DaySettingsRow.makeRow failed ({e}); placeholder");
-                AHandle(day_android::placeholder_view(env, "DaySettingsRow"))
-            }
-        }
+    day_android::realize("settings_row", |env| {
+        let title = JString::from_str(env, &p.title)?;
+        let caption = JString::from_str(env, &p.caption)?;
+        let icon = JString::from_str(env, &p.icon)?;
+        DaySettingsRow::makeRow(
+            env,
+            &title,
+            &caption,
+            &icon,
+            p.style as i32,
+            p.flags,
+            p.enabled,
+        )
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &RowPatch) {
-    with_env(|env| match patch {
+    match patch {
         RowPatch::Texts { title, caption } => {
-            let (Ok(title), Ok(caption)) = (env.new_string(title), env.new_string(caption)) else {
-                return;
-            };
-            let _ = env.dcall_static(
-                ROW_CLASS,
-                "setRowTexts",
-                "(Landroid/view/View;Ljava/lang/String;Ljava/lang/String;)V",
-                &[
-                    JValue::Object(h.0.as_obj()),
-                    JValue::Object(&title),
-                    JValue::Object(&caption),
-                ],
-            );
+            java(|env| {
+                let title = JString::from_str(env, title)?;
+                let caption = JString::from_str(env, caption)?;
+                DaySettingsRow::setRowTexts(env, h.0.as_obj(), &title, &caption)
+            });
         }
         RowPatch::Enabled(on) => {
-            let _ = env.dcall_static(
-                ROW_CLASS,
-                "setRowEnabled",
-                "(Landroid/view/View;Z)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Bool(*on)],
-            );
+            java(|env| DaySettingsRow::setRowEnabled(env, h.0.as_obj(), *on));
         }
-    });
+    }
 }
 
 /// The text block alone: its natural width when unconstrained, else its wrapped height at the
 /// proposed width. `RowLayout` asks through `cx.measure_leaf`; the row's full size is the
 /// layout's business, since it depends on the Day child too.
 fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
-    with_env(|env| {
-        let width = match p.width {
-            Some(w) => w,
-            None => env
-                .dcall_static(
-                    ROW_CLASS,
-                    "rowTextWidth",
-                    "(Landroid/view/View;)F",
-                    &[JValue::Object(h.0.as_obj())],
-                )
-                .and_then(|v| v.f())
-                .unwrap_or(0.0) as f64,
-        };
-        let height = env
-            .dcall_static(
-                ROW_CLASS,
-                "rowTextHeight",
-                "(Landroid/view/View;F)F",
-                &[JValue::Object(h.0.as_obj()), JValue::Float(width as f32)],
-            )
-            .and_then(|v| v.f())
-            .unwrap_or(0.0) as f64;
-        Size::new(width, height)
-    })
+    let width = match p.width {
+        Some(w) => w,
+        None => java(|env| DaySettingsRow::rowTextWidth(env, h.0.as_obj())).unwrap_or(0.0) as f64,
+    };
+    let height = java(|env| DaySettingsRow::rowTextHeight(env, h.0.as_obj(), width as f32))
+        .unwrap_or(0.0) as f64;
+    Size::new(width, height)
 }
 
 day_pieces::renderer!(day_android::RENDERERS, Android,

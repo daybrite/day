@@ -344,22 +344,23 @@ public final class DayBattery {
 }
 ```
 
-The Java uses only `day-android`'s public surface (`DayBridge.ctx`). The Rust side calls the static
-method through `day-android`'s re-exported `jni`, using `with_env` to grab the attached `JNIEnv`, then
-unpacks the `long`:
+The Java uses only `day-android`'s public surface (`DayBridge.ctx`). The Rust side declares the
+class once with `day_android::java_class!`, keeping Java's method names, and calls it inside
+`day_android::java`, which returns `None` if the Java throws. Then it unpacks the `long`:
 
 ```rust
 use super::{BatteryState, BatteryStatus};
-use day_android::with_env;
+use day_android::java;
 
-const BATTERY_CLASS: &str = "dev/daybrite/day/battery/DayBattery";
+day_android::java_class! {
+    DayBattery => dev.daybrite.day.battery.DayBattery,
+    methods {
+        static fn read() -> jlong,
+    },
+}
 
 pub fn status() -> Option<BatteryStatus> {
-    let packed: i64 = with_env(|env| {
-        env.call_static_method(BATTERY_CLASS, "read", "()J", &[])   // ()J = () -> long
-            .ok()
-            .and_then(|v| v.j().ok())
-    })?;
+    let packed = java(|env| DayBattery::read(env))?;
 
     let level_byte = (packed & 0xFF) as u8;
     let level = if level_byte == 255 { None } else { Some(level_byte as f32 / 100.0) };
@@ -459,8 +460,9 @@ only `java = ["src/DayBattery.java"]`. `day-part-network`, whose `ConnectivityMa
 Android instantiates those by name from the manifest, so without the declaration the receiver never
 reaches the APK and the part silently does nothing. `day-part-local-notify` (its `AlarmManager`
 receiver) is the reference. The table also takes `res` (piece-shipped Android resources),
-`gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for classes native code
-reaches by name); see the [extending reference](/docs/internal/extending).
+`gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for Java something reaches
+by reflection; what Rust calls is kept by its binding); see the
+[extending reference](/docs/internal/extending).
 
 When you run `day build -t android-mdc`, the CLI runs `cargo metadata`, walks the app's entire
 dependency closure, and collects every part's and piece's `[package.metadata.day.android]` blocks
@@ -551,7 +553,7 @@ The recommended workflow:
    `long`", or "a C call to `GetSystemPowerStatus` filling `SYSTEM_POWER_STATUS`", or "the
    Objective-C to read `UIDevice.batteryLevel`".The Windows and HarmonyOS impls in this crate were written
    blind (no Windows or Harmony host) because the API call is small and well specified.
-3. **Wire the FFI yourself.** Declare the `extern` block or the JNI `call_static_method`, unpack the
+3. **Wire the FFI yourself.** Declare the `extern` block or the `java_class!` binding, unpack the
    value, and map it to your enum. This is the part where types and ownership rules matter, and where
    you want to read carefully, but it is short.
 

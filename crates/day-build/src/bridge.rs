@@ -2285,11 +2285,28 @@ fn render_java(bridge: &Bridge, arm: &Arm, crate_name: &str) -> String {
     out
 }
 
-/// The Rust half of a Kotlin arm: a JNI static call per function, through day-android's cached JVM
-/// and its `dcall_static` helper, the same path day-part-battery's hand-written arm takes today.
+/// The Rust half of a Kotlin or Java arm: one `day_android::java_class!` binding of the generated
+/// class (docs/android-jni.md), and a wrapper per function that calls it inside `java`. The
+/// binding names each method as declared, so `speak_native` binds `speak_native`, and it records
+/// the R8 keep rule that keeps exactly these methods in a release build.
 fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
-    let class = kotlin_package(crate_name).replace('.', "/") + "/" + &kotlin_object(crate_name);
+    let class = format!(
+        "{}.{}",
+        kotlin_package(crate_name),
+        kotlin_object(crate_name)
+    );
+    let object = kotlin_object(crate_name);
     let mut out = String::new();
+    // The binding, one item: the split on blank lines that cfg-gates each item keeps it whole.
+    let _ = writeln!(out, "day_android::java_class! {{");
+    let _ = writeln!(out, "    {object} => {class},");
+    let _ = writeln!(out, "    methods {{");
+    for decl in &bridge.decls {
+        let _ = writeln!(out, "        {},", binding_member(decl));
+    }
+    let _ = writeln!(out, "    }},");
+    let _ = writeln!(out, "}}\n");
+
     for decl in &bridge.decls {
         let args: Vec<String> = decl.args.iter().map(|(n, t)| format!("{n}: {t}")).collect();
         let ret = if decl.ret.is_empty() {
@@ -2298,10 +2315,9 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             format!(" -> {}", decl.ret)
         };
         let _ = writeln!(out, "fn {}({}){ret} {{", decl.name, args.join(", "));
-        let _ = writeln!(out, "    use day_android::{{DayEnv, with_env}};");
         // A headless part is ordinary Rust anyone may call, including before (or without) a Day
-        // app's init, where `with_env` would panic on the missing JVM. Asking first makes that
-        // an ordinary `Runtime` error.
+        // app's init, where there is no JVM to attach to. Asking first makes that an ordinary
+        // `Runtime` error.
         let _ = writeln!(out, "    if !day_android::vm_ready() {{");
         let _ = writeln!(
             out,
@@ -2316,107 +2332,62 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         if let Some((done, _)) = decl.done() {
             let _ = writeln!(out, "    let {done}_token = {done}.into_token() as i64;");
         }
-        let _ = writeln!(out, "    let called = with_env(|env| {{");
-        // Marshal arguments into JNI values; a String has to become a local ref first.
-        let mut jvalues: Vec<String> = Vec::new();
+        // Inside `java`, a Java exception (the JVM arm's error channel) is described to logcat
+        // and cleared, and the call comes back `None`.
+        let _ = writeln!(out, "    let called = day_android::java(|env| {{");
+        let mut call_args: Vec<String> = vec!["env".into()];
         for (n, t) in decl.plain_args() {
             match t.trim() {
                 "&str" => {
-                    let _ = writeln!(out, "        let {n}_j = env.new_string({n}).ok()?;");
-                    jvalues.push(format!("(&{n}_j).into()"));
-                }
-                "&[u8]" => {
                     let _ = writeln!(
                         out,
-                        "        let {n}_j = env.byte_array_from_slice({n}).ok()?;"
+                        "        let {n}_j = day_android::jni::objects::JString::from_str(env, {n})?;"
                     );
-                    jvalues.push(format!("(&{n}_j).into()"));
+                    call_args.push(format!("&{n}_j"));
                 }
-                // jni 0.22's `jboolean` is Rust's `bool`.
-                "bool" => jvalues.push(format!("day_android::jni::objects::JValue::Bool({n})")),
-                "i32" => jvalues.push(format!("day_android::jni::objects::JValue::Int({n})")),
-                "i64" => jvalues.push(format!("day_android::jni::objects::JValue::Long({n})")),
-                "f32" => jvalues.push(format!("day_android::jni::objects::JValue::Float({n})")),
-                "f64" => jvalues.push(format!("day_android::jni::objects::JValue::Double({n})")),
-                _ => jvalues.push(n.clone()),
+                "&[u8]" => {
+                    let _ = writeln!(out, "        let {n}_j = env.byte_array_from_slice({n})?;");
+                    call_args.push(format!("&{n}_j"));
+                }
+                _ => call_args.push(n.clone()),
             }
         }
         if let Some((done, _)) = decl.done() {
-            jvalues.push(format!(
-                "day_android::jni::objects::JValue::Long({done}_token)"
-            ));
+            call_args.push(format!("{done}_token"));
         }
-        let _ = writeln!(
-            out,
-            "        let outcome = env.dcall_static({}, {}, {}, &[{}]);",
-            quote(&class),
-            quote(&decl.name),
-            quote(&jni_signature(decl)),
-            jvalues.join(", ")
-        );
-        // A throwing arm leaves the exception pending on this thread. `with_env`'s attach guard
-        // treats a pending exception as fatal and panics, which would turn the contract's
-        // "an exception becomes Error::Foreign" into a contained panic that leaves the UI's
-        // reactive state suspect. Logging and clearing it here is what keeps it an ordinary error.
-        let _ = writeln!(out, "        if env.exception_check() {{");
-        let _ = writeln!(out, "            env.exception_describe(); // → logcat");
-        let _ = writeln!(out, "            env.exception_clear();");
-        let _ = writeln!(out, "        }}");
+        let call = format!("{object}::{}({})", decl.name, call_args.join(", "));
+        match result_value(&decl.ret).as_deref() {
+            // Copied out of the JVM at once (docs/bridge.md "Ownership"); a null return is the
+            // arm saying "nothing", which the caller sees as an empty value rather than a failure.
+            Some("String") => {
+                let _ = writeln!(out, "        let value = {call}?;");
+                let _ = writeln!(out, "        if value.is_null() {{");
+                let _ = writeln!(out, "            return Ok(String::new());");
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        Ok(value.mutf8_chars(env)?.to_string())");
+            }
+            Some("Vec<u8>") => {
+                let _ = writeln!(out, "        let value = {call}?;");
+                let _ = writeln!(out, "        if value.is_null() {{");
+                let _ = writeln!(out, "            return Ok(Vec::new());");
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        env.convert_byte_array(&value)");
+            }
+            _ => {
+                let _ = writeln!(out, "        {call}");
+            }
+        }
+        let _ = writeln!(out, "    }});");
         // Three shapes, not two: a bare unit call drops failures, `Result<(), _>` reports them,
         // and `Result<T, _>` also carries a value back.
-        match (decl.ret.is_empty(), result_value(&decl.ret)) {
-            (true, _) => {
-                let _ = writeln!(out, "        outcome.ok()?;");
-                let _ = writeln!(out, "        Some(())");
-                let _ = writeln!(out, "    }});");
-                let _ = writeln!(out, "    let _ = called;");
-            }
-            (false, None) => {
-                let _ = writeln!(out, "        outcome.ok()?;");
-                let _ = writeln!(out, "        Some(())");
-                let _ = writeln!(out, "    }});");
-                let _ = writeln!(
-                    out,
-                    "    // A Java exception fails `dcall_static`, so a throwing"
-                );
-                let _ = writeln!(out, "    // arm arrives here as `None`.");
-                let _ = writeln!(out, "    match called {{");
-                let _ = writeln!(out, "        Some(()) => Ok(()),");
-                let _ = writeln!(
-                    out,
-                    "        None => Err(day_bridge::Error::Foreign(\"{}\".into())),",
-                    decl.name
-                );
-                let _ = writeln!(out, "    }}");
-            }
-            (false, Some(ty)) => {
-                if ty == "String" {
-                    // Copied out of the JVM immediately (docs/bridge.md "Ownership"); a null
-                    // return is the arm saying "nothing", which the caller sees as an empty
-                    // string rather than a foreign failure.
-                    let _ = writeln!(out, "        let obj = outcome.ok()?.l().ok()?;");
-                    let _ = writeln!(out, "        if obj.is_null() {{");
-                    let _ = writeln!(out, "            return Some(String::new());");
-                    let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        env.dstr(&day_android::as_jstring(obj)).ok()");
-                } else {
-                    let _ = writeln!(out, "        outcome.ok()?.{}().ok()", jvalue_accessor(&ty));
-                }
-                let _ = writeln!(out, "    }});");
-                let _ = writeln!(
-                    out,
-                    "    // A Java exception fails `dcall_static`, so a throwing"
-                );
-                let _ = writeln!(out, "    // arm arrives here as `None`.");
-                let _ = writeln!(out, "    match called {{");
-                let _ = writeln!(out, "        Some(v) => Ok(v),");
-                let _ = writeln!(
-                    out,
-                    "        None => Err(day_bridge::Error::Foreign(\"{}\".into())),",
-                    decl.name
-                );
-                let _ = writeln!(out, "    }}");
-            }
+        if decl.ret.is_empty() {
+            let _ = writeln!(out, "    let _ = called;");
+        } else {
+            let _ = writeln!(
+                out,
+                "    called.ok_or_else(|| day_bridge::Error::Foreign(\"{}\".into()))",
+                decl.name
+            );
         }
         let _ = writeln!(out, "}}\n");
     }
@@ -2448,7 +2419,7 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
         let convert = match value.as_str() {
             "()" => "Ok(())".to_string(),
             "bool" => "Ok(value)".to_string(),
-            "String" => "if value.is_null() { Ok(String::new()) } else { with_env(|env| env.dstr(&value)).map_err(|_| day_bridge::Error::Encoding) }".to_string(),
+            "String" => "if value.is_null() { Ok(String::new()) } else { with_env(|env| read_jstring(env, &value)).ok_or(day_bridge::Error::Encoding) }".to_string(),
             "Vec<u8>" => "if value.is_null() { Ok(Vec::new()) } else { with_env(|env| env.convert_byte_array(&value)).map_err(|_| day_bridge::Error::Encoding) }".to_string(),
             _ => "Ok(value)".to_string(),
         };
@@ -2459,14 +2430,14 @@ fn render_jvm_rust(bridge: &Bridge, crate_name: &str) -> String {
             jni_export_name(crate_name, &jvm_native_name(decl)),
             params.join(", ")
         );
-        let _ = writeln!(out, "    use day_android::{{DayEnv, with_env}};");
+        let _ = writeln!(out, "    use day_android::{{read_jstring, with_env}};");
         let _ = writeln!(out, "    day_bridge::guard(|| {{");
         let _ = writeln!(out, "        let outcome = if status == 0 {{");
         let _ = writeln!(out, "            {convert}");
         let _ = writeln!(out, "        }} else {{");
         let _ = writeln!(
             out,
-            "            let text = if message.is_null() {{ String::new() }} else {{ with_env(|env| env.dstr(&message)).unwrap_or_default() }};"
+            "            let text = with_env(|env| read_jstring(env, &message)).unwrap_or_default();"
         );
         let _ = writeln!(
             out,
@@ -2561,48 +2532,37 @@ fn result_value(ret: &str) -> Option<String> {
     (!value.is_empty() && value != "()").then_some(value)
 }
 
-/// The `JValueOwned` accessor for a v1 scalar.
-fn jvalue_accessor(ty: &str) -> &'static str {
-    match ty.trim() {
-        "bool" => "z",
-        "i32" => "i",
-        "i64" => "j",
-        "f32" => "f",
-        "f64" => "d",
-        _ => "i",
-    }
-}
-
-/// `(Ljava/lang/String;)I`: the descriptor `dcall_static` needs for one declaration.
-fn jni_signature(decl: &Decl) -> String {
-    let mut args: String = decl
+/// One declaration as a `java_class!` member: `static fn speak_native(text: JString, done:
+/// jlong)`. A `Done`/`Emit` handle crosses as its `long` token; `Result<(), Error>` returns
+/// nothing, the error riding the JVM's exception channel.
+fn binding_member(decl: &Decl) -> String {
+    let mut params: Vec<String> = decl
         .plain_args()
         .iter()
-        .map(|(_, t)| match t.trim() {
-            "bool" => "Z",
-            "i32" => "I",
-            "i64" => "J",
-            "f32" => "F",
-            "f64" => "D",
-            "&str" => "Ljava/lang/String;",
-            "&[u8]" => "[B",
-            _ => "Ljava/lang/Object;",
-        })
+        .map(|(n, t)| format!("{n}: {}", jni_sig_type(t)))
         .collect();
-    if decl.done().is_some() {
-        args.push('J');
+    if let Some((done, _)) = decl.done() {
+        params.push(format!("{done}: jlong"));
     }
-    let ret = match result_value(&decl.ret).as_deref() {
-        None => "V",
-        Some("bool") => "Z",
-        Some("i32") => "I",
-        Some("i64") => "J",
-        Some("f32") => "F",
-        Some("f64") => "D",
-        Some("String") => "Ljava/lang/String;",
-        Some(_) => "Ljava/lang/Object;",
+    let ret = match result_value(&decl.ret) {
+        Some(ty) => format!(" -> {}", jni_sig_type(&ty)),
+        None => String::new(),
     };
-    format!("({args}){ret}")
+    format!("static fn {}({}){ret}", decl.name, params.join(", "))
+}
+
+/// A v1 type in `java_class!`'s signature syntax (jni's `bind_java_type!` grammar).
+fn jni_sig_type(ty: &str) -> &'static str {
+    match ty.trim() {
+        "bool" => "jboolean",
+        "i32" => "jint",
+        "i64" => "jlong",
+        "f32" => "jfloat",
+        "f64" => "jdouble",
+        "&str" | "String" => "JString",
+        "&[u8]" | "Vec<u8>" => "jbyte[]",
+        _ => "JObject",
+    }
 }
 
 fn kotlin_type(ty: &str) -> &'static str {
@@ -3003,11 +2963,13 @@ fn render_rust(bridge: &Bridge, crate_name: &str) -> String {
         let block = render_jvm_rust(bridge, crate_name);
         let cfg = arm_cfg(arm, bridge);
         for item in block.split("\n\n").filter(|i| !i.trim().is_empty()) {
-            let _ = writeln!(
-                out,
-                "#[cfg({cfg})]\n#[allow(dead_code, clippy::too_many_arguments)]\n{}\n",
-                item.trim_end()
-            );
+            // A lint attribute on a macro call is rejected as unused; the binding scopes its own.
+            let allow = if item.starts_with("day_android::java_class!") {
+                ""
+            } else {
+                "#[allow(dead_code, clippy::too_many_arguments)]\n"
+            };
+            let _ = writeln!(out, "#[cfg({cfg})]\n{allow}{}\n", item.trim_end());
         }
     }
 
@@ -3285,8 +3247,8 @@ day_bridge::bridge! {
         );
         validate(&b).expect("valid");
         let rust = render_jvm_rust(&b, "day-part-test");
-        assert!(rust.contains("JValue::Bool(on)"), "{rust}");
-        assert!(rust.contains("\"(Z)V\""), "{rust}");
+        assert!(rust.contains("static fn hold(on: jboolean),"), "{rust}");
+        assert!(rust.contains("::hold(env, on)"), "{rust}");
     }
 
     #[test]
@@ -3501,16 +3463,26 @@ day_bridge::bridge! {
         let rust = render_jvm_rust(&b, "day-part-speech");
         assert!(
             rust.contains(
-                "env.dcall_static(\"dev/daybrite/day/bridge/day_part_speech/DayPartSpeechBridge\", \"speak_native\", \"(Ljava/lang/String;)V\""
+                "DayPartSpeechBridge => dev.daybrite.day.bridge.day_part_speech.DayPartSpeechBridge,"
             ),
             "{rust}"
         );
         assert!(
-            rust.contains("let text_j = env.new_string(text).ok()?;"),
+            rust.contains("static fn speak_native(text: JString),"),
+            "the declared name is bound verbatim:\n{rust}"
+        );
+        assert!(
+            rust.contains("let text_j = day_android::jni::objects::JString::from_str(env, text)?;"),
             "{rust}"
         );
         assert!(
-            rust.contains("Err(day_bridge::Error::Foreign(\"speak_native\".into()))"),
+            rust.contains("DayPartSpeechBridge::speak_native(env, &text_j)"),
+            "{rust}"
+        );
+        assert!(
+            rust.contains(
+                "called.ok_or_else(|| day_bridge::Error::Foreign(\"speak_native\".into()))"
+            ),
             "a failed call becomes Foreign:\n{rust}"
         );
     }
@@ -3548,9 +3520,7 @@ day_bridge::bridge! {
         // The Rust half is language-blind: one JNI call, whichever language wrote the class.
         let rust = render_jvm_rust(&b, "day-part-speech");
         assert!(
-            rust.contains(
-                "env.dcall_static(\"dev/daybrite/day/bridge/day_part_speech/DayPartSpeechBridge\", \"speak_native\", \"(Ljava/lang/String;)V\""
-            ),
+            rust.contains("static fn speak_native(text: JString),"),
             "{rust}"
         );
     }
@@ -3624,14 +3594,14 @@ day_bridge::bridge! {
     }
 
     #[test]
-    fn jni_descriptors_match_the_declaration() {
+    fn binding_members_match_the_declaration() {
         let unit = Decl {
             name: "stop".into(),
             args: vec![],
             ret: String::new(),
             line: 1,
         };
-        assert_eq!(jni_signature(&unit), "()V");
+        assert_eq!(binding_member(&unit), "static fn stop()");
         let mixed = Decl {
             name: "f".into(),
             args: vec![
@@ -3643,7 +3613,10 @@ day_bridge::bridge! {
             line: 1,
         };
         // `Result<(), Error>` returns nothing: the error rides the exception channel.
-        assert_eq!(jni_signature(&mixed), "(Ljava/lang/String;JZ)V");
+        assert_eq!(
+            binding_member(&mixed),
+            "static fn f(a: JString, b: jlong, c: jboolean)"
+        );
 
         // A value return carries its own descriptor.
         let valued = Decl {
@@ -3652,7 +3625,7 @@ day_bridge::bridge! {
             ret: "Result<i32, day_bridge::Error>".into(),
             line: 1,
         };
-        assert_eq!(jni_signature(&valued), "()I");
+        assert_eq!(binding_member(&valued), "static fn level() -> jint");
         assert_eq!(result_value(&valued.ret).as_deref(), Some("i32"));
     }
 
@@ -3773,7 +3746,10 @@ day_bridge::bridge! {
             rust.contains("pub extern \"system\" fn Java_dev_daybrite_day_bridge_day_1part_1speech_DayPartSpeechBridge_dayComplete_1speak_1native("),
             "{rust}"
         );
-        assert!(rust.contains("JValue::Long(done_token)"), "{rust}");
+        assert!(
+            rust.contains("::speak_native(env, &text_j, done_token)"),
+            "the token is the trailing argument on the JVM too:\n{rust}"
+        );
         // The wasm export takes the value and the message as (ptr, len) pairs.
         assert!(
             rust.contains("pub extern \"C\" fn day_bridge_complete_day_part_speech_speak_native(done: u64, status: i32, value: i32, msg: *mut u8, msg_len: usize)"),
@@ -3862,8 +3838,14 @@ day_bridge::bridge! {
             java.contains("private static native void dayComplete_engine_ready_native(long done, int status, String message);"),
             "{java}"
         );
-        assert_eq!(jni_signature(&b.decls[0]), "(Ljava/lang/String;J)V");
-        assert_eq!(jni_signature(&b.decls[1]), "(J)V");
+        assert_eq!(
+            binding_member(&b.decls[0]),
+            "static fn speak_native(text: JString, done: jlong)"
+        );
+        assert_eq!(
+            binding_member(&b.decls[1]),
+            "static fn engine_ready_native(done: jlong)"
+        );
         let kotlin = render_kotlin(&b, arm, "day-part-speech");
         assert!(
             kotlin.contains("@JvmStatic private external fun dayComplete_speak_native(done: Long, status: Int, value: Boolean, message: String?)"),

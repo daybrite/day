@@ -55,7 +55,14 @@ cleartext-domains = ["127.0.0.1"] # HTTP for these exact hosts; HTTPS elsewhere
 # cleartext-traffic = true        # apps intentionally accepting HTTP from any host
 edge-to-edge = true
 resource-overlays = ["platform/android/res"]
+# optimize = true                  # let R8 optimize the release build, not only shrink it
 ```
+
+Release builds shrink and rename with R8. It keeps the Java classes and methods your Rust calls,
+because every binding declares them (`java_class!`, [internal reference](/docs/internal/android-jni)).
+`optimize = true` also turns on R8's optimizations, such as inlining and class merging. They are off
+by default because some libraries look up their own classes in ways their published rules miss.
+Turn them on once your release build passes its walkthrough with them.
 
 An overlay is a native Android `res/` directory. Keep custom `values/styles.xml`, color
 palettes and other native resources there. Day copies them over the generated defaults;

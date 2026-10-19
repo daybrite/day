@@ -409,8 +409,30 @@ public static View makeSearch(final long id, String placeholder, String initial)
 }
 ```
 
-`lib-android.rs` calls that class through the re-exported `jni` (`with_env` + `call_static_method`),
-returning a global ref as the handle. The factory reaches the app's Gradle build automatically:
+`lib-android.rs` declares that class with `day_android::java_class!`, keeping Java's method names,
+and makes the view with `day_android::realize`, which returns the View as the handle or a visible
+placeholder if the factory throws:
+
+```rust
+day_android::java_class! {
+    DaySearch => dev.daybrite.day.piece.searchfield.DaySearch,
+    methods {
+        static fn makeSearch(id: jlong, placeholder: JString, text: JString) -> android.view.View,
+        static fn setSearchText(view: android.view.View, text: JString),
+    },
+}
+
+fn make(_backend: &mut Android, p: &SearchProps, id: NodeId) -> AHandle {
+    day_android::realize("search_field", |env| {
+        let placeholder = JString::from_str(env, &p.placeholder)?;
+        let text = JString::from_str(env, &p.text)?;
+        DaySearch::makeSearch(env, id.0 as i64, &placeholder, &text)
+    })
+}
+```
+
+A method whose signature stops matching the Java is named in logcat when the app starts, and a
+release build keeps exactly the methods the binding names through R8. The factory reaches the app's Gradle build automatically:
 the piece declares its Java dir in `Cargo.toml`, and `day build` folds it in with no edit to
 `day-android` and no per-piece Gradle edit:
 

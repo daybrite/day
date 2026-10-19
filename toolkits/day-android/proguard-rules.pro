@@ -1,40 +1,27 @@
 # day-android — R8/ProGuard keep rules for Day's Android toolkit.
 #
-# `day build` aggregates this file into every Day app's release proguard configuration (resolved
-# from the day-android crate, exactly like the Java shim under java/). It is the framework half of
-# the convention documented in docs/extending.md: any Part or Piece that hands Java classes to
-# native code by name ships its own `proguard-rules.pro` and declares it in
-# `[package.metadata.day.android].proguard`, and day-build folds them all in.
+# `day build` adds this file to every Day app's release proguard configuration (resolved from the
+# day-android crate, exactly like the Java shim under java/), beside the generated
+# `day-jni-keep.pro` and any rules a part or piece declares in
+# `[package.metadata.day.android].proguard` (docs/android-jni.md).
 #
-# Why any of this is needed: Day renders through a Java bridge that native (Rust) code reaches by
-# fully-qualified name — `DayActivity` is the launcher Activity, `DayBridge` hosts the JNI
-# trampolines (the C symbols `Java_dev_daybrite_day_bridge_DayBridge_native*`), and the other views
-# are constructed and looked up by name. R8 minification renames classes and methods by default, so
-# without these keeps the release APK installs and then crashes at launch (ClassNotFoundException /
-# UnsatisfiedLinkError / a renamed class breaking JNI FindClass).
-
-# AGP requires the `proguard-android-optimize.txt` base file, but its aggressive method/class
-# optimizations (inlining, merging) routinely break reflection-heavy libraries — WorkManager's Room
-# `WorkDatabase` fails to instantiate, for one. R8 still SHRINKS unused code and RENAMES what no
-# keep rule protects; it just skips those optimizations. A conservative, predictable default for a
-# framework whose apps mix Rust, JNI, and arbitrary Android libraries. (An app that wants the extra
-# optimization can re-enable it in its own proguard-rules.pro once it has verified its release build.)
--dontoptimize
-
-# Day's first-party Java lives entirely under `dev.daybrite.day.**` — the render bridge
-# (`…day.bridge.*`: DayActivity, DayBridge, the views) and every official Part/Piece's shim
-# (`…day.piece.*` / `…day.part.*`, e.g. `dev.daybrite.day.piece.picker.DayPicker`). All of it is
-# constructed, found (JNI FindClass), and called by name, so keep the whole namespace intact. This
-# covers current and future first-party pieces without each restating the rule; an app's own classes
-# and any THIRD-PARTY piece outside this namespace stay covered by the aggregation convention above
-# (their own proguard-rules.pro, declared in `[package.metadata.day.android].proguard`).
--keep class dev.daybrite.day.** { *; }
+# What R8 must keep in Day's own Java is decided by the Rust that reaches it, not by a namespace
+# rule. Every class and member Rust calls by name is bound with `java_class!`, and `day build`
+# collects the binding's keep rule from the app's native library into `day-jni-keep.pro`, so a
+# release build keeps exactly those and shrinks, renames and optimizes the rest. Activities,
+# services, providers and receivers are kept by the rules AGP generates from the merged manifest.
+# Nothing in Day's Java reaches another Day class by reflection; a component that does ships its
+# own rules (`[package.metadata.day.android].proguard`).
+#
+# R8's optimizations (inlining, class merging) are off unless the app sets `[android] optimize`:
+# they act on every library in the APK, and some reflect on their own classes in ways their
+# consumer rules do not cover (WorkManager's Room database did). `proguard-dontoptimize.pro`
+# carries that one line, and `day build` adds it for every app that has not opted in.
 
 # Generic JNI safety net: a class that declares a native method is bound to the C symbol
 # `Java_<class>_<method>`, so its class name and native-method names must survive minification.
 # This covers app- and piece-supplied JNI shims (an install bridge, a background worker, …) without
-# each one having to restate the rule — though a shim whose *non-native* methods are also called by
-# name (via `dcall_static`) still keeps those itself, in its own proguard-rules.pro.
+# each one having to restate the rule. Their other methods Rust calls are kept by their bindings.
 -keepclasseswithmembers,includedescriptorclasses class * {
     native <methods>;
 }

@@ -885,9 +885,10 @@ macro_rules! day_start_macos {
     };
 }
 
-/// Expands to the three JNI exports `dev.daybrite.day.bridge.DayBridge`'s natives resolve
-/// against in the app cdylib (`nativeStart`/`nativeOnEvent`/`nativeRunPosted`),
-/// wired to the given root piece.
+/// Expands to the two JNI exports that start the app, `DayBridge.nativeStart` (the primary
+/// window) and `DayBridge.nativeStartWindow` (a secondary one), wired to the given root piece.
+/// They live in the app cdylib because they name the app's root; every other native the bridge
+/// declares is registered by day-android's `DayBridge` binding (docs/android-jni.md).
 ///
 /// ```ignore
 /// day::day_start_android!(root);
@@ -948,171 +949,6 @@ macro_rules! day_start_android {
                 .into_outcome();
             ok as $crate::android::jni::sys::jboolean
         }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeOnEvent<'local>(
-            mut env: $crate::android::jni::EnvUnowned<'local>,
-            _class: $crate::android::jni::objects::JClass<'local>,
-            id: $crate::android::jni::sys::jlong,
-            kind: $crate::android::jni::sys::jint,
-            num: $crate::android::jni::sys::jdouble,
-            s: $crate::android::jni::objects::JString<'local>,
-        ) {
-            let _ = env
-                .with_env(|env| {
-                    $crate::android::dispatch_event(env, id, kind, num, &s);
-                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
-                })
-                .into_outcome();
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeRunPosted(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            token: $crate::android::jni::sys::jlong,
-        ) {
-            $crate::android::run_posted(token);
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeDoFrame(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            token: $crate::android::jni::sys::jlong,
-            frame_nanos: $crate::android::jni::sys::jlong,
-        ) {
-            $crate::android::run_frame(token, frame_nanos);
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListLen(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            host_id: $crate::android::jni::sys::jlong,
-        ) -> $crate::android::jni::sys::jint {
-            $crate::android::list_len(host_id) as $crate::android::jni::sys::jint
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListBind<'local>(
-            mut env: $crate::android::jni::EnvUnowned<'local>,
-            _class: $crate::android::jni::objects::JClass<'local>,
-            host_id: $crate::android::jni::sys::jlong,
-            position: $crate::android::jni::sys::jint,
-            cell: $crate::android::jni::objects::JObject<'local>,
-        ) {
-            let _ = env
-                .with_env(|env| {
-                    $crate::android::list_bind(env, host_id, position, cell);
-                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
-                })
-                .into_outcome();
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListRecycle<'local>(
-            mut env: $crate::android::jni::EnvUnowned<'local>,
-            _class: $crate::android::jni::objects::JClass<'local>,
-            host_id: $crate::android::jni::sys::jlong,
-            cell: $crate::android::jni::objects::JObject<'local>,
-        ) {
-            let _ = env
-                .with_env(|env| {
-                    $crate::android::list_recycle(env, host_id, cell);
-                    ::core::result::Result::Ok::<(), $crate::android::jni::errors::Error>(())
-                })
-                .into_outcome();
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListIsSelected(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            host_id: $crate::android::jni::sys::jlong,
-            position: $crate::android::jni::sys::jint,
-        ) -> $crate::android::jni::sys::jboolean {
-            $crate::android::list_is_selected(host_id, position)
-                as $crate::android::jni::sys::jboolean
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListCanDrop(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            host_id: $crate::android::jni::sys::jlong,
-            from: $crate::android::jni::sys::jint,
-            to: $crate::android::jni::sys::jint,
-        ) -> $crate::android::jni::sys::jboolean {
-            $crate::android::list_can_drop(host_id, from, to) as $crate::android::jni::sys::jboolean
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListMove(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            host_id: $crate::android::jni::sys::jlong,
-            from: $crate::android::jni::sys::jint,
-            to: $crate::android::jni::sys::jint,
-        ) -> $crate::android::jni::sys::jboolean {
-            $crate::android::list_move(host_id, from, to) as $crate::android::jni::sys::jboolean
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListCanDelete(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            host_id: $crate::android::jni::sys::jlong,
-            index: $crate::android::jni::sys::jint,
-        ) -> $crate::android::jni::sys::jboolean {
-            $crate::android::list_can_delete(host_id, index) as $crate::android::jni::sys::jboolean
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeListDelete(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            host_id: $crate::android::jni::sys::jlong,
-            index: $crate::android::jni::sys::jint,
-        ) -> $crate::android::jni::sys::jboolean {
-            $crate::android::list_delete(host_id, index) as $crate::android::jni::sys::jboolean
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayTransfer_nativeCall<'local>(
-            mut env: $crate::android::jni::EnvUnowned<'local>,
-            _class: $crate::android::jni::objects::JClass<'local>,
-            kind: i32, token: i64, x: f64, y: f64,
-            bytes: $crate::android::jni::objects::JByteArray<'local>,
-            local: $crate::android::jni::sys::jboolean,
-        ) -> $crate::android::jni::sys::jbyteArray {
-            match env.with_env(|env| $crate::android::transfer_call(env,kind,token,x,y,bytes,local)).into_outcome() {
-                $crate::android::jni::Outcome::Ok(value)=>value,
-                _=>::core::ptr::null_mut(),
-            }
-        }
-
-        #[cfg(target_os = "android")]
-        #[unsafe(no_mangle)]
-        pub extern "system" fn Java_dev_daybrite_day_bridge_DayBridge_nativeHandlesKeys(
-            _env: $crate::android::jni::EnvUnowned,
-            _class: $crate::android::jni::objects::JClass,
-            id: $crate::android::jni::sys::jlong,
-        ) -> $crate::android::jni::sys::jboolean {
-            $crate::android::handles_keys(id) as $crate::android::jni::sys::jboolean
-        }
     };
 }
 
@@ -1120,11 +956,7 @@ macro_rules! day_start_android {
 #[cfg(all(feature = "mdc", target_os = "android"))]
 pub mod android {
     pub use day_android::jni;
-    pub use day_android::{
-        dispatch_event, handles_keys, list_bind, list_can_delete, list_can_drop, list_delete,
-        list_is_selected, list_len, list_move, list_recycle, mount_settled, read_jstring,
-        run_frame, run_posted, transfer_call, window_started,
-    };
+    pub use day_android::{mount_settled, read_jstring, window_started};
 
     #[allow(clippy::too_many_arguments)]
     pub fn start<R: crate::Piece>(

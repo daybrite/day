@@ -13,74 +13,63 @@
 // programmatic sync is a no-op when unchanged.
 // ---------------------------------------------------------------------------
 
-use crate::DayEnv;
-use crate::jni::objects::JValue;
-use crate::{AHandle, Android, with_env};
+use crate::jni::objects::JString;
+use crate::{AHandle, Android, java, with_env};
 use day_spec::props::{TextAreaPatch as TextPatch, TextAreaProps as TextProps};
 use day_spec::{NodeId, Proposal, Size};
 
-/// This piece's Java class (in the crate's android/java, on the app classpath at build).
-const TA_CLASS: &str = "dev/daybrite/day/piece/textarea/DayTextArea";
+// This piece's Java class (in the crate's android/java, on the app classpath at build).
+crate::java_class! {
+    DayTextArea => dev.daybrite.day.piece.textarea.DayTextArea,
+    methods {
+        static fn makeTextArea(id: jlong, placeholder: JString, text: JString, min_lines: jint,
+            max_lines: jint, editable: jboolean, selectable: jboolean, spellcheck: jboolean,
+            submit_on_enter: jboolean) -> android.view.View,
+        static fn setTextAreaText(view: android.view.View, text: JString),
+        static fn setTextAreaEditable(view: android.view.View, on: jboolean),
+        static fn setTextAreaSelectable(view: android.view.View, on: jboolean),
+        static fn setTextAreaSpellCheck(view: android.view.View, on: jboolean),
+        static fn measureHeight(view: android.view.View, width: jint) -> jint,
+    },
+}
 
 fn make(_backend: &mut Android, p: &TextProps, id: NodeId) -> AHandle {
-    with_env(|env| {
-        // Same rule as the picker: a Java throw in realize must degrade to a placeholder,
-        // never panic; the panic would unwind the JNI up-call and abort the process.
-        let made = env.new_string(&p.placeholder).ok().and_then(|ph| {
-            let init = env.new_string(&p.text).ok()?;
-            crate::try_make_view_on(
-                env,
-                TA_CLASS,
-                "makeTextArea",
-                "(JLjava/lang/String;Ljava/lang/String;IIZZZZ)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Object(&ph),
-                    JValue::Object(&init),
-                    JValue::Int(p.min_lines as i32),
-                    JValue::Int(p.max_lines as i32),
-                    JValue::Bool(p.editable),
-                    JValue::Bool(p.selectable),
-                    JValue::Bool(p.spellcheck),
-                    JValue::Bool(p.submit_on_enter),
-                ],
-            )
-            .ok()
-        });
-        AHandle(made.unwrap_or_else(|| {
-            log::warn!("day-android: DayTextArea.makeTextArea failed; substituting a placeholder");
-            crate::placeholder_view(env, "text_area")
-        }))
+    crate::realize("text_area", |env| {
+        let placeholder = JString::from_str(env, &p.placeholder)?;
+        let text = JString::from_str(env, &p.text)?;
+        DayTextArea::makeTextArea(
+            env,
+            id.0 as i64,
+            &placeholder,
+            &text,
+            p.min_lines as i32,
+            p.max_lines as i32,
+            p.editable,
+            p.selectable,
+            p.spellcheck,
+            p.submit_on_enter,
+        )
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &TextPatch) {
-    // The three attribute patches all call `<method>(View, boolean)` on the Java shim.
-    let bool_attr = |method: &str, value: bool| {
-        with_env(|env| {
-            let _ = env.dcall_static(
-                TA_CLASS,
-                method,
-                "(Landroid/view/View;Z)V",
-                &[JValue::Object(h.0.as_obj()), JValue::Bool(value)],
-            );
-        });
-    };
+    let view = h.0.as_obj();
     match patch {
         TextPatch::SetText(t) => {
-            with_env(|env| {
-                let Ok(s) = env.new_string(t) else { return };
-                let _ = env.dcall_static(
-                    TA_CLASS,
-                    "setTextAreaText",
-                    "(Landroid/view/View;Ljava/lang/String;)V",
-                    &[JValue::Object(h.0.as_obj()), JValue::Object(&s)],
-                );
+            java(|env| {
+                let text = JString::from_str(env, t)?;
+                DayTextArea::setTextAreaText(env, view, &text)
             });
         }
-        TextPatch::SetEditable(v) => bool_attr("setTextAreaEditable", *v),
-        TextPatch::SetSelectable(v) => bool_attr("setTextAreaSelectable", *v),
-        TextPatch::SetSpellCheck(v) => bool_attr("setTextAreaSpellCheck", *v),
+        TextPatch::SetEditable(v) => {
+            java(|env| DayTextArea::setTextAreaEditable(env, view, *v));
+        }
+        TextPatch::SetSelectable(v) => {
+            java(|env| DayTextArea::setTextAreaSelectable(env, view, *v));
+        }
+        TextPatch::SetSpellCheck(v) => {
+            java(|env| DayTextArea::setTextAreaSpellCheck(env, view, *v));
+        }
     }
 }
 
@@ -88,20 +77,9 @@ fn measure(_backend: &mut Android, h: &AHandle, p: Proposal) -> Size {
     // Fill the proposed width (grow_w leaf); content-driven height (already clamped to the line band by
     // the EditText). The Java helper returns dp, so no density conversion is needed here.
     let avail_w = p.width.unwrap_or(200.0).max(120.0);
-    let h_dp = with_env(|env| {
-        env.dcall_static(
-            TA_CLASS,
-            "measureHeight",
-            "(Landroid/view/View;I)I",
-            &[
-                JValue::Object(h.0.as_obj()),
-                JValue::Int(avail_w.round() as i32),
-            ],
-        )
-        // Layout-pass JNI up-call: degrade to the default row height on a throw, don't panic.
-        .and_then(|v| v.i())
-        .unwrap_or(44)
-    });
+    // Layout-pass JNI up-call: degrade to the default row height on a throw, don't panic.
+    let h_dp = java(|env| DayTextArea::measureHeight(env, h.0.as_obj(), avail_w.round() as i32))
+        .unwrap_or(44);
     Size::new(avail_w, (h_dp as f64).max(24.0))
 }
 

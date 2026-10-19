@@ -458,6 +458,13 @@ That failure is caught before it can happen. `day build` fails, and `day lint` r
 gives the three ways out: write the arm in Java, apply `org.jetbrains.kotlin.android`, or wire the
 staged root into the Kotlin source set the project already has and mark the file `day: kotlin-ok`.
 
+The Rust half reaches that class through a [`java_class!`](android-jni.md) binding day-build
+generates beside the wrappers, with each method named as declared (`speak_native` binds
+`speak_native`). So the generated calls are typed and cached, `day_android::init` checks the class
+at launch, and the binding's keep rule keeps exactly these methods through R8. The completion
+natives (`dayComplete_<fn>`, `dayEmit_<fn>`) stay exported symbols, kept by day-android's rule for
+native methods.
+
 **A part published for other people's apps should use `java`.** It cannot know whether its
 consumers have Kotlin, and the JVM half of a bridge is a handful of static methods where the two
 languages differ little. `day-part-battery` and `day-part-speech` both do this. An app's own crate,

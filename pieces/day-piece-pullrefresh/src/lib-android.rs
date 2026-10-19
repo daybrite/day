@@ -13,49 +13,28 @@
 // ---------------------------------------------------------------------------
 
 use super::*;
-use day_android::DayEnv;
-use day_android::jni::objects::JValue;
-use day_android::{AHandle, Android, with_env};
+use day_android::{AHandle, Android, java};
 use day_spec::NodeId;
 
-/// This piece's Java class (src/DayPullRefresh.java, on the app classpath at build).
-const PULLREFRESH_CLASS: &str = "dev/daybrite/day/piece/pullrefresh/DayPullRefresh";
+// This piece's Java class (src/DayPullRefresh.java, on the app classpath at build).
+day_android::java_class! {
+    DayPullRefresh => dev.daybrite.day.piece.pullrefresh.DayPullRefresh,
+    methods {
+        static fn makePullRefresh(id: jlong, refreshing: jboolean) -> android.view.View,
+        static fn refreshCommand(view: android.view.View, on: jboolean),
+    },
+}
 
 fn make(_backend: &mut Android, p: &RefreshProps, id: NodeId) -> AHandle {
-    with_env(|env| {
-        let view = env
-            .dcall_static(
-                PULLREFRESH_CLASS,
-                "makePullRefresh",
-                "(JZ)Landroid/view/View;",
-                &[
-                    JValue::Long(id.0 as i64),
-                    JValue::Bool(p.refreshing as day_android::jni::sys::jboolean),
-                ],
-            )
-            .expect("DayPullRefresh.makePullRefresh")
-            .l()
-            .expect("View");
-        AHandle(std::sync::Arc::new(
-            env.new_global_ref(view).expect("global ref"),
-        ))
+    let refreshing = p.refreshing;
+    day_android::realize("pull_refresh", |env| {
+        DayPullRefresh::makePullRefresh(env, id.0 as i64, refreshing)
     })
 }
 
 fn update(_backend: &mut Android, h: &AHandle, patch: &RefreshPatch) {
     let RefreshPatch::SetRefreshing(on) = patch;
-    let on = *on;
-    with_env(|env| {
-        let _ = env.dcall_static(
-            PULLREFRESH_CLASS,
-            "refreshCommand",
-            "(Landroid/view/View;Z)V",
-            &[
-                JValue::Object(h.0.as_obj()),
-                JValue::Bool(on as day_android::jni::sys::jboolean),
-            ],
-        );
-    });
+    java(|env| DayPullRefresh::refreshCommand(env, h.0.as_obj(), *on));
 }
 
 day_pieces::renderer!(day_android::RENDERERS, Android,

@@ -25,6 +25,8 @@ linkme = { workspace = true }
 # `attach_current_thread(callback)`, and `call_*`/`find_class` take typed name/signature (JNIStr /
 # MethodSignature) rather than `&str`. The `jni compat` helpers in lib.rs adapt the &str ergonomics.
 jni = "0.22"
+# `java_class!` (docs/android-jni.md): typed bindings to Java classes over jni's bind_java_type!.
+day-macros = { workspace = true }
 
 # The framework shim's Gradle dependencies, collected by `day build` through the same
 # [package.metadata.day.android] channel standalone pieces use (docs/extending.md) and added to
