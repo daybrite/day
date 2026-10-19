@@ -177,6 +177,26 @@ enum NavState {
 /// (logo + app title) — a bare Canvas has no desired size, so the slot needs an explicit one.
 const NAV_PANE_HEADER_H: c_int = 60;
 
+/// Tree and reorderable-list sidebars supply their own rows instead of MenuItems.
+/// Move the page out of the 60-point PaneHeader and let Day size the whole sidebar:
+/// Canvas children can paint outside that header while remaining unhittable there.
+fn attach_custom_sidebar() {
+    let pending = PENDING_SPLIT_NAV.with(|v| v.replace(std::ptr::null_mut()));
+    if pending.is_null() {
+        return;
+    }
+    let page = NAV_STATE.with(|m| {
+        m.borrow().values().find_map(|state| {
+            let NavState::Split(s) = state;
+            (s.nav_view == pending).then_some(s.sidebar_page).flatten()
+        })
+    });
+    if let Some((page, _)) = page {
+        SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(page as usize)));
+        unsafe { ffi::day_xaml_nav_custom_sidebar(pending, page) };
+    }
+}
+
 extern "C" fn nav_menu_changed(id: u64, index: c_int) {
     // Every extern "C" trampoline in this backend runs its body through `ffi_guard::contain`:
     // a panic unwinding into the C++/WinRT shim frame is undefined behavior (day-spec's
@@ -1671,6 +1691,7 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<ListProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
+                    attach_custom_sidebar();
                     WinHandle(list::new(id, p))
                 }
                 Some(Builtin::Progress) => {
@@ -1765,19 +1786,7 @@ impl Toolkit for Xaml {
                     let Some(p) = props_of::<TreeProps>(kind, "xaml", props) else {
                         return placeholder_handle(kind);
                     };
-                    let pending = PENDING_SPLIT_NAV.with(|v| v.replace(std::ptr::null_mut()));
-                    if !pending.is_null() {
-                        let page = NAV_STATE.with(|m| {
-                            m.borrow().values().find_map(|state| {
-                                let NavState::Split(s) = state;
-                                (s.nav_view == pending).then_some(s.sidebar_page).flatten()
-                            })
-                        });
-                        if let Some((page, _)) = page {
-                            SPLIT_SIDEBAR_PAGES.with(|p| p.borrow_mut().remove(&(page as usize)));
-                            ffi::day_xaml_nav_custom_sidebar(pending, page);
-                        }
-                    }
+                    attach_custom_sidebar();
                     WinHandle(tree::new(id, p))
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
