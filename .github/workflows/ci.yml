@@ -574,9 +574,9 @@ jobs:
         run: |
           sudo apt-get update
           if [ "${{ matrix.toolkit }}" = gtk ]; then
-            sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev
+            sudo apt-get install -y libgtk-4-dev libadwaita-1-dev librsvg2-dev libwebkitgtk-6.0-dev
           else
-            sudo apt-get install -y qt6-base-dev libqt6svg6 qt6-webengine-dev
+            sudo apt-get install -y qt6-base-dev qt6-svg-dev qt6-webengine-dev
           fi
       # The android backend links through the NDK, so the cross-clippy and the scaffold build need
       # cargo-ndk, but not Gradle, which only the packaging step uses.
@@ -802,7 +802,7 @@ jobs:
             # WebKitGTK: Homebrew's has no bottle and vends the GTK3 API, and WebKitGTK isn't viable
             # on macOS-quartz, so the GTK web view is Linux/Windows only (day-piece-webview).
             qt) brew install qt pkg-config ;;
-            gtk) brew install gtk4 libadwaita pkg-config ;;
+            gtk) brew install gtk4 libadwaita librsvg pkg-config ;;
           esac
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8
@@ -893,11 +893,11 @@ jobs:
           # libpulse0: the library day-part-sound loads at run time to reach the sound server;
           # without it the showcase's sound section reports no engine on this target.
           case "${{ matrix.toolkit }}" in
-            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev libqt6svg6 qt6-webengine-dev pkg-config fonts-noto-cjk libpulse0 ;;
+            qt) sudo apt-get install -y --no-install-recommends qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config fonts-noto-cjk libpulse0 ;;
             # dbus supplies `dbus-run-session`: GTK's file dialogs are portal-backed and a
             # runner has no session bus, so `day launch` starts a private one. Without it GTK
             # reaches the portal through a NULL GDBusConnection and segfaults on the 2nd dialog.
-            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk dbus libpulse0 ;;
+            gtk) sudo apt-get install -y --no-install-recommends libgtk-4-dev libadwaita-1-dev librsvg2-dev libwebkitgtk-6.0-dev pkg-config xvfb imagemagick fonts-noto-cjk dbus libpulse0 ;;
           esac
       - name: Download the day CLI (release, matching this runner's os+arch)
         uses: actions/download-artifact@v8

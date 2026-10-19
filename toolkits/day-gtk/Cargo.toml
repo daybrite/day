@@ -56,3 +56,6 @@ libc = { workspace = true }
 # and Unity LauncherEntry over the session bus, std-only.
 [target.'cfg(target_os = "linux")'.dependencies]
 day-dbus = { workspace = true }
+
+[build-dependencies]
+pkg-config = "0.3"

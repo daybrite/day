@@ -149,7 +149,185 @@ fn vector_native_icon_slot_preserves_strokes() -> Case {
         })
 }
 
+/// Grow the existing native view after it has painted at a smaller size.
+#[day::test]
+fn vector_resize_retains_fine_detail() -> Case {
+    Case::new()
+        .requires(Cap::Snapshot)
+        .page(|| {
+            let compact = Signal::new(true);
+            column((
+                scroll(
+                    row((
+                        vector(res::vectors::vector_detail)
+                            .tint(Color::hex(0xff0000))
+                            .height(128.0)
+                            .grow_w()
+                            .id("detail"),
+                        when(move || compact.get(), || spacer().width(768.0)),
+                    ))
+                    .spacing(0.0)
+                    .frame(1024.0, 128.0),
+                )
+                .horizontal()
+                .frame(200.0, 160.0)
+                .background(Color::hex(0x000000)),
+                button("Resize")
+                    .action(move || compact.set(!compact.get()))
+                    .id("resize"),
+            ))
+        })
+        .drive(|d: Drive| async move {
+            d.assert_size("detail", 256.0, 128.0).await?;
+            d.shot("small-before-resize").await?;
+            for _ in 0..2 {
+                d.tap("resize").await?;
+                d.assert_size("detail", 1024.0, 128.0).await?;
+                d.sample_pixel("detail", 131.0 / 1024.0, 0.5, "#ff0000")
+                    .await?;
+                d.sample_pixel("detail", 139.0 / 1024.0, 0.5, "#000000")
+                    .await?;
+                d.tap("resize").await?;
+                d.assert_size("detail", 256.0, 128.0).await?;
+            }
+            Ok(())
+        })
+}
+
+#[day::test]
+fn vector_reactive_tint_preserves_alpha() -> Case {
+    Case::new()
+        .requires(Cap::Snapshot)
+        .page(|| {
+            let blue = Signal::new(false);
+            column((
+                button("Recolor")
+                    .action(move || blue.set(!blue.get()))
+                    .id("recolor"),
+                vector(res::vectors::vector_alpha)
+                    .tint(move || Color::hex(if blue.get() { 0x0000ff } else { 0xff0000 }))
+                    .frame(96.0, 96.0)
+                    .background(Color::hex(0x000000))
+                    .id("alpha"),
+            ))
+        })
+        .drive(|d: Drive| async move {
+            d.sample_pixel("alpha", 0.5, 0.5, "#800000").await?;
+            d.sample_pixel("alpha", 0.05, 0.05, "#000000").await?;
+            d.tap("recolor").await?;
+            d.sample_pixel("alpha", 0.5, 0.5, "#000080").await?;
+            d.tap("recolor").await?;
+            d.sample_pixel("alpha", 0.5, 0.5, "#800000").await
+        })
+}
+
+#[day::test]
+fn vector_non_square_content_modes() -> Case {
+    Case::new()
+        .requires(Cap::Snapshot)
+        .page(|| {
+            row((
+                image(res::vectors::vector_aspect)
+                    .fit()
+                    .id("fit")
+                    .frame(80.0, 80.0),
+                image(res::vectors::vector_aspect)
+                    .fill()
+                    .id("fill")
+                    .frame(40.0, 80.0),
+                image(res::vectors::vector_aspect)
+                    .stretch()
+                    .id("stretch")
+                    .frame(80.0, 80.0),
+            ))
+            .background(Color::hex(0x000000))
+        })
+        .drive(|d: Drive| async move {
+            d.sample_pixel("fit", 0.25, 0.1, "#000000").await?;
+            d.sample_pixel("fit", 0.25, 0.5, "#ff0000").await?;
+            d.sample_pixel("fit", 0.75, 0.5, "#0000ff").await?;
+            for id in ["fill", "stretch"] {
+                d.sample_pixel(id, 0.25, 0.1, "#ff0000").await?;
+                d.sample_pixel(id, 0.75, 0.9, "#0000ff").await?;
+            }
+            Ok(())
+        })
+}
+
+/// A source patch must replace SVG state with bitmap state, and back, on one native view.
+#[day::test]
+fn vector_source_swaps_with_bitmap() -> Case {
+    // A lossless 1x1 blue PNG; kept inline so this case exercises the Bytes source arm.
+    const BLUE: &[u8] = &[
+        137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 1, 0, 0, 0, 1, 8, 2,
+        0, 0, 0, 144, 119, 83, 222, 0, 0, 0, 12, 73, 68, 65, 84, 120, 156, 99, 96, 96, 248, 15, 0,
+        1, 3, 1, 0, 8, 137, 194, 236, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130,
+    ];
+    Case::new()
+        .requires(Cap::Snapshot)
+        .page(|| {
+            let bitmap = Signal::new(false);
+            column((
+                button("Swap")
+                    .action(move || bitmap.set(!bitmap.get()))
+                    .id("swap"),
+                image(move || {
+                    if bitmap.get() {
+                        day::ImageSource::Bytes(BLUE.to_vec().into())
+                    } else {
+                        day::ImageSource::Named(res::vectors::vector_aspect.as_str().to_string())
+                    }
+                })
+                .frame(80.0, 80.0)
+                .background(Color::hex(0x000000))
+                .id("source"),
+            ))
+        })
+        .drive(|d: Drive| async move {
+            d.sample_pixel("source", 0.25, 0.5, "#ff0000").await?;
+            d.tap("swap").await?;
+            d.sample_pixel("source", 0.25, 0.5, "#0000ff").await?;
+            d.tap("swap").await?;
+            d.sample_pixel("source", 0.25, 0.5, "#ff0000").await?;
+            d.sample_pixel("source", 0.25, 0.1, "#000000").await
+        })
+}
+
+#[day::test]
+fn vector_native_icon_follows_button_tint() -> Case {
+    Case::new()
+        .requires(Cap::Snapshot)
+        .page(|| {
+            let light = Signal::new(false);
+            column((
+                button("Change tint")
+                    .action(move || light.set(!light.get()))
+                    .id("change"),
+                button("Icon")
+                    .image(res::vectors::vector_slot)
+                    .icon_only()
+                    .tint(move || Color::hex(if light.get() { 0xffffff } else { 0x000000 }))
+                    .id("button")
+                    .frame(96.0, 64.0),
+            ))
+        })
+        .drive(|d: Drive| async move {
+            d.sample_pixel("button", 53.0 / 96.0, 0.5, "#ffffff")
+                .await?;
+            d.sample_pixel("button", 0.5, 0.5, "#000000").await?;
+            d.tap("change").await?;
+            d.sample_pixel("button", 53.0 / 96.0, 0.5, "#000000")
+                .await?;
+            d.sample_pixel("button", 0.5, 0.5, "#ffffff").await
+        })
+}
+
 day::tests! {
+    vector_resize_retains_fine_detail,
+    vector_reactive_tint_preserves_alpha,
+    vector_non_square_content_modes,
+    vector_source_swaps_with_bitmap,
+    vector_native_icon_follows_button_tint,
     vector_tint_preserves_strokes,
     vector_tint_preserves_fill_rules,
     vector_tint_at_multiple_sizes,

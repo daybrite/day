@@ -19,6 +19,8 @@ mod share_windows;
 #[cfg(target_os = "macos")]
 mod snapshot_macos;
 
+mod vector;
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -2055,6 +2057,12 @@ struct GtkBitmap {
 fn set_picture_source(pic: &gtk4::Picture, source: &day_spec::ImageSource) {
     match source {
         day_spec::ImageSource::Named(name) if !name.is_empty() => {
+            if let Some(path) = day_spec::resource::resolve_vector_svg(name)
+                && let Some(svg) = vector::SvgPaintable::load(&path, None, None)
+            {
+                pic.set_paintable(Some(&svg));
+                return;
+            }
             // Prefer the native GResource entry `/day/images/<name>` (§18.3); else a loose file.
             let res_path = format!("/day/images/{name}");
             if gtk4::gio::resources_lookup_data(&res_path, gtk4::gio::ResourceLookupFlags::NONE)
@@ -2191,13 +2199,21 @@ fn template_foreground() -> day_spec::Color {
 /// foreground; a plain image with no tint reloads the file as authored.
 fn repaint_image(pic: &gtk4::Picture, source: &str, tint: Option<day_spec::Color>, template: bool) {
     let tint = tint.or_else(|| template.then(template_foreground));
+    if let Some(path) = day_spec::resource::resolve_vector_svg(source) {
+        if let Some(svg) = pic.paintable().and_downcast::<vector::SvgPaintable>()
+            && svg.source_is(&path)
+        {
+            svg.set_tint(tint);
+            return;
+        }
+        if let Some(svg) = vector::SvgPaintable::load(&path, tint, None) {
+            pic.set_paintable(Some(&svg));
+            return;
+        }
+    }
     match tint.and_then(|t| tinted_image_texture(source, t)) {
         Some(texture) => pic.set_paintable(Some(&texture)),
-        None => {
-            if let Some(path) = day_spec::resource::resolve_image_file(source) {
-                pic.set_filename(Some(&path));
-            }
-        }
+        None => set_picture_source(pic, &day_spec::ImageSource::Named(source.to_owned())),
     }
 }
 
@@ -2343,22 +2359,30 @@ pub(crate) fn symbol_outline_icon(sym: day_spec::Symbol) -> Option<gtk4::Image> 
 }
 
 fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk4::Image> {
-    // The staged glyph SVG first (docs/vectors.md): gdk-pixbuf loads SVG through librsvg, and
-    // `from_file_at_size` RENDERS at the size asked for rather than downsampling the 256 px
-    // raster cache — at 2× the display size, so the glyph stays sharp on a HiDPI monitor. The
-    // cache answers for names with no vector (an ordinary bundled image) and on a host whose
-    // gdk-pixbuf has no SVG loader.
-    let svg = day_spec::resource::resolve_vector_svg(name);
-    let pixbuf = svg.as_deref().and_then(|p| {
-        gtk4::gdk_pixbuf::Pixbuf::from_file_at_size(p, ICON_PX * 2, ICON_PX * 2).ok()
+    let svg_path = day_spec::resource::resolve_vector_svg(name).or_else(|| {
+        let path = std::path::Path::new(name);
+        (path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("svg"))
+            && path.is_file())
+        .then(|| path.to_path_buf())
     });
-    let pixbuf = match pixbuf {
-        Some(p) => p,
-        None => {
-            let path = day_spec::resource::resolve_image_file(name)?;
-            gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?
-        }
-    };
+    if let Some(path) = svg_path {
+        let svg = vector::SvgPaintable::load(
+            &path,
+            Some(tint.unwrap_or_else(template_foreground)),
+            Some(f64::from(ICON_PX)),
+        )?;
+        let image = gtk4::Image::from_paintable(Some(&svg));
+        image.set_halign(gtk4::Align::Center);
+        image.set_valign(gtk4::Align::Center);
+        return Some(image);
+    }
+
+    // Ordinary bitmap icons keep their pixel recolor path. SVGs above never use a
+    // fixed-size texture, including when parsing fails.
+    let path = day_spec::resource::resolve_image_file(name)?;
+    let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file(&path).ok()?;
     let pixbuf = if pixbuf.has_alpha() {
         pixbuf
     } else {
@@ -6056,10 +6080,8 @@ impl Toolkit for Gtk {
                 });
                 // A template with no tint (docs/vectors.md "Template") recolors to the theme
                 // foreground, as the sidebar's own icons do, and is re-painted on a switch.
-                let tint = p.tint.or_else(|| p.template.then(template_foreground));
-                let tinted = tint.and_then(|t| tinted_image_texture(&named, t));
-                if let Some(texture) = tinted {
-                    pic.set_paintable(Some(&texture));
+                if !named.is_empty() {
+                    repaint_image(&pic, &named, p.tint, p.template);
                 } else {
                     set_picture_source(&pic, &p.source);
                 }

@@ -50,6 +50,15 @@ fn find_rcc() -> Option<PathBuf> {
 
 pub fn stage(project: &Project, set: &ResourceSet) -> Result<(), String> {
     if set.is_empty() {
+        // A rebuild may have stopped needing raster fallbacks. Do not leave an old native
+        // resource bundle that can shadow the SVGs or ship obsolete copies of every icon.
+        for name in ["app.qrc", "app.rcc"] {
+            let path = project.root.join("build/day/qt").join(name);
+            if path.exists() {
+                std::fs::remove_file(&path)
+                    .map_err(|e| format!("remove {}: {e}", path.display()))?;
+            }
+        }
         return Ok(());
     }
     let out = project.root.join("build/day/qt");

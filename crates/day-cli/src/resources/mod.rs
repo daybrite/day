@@ -53,7 +53,7 @@ impl ResourceSet {
     /// fallbacks (docs/vectors.md), appended as ordinary images so the stager ships them through
     /// its native image pipeline under the same name. On a toolkit that draws vectors this adds
     /// only the glyphs its vector pipeline could not express, which on most projects is none;
-    /// on gtk/qt, which have no vector arm, it is every glyph.
+    /// an unknown toolkit keeps every glyph as a fallback.
     pub fn scan(project: &Project, toolkit: &str) -> ResourceSet {
         let mut images = scan_dir(&project.resource_root().join("images"), true);
         images.extend(scan_dir(&vector_fallback_dir(project, toolkit), true));
@@ -389,18 +389,18 @@ pub fn vector_raster_dir(project: &Project) -> PathBuf {
 fn toolkit_draws_vectors(toolkit: &str) -> bool {
     matches!(
         toolkit,
-        "appkit" | "uikit" | "mdc" | "arkui" | "dom" | "xaml" | "winui"
+        "appkit" | "uikit" | "mdc" | "arkui" | "dom" | "xaml" | "winui" | "qt" | "gtk"
     )
 }
 
 /// The glyphs `toolkit` must ship a raster for: everything, where it has no vector arm at all
-/// (gtk, qt); otherwise only the art its vector pipeline could not express.
+/// (unknown toolkits); otherwise only the art its vector pipeline could not express.
 fn vector_fallback_names(toolkit: &str, vectors: &[VectorAsset]) -> Vec<String> {
     vectors
         .iter()
         .filter(|v| match toolkit {
             // Staged as SVG, which these render natively for every glyph; nothing falls back.
-            "appkit" | "uikit" | "arkui" | "dom" => false,
+            "appkit" | "uikit" | "arkui" | "dom" | "qt" | "gtk" => false,
             "xaml" | "winui" => !v.xaml,
             "mdc" => !v.vd,
             // No vector arm: the raster IS the glyph here.
@@ -628,7 +628,7 @@ mod vector_tests {
         assert_eq!(vector_fallback_names("xaml", &g), ["fancy"]);
         assert_eq!(vector_fallback_names("mdc", &g), ["fancy"]);
         // These stage an SVG for every glyph, so nothing falls back at all.
-        for toolkit in ["appkit", "uikit", "arkui", "dom"] {
+        for toolkit in ["appkit", "uikit", "arkui", "dom", "qt", "gtk"] {
             assert!(
                 vector_fallback_names(toolkit, &g).is_empty(),
                 "{toolkit} should ship no rasters"
@@ -636,19 +636,48 @@ mod vector_tests {
         }
     }
 
+    #[test]
+    fn empty_native_resource_sets_remove_obsolete_raster_bundles() {
+        let root =
+            std::env::temp_dir().join(format!("day-empty-vector-bundle-{}", std::process::id()));
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: crate::meta::parse_manifest(
+                "schema = 1\n[app]\nid = 'dev.test.vectors'\n",
+                "[package]\nname = 'vectors'\nversion = '0.1.0'\n",
+                None,
+            )
+            .unwrap(),
+        };
+        let stale = [
+            "qt/app.qrc",
+            "qt/app.rcc",
+            "gtk/app.gresource.xml",
+            "gtk/app.gresource",
+        ];
+        for relative in stale {
+            let path = root.join("build/day").join(relative);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "obsolete raster bundle").unwrap();
+        }
+        qt::stage(&project, &ResourceSet::default()).unwrap();
+        gtk::stage(&project, &ResourceSet::default()).unwrap();
+        for relative in stale {
+            assert!(!root.join("build/day").join(relative).exists());
+        }
+        // Staging the same empty set again must also succeed without external resource tools.
+        qt::stage(&project, &ResourceSet::default()).unwrap();
+        gtk::stage(&project, &ResourceSet::default()).unwrap();
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
     /// The other half: a toolkit with no vector arm still needs every glyph as a raster, or its
     /// icons vanish.
     #[test]
     fn toolkits_without_a_vector_arm_ship_every_raster() {
         let g = glyphs();
-        for toolkit in ["gtk", "qt"] {
-            assert_eq!(
-                vector_fallback_names(toolkit, &g),
-                ["plain", "fancy"],
-                "{toolkit} has no vector arm and needs both"
-            );
-            assert!(!toolkit_draws_vectors(toolkit));
-        }
+        assert_eq!(vector_fallback_names("unknown", &g), ["plain", "fancy"]);
+        assert!(!toolkit_draws_vectors("unknown"));
     }
 }
 

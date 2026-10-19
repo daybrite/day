@@ -26,7 +26,7 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreServices");
     }
     println!("cargo:rerun-if-changed=src/shim-transfer.cpp");
-    let cflags = pkg_config(&["--cflags", "Qt6Widgets"]);
+    let cflags = pkg_config(&["--cflags", "Qt6Widgets", "Qt6Svg"]);
 
     let mut build = cc::Build::new();
     build
@@ -48,7 +48,7 @@ fn main() {
     build.flag_if_supported("-Wno-unused-parameter");
     build.compile("dayqtshim");
 
-    let libs = pkg_config(&["--libs", "Qt6Widgets"]);
+    let libs = pkg_config(&["--libs", "Qt6Widgets", "Qt6Svg"]);
     let toks: Vec<&str> = libs.split_whitespace().collect();
     let mut i = 0;
     let mut framework_dir = String::new();
@@ -80,6 +80,7 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/shim-vector.h");
     println!("cargo:rerun-if-changed=src/shim-resize.h");
     println!("cargo:rerun-if-changed=src/shim-picker.cpp");
     println!("cargo:rerun-if-changed=src/shim-textarea.cpp");

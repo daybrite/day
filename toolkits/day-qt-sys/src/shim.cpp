@@ -110,6 +110,8 @@
 #include <cstdint>
 
 extern "C" void day_qt_open_file(const char *url);
+#include "shim-vector.h"
+
 // Defined with the accessibility functions below; installed once the QApplication exists. The
 // definition sits inside the `extern "C"` block, so this declaration takes the same linkage: GCC
 // rejects a mismatch (Apple clang accepts it).
@@ -1155,7 +1157,12 @@ int day_qt_label_height_for_width(void *w, int width) {
 static QIcon day_qt_toolbar_icon(const char *theme, int standard_pixmap, int px);
 void day_qt_button_set_content(void *w, const char *title, const char *icon, int fallback, int icon_only) {
     auto *button = static_cast<QPushButton *>(w);
-    auto image = day_qt_toolbar_icon(icon, fallback, 20);
+    const QString file = QString::fromUtf8(icon);
+    // Symbol specifications can end in ".svg" too (`theme-name|outline.svg`); they
+    // must still go through the theme/fallback resolver, not the SVG file loader.
+    auto image = file.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive) && QFileInfo(file).isFile()
+        ? day_qt_svg_icon(file, QColor(), button)
+        : day_qt_toolbar_icon(icon, fallback, 20);
     button->setIcon(image);
     button->setIconSize(QSize(20, 20));
     button->setText(icon_only && !image.isNull() ? QString() : QString::fromUtf8(title));
@@ -1199,6 +1206,7 @@ void day_qt_button_set_title(void *w, const char *title) {
 /// drawing the native bevel that would otherwise provide them.
 void day_qt_button_set_style(void *w, int kind, unsigned argb, unsigned fg_argb) {
     QPushButton *b = static_cast<QPushButton *>(w);
+    b->setProperty("dayButtonInk", kind == 3 ? QColor::fromRgba(fg_argb) : QColor());
     if (kind != 3) {
         b->setStyleSheet(QString());
         // Prominent: Qt Widgets has no accent button, so this asks the style for the DEFAULT
@@ -2228,6 +2236,8 @@ static QPixmap day_qt_tint_glyph(const QPixmap &src, const QColor &color) {
 }
 
 static QIcon day_qt_tinted_icon(const QString &path, const QColor &color, int px = 0) {
+    if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive))
+        return day_qt_svg_icon(path, color);
     QPixmap pm = day_qt_load_glyph(path, px);
     if (pm.isNull()) return QIcon();
     return QIcon(day_qt_tint_glyph(pm, color));
@@ -3137,14 +3147,30 @@ void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts
 class DayImageLabel : public QLabel {
 public:
     QPixmap orig;
+    std::unique_ptr<QSvgRenderer> svg;
+    QString svgPath;
     int mode;
     explicit DayImageLabel(int m) : mode(m) {}
-    void setImage(const QPixmap &p) { orig = p; update(); }
+    void setImage(const QPixmap &p) {
+        svg.reset(); svgPath.clear();
+        setProperty("dayGlyphPath", QString());
+        orig = p; update();
+    }
     // Re-render the glyph from its recorded source, through whatever tint it carries.
     void repaintGlyph() {
         const QString file = property("dayGlyphPath").toString();
         if (file.isEmpty()) return;
-        QPixmap pm = day_qt_load_glyph(file, 512);
+        if (file.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
+            if (svgPath != file) {
+                svg = std::make_unique<QSvgRenderer>(file);
+                svgPath = file;
+            }
+            orig = QPixmap();
+            update();
+            return;
+        }
+        svg.reset(); svgPath.clear();
+        QPixmap pm(file);
         const QString tint = property("dayGlyphTint").toString();
         if (tint == QLatin1String("currentColor")) {
             pm = day_qt_tint_glyph(pm, palette().color(QPalette::WindowText));
@@ -3152,7 +3178,8 @@ public:
             const QColor c(tint);
             if (c.isValid()) pm = day_qt_tint_glyph(pm, c);
         }
-        if (!pm.isNull()) setImage(pm);
+        orig = pm;
+        update();
     }
 protected:
     void changeEvent(QEvent *e) override {
@@ -3162,8 +3189,15 @@ protected:
             repaintGlyph();
     }
     void paintEvent(QPaintEvent *) override {
-        if (orig.isNull()) return;
         QPainter painter(this);
+        if (svg) {
+            const QString spec = property("dayGlyphTint").toString();
+            QColor ink = spec == QLatin1String("currentColor")
+                ? palette().color(QPalette::WindowText) : QColor(spec);
+            day_qt_paint_svg(&painter, *svg, rect(), ink, mode);
+            return;
+        }
+        if (orig.isNull()) return;
         if (mode == 2) { // stretch
             painter.drawPixmap(rect(), orig);
             return;
@@ -3181,8 +3215,7 @@ void *day_qt_image_new(const char *path, int mode, const char *tint) {
     DayImageLabel *l = new DayImageLabel(mode);
     const QString file = QString::fromUtf8(path); // ":/day/images/<name>" or a file path
     const QString tintSpec = tint ? QString::fromUtf8(tint) : QString();
-    // 512 px so an upscaled glyph still has pixels to spare; an SVG renders at that size rather
-    // than being blown up from the 256 px cache.
+    // Keep the SVG document; paint at the widget's current size and device transform.
     l->setProperty("dayGlyphPath", file);
     l->setProperty("dayGlyphTint", tintSpec);
     l->setProperty("dayGlyphTemplate", tintSpec == QLatin1String("currentColor"));
@@ -4309,6 +4342,8 @@ static void day_qt_toolbar_keep(const char *id, QWidget *w) {
 // both ship one), then the Qt style's own standard pixmap, which exists on every platform —
 // so a macOS or Windows Qt build still gets real icons for the common commands.
 static QIcon day_qt_fitted_file(const QString &path, const QColor &color, int px, qreal fill) {
+    if (path.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive))
+        return day_qt_svg_icon(path, color, nullptr, fill);
     // Render large, measure, then scale down: the measurement is what the fit is built on.
     return day_qt_fit_glyph(day_qt_load_glyph(path, px * 4), color, px, fill);
 }

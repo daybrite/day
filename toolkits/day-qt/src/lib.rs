@@ -2656,10 +2656,13 @@ impl Toolkit for Qt {
                         // The staged-asset path: only a NAMED source resolves to a file, and only
                         // a file can be tinted — a recolor re-renders the glyph from its source.
                         day_spec::ImageSource::Named(named) => {
-                            // Prefer the native Qt resource `:/day/images/<name>` (§18.3); else a loose file.
+                            // Prefer vector geometry; ordinary images keep their native Qt resource path.
                             let res_path = format!(":/day/images/{named}");
-                            let path = if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0
+                            let path = if let Some(svg) =
+                                day_spec::resource::resolve_vector_svg(named)
                             {
+                                svg.to_string_lossy().into_owned()
+                            } else if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr()) != 0 {
                                 res_path
                             } else {
                                 // The staged glyph SVG first (docs/vectors.md), the raster cache
@@ -2799,14 +2802,17 @@ impl Toolkit for Qt {
                             day_spec::props::ImagePatch::Source(source) => match source {
                                 day_spec::ImageSource::Named(named) => {
                                     let res_path = format!(":/day/images/{named}");
-                                    let path =
-                                        if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr())
-                                            != 0
-                                        {
-                                            res_path
-                                        } else {
-                                            icon_file_path(named)
-                                        };
+                                    let path = if let Some(svg) =
+                                        day_spec::resource::resolve_vector_svg(named)
+                                    {
+                                        svg.to_string_lossy().into_owned()
+                                    } else if ffi::day_qt_resource_exists(cstr(&res_path).as_ptr())
+                                        != 0
+                                    {
+                                        res_path
+                                    } else {
+                                        icon_file_path(named)
+                                    };
                                     // The tint setter re-renders from the widget's recorded path,
                                     // so pointing it at the new file is the whole swap.
                                     ffi::day_qt_image_set_path(h.0, cstr(&path).as_ptr());

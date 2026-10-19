@@ -42,11 +42,10 @@ staged glyph SVG (`build/day/vectors/svg/`), and, where the art converts, XAML g
 run a build first (iOS packs straight through xcodebuild), so a packed app carries its glyphs
 whether or not the tree was built before.
 
-The raster cache is a build input, not a shipping form. What a target carries is
-`build/day/vectors/fallback/<toolkit>/`: on gtk that is every glyph, on qt every glyph the
-`vector` piece may draw (its icon channels read the staged SVG instead), and on a toolkit that
-draws vectors throughout it is only the art the vector pipeline could not express, usually
-nothing. Bundling the rest would ship a second copy of every glyph and would let a broken
+The raster cache is a build input, not a shipping form. A target's
+`build/day/vectors/fallback/<toolkit>/` contains only art its vector pipeline cannot express.
+GTK and Qt render the staged SVGs and ship no automatic raster copies.
+Bundling the rest would ship a second copy of every glyph and would let a broken
 vector path go unnoticed behind a raster that still looks right (two XAML bugs survived their
 first review that way). `day build` reports the split per target
 (`Vectors xaml: 81/81 glyph(s) vector`). What ships on top:
@@ -54,13 +53,31 @@ first review that way). `day build` reports the split per target
 | Backend | Native form |
 |---|---|
 | android-mdc | **VectorDrawable** in `res/drawable/` (solid fills/strokes, both fill rules, and linear/radial gradients on fill and stroke via `aapt:attr`, API 24, which is the scaffold's `minSdk`; clips/masks/filters, and the gradients VD's model cannot state, fall back to the raster at xxxhdpi, loudly). A VD gradient carries no transform: linear bands are perpendicular to start→end and a radial is a true circle, so a gradient sheared out of perpendicular, a radial stretched to an ellipse, or an SVG focal point rasterizes rather than drawing subtly wrong art. `gradientUnits="objectBoundingBox"` is not such a case; usvg resolves it to user space before the emitter sees it |
-| linux-gtk, macos-gtk | the staged **SVG** for the icon channels; gdk-pixbuf loads SVG through librsvg, and `from_file_at_size` renders the glyph at the row's icon size rather than downsampling the 256 px cache. The `vector` piece still draws the raster |
-| linux-qt, macos-qt | the staged **SVG** for the icon channels; Qt's SVG icon engine (the `libqsvg` imageformats plugin) renders at the size each icon asks for, so nav rows, tab icons and toolbar images stay sharp at any scale. The `vector` piece still draws the raster |
+| linux-gtk, macos-gtk, windows-gtk | retained **SVG** through librsvg 2.52+ and Cairo in a `GdkPaintable`. `GtkPicture` supplies fit/fill/stretch; snapshots render the geometry at the requested size. Icon paintables declare logical dimensions and are centered in their controls |
+| linux-qt, macos-qt, windows-qt | retained **SVG** through `QSvgRenderer` in the image widget and a `QIconEngine` for SVG icon slots. Geometry is rendered at paint time; tint layers use the painter's device transform, including screenshot scale, instead of a fixed pixmap size |
 | macos-appkit | the staged **SVG** via `DAY_VECTOR_SVG_ROOT` (`NSImage` renders SVG files at display size on macOS 11+); other desktop dev launches use the raster cache via `DAY_VECTOR_RASTER_ROOT` (probed by `resolve_image_file`) |
 | ios-uikit | the **SVG** in a DayPieces asset-catalog imageset with `preserves-vector-representation` (Xcode 12+), so `UIImage(named:)` renders at display size |
 | web-dom | the **SVG** beside `assets/images/`; day-dom asks for `.svg` for the names in the page's `window.__DAY_VECTORS` list (via the shim's `vector:` env keys) and the browser renders it; the raster stays beside it as the older-host fallback |
 | harmony-arkui | the **SVG** in `rawfile day/` (same stem as the raster); day-arkui probes `day/<name>.svg` via the resource manager and ArkUI's Image renders it natively; raster names keep the png |
 | windows-winui | **XAML geometry** via `DAY_VECTOR_XAML_ROOT`: a `Path` in a scaling `Viewbox` in page content, a `PathIcon` in the nav pane's icon slot, so the glyph is redrawn at every size rather than scaled from a cache. Emitted by the CLI (`day_vector::to_xaml_geometry`) as absolute `M`/`L`/`C`/`Z` only: the grammar is SVG's, but a command XAML's parser rejects fails the whole geometry, so quadratics are elevated to cubics (exact) and arcs are flattened upstream by usvg. Same subset as the VectorDrawable emission — gradients/clips/masks/filters stage no geometry and fall back to the raster |
+
+GTK's tint is a render-node color matrix that preserves coverage alpha. Qt uses a fresh
+alpha-compositing layer at the current paint resolution. Both preserve authored strokes,
+fill rules, holes, and partial opacity; resizing does not enlarge a previously rendered
+image. Parsed documents are retained across repaints and tint changes. Qt toolbar ink
+normalization measures bounds once, but paints the original geometry at every size.
+Native button icons follow the button's foreground, including reactive tint changes.
+GTK controls that accept only an icon name, such as `AdwViewSwitcher` and settings group
+icons, still use the existing symbolic PNG cache at 4× icon size. Those constrained slots
+are not covered by the retained-paintable path; making them resolution independent requires
+separate work on the icon-theme integration. Ordinary GTK image widgets, button icons,
+sidebar rows, and toolbar icons use the retained SVG path.
+
+These backends require development libraries at build time: `qt6-svg-dev` for Qt and
+`librsvg2-dev` (2.52+) for GTK on Debian/Ubuntu; Homebrew's `qt` / `librsvg`, or MSYS2's
+`qt6-svg` / `librsvg` packages on the other desktops. `day doctor` checks them. SVG feature
+coverage follows the native renderer version; this does not add browser scripting or SVG
+animation to Day's static vector contract.
 
 Packed desktop apps carry the same forms without the launch env: a `.app` ships
 `Contents/Resources/vectors/{svg,raster}` (probed exe-relative: the SVGs by
@@ -134,8 +151,8 @@ This preserves stroke widths, caps, joins, and holes without rasterizing; concat
 original centerlines would incorrectly fill outline icons into solid silhouettes.
 
 Nav-menu rows have their own arm, `item(…).icon_tint(color)` ([docs/navigation.md](navigation.md)): per-row
-recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (pixel recolor), Qt
-(`QPainter` SourceIn over the pixmap), Android (compound-drawable `setTint`, best-effort after
+recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (a render-node color matrix), Qt
+(`QPainter` SourceIn at the current paint resolution), Android (compound-drawable `setTint`, best-effort after
 the nav host mounts), ArkUI (SVG fill color), XAML (`Foreground` on the row's `PathIcon`), and
 web (the mask painted with the tint instead of `currentColor`). Untinted rows keep each
 backend's template default (theme foreground / secondary label); ArkUI's untinted raster rows
@@ -167,7 +184,14 @@ re-cuts the mask from the new name, so a recycled row shows the icon it was rebo
 
 The [conformance app](../apps/conformance/README.md) stages real SVG fixtures and runs
 `vector-*` pixel assertions on every active platform-toolkit target. It checks explicit tint,
-unpainted regions, stroke caps, both fill rules, multiple sizes, and a native button icon slot.
+unpainted regions, stroke caps, both fill rules, multiple sizes, and a native button icon slot. It also exercises resizing an
+existing view, reactive tint
+with partial opacity, fit/fill/stretch on non-square SVGs, SVG/bitmap source replacement,
+and native button foreground updates.
+Qt's native `qt-vectors` test additionally checks icon pixmaps at 1×, 1.5×, 2× and 3×,
+reactive foreground changes, and theme/outline symbol resolution. It runs with the existing
+CMake/CTest native suite in CI.
+
 Checking both painted and transparent regions prevents a missing icon from passing as an
 outline. The icon-slot case also exercises WinUI's stroke-to-filled-geometry conversion.
 

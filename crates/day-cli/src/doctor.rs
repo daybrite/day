@@ -458,6 +458,11 @@ fn gtk_group() -> Group {
         label: "GTK 4 · libadwaita",
         hosts: &["macos", "linux", "windows"],
         probes: vec![
+            Probe::new(
+                "librsvg",
+                run_line("pkg-config", &["--modversion", "librsvg-2.0"]),
+                "install librsvg >= 2.52 development files (`apt install librsvg2-dev` · `brew install librsvg` · MSYS2 librsvg)",
+            ),
             pkg_probe(
                 "gtk4",
                 "gtk4",
@@ -508,9 +513,9 @@ fn gtk_group() -> Group {
                 exist below those versions. A distribution that ships an older GTK (Debian 12 has\n\
                 gtk4 4.8) cannot build this target; use `-t linux-qt` there, or a newer runtime.\n\
                 Install the dev libraries:\n\
-                • macOS  — `brew install gtk4 libadwaita pkg-config`\n\
-                • Linux  — `apt install libgtk-4-dev libadwaita-1-dev pkg-config`\n\
-                • Windows— MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita`\n\
+                • macOS  — `brew install gtk4 libadwaita librsvg pkg-config`\n\
+                • Linux  — `apt install libgtk-4-dev libadwaita-1-dev librsvg2-dev pkg-config`\n\
+                • Windows— MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-librsvg`\n\
                   (ARM64 hosts: the CLANGARM64 environment's `mingw-w64-clang-aarch64-` packages),\n\
                   plus a GNU Rust toolchain — MSVC cannot link MSYS2's import libraries:\n\
                   `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\
@@ -532,7 +537,12 @@ fn qt_group() -> Group {
                 run_line("pkg-config", &["--modversion", "Qt6Widgets"])
                     .or_else(|| run_line("qmake6", &["-query", "QT_VERSION"]))
                     .or_else(|| run_line("qmake", &["-query", "QT_VERSION"])),
-                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev libqt6svg6` · MSYS2 mingw-w64-qt6-base)",
+                "install Qt 6 (`brew install qt` · `apt install qt6-base-dev qt6-svg-dev` · MSYS2 mingw-w64-qt6-base)",
+            ),
+            Probe::new(
+                "qt6-svg",
+                run_line("pkg-config", &["--modversion", "Qt6Svg"]),
+                "install Qt SVG development files (`apt install qt6-svg-dev` · `brew install qt` · MSYS2 qt6-svg)",
             ),
             // Optional: like glib-compile-resources, `rcc` staging is best-effort; a miss skips
             // the qresource blob (day loads images from the filesystem roots), so it's a warning,
@@ -568,8 +578,8 @@ fn qt_group() -> Group {
         ],
         setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
-                • Linux  — `apt install qt6-base-dev libqt6svg6 qt6-webengine-dev pkg-config`\n\
-                • Windows— MSYS2: `pacman -S mingw-w64-x86_64-qt6-base` (ARM64 hosts: the\n\
+                • Linux  — `apt install qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config`\n\
+                • Windows— MSYS2: `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-svg` (ARM64 hosts: the\n\
                   CLANGARM64 environment's `mingw-w64-clang-aarch64-qt6-base`), plus a GNU Rust\n\
                   toolchain — MSVC cannot link MSYS2's import libraries, and the C++ shim is built\n\
                   from pkg-config's flags, which an aqtinstall/online-installer Qt does not ship:\n\

@@ -37,10 +37,11 @@ control proves that the cached image cannot meet the pixel tolerance. It is a re
 regression check, not a universal detector of rasterization at arbitrary resolutions.
 
 CI runs these cases on all twelve active platform-toolkit targets, with no platform skip list.
-They require screenshot support; the mock cannot verify pixels. GTK and Qt currently use the
-cached raster for standalone vectors, so the fine-detail case intentionally exposes that
-limitation as a failure until those renderers are corrected. Other targets must pass the
-same assertions; a local Windows pass alone does not establish their results.
+They require screenshot support; the mock cannot verify pixels. GTK and Qt retain SVG
+geometry and render at the requested size. Additional cases exercise resizing an existing
+view, partial-opacity tint changes, non-square fit/fill/stretch, source replacement between
+SVG and bitmap, and native button foreground updates. Every target uses the same assertions;
+a local pass on one target does not establish the others' results.
 
 The separate ArkUI long-press fixture exercises real OS touches, including gesture
 arbitration and disposal. Build the app, connect one unlocked HarmonyOS emulator/device,

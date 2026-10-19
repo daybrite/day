@@ -432,8 +432,8 @@ mod tests {
         )
         .unwrap();
         // The rasters a target ships come from its own fallback tree, not the shared cache
-        // (docs/vectors.md); gtk has no vector arm, so `write_vector_fallbacks` fills it with
-        // every glyph. Staged directly here: this test drives the packer, not the whole build.
+        // (docs/vectors.md). GTK renders SVGs and ships no automatic raster fallbacks.
+        // Staged directly here: this test drives the packer, not the whole build.
         std::fs::create_dir_all(root.join("build/day/vectors/fallback/gtk")).expect("raster dir");
         std::fs::create_dir_all(root.join("build/day/vectors/svg")).expect("svg dir");
         std::fs::write(root.join("resource/assets/data.txt"), "x").expect("asset");
@@ -443,7 +443,6 @@ mod tests {
         // build, because this fixture wrote the file the packer expected rather than the one the
         // compiler produces.
         std::fs::write(root.join("build/day/gtk/app.gresource"), "x").expect("blob");
-        std::fs::write(root.join("build/day/vectors/fallback/gtk/home.png"), "x").expect("raster");
         std::fs::write(root.join("build/day/vectors/svg/home.svg"), "x").expect("svg");
         let binary = tmp.join("demo");
         std::fs::write(&binary, "#!/bin/sh\n").expect("binary");
@@ -469,7 +468,7 @@ mod tests {
         assert!(prefix.join("bin/demo-bin").is_file(), "the real binary");
         assert!(prefix.join("share/demo/assets/data.txt").is_file());
         assert!(prefix.join("share/demo/images/logo.png").is_file());
-        assert!(prefix.join("share/demo/vectors/raster/home.png").is_file());
+        assert!(!prefix.join("share/demo/vectors/raster/home.png").exists());
         assert!(prefix.join("share/demo/vectors/svg/home.svg").is_file());
         assert!(prefix.join("share/demo/demo.gresource").is_file());
         assert_eq!(

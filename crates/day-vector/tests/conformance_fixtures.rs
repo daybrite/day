@@ -3,12 +3,14 @@
 
 use day_vector::{parse, render_png, tiny_skia::Pixmap, to_vector_drawable, to_xaml_geometry};
 
-const FIXTURES: [&str; 5] = [
+const FIXTURES: [&str; 7] = [
     include_str!("../fixtures/conformance/vector_outline.svg"),
     include_str!("../fixtures/conformance/vector_holes.svg"),
     include_str!("../fixtures/conformance/vector_winding.svg"),
     include_str!("../fixtures/conformance/vector_detail.svg"),
     include_str!("../fixtures/conformance/vector_slot.svg"),
+    include_str!("../fixtures/conformance/vector_aspect.svg"),
+    include_str!("../fixtures/conformance/vector_alpha.svg"),
 ];
 
 #[test]
