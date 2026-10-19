@@ -99,7 +99,7 @@ Both hosts use the JSON5 `project.xcproj` format introduced in Xcode 27.
 [Homebrew](https://brew.sh) provides the rest:
 
 ```bash
-brew install gtk4 libadwaita pkg-config    # macos-gtk
+brew install gtk4 libadwaita librsvg pkg-config    # macos-gtk
 brew install qt pkg-config                 # macos-qt
 brew install openjdk@21                    # android-mdc
 brew install qemu                          # the HarmonyOS emulator
@@ -139,9 +139,9 @@ from pkg-config's flags, which an online-installer Qt does not ship:
 
 ```bash
 # Qt: run in the MINGW64 shell
-pacman -S mingw-w64-x86_64-qt6-base
+pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-svg
 # GTK: run in the UCRT64 shell
-pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita
+pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-librsvg
 rustup toolchain install stable-x86_64-pc-windows-gnu
 ```
 
@@ -156,10 +156,13 @@ Day's minimums are library versions: **GTK 4.10 with libadwaita 1.5**, and **Qt 
 distribution whose repositories carry those development packages works. Continuous integration
 builds on Ubuntu 24.04.
 
+Native vector rendering also requires **librsvg 2.52+ development files** for GTK and
+**Qt SVG development files** for Qt. `day doctor` checks these build dependencies.
+
 ```bash
 # Debian / Ubuntu
-sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config     # linux-gtk
-sudo apt install qt6-base-dev libqt6svg6 pkg-config                      # linux-qt
+sudo apt install libgtk-4-dev libadwaita-1-dev librsvg2-dev pkg-config    # linux-gtk
+sudo apt install qt6-base-dev qt6-svg-dev pkg-config                    # linux-qt
 sudo apt install qemu-system-x86 qemu-system-gui unzip       # harmony-arkui (emulator)
 ```
 

@@ -20,11 +20,12 @@ toolkit Ubuntu, Fedora and Debian install by default.
 
 ## Getting started
 
-GTK 4.10+ and libadwaita 1.5+ are required (Ubuntu 24.04 and Fedora 40 both satisfy this):
+GTK 4.10+, libadwaita 1.5+, and librsvg 2.52+ development files are required
+(Ubuntu 24.04 and Fedora 40 satisfy these):
 
 ```sh
-sudo apt install libgtk-4-dev libadwaita-1-dev pkg-config   # Debian/Ubuntu
-sudo dnf install gtk4-devel libadwaita-devel pkgconf        # Fedora
+sudo apt install libgtk-4-dev libadwaita-1-dev librsvg2-dev pkg-config   # Debian/Ubuntu
+sudo dnf install gtk4-devel libadwaita-devel librsvg2-devel pkgconf     # Fedora
 
 cargo install day-cli
 day new app my-app --toolkit linux-gtk
@@ -34,7 +35,7 @@ day launch -t linux-gtk
 
 Add `libwebkitgtk-6.0-dev` if you use the web view piece. Sound effects play through libpulse,
 which a desktop already has ([system requirements](/docs/system-requirements#optional-sound-effects)). `day doctor --toolkit gtk` probes
-GTK 4, libadwaita, `glib-compile-resources`, and the packaging tools (`flatpak-builder`,
+GTK 4, libadwaita, librsvg, `glib-compile-resources`, and the packaging tools (`flatpak-builder`,
 `linuxdeploy`, `linuxdeploy-plugin-gtk`); it does not check WebKitGTK.
 
 ```sh

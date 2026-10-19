@@ -411,6 +411,8 @@ fn uikit_group() -> Group {
 /// `gtk_minimums_match_day_gtk` below.
 const GTK4_MIN: (u32, u32) = (4, 10);
 const LIBADWAITA_MIN: (u32, u32) = (1, 5);
+// The direct librsvg probe in toolkits/day-gtk/build.rs enforces this minimum.
+const LIBRSVG_MIN: (u32, u32) = (2, 52);
 
 /// Is `found` (a pkg-config `--modversion` string like `4.8.3`) at least `min`?
 ///
@@ -458,10 +460,11 @@ fn gtk_group() -> Group {
         label: "GTK 4 · libadwaita",
         hosts: &["macos", "linux", "windows"],
         probes: vec![
-            Probe::new(
+            pkg_probe(
                 "librsvg",
-                run_line("pkg-config", &["--modversion", "librsvg-2.0"]),
-                "install librsvg >= 2.52 development files (`apt install librsvg2-dev` · `brew install librsvg` · MSYS2 librsvg)",
+                "librsvg-2.0",
+                LIBRSVG_MIN,
+                "install librsvg >= 2.52 development files (`apt install librsvg2-dev` · `brew install librsvg` · MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-librsvg`; ARM64: `mingw-w64-clang-aarch64-librsvg`)",
             ),
             pkg_probe(
                 "gtk4",
@@ -512,7 +515,7 @@ fn gtk_group() -> Group {
                 AdwNavigationView and dialogs on GtkFileDialog/GtkAlertDialog, none of which\n\
                 exist below those versions. A distribution that ships an older GTK (Debian 12 has\n\
                 gtk4 4.8) cannot build this target; use `-t linux-qt` there, or a newer runtime.\n\
-                Install the dev libraries:\n\
+                Native vector rendering also requires librsvg 2.52 or newer. Install the dev libraries:\n\
                 • macOS  — `brew install gtk4 libadwaita librsvg pkg-config`\n\
                 • Linux  — `apt install libgtk-4-dev libadwaita-1-dev librsvg2-dev pkg-config`\n\
                 • Windows— MSYS2 UCRT64: `pacman -S mingw-w64-ucrt-x86_64-gtk4 mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-librsvg`\n\
@@ -542,7 +545,7 @@ fn qt_group() -> Group {
             Probe::new(
                 "qt6-svg",
                 run_line("pkg-config", &["--modversion", "Qt6Svg"]),
-                "install Qt SVG development files (`apt install qt6-svg-dev` · `brew install qt` · MSYS2 qt6-svg)",
+                "install Qt SVG development files (`apt install qt6-svg-dev` · `brew install qt` · MSYS2 MINGW64: `pacman -S mingw-w64-x86_64-qt6-svg`; ARM64: `mingw-w64-clang-aarch64-qt6-svg`)",
             ),
             // Optional: like glib-compile-resources, `rcc` staging is best-effort; a miss skips
             // the qresource blob (day loads images from the filesystem roots), so it's a warning,
@@ -576,11 +579,11 @@ fn qt_group() -> Group {
             )
             .need(Need::PackOptional),
         ],
-        setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6 and pkg-config:\n\
+        setup: "Qt 6 Widgets builds on macOS, Linux, and Windows. Install Qt 6, Qt SVG development files, and pkg-config:\n\
                 • macOS  — `brew install qt pkg-config`\n\
                 • Linux  — `apt install qt6-base-dev qt6-svg-dev qt6-webengine-dev pkg-config`\n\
                 • Windows— MSYS2: `pacman -S mingw-w64-x86_64-qt6-base mingw-w64-x86_64-qt6-svg` (ARM64 hosts: the\n\
-                  CLANGARM64 environment's `mingw-w64-clang-aarch64-qt6-base`), plus a GNU Rust\n\
+                  CLANGARM64 environment's `mingw-w64-clang-aarch64-qt6-base` and `mingw-w64-clang-aarch64-qt6-svg`), plus a GNU Rust\n\
                   toolchain — MSVC cannot link MSYS2's import libraries, and the C++ shim is built\n\
                   from pkg-config's flags, which an aqtinstall/online-installer Qt does not ship:\n\
                   `rustup toolchain install stable-x86_64-pc-windows-gnu` (ARM64:\n\
@@ -1631,6 +1634,10 @@ mod tests {
         assert!(version_at_least("5.0.0", (4, 10)));
         // A packaging suffix is not part of the version.
         assert!(version_at_least("1.5.0-2ubuntu1", (1, 5)));
+        // Native SVG rendering needs librsvg 2.52+, not merely an installed librsvg.
+        assert!(!version_at_least("2.50.7", LIBRSVG_MIN));
+        assert!(version_at_least("2.52.0", LIBRSVG_MIN));
+        assert!(version_at_least("2.63.2-1", LIBRSVG_MIN));
         // Unreadable counts as too old: a probe that cannot tell must not report ready.
         assert!(!version_at_least("", (4, 10)));
         assert!(!version_at_least("unknown", (4, 10)));
@@ -1668,6 +1675,14 @@ mod tests {
             feature("libadwaita"),
             format!("{}_{}", LIBADWAITA_MIN.0, LIBADWAITA_MIN.1),
             "LIBADWAITA_MIN and day-gtk's libadwaita feature disagree",
+        );
+        let build = std::fs::read_to_string(manifest.with_file_name("build.rs")).unwrap();
+        assert!(
+            build.contains(&format!(
+                ".atleast_version(\"{}.{}\")",
+                LIBRSVG_MIN.0, LIBRSVG_MIN.1
+            )),
+            "LIBRSVG_MIN and day-gtk's native library probe disagree",
         );
     }
 }

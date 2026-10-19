@@ -25,8 +25,8 @@ Qt 6 development packages and `pkg-config` are the requirement; `build.rs` build
 `moc`.
 
 ```sh
-sudo apt install qt6-base-dev libqt6svg6 pkg-config      # Debian/Ubuntu
-sudo dnf install qt6-qtbase-devel pkgconf     # Fedora
+sudo apt install qt6-base-dev qt6-svg-dev pkg-config    # Debian/Ubuntu
+sudo dnf install qt6-qtbase-devel qt6-qtsvg-devel pkgconf  # Fedora
 brew install qt pkg-config                    # macOS, for the macos-qt dev combo
 
 cargo install day-cli
@@ -35,9 +35,9 @@ cd my-app
 day launch -t linux-qt
 ```
 
-The Qt SVG runtime (`libqt6svg6` on Debian/Ubuntu) renders bundled vector icons and Day’s
-shared symbol fallbacks. Without it, symbols missing from the desktop icon theme and Qt’s
-built-in icon set display their text labels, even on icon-only buttons.
+Qt SVG development files (`qt6-svg-dev` on Debian/Ubuntu) are required to compile Day's
+native vector renderer. That package also installs the Qt SVG runtime used by bundled
+vector icons and Day's shared symbol fallbacks.
 
 Sound effects play through libpulse, which a desktop already has
 ([system requirements](/docs/system-requirements#optional-sound-effects)).

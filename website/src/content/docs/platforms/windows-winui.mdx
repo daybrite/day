@@ -212,11 +212,11 @@ the clang/lld pair. For example, GTK uses `mingw-w64-ucrt-x86_64-gcc`.
 pacman -S --needed \
   mingw-w64-clang-aarch64-clang mingw-w64-clang-aarch64-lld \
   mingw-w64-clang-aarch64-pkgconf \
-  mingw-w64-clang-aarch64-qt6-base \
-  mingw-w64-clang-aarch64-gtk4 mingw-w64-clang-aarch64-libadwaita
+  mingw-w64-clang-aarch64-qt6-base mingw-w64-clang-aarch64-qt6-svg \
+  mingw-w64-clang-aarch64-gtk4 mingw-w64-clang-aarch64-libadwaita mingw-w64-clang-aarch64-librsvg
 ```
 
-Drop the `qt6-base` line, or the `gtk4`/`libadwaita` line, if you only want one of the two.
+Drop the Qt line, or the GTK/libadwaita/librsvg line, if you only want one of the two.
 `day doctor` and the toolkit build scripts probe through `pkgconf`, and the compiler both
 links the final binary and builds Qt's small C++ shim.
 
