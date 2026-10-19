@@ -32,7 +32,7 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
 ---
 <BaseLayout
   title="Gallery"
-  description="Explore the variety of sample apps created with Day and compare their screenshots across each of the supported platforms."
+  description="See what people are making with Day: the same apps at home on different devices, in different languages. Find an idea, try an app, and explore its source."
   active="gallery"
 >
   <section class="section hub-hero">
@@ -40,9 +40,9 @@ const columnOf = (app: (typeof apps)[number], id: string) => app.columns.find((c
       <p class="eyebrow">Screenshot gallery</p>
       <h1 class="hub-title">Explore apps <span class="accent-text">built with Day</span></h1>
       <p class="lead">
-        Compare how Day apps look across platforms, using each platform’s native widgets.
-        These screenshots come from automated app tests run
-        with <a href={url('docs/dayscript')}>dayscript</a>.
+        A Day app takes on the character of the device it runs on. See the same screens
+        across platforms, languages, and themes. Find something that sparks an idea,
+        try it, and open the source to see how it was made.
       </p>
       {apps.length > 0 && (
         <p class="gen">

@@ -36,7 +36,7 @@ const release = manifest.release as { tag: string; url: string; publishedAt: str
 const unixCmdUrl = `${site.showcaseRepo}/releases/latest/download/launch.sh`;
 const winCmdUrl = `${site.showcaseRepo}/releases/latest/download/launch.ps1`;
 
-// web-dom is rendered ahead of these directly in the markup: there is nothing to download.
+// web-dom is offered after the native packages: there is nothing to download.
 const packaging = [
   {
     id: 'android-mdc',
@@ -114,22 +114,19 @@ function richInstall(text: string): (string | { code: string })[] {
   return text.split('`').map((part, i) => (i % 2 ? { code: part } : part));
 }
 ---
-<BaseLayout title="Day Showcase" description="Day Showcase is the catalog app for Day: every piece the framework implements, from one codebase, drawn with each platform's own widgets. Run it in the browser, install a packaged build for Android, iOS, HarmonyOS, macOS, Windows, or Linux, or build it from source." active="showcase">
+<BaseLayout title="Day Showcase" description="Try Day’s native controls on your phone, tablet, or desktop. Install Day Showcase, compare it across platforms, and explore the Rust source." active="showcase">
   <section class="section dl-hero">
     {/* Prose and carousel side by side, on the shared `.hero-grid` from styles/global.css — the
         landing page's hero is the same pairing, and both get the layout from that one rule. */}
     <div class="container hero-grid">
       <div>
         <p class="eyebrow">Day Showcase</p>
-        <h1 class="dl-title">The catalog app for <span class="accent-text">Day</span></h1>
+        <h1 class="dl-title">Get your hands <span class="accent-text">on Day.</span></h1>
         <p class="lead">
-          Day Showcase puts every piece the framework implements behind a native navigation host —
-          controls, lists, text, canvas, media, maps, localization — from one codebase. Nothing
-          in it is drawn by Day: the switch on its Controls page is a <code>UISwitch</code> on
-          iPhone, a <code>MaterialSwitch</code> on Android, and an <code>NSSwitch</code> on a Mac.
-          It is the app in the <a href={galleryHref}>gallery</a>, and the fastest way to see what a
-          Day app looks like on your own device. Each card below carries that platform's packages,
-          its signing status, and what installing one takes.
+          Play with the controls. Draw something. Change the language. Day Showcase lets you
+          feel how one app takes shape on different devices, using their own native controls.
+          Install it on your device, then open the source and see how it works.
+          The <a href={galleryHref}>gallery</a> puts the screens side by side.
         </p>
         {!release && (
           <p class="dl-note">
@@ -145,23 +142,6 @@ function richInstall(text: string): (string | { code: string })[] {
   <section class="section">
     <div class="container">
       <div class="dl-grid">
-        <article class="dl-card" data-pf="web-dom">
-          <div class="dl-head">
-            <PlatformIcon id="web-dom" class="dl-icon" />
-            <div class="dl-headings">
-              <p class="dl-os">Web</p>
-              <h2 class="dl-name">DOM</h2>
-              <code class="dl-id">web-dom</code>
-            </div>
-            <a class="dl-badge web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
-              <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
-              <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
-            </a>
-          </div>
-          <p class="dl-install">
-            The WebAssembly build runs in the browser; this site hosts it as static files.
-          </p>
-        </article>
         {targets.map((t) => {
           const files = byId.get(t.id) ?? [];
           return (
@@ -199,6 +179,23 @@ function richInstall(text: string): (string | { code: string })[] {
             </article>
           );
         })}
+        <article class="dl-card" data-pf="web-dom">
+          <div class="dl-head">
+            <PlatformIcon id="web-dom" class="dl-icon" />
+            <div class="dl-headings">
+              <p class="dl-os">Web</p>
+              <h2 class="dl-name">DOM</h2>
+              <code class="dl-id">web-dom</code>
+            </div>
+            <a class="dl-badge web-badge" href={site.showcaseWeb} aria-label="Launch on the web">
+              <svg viewBox="0 0 32 32" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="16" cy="16" r="13" /><ellipse cx="16" cy="16" rx="6" ry="13" /><path d="M3 16h26M6 8h20M6 24h20" /></svg>
+              <span><span class="web-badge-small">Launch on the</span><span class="web-badge-name">web</span></span>
+            </a>
+          </div>
+          <p class="dl-install">
+            A browser build is also available for trying the Showcase without installing it.
+          </p>
+        </article>
       </div>
     </div>
   </section>
@@ -231,7 +228,7 @@ function richInstall(text: string): (string | { code: string })[] {
 
   <section class="section dl-quick">
     <div class="container">
-      <h2 class="dl-quick-title">Build and launch from source</h2>
+      <h2 class="dl-quick-title">Open it up. Make it yours.</h2>
       <p class="dl-quick-lead">
         Install the <code>day</code> CLI, then let it clone the repository, build the app, and run
         it on this machine's desktop target. The launch prints where it put the checkout, so you

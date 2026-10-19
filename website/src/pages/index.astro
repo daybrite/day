@@ -10,16 +10,16 @@ import { primaryPlatforms } from '../lib/platforms.mjs';
 
 const platforms = primaryPlatforms.filter((p) => p.id !== 'linux-qt');
 const benefits = [
-  { number: '01', title: 'Put more of your team behind one product.', body: 'Share your interface and application logic across platforms. Bring improvements to more users from the same codebase, and spend less time maintaining separate versions.', link: 'Explore the Day approach', path: 'docs/overview' },
-  { number: '02', title: 'Make every device feel like home.', body: 'Give people the controls, text input, menus, and navigation they expect. Day uses each platform’s native interface, so your app belongs wherever it runs.', link: 'See Day apps in action', path: 'gallery' },
-  { number: '03', title: 'Keep your next market within reach.', body: 'Start where your audience is today. Add desktop, mobile, or web as your product grows, building on the work you have already done.', link: 'Explore the platforms', path: 'docs/platforms' },
+  { number: '01', title: 'Share the interface and the logic.', body: 'Define screens, layout, state, and event handlers in Rust. Day connects that code to each platform’s UI toolkit, so a new screen can become part of every build.', link: 'See how a Day app is built', path: 'docs/overview' },
+  { number: '02', title: 'Distribute it where people need it.', body: 'Day’s packaging tools produce desktop installers, mobile app packages, and automated deployment to the major app stores. Choose direct downloads, app stores, or both, according to the platforms you support.', link: 'See the package formats', path: 'docs/packaging' },
+  { number: '03', title: 'Highest uncommon denominator', body: 'Use what makes each platform powerful, including features the others don’t have. Day’s extension system brings native controls, libraries, and services into your app alongside the code you share.', link: 'Make Day your own', path: 'docs/extending' },
 ];
 const stages = [
-  { title: 'Create', body: 'Set up a project, choose your platforms, and build your first screens with shared components.', path: 'docs/getting-started' },
-  { title: 'Develop', body: 'Build and run from VS Code. Connect platform services and make the interface your own.', path: 'docs/internal/vscode' },
-  { title: 'Test', body: 'Replay real app workflows, check results, and capture screenshots across languages and themes.', path: 'docs/dayscript' },
-  { title: 'Release', body: 'Prepare platform packages, configure signing, and manage store listings and release automation.', path: 'docs/packaging' },
-  { title: 'Improve', body: 'Investigate crashes with user-approved reports and turn fixes into repeatable regression tests.', path: 'docs/guide-crash-reporting' },
+  { title: 'Set up', body: 'Generate the Rust project and platform host files with day new app. Use day doctor to identify missing SDKs and build tools.', path: 'docs/getting-started' },
+  { title: 'Test', body: 'Write a DayScript walkthrough that finds controls by stable IDs. Reuse it across targets to check the same behavior.', path: 'docs/dayscript' },
+  { title: 'Capture', body: 'Use screenshot steps in that walkthrough to capture the same screens in different languages and themes.', path: 'docs/dayscript' },
+  { title: 'Package', body: 'Use day pack to invoke the platform’s build, signing, and packaging tools. It reports the resulting package’s signing status.', path: 'docs/packaging' },
+  { title: 'Diagnose', body: 'Add Day’s crash-reporting extension to collect reports on the device. People can choose to send them by email, GitHub issue, or HTTP.', path: 'docs/guide-crash-reporting' },
 ];
 ---
 <BaseLayout>
@@ -27,12 +27,12 @@ const stages = [
     <div class="hero-glow" aria-hidden="true"></div>
     <div class="container hero-grid">
       <div>
-        <p class="eyebrow">Day · The universal app framework</p>
+        <p class="eyebrow">Day · The Universal app development framework</p>
         <h1>One app.<br />Every platform.<br /><span class="hero-day">All Day.</span></h1>
-        <p class="lead">Bring your product to desktop, mobile, and web. Day gives your team a shared foundation to build, test, and deliver native apps across the consumer platforms your users call home.</p>
+        <p class="lead">Compose your app’s interface declaratively in Rust. Day turns that shared code into a truly native reactive user interface across all major mobile and desktop platforms. Day provides everything you need from design and development all the way to deployment and distribution. Reach the entire world from a single codebase and a single toolset.</p>
         <div class="actions">
-          <a class="btn btn-primary" href={url('docs/getting-started')}>Start building</a>
-          <a class="btn btn-ghost" href={url('gallery')}>Explore the possibilities →</a>
+          <a class="btn btn-primary" href={url('docs/getting-started')}>Build your first app</a>
+          <a class="btn btn-ghost" href={url('gallery')}>Compare apps across platforms →</a>
         </div>
       </div>
       <div class="hero-media"><HeroCarousel /></div>
@@ -45,9 +45,9 @@ const stages = [
 
   <section class="section">
     <div class="container">
-      <p class="eyebrow">More reach. Shared effort.</p>
-      <h2>Build the product.<br />Bring it everywhere.</h2>
-      <p class="section-lead">macOS, Windows, Linux, iPhone, iPad, Android, HarmonyOS, and the web—all from a single codebase. Keep your product moving forward across devices, with room for the details that make each platform different.</p>
+      <p class="eyebrow">App creation for the next era</p>
+      <h2>Transcend the Platform.</h2>
+      <p class="section-lead">A desktop app shouldn’t require a second UI codebase just to reach people on phones. Day shares scenes, screens, and semantics across macOS, Windows, Linux, iOS, Android, and HarmonyOS. You can adapt platform-specific details within the same project.</p>
       <div class="benefit-grid">
         {benefits.map((item) => <article class="capability"><span class="number" aria-hidden="true">{item.number}</span><h3>{item.title}</h3><p>{item.body}</p><a href={url(item.path)}>{item.link} →</a></article>)}
       </div>
@@ -57,29 +57,29 @@ const stages = [
   <section class="section performance" id="let-your-app-shine">
     <div class="container split">
       <div>
-        <p class="eyebrow">The experience your users deserve</p>
-        <h2>Let your app shine</h2>
-        <p class="section-lead">Give your app the performance and polish it deserves. Day pairs platform-native controls with Rust’s bare-metal performance and memory safety, so your shared codebase delivers an experience that feels at home on every device.</p>
-        <p class="section-lead">Day apps are free from the compromises of other cross-platform toolkits that render to pixels or web views. Your users get familiar text selection, keyboard behavior, scrolling, and accessibility—built on the platform’s own controls.</p>
-        <a href={url('docs/benefits')}>Explore the native advantage →</a>
+        <p class="eyebrow">Unmatched performance, unmatched efficiency</p>
+        <h2>Give your Rust code<br />a native interface.</h2>
+        <p class="section-lead">Connect your data models and libraries directly to UI code without crossing language barriers. Compose controls with ordinary functions and attach them to reactive signals that update the interface when data changes.</p>
+        <p class="section-lead">Day creates the platform’s own widgets: AppKit on macOS, UIKit on iOS, and the corresponding toolkit on other targets. Text editing, selection, and scrolling use those widgets’ behavior.</p>
+        <a href={url('docs/api-tour')}>Explore the Rust API →</a>
       </div>
       <div class="performance-facts">
-        <article><h3>Compiled for the device</h3><p>Powered by Rust, Day compiles to machine code on native targets and WebAssembly for the browser.</p></article>
-        <article><h3>The platform’s own controls</h3><p>Text, input, and scrolling draw on the same native toolkits used by the platform’s own applications.</p></article>
-        <article><h3>Reactive and declarative</h3><p>When data changes, Day updates the controls that depend on it. The rest of the interface stays in place.</p></article>
+        <article><h3>Reuse your libraries</h3><p>Keep parsing, storage, and other app logic in conventional Cargo crates. Use the same code from your UI wherever those crates support the target.</p></article>
+        <article><h3>Update individual controls</h3><p>A signal change updates the controls bound to it. Day keeps the existing widgets in place instead of rerunning the whole screen’s builder.</p></article>
+        <article><h3>Compile to native machine code</h3><p>Your Rust code compiles to machine code for each desktop and mobile target, alongside Day’s native toolkit integrations.</p></article>
       </div>
     </div>
   </section>
 
   <section class="section lifecycle">
     <div class="container">
-      <p class="eyebrow">The complete development lifecycle</p>
-      <h2>From your first idea<br />to your next release.</h2>
-      <p class="section-lead">Day brings development tools, UI testing, localization, packaging, and release automation into one workflow. Carry the same project from a first prototype through launch and ongoing maintenance.</p>
+      <p class="eyebrow">For the Indie, and the Enterprise</p>
+      <h2>Reuse the tests<br />along with the app.</h2>
+      <p class="section-lead">Every platform adds builds to check and packages to prepare. Day gives you a common CLI and UI test format: the same walkthrough can exercise a feature on several targets and capture its translated screens.</p>
       <ol class="stages">
         {stages.map((stage, i) => <li><span class="stage-number" aria-hidden="true">{String(i + 1).padStart(2, '0')}</span><h3><a href={url(stage.path)}>{stage.title} →</a></h3><p>{stage.body}</p></li>)}
       </ol>
-      <p class="detail-note">Use the SDKs, signing credentials, and store accounts required by your release platforms. Day’s tools help coordinate the work.</p>
+      <p class="detail-note">Builds still require the platform SDKs. Distribution requires the signing credentials and store accounts applicable to your chosen platforms.</p>
     </div>
   </section>
 
@@ -87,26 +87,37 @@ const stages = [
     <div class="container split tooling-grid">
       <div>
         <p class="eyebrow">Day for Visual Studio Code</p>
-        <h2>Your platforms.<br />One place to work.</h2>
-        <p class="section-lead">Create projects, choose targets, manage devices, and build and launch apps from the editor. Run automated walkthroughs as you work, then open Xcode or Android Studio when you need to go deeper.</p>
+        <h2>Every platform.<br />One editor.</h2>
+        <p class="section-lead">Select the targets your machine can build and launch them together from the Day sidebar. Each gets its own terminal and stop/restart controls. Choose a locale or DayScript walkthrough, and run Day tests from VS Code’s Test Explorer.</p>
         <a class="btn btn-primary" href="https://marketplace.visualstudio.com/items?itemName=daybrite.day-vscode">Get Day for VS Code</a>
       </div>
       <figure class="editor-shot">
         <!-- Source: daybrite/day-vscode, media/screenshot-cockpit.png. -->
         <a href="https://github.com/daybrite/day-vscode"><img src={url('images/day-vscode.png')} width="1440" height="900" loading="lazy" alt="The Day extension in VS Code, with project targets and device controls beside the editor." /></a>
-        <figcaption>Manage the app and its platform targets from the Day view.</figcaption>
+        <figcaption>The Day sidebar selects build targets, build mode, locale, and walkthrough.</figcaption>
       </figure>
     </div>
   </section>
 
   <section class="section">
     <div class="container">
-      <p class="eyebrow">Built to grow with your ambitions</p>
-      <h2>A foundation you can make your own.</h2>
+      <p class="eyebrow">Language &amp; accessibility</p>
+      <h2>The world doesn’t all speak a single language.<br />Or use a mouse.</h2>
       <div class="ownership-grid">
-        <article class="capability"><h3>Extend what your app can do.</h3><p>Combine existing controls into reusable components, wrap a native widget, or connect a platform service. Package your additions separately and share them across your products.</p><a href={url('docs/extending')}>Explore the extension framework →</a></article>
-        <article class="capability"><h3>Reach more people from the start.</h3><p>Build for different languages and assistive technologies as part of everyday development. Test translated screens and add accessible labels alongside the interface.</p><a href={url('docs/localization')}>Build for a global audience →</a></article>
-        <article class="capability independent"><p class="eyebrow">Independent. Open source.</p><h3>Your product’s future belongs to you.</h3><p>Day is an independent open-source project, built on a shared foundation you can inspect, extend, and contribute to. Choose your own infrastructure and keep the framework’s source within reach.</p><p>Available under the Mozilla Public License 2.0.</p><a href={site.repo}>Explore the source →</a><a href={`${site.repo}/blob/main/LICENSE`}>Read the license →</a></article>
+        <article class="capability"><h3>One translation catalog across targets.</h3><p>Keep translations in Fluent catalogs. Day generates typed Rust accessors and checks message arguments at build time. Use the same UI walkthrough in several languages to check translated screens.</p><a href={url('docs/localization')}>See how localization works →</a></article>
+        <article class="capability"><h3>Connect to native accessibility.</h3><p>Native controls supply accessibility roles and actions. Day’s shared API lets you annotate controls; on macOS and iOS, DayScript can verify their labels, roles, and values against the native accessibility tree.</p><a href={url('docs/accessibility')}>See accessibility support and limits →</a></article>
+      </div>
+    </div>
+  </section>
+
+  <section class="section">
+    <div class="container">
+      <p class="eyebrow">For native developers and library authors</p>
+      <h2>Package your platform expertise<br />as a reusable Day extension.</h2>
+      <div class="ownership-grid">
+        <article class="capability"><h3>Native integrations in Cargo crates.</h3><p>Wrap a native widget or platform service behind a Rust API. Your crate can include Swift, Java, ArkTS, or C++ code. Day’s build tools collect the declared sources and dependencies into the app’s platform builds.</p><a href={url('docs/extending')}>Build an extension →</a></article>
+        <article class="capability"><h3>Share components across apps.</h3><p>Combine existing Day controls into reusable components using Rust alone. A composed component uses the backends of its underlying controls, so you can publish it as a crate without writing a renderer for each platform.</p><a href={url('docs/tutorial-composite-piece')}>Build a reusable component →</a></article>
+        <article class="capability independent"><p class="eyebrow">For open-source maintainers</p><h3>Inspect and change the framework you depend on.</h3><p>Day’s Rust code, native backends, and build tools are 100% free and open-source. If a platform bug blocks your app, you can trace it into the backend, test a fix locally, and contribute it upstream.</p><a href={site.repo}>Browse the source →</a><a href={`${site.repo}/blob/main/LICENSE`}>Read the license →</a></article>
       </div>
     </div>
   </section>
@@ -114,9 +125,9 @@ const stages = [
   <section class="section">
     <div class="container cta-inner">
       <Logo size={40} />
-      <h2>Where will you take your next app?</h2>
-      <p>Start with one idea. Build for a world of devices.</p>
-      <div class="actions"><a class="btn btn-primary" href={url('docs/getting-started')}>Get started with Day</a><a class="btn btn-ghost" href={url('showcase')}>Try Day Showcase</a></div>
+      <h2>Try Day with<br />a screen from your app.</h2>
+      <p>Create a project and build the controls your app needs, or try Day Showcase on your device before writing code.</p>
+      <div class="actions"><a class="btn btn-primary" href={url('docs/getting-started')}>Create a project</a><a class="btn btn-ghost" href={url('showcase')}>Try Day Showcase</a></div>
     </div>
   </section>
 </BaseLayout>
@@ -124,7 +135,7 @@ const stages = [
 <style>
   .hero { position: relative; overflow: hidden; padding-block: 80px 30px; }
   .hero-glow { position: absolute; top: -280px; left: 50%; width: 1100px; height: 700px; transform: translateX(-50%); background: radial-gradient(closest-side, rgba(255,150,90,.22), rgba(106,164,255,.14) 55%, transparent 72%); pointer-events: none; }
-  h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); line-height: 1.05; letter-spacing: -.045em; margin: 0 0 26px; }
+  h1 { font-size: clamp(2.7rem, 5.5vw, 4.3rem); line-height: 1.05; letter-spacing: -.015em; margin: 0 0 26px; }
   .hero-day { color: var(--hero-accent, var(--brand)); transition: color 2.6s ease-in-out; }
   h2 { font-size: clamp(1.9rem, 3.8vw, 2.8rem); line-height: 1.15; letter-spacing: -.025em; margin: 0 0 22px; }
   h3 { font-size: 1.25rem; line-height: 1.35; margin: 0 0 14px; }

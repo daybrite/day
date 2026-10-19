@@ -90,7 +90,7 @@ export const site = {
   name: 'Day',
   tagline: 'One app. Every platform. All Day.',
   description:
-    'Build, test, and deliver native apps for desktop, mobile, and web from a single codebase. Discover Day’s tools for the complete app development lifecycle.',
+    'Build native desktop and mobile apps from one Rust codebase. Day combines shared app code with platform-native controls, localization, testing, and packaging tools.',
   repo: 'https://github.com/daybrite/day',
   /** The showcase app's repository — it is its own project, released and deployed from there. */
   showcaseRepo: 'https://github.com/daybrite/Day-Showcase',

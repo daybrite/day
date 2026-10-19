@@ -1031,6 +1031,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "day-piece-pager"
+version = "0.5.1"
+dependencies = [
+ "day-android",
+ "day-arkui",
+ "day-core",
+ "day-mock",
+ "day-pieces",
+ "day-reactive",
+ "day-spec",
+ "day-uikit",
+ "linkme",
+ "objc2",
+ "objc2-foundation",
+ "objc2-ui-kit",
+]
+
+[[package]]
 name = "day-piece-pullrefresh"
 version = "0.5.1"
 dependencies = [

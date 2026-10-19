@@ -10,9 +10,25 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Keep user-visible text in Fluent catalogs and use the generated Rust functions to display it.
-Day checks the message names and arguments when you build. Labels update when their arguments
-or the selected locale change.
+Day uses Mozilla's [Fluent](https://projectfluent.org/) for translations. Fluent is a
+localization system that lets translators express messages using the grammar of their own
+language. A translation can change word order, choose plural forms, or account for grammatical
+gender without requiring other languages to use the same structure.
+
+Fluent messages live in plain-text `.ftl` files, grouped into catalogs for each language.
+Each message has an identifier and can contain variables, references to other messages, and
+conditional variants. The app supplies data such as a name or a count; the catalog contains
+the wording and language-specific rules. For example, a language with several plural forms
+can select the appropriate wording from the same count your app already supplies.
+
+The [Fluent syntax guide](https://projectfluent.org/fluent/guide/) introduces the message
+format with examples. Its [selectors chapter](https://projectfluent.org/fluent/guide/selectors.html)
+explains how messages choose variants, including plural forms.
+
+Day turns these catalogs into generated Rust functions that your app uses across platforms.
+Keep user-visible text in the catalogs and call those functions to display it. Day checks the
+message names and arguments when you build. Labels update when their arguments or the selected
+locale change.
 
 Localize text as you add a feature, including button labels, accessibility descriptions, error
 messages, and help. Write complete messages so translators can change word order and plural

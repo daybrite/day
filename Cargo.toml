@@ -60,6 +60,7 @@ members = [
     "pieces/day-piece-remote-image",
     "pieces/day-piece-rating",
     "pieces/day-piece-pullrefresh",
+    "pieces/day-piece-pager",
     "pieces/day-piece-datetime",
     "pieces/day-piece-colorpicker",
     "pieces/day-piece-stepper",

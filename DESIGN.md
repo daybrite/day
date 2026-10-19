@@ -2806,6 +2806,22 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   (`UISplitViewController`) and android-mdc (`SlidingPaneLayout`) (observed). GTK and XAML keep
 >   the pre-size-class behavior; ArkUI is untouched. `safe_area` moved to the same per-window
 >   signal in the same change. [docs/size-classes.md](docs/size-classes.md) is normative.
+> - **Interactive mobile pager** — `day-piece-pager::pager(state, busy, pages, settled)`
+>   hosts fixed-identity child slots in UIKit `UIPageViewController`, AndroidX `ViewPager`,
+>   or ArkUI `Swiper`. `PagerState` supplies logical slot order, selected slot and presentation
+>   epoch. Native dragging owns frame-by-frame movement; the callback reports a settled slot,
+>   including the original slot when cancelled. The app freezes slot contents while `busy`
+>   and commits selection only on settlement. Epoch validation rejects obsolete completions.
+>   UIKit defers reconciliation beyond the animation completion stack and preserves native
+>   edge Back. Android retains slot Views across adapter reorder and leaves system edges to
+>   Back. ArkUI defers callbacks beyond native event delivery and checks node/gesture lifetime
+>   before querying its index. All retain the supplied pages until the piece is disposed;
+>   apps bound their own window (Day-News uses three) and control prefetch side effects.
+>   Non-mobile builds have a static selected-page fallback, not an interactive renderer.
+>   Standard `SelectionChanged` addresses logical positions for automation/accessibility;
+>   it is not a gesture simulation. See `pieces/day-piece-pager/tests/paging.rs` for commit,
+>   stale-callback and retained-child contracts. Native gesture tests live in Day-News;
+>   Harmony is compile-checked locally and requires CI runtime acceptance.
 > - **`nav_stack(path, root)`** — push/pop navigation bound to a `Vec<Route>` signal; native back
 >   (iOS swipe/button, Android system + predictive back) arrives as
 >   `Event::NavBack { already_popped }` so the path signal reconciles without double-popping. A
