@@ -47,6 +47,7 @@ mod list;
 #[cfg(target_env = "ohos")]
 mod main_thread;
 /// Schedule a native piece callback after ArkUI has unwound the current event.
+#[cfg(target_env = "ohos")]
 pub use main_thread::post_local;
 /// The ArkUI node API for standalone pieces (docs/extending.md): create a node, set its
 /// attributes, register its events, and the raw bindings behind them.
