@@ -7,18 +7,15 @@ pub(crate) fn editor_pane(scene: Scene) -> impl Piece {
     column((
         when(
             move || scene.selected.get().is_none(),
-            || label(res::str::item_none()).secondary().padding(24.0),
+            || label(res::str::item_none()).secondary().padding(Space::XL),
         ),
-        // `each` holds zero or one editor: a new item key rebuilds its field bindings,
+        // `keyed` holds zero or one editor: a new item key rebuilds its field bindings,
         // so edits cannot keep targeting the previous item.
         // Keyed children: https://daybrite.dev/docs/api-tour/#conditionals-and-collections
-        each(
-            items(
-                move || scene.selected.get().into_iter().collect::<Vec<_>>(),
-                |id: &u64| *id,
-            ),
-            move |slot: ItemSlot<u64, u64>| {
-                let item = scene.items.elem(slot.key());
+        keyed(
+            move || scene.selected.get(),
+            move |&id| {
+                let item = scene.items.elem(id);
                 // Controls write back through field bindings: https://daybrite.dev/docs/reactivity/
                 form((section((
                     labeled(
@@ -35,7 +32,7 @@ pub(crate) fn editor_pane(scene: Scene) -> impl Piece {
                             .id("field-done"),
                     ),
                 )),))
-                .padding(16.0)
+                .padding(Space::L)
             },
         ),
     ))
