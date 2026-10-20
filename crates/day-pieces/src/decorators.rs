@@ -2016,10 +2016,11 @@ pub(crate) mod conformance {
             .proves_modifier("max_width")
             .page(|| {
                 column((
-                    label("Hi").min_width(120.0).id("min"),
+                    // The widened box, not the label's own node.
+                    label("Hi").min_width(120.0).wrapper_id("min"),
                     label("A label long enough that it would run past eighty points")
                         .max_width(80.0)
-                        .id("max"),
+                        .wrapper_id("max"),
                 ))
                 .align(HAlign::Leading)
             })

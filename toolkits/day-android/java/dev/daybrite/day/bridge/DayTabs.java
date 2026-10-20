@@ -235,7 +235,7 @@ public class DayTabs extends LinearLayout {
                 add.setImageResource(android.R.drawable.ic_input_add);
                 add.setImageTintList(tabs.getTabTextColors());
                 add.setContentDescription(newLabel);
-                add.setTooltipText(newLabel);
+                androidx.appcompat.widget.TooltipCompat.setTooltipText(add, newLabel);
                 add.setBackgroundColor(android.graphics.Color.TRANSPARENT);
                 add.setOnClickListener(v -> documentEvent("day:tab-new", "", 0));
                 strip.addView(add, new LayoutParams(dp(48), dp(48)));
@@ -320,7 +320,7 @@ public class DayTabs extends LinearLayout {
                     close.setImageTintList(bar.getTabTextColors());
                     close.setBackgroundColor(android.graphics.Color.TRANSPARENT);
                     close.setContentDescription(closeLabel + ": " + title);
-                    close.setTooltipText(closeLabel);
+                    androidx.appcompat.widget.TooltipCompat.setTooltipText(close, closeLabel);
                     close.setOnClickListener(v -> documentEvent("day:tab-close", key, 0));
                     row.addView(close, new LayoutParams(dp(48), dp(48)));
                     row.setOnClickListener(v -> bar.selectTab(tab));

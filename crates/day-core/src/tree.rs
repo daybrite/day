@@ -1666,6 +1666,29 @@ impl<B: Toolkit> TreeOps for Tree<B> {
                 p.probe.focused = focused;
             }
         }
+        // And down through the single-child layout-only chain to the native view: the
+        // toolkit reports focus against the node that enabled it (a `.focusable()` or
+        // `.focused(..)` wrapper), while `.id` names the piece's own node below it
+        // (docs/api-style.md "Modifier classes"), which is what a dayscript `assert_focused`
+        // resolves. Both are the same element.
+        let mut cur = node;
+        for _ in 0..16 {
+            let Some(n) = self.nodes.get(cur) else { break };
+            if n.handle.is_some() && cur != node {
+                if let Some(p) = self.nodes.get_mut(cur) {
+                    p.probe.focused = focused;
+                }
+                break;
+            }
+            let next = match n.children.as_slice() {
+                [only] => *only,
+                _ => break,
+            };
+            if let Some(p) = self.nodes.get_mut(next) {
+                p.probe.focused = focused;
+            }
+            cur = next;
+        }
         // Remember which node has it, beyond the per-node flag: keys follow focus
         // (docs/menus.md), so dayscript's `key:` step needs the same answer the platform gives.
         // A loss only clears the record if this node is still the one holding it; gains land

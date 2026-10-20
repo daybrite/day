@@ -253,32 +253,66 @@ fn matches_of<'a>(src: &'a str, pat: &'a str) -> impl Iterator<Item = usize> + '
 }
 
 /// Keys referenced through the generated typed functions (`res::str::<key>(…)`, §18.5): the
-/// symbol is the key, so a call counts as a reference exactly like `tr("key")`.
+/// symbol is the key, so a call counts as a reference exactly like `tr("key")`. A file that
+/// imports the module under another name (`use crate::res::str as tr;`) references its keys as
+/// `tr::<key>(…)`, which counts the same way.
 fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
-        const PAT: &str = "res::str::";
-        for at in matches_of(src, PAT) {
-            // `other_crate::res` is that crate's generated API, not an app-global key.
-            // Rust checks the symbol; attributing it to the app catalog creates false errors.
-            let prefix = src[..at]
-                .rsplit(|c: char| !is_ident_char(c) && c != ':')
-                .next()
-                .unwrap_or("");
-            if prefix.ends_with("::")
-                && !matches!(prefix.trim_end_matches(':'), "crate" | "self" | "super")
-            {
-                continue;
-            }
-            let rest = &src[at + PAT.len()..];
-            let s = rest.strip_prefix("r#").unwrap_or(rest);
-            let end = s
-                .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-                .unwrap_or(s.len());
-            if end > 0 {
-                out.push(Hit::found(path, src, &s[..end]));
+        let mut pats: Vec<String> = vec!["res::str::".to_string()];
+        pats.extend(res_str_aliases(src).into_iter().map(|a| format!("{a}::")));
+        for pat in &pats {
+            for at in matches_of(src, pat) {
+                // `other_crate::res` is that crate's generated API, not an app-global key.
+                // Rust checks the symbol; attributing it to the app catalog creates false
+                // errors. The same guard keeps `foo::tr::x` from matching an alias `tr`.
+                let prefix = src[..at]
+                    .rsplit(|c: char| !is_ident_char(c) && c != ':')
+                    .next()
+                    .unwrap_or("");
+                if prefix.ends_with("::")
+                    && !matches!(prefix.trim_end_matches(':'), "crate" | "self" | "super")
+                {
+                    continue;
+                }
+                if pat.as_str() != "res::str::"
+                    && src[..at].chars().next_back().is_some_and(is_ident_char)
+                {
+                    continue; // `other_tr::x`: a longer identifier, not the alias
+                }
+                let rest = &src[at + pat.len()..];
+                let s = rest.strip_prefix("r#").unwrap_or(rest);
+                let end = s
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(s.len());
+                if end > 0 {
+                    out.push(Hit::found(path, src, &s[..end]));
+                }
             }
         }
     });
+}
+
+/// The names a file imports the generated string module under: `use crate::res::str as tr;`
+/// yields `tr`. Only the whole-module alias is recognized; `use crate::res::str::key;` of one
+/// function is read as its own key by the next scan, since `key(` then appears bare.
+fn res_str_aliases(src: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in src.lines() {
+        let line = line.trim();
+        let Some(rest) = line.strip_prefix("use ") else {
+            continue;
+        };
+        let Some((path, alias)) = rest.trim_end_matches(';').split_once(" as ") else {
+            continue;
+        };
+        if path.trim().ends_with("res::str") {
+            let alias = alias.trim();
+            if !alias.is_empty() && alias.chars().all(is_ident_char) {
+                out.push(alias.to_string());
+            }
+        }
+    }
+    out
 }
 
 fn uses_private_locales(root: &Path) -> bool {
@@ -2477,6 +2511,34 @@ e = { PLATFORM() }
             .collect();
         assert_eq!(findings.len(), 1, "{findings:?}");
         assert!(findings[0].message.contains("missing"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// `use crate::res::str as tr;` makes `tr::key()` a reference, so a catalog read only
+    /// through the alias is not reported unused.
+    #[test]
+    fn res_str_alias_counts_as_a_reference() {
+        let (dir, project) = app(
+            "alias",
+            &[
+                (
+                    "resource/locales/en/app.ftl",
+                    "app_title = App\nnet_error = Error { $e }\nother = Other\n",
+                ),
+                (
+                    "src/lib.rs",
+                    "use crate::res::str as tr;\nfn root() { res::str::app_title(); \
+                     status.set(tr::net_error(e.to_string()).format()); not_tr::other(); }",
+                ),
+            ],
+        );
+        let unused: Vec<String> = collect(&project)
+            .into_iter()
+            .filter(|f| f.code == "day::lint::unused-key")
+            .map(|f| f.message)
+            .collect();
+        assert_eq!(unused.len(), 1, "{unused:?}");
+        assert!(unused[0].contains("other"), "{unused:?}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

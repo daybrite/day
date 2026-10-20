@@ -5573,7 +5573,9 @@ Dark/light theming is native per toolkit ([§6.3](#63-semantic-theme-tokens)), f
 > buttons use resolution-independent image drawing to color the original template's alpha;
 > bordered `NSButton` does not reliably honor `contentTintColor`. The original image is retained
 > in a release-swept side table so removing a tint restores native template rendering. The bezel
-> remains native, including its inactive-window treatment.
+> remains native, including its inactive-window treatment. macOS 26 composites that bezel as a
+> system material which ignores `bezelColor` on screen, so the tint is painted on the control's
+> backing layer as well, where the translucent material lets it through.
 > UIKit remote images use a centered shape-layer mask for `.circle()`, recomputed on layout;
 > rounded corners alone produce a capsule in a rectangular frame. Both image and placeholder
 > share the mask. The `vector-*` and `remote-image-*` conformance cases cover these contracts.

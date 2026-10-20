@@ -163,7 +163,8 @@ fn vector_resize_retains_fine_detail() -> Case {
                             .tint(Color::hex(0xff0000))
                             .height(128.0)
                             .grow_w()
-                            .id("detail"),
+                            // The sized box, not the vector's own node.
+                            .wrapper_id("detail"),
                         when(move || compact.get(), || spacer().width(768.0)),
                     ))
                     .spacing(0.0)
@@ -208,7 +209,8 @@ fn vector_reactive_tint_preserves_alpha() -> Case {
                     .tint(move || Color::hex(if blue.get() { 0x0000ff } else { 0xff0000 }))
                     .frame(96.0, 96.0)
                     .background(Color::hex(0x000000))
-                    .id("alpha"),
+                    // The black box around the vector is what the corner sample reads.
+                    .wrapper_id("alpha"),
             ))
         })
         .drive(|d: Drive| async move {
@@ -280,7 +282,8 @@ fn vector_source_swaps_with_bitmap() -> Case {
                 })
                 .frame(80.0, 80.0)
                 .background(Color::hex(0x000000))
-                .id("source"),
+                // The black box around the image is what the top sample reads.
+                .wrapper_id("source"),
             ))
         })
         .drive(|d: Drive| async move {

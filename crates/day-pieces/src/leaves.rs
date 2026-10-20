@@ -2029,12 +2029,13 @@ pub(crate) mod conformance {
             .proves_modifier("width")
             .page(|| {
                 row((
-                    label("A").width(50.0).id("first"),
+                    // The sized boxes, not the labels' own nodes.
+                    label("A").width(50.0).wrapper_id("first"),
                     spacer(),
-                    label("B").width(50.0).id("last"),
+                    label("B").width(50.0).wrapper_id("last"),
                 ))
                 .width(300.0)
-                .id("row")
+                .wrapper_id("row")
             })
             .drive(|d: Drive| async move {
                 d.assert_frame(

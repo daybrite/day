@@ -4963,11 +4963,19 @@ fn set_button_selected(btn: &objc2_app_kit::NSButton, on: bool) {
     }
 }
 
+/// The corner radius of the tint painted behind a tinted button's bezel: the rounded push
+/// bezel's own, so the fill reads as the bezel rather than as a box around it.
+const TINT_CORNER_RADIUS: f64 = 6.0;
+
 /// Put a [`day_spec::props::ButtonStyleSpec`] on an `NSButton`, keeping it an NSButton.
 ///
 /// Prominent = the return-key default button. Tinted = `bezelColor`, which AppKit composites
 /// through the button's own bezel — so the pressed darkening, the focus ring and the disabled
-/// look all still come from the control rather than from us painting a rectangle.
+/// look all still come from the control rather than from us painting a rectangle. macOS 26
+/// composites the push bezel as a system material that ignores `bezelColor` on screen (an
+/// offscreen `cacheDisplay` still honors it), so the tint is also painted on the control's
+/// backing layer, where the translucent material lets it through; on older systems the opaque
+/// tinted bezel covers that layer, so nothing changes there.
 fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::ButtonStyleSpec) {
     use day_spec::props::ButtonStyleSpec as S;
     let title = unsafe { btn.title() }.to_string();
@@ -4982,6 +4990,16 @@ fn apply_button_style(btn: &objc2_app_kit::NSButton, style: day_spec::props::But
             // Bordered is the stock NSButton look already; Automatic asks for nothing, and an
             // NSButton hugs a one-glyph title already, so Compact asks for nothing either.
             S::Bordered | S::Automatic | S::Compact | S::Plain => {}
+        }
+        btn.setWantsLayer(true);
+        if let Some(layer) = btn.layer() {
+            match style {
+                S::Tinted(c) => {
+                    layer.setBackgroundColor(Some(&nscolor(c).CGColor()));
+                    layer.setCornerRadius(TINT_CORNER_RADIUS);
+                }
+                _ => layer.setBackgroundColor(None),
+            }
         }
     }
     BUTTON_STYLES.with(|m| m.borrow_mut().insert(ptr_of(btn), style));

@@ -65,7 +65,8 @@ nothing derived from `realize` can.
 ## Capabilities
 
 What each backend answers for `Cap` (`capability()`): `N` native, `E` emulated, `–`
-unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width).
+unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width;
+day-qt answers `WindowTabbing` natively on macOS alone).
 An app branches on this rather than on the target name.
 
 | cap | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
@@ -130,7 +131,7 @@ An app branches on this rather than on the target name.
 | `WindowStates` | N | – | N | N | N | – | – | – |
 | `WindowFullscreen` | N | E | N | N | N | N | ? | ? |
 | `ContentProtection` | N | E | – | – | N | N | ? | – |
-| `WindowTabbing` | N | – | – | – | – | – | – | – |
+| `WindowTabbing` | N | – | – | ? | – | – | – | – |
 | `DockMenu` | N | – | – | – | – | – | – | – |
 | `WindowGeometry` | N | – | N | N | N | – | – | – |
 | `WindowPosition` | N | – | – | ? | N | – | – | – |

@@ -1144,7 +1144,8 @@ public final class DayBridge {
         // The title is the spoken name, unless the app named the button itself (setA11y); writing
         // it here then replaced the app's label on every title or icon change.
         if (!appLabeled.containsKey(button)) button.setContentDescription(title);
-        button.setTooltipText(iconOnly && icon != null ? title : null);
+        // `View.setTooltipText` is API 26; the compat call reaches the scaffold's minSdk of 24 (docs/size-classes.md).
+        androidx.appcompat.widget.TooltipCompat.setTooltipText(button, iconOnly && icon != null ? title : null);
     }
 
     public static View makeButton(final long id, String title) {

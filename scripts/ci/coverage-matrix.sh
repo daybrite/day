@@ -105,16 +105,17 @@ def cap_answer(backend: str, cap: str) -> str:
     """Parse one backend's `capability()` match. Handles the shapes in the tree: a grouped arm
     (which may carry `//` comments BETWEEN variants), a braced arm body, and an answer decided
     at run time, reported `?` because a static table cannot resolve it: a conditional (day-dom's
-    NavSplit depends on the viewport width) or a call (day-arkui asks its host whether the
-    device has color modes and app badges)."""
+    NavSplit depends on the viewport width), a call (day-arkui asks its host whether the
+    device has color modes and app badges), or a guarded arm (day-qt's WindowTabbing is
+    `if cfg!(target_os = "macos")`, so the one backend answers differently per host)."""
     body = re.sub(r"//[^\n]*", "", cap_bodies[backend])
     for m in re.finditer(
-        r"((?:Cap::\w+\s*\|\s*)*Cap::\w+)\s*=>\s*\{?\s*(Support::(\w+)|\S)", body
+        r"((?:Cap::\w+\s*\|\s*)*Cap::\w+)\s*(if\b.*?)?=>\s*\{?\s*(Support::(\w+)|\S)", body
     ):
         if cap in re.findall(r"Cap::(\w+)", m.group(1)):
-            if m.group(3) is None:
+            if m.group(2) is not None or m.group(4) is None:
                 return "?"
-            return {"Native": "N", "Emulated": "E"}.get(m.group(3), "\u2013")
+            return {"Native": "N", "Emulated": "E"}.get(m.group(4), "\u2013")
     m = re.search(r"_\s*=>\s*\{?\s*Support::(\w+)", body)
     if m:
         return {"Native": "N", "Emulated": "E"}.get(m.group(1), "\u2013")
@@ -174,7 +175,8 @@ out += [
     "## Capabilities",
     "",
     "What each backend answers for `Cap` (`capability()`): `N` native, `E` emulated, `–`",
-    "unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width).",
+    "unsupported, `?` decided at runtime (day-dom answers `NavSplit` from the viewport width;",
+    "day-qt answers `WindowTabbing` natively on macOS alone).",
     "An app branches on this rather than on the target name.",
     "",
     "| cap | " + " | ".join(names) + " |",

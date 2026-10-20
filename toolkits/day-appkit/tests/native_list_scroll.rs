@@ -235,13 +235,12 @@ mod native {
                                     .collect()
                             })
                         })
-                        .reorderable(true)
-                        .on_reorder(move |from, to| {
+                        .reorderable(Reorder::new(move |from, to| {
                             rows.update(|r| {
                                 let v = r.remove(from);
                                 r.insert(to, v);
                             })
-                        })
+                        }))
                         .row_height(RowHeight::Uniform(44.))
                         .height(280.)
                         .grow_w()
