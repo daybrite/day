@@ -1744,6 +1744,7 @@ impl Toolkit for Xaml {
                             // `argb`, 2 is a template glyph in the theme foreground
                             // (docs/vectors.md "Template"), which follows a theme switch.
                             let tinted = match p.tint {
+                                Some(_) if p.template => 3,
                                 Some(_) => 1,
                                 None if p.template => 2,
                                 None => 0,
@@ -1821,22 +1822,37 @@ impl Toolkit for Xaml {
         unsafe {
             match kind {
                 kinds::IMAGE => {
-                    if let Some(day_spec::props::ImagePatch::Source(source)) =
-                        patch.downcast_ref::<day_spec::props::ImagePatch>()
-                    {
-                        // A source swap repaints the same element (docs/images.md), and one
-                        // that will not load leaves it showing what it was. Only the raster
-                        // `Image` swaps: a vector glyph is `Path` geometry, not an `Image`.
-                        match source {
-                            day_spec::ImageSource::Named(name) => {
-                                ffi::day_xaml_image_set_uri(h.0, cstr(&image_uri(name)).as_ptr());
+                    if let Some(patch) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
+                        match patch {
+                            day_spec::props::ImagePatch::Tint(tint) => {
+                                ffi::day_xaml_image_set_tint(
+                                    h.0,
+                                    tint.map(argb).unwrap_or(0),
+                                    i32::from(tint.is_some()),
+                                );
                             }
-                            day_spec::ImageSource::Bytes(b) => {
-                                ffi::day_xaml_image_set_bytes(h.0, b.as_ptr(), b.len() as c_int);
-                            }
-                            day_spec::ImageSource::Decoded(id) => {
-                                ffi::day_xaml_image_set_bitmap(h.0, id.0);
-                            }
+                            day_spec::props::ImagePatch::Source(source) => match source {
+                                day_spec::ImageSource::Named(name) => {
+                                    if let Some(spec) = vector_geometry(name) {
+                                        ffi::day_xaml_image_set_vector(h.0, cstr(&spec).as_ptr());
+                                    } else {
+                                        ffi::day_xaml_image_set_uri(
+                                            h.0,
+                                            cstr(&image_uri(name)).as_ptr(),
+                                        );
+                                    }
+                                }
+                                day_spec::ImageSource::Bytes(b) => {
+                                    ffi::day_xaml_image_set_bytes(
+                                        h.0,
+                                        b.as_ptr(),
+                                        b.len() as c_int,
+                                    );
+                                }
+                                day_spec::ImageSource::Decoded(id) => {
+                                    ffi::day_xaml_image_set_bitmap(h.0, id.0);
+                                }
+                            },
                         }
                     }
                 }

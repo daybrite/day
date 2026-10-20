@@ -179,6 +179,10 @@ UIKit applies a centered circular shape-layer mask and recomputes its path durin
 This clips the placeholder and image together, including in wide or tall frames; a corner
 radius alone would produce a capsule. Rounded rectangles retain native corner-radius clipping.
 
+WinUI constrains the image to its viewport and applies a composition clip to both the image
+and placeholder. The clip follows frame changes; clearing or invalidating the source keeps
+the placeholder and its clip intact.
+
 The piece's portable `remote-image-*` conformance cases sample captured pixels for initial
 loading, replacement, clearing, invalid data, recovery, disposal/remounting, fit/fill, and
 clipping of both images and placeholders, including after layout changes. They require a

@@ -496,20 +496,22 @@ unsafe extern "C" {
     pub fn day_xaml_image_bytes(id: u64, out: *mut u8, cap: c_int) -> c_int;
     /// Drop a held bitmap.
     pub fn day_xaml_image_release(id: u64);
-    /// An `Image` element over raw encoded bytes.
+    /// An image viewport over raw encoded bytes.
     pub fn day_xaml_image_bytes_new(bytes: *const u8, len: c_int, mode: c_int) -> *mut c_void;
-    /// An `Image` element over a bitmap already held under `id`.
+    /// An image viewport over a bitmap already held under `id`.
     pub fn day_xaml_image_bitmap_new(id: u64, mode: c_int) -> *mut c_void;
-    /// `ImagePatch::Source` on a realized raster `Image`: a resolved path or http(s) URI, raw
-    /// bytes, or a held bitmap. A source that will not load leaves the view as it was.
+    /// Replace the raster/vector content of a stable image viewport. A source that will not
+    /// load leaves the view as it was.
+    pub fn day_xaml_image_set_vector(w: *mut c_void, spec: *const c_char);
+    pub fn day_xaml_image_set_tint(w: *mut c_void, argb: u32, tinted: c_int);
     pub fn day_xaml_image_set_uri(w: *mut c_void, uri: *const c_char);
     pub fn day_xaml_image_set_bytes(w: *mut c_void, bytes: *const u8, len: c_int);
     pub fn day_xaml_image_set_bitmap(w: *mut c_void, id: u64);
     /// A vector glyph as real XAML `Path` geometry inside a scaling `Viewbox` (docs/vectors.md):
     /// resolution-independent. `tinted` 1 composes `argb` over the shapes as a brush; 2 draws
     /// them in the theme foreground brush (a template glyph, re-resolved on a theme change); 0
-    /// keeps the authored paints. Null when the spec carried no drawable geometry, so the
-    /// caller falls back to the raster.
+    /// keeps the authored paints; 3 is an explicitly tinted template. Null when the spec
+    /// carried no drawable geometry, so the caller falls back to the raster.
     pub fn day_xaml_vector_new(
         spec: *const c_char,
         mode: c_int,

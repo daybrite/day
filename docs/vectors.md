@@ -137,8 +137,12 @@ One staged glyph therefore serves every tint at every size without a second asse
 **A tint can follow a signal.** `.tint(…)` takes a plain color or anything reactive; a change
 repaints the realized view through `ImagePatch::Tint` rather than rebuilding it, so a glyph that
 recolors with the selection or the theme keeps its native view (and its layout, and any animation
-in flight). Implemented on AppKit, UIKit, Android, GTK, Qt and web; XAML and ArkUI still take the
+in flight). Implemented on AppKit, UIKit, Android, GTK, Qt, WinUI and web; ArkUI still takes the
 tint at realize only, so a reactive tint there lands on the next rebuild.
+
+WinUI retains a viewport while replacing its vector or bitmap content. Fit centers the art,
+fill crops at the viewport, and source swaps preserve the content mode and tint. Explicit
+vector tints multiply the authored fill/stroke alpha by the tint alpha.
 
 A tint follows the art it was authored with: the color fills where the glyph filled and strokes
 where it stroked, so an outline glyph stays an outline rather than becoming a silhouette. Where

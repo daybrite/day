@@ -1,21 +1,12 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// The remote-image piece's C++/WinRT shim, parallel to src/lib-qt-shim.cpp. day-xaml hosts the
-// UWP system XAML (DAY_XAML_NS, from the base Windows SDK, not WinAppSDK). A circle
-// clip uses an Ellipse filled with an ImageBrush (a true circular avatar); a rounded/plain image
-// uses a Border (CornerRadius) hosting an Image. The root element is boxed into a day handle via
-// the `day_xaml_box`/`day_xaml_unbox` functions day-xaml-sys exports, so this piece carries its
-// own XAML native code with no edits to day's toolkit crates. Bytes are decoded into a BitmapImage
-// from an InMemoryRandomAccessStream.
-//
-// Written blind (no Windows host here) and not verified; best-effort so the xaml build links in CI.
-// Caveats: the byte→BitmapImage decode blocks on StoreAsync().get(), which on an STA UI thread can
-// stall; and clearing (None) on the Ellipse path drops the placeholder brush. Both are acceptable
-// for the CI-only xaml backend and are noted in the crate's caveats. Everything is wrapped in
-// try/catch so an unexpected throw degrades to an empty element rather than crashing the app.
+// The viewport owns its placeholder, image and clip. Both paints use the same clip; circles
+// are centered with diameter min(width, height), including after a resize. The image is
+// explicitly constrained to the viewport so UniformToFill crops at its center.
 
 #include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Storage.Streams.h>
 // One shim, two XAML stacks (docs/winui.md): windows-xaml builds it against system XAML,
 // windows-winui (DAY_WINUI) against WinUI 3. The namespaces differ; the controls do not.
@@ -26,8 +17,12 @@
 #endif
 #ifdef DAY_WINUI
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
+#include <winrt/Microsoft.UI.Xaml.Hosting.h>
+#include <winrt/Microsoft.UI.Composition.h>
 #else
 #include <winrt/Windows.UI.Xaml.Controls.h>
+#include <winrt/Windows.UI.Xaml.Hosting.h>
+#include <winrt/Windows.UI.Composition.h>
 #endif
 #ifdef DAY_WINUI
 #include <winrt/Microsoft.UI.Xaml.Media.Imaging.h>
@@ -52,6 +47,8 @@
 #include <winrt/Windows.UI.h>
 
 #include <cstdint>
+#include <algorithm>
+#include <cmath>
 
 using namespace winrt;
 namespace WUX = DAY_XAML_NS;
@@ -100,31 +97,48 @@ static WUXMI::BitmapImage decode(const uint8_t *data, uint64_t len) {
     }
 }
 
+static void layout_remote(WUXC::Canvas const& host, int clip, double radius) {
+    double w = host.Width(), h = host.Height();
+    if (!std::isfinite(w) || !std::isfinite(h) || w < 0 || h < 0) return;
+    auto img = host.Children().GetAt(0).as<WUXC::Image>();
+    img.Width(w);
+    img.Height(h);
+    auto visual = DAY_XAML_NS::Hosting::ElementCompositionPreview::GetElementVisual(host);
+    auto compositor = visual.Compositor();
+    auto geometry = compositor.CreateRoundedRectangleGeometry();
+    double cw = w, ch = h;
+    if (clip == 1) {
+        cw = ch = (std::min)(w, h);
+        radius = cw / 2;
+    } else if (clip != 2) {
+        radius = 0;
+    }
+    radius = (std::max)(0.0, (std::min)(radius, (std::min)(cw, ch) / 2));
+    geometry.Size({static_cast<float>(cw), static_cast<float>(ch)});
+    geometry.Offset({static_cast<float>((w - cw) / 2), static_cast<float>((h - ch) / 2)});
+    geometry.CornerRadius({static_cast<float>(radius), static_cast<float>(radius)});
+    visual.Clip(compositor.CreateGeometricClip(geometry));
+}
+
 extern "C" {
 
 void *day_remote_image_new(int clip, double radius, int mode, double r, double g, double b,
                            double a) {
     try {
-        WUXM::Stretch stretch = (mode == 1) ? WUXM::Stretch::UniformToFill : WUXM::Stretch::Uniform;
-        WUXM::SolidColorBrush placeholder{color_of(r, g, b, a)};
-        if (clip == 1) {
-            // Circle → an Ellipse; the placeholder brush shows until bytes arrive.
-            WUXS::Ellipse e;
-            e.Fill(placeholder);
-            return day_xaml_box(winrt::get_abi(e));
-        }
-        // Rounded / plain → a Border (CornerRadius) hosting an Image over the placeholder.
-        WUXC::Border bd;
-        if (clip == 2) {
-            WUX::CornerRadius cr;
-            cr.TopLeft = cr.TopRight = cr.BottomLeft = cr.BottomRight = radius;
-            bd.CornerRadius(cr);
-        }
-        bd.Background(placeholder);
+        WUXC::Canvas host;
+        host.Background(WUXM::SolidColorBrush{color_of(r, g, b, a)});
         WUXC::Image img;
-        img.Stretch(stretch);
-        bd.Child(img);
-        return day_xaml_box(winrt::get_abi(bd));
+        img.Stretch(mode == 1 ? WUXM::Stretch::UniformToFill : WUXM::Stretch::Uniform);
+        host.Children().Append(img);
+        // Day assigns Width/Height directly. Observe those assignments as well as native
+        // layout, so the clip cannot lag behind a resize while waiting for SizeChanged.
+        auto changed = [clip, radius](WUX::DependencyObject const& sender,
+                                      WUX::DependencyProperty const&) {
+            layout_remote(sender.as<WUXC::Canvas>(), clip, radius);
+        };
+        host.RegisterPropertyChangedCallback(WUX::FrameworkElement::WidthProperty(), changed);
+        host.RegisterPropertyChangedCallback(WUX::FrameworkElement::HeightProperty(), changed);
+        return day_xaml_box(winrt::get_abi(host));
     } catch (...) {
         WUXC::Border empty;
         return day_xaml_box(winrt::get_abi(empty));
@@ -135,19 +149,10 @@ void day_remote_image_set_bytes(void *handle, const uint8_t *data, uint64_t len)
     try {
         WUX::UIElement e{nullptr};
         winrt::copy_from_abi(e, day_xaml_unbox(handle));
-        WUXMI::BitmapImage bmp = decode(data, len);
-        if (auto ell = e.try_as<WUXS::Ellipse>()) {
-            if (bmp) {
-                WUXM::ImageBrush ib;
-                ib.ImageSource(bmp);
-                ib.Stretch(WUXM::Stretch::UniformToFill);
-                ell.Fill(ib);
-            }
-            // (Clearing an Ellipse back to the placeholder brush is not supported; see caveats.)
-        } else if (auto bd = e.try_as<WUXC::Border>()) {
-            if (auto img = bd.Child().try_as<WUXC::Image>()) {
-                img.Source(bmp); // nullptr clears → the Border's placeholder background shows
-            }
+        if (auto host = e.try_as<WUXC::Canvas>()) {
+            auto img = host.Children().GetAt(0).as<WUXC::Image>();
+            // Empty and corrupt data clear the image, exposing the retained placeholder.
+            img.Source(decode(data, len));
         }
     } catch (...) {
     }

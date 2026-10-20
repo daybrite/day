@@ -287,12 +287,18 @@ fn vector_source_swaps_with_bitmap() -> Case {
             ))
         })
         .drive(|d: Drive| async move {
-            d.sample_pixel("source", 0.25, 0.5, "#ff0000").await?;
-            d.tap("swap").await?;
-            d.sample_pixel("source", 0.25, 0.5, "#0000ff").await?;
-            d.tap("swap").await?;
-            d.sample_pixel("source", 0.25, 0.5, "#ff0000").await?;
-            d.sample_pixel("source", 0.25, 0.1, "#000000").await
+            // Reuse the same viewport across repeated swaps, checking the full bitmap frame
+            // as well as the vector's restored letterboxing and both authored colors.
+            for _ in 0..2 {
+                d.sample_pixel("source", 0.25, 0.5, "#ff0000").await?;
+                d.sample_pixel("source", 0.75, 0.5, "#0000ff").await?;
+                d.sample_pixel("source", 0.25, 0.1, "#000000").await?;
+                d.tap("swap").await?;
+                d.sample_pixel("source", 0.25, 0.5, "#0000ff").await?;
+                d.sample_pixel("source", 0.25, 0.1, "#0000ff").await?;
+                d.tap("swap").await?;
+            }
+            d.sample_pixel("source", 0.25, 0.5, "#ff0000").await
         })
 }
 

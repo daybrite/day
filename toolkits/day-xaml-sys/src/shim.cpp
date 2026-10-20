@@ -5899,8 +5899,9 @@ static void style_template_path(WUXSh::Path const& path, bool fill, bool stroke)
 // A glyph sized by the layout: the shapes go in a Canvas the size of the source viewport, and a
 // Viewbox scales that to whatever frame day assigns — so one geometry serves every size.
 // `tinted` 1 replaces every authored paint with `argb`; 2 paints them with the theme foreground
-// (a template glyph with live theme resources); 0 keeps the art's own colors.
-void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tinted) {
+// (a template glyph with live theme resources); 3 is an explicitly tinted template;
+// 0 keeps the art's own colors.
+static UIElement vector_content(const char* spec, int mode, unsigned int argb, int tinted) {
     Geom g = parse_geom(spec);
     if (g.shapes.empty() || g.w <= 0 || g.h <= 0) return nullptr;
     try {
@@ -5918,9 +5919,12 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
             } else if (tinted) {
                 // The tint composes over the geometry: fill where the art filled, stroke where
                 // it stroked, so a glyph drawn as an outline stays an outline.
-                auto brush = WUXM::Brush(WUXM::SolidColorBrush(color_argb(argb)));
-                if (sh.fill) p.Fill(brush);
-                if (sh.stroke) p.Stroke(brush);
+                auto paint = [argb](unsigned int authored) {
+                    auto alpha = ((argb >> 24) * (authored >> 24) + 127) / 255;
+                    return WUXM::SolidColorBrush(color_argb((argb & 0xffffff) | (alpha << 24)));
+                };
+                if (sh.fill) p.Fill(paint(sh.fill));
+                if (sh.stroke) p.Stroke(paint(sh.stroke));
             } else {
                 if (sh.fill) p.Fill(WUXM::SolidColorBrush(color_argb(sh.fill)));
                 if (sh.stroke) p.Stroke(WUXM::SolidColorBrush(color_argb(sh.stroke)));
@@ -5943,9 +5947,105 @@ void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tin
         vb.Stretch(mode == 2 ? WUXM::Stretch::Fill
                    : mode == 1 ? WUXM::Stretch::UniformToFill
                                : WUXM::Stretch::Uniform);
-        return boxh(vb);
+        return vb;
     } catch (...) {
         return nullptr;
+    }
+}
+
+// A stable Day viewport supports source patches between vector and bitmap content. Center
+// scaled vectors explicitly: Viewbox otherwise anchors its content at the origin. Constrain
+// raster Images too, so UniformToFill cannot measure beyond the viewport and escape its crop.
+struct ImageView {
+    int mode = 0, tinted = 0;
+    unsigned int argb = 0;
+    bool templ = false;
+    std::string spec;
+};
+static std::map<void*, std::shared_ptr<ImageView>> g_image_views;
+
+static void layout_image(WUXC::Canvas const& host, int mode, double w, double h) {
+    if (!std::isfinite(w) || !std::isfinite(h) || w < 0 || h < 0) return;
+    WUXM::RectangleGeometry clip;
+    clip.Rect({0, 0, static_cast<float>(w), static_cast<float>(h)});
+    host.Clip(clip);
+    if (!host.Children().Size()) return;
+    auto child = host.Children().GetAt(0).as<FrameworkElement>();
+    double cw = w, ch = h;
+    if (auto vb = child.try_as<WUXC::Viewbox>()) {
+        auto art = vb.Child().as<FrameworkElement>();
+        if (mode != 2 && art.Width() > 0 && art.Height() > 0) {
+            double sx = w / art.Width(), sy = h / art.Height();
+            double scale = mode == 1 ? (std::max)(sx, sy) : (std::min)(sx, sy);
+            cw = art.Width() * scale;
+            ch = art.Height() * scale;
+        }
+        vb.Stretch(WUXM::Stretch::Fill);
+    }
+    child.Width(cw);
+    child.Height(ch);
+    WUXC::Canvas::SetLeft(child, (w - cw) / 2);
+    WUXC::Canvas::SetTop(child, (h - ch) / 2);
+}
+
+static void replace_image(void* h, UIElement const& content) {
+    if (!content) return;
+    auto it = g_image_views.find(h);
+    if (it == g_image_views.end()) return;
+    auto host = elem(h).as<WUXC::Canvas>();
+    host.Children().Clear();
+    host.Children().Append(content);
+    layout_image(host, it->second->mode, host.Width(), host.Height());
+}
+
+static void* image_view(UIElement const& content, int mode, const char* spec = "",
+                        unsigned int argb = 0, int tinted = 0) {
+    WUXC::Canvas host;
+    host.Children().Append(content);
+    auto state = std::make_shared<ImageView>();
+    state->mode = mode;
+    state->spec = spec;
+    state->argb = argb;
+    state->tinted = tinted;
+    state->templ = tinted == 2 || tinted == 3;
+    host.SizeChanged([mode](WF::IInspectable const& sender, WUX::SizeChangedEventArgs const& e) {
+        layout_image(sender.as<WUXC::Canvas>(), mode, e.NewSize().Width, e.NewSize().Height);
+    });
+    void* h = boxh(host);
+    g_image_views.emplace(h, state);
+    return h;
+}
+
+void* day_xaml_vector_new(const char* spec, int mode, unsigned int argb, int tinted) {
+    auto content = vector_content(spec, mode, argb, tinted);
+    return content ? image_view(content, mode, spec, argb, tinted) : nullptr;
+}
+
+void day_xaml_image_set_vector(void* h, const char* spec) {
+    auto it = g_image_views.find(h);
+    if (it == g_image_views.end()) return;
+    auto& s = *it->second;
+    if (auto content = vector_content(spec, s.mode, s.argb, s.tinted)) {
+        replace_image(h, content);
+        s.spec = spec;
+    }
+}
+
+void day_xaml_image_set_tint(void* h, unsigned int argb, int tinted) {
+    auto it = g_image_views.find(h);
+    if (it == g_image_views.end()) return;
+    auto& s = *it->second;
+    s.argb = argb;
+    s.tinted = tinted ? 1 : (s.templ ? 2 : 0);
+    if (!s.spec.empty()) {
+        replace_image(h, vector_content(s.spec.c_str(), s.mode, argb, s.tinted));
+    } else {
+        auto host = elem(h).as<WUXC::Canvas>();
+        if (auto icon = host.Children().GetAt(0).try_as<WUXC::BitmapIcon>()) {
+            icon.ShowAsMonochrome(s.tinted != 0);
+            if (tinted) icon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+            else icon.ClearValue(WUXC::IconElement::ForegroundProperty());
+        }
     }
 }
 
@@ -5990,8 +6090,8 @@ void* day_xaml_image_tinted_new(const char* icon_file, int mode, unsigned int ar
         WUXC::BitmapIcon bicon;
         bicon.UriSource(WF::Uri{ hs((std::string("ms-appx:///images/") + icon_file).c_str()) });
         bicon.ShowAsMonochrome(true);
-        if (tinted == 1) bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
-        return boxh(bicon);
+        if (tinted != 2) bicon.Foreground(WUXM::SolidColorBrush(color_argb(argb)));
+        return image_view(bicon, mode, "", argb, tinted);
     }
     return nullptr;
 }
@@ -6069,7 +6169,7 @@ void* day_xaml_image_bytes_new(const unsigned char* bytes, int len, int mode) {
                 : mode == 1 ? WUXM::Stretch::UniformToFill
                             : WUXM::Stretch::Uniform);
     if (auto bmp = bitmap_from_bytes(bytes, len > 0 ? (uint32_t)len : 0)) img.Source(bmp);
-    return boxh(img);
+    return image_view(img, mode);
 }
 
 /// An `Image` element showing a bitmap already held under `id` (an `ImageSource::Decoded`).
@@ -6099,13 +6199,20 @@ static WUXM::Imaging::BitmapImage bitmap_from_uri(const char* uri) {
     }
 }
 
-/// `ImagePatch::Source` on the raster `Image` element. A source that will not load leaves the
-/// view showing what it was (the patch's contract); a vector glyph is `Path` geometry rather than
-/// an `Image` and cannot be swapped in place.
+/// Replace content inside the stable viewport, including a previous vector. A source that
+/// cannot load leaves the current content in place.
 static void image_set(void* w, WUXM::Imaging::BitmapImage const& bmp) {
     if (!bmp) return;
     try {
-        if (auto img = elem(w).try_as<WUXC::Image>()) img.Source(bmp);
+        auto it = g_image_views.find(w);
+        if (it == g_image_views.end()) return;
+        auto& s = *it->second;
+        WUXC::Image img;
+        img.Stretch(s.mode == 2 ? WUXM::Stretch::Fill
+                    : s.mode == 1 ? WUXM::Stretch::UniformToFill : WUXM::Stretch::Uniform);
+        img.Source(bmp);
+        replace_image(w, img);
+        s.spec.clear();
     } catch (...) {}
 }
 void day_xaml_image_set_uri(void* w, const char* uri) { image_set(w, bitmap_from_uri(uri)); }
@@ -6125,7 +6232,7 @@ void* day_xaml_image_new(const char* uri, int mode) {
                 : mode == 1 ? WUXM::Stretch::UniformToFill
                             : WUXM::Stretch::Uniform);
     if (auto bmp = bitmap_from_uri(uri)) img.Source(bmp);
-    return boxh(img);
+    return image_view(img, mode);
 }
 
 // ---- tree / geometry / props ----
@@ -6176,6 +6283,7 @@ void day_xaml_delete(void* h) {
     day_xaml_transfer_release(h);
     picker_forget(h);
     g_clip_geometry.erase(h);
+    g_image_views.erase(h);
     g_field_live.erase(h);
     g_field_parents.erase(h);
     g_button_selected.erase(h);
@@ -6205,6 +6313,9 @@ void day_xaml_set_geometry(void* h, int x, int y, int width, int height) {
             fe.Width(static_cast<double>(width));
             fe.Height(static_cast<double>(height));
         }
+        if (auto it = g_image_views.find(h); it != g_image_views.end()) {
+            layout_image(e.as<WUXC::Canvas>(), it->second->mode, width, height);
+        }
         // A rounded clip tracks the size day just stated (see `g_clip_geometry`).
         auto it = g_clip_geometry.find(h);
         if (it != g_clip_geometry.end()) {
@@ -6231,6 +6342,28 @@ void day_xaml_measure(void* h, double aw, double ah, double* ow, double* oh) {
     *ow = 0; // sane defaults if a degraded element throws mid-measure (guard swallows it)
     *oh = 0;
     guard([&] {
+        // Canvas reports no intrinsic size of its children. Preserve the image's natural
+        // dimensions independently of the viewport size assigned by the previous layout.
+        if (g_image_views.count(h)) {
+            auto host = elem(h).as<WUXC::Canvas>();
+            auto content = host.Children().GetAt(0);
+            if (auto vb = content.try_as<WUXC::Viewbox>()) {
+                auto art = vb.Child().as<FrameworkElement>();
+                *ow = art.Width();
+                *oh = art.Height();
+            } else if (auto img = content.try_as<WUXC::Image>()) {
+                if (auto bmp = img.Source().try_as<WUXM::Imaging::BitmapSource>()) {
+                    *ow = bmp.PixelWidth();
+                    *oh = bmp.PixelHeight();
+                }
+            } else {
+                content.Measure({std::numeric_limits<float>::infinity(),
+                                 std::numeric_limits<float>::infinity()});
+                *ow = content.DesiredSize().Width;
+                *oh = content.DesiredSize().Height;
+            }
+            return;
+        }
         float fw = aw < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(aw);
         float fh = ah < 0 ? std::numeric_limits<float>::infinity() : static_cast<float>(ah);
         auto& e = elem(h);
