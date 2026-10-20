@@ -168,6 +168,9 @@ pub struct Tree<B: Toolkit> {
     /// The gesture kinds each node asked the toolkit for (`enable_gesture`): where a gesture
     /// addressed to a descendant is redirected (see `dispatch_to_node`).
     gestures: HashMap<RNode, Vec<day_spec::GestureKind>>,
+    /// A decorated piece's own node, mapped to the outermost node its modifiers wrapped it in
+    /// (`set_element_outer`): how far a gesture addressed to that node may climb.
+    element_outer: HashMap<RNode, RNode>,
     // (kind, handle): the kind rides along so the drain can offer a satellite piece its
     // `release` hook before the backend frees the handle (§15.2).
     release_queue: Vec<(day_spec::PieceKind, B::Handle)>,
@@ -251,6 +254,7 @@ impl<B: Toolkit> Tree<B> {
             layout_dirty: true,
             handlers: HashMap::new(),
             gestures: HashMap::new(),
+            element_outer: HashMap::new(),
             release_queue: Vec::new(),
             lists: HashMap::new(),
             trees: HashMap::new(),
@@ -527,6 +531,7 @@ impl<B: Toolkit> Tree<B> {
             };
             self.handlers.remove(&n);
             self.gestures.remove(&n);
+            self.element_outer.remove(&n);
             if data.implicit_anim.is_some() {
                 self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
             }
@@ -808,11 +813,17 @@ pub trait TreeOps {
     /// first: the same element as `node`, where an id or a modifier often sits.
     fn wrappers_above(&self, node: RNode) -> Vec<RNode>;
     /// The node a `kind` gesture addressed to `node` is delivered to: `node` itself when it
-    /// enabled that gesture, else the nearest layout-only wrapper above it that did (where a
-    /// `.padding(..).on_tap(..)` registered its handler), else `None`. What makes a dayscript
-    /// step by id reach the handler the way a native gesture on the inner view reaches the
-    /// recognizer on its superview.
+    /// enabled that gesture, else the nearest node above it, within the same element, that did
+    /// (where a `.padding(..).on_tap(..)` registered its handler), else `None`. The element's
+    /// nodes are those its modifiers wrapped it in (`set_element_outer`), native containers
+    /// such as `.background(..)` included, plus any layout-only wrappers directly above. What
+    /// makes a dayscript step by id reach the handler the way a native gesture on the inner
+    /// view reaches the recognizer on its superview.
     fn gesture_target(&self, node: RNode, kind: day_spec::GestureKind) -> Option<RNode>;
+    /// Record that a decorated piece's own node `inner` sits inside wrappers up to `outer`: the
+    /// span one element's modifiers built, which `gesture_target` climbs. A no-op when the two
+    /// are the same node.
+    fn set_element_outer(&mut self, inner: RNode, outer: RNode);
     fn set_id(&mut self, node: RNode, id: String);
     /// Merge non-default grid cell facts onto a node's [`Flex`]: what the `.grid_span`/
     /// `.grid_align` modifiers call (docs/grid.md). Called at build time, before the first layout.
@@ -1463,7 +1474,33 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         if has(node) {
             return Some(node);
         }
-        self.wrappers_above(node).into_iter().find(|w| has(*w))
+        // Climb the element's own wrappers, native ones included. An element nested in another
+        // (`.any()` and more modifiers) extends the span to the enclosing element's outer node.
+        let mut cur = node;
+        let mut bound = self.element_outer.get(&node).copied();
+        while let Some(outer) = bound {
+            if cur == outer {
+                bound = self.element_outer.get(&outer).copied();
+                continue;
+            }
+            let Some(parent) = self.nodes.get(cur).map(|n| n.parent) else {
+                break;
+            };
+            if parent == cur || !self.nodes.contains_key(parent) {
+                break;
+            }
+            cur = parent;
+            if has(cur) {
+                return Some(cur);
+            }
+        }
+        self.wrappers_above(cur).into_iter().find(|w| has(*w))
+    }
+
+    fn set_element_outer(&mut self, inner: RNode, outer: RNode) {
+        if inner != outer {
+            self.element_outer.insert(inner, outer);
+        }
     }
 
     fn wrappers_above(&self, node: RNode) -> Vec<RNode> {

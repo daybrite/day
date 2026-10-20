@@ -10522,3 +10522,57 @@ fn sidebar_artwork_keeps_color_when_discovered_and_cells_are_recycled() {
         assert_mode(name, !std::path::Path::new(name).is_absolute());
     }
 }
+
+/// A tap a dayscript step addresses by id reaches that element's own `.on_tap`, and only it:
+/// the shape of a launcher grid, where each tile is a decorated column whose `.background`
+/// (a native container) sits between the column, which `.id` names, and the handler. A button
+/// inside a tappable card takes its own tap, and the card's handler stays out of it.
+#[test]
+fn scripted_tap_by_id_reaches_only_that_elements_handler() {
+    let opened = Signal::new(None::<usize>);
+    let (card_taps, button_taps) = (Signal::new(0), Signal::new(0));
+    let probe = boot(move || {
+        let tile = move |i: usize| {
+            column((label(format!("Tile {i}")), label("caption")))
+                .spacing(10.0)
+                .min_width(120.0)
+                .padding(12.0)
+                .background(Color::WHITE)
+                .corner_radius(20.0)
+                .on_tap(move || opened.set(Some(i)))
+                .a11y(move |a| a.label(format!("Tile {i}")))
+                .id(format!("tile-{i}"))
+                .grow_w()
+        };
+        column((
+            row((tile(0), tile(1), tile(2)))
+                .spacing(16.0)
+                .fit(RowFit::WrapColumns { run_spacing: 16.0 }),
+            column((button("Inner")
+                .action(move || button_taps.set(button_taps.get_untracked() + 1))
+                .id("inner-button"),))
+            .padding(12.0)
+            .background(Color::WHITE)
+            .on_tap(move || card_taps.set(card_taps.get_untracked() + 1))
+            .id("card"),
+        ))
+    });
+    let tap = |id: &str| {
+        let node = day_core::with_tree(|t| t.find_by_id(id)).expect("the element carries its id");
+        day_core::enqueue_event(day_core::rnode_to_id(node), Event::Pressed);
+        day_core::enqueue_event(
+            day_core::rnode_to_id(node),
+            Event::Tap(Point::new(10.0, 10.0)),
+        );
+        flush_sync();
+    };
+    for i in [0usize, 2, 1] {
+        tap(&format!("tile-{i}"));
+        assert_eq!(opened.get(), Some(i), "a tap on tile {i}");
+    }
+    tap("inner-button");
+    assert_eq!((button_taps.get(), card_taps.get()), (1, 0));
+    tap("card");
+    assert_eq!((button_taps.get(), card_taps.get()), (1, 1));
+    drop(probe);
+}

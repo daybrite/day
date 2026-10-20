@@ -348,7 +348,7 @@ struct NativeRow {
     props: RowProps,
     title: TextSource,
     caption: Option<TextSource>,
-    enabled: Option<Signal<bool>>,
+    enabled: Option<Reactive<bool>>,
     control: Option<AnyPiece>,
     stretch: Option<f64>,
     on_activate: Option<Rc<dyn Fn()>>,
@@ -421,12 +421,14 @@ impl Piece for NativeRow {
 /// piece), which keep the composed shape.
 pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<AnyPiece> {
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
+    // What the row starts as, for the native row\'s first draw; the control tracks the rest.
+    let enabled_now = enabled_fn();
     // `key` is assigned at build (`NativeRow::build`).
     let props = |activatable: bool, suffix_icon: Option<&'static str>| RowProps {
         key: 0,
@@ -439,7 +441,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         activatable,
         suffix_icon,
         secondary_title: false,
-        enabled: enabled_fn(),
+        enabled: enabled_now,
     };
     // A row whose suffix control (a button, a link) already shows the title: the title column
     // shows the caption alone, in the subtitle's style, never the title a second time.
@@ -450,7 +452,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         activatable: false,
         suffix_icon: None,
         secondary_title: true,
-        enabled: enabled_fn(),
+        enabled: enabled_now,
     };
     let native = |props: RowProps,
                   control: Option<AnyPiece>,
@@ -460,7 +462,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             props,
             title: r.title.clone(),
             caption: r.caption.clone(),
-            enabled,
+            enabled: r.enabled.clone(),
             control,
             stretch,
             on_activate,
@@ -471,7 +473,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             props: caption_only_props(c),
             title: c.clone(),
             caption: None,
-            enabled,
+            enabled: r.enabled.clone(),
             control: Some(control),
             stretch: None,
             on_activate: None,
@@ -479,7 +481,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
     };
     let piece = match &r.kind {
         RowKind::Toggle(sig) => {
-            let ctl = with_id(toggle(*sig).enabled(enabled_fn).any());
+            let ctl = with_id(toggle(*sig).enabled(enabled_fn.clone()).any());
             // The AdwSwitchRow contract: the row itself flips the switch.
             let sig = *sig;
             let flip = move || {
@@ -566,7 +568,8 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
+            let busy = busy.clone();
+            let busy_gate = busy.clone();
             let run = move || {
                 let on = on.clone();
                 match &confirm {
@@ -585,7 +588,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             };
             let b = button(text_source_fn(&r.title))
                 .action(run)
-                .enabled(move || enabled_fn() && !busy.is_some_and(|b| b.get()));
+                .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
             // libadwaita's red button: the destructive-action style class.
             let destructive = *destructive;
             let b = b.gtk(move |w, _| {
@@ -1596,7 +1599,7 @@ struct ShellBuild {
     slots: Vec<Slot>,
     actions: HashMap<u64, Rc<dyn Fn()>>,
     dyns: Vec<(TextSource, DynText)>,
-    enabled: Vec<(u64, Signal<bool>)>,
+    enabled: Vec<(u64, Reactive<bool>)>,
 }
 
 impl ShellBuild {
@@ -1632,13 +1635,15 @@ impl ShellBuild {
 fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
     let key = next_key();
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
-    if let Some(sig) = enabled {
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
+    // What the row starts as, for the native row\'s first draw; the control tracks the rest.
+    let enabled_now = enabled_fn();
+    if let Some(sig) = r.enabled.clone() {
         b.enabled.push((key, sig));
     }
     b.text(&r.title, DynText::RowTitle(key));
@@ -1657,12 +1662,12 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             activatable,
             suffix_icon,
             destructive: false,
-            enabled: enabled_fn(),
+            enabled: enabled_now,
             kind,
         };
     match &r.kind {
         RowKind::Toggle(sig) => {
-            let ctl = with_id(toggle(*sig).enabled(enabled_fn).any());
+            let ctl = with_id(toggle(*sig).enabled(enabled_fn.clone()).any());
             let slot = b.slot(SlotKind::Suffix, Some(ctl), None, None);
             // The `AdwSwitchRow` contract: the row itself flips the switch.
             let sig = *sig;
@@ -1786,9 +1791,10 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
+            let busy = busy.clone();
+            let (enabled_run, busy_run) = (enabled_fn.clone(), busy.clone());
             let run: Rc<dyn Fn()> = Rc::new(move || {
-                if !enabled_fn() || busy.is_some_and(|b| b.get_untracked()) {
+                if !enabled_run() || busy_run.as_ref().is_some_and(|b| b.get_untracked()) {
                     return;
                 }
                 let on = on.clone();
@@ -1809,7 +1815,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             b.actions.insert(key, run.clone());
             // The id goes on a slot node that runs the command on a scripted tap: a marker,
             // or the spinner's slot while the row can be busy. A busy row is insensitive.
-            let slot = match (&id, busy) {
+            let slot = match (&id, busy.clone()) {
                 (None, None) => None,
                 (_, Some(b_sig)) => Some(b.slot(
                     SlotKind::Suffix,
@@ -1830,7 +1836,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
                     );
                 });
                 b.enabled.retain(|(k, _)| *k != key);
-                b.enabled.push((key, sig));
+                b.enabled.push((key, sig.into_reactive()));
             }
             let mut sr = mk_row(true, None, ShellRowKind::Row { slot });
             sr.destructive = *destructive;

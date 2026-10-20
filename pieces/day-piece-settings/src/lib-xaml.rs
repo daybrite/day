@@ -269,12 +269,12 @@ impl Piece for Card {
 /// custom piece), which stay composed.
 pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<AnyPiece> {
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
     // The row title as the control's automation name: a ToggleSwitch with empty on/off content,
     // a ComboBox, a Slider or a TextBox has no name of its own, and the card's header TextBlock
     // is not associated with it the way a labeled control's header is.
@@ -380,7 +380,8 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
+            let busy = busy.clone();
+            let busy_gate = busy.clone();
             let run = move || {
                 let on = on.clone();
                 match &confirm {
@@ -399,7 +400,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             };
             let b = button(text_source_fn(&r.title))
                 .action(run)
-                .enabled(move || enabled_fn() && !busy.is_some_and(|b| b.get()));
+                .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
             let ctl = with_id(b.any());
             if let Some(c) = &r.caption {
                 show_caption_only(&mut props, c);

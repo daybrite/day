@@ -657,7 +657,7 @@ struct ShellBuild {
     slots: Vec<Slot>,
     actions: HashMap<u64, Rc<dyn Fn()>>,
     dyns: Vec<(TextSource, DynText)>,
-    enabled: Vec<(u64, Signal<bool>)>,
+    enabled: Vec<(u64, Reactive<bool>)>,
 }
 
 impl ShellBuild {
@@ -693,13 +693,15 @@ impl ShellBuild {
 fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
     let key = next_key();
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
-    if let Some(sig) = enabled {
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
+    // What the row starts as, for the native row\'s first draw; the control tracks the rest.
+    let enabled_now = enabled_fn();
+    if let Some(sig) = r.enabled.clone() {
         b.enabled.push((key, sig));
     }
     // A control row's title is the label column (0); a button's, a link's or a note's is the
@@ -721,7 +723,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             .as_ref()
             .map(TextSource::initial)
             .unwrap_or_default(),
-        enabled: enabled_fn(),
+        enabled: enabled_now,
         shape,
     };
     match &r.kind {
@@ -839,9 +841,10 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
+            let busy = busy.clone();
+            let (enabled_run, busy_run) = (enabled_fn.clone(), busy.clone());
             let run: Rc<dyn Fn()> = Rc::new(move || {
-                if !enabled_fn() || busy.is_some_and(|b| b.get_untracked()) {
+                if !enabled_run() || busy_run.as_ref().is_some_and(|b| b.get_untracked()) {
                     return;
                 }
                 let on = on.clone();
@@ -862,7 +865,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
             b.actions.insert(key, run.clone());
             // The id goes on a slot node that runs the command on a scripted tap: a marker,
             // or the spinner's cell while the row can be busy. A busy row is disabled.
-            let slot = match (&id, busy) {
+            let slot = match (&id, busy.clone()) {
                 (None, None) => None,
                 (_, Some(b_sig)) => Some(b.slot(
                     SlotKind::Field,
@@ -874,6 +877,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
                     Some(b.slot(SlotKind::Marker, None, Some(run.clone()), id.clone()))
                 }
             };
+            let can_be_busy = busy.is_some();
             if let Some(b_sig) = busy {
                 let sig = Signal::global(enabled_fn() && !b_sig.get_untracked());
                 day_reactive::Scope::root().enter(|| {
@@ -883,12 +887,12 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
                     );
                 });
                 b.enabled.retain(|(k, _)| *k != key);
-                b.enabled.push((key, sig));
+                b.enabled.push((key, sig.into_reactive()));
             }
             mk_row(RowShape::Button {
                 arrow: false,
                 destructive: *destructive,
-                slot: slot.filter(|_| busy.is_some()),
+                slot: slot.filter(|_| can_be_busy),
             })
         }
         RowKind::Link(url) => {

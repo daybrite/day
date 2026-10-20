@@ -598,7 +598,7 @@ struct NativeRow {
     accent: bool,
     secondary: bool,
     chevron: bool,
-    enabled: Option<Signal<bool>>,
+    enabled: Option<Reactive<bool>>,
     /// A leading glyph (a root-list row's icon), built before the control.
     leading: Option<AnyPiece>,
     control: Option<AnyPiece>,
@@ -611,7 +611,7 @@ struct NativeRow {
 fn native_row(r: &Row) -> NativeRow {
     let mut row = plain_row(Resolved(r.title.clone()));
     row.caption = r.caption.clone();
-    row.enabled = r.enabled;
+    row.enabled = r.enabled.clone();
     row
 }
 
@@ -673,7 +673,7 @@ impl Piece for NativeRow {
             chevron: self.chevron,
             activatable: self.activate.is_some(),
             item,
-            enabled: self.enabled.is_none_or(|e| e.get_untracked()),
+            enabled: self.enabled.as_ref().is_none_or(|e| e.get_untracked()),
             dark: dark_now(),
         };
         let node = cx.native(
@@ -735,12 +735,12 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
 /// [`row_piece`] for a row at a known place in its card.
 fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
     let mut row = native_row(r);
     row.card = Some(card);
     match &r.kind {
@@ -821,7 +821,8 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
+            let busy = busy.clone();
+            let busy_gate = busy.clone();
             let run = move || {
                 let on = on.clone();
                 match &confirm {
@@ -840,7 +841,7 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
             };
             let mut b = button(text_source_fn(&r.title))
                 .action(run)
-                .enabled(move || enabled_fn() && !busy.is_some_and(|b| b.get()));
+                .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
             if *destructive {
                 b = b.tint(day_spec::Color::rgb(0.89, 0.18, 0.16));
             }

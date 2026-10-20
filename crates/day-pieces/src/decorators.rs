@@ -265,17 +265,26 @@ impl<P: Piece> Piece for Decorated<P> {
         // The piece's own node first, with its identity; then the wrappers, composed outward
         // in call order (the first modifier is innermost); then the facts for the parent, on
         // whatever ended up outermost.
+        let wraps = !ops.is_empty();
+        let own = Rc::new(Cell::new(None::<RNode>));
+        let own_out = own.clone();
         let mut build: Build = Box::new(move |cx| {
             let n = inner.build(cx);
             for op in node_ops {
                 op(n);
             }
+            own_out.set(Some(n));
             n
         });
         for op in ops {
             build = op(build);
         }
         let outer = build(cx);
+        // The span a gesture addressed to the piece's own node (where `.id` sits) climbs to
+        // reach a wrapper's `.on_tap` (day-core's `gesture_target`).
+        if wraps && let Some(n) = own.get() {
+            with_tree(|t| t.set_element_outer(n, outer));
+        }
         for op in outer_ops {
             op(outer);
         }

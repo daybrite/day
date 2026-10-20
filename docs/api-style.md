@@ -158,9 +158,11 @@ A `Decorated<P>` chain is a piece plus its modifiers, and only one class of modi
 - **Identity** (`id`, `id_of`, `id_keyed`) names the piece's own node, the one its `build`
   returns, wherever it sits in the chain: `label(t).padding(8.0).id("x")` and
   `label(t).id("x").padding(8.0)` are the same tree. A dayscript step addressed to that id
-  reaches the handler a wrapping modifier above it registered (`.padding(..).on_tap(..)`), as a
-  native gesture on an inner view reaches the recognizer on its superview, so the id never has
-  to move to make a tap land.
+  reaches the handler a wrapping modifier above it registered (`.padding(..).on_tap(..)`),
+  through every wrapper the same chain built, a native container such as `.background(..)`
+  included, as a native gesture on an inner view reaches the recognizer on its superview. The
+  id never has to move to make a tap land, and the step stops at the chain's outermost node, so
+  a tappable card around a button leaves the button's tap alone.
 - **Wrapping** modifiers (`padding`, `frame`, `background`, `grow`, `a11y`, `on_tap`, …) each
   apply to what came before, so they compose outward in call order, as they read. This is the
   class an ordering rule may still apply to: `.a11y` annotates the node built so far, and a

@@ -341,7 +341,7 @@ impl NativeRow {
     fn of(r: &Row) -> Self {
         let mut row = NativeRow::new(Resolved(r.title.clone()));
         row.caption = r.caption.clone();
-        if let Some(e) = r.enabled {
+        if let Some(e) = r.enabled.clone() {
             row.enabled = Some(Rc::new(move || e.get()));
         }
         row
@@ -519,17 +519,17 @@ fn icon_drawable(icon: &GroupIcon) -> String {
 /// custom piece is already the app's own shape).
 pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<AnyPiece> {
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
     Some(match &r.kind {
         RowKind::Toggle(sig) => {
             // The SwitchPreference: the switch trailing, and the whole row flips it.
             let s = *sig;
-            let ctl = with_id(toggle(s).enabled(enabled_fn).any());
+            let ctl = with_id(toggle(s).enabled(enabled_fn.clone()).any());
             NativeRow::of(r)
                 .control(ctl)
                 .ripple()
@@ -630,8 +630,10 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
-            let active = move || enabled_fn() && !busy.is_some_and(|b| b.get());
+            let busy = busy.clone();
+            let busy_gate = busy.clone();
+            let active = move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get());
+            let gate = active.clone();
             let run = move || {
                 if !active() {
                     return;
@@ -654,7 +656,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let mut row = NativeRow::of(r)
                 .destructive(*destructive)
                 .ripple()
-                .enabled(active);
+                .enabled(gate);
             if let Some(b) = busy {
                 row = row.control(when(move || b.get(), spinner).any());
             }

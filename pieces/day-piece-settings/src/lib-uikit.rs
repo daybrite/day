@@ -189,8 +189,8 @@ impl RowParts {
 /// the composed version and the table draws as its own cell kinds.
 fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
     let id = r.id.clone();
-    let enabled = r.enabled;
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
+    let enabled = r.enabled.clone();
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
@@ -288,8 +288,10 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
-            let active = move || enabled_fn() && !busy.is_some_and(|b| b.get());
+            let busy = busy.clone();
+            let busy_gate = busy.clone();
+            let active = move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get());
+            let gate = active.clone();
             let run = move || {
                 if !active() {
                     return;
@@ -309,7 +311,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
                     None => on(),
                 }
             };
-            let mut parts = parts.gate(active).tap(run);
+            let mut parts = parts.gate(gate).tap(run);
             parts.tone = if *destructive {
                 Tone::Destructive
             } else {
@@ -323,7 +325,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
         }
         RowKind::Link(url) => {
             let url = url.clone();
-            let mut parts = parts.gate(enabled_fn).tap(move || {
+            let mut parts = parts.gate(enabled_fn.clone()).tap(move || {
                 if enabled_fn() {
                     day_core::open_url(&url);
                 }
