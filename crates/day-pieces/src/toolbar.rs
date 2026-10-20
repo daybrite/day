@@ -349,9 +349,12 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
                 day_reactive::Effect::new(move || {
                     // Track the locale even when the builder has no localized reads of its own.
                     let _ = day_l10n::locale().get();
-                    let entries = builder();
-                    let next = Scope::root().enter(Scope::child);
-                    let items = next.enter(|| lower(entries, chrome, column));
+                    // Reactions rerun in the caller's ambient scope. Capture the owner
+                    // explicitly, and keep both entry construction (AnyBinding slots) and
+                    // lowering (value callbacks/bindings) in the same owned pass. A root
+                    // scope would survive removal of this view and read its disposed slots.
+                    let next = outer.create_child();
+                    let items = next.enter(|| lower(builder(), chrome, column));
                     if let Some(old) = pass.borrow_mut().replace(next) {
                         old.dispose();
                     }
