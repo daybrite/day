@@ -14,6 +14,9 @@ The examples below cover common Day controls and UI patterns, drawn from the Sho
 the [gallery](/gallery). They use `day::prelude::*` for the common APIs. For the underlying
 concepts, see [Pieces](/docs/pieces), [Reactivity](/docs/reactivity), and [Layout](/docs/layout).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## A first app
 
 `launch` takes window options and a `root` closure that returns the top Piece. It owns the native
@@ -22,15 +25,14 @@ main loop.
 ```rust
 use day::prelude::*;
 
+day::resources!();
+
 fn main() {
-    day::launch(
-        WindowOptions::default().title("Hello").size(480.0, 640.0),
-        root,
-    );
+    day::launch(res::window_options().size(480.0, 640.0), root);
 }
 
 fn root() -> impl Piece {
-    label("Hello, native world").padding(24.0)
+    label(res::str::hello_native_world()).padding(Space::XL)
 }
 ```
 
@@ -56,8 +58,8 @@ Changing the signal reruns that [binding](/docs/glossary#binding). An ordinary c
 handler does not become reactive just because it reads a signal.
 
 ```rust
-// This label re-reads `count` whenever it changes; nothing else is touched.
-label(move || format!("{count} clicks", count = count.get()))
+// The message reads the signal and follows both count and locale changes.
+label(res::str::click_count(count))
 ```
 
 ## Text, buttons, and layout
@@ -69,19 +71,23 @@ methods for spacing, padding, and alignment.
 
 ```rust
 column((
-    label("Counter").font(Font::Title),
+    label(res::str::counter()).font(Font::Title),
     row((
-        button("–").action(move || count.update(|c| *c -= 1)),
-        label(move || count.get().to_string()),
-        button("+").action(move || count.update(|c| *c += 1)),
+        button(res::str::decrement())
+            .action(move || count.update(|c| *c -= 1))
+            .id(id!(decrement_button)),
+        label(res::str::counter_value(count)).id(id!(counter_label)),
+        button(res::str::increment())
+            .action(move || count.update(|c| *c += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(8.0),
+    .spacing(Space::S),
     divider(),
     spacer(),
 ))
-.spacing(12.0)
+.spacing(Space::M)
 .align(HAlign::Leading)
-.padding(16.0)
+.padding(Space::L)
 ```
 
 Wrap any subtree in `scroll(...)` to make it scroll natively.
@@ -97,13 +103,40 @@ your code update the control.
 let name = Signal::new(String::new());
 let volume = Signal::new(40.0);
 let subscribed = Signal::new(false);
-let size = Signal::new(0usize);
+#[derive(Clone, Copy, PartialEq)]
+enum Size {
+    S,
+    M,
+    L,
+}
+let size = Signal::new(Size::M);
 
 column((
-    text_field(name).placeholder("Your name"),
-    slider(volume).range(0.0..=100.0),
-    toggle(subscribed),
-    picker(size, [(Size::S, "Small"), (Size::M, "Medium"), (Size::L, "Large")]).segmented(),
+    labeled(
+        res::str::name(),
+        text_field(name)
+            .placeholder(res::str::your_name())
+            .id(id!(name_field)),
+    ),
+    labeled(
+        res::str::volume(),
+        slider(volume).range(0.0..=100.0).id(id!(volume_slider)),
+    ),
+    labeled(
+        res::str::subscribe(),
+        toggle(subscribed).id(id!(subscribe_toggle)),
+    ),
+    picker(
+        size,
+        [
+            (Size::S, res::str::small()),
+            (Size::M, res::str::medium()),
+            (Size::L, res::str::large()),
+        ],
+    )
+    .segmented()
+    .a11y(|a| a.label(res::str::size()))
+    .id(id!(size_picker)),
 ))
 ```
 
@@ -126,9 +159,9 @@ else arm.
 ```rust
 when(
     move || !name.with(|s| s.is_empty()),
-    move || label(move || format!("Hi, {}", name.get())),
+    move || label(res::str::greeting(name)),
 )
-.otherwise(|| label("Tell me your name"))
+.otherwise(|| label(res::str::tell_me_your_name()))
 ```
 
 Keyed collections (`each`) build one child per item and reconcile by key when the list changes,
@@ -168,10 +201,10 @@ chrome: `Sidebar` becomes a `NavigationSplitView` (an `AdwNavigationSplitView` o
 let section = Signal::new(String::new());
 nav(section)
     .style(NavStyle::Sidebar)
-    .title("My App")
+    .title(res::str::my_app())
     .header(sidebar_header)
-    .item("home",     "Home",     home_page)
-    .item("settings", "Settings", settings_page)
+    .item("home", res::str::home(), home_page)
+    .item("settings", res::str::settings(), settings_page)
 ```
 
 **`nav_stack`** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
@@ -211,10 +244,10 @@ Text localizes through [Fluent](/docs/glossary#fluent) with `tr`, including inte
 carry accessibility metadata.
 
 ```rust
-label(tr("greeting").arg("name", name));
+label(res::str::greeting(name));
 
 progress(move || volume.get() / 100.0)
-    .a11y(|a| a.role(Role::Meter).label("Volume level"));
+    .a11y(|a| a.role(Role::Meter).label(res::str::volume_level()));
 ```
 
 ## Ids and testing
@@ -223,7 +256,9 @@ Give any Piece a stable `.id(id!(name))` and dayscript can find, drive, and asse
 script on every platform.
 
 ```rust
-button("Increment").action(move || count.update(|c| *c += 1)).id(id!(increment_button))
+button(res::str::increment())
+    .action(move || count.update(|c| *c += 1))
+    .id(id!(increment_button))
 ```
 
 ## Extending with Day Pieces

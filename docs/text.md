@@ -17,18 +17,21 @@ text scaling automatically.
 ```rust
 use day::prelude::*;
 
-label("Chapter One").font(Font::Title)                 // a semantic style
-label("A quiet caption").font(Font::Footnote)
-label("Read me").font(Font::Body).bold()               // weight
-label("Whispered").italic()                            // slant
-label(tr("price")).color(Color::hex(0x27AE60))         // color
-label("Everything")
+label(res::str::chapter_one()).font(Font::Title)                 // a semantic style
+label(res::str::a_quiet_caption()).font(Font::Footnote)
+label(res::str::read_me()).font(Font::Body).bold()               // weight
+label(res::str::whispered()).italic()                            // slant
+label(res::str::price()).color(Color::hex(0x27AE60))         // color
+label(res::str::everything())
     .font(Font::Title2)
     .weight(FontWeight::Heavy)
     .italic()
     .color(Color::hex(0x8E44AD))
-label("18 pt").font(Font::System(18.0))                // a custom size (still accessibility-scaled)
+label(res::str::custom_size_sample()).font(Font::System(18.0))                // a fixed point size; prefer semantic styles
 ```
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Semantic styles (`Font`)
 
@@ -75,7 +78,7 @@ light/dark). Colors are given as `Color::hex(0xRRGGBB)` or `Color::rgba(r, g, b,
 hint, a caption, or an empty state's "nothing selected" line:
 
 ```rust
-label(tr("nothing_selected")).secondary()
+label(res::str::nothing_selected()).secondary()
 ```
 
 It is semantic for the same reason `Font::Body` is: a literal grey chosen against a light background
@@ -94,8 +97,8 @@ A style an app applies to many labels is named once as a `TextPreset` and applie
 const CAPTION: TextPreset = TextPreset::new(Font::Caption).secondary();
 const PRICE: TextPreset = TextPreset::new(Font::Headline).tabular().bold();
 
-label(tr("last_updated")).preset(&CAPTION)
-label(move || format!("{:.2}", price.get())).preset(&PRICE)
+label(res::str::last_updated()).preset(&CAPTION)
+label(res::str::sample_price(price)).preset(&PRICE)
 ```
 
 Every `TextPreset` builder is `const` (`font_scale`, `weight`, `bold`, `italic`, `tabular`,
@@ -138,7 +141,7 @@ table cell all match each platform's native behavior, where static text can't be
 piece in with `.selectable()`:
 
 ```rust
-label("Order #A1B2-C3D4").selectable()   // the reader can select and copy it
+label(res::str::sample_order()).selectable() // the reader can select and copy it
 ```
 
 It applies to the piece's own widget, so on a container it makes every label within selectable

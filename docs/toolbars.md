@@ -18,6 +18,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## The rule
 
 **Where you declare an item is where it appears, and how long the declaring piece lives is how
@@ -27,8 +30,10 @@ long it stays.** Everything else follows from that one sentence.
 use day::prelude::*;
 
 reader_page(article).toolbar([
-    toolbar_button(id!(next_unread), tr("next-unread")).icon(Symbol::Down).action(open_next),
-    toolbar_toggle(id!(star), tr("star"), article.is_starred).icon(Symbol::Star),
+    toolbar_button(id!(next_unread), res::str::next_unread())
+        .icon(Symbol::Down)
+        .action(open_next),
+    toolbar_toggle(id!(star), res::str::star(), article.is_starred).icon(Symbol::Star),
 ])
 ```
 
@@ -150,11 +155,15 @@ chooser or a view mode. Three toggles instead say "three independent switches" t
 a screen reader, leave the app to keep them exclusive, and take three times the width:
 
 ```rust
-toolbar_segmented(id!(theme), vec![
-    segment(tr("light")).icon(Symbol::Light),
-    segment(tr("system")).icon(Symbol::Auto),
-    segment(tr("dark")).icon(Symbol::Dark),
-], mode)   // mode: Signal<usize>, or any Binding<usize>
+toolbar_segmented(
+    id!(theme),
+    vec![
+        segment(res::str::light()).icon(Symbol::Light),
+        segment(res::str::system()).icon(Symbol::Auto),
+        segment(res::str::dark()).icon(Symbol::Dark),
+    ],
+    mode,
+) // mode: Signal<usize>, or any Binding<usize>
 ```
 
 Each backend draws the control its platform already has: `NSSegmentedControl` in `selectOne`

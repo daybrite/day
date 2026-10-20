@@ -14,6 +14,9 @@ Day measures and positions the UI through a shared layout engine. Native toolkit
 text and controls; Day uses those measurements to calculate frames and place widgets in their
 containers. This gives the app a consistent layout API while respecting native control sizes.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Arrange controls
 
 Use `column` for vertical content and `row` for horizontal content. Their `.spacing()` sets
@@ -21,8 +24,8 @@ the gap between children; `.padding()` adds space around a group.
 
 ```rust
 column((
-    label("Account").font(Font::Title),
-    row((label("Notifications"), spacer(), toggle(enabled))),
+    label(res::str::account()).font(Font::Title),
+    row((label(res::str::notifications()), spacer(), toggle(enabled))),
 ))
 .spacing(Space::M)
 .padding(Space::L)
@@ -44,13 +47,13 @@ size; text needs room to wrap and to grow in translation.
 Day's layout modifiers are few and compose left to right:
 
 ```rust
-label("Total")
+label(res::str::total())
     .padding(Insets::symmetric(12.0, 6.0))  // or .padding(Space::S) for all edges; Insets::horizontal(12.0),
                                             // ::vertical, ::top, ::bottom, ::leading, ::trailing for one side or pair
     .frame(200.0, 44.0)                     // fixed size (or .width / .height for one axis)
     .grow()                                 // take flexible space in the parent's axis
 
-column((a, b, c)).spacing(8.0).align(HAlign::Leading)
+column((a, b, c)).spacing(Space::S).align(HAlign::Leading)
 row((x, spacer(), y))                       // spacer pushes x and y apart
 zstack((photo, badge)).align(Alignment::TopTrailing)
 scroll(long_column)

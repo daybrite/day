@@ -15,6 +15,9 @@ into a tree, and the selected backend creates the native widgets. For example, a
 an `NSTextField` on macOS or a `TextView` on Android. The [API tour](/docs/api-tour) has examples;
 this page explains composition and construction.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Start with a control
 
 In code, a Piece is a small plain value, usually a builder struct returned by a free function:
@@ -22,9 +25,9 @@ In code, a Piece is a small plain value, usually a builder struct returned by a 
 ```rust
 use day::prelude::*;
 
-label("Hello")                       // → Label (a builder)
-button("Save").action(|| save())     // → Button
-column((label("a"), label("b")))     // → Column
+label(res::str::hello())                       // → Label (a builder)
+button(res::str::save()).action(|| save())     // → Button
+column((label(res::str::first_label()), label(res::str::second_label())))     // → Column
 ```
 
 ## Composing trees
@@ -34,15 +37,15 @@ and a label:
 
 ```rust
 column((
-    label("Temperature").font(Font::Headline),
+    label(res::str::temperature()).font(Font::Headline),
     row((
         slider(temp).range(0.0..=40.0),
-        label(move || format!("{:.1}°", temp.get())),
+        label(res::str::temperature(temp)),
     ))
-    .spacing(8.0),
+    .spacing(Space::S),
 ))
-.spacing(12.0)
-.padding(16.0)
+.spacing(Space::M)
+.padding(Space::L)
 ```
 
 Tuples work up to sixteen children; past that (or when the shape is computed at runtime), pass a
@@ -51,7 +54,7 @@ Tuples work up to sixteen children; past that (or when the shape is computed at 
 ```rust
 let stars: Vec<_> = (0..5).map(|i| star(i)).collect();
 row(stars).spacing(Space::XS)
-row((icon, (d.precip > 0).then(|| label(format!("{}%", d.precip)))))
+row((icon, (d.precip > 0).then(|| label(res::str::precipitation(d.precip as i64)))))
 ```
 
 `AnyPiece` is the type-erased form: a boxed build closure. Reach for it at a boundary that needs
@@ -61,9 +64,9 @@ function that branches between two different pieces:
 ```rust
 fn status_badge(online: bool) -> AnyPiece {
     if online {
-        label(tr("online")).font(Font::Caption).any()
+        label(res::str::online()).font(Font::Caption).any()
     } else {
-        spinner().any()   // a different piece type, so both arms erase
+        spinner().any() // a different piece type, so both arms erase
     }
 }
 ```
@@ -74,7 +77,7 @@ An ordinary [page](/docs/glossary#page) or component function does **not** erase
 ```rust
 fn settings_page(dark_mode: Signal<bool>) -> impl Piece {
     column((
-        label(tr("settings_title")).font(Font::Title),
+        label(res::str::settings_title()).font(Font::Title),
         toggle(dark_mode),
     ))
 }
@@ -89,8 +92,8 @@ Because the type is kept, the piece's builders can be chained after a generic mo
 either order:
 
 ```rust
-label("Saved").font(Font::Caption).padding(8.0)   // typed first
-label("Saved").padding(8.0).font(Font::Caption)   // generic first — same result
+label(res::str::saved()).font(Font::Caption).padding(Space::S)   // typed first
+label(res::str::saved()).padding(Space::S).font(Font::Caption)   // generic first — same result
 ```
 
 A build-time branch between two different piece types takes `Either` rather than erasing both
@@ -147,13 +150,13 @@ build. The [reactivity page](/docs/reactivity) covers what that means for your c
 costs.
 
 
-When a Piece's `build` runs, three things are created together and live together:
+With `title = res::str::hi()`, the label's `build` creates three things that live together:
 
 ```text
    Piece (builder)          realized tree node             native widget
   ┌───────────────┐   build   ┌──────────────────┐  realize  ┌─────────────┐
-  │ label("Hi")   │ ────────► │ kind: "label"    │ ────────► │ NSTextField │
-  │  .id(id!(hi))    │           │ handle ──────────┼───────────│  (AppKit)   │
+  │ label(title)  │ ────────► │ kind: "label"    │ ────────► │ NSTextField │
+  │ .id(id!(hi)) │           │ handle ──────────┼───────────│  (AppKit)   │
   └───────────────┘           │ layout, flex     │           └─────────────┘
                               │ scope ──┐        │
                               │ id, a11y│        │
@@ -214,16 +217,20 @@ materializing every row.
 
 ## Identity, for testing and accessibility
 
-Any Piece can carry a stable string id:
+Any Piece can carry a declared, typed `ElementId`:
 
 ```rust
-button(tr("save")).action(save).id(id!(save_button))
+button(res::str::save()).action(save).id(id!(save_button))
 ```
 
 [dayscript](/docs/dayscript) targets elements by id, [accessibility](/docs/accessibility) uses them
 as stable automation identifiers, and debug output prints them. They're optional everywhere, but pages you intend to test should id their
 interactive elements; `day lint` catches an id used twice and a `navigate` to a [route](/docs/glossary#route) that
 doesn't exist.
+
+`id!(save_button)` declares the ID; YAML refers to `save_button`. The catalog supplies
+the human-readable title independently. For recycled rows, use `.id_of` so the ID follows
+the current item. See [element IDs](/docs/internal/element-ids).
 
 ## Where Pieces come from
 

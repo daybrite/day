@@ -35,6 +35,9 @@ column((
 ))
 ```
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## API
 
 `crates/day-pieces`:
@@ -99,7 +102,7 @@ Give a determinate bar a meter role and a label:
 
 ```rust
 progress(move || volume.get() / 100.0)
-    .a11y(|a| a.role(Role::Meter).label("Volume level"))
+    .a11y(|a| a.role(Role::Meter).label(res::str::volume_level()))
 ```
 
 `Role::Meter` maps to each platform's progress accessibility role.

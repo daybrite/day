@@ -18,13 +18,16 @@ The distinction matters even for a label:
 ```rust
 let count = Signal::new(0i64);
 
-label(count.get().to_string());         // shows the value at construction
-label(move || count.get().to_string()); // updates when count changes
+label(res::str::counter_value(count.get())); // captures the initial count
+label(res::str::counter_value(count)); // follows the signal and locale
 ```
 
-The first call reads `count` immediately and passes a string to `label`. The second passes a
-closure that Day can run again. Updating the signal refreshes that label without calling the
-whole component function again.
+The first call reads `count` immediately. The second gives the message a signal to read
+reactively. Updating the signal refreshes that label without calling the whole component
+function again. Both messages follow locale changes.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
 
 ## Signals
 
@@ -48,9 +51,8 @@ signals tell Day to run the closure again.
 ```rust
 let name = Signal::new(String::from("Ada"));
 
-// The closure is a reactive context. It reads `name`, so it re-runs — and
-// updates this one native label — whenever `name` changes.
-label(move || format!("Hello, {}", name.get()))
+// Passing the signal keeps this label reactive to both name and locale changes.
+label(res::str::greeting(name))
 ```
 
 Use an untracked read to get the current value without subscribing to changes. This is useful
@@ -68,7 +70,7 @@ let items = Signal::new(Vec::<Item>::new());
 let total = Memo::new(move || items.with(|v| v.iter().map(|i| i.price).sum::<f64>()));
 
 // Re-runs when the total changes — not on every items edit that leaves it equal.
-label(move || format!("{:.2} €", total.get()))
+label(move || res::str::total_eur(total.get()).format())
 ```
 
 Reading a memo gives you a value consistent with its current sources, even during an update.

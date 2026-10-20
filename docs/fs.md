@@ -18,13 +18,16 @@ Native targets use filesystem storage; web uses the browser’s Origin Private F
 This reference covers paths, errors, and backend behavior. The
 [local storage guide](https://daybrite.dev/docs/guide-storage) shows how to use files from an app.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
 // Blocking — Unsupported on web; keep large files off the UI thread.
 day_part_fs::write("notes/today.txt", b"rain later")?;
 let bytes = day_part_fs::read("notes/today.txt")?;
-let names = day_part_fs::list("notes")?;   // ["today.txt"], dirs get a trailing '/'
+let names = day_part_fs::list("notes")?; // ["today.txt"], dirs get a trailing '/'
 day_part_fs::remove("notes/today.txt")?;
 
 // Async — works on EVERY target, including web. Await under day::task (docs/async.md).
@@ -32,8 +35,8 @@ day_part_fs::remove("notes/today.txt")?;
 // instead of propagated with `?`:
 day::task(async move {
     match day_part_fs::write_future("notes/today.txt", text.into_bytes()).await {
-        Ok(()) => status.set("saved".into()),
-        Err(e) => status.set(format!("error: {e}")),
+        Ok(()) => status.set(res::str::saved().format()),
+        Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
     }
     if let Ok(names) = day_part_fs::list_future("notes").await {
         files.set(names.join(", "));

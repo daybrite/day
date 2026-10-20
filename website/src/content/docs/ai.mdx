@@ -17,6 +17,9 @@ installation and connection instructions.
 
 <AgentSwitcher />
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## 0. Install the two CLIs
 
 Install Day and check the toolkit you plan to use:
@@ -155,7 +158,7 @@ Ask the agent:
 > Read AGENTS.md and call day_metadata first. Add a "weather" page to the sidebar: a city picker (Lisbon, Nairobi, Osaka), a large
 > temperature label, a one-line conditions label, and a Refresh button that simulates a reload
 > with day::sleep. Use demo data, no network. Give every control a stable id
-> (weather-city, weather-temp, weather-conditions, weather-refresh), localize every string in
+> (`id!(weather_city)`, `id!(weather_temp)`, `id!(weather_conditions)`, `id!(weather_refresh)`), localize every string in
 > all locales, then relaunch and show me a screenshot of the page.
 
 Watch the loop the scaffolded `AGENTS.md` prescribes: `day_metadata` first, then the edits, a
@@ -166,19 +169,29 @@ should look like this:
 ```rust
 pub(crate) fn weather_page() -> impl Piece {
     let city = Signal::new(0usize);
-    let cities = ["Lisbon", "Nairobi", "Osaka"]; // res::str keys in the real page
-    let temps = ["18 °C", "24 °C", "11 °C"];
+    let temps = [18.0, 24.0, 11.0]; // synthetic weather readings
     column((
-        label(crate::res::str::weather_title()).font(Font::Title).id(id!(weather_title)),
-        picker(city, [(0, cities[0]), (1, cities[1]), (2, cities[2])]).id(id!(weather_city)),
-        label(move || temps[city.get()].to_string())
+        label(crate::res::str::weather_title())
+            .font(Font::Title)
+            .id(id!(weather_title)),
+        picker(
+            city,
+            [
+                (0, res::str::lisbon()),
+                (1, res::str::nairobi()),
+                (2, res::str::osaka()),
+            ],
+        )
+        .a11y(|a| a.label(res::str::city()))
+        .id(id!(weather_city)),
+        label(move || res::str::temperature_celsius(temps[city.get()]).format())
             .font(Font::LargeTitle)
             .id(id!(weather_temp)),
         // …conditions label, and a Refresh button whose action is
         // day::task(async move { day::sleep(600).await; /* set signals */ })
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 

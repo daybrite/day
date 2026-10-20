@@ -15,28 +15,39 @@ imperative request→response model as [dialogs](./dialogs.md): an action opens 
 `.await`s the result:
 
 ```rust
-button(tr("open")).action(|| day::task(async move {
-    if let Some(file) = open_file().filter("Text", &["txt", "md"]).await {
-        // `day::task` takes a `Future<Output = ()>`, so handle the error here
-        // rather than reaching for `?`.
-        match file.read_to_string() {          // FileUrl::read_to_string
-            Ok(text) => editor.set(text),
-            Err(e) => status.set(format!("error: {e}")),
+button(res::str::open()).action(move || {
+    day::task(async move {
+        if let Some(file) = open_file()
+            .filter(res::str::text_files().format(), &["txt", "md"])
+            .await
+        {
+            // `day::task` takes a `Future<Output = ()>`, so handle the error here
+            // rather than reaching for `?`.
+            match file.read_to_string() {
+                // FileUrl::read_to_string
+                Ok(text) => editor.set(text),
+                Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
+            }
         }
-    }
-}));
+    });
+});
 
-button(tr("save")).action(|| day::task(async move {
-    let saved: Option<FileUrl> = save_file(editor.get_untracked().into_bytes())
-        .suggested_name("notes.txt")
-        .filter("Text", &["txt"])
-        .await;
-}));
+button(res::str::save()).action(move || {
+    day::task(async move {
+        let saved: Option<FileUrl> = save_file(editor.get_untracked().into_bytes())
+            .suggested_name("notes.txt")
+            .filter(res::str::text_files().format(), &["txt"])
+            .await;
+    });
+});
 ```
 
 For OS file associations, Finder/Dock drops, and cold/warm document delivery, see
 [Document types and file activation](./documents.md). Use `FileUrl::read_limited(limit).await`
 for bounded reads that do not block the native UI thread.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## The path type: `FileUrl`
 

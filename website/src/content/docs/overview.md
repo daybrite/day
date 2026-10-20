@@ -18,6 +18,9 @@ web build uses HTML controls through WebAssembly.
 If you want to try it, [create your first app](/docs/getting-started). If you are choosing a
 framework, read [Is Day a good fit?](/docs/benefits) and check [platform support](/docs/platforms).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## What an interface looks like
 
 Day calls a control or a group of controls a **piece**. Functions such as `label`, `button`,
@@ -31,16 +34,18 @@ pub fn root() -> impl Piece {
     let count = Signal::new(0i64);
 
     column((
-        label(move || format!("Count: {}", count.get())),
-        button("Add one").action(move || count.update(|n| *n += 1)),
+        label(res::str::counter_value(count)).id(id!(counter_label)),
+        button(res::str::add_one())
+            .action(move || count.update(|n| *n += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
-Here, `count` holds the current value. The button increments it, and the label’s closure
-reads it. Day remembers that dependency and updates the label when the value changes.
+Here, `count` holds the current value. The button increments it, and the generated
+`counter_value` message reads it. Day updates the label when the count or language changes.
 The whole `root()` function does not run again.
 
 These two ideas—[pieces](/docs/pieces) for composition and [signals](/docs/reactivity) for

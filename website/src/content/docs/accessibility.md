@@ -15,17 +15,26 @@ ambiguous controls and describe meaningful custom graphics. Day’s accessibilit
 these annotations and excludes decorative content from the accessibility tree. This guide covers
 the annotations, testing, and [current platform limits](#current-limits).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Annotating pieces
+
+> [!TIP]
+> **An ID is not an accessible name.** Use `id!(close_button)` for automation and
+> `res::str::close()` for the title a person reads or hears. Raw text is accepted, but
+> accessibility labels, hints, and spoken values need translations just as visible text does.
+> Keep those messages in the [Fluent catalog](/docs/localization).
 
 ```rust
 // An icon-only button: its accessible name can't be derived, so provide one.
-button("✕")
-    .a11y(|a| a.label(tr("close")))
+button(res::str::close()).icon(Symbol::Close).icon_only()
+    .a11y(|a| a.label(res::str::close()))
     .id(id!(close_button))
 
 // A custom-drawn gauge: no native control underneath, so declare role and value.
 canvas(move |d, size| draw_gauge(d, size, value.get()))
-    .a11y(|a| a.role(Role::Meter).label(tr("cpu_usage")))
+    .a11y(|a| a.role(Role::Meter).label(res::str::cpu_usage()))
     .frame(120.0, 120.0)
 
 // Decorative artwork: remove it from the accessibility tree entirely.
@@ -38,11 +47,11 @@ piece in a layout-only node, and `.a11y` annotates the node built so far, so an 
 placed after them lands on the wrapper instead of the native widget.
 
 The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. The three
-strings take the same sources as a label (a literal, `tr(...)`, a signal, a closure) and are
+strings take the same sources as a label (generated `res::str` messages, strings, signals, or closures) and are
 live: a localized label follows a [locale](/docs/glossary#locale) switch, and a `value` closure
 re-sends whenever what it reads changes. Native controls report their roles on
 their own, but no built-in invents a *label* for you; a `toggle` has no title parameter, so a
-titled switch is `labeled("Subscribe", toggle(subscribed))`. Your annotations merge onto the
+titled switch is `labeled(res::str::subscribe(), toggle(subscribed))`. Your annotations merge onto the
 node's defaults.
 
 Hold yourself to these rules (`day lint` has no a11y rules yet; a missing-label warning for

@@ -14,6 +14,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > bound two-way to a string. `text_field`, `secure_field`, `InputPurpose` and `SubmitLabel` are in
 > `day::prelude::*`.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -23,12 +26,18 @@ let email = Signal::new(String::new());
 let password = Signal::new(String::new());
 
 form((
-    labeled("Email", text_field(email)
-        .input_purpose(InputPurpose::Email)
-        .submit_label(SubmitLabel::Next)),
-    labeled("Password", secure_field(password)
-        .submit_label(SubmitLabel::Go)
-        .on_submit(sign_in)),
+    labeled(
+        res::str::email(),
+        text_field(email)
+            .input_purpose(InputPurpose::Email)
+            .submit_label(SubmitLabel::Next),
+    ),
+    labeled(
+        res::str::password(),
+        secure_field(password)
+            .submit_label(SubmitLabel::Go)
+            .on_submit(sign_in),
+    ),
 ))
 ```
 
@@ -53,8 +62,11 @@ let password = Signal::new(String::new());
 let shown = Signal::new(false);
 
 section((
-    labeled("Password", secure_field(password).secure(move || !shown.get())),
-    labeled("Show Password", toggle(shown)),
+    labeled(
+        res::str::password(),
+        secure_field(password).secure(move || !shown.get()),
+    ),
+    labeled(res::str::show_password(), toggle(shown)),
 ))
 ```
 

@@ -9,13 +9,16 @@ description: "label(…).markdown(): inline Markdown rendered through each platf
 # Markdown
 
 ```rust
-label("Save it as **notes.md** before you *quit*.").markdown()
-label(tr("release-note")).markdown()          // a translated string
+label(res::str::save_instructions()).markdown()
+label(res::str::release_note()).markdown()          // a translated string
 label(move || draft.get()).markdown()         // live, as the user types
 ```
 
 `.markdown()` reads a label's text as inline markdown: the markers are stripped and what they
 marked becomes [styled runs](./text-runs.md) in the one label.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Why it parses at run time
 
@@ -54,9 +57,9 @@ markup that fits inside one.
 A `[text](url)` run draws as a link and reports its target when tapped:
 
 ```rust
-label(tr("terms-blurb")).markdown()                          // opens the target
-label(tr("terms-blurb")).markdown().on_link(|url| route(url)) // or handle it yourself
-label("Open [**Navigate**](#navigate) or [Settings](#settings).").markdown()
+label(res::str::terms_blurb()).markdown()                          // opens the target
+label(res::str::terms_blurb()).markdown().on_link(|url| route(url)) // or handle it yourself
+label(res::str::navigation_links()).markdown()
 ```
 
 Without `.on_link()`, a target beginning with `#` navigates to the route after the hash:

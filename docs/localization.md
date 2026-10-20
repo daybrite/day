@@ -113,7 +113,7 @@ existing call:
 
 ```rust
 res::str::greeting(name)                                           // greeting = Hello, { $name }
-res::str::items_moved(res::str::ItemsMoved { count, folder })      // items-moved = { $count } moved to { $folder }
+res::str::items_moved(res::str::ItemsMoved { count, folder })      // items_moved = { $count } moved to { $folder }
 ```
 
 Variable names must agree across translations. Arguments accept strings, numbers, or supported

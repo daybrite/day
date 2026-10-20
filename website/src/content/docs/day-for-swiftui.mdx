@@ -18,6 +18,9 @@ Its main differences are Rust, signal-based updates, and support for non-Apple p
 This guide compares the APIs and build tools. Existing SwiftUI views can also be
 [embedded on Apple targets](#bringing-swiftui-views-with-you).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## SwiftUI terms in Day
 
 | SwiftUI | Day |
@@ -64,11 +67,13 @@ use day::prelude::*;
 fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
-        label(move || format!("{} clicks", count.get())),
-        button("+").action(move || count.update(|c| *c += 1)),
+        label(res::str::click_count(count)).id(id!(counter_label)),
+        button(res::str::increment())
+            .action(move || count.update(|c| *c += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
@@ -112,11 +117,11 @@ fn settings_form() -> impl Piece {
     let subscribed = Signal::new(false);
 
     form((section((
-        text_field(name).placeholder("Your name"),
+        text_field(name).placeholder(res::str::your_name()),
         slider(volume).range(0.0..=100.0),
-        labeled("Subscribe", toggle(subscribed)),
+        labeled(res::str::subscribe(), toggle(subscribed)),
     ))
-    .title("Profile"),))
+    .title(res::str::profile()),))
 }
 ```
 
@@ -146,10 +151,11 @@ List(albums, id: \.id) { album in
 
 ```rust
 list(
-    move || albums.get(),
-    |a| a.id,
+    day::prelude::items(move || albums.get(), |a| a.id),
     |slot: ItemSlot<Album, u64>| {
-        label(move || slot.get().title).padding(8.0)
+        label(move || slot.get().title)
+            .id_of(move || id!(item_row, slot.key()))
+            .padding(Space::S)
     },
 )
 ```
@@ -185,7 +191,7 @@ path.append("album-42")
 let path = Signal::new(Vec::<String>::new());
 
 nav_stack(path, home_page())
-    .title("Home")
+    .title(res::str::home())
     .destination(|key| album_page(key))
 
 // push
@@ -264,12 +270,12 @@ VStack(alignment: .leading, spacing: 8) {
 
 ```rust
 column((
-    label("Plan").font(Font::Title),
-    label("Pro").font(Font::Body),
+    label(res::str::plan()).font(Font::Title),
+    label(res::str::pro()).font(Font::Body),
 ))
-.spacing(8.0)
+.spacing(Space::S)
 .align(HAlign::Leading)
-.padding(16.0)
+.padding(Space::L)
 .background(Color::rgb(0.12, 0.16, 0.23))
 .corner_radius(12.0)
 ```
@@ -330,9 +336,10 @@ task-outlives-view case).
 let status = Signal::new(String::new());
 
 day::task(async move {
-    match day_part_http::fetch_future(request).await {         // suspend
-        Ok(resp) => status.set(resp.text().into_owned()),      // back on the UI thread
-        Err(e) => status.set(format!("error: {e}")),
+    match day_part_http::fetch_future(request).await {
+        // suspend
+        Ok(resp) => status.set(resp.text().into_owned()), // back on the UI thread
+        Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
     }
 });
 ```

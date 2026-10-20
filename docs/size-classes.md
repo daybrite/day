@@ -276,11 +276,11 @@ does not hit-test. `.fit(RowFit::…)` names what should happen instead, with th
 call shape:
 
 ```rust
-row((a, b, c)).spacing(8.0)                                  // RowFit::Clip, the default
-row((chips,)).spacing(8.0).fit(RowFit::Wrap { run_spacing: 8.0 })
-row((keys,)).spacing(8.0).fit(RowFit::WrapColumns { run_spacing: 8.0 })
+row((a, b, c)).spacing(Space::S)                                  // RowFit::Clip, the default
+row((chips,)).spacing(Space::S).fit(RowFit::Wrap { run_spacing: 8.0 })
+row((keys,)).spacing(Space::S).fit(RowFit::WrapColumns { run_spacing: 8.0 })
 adaptive((label, control)).spacing(Space::S)                 // a column on a compact window
-row((chips,)).spacing(8.0).fit(RowFit::Scroll)
+row((chips,)).spacing(Space::S).fit(RowFit::Scroll)
 ```
 
 `Clip` is the default: one line at natural sizes, and whatever does not fit lands offscreen. In
@@ -314,7 +314,9 @@ empty. No column is wider than the line, though: on a window narrower than the w
 cells take the window's width and their text wraps.
 
 ```rust
-row((tiles,)).spacing(16.0).fit(RowFit::WrapColumns { run_spacing: 16.0 })
+row((tiles,))
+    .spacing(Space::L)
+    .fit(RowFit::WrapColumns { run_spacing: 16.0 })
 // each tile: …min_width(120.0).grow_w(), with anything inside that should scale sized from it
 ```
 

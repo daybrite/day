@@ -17,6 +17,9 @@ This tutorial builds a search field bound to a `Signal<String>`. The complete im
 in [`day-piece-searchfield`](https://github.com/daybrite/day/tree/main/pieces/day-piece-searchfield).
 The resulting crate can be added to an app without changing Day’s core.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## 1. When you need a native piece
 
 The deciding question is whether you are wrapping a native control or arranging Pieces.
@@ -378,11 +381,16 @@ and reuses `day_qt_size_hint` (already linked by `day-qt-sys`) for `measure`. Th
 ```rust
 // pieces/day-piece-searchfield/build.rs (Qt branch, abridged)
 if std::env::var("CARGO_FEATURE_QT").is_ok() {
-    let cflags = Command::new(id!(pkg_config)).args(["--cflags", "Qt6Widgets"]).output().unwrap();
+    let cflags = Command::new("pkg-config")
+        .args(["--cflags", "Qt6Widgets"])
+        .output()
+        .unwrap();
     let mut build = cc::Build::new();
     build.cpp(true).std("c++17").file("src/lib-qt-shim.cpp");
-    for tok in String::from_utf8_lossy(&cflags.stdout).split_whitespace() { build.flag(tok); }
-    build.compile("daysearchqtshim");   // Qt libs themselves are already linked by day-qt-sys
+    for tok in String::from_utf8_lossy(&cflags.stdout).split_whitespace() {
+        build.flag(tok);
+    }
+    build.compile("daysearchqtshim"); // Qt libs themselves are already linked by day-qt-sys
 }
 ```
 
@@ -570,7 +578,9 @@ Then use it like a built-in:
 use day_piece_searchfield::search_field;
 
 let query = Signal::new(String::new());
-search_field(query).placeholder("Search fruit…").id(id!(fruit_search))
+search_field(query)
+    .placeholder(res::str::search_fruit())
+    .id(id!(fruit_search))
 ```
 
 If a backend is not registered (say you enabled the piece on a toolkit you have not written yet),

@@ -47,8 +47,8 @@ Every call is fire-and-forget. None returns an error or panics, and none blocks 
 missing or unreadable clip is logged once and stays silent, and so does a platform without an
 engine. Call them from the UI thread, where the rest of an app's code runs.
 
-A clip is named by its generated `res::assets::…` constant ([resources.md](resources.md)), or by
-path with `AssetName::from_static("sounds/tap.wav")` where a `const` needs one. Games Fair keeps
+A bundled clip is named by its generated `res::assets::…` constant ([resources.md](resources.md)).
+These constants can also be used in static cue tables; do not repeat the asset's path. Games Fair keeps
 its cues as statics that pair a clip with a haptic phrase; its `gamekit/src/chrome.rs` is a worked
 example.
 

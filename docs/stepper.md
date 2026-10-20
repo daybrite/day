@@ -22,6 +22,9 @@ bound two-way to any `Binding<f64>` (a `Signal<f64>`, a day-model `Field`, or an
 binding over a selection). Each arrow click, and each settled edit (Return, focus loss), lands
 through `write_commit`, so under an undo stack every click is one undoable step.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -30,12 +33,12 @@ use day_piece_stepper::stepper;
 let width = Signal::new(1.0f64);
 
 labeled(
-    tr("stroke_width"),
+    res::str::stroke_width(),
     stepper(width)
-        .range(0.0..=64.0)     // typed and stepped values both clamp (default 0..=100)
-        .step(1.0)             // one arrow click (default 1)
-        .decimals(0)           // fraction digits shown (default 0)
-        .id(id!(insp_stroke_w)),  // the field's dayscript id, both idioms
+        .range(0.0..=64.0) // typed and stepped values both clamp (default 0..=100)
+        .step(1.0) // one arrow click (default 1)
+        .decimals(0) // fraction digits shown (default 0)
+        .id(id!(insp_stroke_w)), // the field's dayscript id, both idioms
 )
 ```
 

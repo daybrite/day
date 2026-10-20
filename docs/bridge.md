@@ -24,8 +24,12 @@ an implementation of it. Calling code sees an ordinary Rust function and contain
 conditionals.
 
 ```rust
-day_part_speech::speak("Rain later")?;   // AVSpeechSynthesizer, TextToSpeech, speechSynthesis, …
+day_part_speech::speak(&res::str::forecast_rain().format())?;
 ```
+
+Resolve app-owned speech from the catalog on the UI thread, just like visible text.
+User-supplied text can be passed through directly. See the
+[example catalog](snippet-catalog.md) and [localization guide](https://daybrite.dev/docs/localization).
 
 ## When to use one
 

@@ -14,8 +14,18 @@ Use `day-part-http` to fetch data without blocking the interface. This guide sta
 button that loads a response, then shows cancellation and requests that follow a page’s state.
 The examples use `day::task`, which resumes futures on the UI thread so they can update signals.
 
+> [!NOTE]
+> **Format UI messages on the UI thread.** The examples resolve generated messages with
+> `.format()` after `await`, where `day::task` resumes. A background callback should send
+> data through a `Setter`; format it in the UI's reactive label closure. A formatted `String`
+> is a snapshot: if a status must change language while displayed, retain the result data
+> and call its `res::str` accessor inside that closure. See [Localization](/docs/localization).
+
 The asynchronous API works on macOS, iOS, Android, Windows, Linux, HarmonyOS, and web.
 Blocking requests are unavailable on web; unknown targets return `Unsupported`.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
 
 ## 1. Fetch into UI state
 
@@ -38,22 +48,28 @@ fn forecast_row() -> impl Piece {
     let readout = Signal::new(String::new());
     let loading = Signal::new(false);
     column((
-        button("Fetch").action(move || {
+        button(res::str::fetch()).action(move || {
             loading.set(true);
             day::task(async move {
                 match fetch_future(Request::get("https://api.example.com/data.json")).await {
                     Ok(resp) if (200..300).contains(&resp.status) => {
                         readout.set(resp.text().into_owned());
                     }
-                    Ok(resp) => readout.set(format!("HTTP {}", resp.status)),
-                    Err(e) => readout.set(format!("error: {e}")),
+                    Ok(resp) => readout.set(res::str::http_status(i64::from(resp.status)).format()),
+                    Err(e) => readout.set(res::str::operation_failed(e.to_string()).format()),
                 }
                 loading.set(false);
             });
         }),
-        label(move || if loading.get() { "loading…".to_string() } else { readout.get() }),
+        label(move || {
+            if loading.get() {
+                res::str::loading().format()
+            } else {
+                readout.get()
+            }
+        }),
     ))
-    .spacing(8.0)
+    .spacing(Space::S)
 }
 ```
 
@@ -87,15 +103,21 @@ thread and discard the result. Re-tapping below supersedes the previous request:
 
 ```rust
 let inflight: Rc<Cell<Option<day::TaskHandle>>> = Rc::new(Cell::new(None));
-button("Check").action(move || {
+button(res::str::check()).action(move || {
     if let Some(prev) = inflight.take() {
-        prev.abort();                     // drops the FetchFuture → platform cancel
+        prev.abort(); // drops the FetchFuture → platform cancel
     }
     let slot = inflight.clone();
     let handle = day::task(async move {
         match fetch_future(Request::get(url.get_untracked())).await {
-            Ok(resp) => readout.set(format!("HTTP {} · {} bytes", resp.status, resp.body.len())),
-            Err(e) => readout.set(format!("error: {e}")),
+            Ok(resp) => readout.set(
+                res::str::http_summary(res::str::HttpSummary {
+                    status: i64::from(resp.status),
+                    bytes: resp.body.len() as i64,
+                })
+                .format(),
+            ),
+            Err(e) => readout.set(res::str::operation_failed(e.to_string()).format()),
         }
         slot.set(None);
     });
@@ -117,16 +139,16 @@ changes. In this example, `city` is a `Signal<String>`. Each change starts a new
 use day::reactive::{Load, Resource};
 
 let forecast: Resource<String> = Resource::new(
-    move || city.get(),                       // tracked — a city change refetches
+    move || city.get(), // tracked — a city change refetches
     |city| async move {
         let url = format!("https://api.example.com/wx?city={city}");
         let resp = day_part_http::fetch_future(Request::get(url)).await?;
         Ok::<_, day_part_http::HttpError>(resp.text().into_owned())
     },
 );
-load(forecast, |f| label(move || f.get()))      // the three states as subtrees
-    .loading(|| label("…"))
-    .failed(|e| label(format!("error: {e}")))
+load(forecast, |f| label(move || f.get())) // the three states as subtrees
+    .loading(|| label(res::str::loading()))
+    .failed(|e| label(res::str::operation_failed(e.to_string())))
 ```
 
 `load(state, ready)` builds one subtree per state: the ready arm, and optional `.loading` and

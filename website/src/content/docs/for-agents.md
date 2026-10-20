@@ -14,6 +14,9 @@ This reference lists conventions and constraints for coding agents working on Da
 The examples are intended for direct reuse. A machine-readable site index is available at
 [`/llms.txt`](/llms.txt).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Naming (disambiguate before writing)
 
 - **Day**: the framework (proper noun; always capitalized in prose).
@@ -39,13 +42,14 @@ nothing diffs or rebuilds it.
    closure that reads a Signal (`label(move || …count.get()…)`), or pass a Signal to a control
    (`slider(volume)`). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
-4. **Give every interactive/asserted Piece a stable `.id(id!(name))`.** Tests, dayscript, and deep links
-   address Pieces by id. A Piece without an id cannot be scripted.
+4. **Give every interactive/asserted Piece a stable `.id(id!(name))`.** Tests and dayscript
+   use its canonical spelling (`name` in YAML). Recycled rows need
+   `.id_of(move || id!(row, slot.key()))`. Route and model keys remain separate from element IDs.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
    per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
-   wrong arity is a compile error; prefer those over raw `tr("key")` (both exist). Don't
-   hard-code display strings in shipped apps (the showcase uses literals only for its own demo
-   labels). Provider data (tickers, product names) stays verbatim.
+   wrong arity is a compile error; prefer those over raw `tr("key")` (both exist). Messages
+   with multiple variables take generated named-field structs. Include accessibility labels,
+   hints, errors, and units in the catalog. Provider data and synthetic test inputs stay verbatim.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates
    them.
 7. **Verify on a real target.** `cargo build` does not prove a target works. Use `day launch -t <target>`
@@ -83,8 +87,9 @@ height = 640
 - `Signal<T>`: `get()` (tracked read), `set(v)`, `update(|v| …)`, `with(|v| …)` (borrow),
   `get_untracked()`. Reading a Signal inside a binding closure makes that binding re-run when the
   Signal changes; nothing else re-runs.
-- **Reactivity rule:** static content → pass a value; dynamic content → pass a closure. `label("Hi")`
-  is static; `label(move || format!("{}", n.get()))` is reactive.
+- **Reactivity rule:** pass a signal to a generated message, as in
+  `label(res::str::counter_value(count))`. For computed values, format the message inside
+  a label's closure. `label(res::str::hi())` also follows locale changes.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
   `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
   `windows-qt`, `windows-xaml` (deprecated), `web-dom` (wasm in a browser; no process
@@ -104,27 +109,31 @@ height = 640
 ```rust
 use day::prelude::*;
 
+day::resources!();
+
 fn main() {
-    day::launch(
-        // In an app with resources, start from the generated `res::window_options()`.
-        WindowOptions::default().title("My App").size(480.0, 640.0),
-        root,
-    );
+    day::launch(res::window_options().size(480.0, 640.0), root);
 }
 
 fn root() -> impl Piece {
     let count = Signal::new(0i64);
     column((
-        label(move || format!("{} clicks", count.get())).font(Font::Title).id(id!(counter)),
+        label(res::str::click_count(count))
+            .font(Font::Title)
+            .id(id!(counter)),
         row((
-            button("−").action(move || count.update(|c| *c -= 1)).id(id!(dec)),
-            button("+").action(move || count.update(|c| *c += 1)).id(id!(inc)),
+            button(res::str::decrement())
+                .action(move || count.update(|c| *c -= 1))
+                .id(id!(dec)),
+            button(res::str::increment())
+                .action(move || count.update(|c| *c += 1))
+                .id(id!(inc)),
         ))
-        .spacing(8.0),
+        .spacing(Space::S),
     ))
-    .spacing(12.0)
+    .spacing(Space::M)
     .align(HAlign::Leading)
-    .padding(16.0)
+    .padding(Space::L)
 }
 ```
 
@@ -135,10 +144,12 @@ let name = Signal::new(String::new());
 let volume = Signal::new(40.0);
 let on = Signal::new(false);
 column((
-    text_field(name).placeholder("Your name").id(id!(name)),
+    text_field(name)
+        .placeholder(res::str::your_name())
+        .id(id!(name)),
     slider(volume).range(0.0..=100.0).step(1.0).id(id!(vol)),
     toggle(on).id(id!(on)),
-    progress(move || volume.get() / 100.0),   // tracks the slider live
+    progress(move || volume.get() / 100.0), // tracks the slider live
 ))
 ```
 
@@ -146,15 +157,14 @@ column((
 
 ```rust
 when(move || !name.with(|s| s.is_empty()),
-     move || label(move || format!("Hi, {}", name.get())))
+     move || label(res::str::greeting(name)))
 
 // `each` builds one child per item and reconciles by key (each row keeps its own state).
 // The row builder receives an ItemSlot (a Copy handle), not the item: read fields through it
 // so recycled rows update when the backing item changes.
 each(
-    move || items.get(),
-    |it| it.id.clone(),
-    |slot| label(move || slot.field(|it| it.title.clone())).id(id!(row, slot.key())),
+    day::prelude::items(move || items.get(), |it| it.id.clone()),
+    |slot| label(move || slot.field(|it| it.title.clone())).id_of(move || id!(row, slot.key())),
 )
 ```
 
@@ -165,9 +175,9 @@ each(
 let section = Signal::new(String::new());
 nav(section)
     .style(NavStyle::Sidebar)
-    .title("My App")
-    .item("home", "Home", home_page)
-    .item("settings", "Settings", settings_page)
+    .title(res::str::my_app())
+    .item("home", res::str::home(), home_page)
+    .item("settings", res::str::settings(), settings_page)
     .id(id!(nav))
 
 // push/pop stack bound to a path Signal:
@@ -182,11 +192,11 @@ nav_stack(path, root).on_back(|req| if dirty.get() { BackResponse::Handled } els
 ### Text, fonts, color, accessibility
 
 ```rust
-label("Chapter").font(Font::Title).bold()               // semantic style + weight
-label("caption").font(Font::Footnote).italic()
-label("18pt").font(Font::System(18.0))                  // custom size, still accessibility-scaled
-label(tr("greeting").arg("name", name))                 // localized + interpolated Signal
-progress(move || v.get() / 100.0).a11y(|a| a.role(Role::Meter).label("Volume"))
+label(res::str::chapter()).font(Font::Title).bold()               // semantic style + weight
+label(res::str::caption()).font(Font::Footnote).italic()
+label(res::str::custom_size_sample()).font(Font::System(18.0))                  // fixed point size; prefer semantic styles
+label(res::str::greeting(name))                 // localized + interpolated Signal
+progress(move || v.get() / 100.0).a11y(|a| a.role(Role::Meter).label(res::str::volume()))
 ```
 
 Semantic `Font` styles (largest→smallest): `LargeTitle, Title, Title2, Title3, Headline, Subheadline,
@@ -223,20 +233,20 @@ macos-qt, which have no AppKit view tree.
 
 | Need | Use |
 |---|---|
-| static / reactive text | `label("x")` / `label(move || …)` |
-| button | `button("x").action(\|\| …)` |
+| static / reactive text | `label(res::str::sample_label())` / `label(move || …)` |
+| button | `button(res::str::sample_label()).action(\|\| …)` |
 | text input | `text_field(sig)` · multiline: `text_area(sig)` |
 | number input | `slider(sig).range(a..=b)` |
 | boolean | `toggle(sig)` |
 | choice | `picker(sig, [(value, title), …])` · editable: external `combo_box(opts, text_sig)` |
 | vertical / horizontal / z-stack | `column((…))` / `row((…))` / `zstack((…))` |
 | scroll · spacer · divider | `scroll(child)` · `spacer()` · `divider()` |
-| conditional · list | `when(cond, view)` · `each(items, key, row)` |
+| conditional · list | `when(cond, view)` · `each(items(data, key), row)` |
 | progress · busy | `progress(frac)` · `spinner()` |
 | custom drawing | `canvas(\|d, size\| …)` (native 2D; Day never rasterizes) |
 | nav (one-of-N / stack) | `nav(sig)` / `nav_stack(path, root)` |
-| localize | `tr("key").arg("n", val)` |
-| accessibility | `.a11y(\|a\| a.role(Role::…).label("…"))` |
+| localize | `res::str::counter_value(count)` |
+| accessibility | `.a11y(\|a\| a.role(Role::Meter).label(res::str::volume()))` |
 | identify for tests | `.id(id!(stable_id))` / `.id(id!(row, key))` |
 
 ## CLI reference

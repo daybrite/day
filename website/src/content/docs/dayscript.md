@@ -15,14 +15,17 @@ tap controls, check results, and capture screenshots. The engine runs inside the
 controls by stable identifiers, so a walkthrough can be reused across targets. Wait steps check
 conditions rather than depending on fixed delays.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## A script
 
-Give the controls you want to test stable IDs. For the counter from
-[Getting started](/docs/getting-started), add IDs to the label and button:
+Give the controls you want to test stable IDs. The counter from
+[Getting started](/docs/getting-started) already declares them on its label and button:
 
 ```rust
-label(move || format!("Count: {}", count.get())).id(id!(counter_label)),
-button("Add one")
+label(res::str::counter_value(count)).id(id!(counter_label)),
+button(res::str::add_one())
     .action(move || count.update(|n| *n += 1))
     .id(id!(increment_button)),
 ```
@@ -35,12 +38,19 @@ name: counter
 flow:
   - wait_for:     { id: increment_button }
   - tap:          { id: increment_button }
-  - assert_value: { id: counter_label, value: "Count: 1" }
+  - assert_text:  { id: counter_label, key: counter_value, args: { count: 1 } }
   - screenshot:  counter
 ```
 
 The script waits for the button, presses it once, checks the label, and captures the result.
 It assumes a fresh launch with the count at zero.
+
+> [!TIP]
+> **Test identity and meaning separately.** `id!(increment_button)` declares the control's
+> identity; YAML uses its canonical spelling, `increment_button`. `assert_text` resolves
+> `counter_value` with the supplied arguments in the active locale. Avoid English text
+> assertions for translated UI. IDs are not translated and do not replace accessible labels.
+> See [element IDs](/docs/internal/element-ids) and [localization](/docs/localization).
 
 Run it on a configured target:
 

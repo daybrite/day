@@ -14,13 +14,18 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > registered link-time into each backend's renderer slice without touching day. One API: a native
 > search input, bound two-way to a `Signal<String>`, realized as each toolkit's dedicated search control.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
 use day_piece_searchfield::search_field;
 
 let query = Signal::new(String::new());
-search_field(query).placeholder("Search fruit…").id(id!(search))
+search_field(query)
+    .placeholder(res::str::search_fruit())
+    .id(id!(search))
 ```
 
 `search_field(query)` takes a `Signal<String>` bound two-way: every native edit writes the text back

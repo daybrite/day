@@ -18,6 +18,9 @@ Flutter draws its interface through a graphics engine; Day uses platform control
 composition, state, packages, resources, and builds, with examples in Dart and Rust.
 [Why Day](/docs/benefits) discusses the broader tradeoffs.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Flutter terms in Day
 
 | Flutter | Day |
@@ -76,11 +79,13 @@ use day::prelude::*;
 fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
-        label(move || format!("{} clicks", count.get())),
-        button("+").action(move || count.update(|c| *c += 1)),
+        label(res::str::click_count(count)).id(id!(counter_label)),
+        button(res::str::increment())
+            .action(move || count.update(|c| *c += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
@@ -135,11 +140,11 @@ let volume = Signal::new(40.0);
 let subscribed = Signal::new(false);
 
 column((
-    text_field(name).placeholder("Your name"),
+    text_field(name).placeholder(res::str::your_name()),
     slider(volume).range(0.0..=100.0),
-    labeled("Subscribe", toggle(subscribed)),
+    labeled(res::str::subscribe(), toggle(subscribed)),
 ))
-.spacing(12.0)
+.spacing(Space::M)
 ```
 
 </Compare>
@@ -165,16 +170,14 @@ ListView.builder(
 ```
 
 ```rust
-let items = Signal::new(vec![
-    "Milk".to_string(),
-    "Eggs".to_string(),
-]);
+let items = Signal::new(vec!["Milk".to_string(), "Eggs".to_string()]);
 
 list(
-    move || items.get(),
-    |s| s.clone(),
+    day::prelude::items(move || items.get(), |s| s.clone()),
     |slot: ItemSlot<String, String>| {
-        label(move || slot.get()).padding(8.0)
+        label(move || slot.get())
+            .id_of(move || id!(shopping_row, slot.key()))
+            .padding(Space::S)
     },
 )
 ```
@@ -216,7 +219,7 @@ context.go('/album/42');
 let path = Signal::new(Vec::<String>::new());
 
 nav_stack(path, home_page())
-    .title("Home")
+    .title(res::str::home())
     .destination(|key| album_page(key))
 
 // push (from anywhere)
@@ -296,11 +299,11 @@ Container(
 
 ```rust
 column((
-    label("Plan").font(Font::Title),
-    label("Pro"),
+    label(res::str::plan()).font(Font::Title),
+    label(res::str::pro()),
 ))
 .align(HAlign::Leading)
-.padding(16.0)
+.padding(Space::L)
 .background(Color::hex(0x1E293B))
 .corner_radius(12.0)
 ```
@@ -326,7 +329,7 @@ let items = Signal::new(Vec::<Item>::new());
 let total = Memo::new(move || items.with(|v| v.iter().map(|i| i.price).sum::<f64>()));
 
 // Re-runs only when the sum actually changes:
-label(move || format!("{:.2} €", total.get()))
+label(move || res::str::total_eur(total.get()).format())
 ```
 
 Background work uses the same discipline as Dart isolates, with the compiler enforcing it:
@@ -452,7 +455,7 @@ resource store (asset catalogs on iOS, `res/drawable-*` on Android, GResource on
 ```rust
 image(res::images::wave)                       // resource/images/wave.png, wave@2x.png…
 let data = day::resource(res::assets::stations_json)?;  // resource/assets/, zero-copy bytes
-label("Hi").font(Font::custom(res::fonts::pacifico, 24.0))  // resource/fonts/, by family
+label(res::str::hi()).font(Font::custom(res::fonts::pacifico, 24.0))  // resource/fonts/, by family
 ```
 
 ## Project structure and per-platform configuration

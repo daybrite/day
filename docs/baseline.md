@@ -19,12 +19,15 @@ invisible lines, a few points apart, close enough to look accidental.
 
 ```rust
 // Baseline-aligned by default: the label meets the field's inset text.
-labeled("Quantity", text_field(qty))
+labeled(res::str::quantity(), text_field(qty))
 
 // The explicit opt-in for an ordinary row.
-row((label("Total"), label("$1,240.00").font(Font::Title2), label("USD").font(Font::Caption)))
+row((label(res::str::total()), label(res::str::sample_total()).font(Font::Title2), label(res::str::usd()).font(Font::Caption)))
     .align(VAlign::FirstBaseline)
 ```
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## What day asks the toolkit
 
@@ -91,7 +94,7 @@ A container answers on behalf of its content, through `Layout::baseline`:
   `.max_width()`, `.min_width()`, `.background()`) forwards its child's, offset by where it places it.
 
 That last one matters more than it looks. A decorator is invisible at the call site:
-`label("Qty").width(90.0)` still reads as "a label". If wrappers reported no baseline, a row
+`label(res::str::qty()).width(90.0)` still reads as "a label". If wrappers reported no baseline, a row
 would silently center the very children the author asked to align, and the feature would look
 like it did not work. The `decorated_children_keep_their_baseline` test in
 `day-pieces/tests/mock_e2e.rs` pins it.

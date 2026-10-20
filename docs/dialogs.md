@@ -18,20 +18,26 @@ back. SwiftUI models this as a detached binding
 its response sit together with async/await:
 
 ```rust
-button(tr("delete")).action(|| day::task(async move {
-    let choice = Alert::new(tr("delete-title"))
-        .message(tr("delete-body"))
-        .destructive(tr("delete"), Choice::Delete)   // a button carrying a payload
-        .cancel(tr("cancel"))                          // dismissal → None
-        .present().await;                              // -> Option<Choice>
-    if choice == Some(Choice::Delete) {
-        store.delete(id);
-    }
-}));
+button(res::str::delete()).action(move || {
+    day::task(async move {
+        let choice = Alert::new(res::str::delete_title())
+            .message(res::str::delete_body())
+            .destructive(res::str::delete(), Choice::Delete) // a button carrying a payload
+            .cancel(res::str::cancel()) // dismissal → None
+            .present()
+            .await; // -> Option<Choice>
+        if choice == Some(Choice::Delete) {
+            store.delete(id);
+        }
+    });
+});
 ```
 
 The request and its answer live in one closure. `day::task` is the one
 explicit opt-in ("this action starts an async flow").
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Layers
 
@@ -62,20 +68,20 @@ thread, and there is no async-runtime dependency.
 ## API (`day-pieces::present`, re-exported in the prelude)
 
 ```rust
-alert(tr("saved")).present();                    // fire-and-forget notice (1 button)
-let ok: bool         = confirm(tr("quit?")).await;
-let name: Option<..> = prompt(tr("name")).await; // -> Option<String>
+alert(res::str::saved()).present();                    // fire-and-forget notice (1 button)
+let ok: bool         = confirm(res::str::quit()).await;
+let name: Option<..> = prompt(res::str::name()).await; // -> Option<String>
 
 // full builder: buttons carry a typed payload; `.cancel()` and dismissal → None
-let picked: Option<Flavor> = Alert::new(tr("pick"))
-    .button(tr("vanilla"), Flavor::Vanilla)
-    .button(tr("pistachio"), Flavor::Pistachio)
+let picked: Option<Flavor> = Alert::new(res::str::pick())
+    .button(res::str::vanilla(), Flavor::Vanilla)
+    .button(res::str::pistachio(), Flavor::Pistachio)
     .sheet()                                       // bottom action sheet on mobile
-    .cancel(tr("cancel"))
+    .cancel(res::str::cancel())
     .present().await;
 ```
 
-Every text field is an `IntoText`, so titles/buttons localize through `tr()` (Fluent).
+Every text field is an `IntoText`, so titles and buttons accept generated `res::str` messages.
 
 ## Per-toolkit native mapping
 

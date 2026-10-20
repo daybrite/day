@@ -24,6 +24,9 @@ For window state, use `Ambient` as shown below. This uses Day’s reactive scope
 registry, so the ownership rules are shared by all backends. The `Ambient` tests in
 [`mock_e2e.rs`](../crates/day-pieces/tests/mock_e2e.rs) cover the behavior.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## The shape: a `Copy` struct of handles
 
 ```rust
@@ -91,6 +94,7 @@ calling it inside a reactive closure works on the first run and panics on the ne
 re-running reaction is no longer inside the scope that provided the value.
 
 ```rust
+// Diagnostic readout of model keys; use catalog messages for shipping UI.
 let scene = Scene::ambient();                       // ✅ read once, at build
 label(move || format!("{:?}", scene.selected.get()))
 
@@ -110,10 +114,16 @@ Use `Scene::focused()` inside the action instead:
 
 ```rust
 fn front(f: impl Fn(Scene) + 'static) -> impl Fn() + 'static {
-    move || if let Some(scene) = Scene::focused() { f(scene) }
+    move || {
+        if let Some(scene) = Scene::focused() {
+            f(scene)
+        }
+    }
 }
 
-menu_item("New Item").shortcut(Shortcut::primary("n").shift()).action(front(|s| s.new_item()))
+menu_item(res::str::new_item())
+    .shortcut(Shortcut::primary("n").shift())
+    .action(front(|s| s.new_item()))
 ```
 
 `T::focused()` (SwiftUI's `@FocusedValue`) resolves through the key window's own scope, falling

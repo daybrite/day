@@ -26,24 +26,34 @@ the host platform without the app making any per-platform assumptions.
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Building a menu
 
 ```rust
 use day_pieces::*;
 
-label("Right-click me")
-    .context_menu(vec![
-        menu_item("Rename").action(|| rename()),
-        menu_item("Duplicate").key("d").action(|| duplicate()),   // ⌘D / Ctrl+D
-        menu_separator(),
-        sub_menu("Move to", vec![                                  // nested submenu
-            menu_item("Inbox").action(|| move_to(Inbox)),
-            menu_item("Archive").action(|| move_to(Archive)),
-        ]),
-        menu_separator(),
-        menu_role(MenuRole::Copy),                                 // standard Edit ▸ Copy
-        menu_item("Delete").shortcut(Shortcut::plain("Delete")).action(|| delete()),
-    ])
+label(res::str::right_click_me()).context_menu(vec![
+    menu_item(res::str::rename()).action(|| rename()),
+    menu_item(res::str::duplicate())
+        .key("d")
+        .action(|| duplicate()), // ⌘D / Ctrl+D
+    menu_separator(),
+    sub_menu(
+        res::str::move_to(),
+        vec![
+            // nested submenu
+            menu_item(res::str::inbox()).action(|| move_to(Inbox)),
+            menu_item(res::str::archive()).action(|| move_to(Archive)),
+        ],
+    ),
+    menu_separator(),
+    menu_role(MenuRole::Copy), // standard Edit ▸ Copy
+    menu_item(res::str::delete())
+        .shortcut(Shortcut::plain("Delete"))
+        .action(|| delete()),
+])
 ```
 
 The pieces, all in the `day_pieces` prelude:
@@ -60,7 +70,9 @@ The pieces, all in the `day_pieces` prelude:
 `.key("s")` sets the item's ⌘/Ctrl SHORTCUT. To NAME an item, use `.id`:
 
 ```rust
-menu_item(tr("view-grid")).id(id!(view_grid)).action(|| grid.set(!grid.get()))
+menu_item(res::str::view_grid())
+    .id(id!(view_grid))
+    .action(|| grid.set(!grid.get()))
 ```
 
 An id is what something outside the menu addresses the item by — a dayscript
@@ -80,12 +92,26 @@ toggles, or one of several mutually exclusive choices. `on` is a `bool`, a `Sign
 closure; pass the signal and the mark follows the state:
 
 ```rust
-app_menu([sub_menu(tr("menu-view"), vec![
-    menu_item(tr("view-grid")).id(id!(view_grid)).checked(grid).action(move || grid.set(!grid.get())),
-    menu_separator(),
-    menu_item(tr("view-day")).id(id!(view_day)).key("1").checked(move || mode.get() == 0).action(move || mode.set(0)),
-    menu_item(tr("view-both")).id(id!(view_both)).key("2").checked(move || mode.get() == 1).action(move || mode.set(1)),
-])]);
+app_menu([sub_menu(
+    res::str::menu_view(),
+    vec![
+        menu_item(res::str::view_grid())
+            .id(id!(view_grid))
+            .checked(grid)
+            .action(move || grid.set(!grid.get())),
+        menu_separator(),
+        menu_item(res::str::view_day())
+            .id(id!(view_day))
+            .key("1")
+            .checked(move || mode.get() == 0)
+            .action(move || mode.set(0)),
+        menu_item(res::str::view_both())
+            .id(id!(view_both))
+            .key("2")
+            .checked(move || mode.get() == 1)
+            .action(move || mode.set(1)),
+    ],
+)]);
 ```
 
 An item that never calls `.checked` is a plain command and reserves no room for a mark. One that
@@ -114,8 +140,8 @@ with what the app thinks, and an action that declines to change anything leaves 
 An item can carry the platform's glyph beside its title:
 
 ```rust
-menu_item(tr("rectangle")).icon(Symbol::Rectangle).action(place_rect)
-menu_item(tr("brand")).image("brand-mark").action(insert_brand)
+menu_item(res::str::rectangle()).icon(Symbol::Rectangle).action(place_rect)
+menu_item(res::str::brand()).image(res::images::brand_mark).action(insert_brand)
 ```
 
 `.icon(Symbol)` takes the same standard vocabulary toolbars take (each backend draws its own
@@ -141,9 +167,9 @@ A [`Shortcut`] is a key plus modifiers. `primary` is the platform's command modi
 Ctrl elsewhere), so one spec is correct everywhere:
 
 ```rust
-menu_item("Save").key("s")                       // ⌘S / Ctrl+S   (primary + key, the common case)
-menu_item("Save As…").shortcut(Shortcut::primary("s").shift())   // ⇧⌘S / Ctrl+Shift+S
-menu_item("Delete").shortcut(Shortcut::plain("Delete"))      // no primary modifier
+menu_item(res::str::save()).key("s")                       // ⌘S / Ctrl+S   (primary + key, the common case)
+menu_item(res::str::save_as()).shortcut(Shortcut::primary("s").shift())   // ⇧⌘S / Ctrl+Shift+S
+menu_item(res::str::delete()).shortcut(Shortcut::plain("Delete"))      // no primary modifier
 ```
 
 `Shortcut::primary(key)` sets `primary`; `Shortcut::plain(key)` sets no modifiers; `.shift()`, `.alt()`,
@@ -177,14 +203,18 @@ familiar items keep their native label, default shortcut, automatic enable/disab
 focus targeting: Edit ▸ Copy copies from whatever control has focus, with no wiring:
 
 ```rust
-app_menu(vec![
-    sub_menu("Edit", vec![
-        menu_role(MenuRole::Undo), menu_role(MenuRole::Redo),
+app_menu(vec![sub_menu(
+    res::str::edit(),
+    vec![
+        menu_role(MenuRole::Undo),
+        menu_role(MenuRole::Redo),
         menu_separator(),
-        menu_role(MenuRole::Cut), menu_role(MenuRole::Copy),
-        menu_role(MenuRole::Paste), menu_role(MenuRole::SelectAll),
-    ]),
-])
+        menu_role(MenuRole::Cut),
+        menu_role(MenuRole::Copy),
+        menu_role(MenuRole::Paste),
+        menu_role(MenuRole::SelectAll),
+    ],
+)])
 ```
 
 | Role | AppKit | GTK | Qt | UIKit | Android | XAML | web-dom |
@@ -304,14 +334,14 @@ shown for parity and dispatches nothing.
 
 ```rust
 app_menu(vec![
-    sub_menu("File", vec![
-        menu_item("New").key("n").action(|| …),
-        menu_item("Open…").key("o").action(|| …),
+    sub_menu(res::str::file(), vec![
+        menu_item(res::str::new()).key("n").action(|| …),
+        menu_item(res::str::open()).key("o").action(|| …),
         menu_separator(),
-        menu_item("Save").key("s").action(|| …),
+        menu_item(res::str::save()).key("s").action(|| …),
         menu_role(MenuRole::CloseWindow),
     ]),
-    sub_menu("Edit", vec![ /* roles, as above */ ]),
+    sub_menu(res::str::edit(), vec![ /* roles, as above */ ]),
 ])
 ```
 
@@ -326,7 +356,7 @@ for any slot the app did not claim, so an app never restates the platform's furn
 version with `.bar_role(...)` to take a slot:**
 
 ```rust
-sub_menu("View", vec![ /* … */ ]).bar_role(MenuBarRole::View)
+sub_menu(res::str::view(), vec![ /* … */ ]).bar_role(MenuBarRole::View)
 ```
 
 A tagged menu replaces the stock one *in place*, so it also lands where the platform expects that
@@ -440,9 +470,13 @@ use day::prelude::*;
 fn install_dock_menu(timer_running: Signal<bool>) {
     dock_menu(move || {
         vec![
-            menu_item(if timer_running.get() { "Pause Timer" } else { "Start Timer" })
-                .action(move || timer_running.set(!timer_running.get())),
-            menu_item("New Note").action(new_note),
+            menu_item(if timer_running.get() {
+                res::str::pause_timer()
+            } else {
+                res::str::start_timer()
+            })
+            .action(move || timer_running.set(!timer_running.get())),
+            menu_item(res::str::new_note()).action(new_note),
         ]
     });
 }

@@ -79,6 +79,10 @@ edition = "2024"
 day-pieces = { git = "https://github.com/daybrite/day.git" }   # primitives + prelude (row, canvas, Decorate, …)
 day-core = { git = "https://github.com/daybrite/day.git" }     # Piece / BuildCx / RNode / AnyPiece
 day-reactive = { git = "https://github.com/daybrite/day.git" } # Signal (also re-exported through day-pieces' prelude)
+day-fluent = { git = "https://github.com/daybrite/day.git" }
+
+[build-dependencies]
+day-build = { git = "https://github.com/daybrite/day.git" }
 
 # Note what is not here: no [features], no dep:day-appkit / day-gtk / day-android,
 # no build.rs. A composed piece needs no per-toolkit code at all.
@@ -105,7 +109,17 @@ use day_pieces::prelude::*;
 Day pieces follow a **config-struct + chainable-setter** pattern (the same shape as `slider(...)`,
 `button(...)`, or the `combo_box` piece). A free function creates the piece with defaults; methods
 return `Self` so calls chain. The two-way value is a `Signal` passed in by the caller: the control
-reads it to draw and writes it back on tap.
+reads it to draw and writes it back on tap. This compact implementation uses `Signal<usize>`;
+the shipped piece accepts any `Binding<usize>` and reactive editability.
+
+Give the piece a [private catalog](/docs/localization#give-a-crate-a-private-catalog).
+In `build.rs`, call `day_build::generate_locales().expect("localization codegen");` from
+`main`, and add `day_fluent::locales!();` at the root of `src/lib.rs`. In
+`resource/locales/en-US/app.ftl`:
+
+```ftl
+rating_star = Rate { $stars } out of { $maximum } stars
+```
 
 ```rust
 /// The default filled-star tint: a warm gold/amber.
@@ -118,6 +132,7 @@ pub struct Rating {
     star_size: f64,
     editable: bool,
     color: Color,
+    star_id: Option<std::rc::Rc<dyn Fn(usize) -> day_core::ElementId>>,
 }
 
 /// Create a rating bound to `value`. Defaults: 5 stars, 28pt, tappable, gold.
@@ -128,6 +143,7 @@ pub fn rating(value: Signal<usize>) -> Rating {
         star_size: 28.0,
         editable: true,
         color: GOLD,
+        star_id: None,
     }
 }
 
@@ -152,13 +168,18 @@ impl Rating {
         self.color = c;
         self
     }
+    pub fn star_id(mut self, id: impl Fn(usize) -> day_core::ElementId + 'static) -> Self {
+        self.star_id = Some(std::rc::Rc::new(id));
+        self
+    }
 }
 ```
 
-The shipped crate also has an inherent `.id(prefix)` setter. A rating is several tappable nodes
-rather than one, so a plain `Decorate::id` would tag only the row and leave the stars
-unaddressable; `.id(prefix)` sets the row's id to `prefix` and each star's to `prefix:N`
-(1-based), so a dayscript walkthrough can `tap` a specific star.
+The shipped crate also provides `.star_id(|n| id!(rating_star, n))`. It assigns each
+tappable star a typed ID using its 1-based position; `.id(id!(rating_row))` separately names
+the whole piece. A dayscript can then `tap: { id: 'rating_star:3' }`.
+The old `.id(prefix)` string-prefix setter is no longer supported. See
+[element IDs](/docs/internal/element-ids) for keyed families and canonical spellings.
 
 ## 4. Compose the body
 
@@ -196,7 +217,15 @@ the canvas re-records exactly when the signal changes. When `editable`, an `.on_
 star's 1-based position back into the signal.
 
 ```rust
-fn star(i: usize, value: Signal<usize>, size_pt: f64, editable: bool, color: Color) -> AnyPiece {
+fn star(
+    i: usize,
+    value: Signal<usize>,
+    maximum: u32,
+    size_pt: f64,
+    editable: bool,
+    color: Color,
+    id: Option<day_core::ElementId>,
+) -> AnyPiece {
     let star = canvas(move |d, size| {
         let radius = size.width.min(size.height) / 2.0 - 1.0; // 1pt margin for the stroke
         let shape = Shape::Polygon(star_points(size, 5, radius, radius * 0.42));
@@ -205,13 +234,32 @@ fn star(i: usize, value: Signal<usize>, size_pt: f64, editable: bool, color: Col
         } else {
             d.stroke(shape, color, 1.5); // empty → outline
         }
-    })
-    .frame(size_pt, size_pt);
+    });
+    let star = Decorated::new(star).a11y(move |a| {
+        a.role(if editable { Role::Button } else { Role::Image })
+            .label(res::str::rating_star(res::str::RatingStar {
+                stars: (i + 1) as i64,
+                maximum: i64::from(maximum),
+            }))
+            .selected(move || i < value.get())
+    });
+    let star = match id {
+        Some(id) => star.id(id),
+        None => star,
+    };
 
     if editable {
         star.on_tap(move || value.set(i + 1))
+            .focusable()
+            .on_key(move |key| match key.key.as_str() {
+                "ArrowLeft" => value.update(|n| *n = n.saturating_sub(1)),
+                "ArrowRight" => value.update(|n| *n = (*n + 1).min(maximum as usize)),
+                _ => {}
+            })
+            .frame(size_pt, size_pt)
+            .any()
     } else {
-        star
+        star.frame(size_pt, size_pt).any()
     }
 }
 ```
@@ -224,9 +272,20 @@ fn star(i: usize, value: Signal<usize>, size_pt: f64, editable: bool, color: Col
 ```rust
 impl Piece for Rating {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let Rating { value, max, star_size, editable, color } = self;
-        let stars: Vec<_> =
-            (0..max as usize).map(|i| star(i, value, star_size, editable, color)).collect();
+        let Rating {
+            value,
+            max,
+            star_size,
+            editable,
+            color,
+            star_id,
+        } = self;
+        let stars: Vec<_> = (0..max as usize)
+            .map(|i| {
+                let id = star_id.as_ref().map(|make_id| make_id(i + 1));
+                star(i, value, max, star_size, editable, color, id)
+            })
+            .collect();
         row(stars).spacing(Space::XS).build(cx)
     }
 }
@@ -258,12 +317,16 @@ use day_piece_rating::rating;
 fn review_form() -> impl Piece {
     let stars = Signal::new(3usize);
     column((
-        label("How was it?").font(Font::Title),
-        rating(stars).max(5).star_size(32.0),
+        label(res::str::how_was_it()).font(Font::Title),
+        rating(stars)
+            .max(5)
+            .star_size(32.0)
+            .star_id(|n| id!(rating_star, n))
+            .id(id!(rating_row)),
         // reacts live: reads `stars`, re-renders only this label when a star is tapped
-        label(move || format!("{} / 5", stars.get())),
+        label(move || res::str::rating_value(stars.get() as i64).format()),
     ))
-    .spacing(12.0)
+    .spacing(Space::M)
     .padding(20.0)
 }
 ```

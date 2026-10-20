@@ -63,6 +63,9 @@ Notifications are the most-requested capability missing from Day: twelve Modern 
 them. Day already asks for the `Notifications` permission ([docs/permissions.md](permissions.md)) and cannot post
 one. This closes that gap.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Two capabilities, so two parts
 
 "Notifications" names two capabilities with different costs, and they belong in different crates.
@@ -111,34 +114,37 @@ parts do.
 
 ## The API
 
+This example uses the shipped local-notification API. Notification actions, repeating
+triggers, and pending-notification enumeration in the design below remain proposals.
+For an app walkthrough, see [Notifications](https://daybrite.dev/docs/guide-notifications).
+
 ```rust
-use day_part_local_notify::{Notification, Channel, Importance, Trigger};
+use day_part_local_notify::{Channel, Importance, Notification, Trigger, cancel, cancel_all};
 
 // Channels are declared once. Android requires them; other platforms map them onto
 // their own model (see per-platform below). Importance is fixed at registration.
-Channel::new("timers", Importance::High).sound(true).register();
+Channel::new("timers", Importance::High)
+    .sound(true)
+    .register();
 Channel::new("alarms", Importance::Urgent)
     .sound(true)
-    .action("snooze", tr("snooze"))
-    .action("stop", tr("stop"))
     .register();
 
 // Post now. Returns a stable NotifId so a later post with the same id updates in place.
-let id = Notification::new(tr("timer-done"))
-    .body(tr("timer-done-body"))
+let id = Notification::new(res::str::timer_done())
+    .body(res::str::timer_done_body())
     .channel("timers")
-    .route("clock/timer")             // tapping navigates here (docs/navigation.md)
-    .post();
+    .route("clock/timer") // tapping navigates here (docs/navigation.md)
+    .post()?;
 
 // Schedule. The OS holds it where it can, so it fires even if the app has exited.
-Notification::new(tr("wake-up"))
+Notification::new(res::str::wake_up())
     .channel("alarms")
-    .trigger(Trigger::At(seven_am))   // ::In(Duration) | ::At(SystemTime) | ::Every(Duration)
-    .post();
+    .trigger(Trigger::At(seven_am)) // ::In(Duration) | ::At(SystemTime)
+    .post()?;
 
-cancel(id);                           // remove a pending or scheduled notification
+cancel(id); // remove a pending or scheduled notification
 cancel_all();
-let pending: Vec<NotifId> = pending(); // what is still scheduled
 ```
 
 Types:

@@ -27,7 +27,16 @@ A test is named after its function, with hyphens for underscores: `button_press`
 `button-press`. The name has one source, so the CLI, the report, `conformance.json` and an editor
 reading the source all agree on it.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Declaring a test
+
+> [!TIP]
+> **Keep tests independent of the UI language.** Declare controls with `id!`, then use
+> `.as_str()` at `Drive`'s string boundary. Format the expected `res::str` message in
+> the current locale, as below. Literal strings remain appropriate for synthetic input
+> data and protocol values; they should not stand in for an app's translated labels.
 
 ```rust
 use day::prelude::*;
@@ -37,15 +46,22 @@ use day::{Case, Drive};
 fn button_press() -> Case {
     let presses = Signal::new(0i64);
     Case::new()
-        .proves(kinds::BUTTON)
-        .page(move || column((
-            button("Press").action(move || presses.update(|n| *n += 1)).id(id!(btn_press)),
-            label(move || presses.get().to_string()).id(id!(btn_count)),
-        )))
+        .page(move || {
+            column((
+                button(res::str::press())
+                    .action(move || presses.update(|n| *n += 1))
+                    .id(id!(btn_press)),
+                label(res::str::counter_value(presses)).id(id!(btn_count)),
+            ))
+        })
         .shot("default")
         .drive(|d: Drive| async move {
-            d.tap("btn-press").await?;
-            d.assert_text("btn-count", "1").await
+            d.tap(id!(btn_press).as_str()).await?;
+            d.assert_text(
+                id!(btn_count).as_str(),
+                &res::str::counter_value(1_i64).format(),
+            )
+            .await
         })
 }
 
@@ -65,7 +81,8 @@ fn store_round_trip() -> Case {
   the way it does between a script's steps: a transition settles, a capture paints.
 - **`.proves(kind)`, `.proves_cap(cap)`, `.proves_duty(name)`** say what a pass marks in the
   coverage tables, in the matrices' own spelling (`kind:day.button`, `cap:Announce`,
-  `duty:set_a11y`).
+  `duty:set_a11y`). Framework conformance tests can depend on `day-spec` and use
+  `.proves(day_spec::kinds::BUTTON)`; ordinary app tests need no coverage declaration.
 - **`.requires(cap)`** skips the case with a recorded reason where the toolkit answers
   `Unsupported`; **`.requires_support(name, f)`** does the same for a piece's own `support()`
   answer. A case never asks which toolkit it is on. A case is also skipped, not failed, when a

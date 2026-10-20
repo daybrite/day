@@ -20,10 +20,10 @@ use day::prelude::*;
 
 fn main() {
     // Register before launch so `WillLaunch` / `DidLaunch` are captured.
-    day::on_lifecycle(Lifecycle::DidLaunch,    || println!("up and running"));
-    day::on_lifecycle(Lifecycle::WillTerminate, || save_state());   // ⌘Q / Ctrl+Q / OS quit
+    day::on_lifecycle(Lifecycle::DidLaunch, || println!("up and running"));
+    day::on_lifecycle(Lifecycle::WillTerminate, || save_state()); // ⌘Q / Ctrl+Q / OS quit
 
-    day::launch(WindowOptions::default(), app::root);
+    day::launch(app::res::window_options(), app::root);
 }
 ```
 

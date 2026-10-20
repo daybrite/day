@@ -14,6 +14,9 @@ Day has two navigation pieces: `nav` selects a section, and `nav_stack` opens de
 a path back. Both use platform navigation controls and keep their state in
 [signals](/docs/glossary#signal). Routes connect that state to deep links and automated tests.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Sections: `nav`
 
 ```rust
@@ -21,10 +24,10 @@ let section = Signal::new("home".to_string());
 
 nav(section)
     .style(NavStyle::Sidebar)
-    .title("My App")
-    .item("home",     tr("nav_home"),     || home_page())
-    .item("library",  tr("nav_library"),  || library_page())
-    .item("settings", tr("nav_settings"), || settings_page())
+    .title(res::str::my_app())
+    .item("home", res::str::nav_home(), || home_page())
+    .item("library", res::str::nav_library(), || library_page())
+    .item("settings", res::str::nav_settings(), || settings_page())
 ```
 
 The selection signal holds the active item's key. Set it from anywhere
@@ -42,7 +45,7 @@ matters.
 let path = Signal::new(Vec::<String>::new());
 
 nav_stack(path, library_page())
-    .title(tr("nav_library"))
+    .title(res::str::nav_library())
     .destination(|key| detail_page(key))
 ```
 
@@ -51,7 +54,7 @@ The path signal is the navigation stack: `["album:42"]` means one page pushed ab
 (`path.update(|p| p.push(key))`) or, more commonly, the helpers:
 
 ```rust
-nav_link(tr("open_album"), "album:42")   // a button that pushes
+nav_link(res::str::open_album(), "album:42")   // a button that pushes
 navigate("album:42");                    // push from code; returns false if no surface (nav host, tabs, or stack) recognizes it
 nav_back();                              // pop
 current_route();                         // Option<String>
@@ -100,14 +103,14 @@ nav_stack(path, editor())
     .on_back(move |req| {
         if dirty.get() {
             day::task(async move {
-                if confirm("Discard changes?").await {
+                if confirm(res::str::discard_changes()).await {
                     dirty.set(false);
-                    req.proceed();          // perform the pop the guard held
+                    req.proceed(); // perform the pop the guard held
                 }
             });
-            BackResponse::Handled           // consume the back for now
+            BackResponse::Handled // consume the back for now
         } else {
-            BackResponse::Proceed           // pop normally
+            BackResponse::Proceed // pop normally
         }
     });
 ```
@@ -176,11 +179,13 @@ day::routes! {
     pub enum Section { Home => "home", Library => "library", Settings => "settings" }
 }
 
-let section = Signal::new(None::<Section>);      // None = nothing selected (mobile list)
+let section = Signal::new(None::<Section>); // None = nothing selected (mobile list)
 nav(section)
-    .item(Section::Home,     tr("nav_home"),     || home_page())
-    .item(Section::Library,  tr("nav_library"),  || library_page())
-    .item(Section::Settings, tr("nav_settings"), || settings_page())
+    .item(Section::Home, res::str::nav_home(), || home_page())
+    .item(Section::Library, res::str::nav_library(), || library_page())
+    .item(Section::Settings, res::str::nav_settings(), || {
+        settings_page()
+    })
 ```
 
 A sidebar keys on `Option<Section>` (`None` is the collapsed mobile list); tabs key on the bare
@@ -221,11 +226,15 @@ segment `from_key` rejects stops the navigation instead of pushing a garbage pag
 navigation helpers mirror the string ones:
 
 ```rust
-navigate_to(&Section::Library);                       // relative, ≙ navigate("library")
-route(&Section::Library).then(&Media::Album { id: 42 })
+navigate_to(&Section::Library); // relative, ≙ navigate("library")
+route(&Section::Library)
+    .then(&Media::Album { id: 42 })
     .param("hint", "shared")
-    .navigate();                                      // absolute, with params
-nav_link_to(tr("open_album"), route(&Section::Library).then(&Media::Album { id: 42 }))
+    .navigate(); // absolute, with params
+nav_link_to(
+    res::str::open_album(),
+    route(&Section::Library).then(&Media::Album { id: 42 }),
+)
 ```
 
 `String` implements `Route` too, so the untyped examples above are the same API: start

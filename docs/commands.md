@@ -14,6 +14,9 @@ toolbar, and button models. There is no
 new backend protocol, global action registry, or toolkit dependency. Each presentation keeps its
 normal native widget and dispatch registration; the command shares Rust behavior and state.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Define once, present in several places
 
 ```rust
@@ -21,22 +24,24 @@ use day::prelude::*;
 
 fn counter() -> impl Piece {
     let count = Signal::new(0);
-    let add = Command::new(id!(add), "Add one", move || count.update(|n| *n += 1))
-        .enabled(move || count.get() < 3)
-        .icon(Symbol::Add)
-        .shortcut(Shortcut::primary("+"));
+    let add = Command::new(id!(add), res::str::add_one(), move || {
+        count.update(|n| *n += 1)
+    })
+    .enabled(move || count.get() < 3)
+    .icon(Symbol::Add)
+    .shortcut(Shortcut::primary("+"));
     let menu = add.clone();
     let toolbar = add.clone();
     column((
-        label(move || count.get().to_string()),
+        label(res::str::counter_value(count)).id(id!(counter_label)),
         add.button(),
-        label("More actions").context_menu(move || vec![menu.menu_item()]),
+        label(res::str::more_actions()).context_menu(move || vec![menu.menu_item()]),
     ))
     .toolbar(move || vec![toolbar.toolbar_item()])
 }
 ```
 
-In an app, pass `res::str::add()` instead of a literal. The title accepts the same `IntoText`
+The generated title accepts the same `IntoText`
 inputs as a button: localized text, strings, signals, and `Fn() -> String`. Availability and
 optional check state accept booleans, signals, or closures. Reactive reads are tracked when the
 presentation evaluates them. A changing label can therefore say “Star” or “Unstar” from the same
@@ -88,7 +93,7 @@ closure:
 ```rust
 // Construct application-menu commands in application scope, not a disposable page.
 let menu_save = save.clone();
-app_menu(move || vec![sub_menu("File", vec![menu_save.menu_item()])]);
+app_menu(move || vec![sub_menu(res::str::file(), vec![menu_save.menu_item()])]);
 ```
 
 A `context_menu(vec![...])` keeps its installed snapshot until replaced.

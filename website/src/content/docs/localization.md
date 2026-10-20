@@ -118,8 +118,23 @@ column((
 
 Generated functions return `LocalizedText`. Arguments accept values or signals. A missing
 function, the wrong number of arguments, or a string passed to a numeric plural selector is a
-compile error. Every locale must use the same parameter names; parameter order in Rust is
-alphabetical. IDE hover shows the reference message.
+compile error. Every locale must use the same parameter names. A message with one parameter
+takes that argument directly; a message with several takes a generated struct with named
+fields. IDE hover shows the reference message:
+
+```ftl
+items_moved = Moved { $count } items to { $folder }
+```
+
+```rust
+label(res::str::items_moved(res::str::ItemsMoved {
+    count,
+    folder,
+}))
+```
+
+The [example catalog](/docs/internal/snippet-catalog) defines the messages used throughout
+the UI snippets. Copy the messages your example needs into your app's catalog.
 
 Keep numbers numeric so Fluent can choose the plural form and format the digits. Use
 `NUMBER()` and `DATETIME()` when the message needs formatting options:

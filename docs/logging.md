@@ -139,8 +139,8 @@ registration wins, so **install yours before `day::launch`** and Day steps aside
 
 ```rust
 fn main() {
-    env_logger::init();                       // or tracing_subscriber, or your own log::Log
-    day::launch(day::WindowOptions::default(), my_app::root);
+    env_logger::init(); // or tracing_subscriber, or your own log::Log
+    day::launch(my_app::res::window_options(), my_app::root);
 }
 ```
 
@@ -169,7 +169,7 @@ env_logger = "0.11"
 fn main() {
     // Before `day::launch`, or Day's logger wins the race and this call does nothing.
     env_logger::init();
-    day::launch(day::WindowOptions::default(), my_app::root);
+    day::launch(my_app::res::window_options(), my_app::root);
 }
 ```
 

@@ -17,6 +17,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > and consumed by Day Skies' 10-day forecast and detail cards. This is the SwiftUI `Grid`/
 > `GridRow` analogue for Day.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## 1. Goal
 
 A grid replaces the hand-tuned-width idiom. Before grids, a table-shaped layout was a `column` of `row`s with
@@ -25,8 +28,22 @@ placeholders holding empty cells open. A grid derives the columns from the cells
 
 ```rust
 grid((
-    grid_row((label("Mon"), icon, label("40%"), label("9°"),  bar.grow_w(), label("15°"))),
-    grid_row((label("Tue"), icon, spacer(),     label("12°"), bar.grow_w(), label("22°"))),
+    grid_row((
+        label(res::str::mon()),
+        icon,
+        label(res::str::sample_probability()),
+        label(res::str::sample_low()),
+        bar.grow_w(),
+        label(res::str::sample_high()),
+    )),
+    grid_row((
+        label(res::str::tue()),
+        icon,
+        spacer(),
+        label(res::str::sample_low_tuesday()),
+        bar.grow_w(),
+        label(res::str::sample_high_tuesday()),
+    )),
 ))
 .column_spacing(8.0)
 ```
@@ -97,8 +114,8 @@ their piece and merge facts onto its root node (`TreeOps::set_grid_facts`): no w
 
 **Position-free.** Grid facts are outer-layout facts ([docs/api-style.md](api-style.md)
 "Modifier classes"): they describe the piece to the grid it sits in, so they land on the
-outermost node whatever wrappers follow them. `label("x").padding(4.0).grid_span(2)` and
-`label("x").grid_span(2).padding(4.0)` are the same cell.
+outermost node whatever wrappers follow them. `label(res::str::sample_label()).padding(4.0).grid_span(2)` and
+`label(res::str::sample_label()).grid_span(2).padding(4.0)` are the same cell.
 
 ## 4. Layout algorithm (normative)
 

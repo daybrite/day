@@ -49,16 +49,35 @@ above. Mobile targets need a running emulator, simulator, or connected device as
 
 ## 3. Make your first change
 
-Open `src/lib.rs`. The scaffold's `root()` returns the whole UI; replace it with:
+First add these messages to `resource/locales/en-US/app.ftl` (or the scaffold's default
+locale). Keep the existing `app_title` and other messages:
+
+```ftl
+hello_from_my_first_edit = Hello from my first edit
+tap_me = Tap me
+add_one = Add one
+counter_value = Count: { $count }
+```
+
+> [!TIP]
+> **Put interface text in the catalog.** Raw string literals are accepted, but use generated
+> `res::str` accessors for human-readable text, including hints and errors. They check message
+> names and arguments at compile time and follow the selected language. See
+> [Localization](/docs/localization) for the catalog and code generation setup.
+
+Open `src/lib.rs`. Keep its `use day::prelude::*;` and `day::resources!()` declarations.
+The scaffold's `root()` returns the whole UI; replace it with:
 
 ```rust
 pub fn root() -> impl Piece {
     column((
-        label("Hello from my first edit"),
-        button("Tap me").action(|| println!("tapped")),
+        label(res::str::hello_from_my_first_edit()),
+        button(res::str::tap_me())
+            .action(|| println!("tapped"))
+            .id(id!(greeting_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
@@ -74,17 +93,23 @@ pub fn root() -> impl Piece {
     let count = Signal::new(0i64);
 
     column((
-        label(move || format!("Count: {}", count.get())),
-        button("Add one").action(move || count.update(|n| *n += 1)),
+        label(res::str::counter_value(count)).id(id!(counter_label)),
+        button(res::str::add_one())
+            .action(move || count.update(|n| *n += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
 Rebuild and launch. Pressing **Add one** should change the count on screen. The `Signal`
-holds the value, and the label’s closure reads it whenever it changes. Keep the read inside
-the closure: `label(count.get().to_string())` would display only the initial value.
+holds the value; passing it to `counter_value` keeps the message reactive to both the count
+and the selected language. Passing `count.get()` instead would capture only the initial count.
+
+The `id!(counter_label)` and `id!(increment_button)` declarations give tests stable targets.
+These identifiers do not change when the visible text is translated. The
+[dayscript guide](/docs/dayscript) tests this screen using those IDs and the message key.
 
 ## Optional: add another target
 

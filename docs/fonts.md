@@ -12,6 +12,9 @@ sets an absolute size, and has to know how big the result is before it draws a f
 This is that surface: `day::font_families()`, `CanvasFont` on canvas text, and
 `day::measure_text()`.
 
+Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
+and [localization setup](https://daybrite.dev/docs/localization).
+
 ## The font list
 
 ```rust
@@ -57,12 +60,20 @@ the `CanvasFont` default draws everywhere regardless.
 ## Canvas fonts
 
 ```rust
-d.text("Aa Bb", at, TextStyle {
-    size: 24.0,
-    color: ink,
-    font: CanvasFont { family: Some(family.clone()), weight: Some(FontWeight::Bold), italic: true },
-    ..Default::default()
-});
+d.text(
+    &res::str::font_sample().format(),
+    at,
+    TextStyle {
+        size: 24.0,
+        color: ink,
+        font: CanvasFont {
+            family: Some(family.clone()),
+            weight: Some(FontWeight::Bold),
+            italic: true,
+        },
+        ..Default::default()
+    },
+);
 ```
 
 `CanvasFont` is a family (`None` = the platform's UI face), a weight (`None` = Regular) and a
@@ -77,12 +88,16 @@ CoreText); `face_for` says which.
 ## Measurement
 
 ```rust
-let m = day::measure_text("Aa Bb", 24.0, &font);
-let frame    = Rect::new(at.x, at.y, m.width, m.height);          // the line box
+let m = day::measure_text(&res::str::font_sample().format(), 24.0, &font);
+let frame = Rect::new(at.x, at.y, m.width, m.height); // the line box
 let baseline = at.y + m.ascent;
 let cap_line = at.y + m.ascent - m.cap_height;
-let marks    = Rect::new(at.x + m.ink.origin.x, at.y + m.ink.origin.y,
-                         m.ink.size.width, m.ink.size.height);    // the ink box
+let marks = Rect::new(
+    at.x + m.ink.origin.x,
+    at.y + m.ink.origin.y,
+    m.ink.size.width,
+    m.ink.size.height,
+); // the ink box
 ```
 
 `measure_text` measures one line in the same engine `replay` draws it with, so what it reports is

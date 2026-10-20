@@ -16,6 +16,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > of backends: only AppKit and UIKit render a real map. It fills the space it's
 > offered (constrain it with `.frame(w, h)`).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -23,14 +26,14 @@ use day_piece_map::map;
 
 let where_to = Signal::new((37.7749, -122.4194)); // San Francisco
 
-button("San Francisco").action(move || where_to.set((37.7749, -122.4194)));
-button("New York").action(move || where_to.set((40.7128, -74.0060)));
+button(res::str::san_francisco()).action(move || where_to.set((37.7749, -122.4194)));
+button(res::str::new_york()).action(move || where_to.set((40.7128, -74.0060)));
 
 map()
-    .center(where_to)             // preset buttons recenter the map live
-    .span(0.05)                   // ~5 km across (smaller = more zoomed in)
-    .marker(37.7749, -122.4194)   // drop a pin
-    .frame(320.0, 240.0)          // a map is a growing leaf, so constrain it
+    .center(where_to) // preset buttons recenter the map live
+    .span(0.05) // ~5 km across (smaller = more zoomed in)
+    .marker(37.7749, -122.4194) // drop a pin
+    .frame(320.0, 240.0) // a map is a growing leaf, so constrain it
     .id(id!(map))
 ```
 

@@ -17,6 +17,9 @@ React Native and Day both use native platform widgets. Day expresses the UI in R
 widgets through signal bindings rather than React reconciliation. This guide maps components to
 pieces, hooks to signals, and npm packages to Cargo dependencies, with examples of each workflow.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## React Native terms in Day
 
 | React Native | Day |
@@ -64,11 +67,13 @@ use day::prelude::*;
 fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
-        label(move || format!("{} clicks", count.get())),
-        button("+").action(move || count.update(|c| *c += 1)),
+        label(res::str::click_count(count)).id(id!(counter_label)),
+        button(res::str::increment())
+            .action(move || count.update(|c| *c += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
@@ -114,11 +119,11 @@ let volume = Signal::new(40.0);
 let subscribed = Signal::new(false);
 
 column((
-    text_field(name).placeholder("Your name"),
+    text_field(name).placeholder(res::str::your_name()),
     slider(volume).range(0.0..=100.0),
     toggle(subscribed),
 ))
-.spacing(12.0)
+.spacing(Space::M)
 ```
 
 </Compare>
@@ -146,10 +151,11 @@ optional, so reconciliation is always by identity.
 
 ```rust
 list(
-    move || items.get(),
-    |item| item.id,
+    day::prelude::items(move || items.get(), |item| item.id),
     |slot: ItemSlot<Todo, u64>| {
-        label(move || slot.get().title).padding(8.0)
+        label(move || slot.get().title)
+            .id_of(move || id!(item_row, slot.key()))
+            .padding(Space::S)
     },
 )
 ```
@@ -183,7 +189,7 @@ navigation.navigate('Album', { id: '42' });
 let path = Signal::new(Vec::<String>::new());
 
 nav_stack(path, home_page())
-    .title("Home")
+    .title(res::str::home())
     .destination(|key| album_page(key))
 
 // from anywhere — it's just state:
@@ -265,12 +271,12 @@ const styles = StyleSheet.create({
 
 ```rust
 column((
-    label("Plan").font(Font::Title),
-    label("Pro"),
+    label(res::str::plan()).font(Font::Title),
+    label(res::str::pro()),
 ))
-.spacing(8.0)
+.spacing(Space::S)
 .align(HAlign::Leading)
-.padding(16.0)
+.padding(Space::L)
 .background(Color::hex(0x1E293B))
 .corner_radius(12.0)
 ```
@@ -295,7 +301,7 @@ let items = Signal::new(Vec::<Item>::new());
 let total = Memo::new(move || items.with(|v| v.iter().map(|i| i.price).sum::<f64>()));
 
 // No dependency array — this label re-runs exactly when `total`'s value changes:
-label(move || format!("{:.2} €", total.get()))
+label(move || res::str::total_eur(total.get()).format())
 ```
 
 For app-wide state, signals in a module or struct are already observable from any Piece, so a
@@ -326,7 +332,7 @@ let status = Signal::new(String::new());
 day::task(async move {
     match fetch_future(Request::get(url)).await {
         Ok(resp) => status.set(resp.text().into_owned()),
-        Err(e) => status.set(format!("error: {e}")),
+        Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
     }
 });
 ```

@@ -48,6 +48,9 @@ day pack   --flavor custom -t android-mdc
 `day screenshot` all describe the flavor you name. `DAY_FLAVOR=custom` is the same switch, which
 is what a CI job sets for a matrix leg.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## What a flavor can change
 
 - **Identity.** `id`, `title`, `artifact`, `scheme` and `build`, including the
@@ -82,8 +85,8 @@ A cargo feature compiles code in or out; an `[env]` value is read at compile tim
 pub fn edition_badge() -> String {
     // `option_env!` keeps a plain `day build` compiling, with no flavor in sight.
     match option_env!("NOTES_EDITION") {
-        Some(edition) => format!("{edition} edition"),
-        None => "Standard edition".to_string(),
+        Some(edition) => res::str::edition_name(edition).format(),
+        None => res::str::standard_edition().format(),
     }
 }
 ```

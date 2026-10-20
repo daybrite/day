@@ -21,6 +21,9 @@ Both are declarative (one reactive signal per form stands in for focus-node obje
 references), and both ride the machinery Day already has: the event sink, origin-tagged writes,
 and per-node Toolkit duties.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## 1. The API
 
 Focus binds to a signal with `.focused(…)`, exactly like every other two-way control binding.
@@ -40,7 +43,7 @@ column((
         .on_submit(move || focus.set(Some(Field::Pass)))
         .focused((focus, Field::User)),
     text_field(pass).focused((focus, Field::Pass)),
-    button("Log in").action(move || {
+    button(res::str::log_in()).action(move || {
         if user.with(|s| s.is_empty()) { focus.set(Some(Field::User)); return; }
         …
     }),

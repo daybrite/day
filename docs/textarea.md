@@ -14,6 +14,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > `day-piece-textarea` 2026-07). A native multi-line text editor bound two-way to a string, with
 > an auto-growing height band. In `day::prelude::*`, with no dependency to add.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -21,9 +24,9 @@ use day::prelude::*;
 
 let body = Signal::new(String::new());
 text_area(body)
-    .placeholder("Write a message…")
-    .min_lines(3)     // never shorter than 3 lines
-    .max_lines(8)     // grows to 8, then scrolls internally
+    .placeholder(res::str::write_a_message())
+    .min_lines(3) // never shorter than 3 lines
+    .max_lines(8) // grows to 8, then scrolls internally
     .id(id!(compose))
 ```
 

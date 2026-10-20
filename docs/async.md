@@ -23,14 +23,19 @@ For app examples, see [HTTP requests](https://daybrite.dev/docs/guide-http) and
 [Local storage](https://daybrite.dev/docs/guide-storage). This reference covers task lifetimes,
 cancellation, and the rules for implementing asynchronous parts.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## `day::task` and `TaskHandle`
 
 ```rust
-button("Save").action(move || {
+button(res::str::save()).action(move || {
+    let req = req.clone();
     day::task(async move {
-        if confirm("Overwrite?").await {           // native modal (docs/dialogs.md)
+        if confirm(res::str::overwrite()).await {
+            // native modal (docs/dialogs.md)
             let resp = day_part_http::fetch_future(req).await;
-            status.set(render(resp));              // UI thread — a plain signal write
+            status.set(render(resp)); // UI thread — a plain signal write
         }
     });
 });

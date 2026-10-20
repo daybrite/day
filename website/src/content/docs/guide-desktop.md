@@ -16,7 +16,7 @@ Day uses a shared Rust API to define them, along with secondary windows and a Se
 window. A menu item can call the same action as a button in the interface:
 
 ```rust
-menu_item("Save").key("s").action(save)     // ⌘S on macOS, Ctrl+S everywhere else
+menu_item(res::str::save()).key("s").action(save) // ⌘S on macOS, Ctrl+S everywhere else
 ```
 
 **Works on:** context menus render natively everywhere (`NSMenu`, `GtkPopoverMenu`, `QMenu`,
@@ -27,6 +27,9 @@ touch platforms have no global menu bar. Toolbars exist only where the platform 
 Secondary windows work on every backend: native windows on the desktops, iPad, Android, and
 HarmonyOS; on iPhone and web the same call presents the content as a fullscreen cover.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## 1. Install the app menu
 
 Call `app_menu` once at startup, with one `sub_menu` per menu-bar menu:
@@ -35,21 +38,30 @@ Call `app_menu` once at startup, with one `sub_menu` per menu-bar menu:
 use day::prelude::*;
 
 app_menu(vec![
-    sub_menu("File", vec![
-        menu_role(MenuRole::NewWindow),                       // File ▸ New Window, ⌘N (step 5)
-        menu_item("Open…").key("o").action(|| open_file()),
-        menu_item("Save").key("s").action(|| save()),
-        menu_separator(),
-        menu_role(MenuRole::CloseWindow),
-        menu_role(MenuRole::Quit),
-    ])
+    sub_menu(
+        res::str::file(),
+        vec![
+            menu_role(MenuRole::NewWindow), // File ▸ New Window, ⌘N (step 5)
+            menu_item(res::str::open()).key("o").action(|| open_file()),
+            menu_item(res::str::save()).key("s").action(|| save()),
+            menu_separator(),
+            menu_role(MenuRole::CloseWindow),
+            menu_role(MenuRole::Quit),
+        ],
+    )
     .bar_role(MenuBarRole::File),
-    sub_menu("Edit", vec![
-        menu_role(MenuRole::Undo), menu_role(MenuRole::Redo),
-        menu_separator(),
-        menu_role(MenuRole::Cut), menu_role(MenuRole::Copy),
-        menu_role(MenuRole::Paste), menu_role(MenuRole::SelectAll),
-    ])
+    sub_menu(
+        res::str::edit(),
+        vec![
+            menu_role(MenuRole::Undo),
+            menu_role(MenuRole::Redo),
+            menu_separator(),
+            menu_role(MenuRole::Cut),
+            menu_role(MenuRole::Copy),
+            menu_role(MenuRole::Paste),
+            menu_role(MenuRole::SelectAll),
+        ],
+    )
     .bar_role(MenuBarRole::Edit),
 ]);
 ```
@@ -84,9 +96,11 @@ The same entries attach to any [piece](/docs/glossary#piece) with `.context_menu
 desktop and long-press on touch:
 
 ```rust
-label("Right-click me").context_menu(vec![
-    menu_item("Rename").action(|| rename()),
-    menu_item("Duplicate").key("d").action(|| duplicate()),
+label(res::str::right_click_me()).context_menu(vec![
+    menu_item(res::str::rename()).action(|| rename()),
+    menu_item(res::str::duplicate())
+        .key("d")
+        .action(|| duplicate()),
     menu_separator(),
     menu_role(MenuRole::Copy),
 ])
@@ -104,8 +118,8 @@ the [toolbar reference](/docs/internal/toolbars) describes each toolkit’s beha
 
 ```rust
 item_list(scene).grow().toolbar([
-    toolbar_toggle(id!(show_done), "Show Done", scene.show_done).icon(Symbol::Filter),
-    toolbar_button(id!(add), "Add")
+    toolbar_toggle(id!(show_done), res::str::show_done(), scene.show_done).icon(Symbol::Filter),
+    toolbar_button(id!(add), res::str::add())
         .icon(Symbol::Add)
         .placement(ToolbarPlacement::Primary)
         .action(move || scene.new_item()),

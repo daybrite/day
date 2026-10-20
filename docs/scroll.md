@@ -20,6 +20,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 The `scroll` piece stays gesture-first: the native widget owns the viewport, physics, and
 indicators (DESIGN §7.6). This document covers driving it from code and from dayscript.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -27,9 +30,16 @@ let jump: Signal<Option<ScrollTarget>> = Signal::new(None);
 
 scroll(column(rows)).scroll_target(jump);
 
-button("Bottom").action(move || jump.set(Some(ScrollTarget::Bottom)));
-button("Item 100").action(move || jump.set(Some(ScrollTarget::Id("row-100".into()))));
+button(res::str::bottom()).action(move || jump.set(Some(ScrollTarget::Bottom)));
+button(res::str::item_100()).action(move || {
+    jump.set(Some(ScrollTarget::Id(
+        id!(row, 100_u64).as_str().to_owned(),
+    )));
+});
 ```
+
+`ScrollTarget::Id` still takes a string: convert the typed ID at this boundary. The target row
+must declare the matching `.id(id!(row, 100_u64))` (or `.id_of` for a recycled row).
 
 `.scroll_target(sig)` takes a `Signal<Option<ScrollTarget>>`: each `Some(target)` written to it
 scrolls there (animated), then the signal resets to `None`, so the same target can be sent
@@ -56,7 +66,7 @@ buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, 
 ```yaml
 - scroll_to: { id: page_scroll, edge: bottom }     # top | bottom | leading | trailing
 - scroll_to: { id: page_scroll, x: 0, y: 300 }     # pin the viewport origin
-- scroll_to: { id: row_100 }                       # reveal an element in its nearest scroll
+- scroll_to: { id: 'row:100' }                     # reveal an element in its nearest scroll
 ```
 
 The step is unanimated so the next step sees the settled position. `assert_visible` remains a

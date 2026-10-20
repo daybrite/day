@@ -17,6 +17,9 @@ Electron renders a web interface using Chromium and Node.js. Day compiles Rust c
 that uses native toolkit controls. Moving between them changes UI composition, process
 communication, dependencies, and packaging; this guide compares those areas with code examples.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Electron terms in Day
 
 | Electron | Day |
@@ -64,11 +67,13 @@ use day::prelude::*;
 fn counter() -> impl Piece {
     let count = Signal::new(0i64);
     column((
-        label(move || format!("{} clicks", count.get())),
-        button("+").action(move || count.update(|c| *c += 1)),
+        label(res::str::click_count(count)).id(id!(counter_label)),
+        button(res::str::increment())
+            .action(move || count.update(|c| *c += 1))
+            .id(id!(increment_button)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 ```
 
@@ -110,10 +115,10 @@ if (text !== null) editor.value = text;
 
 ```rust
 // anywhere in the app — same process, same language
-button("Open…").action(move || {
+button(res::str::open()).action(move || {
     day::task(async move {
         if let Some(file) = open_file()
-            .filter("Text", &["txt", "md"])
+            .filter(res::str::text_files().format(), &["txt", "md"])
             .await
         {
             if let Ok(text) = file.read_to_string() {
@@ -148,10 +153,14 @@ let subscribed = Signal::new(false);
 let size = Signal::new(0usize);
 
 column((
-    text_field(name).placeholder("Your name"),
+    text_field(name).placeholder(res::str::your_name()),
     slider(volume).range(0.0..=100.0),
     toggle(subscribed),
-    picker(size, [(Size::S, "Small"), (Size::M, "Medium"), (Size::L, "Large")]).segmented(),
+    picker(
+        size,
+        [(Size::S, "Small"), (Size::M, "Medium"), (Size::L, "Large")],
+    )
+    .segmented(),
 ))
 .spacing(Space::M)
 ```
@@ -192,19 +201,20 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 ```rust
 day::open_window(
     res::window_options()
-        .title("Settings")
+        .title(res::str::settings())
         .size(520.0, 420.0)
         .key("settings")
         .kind(WindowKind::Preferences),
     settings_page,
 );
 
-app_menu((
-    sub_menu("File", (
-        menu_item("New Note").key("n").action(new_note),
+app_menu((sub_menu(
+    res::str::file(),
+    (
+        menu_item(res::str::new_note()).key("n").action(new_note),
         menu_role(MenuRole::Quit),
-    )),
-));
+    ),
+),));
 ```
 
 </Compare>

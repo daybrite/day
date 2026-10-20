@@ -17,12 +17,15 @@ the same widget and handle with additional configuration.
 
 The showcase's Tweaks page (in the [gallery](/gallery)) demonstrates everything on this page.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Applying a tweak
 
 The portable entry point is a modifier that runs once at mount, after the native widget exists:
 
 ```rust
-button("Save").tweak(|node| {
+button(res::str::save()).tweak(|node| {
     // `node` is the realized node; per-toolkit accessors turn it into a native handle.
 })
 ```
@@ -32,9 +35,10 @@ point. The closure gets the native widget **and its concrete class name**, so a 
 exactly what it is configuring:
 
 ```rust
-use day_appkit::AppKitExt;   // exists only in the appkit build
+use day_appkit::AppKitExt; // exists only in the appkit build
 
-button("Save").appkit(|view, class, _mtm| {   // class == "NSButton"
+button(res::str::save()).appkit(|view, class, _mtm| {
+    // class == "NSButton"
     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
         unsafe { btn.setBezelStyle(objc2_app_kit::NSBezelStyle::Toolbar) };
     }
@@ -68,8 +72,8 @@ say), capture a `NativeRef`:
 let save_ref = NativeRef::new();
 
 column((
-    button("Save").native_ref(&save_ref),
-    button("Flash the save button").action(move || {
+    button(res::str::save()).native_ref(&save_ref),
+    button(res::str::flash_the_save_button()).action(move || {
         save_ref.with(|node| { /* per-toolkit accessor on `node` */ });
     }),
 ))
@@ -87,12 +91,12 @@ stays free of `#[cfg]`. Three examples in the repository show different platform
 
 ```rust
 use day_tweak_button_bezel::{Bezel, ButtonBezelTweak};
-use day_tweak_tooltip::TooltipTweak;
 use day_tweak_slider_tickmarks::{SliderTickmarksTweak, Tickmarks};
+use day_tweak_tooltip::TooltipTweak;
 
-button("Save").bezel(Bezel::Toolbar);          // AppKit only; stock elsewhere
-button("Save").tooltip("Save your changes (⌘S)");  // AppKit, GTK, Android; no-op elsewhere
-slider(v).tickmarks(Tickmarks::count(11).snap(true));  // six toolkits, incl. its own C++
+button(res::str::save()).bezel(Bezel::Toolbar); // AppKit only; stock elsewhere
+button(res::str::save()).tooltip(res::str::save_hint()); // AppKit, GTK, Android; no-op elsewhere
+slider(v).tickmarks(Tickmarks::count(11).snap(true)); // six toolkits, incl. its own C++
 ```
 
 The tick-marks crate demonstrates configuring a native feature on

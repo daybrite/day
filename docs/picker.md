@@ -15,6 +15,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > stylings, each a distinct native control per toolkit, bound two-way to a typed selection. In
 > `day::prelude::*`, with no dependency to add.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -111,8 +114,6 @@ follow.
 
 ## Follow-ups
 
-- Reactive `options` (currently fixed at build; only `selected` patches), mirroring the combobox's
-  `Items`.
 - Per-option a11y labels.
 
 (`.enabled(e)`, constant or reactive, shipped 2026-10: `PickerProps::enabled` at realize and

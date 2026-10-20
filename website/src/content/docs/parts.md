@@ -14,6 +14,9 @@ A **part** exposes a platform capability without a UI, such as battery status, s
 sensors. It provides a shared Rust API with an implementation selected at compile time for
 the target operating system. Parts are Cargo dependencies and require no runtime plugin registry.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## The catalog
 
 | Crate | What it does | Reference |
@@ -60,10 +63,10 @@ let battery = Signal::new(day_part_battery::status());
 
 column((
     label(move || match battery.get() {
-        Some(b) => format!("{}%", b.percent().unwrap_or(0)),
-        None => tr("battery_unknown").format(),
+        Some(b) => res::str::battery_percent(i64::from(b.percent().unwrap_or(0))).format(),
+        None => res::str::battery_unknown().format(),
     }),
-    button(tr("refresh")).action(move || battery.set(day_part_battery::status())),
+    button(res::str::refresh()).action(move || battery.set(day_part_battery::status())),
 ))
 ```
 

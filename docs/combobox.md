@@ -19,6 +19,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > ([docs/picker.md](picker.md)) is now the one-of-N control, and the combo box is for values
 > that need not be in the list.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -26,7 +29,9 @@ use day_piece_combobox::combo_box;
 
 let flavors = Signal::new(vec!["vanilla".into(), "chocolate".into()]);
 let flavor = Signal::new(String::new());
-combo_box(flavors, flavor).placeholder("Type or pick a flavor").id(id!(flavor))
+combo_box(flavors, flavor)
+    .placeholder(res::str::type_or_pick_a_flavor())
+    .id(id!(flavor))
 ```
 
 `combo_box(items, text)` binds `text` two-way: typing writes the signal per keystroke, picking a

@@ -19,16 +19,19 @@ or the role and value of a custom drawing.
 Test keyboard navigation and screen-reader behavior on the platforms you ship; annotations
 alone do not establish that a screen is usable.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
-button(icon("trash"))
-    .a11y(|a| a.label(tr("delete-item")).hint(tr("delete-item-hint")))
+button(res::str::delete_item()).icon(Symbol::Delete).icon_only()
+    .a11y(|a| a.label(res::str::delete_item()).hint(res::str::delete_item_hint()))
     .id(id!(delete_button))
 
-image("chart").a11y(|a| a.label(tr("q3-chart-summary")))   // or .decorative()
+image(res::images::chart).a11y(|a| a.label(res::str::q3_chart_summary()))   // or .decorative()
 
-gauge(level).a11y(|a| a.role(Role::Meter).label("Volume").value("72"))   // canvas → explicit role
+gauge(level).a11y(|a| a.role(Role::Meter).label(res::str::volume()).value(res::str::percentage(level)))   // canvas → explicit role
 ```
 
 `A11yBuilder`: `.label`, `.hint`, `.value`, `.role(Role)`, `.selected(bool)`, `.hidden()`,
@@ -43,7 +46,7 @@ its own, so a gauge's spoken value follows the gauge and a localized label follo
 
 ```rust
 canvas(move |d, size| …)
-    .a11y(move |a| a.role(Role::Meter).label("Level").value(move || format!("{:.0}%", level.get())))
+    .a11y(move |a| a.role(Role::Meter).label(res::str::level()).value(res::str::percentage(level)))
 ```
 Annotations merge onto a node: a piece default, `.a11y()`, and `.id()` accumulate (day-core stores
 the merged `A11yProps` on the node, re-applies the full picture on each change, and hands it to

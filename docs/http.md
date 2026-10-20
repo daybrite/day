@@ -27,6 +27,9 @@ kept between requests. A [`Client`](#the-client) carries policy across requests 
 rest of a modern HTTP API: streamed bodies, uploads, redirect and challenge callbacks, trust
 decisions, cookies, caching, metrics and WebSockets.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Sending a request
 
 ```rust
@@ -74,8 +77,14 @@ They share one client that keeps no cookies and no cache, so every call starts f
 // readout is a plain signal write.
 day::task(async move {
     match day_part_http::fetch_future(req).await {
-        Ok(resp) => status.set(format!("{} · {} bytes", resp.status, resp.body.len())),
-        Err(e) => status.set(format!("error: {e}")),
+        Ok(resp) => status.set(
+            res::str::http_summary(res::str::HttpSummary {
+                status: i64::from(resp.status),
+                bytes: resp.body.len() as i64,
+            })
+            .format(),
+        ),
+        Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
     }
 });
 
@@ -95,8 +104,8 @@ programs and `cargo test`. Aborting a `day::task` drops its future, which cancel
 ## The client
 
 ```rust
-use std::time::Duration;
 use day_part_http::{Client, Redirects, Request};
+use std::time::Duration;
 
 let client = Client::builder()
     .timeout_idle(Duration::from_secs(20))
@@ -111,9 +120,18 @@ let client = Client::builder()
     .build();
 
 day::task(async move {
-    match client.fetch_future(Request::get("https://api.example.com/forecast")).await {
-        Ok(resp) => status.set(format!("{} · {} bytes", resp.status, resp.body.len())),
-        Err(e) => status.set(format!("error: {e}")),
+    match client
+        .fetch_future(Request::get("https://api.example.com/forecast"))
+        .await
+    {
+        Ok(resp) => status.set(
+            res::str::http_summary(res::str::HttpSummary {
+                status: i64::from(resp.status),
+                bytes: resp.body.len() as i64,
+            })
+            .format(),
+        ),
+        Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
     }
 });
 ```
@@ -153,7 +171,7 @@ silently does nothing.
 day::task(async move {
     let streaming = match client.send_future(Request::get(url)).await {
         Ok(streaming) => streaming,
-        Err(e) => return status.set(format!("error: {e}")),
+        Err(e) => return status.set(res::str::operation_failed(e.to_string()).format()),
     };
     let total = streaming.expected_length();
     let mut body = streaming.into_body();
@@ -164,7 +182,7 @@ day::task(async move {
                 received += bytes.len() as u64;
                 progress.set((received, total));
             }
-            Err(e) => return status.set(format!("error: {e}")),
+            Err(e) => return status.set(res::str::operation_failed(e.to_string()).format()),
         }
     }
 });
@@ -339,15 +357,23 @@ day::task(async move {
     let request = Request::get("wss://chat.example.com/socket").protocols(["chat"]);
     let mut socket = match client.websocket_future(request).await {
         Ok(socket) => socket,
-        Err(e) => return state.set(format!("error: {e}")),
+        Err(e) => return state.set(res::str::operation_failed(e.to_string()).format()),
     };
-    socket.sender().send_async(Message::Text("hello".into()), |_| {});
+    socket
+        .sender()
+        .send_async(Message::Text("hello".into()), |_| {});
     while let Some(message) = socket.next().await {
         match message {
             Ok(Message::Text(text)) => last.set(text),
             Ok(Message::Binary(_)) => {}
-            Ok(Message::Close { code, reason }) => state.set(format!("closed · {code} {reason}")),
-            Err(e) => return state.set(format!("error: {e}")),
+            Ok(Message::Close { code, reason }) => state.set(
+                res::str::connection_closed(res::str::ConnectionClosed {
+                    code: i64::from(code),
+                    reason,
+                })
+                .format(),
+            ),
+            Err(e) => return state.set(res::str::operation_failed(e.to_string()).format()),
         }
     }
 });

@@ -21,6 +21,9 @@ Keys implement [`Route`](#typed-routes). Start with strings, or use an app-defin
 you want the compiler to check destinations and their associated data. The string adapter
 (`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Sidebar pull-to-refresh
 
 `nav(selection).refreshable(refreshing, action)` installs the native pull control on
@@ -90,9 +93,11 @@ cannot move each other's documents. `.layout(|chrome, content| ...)` places the 
 The default strip is native buttons: the current document's is a selected button
 (`button(..).selected(..)`, [docs/buttons.md](buttons.md)), so it keeps its focus stop and activation, the
 platform draws its own selected look, and assistive tech hears a selected tab in a tab list
-(`Role::Tab`, `Role::TabList`). `.strip_id("docs")` names its elements for scripts and tests:
-`docs-strip`, `docs-tab-{key}`, `docs-close-{key}` and `docs-new`; without it the prefix is
-`day-documents-{n}`, unique per host.
+(`Role::Tab`, `Role::TabList`). `.strip_id(id!(docs))` gives the strip a declared ID.
+Child IDs use the `document_tab`, `document_close`, and `document_new` families. For
+document key `a`, the tab is `document_tab:docs%3Aa`; the colon in the combined host/key
+is percent-encoded. Without an explicit strip ID, the host uses `document_strip:<n>`.
+See [element IDs](element-ids.md) before writing script locators.
 
 | Backend | Native document presentation |
 |---|---|
@@ -134,12 +139,12 @@ for focus, command routing, and close lifecycle.
 
 ```rust
 let section = Signal::new("home".to_string());
-nav(section)                       // adaptive by default; .style() pins a shape
-    .title(tr("app-title"))
-    .header(sidebar_header)             // optional piece above the list
-    .footer(sidebar_status)             // pinned below the scrolling list, on the root page
-    .item("home",     tr("home"),     home_page)
-    .item("settings", tr("settings"), settings_page)
+nav(section) // adaptive by default; .style() pins a shape
+    .title(res::str::app_title())
+    .header(sidebar_header) // optional piece above the list
+    .footer(sidebar_status) // pinned below the scrolling list, on the root page
+    .item("home", res::str::home(), home_page)
+    .item("settings", res::str::settings(), settings_page)
 ```
 
 ### Styles
@@ -302,8 +307,12 @@ rides follows from that:
 
 ```rust
 nav(section)
-    .toolbar(toolbar_button(id!(add), tr("add")).icon(Symbol::Add).action(add_item))  // the list's
-    .destination(|k| page(k).toolbar(share_button()))                              // the page's
+    .toolbar(
+        toolbar_button(id!(add), res::str::add())
+            .icon(Symbol::Add)
+            .action(add_item),
+    ) // the list's
+    .destination(|k| page(k).toolbar(share_button())) // the page's
 ```
 
 `Nav::toolbar` and `NavStack::toolbar` put items on that host's own chrome — the sidebar column
@@ -411,7 +420,7 @@ indices at the list, so a row keeps the index Day gave it however many headings 
 nav(section)
     .section(res::str::smart_feeds(), (
         item("today", res::str::today()).icon(res::images::today).page(today_page),
-        item("unread", res::str::unread()).icon(res::images::unread).page(unread_page),
+        item("unread", res::str::unread_feed()).icon(res::images::unread).page(unread_page),
     ))
     .section(res::str::feeds(), nav_items(move || st.feeds.get(), |f| item(f.id, f.name)))
 ```
@@ -649,14 +658,14 @@ nav_stack(path, home_view)
         if dirty.get() {
             // confirm asynchronously, then perform the deferred pop on "yes"
             day::task(async move {
-                if confirm("Discard changes?").await {
+                if confirm(res::str::discard_changes()).await {
                     dirty.set(false);
-                    req.proceed();          // performs the pop the guard consumed
+                    req.proceed(); // performs the pop the guard consumed
                 }
             });
-            BackResponse::Handled           // consume this back
+            BackResponse::Handled // consume this back
         } else {
-            BackResponse::Proceed           // normal pop
+            BackResponse::Proceed // normal pop
         }
     });
 ```
@@ -825,10 +834,10 @@ day::routes! {
     pub enum Section { Home => "home", Stack => "stack" }
 }
 
-let section = Signal::new(None::<Section>);        // None = the collapsed mobile list
+let section = Signal::new(None::<Section>); // None = the collapsed mobile list
 nav(section)
-    .item(Section::Home,  tr("home"),  home_page)  // compile-checked, no raw keys
-    .item(Section::Stack, tr("stack"), stack_page)
+    .item(Section::Home, res::str::home(), home_page) // compile-checked, no raw keys
+    .item(Section::Stack, res::str::stack(), stack_page)
 ```
 
 A sidebar `nav` keys on `Option<Section>` (`None` ↔ `""`, the no-selection list state);
@@ -858,11 +867,15 @@ stack keeps its open-ended accept-anything behavior.
 Typed absolute paths compose with `route(…)`, and `navigate_to` is the typed relative form:
 
 ```rust
-navigate_to(&Section::Home);                       // ≙ navigate("home")
-route(&Section::Stack).then(&Drill::Item { id: 42 })
+navigate_to(&Section::Home); // ≙ navigate("home")
+route(&Section::Stack)
+    .then(&Drill::Item { id: 42 })
     .param("hint", "linked")
-    .navigate();                                   // ≙ navigate("stack/item-42?hint=linked")
-nav_link_to(tr("open-42"), route(&Section::Stack).then(&Drill::Item { id: 42 }))
+    .navigate(); // ≙ navigate("stack/item-42?hint=linked")
+nav_link_to(
+    res::str::open_42(),
+    route(&Section::Stack).then(&Drill::Item { id: 42 }),
+)
 ```
 
 Everything downstream is unchanged: `current_route()` still returns the encoded string (which
@@ -902,8 +915,11 @@ than implying that every single-stack Harmony app was broken.
 To reproduce the Mail.app or Files.app navigation pattern, nest the containers:
 
 ```rust
-nav(section).style(NavStyle::Sidebar)
-    .item("library", tr("library"), || nav_stack(lib_path, library_root).destination(detail))
+nav(section)
+    .style(NavStyle::Sidebar)
+    .item("library", res::str::library(), || {
+        nav_stack(lib_path, library_root).destination(detail)
+    })
 ```
 
 The sidebar selection drives which section shows; the selected section is itself a `nav_stack` that

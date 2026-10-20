@@ -21,6 +21,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 chooser when pressed. Both idioms give the app that same control and differ only in who draws the
 chooser behind it.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
@@ -30,15 +33,14 @@ let tint = Signal::new(Color::hex(0xE86A3C));
 
 row((
     vector(gv::star).tint(move || tint.get()).frame(28.0, 28.0),
-
-    color_picker(tint),                          // Automatic (default)
-    color_picker(tint).alpha(),                  // + an opacity channel
-    color_picker(tint).composed(),               // Day's own panel, on every target
-    color_picker(tint).native(),                 // the platform's, literally
+    color_picker(tint),            // Automatic (default)
+    color_picker(tint).alpha(),    // + an opacity channel
+    color_picker(tint).composed(), // Day's own panel, on every target
+    color_picker(tint).native(),   // the platform's, literally
     color_picker(tint)
-        .title(tr("pick_a_tint"))                // the chooser's heading
-        .presets(vec![BRAND, ACCENT, INK])       // the composed panel's swatch row
-        .id(id!(brand_color)),                      // the well's dayscript id, both idioms
+        .title(res::str::pick_a_tint()) // the chooser's heading
+        .presets(vec![BRAND, ACCENT, INK]) // the composed panel's swatch row
+        .id(id!(brand_color)), // the well's dayscript id, both idioms
 ))
 ```
 

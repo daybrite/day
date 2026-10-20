@@ -8,7 +8,8 @@ description: "Several styles inside one label: the runs API over attributed text
 
 # Styled runs
 
-One label can carry several styles:
+One label can carry several styles. This synthetic sentence demonstrates the run builder;
+it is not a pattern for splitting a translated UI message:
 
 ```rust
 let (text, runs) = TextBuilder::new()
@@ -23,8 +24,18 @@ let (text, runs) = TextBuilder::new()
 label(text).runs(runs)
 ```
 
+> [!TIP]
+> **Keep translated sentences whole.** For app-owned instructions, put the complete sentence
+> and its emphasis in Fluent, then use `label(res::str::save_instructions()).markdown()`.
+> Translators can reorder it without changing byte ranges or assembling English fragments.
+> Use `TextBuilder` for structured user-authored content or styles that Markdown cannot express.
+> See [Localization](https://daybrite.dev/docs/localization).
+
 `TextBuilder` returns the plain string and the runs that style it, which is exactly what
 `label().runs()` takes. `.runs_from(builder)` does both in one call.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Why not several labels in a row
 
@@ -60,7 +71,7 @@ means something against a particular string; patching one without the other woul
 next edit.
 
 `FontSpec::monospace` asks for the platform's fixed-pitch face. It rides the ordinary font path,
-so it works on a whole label (`label("…").monospace()`) as well as on a run.
+so it works on a whole label (`label(res::str::loading()).monospace()`) as well as on a run.
 
 `FontSpec::scale` is a **relative** size: it multiplies whatever the semantic style resolves to, so
 a run at `1.4` still tracks the reader's text-size setting. `Font::System(pt)` is the absolute form

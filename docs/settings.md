@@ -24,12 +24,23 @@ use day_piece_settings::prelude::*;
 // root(), after the locale catalog installs and before app_menu:
 let prefs = Preferences::new()
     .about(About::from_manifest().link(day::tr("day-about-website"), "https://daybrite.dev"))
-    .group(general_group(res::locales::ALL))           // Appearance + Language
-    .group(Group::new("weather", res::str::settings_weather())
-        .icon(res::vectors::prefs_weather)
-        .row(rows::choice(&UNIT, res::str::settings_unit(),
-            [(Unit::Celsius, res::str::unit_c()), (Unit::Fahrenheit, res::str::unit_f())]))
-        .row(rows::text(&HOST, res::str::settings_host()).placeholder("api.example.org")))
+    .group(general_group(res::locales::ALL)) // Appearance + Language
+    .group(
+        Group::new("weather", res::str::settings_weather())
+            .icon(res::vectors::prefs_weather)
+            .row(rows::choice(
+                &UNIT,
+                res::str::settings_unit(),
+                [
+                    (Unit::Celsius, res::str::unit_c()),
+                    (Unit::Fahrenheit, res::str::unit_f()),
+                ],
+            ))
+            .row(
+                rows::text(&HOST, res::str::settings_host())
+                    .placeholder(res::str::api_example_org()),
+            ),
+    )
     .install();
 ```
 
@@ -51,6 +62,9 @@ the platform gives no app menu (the phones, `Cap::AppMenu` unsupported), `None` 
 an `Option` is valid nav content, so the same source compiles everywhere and the section appears
 only where it should. `.map(|i| i.icon(..))` decorates it like any other item. `day_piece_settings::open()` opens the window on desktop and selects the
 section on a phone (a welcome page's "Settings" link).
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Values: `Pref<T>`
 
@@ -178,7 +192,7 @@ the primary's recreation (their activities go down with it), and a `std::sync::O
 ## About
 
 ```rust
-About::from_manifest()                 // name, version and build from Day.toml via `day build`
+About::from_manifest() // name, version and build from Day.toml via `day build`
     .tagline(res::str::about_tagline())
     .copyright("© The Daybrite Project")
     .icon(res::images::icon)
@@ -186,8 +200,11 @@ About::from_manifest()                 // name, version and build from Day.toml 
     .link(day::tr("day-about-source"), "https://github.com/…")
     .privacy("https://…")
     .credits(res::str::about_credits())
-    .licenses(include_str!("../resource/licenses.txt"))
-    .custom(build)                     // replaces the composed body
+    .licenses(|| {
+        let file = resource(res::assets::licenses_txt).expect("bundled license text");
+        String::from_utf8_lossy(file.as_slice()).into_owned()
+    })
+    .custom(build) // replaces the composed body
 ```
 
 `from_manifest()` reads the identity `day build`/`day launch` export (`DAY_APP_ID`,

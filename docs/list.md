@@ -21,6 +21,9 @@ Contrast with [`each`](../crates/day-pieces): `each` builds every row eagerly un
 anchor (fine for a dozen items; ten thousand would all be built up front). `list` builds only
 the rows the native widget currently shows.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## API: row sources, shared with `each`
 
 On **windows-winui**, `ItemsRepeater` and `StackLayout` own realization and scroll extents
@@ -43,16 +46,26 @@ and one row builder. Two sources ship:
 **Plain data**: an items closure and a key function, wrapped in `items(…)`:
 
 ```rust
-list(items(move || messages.get(), |m| m.id), move |row: ItemSlot<Message, u64>| {
-    column((
-        label(move || row.field(|m| m.sender.clone())),
-        label(move || row.field(|m| m.preview.clone())),
-    ))
-})
-.row_height(RowHeight::Automatic)       // the default: each row as tall as its content
+list(
+    items(move || messages.get(), |m| m.id),
+    move |row: ItemSlot<Message, u64>| {
+        column((
+            label(move || row.field(|m| m.sender.clone())),
+            label(move || row.field(|m| m.preview.clone())),
+        ))
+        .id_of(move || id!(message_row, row.key()))
+    },
+)
+.row_height(RowHeight::Automatic) // the default: each row as tall as its content
 .on_select(move |key| open(key))
 .id(id!(inbox))
 ```
+
+> [!TIP]
+> **A recycled row needs a reactive ID.** Use `.id_of(move || id!(message_row, row.key()))`
+> so the ID follows the item occupying the cell. An eager `.id(id!(message_row, row.key()))`
+> would retain its first item's ID. Sender names and message previews are user content;
+> app-owned actions and empty states belong in the [Fluent catalog](https://daybrite.dev/docs/localization).
 
 The row builder receives an `ItemSlot<T, K>` (Copy handle, tracked `get()`, memoised `field()`
 projections). Because cells are recycled, the builder must read through the slot rather than

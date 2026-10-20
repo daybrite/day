@@ -16,18 +16,21 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > their controls starting on a common left edge. This is the aligned-labels look that settings
 > UIs on every platform use.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Authoring
 
 ```rust
 form((
     section((
-        labeled(tr("volume"), slider(volume).range(0.0..=100.0)),
-        labeled(tr("enabled"), toggle(enabled)),
+        labeled(res::str::volume(), slider(volume).range(0.0..=100.0)),
+        labeled(res::str::enabled(), toggle(enabled)),
     ))
-    .title(tr("sound")),
+    .title(res::str::sound()),
     section((
-        labeled(tr("name"), text_field(name)),
-        label(tr("hint")).font(Font::Footnote),   // sections take arbitrary pieces, not just rows
+        labeled(res::str::name(), text_field(name)),
+        label(res::str::hint()).font(Font::Footnote), // sections take arbitrary pieces, not just rows
     )),
 ))
 ```

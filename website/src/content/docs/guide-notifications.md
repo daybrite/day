@@ -18,6 +18,9 @@ due after the app has closed. Posting a notification requires permission and a c
 `NotifyError::Unsupported`; gate the UI with `capabilities()` (step 6). The full design and the
 per-platform details are in [the notify reference](/docs/internal/notify).
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## 1. Declare the permission
 
 Add `day-part-local-notify` and `day-part-permissions` to your app’s Cargo dependencies,
@@ -67,10 +70,12 @@ sound. Register the channel once, before posting to it; registration is idempote
 ```rust
 use day_part_local_notify::{Channel, Importance, Notification};
 
-Channel::new("timers", Importance::High).sound(true).register();
+Channel::new("timers", Importance::High)
+    .sound(true)
+    .register();
 
-let id = Notification::new("Timer done")
-    .body("Your 5 minute timer finished.")
+let id = Notification::new(res::str::timer_done().format())
+    .body(res::str::timer_done_body().format())
     .channel("timers")
     .post()?;
 ```
@@ -93,15 +98,15 @@ alarm-clock form that fires at an absolute instant:
 use day_part_local_notify::{Trigger, cancel};
 use std::time::{Duration, SystemTime};
 
-let id = Notification::new("Stand up")
+let id = Notification::new(res::str::stand_up().format())
     .channel("timers")
     .trigger(Trigger::In(Duration::from_secs(20 * 60)))
     .post()?;
 
-cancel(id);                           // or cancel_all()
+cancel(id); // or cancel_all()
 
 let wake = SystemTime::now() + Duration::from_secs(8 * 3600);
-Notification::new("Good morning")
+Notification::new(res::str::good_morning().format())
     .channel("alarms")
     .trigger(Trigger::At(wake))
     .post()?;

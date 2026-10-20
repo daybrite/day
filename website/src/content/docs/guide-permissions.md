@@ -28,6 +28,9 @@ On desktop Linux and Windows, this API reports `Ungated` and `Granted`; that doe
 the device or service is available. See [platform behavior](#4-what-each-platform-does-with-a-request)
 for details.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## 1. Declare it in Day.toml
 
 Declare permissions before calling the protected API. Day uses these entries to generate
@@ -56,7 +59,7 @@ use day_part_permissions::{Permission, Status, can_prompt, open_settings, reques
 
 let granted = Signal::new(status(Permission::Notifications) == Status::Granted);
 
-button("Enable reminders").action(move || {
+button(res::str::enable_reminders()).action(move || {
     if can_prompt(Permission::Notifications) {
         let set = granted.setter();
         request(Permission::Notifications, move |s| {

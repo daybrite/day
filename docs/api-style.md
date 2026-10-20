@@ -24,7 +24,7 @@ SwiftUI-like terseness where it doesn't. The rules, in priority order:
    fields at the call site. This is the closest Rust gets to named arguments:
 
    ```rust
-   d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::CENTERED, ..Default::default() });
+   d.text(&res::str::canvas_value(40_i64).format(), center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::CENTERED, ..Default::default() });
    ```
 
    This is already the house style at the spec boundary (`NavProps { title, split }`,
@@ -33,7 +33,7 @@ SwiftUI-like terseness where it doesn't. The rules, in priority order:
    with two or more variables (`res::str::items_moved(res::str::ItemsMoved { count, folder })`).
 
 3. **Generic-ergonomic constructors keep ≤3 positional, type-distinct arguments.**
-   `route("controls", tr("nav-controls"), controls_page)` and
+   `route("controls", res::str::nav_controls(), controls_page)` and
    `Command::new(id!(add), res::str::add(), add_item)` stay positional: the three types are mutually
    incompatible, so every mis-ordering is a compile error, and funneling `impl IntoText<M>`
    through struct fields would force `.into()`/`Box::new` noise at every call site (struct
@@ -87,6 +87,9 @@ Scope: the rules bind the **app-facing surface** (day-pieces, the Day umbrella, 
 `BuildCx`/nav API, the piece crates). The engine's internal interfaces (the `Toolkit` trait,
 `TreeOps`, FFI shims) prefer the same, but a documented `bool` parameter is acceptable where
 changing it would ripple through every backend for internal call sites only.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Typed builders and erasure
 

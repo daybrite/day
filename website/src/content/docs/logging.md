@@ -95,8 +95,8 @@ install yours before `day::launch`:
 
 ```rust
 fn main() {
-    env_logger::init();          // or tracing_subscriber, or your own log::Log
-    day::launch(day::WindowOptions::default(), my_app::root);
+    env_logger::init(); // or tracing_subscriber, or your own log::Log
+    day::launch(my_app::res::window_options(), my_app::root);
 }
 ```
 

@@ -10,7 +10,7 @@ Search is declared on the **surface**, not on the toolbar.
 ```rust
 nav(section)
     .style(NavStyle::Sidebar)
-    .searchable(Search::new(query).prompt(tr("search-sections")))   // query: Signal<String>, two-way
+    .searchable(Search::new(query).prompt(res::str::search_sections())) // query: Signal<String>, two-way
     .items(nav_items(move || destinations_matching(query.get()), row))
 ```
 
@@ -38,6 +38,9 @@ This is the same move SwiftUI made with `.searchable()`, for the same reason.
 > static view above the list and UIKit's collapse tracks the page's top-anchored scroll view.
 > Day-Showcase dropped its header for this reason; the framework fix is to make a sidebar header
 > the table's `tableHeaderView` so header and rows scroll as one.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## The modifiers
 

@@ -17,9 +17,12 @@ is. `day::tween` is that something, in parts that work on their own or together.
 use day::tween::{Lerp, Tweened};
 
 let height = Tweened::new(0.0);
-button("Grow").action(move || height.animate_to(120.0, AnimSpec::spring(0.4, 0.8)));
+button(res::str::grow()).action(move || height.animate_to(120.0, AnimSpec::spring(0.4, 0.8)));
 canvas(move |d, _| d.fill(Shape::Rect(Rect::new(0.0, 0.0, 40.0, height.get())), BLUE));
 ```
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Lerp
 

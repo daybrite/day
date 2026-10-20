@@ -23,17 +23,25 @@ backends treats it as one.
 Pair it with a save picker ([files](./files.md)) to let the user keep the result:
 
 ```rust
-button(tr("screenshot")).action(|| day::task(async move {
-    let png = match day::window_image().capture() {
-        Ok(bytes) => bytes,
-        Err(e) => { eprintln!("capture failed: {e}"); return; }
-    };
-    save_file(png)
-        .suggested_name("shot.png")
-        .filter("PNG", &["png"])
-        .await;
-}));
+button(res::str::screenshot()).action(move || {
+    day::task(async move {
+        let png = match day::window_image().capture() {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                eprintln!("capture failed: {e}");
+                return;
+            }
+        };
+        save_file(png)
+            .suggested_name("shot.png")
+            .filter("PNG", &["png"])
+            .await;
+    });
+});
 ```
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## What lands in the image
 

@@ -14,40 +14,49 @@ preserved, including zero bytes. No clipboard writes or private inter-process co
 are needed.
 
 ```rust
-use day::{prelude::*, transfer::{Item, Offer, Representation, Target, Operation}};
+use day::{
+    prelude::*,
+    transfer::{Item, Offer, Operation, Representation, Target},
+};
 use std::rc::Rc;
 
 let received = Signal::new(String::new());
-let source = label("Drag")
-    .drag_source(|_| Some(Offer {
+let source = label(res::str::drag()).drag_source(|_| {
+    Some(Offer {
         items: vec![Item::new(vec![Representation::new(
-            "application/vnd.example.card", vec![0, 255, 42],
+            "application/vnd.example.card",
+            vec![0, 255, 42],
         )])],
-    }));
-let target = label(move || received.get())
-    .drop_target(Target {
-        types: vec!["application/vnd.example.card".into()],
-        accept: Rc::new(|location| {
-            if location.position.x >= 24. && location.has("application/vnd.example.card") {
-                Operation::Copy
-            } else {
-                Operation::None
-            }
-        }),
-        receive: Rc::new(move |drop| {
-            if drop.items.len() != 1 { return false; }
-            let Some(bytes) = drop.items[0].get("application/vnd.example.card") else {
-                return false;
-            };
-            received.set(format!("{} bytes", bytes.len()));
-            true
-        }),
-    });
+    })
+});
+let target = label(move || received.get()).drop_target(Target {
+    types: vec!["application/vnd.example.card".into()],
+    accept: Rc::new(|location| {
+        if location.position.x >= 24. && location.has("application/vnd.example.card") {
+            Operation::Copy
+        } else {
+            Operation::None
+        }
+    }),
+    receive: Rc::new(move |drop| {
+        if drop.items.len() != 1 {
+            return false;
+        }
+        let Some(bytes) = drop.items[0].get("application/vnd.example.card") else {
+            return false;
+        };
+        received.set(res::str::received_bytes(bytes.len() as i64).format());
+        true
+    }),
+});
 ```
 
 Localize user-facing strings in real applications. Apply a canvas's gesture/test `.id(...)`
 before `.drop_target(...)` when the identifier must still address the canvas itself: the
 transfer decorator creates a native wrapper. The source and target may be the same piece.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Acceptance and completion
 

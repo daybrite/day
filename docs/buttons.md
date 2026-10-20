@@ -13,11 +13,11 @@ ring, accessibility role, and pressed and disabled states. Give it a title descr
 action, then add an icon or style when that helps the user recognize it.
 
 ```rust
-button("Save").action(save)
-button("Save").icon(Symbol::Save).prominent().action(save)
-button("Play").icon(Symbol::Play).icon_only().action(play)
-button("About").image(res::vectors::app_mark).action(about)
-button("Send").enabled(move || !busy.get()).action(send)
+button(res::str::save()).action(save)
+button(res::str::save()).icon(Symbol::Save).prominent().action(save)
+button(res::str::play()).icon(Symbol::Play).icon_only().action(play)
+button(res::str::about()).image(res::vectors::app_mark).action(about)
+button(res::str::send()).enabled(move || !busy.get()).action(send)
 ```
 
 Use `.action(...)` for button activation, including after decorations such as `.padding(...)`.
@@ -32,6 +32,9 @@ to work, so the diagnostic does not silently change gesture semantics.
 
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Icons and labels
 
@@ -50,14 +53,26 @@ loading is asynchronous, so a missing asset can leave the icon blank.
 Keep the title and symbol in sync for actions that change:
 
 ```rust
-button(move || if playing.get() { "Pause" } else { "Play" })
-    .icon(move || if playing.get() { Symbol::Pause } else { Symbol::Play })
-    .icon_only()
-    .action(move || playing.set(!playing.get()))
+button(move || {
+    if playing.get() {
+        res::str::pause()
+    } else {
+        res::str::play()
+    }
+})
+.icon(move || {
+    if playing.get() {
+        Symbol::Pause
+    } else {
+        Symbol::Play
+    }
+})
+.icon_only()
+.action(move || playing.set(!playing.get()))
 ```
 
 These updates preserve the button instance. The icon builders also work after decorations,
-for example `button("Play").padding(4.0).icon(Symbol::Play)`.
+for example `button(res::str::play()).padding(4.0).icon(Symbol::Play)`.
 
 ## Styles
 
@@ -76,7 +91,7 @@ or white foreground according to which has the higher WCAG contrast ratio agains
 Disabled buttons reject actions even when a dayscript injects a press.
 
 ```rust
-button("Record")
+button(res::str::record())
     .icon(Symbol::Play)
     .tint(move || if recording.get() { RUST } else { SLATE })
 ```
@@ -90,7 +105,7 @@ A disabled stand-in would do neither. A press never toggles the state natively: 
 handler decides, and the next value of the closure is what the control shows.
 
 ```rust
-button("Drafts")
+button(res::str::drafts())
     .selected(move || current.get() == Section::Drafts)
     .action(move || current.set(Section::Drafts))
 ```

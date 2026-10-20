@@ -20,18 +20,21 @@ day::open_window(
     res::window_options()
         .key("splash")
         .size(420.0, 240.0)
-        .chrome(day::WindowChrome::Frameless)           // Standard | Overlay | Frameless
+        .chrome(day::WindowChrome::Frameless) // Standard | Overlay | Frameless
         .background(day::WindowBackground::Transparent) // Opaque | Transparent | Material(…)
         .no_shadow()
         .fixed_size()
-        .placement(day::WindowPlacement::Centered),     // Automatic | Centered | At(point)
+        .placement(day::WindowPlacement::Centered), // Automatic | Centered | At(point)
     || {
-        column((label("Loading…"), button("Close").action(close_splash)))
-            .grow() // fill the window; only the rounded corners stay see-through
-            .padding(24.0)
-            .background(Color::rgba(0.15, 0.2, 0.35, 0.92))
-            .corner_radius(24.0)
-            .window_drag_region()
+        column((
+            label(res::str::loading()),
+            button(res::str::close()).action(close_splash),
+        ))
+        .grow() // fill the window; only the rounded corners stay see-through
+        .padding(Space::XL)
+        .background(Color::rgba(0.15, 0.2, 0.35, 0.92))
+        .corner_radius(24.0)
+        .window_drag_region()
     },
 );
 ```
@@ -40,6 +43,9 @@ The same builders apply to the first window through the `WindowOptions` handed t
 Phones and the web ignore them: a phone window has no frame to change, and a window the platform
 cannot open presents as a cover inside the first one ([docs/windows.md](windows.md)), which is the
 right splash on a phone.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## Chrome
 
@@ -59,12 +65,12 @@ fn document_window() -> impl Piece {
     // The window being built; its inset is the height of the title bar over it.
     let top = day::current_window().map_or(0.0, |w| w.safe_area().top);
     column((
-        row((spacer(), label("Untitled"), spacer()))
+        row((spacer(), label(res::str::untitled()), spacer()))
             .padding(Insets::top(top))
             .height(top + 40.0)
             .window_drag_region()
             .id(id!(title_bar)),
-        label("Document content"),
+        label(res::str::document_content()),
     ))
 }
 ```

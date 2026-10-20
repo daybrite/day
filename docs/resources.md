@@ -34,7 +34,7 @@ fn main() { day_build::prebuild_project().expect("day-build: prebuild"); }
 
 ```rust
 // src/lib.rs — surface the generated constants once
-pub mod res { include!(concat!(env!("OUT_DIR"), "/day_resources.rs")); }
+day::resources!();
 ```
 
 ```rust
@@ -58,7 +58,7 @@ namespaces):
 // resource/assets/web/minisite/css/style.css
 resource(res::assets::web::minisite::css::style_css)   // AssetName, value "web/minisite/css/style.css"
 res::assets::web::minisite                              // AssetDir, value "web/minisite"
-res::assets::web::minisite.join("posts/1.html")         // AssetName composed at runtime
+res::assets::web::minisite.join(relative_path)         // path selected at runtime
 ```
 
 An `AssetName`'s value is the `/`-relative path, which is exactly what every native store

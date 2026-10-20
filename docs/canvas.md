@@ -30,6 +30,9 @@ a complete interactive example with trails, impact particles, pause/resume, and 
 For transitions between two states (a value, a rect, a color, a whole chart), `day::tween`
 supplies the interpolation, the timing and the frame-driven driver ([tween.md](tween.md)).
 
+Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
+and [localization setup](https://daybrite.dev/docs/localization).
+
 ## The vocabulary
 
 | Op | What it does |
@@ -173,13 +176,30 @@ Gradient strokes on Apple work by converting the stroke to the region it covers
 ## Text
 
 ```rust
-d.text("Aa", Point::new(8.0, 8.0), TextStyle {
-    size: 24.0,
-    color: ink,
-    anchor: TextAnchor::LEADING,
-    font: CanvasFont { family: Some("Pacifico".into()), weight: Some(FontWeight::Bold), italic: false },
-});
-d.text("40", center, TextStyle { size: 22.0, color: accent, anchor: TextAnchor::CENTERED, ..Default::default() });
+d.text(
+    &res::str::font_sample().format(),
+    Point::new(8.0, 8.0),
+    TextStyle {
+        size: 24.0,
+        color: ink,
+        anchor: TextAnchor::LEADING,
+        font: CanvasFont {
+            family: Some("Pacifico".into()),
+            weight: Some(FontWeight::Bold),
+            italic: false,
+        },
+    },
+);
+d.text(
+    &res::str::canvas_value(40_i64).format(),
+    center,
+    TextStyle {
+        size: 22.0,
+        color: accent,
+        anchor: TextAnchor::CENTERED,
+        ..Default::default()
+    },
+);
 ```
 
 `TextStyle` is a size in absolute canvas points, a color, an anchor and a [`CanvasFont`](fonts.md):

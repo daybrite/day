@@ -23,6 +23,9 @@ tweaks             .tweak / per-toolkit ext traits    the native widget, case by
 native pieces      renderer! per toolkit              a NEW widget kind
 ```
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## The portable surface
 
 Everything below builds on two prelude items and one function:
@@ -30,7 +33,7 @@ Everything below builds on two prelude items and one function:
 ```rust
 // Runs once at mount, AFTER the native widget exists. The realized node is your key
 // into the per-toolkit accessors below.
-button("Save").tweak(|node| { /* … */ })
+button(res::str::save()).tweak(|node| { /* … */ })
 
 // Retained access for later (event handlers, timers). Clears on unmount; reads are
 // REACTIVE (a binding that calls r.node() re-runs on mount/clear transitions).
@@ -69,7 +72,7 @@ below is short, but there is no typed Rust surface to hand you.
 ```rust
 // Inline, per-toolkit (each trait exists only under its backend's cargo feature):
 use day_appkit::AppKitExt;
-button("Save").appkit(|view, class, _mtm| {
+button(res::str::save()).appkit(|view, class, _mtm| {
     // `class` is "NSButton" here — see "Knowing the native class" below.
     if let Some(btn) = view.downcast_ref::<objc2_app_kit::NSButton>() {
         unsafe { btn.setBezelStyle(objc2_app_kit::NSBezelStyle::Toolbar) };

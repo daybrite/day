@@ -90,6 +90,9 @@ Day has [`list`](list.md) for flat rows and [`nav_menu`](navigation.md) for a fi
 destinations. Neither nests, and neither can express "drag this node into that group", so a
 tree needs its own piece: `tree(source, row)`, `kinds::TREE`.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## The driving case: Day Sketch's layer panel
 
 Day Sketch keeps its scene in one table of nodes, each with a `parent` and a fractional `z`
@@ -397,9 +400,9 @@ watch(move || open.get(), |set| day::prefs::set("layers.open", &encode(set)));
 "Move to group" menu item, and the drop gesture are one code path:
 
 ```rust
-menu_item(tr("move_to_group")).action(move || {
+menu_item(res::str::move_to_group()).action(move || {
     for id in model::selection().get_untracked() {
-        model::reparent(id, Some(group), None);          // None = append
+        model::reparent(id, Some(group), None); // None = append
     }
 });
 ```
@@ -564,7 +567,7 @@ backing is composite reports its subcontrols, and the accessors take one:
 
 ```rust
 day_appkit::with_native_subcontrol(node, Subcontrol::Content, |view, class, mtm| …)
-button("x").appkit_subcontrol(Subcontrol::Content, |…| …)    // the Decorate form
+button(res::str::sample_label()).appkit_subcontrol(Subcontrol::Content, |…| …)    // the Decorate form
 ```
 
 `Subcontrol::Host` is today's behavior and stays the default; `Subcontrol::Content` is the

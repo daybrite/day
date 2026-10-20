@@ -14,16 +14,19 @@ Day supports fonts, colors, spacing, backgrounds, and canvas drawing. Native con
 the platform’s appearance, including focus rings, slider tracks, and selection highlights.
 The sections below describe which properties an app can set and how each toolkit interprets them.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Text
 
 Fonts are chosen by role. Pick a role instead of a point size, and each platform maps it to its
 text-style system:
 
 ```rust
-label(tr("title")).font(Font::Title)
-label(tr("caption")).font(Font::Caption).color(Color::rgb(0.5, 0.5, 0.5))
-label("Total").font(Font::Body).weight(FontWeight::Semibold)
-label("legalese").italic()
+label(res::str::title()).font(Font::Title)
+label(res::str::caption()).font(Font::Caption).color(Color::rgb(0.5, 0.5, 0.5))
+label(res::str::total()).font(Font::Body).weight(FontWeight::Semibold)
+label(res::str::legalese()).italic()
 ```
 
 The semantic roles (`LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`,
@@ -36,7 +39,7 @@ in the project's `resource/fonts/` directory ([resources guide](/docs/resources)
 
 ```rust
 column((avatar, name, bio))
-    .padding(16.0)
+    .padding(Space::L)
     .background(Color::hex(0x1E293B))
     .corner_radius(12.0)
 ```
@@ -70,11 +73,14 @@ pub struct Card;
 
 impl Modifier for Card {
     fn apply(self, content: AnyPiece) -> AnyPiece {
-        content.padding(16.0).background(CARD_BG).corner_radius(12.0)
+        content
+            .padding(Space::L)
+            .background(CARD_BG)
+            .corner_radius(12.0)
     }
 }
 
-column((label("Plan"), label("Pro"))).modifier(Card)
+column((label(res::str::plan()), label(res::str::pro()))).modifier(Card)
 ```
 
 Any `FnOnce(AnyPiece) -> AnyPiece` is a `Modifier` too, so one-off wrappers don't need a named

@@ -25,6 +25,9 @@ Both support macOS, iOS, Android, Linux, Windows, HarmonyOS, and web. On web, fi
 must be asynchronous. Neither API encrypts data; see [what not to store](#4-what-not-to-store)
 before using them for sensitive information.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## 1. Persist a setting
 
 `day::prefs` ships with the `day` crate (a default-on feature), so there is nothing to add to
@@ -77,12 +80,12 @@ cannot wait; the `*_future` forms work everywhere, awaited under `day::task`:
 let status = Signal::new(String::new());
 day::task(async move {
     if let Err(e) = day_part_fs::write_future("notes/today.txt", text.into_bytes()).await {
-        status.set(format!("error: {e}"));
+        status.set(res::str::operation_failed(e.to_string()).format());
         return;
     }
     match day_part_fs::read_future("notes/today.txt").await {
         Ok(bytes) => status.set(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(e) => status.set(format!("error: {e}")),
+        Err(e) => status.set(res::str::operation_failed(e.to_string()).format()),
     }
 });
 ```

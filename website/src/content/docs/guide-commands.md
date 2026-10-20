@@ -16,8 +16,14 @@ use day::prelude::*;
 
 let starred = Signal::new(false);
 let star = Command::new(
-    "star",
-    move || if starred.get() { "Unstar" } else { "Star" }.to_string(),
+    id!(star),
+    move || {
+        if starred.get() {
+            res::str::unstar().format()
+        } else {
+            res::str::star().format()
+        }
+    },
     move || starred.update(|on| *on = !*on),
 )
 .checked(starred)
@@ -26,7 +32,8 @@ let star = Command::new(
 
 let menu = star.clone();
 let bar = star.clone();
-let content = star.button()
+let content = star
+    .button()
     .context_menu(move || vec![menu.menu_item()])
     .toolbar(move || vec![bar.toolbar_item()]);
 ```
@@ -34,6 +41,9 @@ let content = star.button()
 Use localized resources in application titles, just as for a normal button. Add
 `.enabled(move || ...)` for availability, and call `.invoke()` from a custom gesture or another
 caller. It returns whether the handler ran; it does not report the result of asynchronous work.
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
 
 ## Choose the owning scope and target
 

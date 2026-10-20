@@ -43,16 +43,19 @@ import SwiftUI
 public struct TemperatureDial: View {
     let room: String
     let celsius: Double
+    let readout: String
 
-    public init(room: String, celsius: Double) {
+    public init(room: String, celsius: Double, readout: String) {
         self.room = room
         self.celsius = celsius
+        self.readout = readout
     }
 
     public var body: some View {
         VStack {
             Gauge(value: celsius, in: 0...40) { Text(room) }
-            Text("\(celsius, specifier: "%.1f") °C")
+                .accessibilityValue(Text(readout))
+            Text(readout)
         }
     }
 }
@@ -94,6 +97,10 @@ hosting glue. On iOS the package joins the generated `DayPieces` SwiftPM package
 already links; on macOS the same package is referenced by the `platform/macos/` Xcode host project
 and built inside the same xcodebuild run.
 
+The room name and formatted temperature come from the app's Fluent catalog. The Swift view
+receives the translated text; it does not assemble a second message in Swift. Add `living_room`
+and `temperature_celsius` from the [example catalog](/docs/internal/snippet-catalog).
+
 ## 3. Call it
 
 The generated constructor mirrors the Swift init exactly: same name, same parameters, in order.
@@ -107,10 +114,14 @@ fn climate_card(temp: Signal<f64>) -> AnyPiece {
     if day_piece_swiftui::support() != Support::Native {
         return label(crate::res::str::not_on_this_platform()).any();
     }
-    crate::swiftui::TemperatureDial(String::from("Living room"), move || temp.get())
-        .frame(220.0, 220.0)
-        .id(id!(climate_dial))
-        .any()
+    crate::swiftui::TemperatureDial(
+        || crate::res::str::living_room().format(),
+        move || temp.get(),
+        move || crate::res::str::temperature_celsius(temp.get()).format(),
+    )
+    .frame(220.0, 220.0)
+    .id(id!(climate_dial))
+    .any()
 }
 ```
 
@@ -131,8 +142,12 @@ the hosting view and the `@State` it owns. When the view should hold its state i
 a key:
 
 ```rust
-crate::swiftui::TemperatureDial(String::from("Living room"), move || temp.get())
-    .state_key("climate-dial")
+crate::swiftui::TemperatureDial(
+    || crate::res::str::living_room().format(),
+    move || temp.get(),
+    move || crate::res::str::temperature_celsius(temp.get()).format(),
+)
+.state_key("climate-dial")
 ```
 
 Day then retains the hosting view under that key and hands the same instance back on the next mount:

@@ -62,6 +62,7 @@ Framework-level UI: navigation, lists, layout containers, drawing, text, and the
 | [textarea](/docs/internal/textarea) | multi-line text: editing, selection, spell-check |
 | [texteditor](/docs/internal/texteditor) | `day-piece-texteditor` — editing a StyledText in each platform's rich-text view |
 | [localization](/docs/internal/localization) | Fluent mechanics, arguments, fallback |
+| [snippet-catalog](/docs/internal/snippet-catalog) | Fluent messages and resource setup for the documentation examples |
 | [accessibility](/docs/internal/accessibility) | roles, per-backend attribute mapping, the audit |
 | [lifecycle](/docs/internal/lifecycle) | app phases and their per-platform availability |
 | [async](/docs/internal/async) | tasks, resources, and the runtime rules |
@@ -135,6 +136,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [web](/docs/internal/web) | the `web-dom` backend — wasm build, dayscript bridge, static hosting |
 | [extending](/docs/internal/extending) | piece registration internals |
 | [bridge](/docs/internal/bridge) | daybridge: foreign-language arms of a Rust API |
+| [android-jni](/docs/internal/android-jni) | java_class! bindings: typed JNI calls, the startup check, R8 keep rules |
 | [coverage-matrix](/docs/internal/coverage-matrix) | which piece kinds each backend renders (generated, CI-gated) |
 | [duty-matrix](/docs/internal/duty-matrix) | which backend implements which Toolkit duty (generated, CI-gated) |
 | [recorder-matrix](/docs/internal/recorder-matrix) | event → recorded dayscript step coverage (generated, CI-gated) |
@@ -144,6 +146,7 @@ Platform backends, the extension model for writing your own Pieces, per-backend 
 | [screenshot-archive](/docs/internal/screenshot-archive) | the screenshots.tar.xz bundle `day screenshot pack` writes, and normalized captures |
 | [flavors](/docs/internal/flavors) | `Day-<name>.toml` and `--flavor`: one source tree, several shipped apps |
 | [agent](/docs/internal/agent) | dayscript sessions, `day drive`, and the agent-facing tooling |
+| [element-ids](/docs/internal/element-ids) | typed id! declarations, compiled registries, and dayscript coverage gates |
 | [testing](/docs/internal/testing) | `day test`: #[day::test] cases run inside the app, the conformance app, the evidence |
 | [api-style](/docs/internal/api-style) | the API design conventions Day itself follows |
 | [vscode](/docs/internal/vscode) | editor setup |

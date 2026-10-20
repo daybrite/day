@@ -28,25 +28,31 @@ and list markers.
 use day::prelude::*;
 use day_piece_texteditor::text_editor;
 
+// Synthetic editor content, representing a document supplied by the user.
 let doc = Signal::new(StyledText::markdown("**Hello**, _world_.", Font::Body));
 let sel = Signal::new(0..0);
 let typing = Signal::new(RunStyle::plain(Font::Body));
 
 column((
     // The toolbar is ordinary Day pieces — the piece ships no chrome of its own.
-    button("B").action(move || {
+    button(res::str::bold()).action(move || {
         let range = sel.get_untracked();
-        let on = !doc.with_untracked(|d| d.style_of(range.clone(), Font::Body)).bold();
+        let on = !doc
+            .with_untracked(|d| d.style_of(range.clone(), Font::Body))
+            .bold();
         doc.update(|d| d.apply(range.clone(), Font::Body, move |s| s.set_bold(on)));
     }),
     text_editor(doc)
-        .selection(sel)          // two-way: caret moves write it, writing it moves the caret
-        .typing_style(typing)    // two-way: what the NEXT keystroke will be styled with
-        .placeholder("Start typing…")
+        .selection(sel) // two-way: caret moves write it, writing it moves the caret
+        .typing_style(typing) // two-way: what the NEXT keystroke will be styled with
+        .placeholder(res::str::start_typing())
         .min_lines(8)
         .max_lines(14),
 ))
 ```
+
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
 
 ## 1. Every toolkit already has one
 

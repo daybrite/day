@@ -34,6 +34,9 @@ windows, lookup prefers the focused window (including a cover-backed window). Re
 list and tree rows follow their owning view's window. A dismissing cover no longer takes
 precedence over the primary window. Keep ids unique within each window.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+
 ## Titles: what the platform manages windows by
 
 Every platform's automatic window management identifies a window by its **title**, and supplies
@@ -89,7 +92,7 @@ let win = day::open_window(
                                           // .kind(WindowKind::Preferences) for a panel
     || detail_page("AAPL"),               // built under the new window's root
 );
-win.set_title("AAPL — live");
+win.set_title(res::str::live_quote_title("AAPL").format());
 win.on_close(|| println!("gone"));
 win.close();                              // async: confirmed by the platform, THEN torn down
 ```
@@ -160,8 +163,11 @@ mobile navigation presentation itself.
 ## About
 
 ```rust
-day::register_about_window(res::window_options().title("About My App"), || about_page());
-day::register_about(|| show_native_about_dialog());   // or: any action
+day::register_about_window(
+    res::window_options().title(res::str::about_app().format()),
+    || about_page(),
+);
+day::register_about(|| show_native_about_dialog()); // or: any action
 day::open_about();
 ```
 

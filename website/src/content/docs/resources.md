@@ -29,7 +29,17 @@ become `res/drawable-*` entries crunched by aapt2; on iOS they join an asset cat
 compile into a GResource bundle; on Qt, a Qt resource file. `day build` does the staging
 automatically, per [target](/docs/glossary#target), before the platform build runs.
 
+The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
+[example messages](/docs/internal/snippet-catalog) and [catalog setup](/docs/localization).
+
 ## Typed names, generated at build
+
+> [!TIP]
+> **Use the generated names for known resources.** `res::images::logo` and
+> `res::assets::stations_json` let the compiler catch missing files and misspellings.
+> Reserve dynamic names for assets selected at runtime. The same rule applies to
+> human-readable text: use generated `res::str` accessors from the
+> [Fluent catalog](/docs/localization).
 
 You reference bundled resources through generated constants, not bare strings. The scaffold's
 `build.rs` calls `day_build::prebuild_project()`, which writes a typed constant per file:
@@ -162,7 +172,7 @@ constant, which carries the **family name** baked into the font file itself (wha
 fontconfig report), not the file name:
 
 ```rust
-label("Welcome aboard").font(Font::custom(res::fonts::pacifico, 24.0))
+label(res::str::welcome_aboard()).font(Font::custom(res::fonts::pacifico, 24.0))
 ```
 
 `day build` stages each font where the platform wants it: `res/font/` on Android (with the
