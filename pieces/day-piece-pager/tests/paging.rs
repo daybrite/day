@@ -39,9 +39,9 @@ fn settlement_freezes_identity_and_rejects_stale_callbacks_without_rebuilding_pa
         .any()
     });
     let pager = day_core::rnode_to_id(day_core::with_tree(|t| {
-        t.find_by_id("fixture-pager").unwrap()
+        t.find_by_id(day_core::id!(fixture_pager).as_str()).unwrap()
     }));
-    let first = day_core::with_tree(|t| t.find_by_id("first-page").unwrap());
+    let first = day_core::with_tree(|t| t.find_by_id(day_core::id!(first_page).as_str()).unwrap());
     probe.emit(pager, Event::custom("pager", "begin 1"));
     assert!(busy.get_untracked());
     probe.emit(pager, Event::SelectionChanged(1));
@@ -66,7 +66,7 @@ fn settlement_freezes_identity_and_rejects_stale_callbacks_without_rebuilding_pa
     });
     flush_sync();
     assert_eq!(
-        day_core::with_tree(|t| t.find_by_id("first-page")),
+        day_core::with_tree(|t| t.find_by_id(day_core::id!(first_page).as_str())),
         Some(first)
     );
     probe.emit(pager, Event::custom("pager", "begin 1"));

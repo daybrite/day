@@ -420,7 +420,7 @@ mod tests {
             .id(day_core::id!(fixture_stepper))
             .any()
         });
-        let node = with_tree(|t| t.find_by_id("fixture-stepper")).unwrap();
+        let node = with_tree(|t| t.find_by_id(day_core::id!(fixture_stepper).as_str())).unwrap();
         (writes, node)
     }
 
