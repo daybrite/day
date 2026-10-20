@@ -59,7 +59,7 @@ app_menu(vec![
   copies from whatever control has focus with no wiring. Custom `menu_item`s run your closure
   instead.
 - `.key("s")` is the primary modifier (⌘ on Apple, Ctrl elsewhere), so one spec reads right on every
-  desktop. For anything else, build a `Shortcut`: `Shortcut::new("s").shift()` is ⇧⌘S /
+  desktop. For anything else, build a `Shortcut`: `Shortcut::primary("s").shift()` is ⇧⌘S /
   Ctrl+Shift+S, `Shortcut::plain("Delete")` has no modifier, and `.alt()` / `.control()` add the
   rest. Named keys (`"Return"`, `"Delete"`, `"F5"`, arrows) work alongside single characters.
 - `.bar_role(…)` claims a standard slot. Each desktop fills the standard menus (Edit, View, Help)
@@ -73,9 +73,10 @@ About and Quit, so your submenus start at File), in a bar at the top of the wind
 Windows, in a `QMenuBar` on Qt (the native global bar on `macos-qt`), and in the app-bar
 overflow on Android. Android allows one level of submenu; deeper ones flatten.
 
-`app_menu` resolves labels once, in the install-time [locale](/docs/glossary#locale). If your app has a runtime
-language picker, install with `app_menu_reactive(builder)` instead; the builder re-runs on a
-locale change and reinstalls the bar in the new language.
+The menu is live: every title, `enabled` and `checked` is re-read and the bar reinstalled when
+one changes, so a runtime language picker retitles it in the new [locale](/docs/glossary#locale)
+with no extra code. `app_menu` also takes a closure (`app_menu(move || vec![…])`) that re-runs
+on whatever else it reads.
 
 ## 2. Attach context menus
 
@@ -116,11 +117,11 @@ for a two-state button bound two-way, `toolbar_segmented(id, segments, signal)` 
 segmented control, `toolbar_menu(id, label, entries)` for a pull-down built from the same
 `MenuEntry`s the menu bar takes, `toolbar_label(id, text)` for static text, and
 `toolbar_separator(id)` for a divider. The modifiers are `.icon(Symbol)`, `.image(name)`,
-`.action(f)`, `.tooltip(t)`, `.enabled(bool)`, `.enabled_when(f)`, `.placement(…)`,
+`.action(f)`, `.tooltip(t)`, `.enabled(on)` (a `bool`, a signal or a closure), `.placement(…)`,
 `.label_style(…)`, and `.prominent()`.
 
 Search has no toolbar item. Declare it on the navigation surface it filters, with
-`nav(section).searchable(query)`, and Day draws the field where the platform puts search.
+`nav(section).searchable(Search::new(query))`, and Day draws the field where the platform puts search.
 That lets it move into the navigation list on a window too narrow for a [sidebar](/docs/glossary#sidebar) without your code
 changing. A sidebar supplies its own toggle button, so an app declares nothing for that either.
 
@@ -139,9 +140,9 @@ is that search fields and labels always render on the leading side.
 
 `.toolbar(…)` also takes a closure, `page.toolbar(move || vec![…])`, which re-runs whenever the
 state it reads changes and replaces that piece's items. Keep the values that change often out of
-that closure: a toggle's [signal](/docs/glossary#signal), a search field's signal, and
-`.enabled_when(…)` patch the one item in place, so a command greying out never disturbs a search in
-progress. To show an item conditionally, put its piece under `when`; the item leaves with its
+that closure: a toggle's [signal](/docs/glossary#signal), a search field's signal, and a
+reactive `.enabled(…)` patch the one item in place, so a command greying out never disturbs a
+search in progress. To show an item conditionally, put its piece under `when`; the item leaves with its
 subtree. The [Toolbars](/docs/internal/toolbars) reference covers placement per platform and what
 each backend draws.
 
@@ -149,18 +150,20 @@ each backend draws.
 
 ```rust
 let win = day::open_window(
-    Some("detail:AAPL"),                  // key: open-or-focus singleton; None = always new
-    WindowOptions { title: "AAPL".into(), size: Size::new(720.0, 640.0), ..Default::default() },
-    WindowKind::Normal,
+    res::window_options()
+        .title("AAPL")
+        .size(720.0, 640.0)
+        .key("detail:AAPL"),              // open-or-focus singleton; omit for always new
     || detail_page("AAPL"),
 );
 win.on_close(|| println!("gone"));
 ```
 
-The `key` names the logical window: opening an already-open key focuses it instead of
-duplicating, and `day::window_by_key("detail:AAPL")` finds it later. `WindowKind::Normal` is
-resizable, miniaturizable, and joins the platform's tabbing group; `WindowKind::Preferences`
-drops resize and minimize and never tabs. The window is app-owned: it survives the page that
+`res::window_options()` is generated with the app's locale catalog, title and version; the
+builders set the rest. `.key(..)` names the logical window: opening an already-open key focuses
+it instead of duplicating, and `day::window_by_key("detail:AAPL")` finds it later. The default
+kind, `WindowKind::Normal`, is resizable, miniaturizable, and joins the platform's tabbing
+group; `.kind(WindowKind::Preferences)` drops resize and minimize and never tabs. The window is app-owned: it survives the page that
 opened it. Close is asynchronous everywhere: the title-bar button, a platform gesture, and
 `WindowHandle::close()` all wait for the platform to confirm, then the content is disposed and
 `on_close` runs. Closing the primary window quits the app.
@@ -214,7 +217,7 @@ Front, plus the open-window list) unless your own menu claims `MenuRole::Minimiz
   piece belong to that window. Items declared on a page appear wherever that page is shown. A builder whose pieces declare none opens a window with an empty bar.
 - Keep bound values out of a derived toolbar closure. A [reactive](/docs/glossary#reactive) rebuild replaces that
   piece's items and would drop the search field's focus mid-word. Structure and labels go in
-  the closure; a toggle's signal, a search signal, and `.enabled_when` patch single items.
+  the closure; a toggle's signal, a search signal, and a reactive `.enabled` patch single items.
 - Don't put the toolkit name in your window title. Debug builds append a
   `(<version>/<toolkit>)` tag to every title so you can tell windows apart; add your own and
   it appears twice. Release builds never show the tag.

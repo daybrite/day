@@ -22,9 +22,7 @@ fn dynamic_context_menu_survives_padding_and_uses_live_state() {
         label("Fixture row")
             .padding(12.)
             .frame(200., 60.)
-            .context_menu_fn(move |_| {
-                vec![menu_item(format!("Fixture revision {}", revision.get()))]
-            })
+            .context_menu(move || vec![menu_item(format!("Fixture revision {}", revision.get()))])
     });
     let (handle, _) = probe.find_by_kind("day.label").into_iter().next().unwrap();
     let provider = probe
@@ -1480,10 +1478,10 @@ fn nav_data_driven_items_reconcile() {
     let probe = boot(move || {
         nav(current)
             .style(NavStyle::Sidebar)
-            .items(
+            .items(nav_items(
                 move || rooms_r.get(),
                 |r: &String| item(r.clone(), r.clone()),
-            )
+            ))
             .destination(|k: &Option<String>| {
                 label(format!("room:{}", k.clone().unwrap_or_default()))
             })
@@ -1533,7 +1531,7 @@ fn nav_filtered_rows_keep_a_live_detail() {
     let probe = boot(move || {
         nav(current)
             .style(NavStyle::Sidebar)
-            .items(
+            .items(nav_items(
                 move || {
                     let needle = q.get();
                     all.iter()
@@ -1542,7 +1540,7 @@ fn nav_filtered_rows_keep_a_live_detail() {
                         .collect::<Vec<_>>()
                 },
                 |r: &String| item(r.clone(), r.clone()),
-            )
+            ))
             .destination(|k: &Option<String>| {
                 label(format!("page:{}", k.clone().unwrap_or_default()))
             })
@@ -1618,8 +1616,11 @@ fn nav_can_hide_the_selected_row_without_disposing_its_detail() {
             nav(selection)
                 .style(NavStyle::Sidebar)
                 .retain_selection_when(move |_| keep.get_untracked())
-                .items(move || rows.get(), |key| item(key.clone(), key.clone()))
-                .content_list(|| label("list"))
+                .items(nav_items(
+                    move || rows.get(),
+                    |key| item(key.clone(), key.clone()),
+                ))
+                .content_list(ContentList::new(|| label("list")))
                 .destination(|key: &Option<String>| label(format!("detail:{key:?}")))
                 .any()
         },
@@ -1685,17 +1686,18 @@ fn boot_content_list(
 }
 
 fn content_list_selector(sel: Signal<String>, dv: Option<Signal<bool>>) -> AnyPiece {
-    let s = nav(sel)
+    let list = ContentList::new(|| label("the-list")).only_for(|k: &String| k != "extra");
+    let list = match dv {
+        Some(v) => list.detail_visible(v),
+        None => list,
+    };
+    nav(sel)
         .style(NavStyle::Sidebar)
         .title("Home")
-        .content_list(|| label("the-list"))
-        .content_list_for(|k: &String| k != "extra")
+        .content_list(list)
         .item("about", "About", || label("about-content"))
-        .item("extra", "Extra", || label("extra-content"));
-    match dv {
-        Some(v) => s.detail_visible(v).any(),
-        None => s.any(),
-    }
+        .item("extra", "Extra", || label("extra-content"))
+        .any()
 }
 
 /// `Cap::NavContentList` Unsupported: the nav composes the pane into each list-backed
@@ -1892,10 +1894,9 @@ fn content_list_on_a_compact_tab_bar_is_the_tab_s_own_screen() {
         move || {
             nav(sel)
                 .title("Home")
-                .content_list(|| label("the-list"))
+                .content_list(ContentList::new(|| label("the-list")).detail_visible(dv))
                 .item("about", "About", || label("about-content"))
                 .item("extra", "Extra", || label("extra-content"))
-                .detail_visible(dv)
                 .any()
         }
     });
@@ -1943,10 +1944,9 @@ fn a_tabs_host_composes_its_content_list_instead_of_asking_for_a_pane() {
         move || {
             nav(sel)
                 .title("Home")
-                .content_list(|| label("the-list"))
+                .content_list(ContentList::new(|| label("the-list")).detail_visible(dv))
                 .item("about", "About", || label("about-content"))
                 .item("extra", "Extra", || label("extra-content"))
-                .detail_visible(dv)
                 .any()
         }
     });
@@ -1984,8 +1984,9 @@ fn content_list_starts_collapsed_when_the_first_destination_is_excluded() {
             nav(sel)
                 .style(NavStyle::Sidebar)
                 .title("Home")
-                .content_list(|| label("the-list"))
-                .content_list_for(|k: &String| k != "welcome")
+                .content_list(
+                    ContentList::new(|| label("the-list")).only_for(|k: &String| k != "welcome"),
+                )
                 .item("welcome", "Welcome", || label("welcome-content"))
                 .item("browse", "Browse", || label("browse-content"))
                 .any()
@@ -2113,9 +2114,8 @@ fn content_list_filter_after_back_stays_on_sidebar() {
         move || {
             nav(selection)
                 .style(NavStyle::Sidebar)
-                .content_list(|| label("Fixture articles"))
-                .detail_visible(detail)
-                .items(
+                .content_list(ContentList::new(|| label("Fixture articles")).detail_visible(detail))
+                .items(nav_items(
                     move || {
                         if filtered.get() {
                             vec!["unread"]
@@ -2124,7 +2124,7 @@ fn content_list_filter_after_back_stays_on_sidebar() {
                         }
                     },
                     |key| item(*key, *key),
-                )
+                ))
                 .destination(|_: &String| label("Fixture detail"))
                 .any()
         },
@@ -2175,12 +2175,14 @@ fn composed_gated_detail_is_a_nested_stack_inside_a_tab() {
         move || {
             nav(sel)
                 .title("Home")
-                .content_list(|| label("the-list"))
-                .content_list_for(|k: &String| k == "about")
+                .content_list(
+                    ContentList::new(|| label("the-list"))
+                        .only_for(|k: &String| k == "about")
+                        .detail_visible(dv)
+                        .detail_title(move || title_r.get()),
+                )
                 .item("about", "About", || label("about-content"))
                 .item("extra", "Extra", || label("extra-content"))
-                .detail_visible(dv)
-                .detail_title(move || title_r.get())
                 .any()
         }
     });
@@ -3278,16 +3280,15 @@ fn list_reports_selection_by_key() {
 fn reorderable_list(
     moves: std::rc::Rc<std::cell::RefCell<Vec<(usize, usize)>>>,
     order: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
-    guard: Option<fn(usize, usize) -> Reorder>,
+    guard: Option<fn(usize, usize) -> ReorderVerdict>,
 ) -> AnyPiece {
     let items = Signal::new(order.borrow().clone());
     let mut l = list(
         day_pieces::items(move || items.get(), |s: &String| s.clone()),
         |row: ItemSlot<String, String>| label(move || row.get()),
     )
-    .row_height(RowHeight::Uniform(20.0))
-    .reorderable(true)
-    .on_reorder(move |from, to| {
+    .row_height(RowHeight::Uniform(20.0));
+    let mut reorder = Reorder::new(move |from, to| {
         moves.borrow_mut().push((from, to));
         items.update(|v| {
             let it = v.remove(from);
@@ -3296,8 +3297,9 @@ fn reorderable_list(
         *order.borrow_mut() = items.get_untracked();
     });
     if let Some(g) = guard {
-        l = l.reorder_guard(g);
+        reorder = reorder.guard(g);
     }
+    l = l.reorderable(reorder);
     l.any()
 }
 
@@ -3359,7 +3361,7 @@ fn list_reorder_denied_by_guard_and_unsupported_without_optin() {
     let moves = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
     let (m, o) = (moves.clone(), order.clone());
-    let probe = boot(move || reorderable_list(m, o, Some(|_, _| Reorder::Deny)));
+    let probe = boot(move || reorderable_list(m, o, Some(|_, _| ReorderVerdict::Deny)));
     let host = probe.find_by_kind("day.list")[0].0;
 
     assert_eq!(probe.list_can_move(host, 1, 3), -1);
@@ -3389,7 +3391,7 @@ fn list_reorder_guard_retargets_the_drop() {
     let order = std::rc::Rc::new(std::cell::RefCell::new(seed()));
     let (m, o) = (moves.clone(), order.clone());
     // Every drop lands at row 0, wherever it was proposed (the "pinned target" pattern).
-    let probe = boot(move || reorderable_list(m, o, Some(|_, _| Reorder::Retarget(0))));
+    let probe = boot(move || reorderable_list(m, o, Some(|_, _| ReorderVerdict::Retarget(0))));
     let host = probe.find_by_kind("day.list")[0].0;
 
     assert_eq!(
@@ -3426,9 +3428,9 @@ fn list_try_reorder_drives_the_scripted_path() {
             o,
             Some(|from, _| {
                 if from == 0 {
-                    Reorder::Deny
+                    ReorderVerdict::Deny
                 } else {
-                    Reorder::Allow
+                    ReorderVerdict::Allow
                 }
             }),
         )
@@ -3523,7 +3525,7 @@ fn list_stick_to_bottom_scrolls_on_data_change() {
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .row_height(RowHeight::Uniform(20.0))
-        .stick_to_bottom(true)
+        .stick_to_bottom()
         .any()
     });
     let host = probe.find_by_kind("day.list")[0].0;
@@ -4345,7 +4347,7 @@ fn inspector_list_can_own_its_bounded_scroll_view() {
             .grow()
         })
         .padding(4.0)
-        .scrollable(false)
+        .not_scrollable()
         .grow()
     });
     assert_eq!(probe.find_by_kind("day.list").len(), 1);
@@ -4834,11 +4836,11 @@ fn scroll_target_signal_drives_offset() {
     let jump: Signal<Option<ScrollTarget>> = Signal::new(None);
     let jump2 = jump;
     let probe = boot(move || {
-        scroll(column(PieceVec(
+        scroll(column(
             (0..100)
                 .map(|i| label(format!("row {i}")).id(format!("mock-row-{i}")).any())
-                .collect(),
-        )))
+                .collect::<Vec<_>>(),
+        ))
         .scroll_target(jump2)
         .any()
     });
@@ -4890,7 +4892,9 @@ fn picker_and_text_area_are_built_in() {
     let draft2 = draft;
     let probe = boot(move || {
         column((
-            picker(["A", "B", "C"], choice2).segmented().id("pk"),
+            picker(choice2, [(0usize, "A"), (1, "B"), (2, "C")])
+                .segmented()
+                .id("pk"),
             text_area(draft2).placeholder("write…").id("ta"),
         ))
         .any()
@@ -5728,12 +5732,9 @@ fn win_options(title: &str, w: f64, h: f64) -> WindowOptions {
 #[test]
 fn open_window_builds_and_lays_out_at_its_own_size() {
     let probe = boot(|| label("main").any());
-    let handle = day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || column((label("in window").id("w2-label"),)).grow().any(),
-    );
+    let handle = day_core::open_window(win_options("second", 300.0, 200.0), || {
+        column((label("in window").id("w2-label"),)).grow().any()
+    });
     flush_sync();
 
     assert!(handle.is_open());
@@ -5761,17 +5762,12 @@ fn open_window_builds_and_lays_out_at_its_own_size() {
 fn cross_window_find_and_tap_by_id() {
     let clicks = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(0i64));
     let probe = boot(move || label(move || format!("clicks {}", clicks.get())).any());
-    day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        move || {
-            button("press")
-                .action(move || clicks.set(clicks.get() + 1))
-                .id("w2-btn")
-                .any()
-        },
-    );
+    day_core::open_window(win_options("second", 300.0, 200.0), move || {
+        button("press")
+            .action(move || clicks.set(clicks.get() + 1))
+            .id("w2-btn")
+            .any()
+    });
     flush_sync();
 
     // The one tree spans windows: the id resolves without any window scoping.
@@ -5793,12 +5789,9 @@ fn cross_window_find_and_tap_by_id() {
 #[test]
 fn window_resize_relayouts_only_that_window() {
     let probe = boot(|| column((label("main"),)).grow().any());
-    day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || column((label("w2"),)).grow().any(),
-    );
+    day_core::open_window(win_options("second", 300.0, 200.0), || {
+        column((label("w2"),)).grow().any()
+    });
     flush_sync();
     let node = probe.windows()[0].node;
 
@@ -5831,12 +5824,9 @@ fn window_resize_relayouts_only_that_window() {
 fn programmatic_close_round_trips_and_tears_down() {
     let probe = boot(|| label("main").any());
     let closed = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(false));
-    let handle = day_core::open_window(
-        Some("second"),
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("in window").id("w2-label").any(),
-    );
+    let handle = day_core::open_window(win_options("second", 300.0, 200.0).key("second"), || {
+        label("in window").id("w2-label").any()
+    });
     handle.on_close(move || closed.set(true));
     flush_sync();
     assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_some());
@@ -5871,12 +5861,9 @@ fn programmatic_close_round_trips_and_tears_down() {
 fn native_close_tears_down_and_fires_on_close() {
     let probe = boot(|| label("main").any());
     let closed = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(false));
-    let handle = day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("in window").id("w2-label").any(),
-    );
+    let handle = day_core::open_window(win_options("second", 300.0, 200.0), || {
+        label("in window").id("w2-label").any()
+    });
     handle.on_close(move || closed.set(true));
     flush_sync();
 
@@ -5903,16 +5890,13 @@ fn native_close_tears_down_and_fires_on_close() {
 fn last_primary_close_quits_even_with_a_secondary_window_open() {
     let probe = boot(|| label("main").any());
     let initial = day_core::windows::initial_window().expect("initial window adopted at boot");
-    let extra = day_core::open_window(
-        None,
-        win_options("Second", 800.0, 600.0),
-        day_spec::WindowKind::Normal,
-        || label("second body").any(),
-    );
+    let extra = day_core::open_window(win_options("Second", 800.0, 600.0), || {
+        label("second body").any()
+    });
     let prefs = day_core::open_window(
-        Some("prefs"),
-        win_options("Settings", 520.0, 640.0),
-        day_spec::WindowKind::Preferences,
+        win_options("Settings", 520.0, 640.0)
+            .key("prefs")
+            .kind(day_spec::WindowKind::Preferences),
         || label("prefs body").any(),
     );
     flush_sync();
@@ -5960,9 +5944,9 @@ fn last_primary_close_quits_even_with_a_secondary_window_open() {
 fn closing_a_secondary_window_never_quits() {
     let probe = boot(|| label("main").any());
     let prefs = day_core::open_window(
-        Some("prefs"),
-        win_options("Settings", 520.0, 640.0),
-        day_spec::WindowKind::Preferences,
+        win_options("Settings", 520.0, 640.0)
+            .key("prefs")
+            .kind(day_spec::WindowKind::Preferences),
         || label("prefs body").any(),
     );
     flush_sync();
@@ -5980,17 +5964,17 @@ fn closing_a_secondary_window_never_quits() {
 fn singleton_key_opens_once_and_refocuses() {
     let probe = boot(|| label("main").any());
     let first = day_core::open_window(
-        Some("prefs"),
-        win_options("Settings", 520.0, 640.0),
-        day_spec::WindowKind::Preferences,
+        win_options("Settings", 520.0, 640.0)
+            .key("prefs")
+            .kind(day_spec::WindowKind::Preferences),
         || label("prefs body").any(),
     );
     flush_sync();
     let mark = probe.log_len();
     let second = day_core::open_window(
-        Some("prefs"),
-        win_options("Settings", 520.0, 640.0),
-        day_spec::WindowKind::Preferences,
+        win_options("Settings", 520.0, 640.0)
+            .key("prefs")
+            .kind(day_spec::WindowKind::Preferences),
         || label("SHOULD NOT BUILD").any(),
     );
     flush_sync();
@@ -6019,12 +6003,7 @@ fn singleton_key_opens_once_and_refocuses() {
 #[test]
 fn set_title_reaches_the_backend() {
     let probe = boot(|| label("main").any());
-    let handle = day_core::open_window(
-        None,
-        win_options("before", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("w2").any(),
-    );
+    let handle = day_core::open_window(win_options("before", 300.0, 200.0), || label("w2").any());
     flush_sync();
     handle.set_title("after");
     assert_eq!(probe.windows()[0].title, "after");
@@ -6049,9 +6028,7 @@ fn preferences_fallback_adapts_to_width_without_changing_other_windows() {
         day_core::set_size_class(day_spec::SizeClass::from_size(width, 900.0));
         probe.clear_log();
         let window = day_core::open_window(
-            None,
-            win_options("Fixture settings", 520.0, 640.0),
-            kind,
+            win_options("Fixture settings", 520.0, 640.0).kind(kind),
             || label("fixture modal content").grow().any(),
         );
         flush_sync();
@@ -6085,9 +6062,9 @@ fn fallback_presents_as_cover_and_close_dismisses() {
     );
 
     let handle = day_core::open_window(
-        Some("prefs"),
-        win_options("Settings", 520.0, 640.0),
-        day_spec::WindowKind::Preferences,
+        win_options("Settings", 520.0, 640.0)
+            .key("prefs")
+            .kind(day_spec::WindowKind::Preferences),
         || label("prefs body").id("prefs-label").any(),
     );
     flush_sync();
@@ -6143,9 +6120,9 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
 
     let open = || {
         day_core::open_window(
-            Some("prefs"),
-            win_options("Settings", 520.0, 640.0),
-            day_spec::WindowKind::Preferences,
+            win_options("Settings", 520.0, 640.0)
+                .key("prefs")
+                .kind(day_spec::WindowKind::Preferences),
             || label("prefs body").id("prefs-label").any(),
         )
     };
@@ -6204,12 +6181,9 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
 fn pending_open_completes_and_builds() {
     let probe = boot(|| label("main").any());
     probe.set_pending_windows(true);
-    let handle = day_core::open_window(
-        Some("detail"),
-        win_options("Detail", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("detail body").id("detail-label").any(),
-    );
+    let handle = day_core::open_window(win_options("Detail", 300.0, 200.0).key("detail"), || {
+        label("detail body").id("detail-label").any()
+    });
     flush_sync();
 
     // Parked: record exists, nothing built, no live window yet.
@@ -6245,12 +6219,9 @@ fn pending_open_completes_and_builds() {
 fn pending_close_before_completion_cancels() {
     let probe = boot(|| label("main").any());
     probe.set_pending_windows(true);
-    let handle = day_core::open_window(
-        None,
-        win_options("Detail", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("detail body").id("detail-label").any(),
-    );
+    let handle = day_core::open_window(win_options("Detail", 300.0, 200.0), || {
+        label("detail body").id("detail-label").any()
+    });
     flush_sync();
     handle.close();
     flush_sync();
@@ -6392,10 +6363,10 @@ fn toolbar_page_change_with_same_commands_installs_nothing() {
     let probe = boot(move || {
         nav(section)
             .style(NavStyle::Sidebar)
-            .items(
+            .items(nav_items(
                 move || vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()],
                 |r: &String| item(r.clone(), r.clone()),
-            )
+            ))
             .destination(move |s: &Option<String>| {
                 let page = s.clone().unwrap_or_default();
                 let log = log.clone();
@@ -6559,12 +6530,11 @@ fn toolbar_search_falls_back_inline_where_the_bar_holds_no_field() {
     day_core::launch_with(mock, WindowOptions::default(), move || {
         nav(Signal::new(Option::<String>::None))
             .style(NavStyle::Sidebar)
-            .searchable(q)
-            .search_placement(day_spec::props::SearchPlacement::Toolbar)
-            .items(
+            .searchable(Search::new(q).placement(day_spec::props::SearchPlacement::Toolbar))
+            .items(nav_items(
                 || vec!["alpha".to_string()],
                 |r: &String| item(r.clone(), r.clone()),
-            )
+            ))
             .destination(|_: &Option<String>| label("detail"))
             .any()
     });
@@ -6605,9 +6575,8 @@ fn toolbar_search_text_survives_a_page_change() {
     let probe = boot(move || {
         nav(section)
             .style(NavStyle::Sidebar)
-            .searchable(q_r)
-            .search_placement(day_spec::props::SearchPlacement::Toolbar)
-            .items(
+            .searchable(Search::new(q_r).placement(day_spec::props::SearchPlacement::Toolbar))
+            .items(nav_items(
                 move || {
                     let q = q_r.get().to_lowercase();
                     rows.iter()
@@ -6616,7 +6585,7 @@ fn toolbar_search_text_survives_a_page_change() {
                         .collect::<Vec<_>>()
                 },
                 |r: &String| item(r.clone(), r.clone()),
-            )
+            ))
             // Pages with different commands: moving between them changes the bar's shape.
             .destination(|s: &Option<String>| match s.as_deref() {
                 Some("beta") => label("beta")
@@ -6703,10 +6672,12 @@ fn searchable_binds_the_query_both_ways() {
     let probe = boot(move || {
         nav(section)
             .style(NavStyle::Sidebar)
-            .searchable(q_r)
-            .search_prompt("Find")
-            .search_scopes(scope, vec!["All", "Recent"])
-            .items(
+            .searchable(
+                Search::new(q_r)
+                    .prompt("Find")
+                    .scopes(scope, vec!["All", "Recent"]),
+            )
+            .items(nav_items(
                 move || {
                     // A tracked read: the row set narrows as the query changes, which is why
                     // search is bound to the surface the rows come from.
@@ -6717,7 +6688,7 @@ fn searchable_binds_the_query_both_ways() {
                         .collect::<Vec<_>>()
                 },
                 |r: &String| item(r.clone(), r.clone()),
-            )
+            ))
             .destination(|_: &Option<String>| label("detail"))
             .any()
     });
@@ -6767,9 +6738,8 @@ fn deletable_list(
         day_pieces::items(move || items.get(), |s: &String| s.clone()),
         |row: ItemSlot<String, String>| label(move || row.get()),
     )
-    .row_height(RowHeight::Uniform(20.0))
-    .deletable(true)
-    .on_delete(move |index| {
+    .row_height(RowHeight::Uniform(20.0));
+    let mut delete = Delete::new(move |index| {
         deletes.borrow_mut().push(index);
         items.update(|v| {
             v.remove(index);
@@ -6777,8 +6747,9 @@ fn deletable_list(
         *order.borrow_mut() = items.get_untracked();
     });
     if let Some(g) = guard {
-        l = l.delete_guard(g);
+        delete = delete.guard(g);
     }
+    l = l.deletable(delete);
     l.any()
 }
 
@@ -6879,7 +6850,7 @@ fn swipe_list(
         let hits = star_hits.clone();
         vec![
             swipe_action("Star")
-                .destructive(true)
+                .destructive()
                 .action(move || hits.borrow_mut().push(format!("star:{i}"))),
         ]
     })
@@ -7034,8 +7005,9 @@ fn content_list_survives_a_presentation_round_trip() {
             nav(sel)
                 .style(NavStyle::Automatic)
                 .title("Home")
-                .content_list(|| label("the-list"))
-                .content_list_for(|k: &String| k != "extra")
+                .content_list(
+                    ContentList::new(|| label("the-list")).only_for(|k: &String| k != "extra"),
+                )
                 .item("about", "About", || label("about-content"))
                 .item("extra", "Extra", || label("extra-content"))
                 .any()
@@ -7523,29 +7495,30 @@ fn movable_tree(
             .any(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
             || k == "A2"
     })
-    .movable(true)
-    .move_guard(|_k, parent, _i| {
-        // The app's rule for the tests: nothing may move under "A2".
-        if parent.map(|p| p == "A2").unwrap_or(false) {
-            MoveVerdict::Deny
-        } else {
-            MoveVerdict::Allow
-        }
-    })
-    .on_move(move |k, parent, index| {
-        moves.borrow_mut().push((k.clone(), parent.clone(), index));
-        entries.update(|v| {
-            let pos = v.iter().position(|e| e.id == k).unwrap();
-            let mut it = v.remove(pos);
-            it.parent = parent
-                .as_deref()
-                .map(|p| v.iter().find(|e| e.id == p).unwrap().id);
-            // Test simplification: the moved item re-appends in flat order; an indexed
-            // drop's order is not exercised through the data here (order within a parent
-            // is item order).
-            v.push(it);
-        });
-    })
+    .movable(
+        Move::new(move |k: String, parent: Option<String>, index| {
+            moves.borrow_mut().push((k.clone(), parent.clone(), index));
+            entries.update(|v| {
+                let pos = v.iter().position(|e| e.id == k).unwrap();
+                let mut it = v.remove(pos);
+                it.parent = parent
+                    .as_deref()
+                    .map(|p| v.iter().find(|e| e.id == p).unwrap().id);
+                // Test simplification: the moved item re-appends in flat order; an indexed
+                // drop's order is not exercised through the data here (order within a parent
+                // is item order).
+                v.push(it);
+            });
+        })
+        .guard(|_k, parent, _i| {
+            // The app's rule for the tests: nothing may move under "A2".
+            if parent.map(|p| p == "A2").unwrap_or(false) {
+                MoveVerdict::Deny
+            } else {
+                MoveVerdict::Allow
+            }
+        }),
+    )
     .on_selection(move |keys| *sel.borrow_mut() = keys)
     .type_ahead(|k| k.to_string())
     .reveal(reveal)
@@ -7915,12 +7888,7 @@ fn scene_shell() -> AnyPiece {
 #[test]
 fn scoped_ambient_gives_each_window_its_own_state() {
     let probe = boot(scene_shell);
-    day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        scene_shell,
-    );
+    day_core::open_window(win_options("second", 300.0, 200.0), scene_shell);
     flush_sync();
 
     // Four labels: two per window, all still on the value `create()` made.
@@ -7950,7 +7918,7 @@ fn scoped_ambient_gives_each_window_its_own_state() {
 
 #[test]
 fn ambient_resolves_inside_a_nav_destination() {
-    // The case the scaffold depends on: `.destination(…)` and `.item_icon(…, page)` take bare
+    // The case the scaffold depends on: `.destination(…)` and `item(…).page(page)` take bare
     // `fn() -> impl Piece`, so those page functions can only reach window state through
     // `ambient()`. That works only if the nav builds its destinations inside the providing
     // scope, so assert it rather than assume it.
@@ -7967,10 +7935,10 @@ fn ambient_resolves_inside_a_nav_destination() {
                 // Both shapes the scaffold uses: a static item with its own builder, and the
                 // `.items(…)` + `.destination(…)` fallback the settings row goes through.
                 .item(Sec::One, "One", page)
-                .items(
+                .items(nav_items(
                     move || vec![Sec::Two],
                     |s: &Sec| day_pieces::item(*s, "Two"),
-                )
+                ))
                 .destination(|_: &Sec| page())
                 .any()
         })
@@ -8075,12 +8043,7 @@ fn a_freshly_opened_window_is_the_focused_one() {
     // that only learns focus from events never marks a just-opened window as key, and
     // File ▸ New Window followed straight away by a menu command sends it to the wrong window.
     let probe = boot(scene_shell);
-    day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        scene_shell,
-    );
+    day_core::open_window(win_options("second", 300.0, 200.0), scene_shell);
     flush_sync();
 
     Scene::focused()
@@ -8129,9 +8092,9 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
         });
         probe.set_no_multi_window(cover);
         let window = day_core::open_window(
-            Some("fixture-settings"),
-            win_options("Fixture Settings", 400.0, 300.0),
-            day_spec::WindowKind::Preferences,
+            win_options("Fixture Settings", 400.0, 300.0)
+                .key("fixture-settings")
+                .kind(day_spec::WindowKind::Preferences),
             move || form(secondary),
         );
         flush_sync();
@@ -8180,12 +8143,7 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
 #[test]
 fn focused_ambient_follows_the_key_window_and_falls_back_to_the_primary() {
     let probe = boot(scene_shell);
-    day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        scene_shell,
-    );
+    day_core::open_window(win_options("second", 300.0, 200.0), scene_shell);
     flush_sync();
     let second_node = probe.windows()[0].node;
 
@@ -8249,15 +8207,10 @@ fn window_title_names_the_window_it_is_built_into() {
         day_core::window_title(move || primary_name.read());
         label("main").any()
     });
-    day_core::open_window(
-        None,
-        win_options("placeholder", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        move || {
-            day_core::window_title(move || second_name.read());
-            label("in window").any()
-        },
-    );
+    day_core::open_window(win_options("placeholder", 300.0, 200.0), move || {
+        day_core::window_title(move || second_name.read());
+        label("in window").any()
+    });
     flush_sync();
     assert_eq!(probe.windows()[0].title, "second");
 
@@ -8311,9 +8264,7 @@ fn two_windows_hold_two_size_classes_at_once() {
     // windows), and a single global would lay the second one out for the first one's size.
     let probe = boot(adaptive_shell);
     day_core::open_window(
-        Some("second"),
-        win_options("second", 1200.0, 800.0),
-        day_spec::WindowKind::Normal,
+        win_options("second", 1200.0, 800.0).key("second"),
         adaptive_shell,
     );
     flush_sync();
@@ -8346,9 +8297,7 @@ fn resizing_one_window_leaves_the_others_class_alone() {
     // which is why this is a test rather than a screenshot.
     let probe = boot(adaptive_shell);
     day_core::open_window(
-        Some("second"),
-        win_options("second", 1200.0, 800.0),
-        day_spec::WindowKind::Normal,
+        win_options("second", 1200.0, 800.0).key("second"),
         adaptive_shell,
     );
     flush_sync();
@@ -8470,9 +8419,9 @@ fn a_window_that_crosses_a_breakpoint_re_presents_without_rebuilding() {
 fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
     let probe = boot(|| label("main").any());
     let grid = Signal::new(true);
-    // The state the mark shows is read here, so `app_menu_reactive` re-lowers on every change
+    // The state the mark shows is read here, so `app_menu` re-lowers on every change
     // (docs/menus.md), the whole reason a backend never flips a check itself.
-    app_menu_reactive(move || {
+    app_menu(move || {
         vec![sub_menu(
             "View",
             vec![
@@ -9091,24 +9040,19 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     let on = Signal::new(false);
     let title = Signal::new("Enable grid".to_string());
     let calls = Signal::new(0usize);
-    let command = Command {
-        id: "grid",
-        label: title,
-        action: move || {
-            calls.update(|n| *n += 1);
-            on.update(|v| *v = !*v);
-        },
-    }
-    .build()
+    let command = Command::new("grid", title, move || {
+        calls.update(|n| *n += 1);
+        on.update(|v| *v = !*v);
+    })
     .enabled(enabled)
     .checked(on)
     .icon(Symbol::Star)
-    .shortcut(Shortcut::new("g"));
+    .shortcut(Shortcut::primary("g"));
     let menu = command.clone();
     let bar = command.clone();
     let button = command.clone();
     let probe = boot(move || {
-        app_menu_reactive(move || vec![sub_menu("View", vec![menu.menu_item()])]);
+        app_menu(move || vec![sub_menu("View", vec![menu.menu_item()])]);
         column((button.button(), button.button().id("grid-second")))
             .toolbar(move || vec![bar.toolbar_item().id("grid-toolbar")])
     });
@@ -9129,7 +9073,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
         panic!()
     };
     assert_eq!(checked, Some(false));
-    assert_eq!(shortcut, Some(Shortcut::new("g")));
+    assert_eq!(shortcut, Some(Shortcut::primary("g")));
     day_core::dispatch_menu_action(action);
     flush_sync();
     assert!(on.get());
@@ -9210,24 +9154,16 @@ fn reusable_command_does_not_outlive_its_owner_or_cross_window_state() {
     let first = owner.enter(|| {
         let count = Signal::new(0);
         let calls = calls.clone();
-        Command {
-            id: "increment",
-            label: "Increment",
-            action: move || {
-                count.update(|n| *n += 1);
-                calls.set(count.get());
-            },
-        }
-        .build()
+        Command::new("increment", "Increment", move || {
+            count.update(|n| *n += 1);
+            calls.set(count.get());
+        })
         .enabled(move || count.get() < 2)
     });
     let other_count = Signal::new(0);
-    let second = Command {
-        id: "increment",
-        label: "Increment",
-        action: move || other_count.update(|n| *n += 1),
-    }
-    .build();
+    let second = Command::new("increment", "Increment", move || {
+        other_count.update(|n| *n += 1)
+    });
     let clone = first.clone();
     assert!(first.invoke());
     assert!(clone.invoke());
@@ -9248,16 +9184,14 @@ fn reusable_command_definition_captures_owner_only_when_built() {
     let defining_scope = Scope::child();
     // A boxed handler is deliberately not Clone. Cloning the handle must share it.
     let action: Box<dyn Fn()> = Box::new(move || calls.update(|n| *n += 1));
-    let definition = defining_scope.enter(|| Command {
-        id: id.as_str(),
-        label: "Increment",
-        action,
-    });
+    // The command is built in the scope that owns it; the defining scope's disposal is
+    // irrelevant to a value that was never created inside it.
     defining_scope.dispose();
 
     let owner = Scope::child();
-    let command: CommandHandle = owner.enter(|| definition.build().checked(true));
-    drop(id); // build owns the id, even when its input was a borrowed string
+    let command: Command =
+        owner.enter(|| Command::new(id.as_str(), "Increment", action).checked(true));
+    drop(id); // `new` owns the id, even when its input was a borrowed string
     assert_eq!(command.id(), "deferred-command");
     let clone = command.clone();
     assert!(command.invoke());
@@ -9274,13 +9208,7 @@ fn reusable_command_definition_captures_owner_only_when_built() {
 
 #[test]
 fn reusable_command_checked_toolbar_restores_rejected_native_toggle() {
-    let command = Command {
-        id: "fixed",
-        label: "Fixed",
-        action: || {},
-    }
-    .build()
-    .checked(false);
+    let command = Command::new("fixed", "Fixed", || {}).checked(false);
     let _probe = boot(move || label("main").toolbar(move || vec![command.toolbar_item()]));
     let item = day_core::toolbar::toolbar_model()
         .into_iter()
@@ -9472,10 +9400,10 @@ fn nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering(
         nav(current)
             .style(NavStyle::Sidebar)
             .icon_progress(move || active.get())
-            .items(
+            .items(nav_items(
                 move || rows.get(),
                 |name: &String| item(name.clone(), name.clone()),
-            )
+            ))
             .destination(|_: &Option<String>| label("Fixture page"))
     });
     let menu = probe.find_by_kind("day.nav_menu")[0].0;
@@ -9556,12 +9484,14 @@ fn nav_sidebar_reorder_keeps_fixed_sections_and_selected_route() {
         nav(selected)
             .icon_progress(move || activity.get())
             .style(NavStyle::Sidebar)
-            .section("Fixture smart feeds")
-            .item("today".to_string(), "Fixture today", || {
-                label("Fixture today page")
-            })
-            .section("Fixture feeds")
-            .items(move || feeds.get(), |key| item(key.clone(), key.clone()))
+            .section(
+                "Fixture smart feeds",
+                item("today".to_string(), "Fixture today").page(|| label("Fixture today page")),
+            )
+            .section(
+                "Fixture feeds",
+                nav_items(move || feeds.get(), |key| item(key.clone(), key.clone())),
+            )
             .destination(|_| label("Fixture feed page"))
             .item("settings".to_string(), "Fixture settings", || {
                 label("Fixture settings page")
@@ -9649,12 +9579,7 @@ fn nav_reorder_unsupported_preserves_navigation_menu() {
 #[test]
 fn window_state_signal_round_trips_through_the_platform() {
     let probe = boot(|| label("main").any());
-    let handle = day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("two").any(),
-    );
+    let handle = day_core::open_window(win_options("second", 300.0, 200.0), || label("two").any());
     flush_sync();
     let state = handle.state();
     assert_eq!(state.get(), day_spec::WindowState::Normal);
@@ -9720,12 +9645,8 @@ fn a_declined_state_request_reads_back_what_the_window_kept() {
 #[test]
 fn content_protection_reaches_the_window_that_asked() {
     let probe = boot(|| label("main").any());
-    let handle = day_core::open_window(
-        None,
-        win_options("vault", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        || label("secret").any(),
-    );
+    let handle =
+        day_core::open_window(win_options("vault", 300.0, 200.0), || label("secret").any());
     flush_sync();
     handle.set_content_protected(true);
     let host = probe.windows()[0].handle;
@@ -9740,15 +9661,10 @@ fn current_window_is_the_window_being_built() {
     let _probe = boot(|| label("main").any());
     let seen: Rc<RefCell<Option<day_core::WindowHandle>>> = Rc::default();
     let s = seen.clone();
-    let handle = day_core::open_window(
-        None,
-        win_options("second", 300.0, 200.0),
-        day_spec::WindowKind::Normal,
-        move || {
-            *s.borrow_mut() = day_core::current_window();
-            label("two").any()
-        },
-    );
+    let handle = day_core::open_window(win_options("second", 300.0, 200.0), move || {
+        *s.borrow_mut() = day_core::current_window();
+        label("two").any()
+    });
     flush_sync();
     let inner = seen
         .borrow()
@@ -10063,9 +9979,11 @@ fn sidebar_sections_keep_identity_selection_and_absent_collapse_state() {
     let probe = boot(move || {
         nav(selected)
             .style(NavStyle::Sidebar)
-            .collapsed_sections(closed)
-            .on_section_expansion(move |id, open| changes.update(|v| v.push((id, open))))
-            .items(
+            .sections(
+                Sections::collapsible(closed)
+                    .on_change(move |id, open| changes.update(|v| v.push((id, open)))),
+            )
+            .items(nav_items(
                 move || rows.get().into_iter().enumerate().collect::<Vec<_>>(),
                 move |(i, key)| {
                     let row = item(key.clone(), key.clone());
@@ -10075,7 +9993,7 @@ fn sidebar_sections_keep_identity_selection_and_absent_collapse_state() {
                         row
                     }
                 },
-            )
+            ))
             .destination(|_| label("Fixture selected repository"))
     });
     let host = probe.find_by_kind("day.tree")[0].0;
@@ -10175,10 +10093,15 @@ fn sidebar_sections_restore_and_persist_stable_ids_without_echo() {
     let build = move || {
         nav(Signal::new("repo".to_owned()))
             .style(NavStyle::Sidebar)
-            .restore_sections("fixture.sections")
-            .on_section_expansion(move |_, _| changes.update(|n| *n += 1))
-            .section_id("owner:日", "Fixture owner")
-            .item("repo", "Fixture repository", || label("Fixture detail"))
+            .sections(
+                Sections::restored("fixture.sections")
+                    .on_change(move |_, _| changes.update(|n| *n += 1)),
+            )
+            .section_id(
+                "owner:日",
+                "Fixture owner",
+                item("repo", "Fixture repository").page(|| label("Fixture detail")),
+            )
     };
     let probe = boot(build);
     let host = probe.find_by_kind("day.tree")[0].0;
@@ -10217,9 +10140,14 @@ fn composed_sidebar_header_click_restores_the_leaf_highlight() {
             move || {
                 nav(selected)
                     .style(NavStyle::Sidebar)
-                    .collapsed_sections(Signal::new(std::collections::HashSet::new()))
-                    .section_id("owner", "Fixture owner")
-                    .item("repo", "Fixture repo", || label("Fixture detail"))
+                    .sections(Sections::collapsible(Signal::new(
+                        std::collections::HashSet::new(),
+                    )))
+                    .section_id(
+                        "owner",
+                        "Fixture owner",
+                        item("repo", "Fixture repo").page(|| label("Fixture detail")),
+                    )
             },
         )
     });
@@ -10247,9 +10175,14 @@ fn sidebar_destination_centers_in_native_cell_height() {
     let probe = boot(|| {
         nav(Signal::new("repo".to_owned()))
             .style(NavStyle::Sidebar)
-            .collapsed_sections(Signal::new(std::collections::HashSet::new()))
-            .section_id("owner", "Fixture owner")
-            .item("repo", "Fixture repository", || label("Fixture detail"))
+            .sections(Sections::collapsible(Signal::new(
+                std::collections::HashSet::new(),
+            )))
+            .section_id(
+                "owner",
+                "Fixture owner",
+                item("repo", "Fixture repository").page(|| label("Fixture detail")),
+            )
     });
     let host = probe.find_by_kind("day.tree")[0].0;
     let header = probe.tree_children(host, None)[0];
@@ -10547,15 +10480,19 @@ fn sidebar_artwork_keeps_color_when_discovered_and_cells_are_recycled() {
     let probe = boot(move || {
         nav(Signal::new("fixture".to_owned()))
             .style(NavStyle::Sidebar)
-            .section("Fixture feeds")
-            .collapsed_sections(Signal::new(std::collections::HashSet::new()))
-            .items(
-                move || vec![icon.get()],
-                |name| {
-                    item("fixture".to_owned(), "Fixture feed")
-                        .icon(name.clone())
-                        .badge_icon(name.clone())
-                },
+            .sections(Sections::collapsible(Signal::new(
+                std::collections::HashSet::new(),
+            )))
+            .section(
+                "Fixture feeds",
+                nav_items(
+                    move || vec![icon.get()],
+                    |name| {
+                        item("fixture".to_owned(), "Fixture feed")
+                            .icon(name.clone())
+                            .badge_icon(name.clone())
+                    },
+                ),
             )
             .destination(|_| label("Fixture detail"))
     });

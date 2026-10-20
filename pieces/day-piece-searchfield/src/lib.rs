@@ -19,6 +19,7 @@
 //! ```
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 use day_pieces::{IntoText, TextSource};
 use day_reactive::{Binding, bind_seeded};
 use day_spec::Event;
@@ -56,6 +57,7 @@ pub fn search_field<S: Binding<String>>(query: S) -> SearchField<S> {
     }
 }
 
+#[day_pieces::builder(SearchFieldBuilder)]
 impl<S: Binding<String>> SearchField<S> {
     /// The empty-state prompt shown when the field has no text (a constant, `Signal<String>`, or
     /// closure, evaluated once for the initial value; the placeholder is not reactive after build).
@@ -147,26 +149,6 @@ fn anchor_backend() {
 }
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`SearchField`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait SearchFieldBuilder: Sized {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
-}
-
-impl<S: Binding<String>> SearchFieldBuilder for SearchField<S> {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        SearchField::placeholder(self, t)
-    }
-}
-
-impl<Inner: SearchFieldBuilder + day_pieces::prelude::Piece> SearchFieldBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder(t))
-    }
-}
 
 /// The search field's conformance cases (docs/testing.md).
 #[cfg(feature = "conformance")]

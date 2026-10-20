@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use day_core::*;
 use day_geometry::{Proposal, Rect};
-use day_reactive::{Signal, bind_seeded};
+use day_reactive::{AnyBinding, Binding, Signal, bind_seeded};
 use day_spec::props::{SplitAxis, SplitPaneProps, SplitPatch, SplitProps};
 use day_spec::{Cap, Color, Cursor, DragPhase, Event, Shape, Size, Support, kinds};
 
@@ -36,7 +36,7 @@ pub struct Split {
     first: AnyPiece,
     second: AnyPiece,
     axis: Reactive<SplitAxis>,
-    fraction: Option<Signal<f64>>,
+    fraction: Option<AnyBinding<f64>>,
     min_pane: f64,
 }
 
@@ -51,6 +51,7 @@ pub fn split<A: Piece, B: Piece>(first: A, second: B) -> Split {
     }
 }
 
+#[day_macros::builder(SplitBuilder)]
 impl Split {
     /// Side by side ([`SplitAxis::Horizontal`], the default) or stacked; a signal or a closure
     /// turns the split live, keeping the share.
@@ -60,45 +61,14 @@ impl Split {
     }
     /// The first pane's share of the length, `0.0..=1.0`, two-way: a dragged divider writes
     /// it, writing it moves the divider. Unbound, the split keeps a share of its own from 0.5.
-    pub fn fraction(mut self, fraction: Signal<f64>) -> Self {
-        self.fraction = Some(fraction);
+    pub fn fraction(mut self, fraction: impl Binding<f64>) -> Self {
+        self.fraction = Some(AnyBinding::new(fraction));
         self
     }
     /// The least length either pane may be dragged to (default [`SPLIT_MIN_PANE`]).
     pub fn min_pane(mut self, points: f64) -> Self {
         self.min_pane = points.max(0.0);
         self
-    }
-}
-
-/// [`Split`]'s builders, forwarded through `Decorated` (docs/api-style.md).
-pub trait SplitBuilder: Sized {
-    fn axis<M>(self, axis: impl IntoReactive<SplitAxis, M>) -> Self;
-    fn fraction(self, fraction: Signal<f64>) -> Self;
-    fn min_pane(self, points: f64) -> Self;
-}
-
-impl SplitBuilder for Split {
-    fn axis<M>(self, axis: impl IntoReactive<SplitAxis, M>) -> Self {
-        Split::axis(self, axis)
-    }
-    fn fraction(self, fraction: Signal<f64>) -> Self {
-        Split::fraction(self, fraction)
-    }
-    fn min_pane(self, points: f64) -> Self {
-        Split::min_pane(self, points)
-    }
-}
-
-impl<Inner: SplitBuilder + Piece> SplitBuilder for Decorated<Inner> {
-    fn axis<M>(self, axis: impl IntoReactive<SplitAxis, M>) -> Self {
-        self.map_inner(|inner| inner.axis(axis))
-    }
-    fn fraction(self, fraction: Signal<f64>) -> Self {
-        self.map_inner(|inner| inner.fraction(fraction))
-    }
-    fn min_pane(self, points: f64) -> Self {
-        self.map_inner(|inner| inner.min_pane(points))
     }
 }
 
@@ -133,7 +103,7 @@ fn build_native(split: Split, cx: &mut BuildCx) -> RNode {
         fraction,
         min_pane,
     } = split;
-    let fraction = fraction.unwrap_or_else(|| Signal::new(0.5));
+    let fraction = fraction.unwrap_or_else(|| AnyBinding::new(Signal::new(0.5)));
     let initial_axis = axis.get_untracked();
     let initial = fraction.get_untracked().clamp(0.0, 1.0);
     let sizes: Rc<RefCell<std::collections::HashMap<RNode, Size>>> = Rc::default();
@@ -314,7 +284,7 @@ fn build_composed(split: Split, cx: &mut BuildCx) -> RNode {
         fraction,
         min_pane,
     } = split;
-    let fraction = fraction.unwrap_or_else(|| Signal::new(0.5));
+    let fraction = fraction.unwrap_or_else(|| AnyBinding::new(Signal::new(0.5)));
     let initial_axis = axis.get_untracked();
     let state = Rc::new(ComposedState {
         stacked: Cell::new(initial_axis == SplitAxis::Vertical),

@@ -8,16 +8,16 @@
 //! registered link-time into each Apple backend's renderer slice without touching day.
 //!
 //! `map()` shows a slippy map centered on a coordinate. Configure the region at build with
-//! `.center(lat, lon)` + `.span(degrees)` (a smaller span zooms in) and drop a pin with
-//! `.marker(lat, lon)`. The center can also be bound reactively with `.center_signal(signal)` so a
-//! preset button row or a location feed recenters the map live (a `Center` patch to the native view;
-//! a `Const` center from `.center` seeds once and never patches). A map fills the space it's offered
+//! `.center((lat, lon))` + `.span(degrees)` (a smaller span zooms in) and drop a pin with
+//! `.marker(lat, lon)`. The center also takes a signal or a closure, so a preset button row or a
+//! location feed recenters the map live (a `Center` patch to the native view; a constant
+//! center seeds once and never patches). A map fills the space it's offered
 //! (a growing leaf), so constrain it with `.frame(w, h)`. See docs/map.md for the per-backend caveats.
 //!
 //! ```ignore
 //! let where_to = Signal::new((37.7749, -122.4194)); // San Francisco
 //! map()
-//!     .center_signal(where_to)  // preset buttons `where_to.set(..)` recenter live
+//!     .center(where_to)  // preset buttons `where_to.set(..)` recenter live
 //!     .span(0.05)               // ~5 km across
 //!     .marker(37.7749, -122.4194)
 //!     .frame(320.0, 240.0)
@@ -25,6 +25,7 @@
 //! ```
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 use day_pieces::{IntoReactive, Reactive};
 use day_reactive::bind_seeded;
 
@@ -69,7 +70,7 @@ pub enum MapPatch {
 }
 
 /// A native map view centered on a coordinate. Set the region with `.center()`/`.span()`, drop a pin
-/// with `.marker()`, and optionally bind the center reactively with `.center_signal()`.
+/// with `.marker()`, and optionally bind the center reactively by passing `.center()` a signal.
 pub struct Map {
     center: Reactive<Coord>,
     span: f64,
@@ -77,7 +78,7 @@ pub struct Map {
 }
 
 /// `map()`: a native map view (defaults to `(0, 0)` at the default span, no marker). Point it at a
-/// place with `.center(lat, lon)` (or `.center_signal(..)` to follow a coordinate signal).
+/// place with `.center((lat, lon))` (or a coordinate signal, to follow it).
 pub fn map() -> Map {
     Map {
         center: Reactive::Const((0.0, 0.0)),
@@ -86,18 +87,12 @@ pub fn map() -> Map {
     }
 }
 
+#[day_pieces::builder(MapBuilder)]
 impl Map {
-    /// Center the map on a fixed coordinate (degrees). Build-time; use `.center_signal` for a
-    /// reactive center.
-    pub fn center(mut self, lat: f64, lon: f64) -> Self {
-        self.center = Reactive::Const((lat, lon));
-        self
-    }
-
-    /// Bind the center to a reactive coordinate: a `Signal<(f64, f64)>` or a `Fn() -> (f64, f64)`.
-    /// When it changes, the map recenters live (a `Center` patch). Last of `.center`/`.center_signal`
-    /// wins.
-    pub fn center_signal<M>(mut self, coord: impl IntoReactive<Coord, M>) -> Self {
+    /// Center the map on a coordinate in degrees: a fixed `(lat, lon)`, a `Signal<(f64, f64)>`,
+    /// or a `Fn() -> (f64, f64)`. A reactive center recenters the map live (a `Center` patch)
+    /// whenever it changes.
+    pub fn center<M>(mut self, coord: impl IntoReactive<Coord, M>) -> Self {
         self.center = coord.into_reactive();
         self
     }
@@ -169,45 +164,6 @@ day_pieces::glue_modules!(appkit, uikit);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Map`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait MapBuilder: Sized {
-    fn center(self, lat: f64, lon: f64) -> Self;
-    fn center_signal<M>(self, coord: impl IntoReactive<Coord, M>) -> Self;
-    fn span(self, degrees: f64) -> Self;
-    fn marker(self, lat: f64, lon: f64) -> Self;
-}
-
-impl MapBuilder for Map {
-    fn center(self, lat: f64, lon: f64) -> Self {
-        Map::center(self, lat, lon)
-    }
-    fn center_signal<M>(self, coord: impl IntoReactive<Coord, M>) -> Self {
-        Map::center_signal(self, coord)
-    }
-    fn span(self, degrees: f64) -> Self {
-        Map::span(self, degrees)
-    }
-    fn marker(self, lat: f64, lon: f64) -> Self {
-        Map::marker(self, lat, lon)
-    }
-}
-
-impl<Inner: MapBuilder + day_pieces::prelude::Piece> MapBuilder for day_pieces::Decorated<Inner> {
-    fn center(self, lat: f64, lon: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.center(lat, lon))
-    }
-    fn center_signal<M>(self, coord: impl IntoReactive<Coord, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.center_signal(coord))
-    }
-    fn span(self, degrees: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.span(degrees))
-    }
-    fn marker(self, lat: f64, lon: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.marker(lat, lon))
-    }
-}
-
 /// The map's conformance cases (docs/testing.md). Native only where the platform ships a map
 /// view; elsewhere the kind renders a placeholder and the cases skip.
 #[cfg(feature = "conformance")]
@@ -224,7 +180,7 @@ pub mod conformance {
             .proves(KIND)
             .page(|| {
                 map()
-                    .center(48.8566, 2.3522)
+                    .center((48.8566, 2.3522))
                     .span(0.2)
                     .marker(48.8566, 2.3522)
                     .id("map")
@@ -268,12 +224,7 @@ mod tests {
             ..Default::default()
         };
         day_core::launch_with(mock, options, move || {
-            day_core::AnyPiece::new(
-                map()
-                    .center_signal(center)
-                    .span(0.05)
-                    .marker(37.8199, -122.4783),
-            )
+            day_core::AnyPiece::new(map().center(center).span(0.05).marker(37.8199, -122.4783))
         });
 
         let found = probe.find_by_kind(KIND);

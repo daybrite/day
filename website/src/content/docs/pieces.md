@@ -45,17 +45,18 @@ column((
 .padding(16.0)
 ```
 
-Tuples work up to sixteen children; past that (or when the shape is computed at runtime), collect
-into a `PieceVec`:
+Tuples work up to sixteen children; past that (or when the shape is computed at runtime), pass a
+`Vec` or an array, and an `Option` for a child that may be absent (`None` builds nothing):
 
 ```rust
-let stars: Vec<AnyPiece> = (0..5).map(|i| star(i)).collect();
-row(PieceVec(stars)).spacing(4.0)
+let stars: Vec<_> = (0..5).map(|i| star(i)).collect();
+row(stars).spacing(Space::XS)
+row((icon, (d.precip > 0).then(|| label(format!("{}%", d.precip)))))
 ```
 
 `AnyPiece` is the type-erased form: a boxed build closure. Reach for it at a boundary that needs
-one single type, such as a `PieceVec` like the one above, a stored builder, or a function that
-branches between two different pieces:
+one single type, such as a `Vec<AnyPiece>` whose elements differ in type, a stored builder, or a
+function that branches between two different pieces:
 
 ```rust
 fn status_badge(online: bool) -> AnyPiece {

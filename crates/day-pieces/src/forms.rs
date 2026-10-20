@@ -86,6 +86,7 @@ pub fn section<C: PieceSeq + 'static>(children: C) -> FormSection<C> {
     }
 }
 
+#[day_macros::builder(FormSectionBuilder)]
 impl<C: PieceSeq + 'static> FormSection<C> {
     /// The section header, shown above the card in the footnote style.
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
@@ -422,31 +423,6 @@ impl day_core::Layout for LabeledLayout {
 }
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`FormSection`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait FormSectionBuilder: Sized {
-    fn title<M>(self, t: impl IntoText<M>) -> Self;
-    fn footer<M>(self, t: impl IntoText<M>) -> Self;
-}
-
-impl<C: PieceSeq + 'static> FormSectionBuilder for FormSection<C> {
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        FormSection::title(self, t)
-    }
-    fn footer<M>(self, t: impl IntoText<M>) -> Self {
-        FormSection::footer(self, t)
-    }
-}
-
-impl<Inner: FormSectionBuilder + Piece> FormSectionBuilder for Decorated<Inner> {
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.title(t))
-    }
-    fn footer<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.footer(t))
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Conformance cases (docs/testing.md)

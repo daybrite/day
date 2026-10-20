@@ -2,33 +2,46 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Status items (docs/status-item.md): an icon in the macOS menu bar, the Windows notification
-//! area or a Linux tray, with a menu, built reactively like `app_menu_reactive`.
+//! area or a Linux tray, with a menu, built reactively like `app_menu`.
 
 use std::rc::Rc;
 
 use day_reactive::Scope;
 use day_spec::{Icon, StatusImage, StatusItemSpec, Symbol};
 
-use crate::MenuEntry;
 use crate::menus::lower_menu;
+use crate::{IntoText, MenuContent, MenuSource, TextSource};
 
 /// What a status item shows: its icon, text and menu. Built by the closure handed to
 /// [`status_item`], which re-runs whenever a signal it reads changes.
-#[derive(Default)]
 pub struct StatusItem {
     icon: Option<Icon>,
     raster: Option<StatusImage>,
     template: bool,
-    title: String,
-    tooltip: String,
-    menu: Vec<MenuEntry>,
+    title: Option<TextSource>,
+    tooltip: Option<TextSource>,
+    menu: Option<MenuSource>,
     on_activate: Option<Rc<dyn Fn()>>,
+}
+
+impl Default for StatusItem {
+    fn default() -> Self {
+        StatusItem::new()
+    }
 }
 
 impl StatusItem {
     /// An item with nothing set yet.
     pub fn new() -> StatusItem {
-        StatusItem::default()
+        StatusItem {
+            icon: None,
+            raster: None,
+            template: false,
+            title: None,
+            tooltip: None,
+            menu: None,
+            on_activate: None,
+        }
     }
 
     /// A platform symbol as the icon, drawn in the menu bar's or panel's own color.
@@ -56,7 +69,8 @@ impl StatusItem {
     }
 
     /// A runtime RGBA image, preserving its logical width (a chart or compact status grid).
-    /// AppKit renders this in color; `.template(true)` opts into a monochrome template.
+    /// AppKit renders this in color; [`template`](StatusItem::template) opts into a monochrome
+    /// template.
     /// Other backends keep using the `icon`/`vector`/`image` fallback, if supplied. The image
     /// owns its pixels and survives closing the window that produced it.
     pub fn raster(mut self, image: StatusImage) -> Self {
@@ -66,30 +80,32 @@ impl StatusItem {
     }
 
     /// Draw the image by its shape alone, in the menu bar's or panel's own color, so one glyph
-    /// reads in light and dark (a macOS template image).
-    pub fn template(mut self, template: bool) -> StatusItem {
-        self.template = template;
+    /// reads in light and dark (a macOS template image). What [`icon`](StatusItem::icon) and
+    /// [`vector`](StatusItem::vector) already do; this opts an [`image`](StatusItem::image) or
+    /// a [`raster`](StatusItem::raster) in.
+    pub fn template(mut self) -> StatusItem {
+        self.template = true;
         self
     }
 
     /// Text beside the icon where the platform shows it (the macOS menu bar): a timer, a count,
-    /// a short status.
-    pub fn title(mut self, title: impl Into<String>) -> StatusItem {
-        self.title = title.into();
+    /// a short status. A literal, a localized text, a signal or a closure; live.
+    pub fn title<M>(mut self, title: impl IntoText<M>) -> StatusItem {
+        self.title = Some(title.into_text());
         self
     }
 
-    /// The hover text.
-    pub fn tooltip(mut self, tooltip: impl Into<String>) -> StatusItem {
-        self.tooltip = tooltip.into();
+    /// The hover text. The same sources as [`title`](StatusItem::title).
+    pub fn tooltip<M>(mut self, tooltip: impl IntoText<M>) -> StatusItem {
+        self.tooltip = Some(tooltip.into_text());
         self
     }
 
-    /// The item's menu, built from the same entries as `app_menu`. Include a
-    /// `menu_role(MenuRole::Quit)` (or an item calling `day::quit()`) in an app that keeps
-    /// running without a window, or the user has no way to end it.
-    pub fn menu(mut self, entries: Vec<MenuEntry>) -> StatusItem {
-        self.menu = entries;
+    /// The item's menu, built from the same entries as `app_menu` (a list or a derived
+    /// closure). Include a `menu_role(MenuRole::Quit)` (or an item calling `day::quit()`) in an
+    /// app that keeps running without a window, or the user has no way to end it.
+    pub fn menu<M>(mut self, entries: impl MenuContent<M>) -> StatusItem {
+        self.menu = Some(entries.into_source());
         self
     }
 
@@ -107,9 +123,22 @@ impl StatusItem {
             icon: self.icon,
             raster: self.raster,
             template: self.template,
-            title: self.title,
-            tooltip: self.tooltip,
-            menu: lower_menu(self.menu),
+            title: self
+                .title
+                .as_ref()
+                .map(TextSource::resolve)
+                .unwrap_or_default(),
+            tooltip: self
+                .tooltip
+                .as_ref()
+                .map(TextSource::resolve)
+                .unwrap_or_default(),
+            menu: lower_menu(
+                self.menu
+                    .as_ref()
+                    .map(MenuSource::entries)
+                    .unwrap_or_default(),
+            ),
             activate: self.on_activate.map_or(0, day_core::register_menu_action),
         }
     }

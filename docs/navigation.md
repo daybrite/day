@@ -47,7 +47,7 @@ A row activation must present the resident content-list column even when its rou
 already selected. Selection alone is insufficient: UIKit can show the feeds root after
 initial split collapse or native Back while the model already considers the list selected.
 For a merged content list in stack presentation, every native row selection that satisfies
-`content_list_for` reissues `ListInStack(true)` without rebuilding that list. The native
+`ContentList::only_for` reissues `ListInStack(true)` without rebuilding that list. The native
 stack remains authoritative for Back; this does not add a second stack mirror. UIKit
 coalesces pending list requests with a generation ticket, waits for active push/pop transitions,
 and checks the native stack for the list controller before showing the column. This avoids
@@ -266,7 +266,7 @@ would answer one arrow and then go quiet.
 
 ### Immersive items (`.immersive()`)
 
-`.item(…).immersive()` marks the last-added destination as an immersive-chrome page: on
+`item(key, title).immersive()` marks that destination as an immersive-chrome page: on
 backends with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
 get the standard opaque bar. Every other backend ignores the flag. Pair it with
@@ -312,19 +312,35 @@ destination page ride the detail. Both leave the bar when what they act on leave
 neither needs a scope to be spelled out.
 
 The affordance that shows and hides the sidebar is the toolkit's, not the app's: a
-`nav(Sidebar)` supplies it, and `.sidebar_toggle(false)` suppresses it.
+`nav(Sidebar)` supplies it, and `.no_sidebar_toggle()` suppresses it.
 
-## Data-driven items (`nav().items`)
+## Items are values (`item`, `nav_items`, `.items`)
 
-`nav` items can come from a signal, so a sidebar or tab set grows and shrinks with your data
-(a rooms list, open documents). Static `.item`s and dynamic `.items` blocks mix; pair `.items`
-with `.destination` to build the page for a data-driven key (like `nav_stack`).
+An item is a value: `item(key, title)` with its decorations chained onto it (`.icon(..)`,
+`.badge(..)`, `.icon_tint(..)`, `.immersive()`, `.page(build)`). `.items(..)` takes one item, a
+tuple of them, an `Option<NavItem>` (an item a platform may not want, such as
+`prefs.nav_item(Section::Settings)`), a `Vec`, or a data-driven `nav_items(..)` block, in any
+mix; the final list is the declaration order. `.item(key, title, build)` stays as the shorthand
+for `items(item(key, title).page(build))`.
+
+```rust
+nav(section)
+    .items((
+        item(Section::Home, res::str::home()).icon(res::images::home).page(home_page),
+        item(Section::Inbox, res::str::inbox()).icon(res::images::inbox).badge(move || unread.get().to_string()).page(inbox_page),
+        prefs.nav_item(Section::Settings).map(|i| i.icon(res::images::settings)),
+    ))
+```
+
+Items can also come from a signal, so a sidebar or tab set grows and shrinks with your data (a
+rooms list, open documents). `nav_items(reader, map)` is the data-driven block; static items and
+blocks mix, and an item without a `.page` is built by `.destination` (like `nav_stack`).
 
 ```rust
 let tabs = Signal::new(vec!["general".to_string(), "random".to_string()]);
 nav(current)
     .style(NavStyle::Tabs)
-    .items(move || tabs.get(), |k: &String| item(k.clone(), k.clone()))
+    .items(nav_items(move || tabs.get(), |k: &String| item(k.clone(), k.clone())))
     .destination(|k: &String| room_page(k))
 ```
 
@@ -369,11 +385,12 @@ first appeared on that backend. A nav host used as a self-contained widget insid
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 
-**Section headers.** `nav(…).section(title)` opens a header before the NEXT item added —
-a static `.item` or the first row of the next `.items` block — and `item(key, title).section(title)`
-does the same from inside a data-driven mapper, which is how a derived list keeps its groups
-under a search filter: attach the header to the first surviving row of each group, and a group
-whose rows are all filtered out disappears with them. Headers are a grouping hint: a backend
+**Section headers.** `nav(…).section(title, content)` puts a header over `content`, which is
+anything `.items` takes: one item, a tuple, an `Option`, a `nav_items` block, or a mix. The header
+rides the first row of the content (the first row of a data-driven block, wherever the data
+starts). `item(key, title).section(title)` opens a header from inside a data-driven mapper, which
+is how a derived list keeps its groups under a search filter: attach the header to the first
+surviving row of each group, and a group whose rows are all filtered out disappears with them. Headers are a grouping hint: a backend
 without grouped rows (a tab strip, a plain phone list) shows one flat list, so a header is never
 the only way a row is reachable, and a row's icon tint is the grouping signal that survives
 there. AppKit draws them as source-list group rows (small, bold, secondary, pinned as their
@@ -392,10 +409,11 @@ indices at the list, so a row keeps the index Day gave it however many headings 
 
 ```rust
 nav(section)
-    .section(res::str::smart_feeds())
-    .item_icon("today", res::str::today(), res::images::today, today_page)
-    .section(res::str::feeds())
-    .items(move || st.feeds.get(), |f| item(f.id, f.name))
+    .section(res::str::smart_feeds(), (
+        item("today", res::str::today()).icon(res::images::today).page(today_page),
+        item("unread", res::str::unread()).icon(res::images::unread).page(unread_page),
+    ))
+    .section(res::str::feeds(), nav_items(move || st.feeds.get(), |f| item(f.id, f.name)))
 ```
 
 **A data-driven item is a label + optional icon**: the native sidebar/tab row. It is not an
@@ -735,9 +753,9 @@ which equals nesting depth for a single active chain. Two *sibling* surfaces mou
 absolute routes (or drive the signals directly) in such layouts.
 
 `day lint` cross-checks literal `navigate("…")` calls and dayscript `navigate:`/`assert_route:`
-routes against the declared keys in your sources (`.item("key", …)` call sites, the literals
-in the first argument of `.items(…)`, as in `.items(|| vec![String::from("settings")], …)`, and
-`routes! { … => "key" }` blocks): a route whose first segment nothing declares is reported
+routes against the declared keys in your sources (`.item("key", …)` and `item("key", …)` call
+sites, the literals in the first argument of `nav_items(…)`, as in
+`nav_items(|| vec![String::from("settings")], …)`, and `routes! { … => "key" }` blocks): a route whose first segment nothing declares is reported
 (`day::lint::unknown-route`) rather than failing silently at runtime.
 
 ## Restoring state across launches (`.restore`)
@@ -923,20 +941,23 @@ breakpoints, what survives a re-presentation, and which backends morph today.
 > `Automatic` nav host declares the pane freely; a phone gets all three layers either way
 > (the sections, the list, and the detail).
 
-`.content_list(build)` gives a nav host the Mail shape: sidebar, content list, detail
-(mailboxes, message list, message). The list is built once and stays resident for the
-host's life; its content follows the app's own signals (the sidebar selection scoping it, the
-row chosen from it), so switching sections re-scopes it without a rebuild.
+`.content_list(ContentList::new(build))` gives a nav host the Mail shape: sidebar, content
+list, detail (mailboxes, message list, message). The list is built once and stays resident for
+the host's life; its content follows the app's own signals (the sidebar selection scoping it,
+the row chosen from it), so switching sections re-scopes it without a rebuild. The pane's
+configuration is one `ContentList` value with its own builders:
 
 ```rust
 nav(section).style(NavStyle::Sidebar)
-    .content_list(timeline_pane)               // the middle column, built once
-    .content_list_width(400.0)                 // preferred; drag limits are the backend's
-    .content_list_for(|k| k != "settings")     // full-page sections collapse the pane
-    .detail_visible(reader_open)               // the compact push gate, two-way
-    .detail_title(move || open_title.get())    // the detail layer's bar, live
-    .item(…)…
-    .destination(…)                            // the DETAIL only — the list is not in here
+    .content_list(
+        ContentList::new(timeline_pane)              // the middle column, built once
+            .width(400.0)                            // preferred; drag limits are the backend's
+            .only_for(|k| k != "settings")           // full-page sections collapse the pane
+            .detail_visible(reader_open)             // the compact push gate, two-way
+            .detail_title(move || open_title.get()), // the detail layer's bar, live
+    )
+    .items(…)
+    .destination(…)                                  // the detail only; the list is not in here
 ```
 
 - **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit, Qt,
@@ -956,7 +977,7 @@ nav(section).style(NavStyle::Sidebar)
   split's view fills, so the rebuild never touches the tree. `Unsupported` (everything else): the nav host
   composes the list beside each list-backed destination while split, and as the root layer of
   the gated push flow while compact.
-- **`detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
+- **`ContentList::detail_visible` is the compact flow's gate**, two-way like every binding. Wide layouts
   never gate on it (the detail pane is always on screen, showing the app's empty state until a
   row is chosen), but a back still treats it as the open layer: while it is `true` beside the
   list, the back closes the detail (writes `false`) and only the next back leaves the section,
@@ -972,12 +993,12 @@ nav(section).style(NavStyle::Sidebar)
   and a native back, and the nav host's bar actions ride that bar (a tabs chrome otherwise
   draws none). Without `detail_visible` a stacked host behaves classically (the detail pushes
   on selection).
-- **`detail_title`** names the detail layer's navigation bar: the pushed editor on a phone,
+- **`ContentList::detail_title`** names the detail layer's navigation bar: the pushed editor on a phone,
   the detail page's bar wherever the toolkit titles one. Reactive like every title: a closure
   reading your own state retitles the live bar (`NavPatch::Title`) as that state changes, so
   the bar can carry the open item's name. Unset, the detail layer keeps its destination's
   title.
-- **`content_list_for`** collapses the pane per destination (`NavPatch::ListVisible`): a
+- **`ContentList::only_for`** collapses the pane per destination (`NavPatch::ListVisible`): a
   settings page takes the whole detail area, and selecting a list-backed section brings the
   pane back.
 - A host with a content list joins the split's default-selection rule at every presentation:
@@ -1017,7 +1038,7 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   there is room again (24pt of slack keeps a resize on the threshold from flapping); the
   toolbar's sidebar toggle hides it independently, and a toggled-off sidebar stays off. The
   inner paned exists on every host, list or not — with no list page, or one collapsed by
-  `content_list_for`, GTK gives the detail the whole inner allocation and draws no handle — so
+  `ContentList::only_for`, GTK gives the detail the whole inner allocation and draws no handle — so
   the widget shape never changes under live pages. A stack page's `GtkFixed` is wrapped in an
   `AdwNavigationPage`. Tabs use an `AdwViewStack` with a `.linked` toggle switcher; dialogs use
   `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
@@ -1132,19 +1153,21 @@ remain fixed. Without the option, the existing native sidebar widget is unchange
 
 ## Collapsible sidebar sections
 
-Give each group a stable, unlocalized identity with `.section_id("owner:daybrite", title)`
-on a `Nav` or dynamic `NavItem`. `.collapsed_sections(Signal<HashSet<String>>)` enables
-collapsible sidebar headings. The set contains closed groups; absent IDs default to expanded.
+Give each group a stable, unlocalized identity with `.section_id("owner:daybrite", title,
+content)` on a `Nav`, or `.section_id(id, title)` on a dynamic `NavItem`. Collapsible headings
+are one `Sections` value: `.sections(Sections::collapsible(collapsed))` takes the set of closed
+groups as a `Signal<HashSet<String>>` or any other binding; absent IDs default to expanded.
 Retain IDs for temporarily filtered-out groups. Heading identity is independent of the title
 and first child; unkeyed `.section(title)` falls back to the first route and should not be used
 for persistent dynamic groups. A collapsed group never removes its destinations from route
 resolution or changes the selected detail page.
 
-`.on_section_expansion(|id, expanded| ...)` runs after a user/script disclosure changes state,
-with no callback echo when the app restores or writes the signal. Apps can persist the signal
-in their preference store, scoped to an account where appropriate. `.restore_sections(key)`
-provides the same behavior through the installed `NavStore`, encoding sorted IDs as
-length-prefixed records; it tolerates malformed saved data and uses a scope-owned binding.
+`Sections::collapsible(set).on_change(|id, expanded| ...)` runs after a user/script disclosure
+changes state, with no callback echo when the app restores or writes the signal. Apps can
+persist the signal in their preference store, scoped to an account where appropriate.
+`Sections::restored(key)` provides the same behavior through the installed `NavStore`, encoding
+sorted IDs as length-prefixed records; it tolerates malformed saved data and uses a scope-owned
+binding. `.on_change` chains onto either form.
 Day-Hub saves groups per GitHub account; Day-Showcase saves stable group IDs in preferences.
 
 The sidebar uses a two-level tree. AppKit retains genuine floating source-list group headers

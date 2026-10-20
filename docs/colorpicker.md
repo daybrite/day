@@ -32,13 +32,13 @@ row((
     vector(gv::star).tint(move || tint.get()).frame(28.0, 28.0),
 
     color_picker(tint),                          // Automatic (default)
-    color_picker(tint).alpha(true),              // + an opacity channel
+    color_picker(tint).alpha(),                  // + an opacity channel
     color_picker(tint).composed(),               // Day's own panel, on every target
     color_picker(tint).native(),                 // the platform's, literally
     color_picker(tint)
         .title(tr("pick_a_tint"))                // the chooser's heading
         .presets(vec![BRAND, ACCENT, INK])       // the composed panel's swatch row
-        .key("brand-color"),                     // the well's dayscript id, both idioms
+        .id("brand-color"),                      // the well's dayscript id, both idioms
 ))
 ```
 
@@ -92,7 +92,7 @@ into.
 │ │                          │ │   down — three fills, two of them gradients, so
 │ └──────────────────────────┘ │   it stays crisp at any size rather than being a bitmap
 │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ │   hue strip
-│ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │   opacity strip (only with `.alpha(true)`), over a checkerboard
+│ ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒ │   opacity strip (only with `.alpha()`), over a checkerboard
 │ ▉ #e86a3c                    │   preview + hex
 │ ■ ■ ■ ■ ■ ■ ■ ■              │   presets, in a wrapping row
 │ ■ ■ ■ ■ ■ ■ ■                │
@@ -125,7 +125,7 @@ rather than the route adapter.
 
 ## Alpha
 
-`.alpha(true)` offers an opacity channel and lets the bound signal carry a non-opaque value. The
+`.alpha()` offers an opacity channel and lets the bound signal carry a non-opaque value. The
 composed panel honors it everywhere. Among the native choosers there is one gap:
 `<input type="color">` gained an `alpha` attribute only recently and browsers are still shipping
 it, so the web arm sets the attribute and stays opaque where the browser has not implemented it.
@@ -133,7 +133,7 @@ There is no reliable feature test that predicts the UI (a browser can accept the
 still draw an opaque-only picker), so the arm sets it and reads whatever value comes back; an
 opaque pick arrives with `a = 1`.
 
-With `.alpha(false)` (the default) the piece drops the alpha off any pick, so a chooser with a
+Without `.alpha()` (the default) the piece drops the alpha off any pick, so a chooser with a
 stray alpha channel cannot make an app's brand color half-transparent behind its back.
 
 ## Precision
@@ -163,7 +163,7 @@ The composed panel is ordinary pieces, so it is driven by ordinary steps. The we
 route key; the panel's own parts carry fixed ids:
 
 ```yaml
-- tap: { id: brand-color }              # `.key("brand-color")` — the well
+- tap: { id: brand-color }              # `.id("brand-color")` — the well
 - assert_visible: { id: color-picker-panel }
 - assert_text: { id: color-picker-value, text: "#e86a3c" }
 - tap: { id: color-picker-cancel }      # or color-picker-done

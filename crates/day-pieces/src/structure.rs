@@ -11,10 +11,10 @@ use std::hash::Hash;
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Scope, Signal, watch};
+use day_reactive::{AnyBinding, Binding, Scope, Signal, watch};
 use day_spec::props::*;
 
-use crate::{Decorate, Decorated, MenuEntry};
+use crate::{Decorate, Decorated, IntoReactive, IntoText, MenuEntry, Reactive, TextSource};
 use day_spec::{Event, Proposal, Rect, Size, kinds};
 
 // ---------------------------------------------------------------------------
@@ -52,6 +52,7 @@ pub struct When {
     otherwise: Option<Rc<dyn Fn() -> AnyPiece>>,
 }
 
+#[day_macros::builder(WhenBuilder)]
 impl When {
     /// The arm built while the condition is false. Without it, false means "no subtree".
     ///
@@ -183,6 +184,413 @@ impl<T: Clone + 'static, K: Clone + 'static> ItemSlot<T, K> {
     /// Read inside a closure, just like [`get`](Self::get).
     pub fn key(self) -> K {
         self.key.get()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// keyed / switch / load / adaptive: the structure idioms every app re-derived (§5.3)
+// ---------------------------------------------------------------------------
+
+/// A subtree keyed by a value: rebuilt when the key changes, left alone while it does not
+/// (so focus and local state survive), nothing while it is `None`.
+///
+/// ```ignore
+/// keyed(move || scene.selected.get(), |id| editor(id))
+/// ```
+///
+/// `key` is one tracked read, compared with `PartialEq` on every change. The outgoing subtree's
+/// scope is disposed before the incoming one builds, which aborts its pending tasks and
+/// subscriptions, exactly as [`when`] does. This is what `each` over a one-item list stood in
+/// for; for an either/or on a `bool`, [`when`] reads better.
+pub fn keyed<K, P>(
+    key: impl Fn() -> Option<K> + 'static,
+    build: impl Fn(&K) -> P + 'static,
+) -> Keyed<K>
+where
+    K: PartialEq + Clone + 'static,
+    P: Piece,
+{
+    Keyed {
+        key: Rc::new(key),
+        build: Rc::new(move |k| AnyPiece::new(build(k))),
+    }
+}
+
+/// One tracked read, one arm (docs/state.md): a subtree per value of `selector`, rebuilt when
+/// the value changes. The arm closure usually matches, so its arms erase with `.any()`:
+///
+/// ```ignore
+/// switch(move || tab.get(), |t| match t {
+///     Tab::Body => body_pane().any(),
+///     Tab::Headers => headers_pane().any(),
+/// })
+/// ```
+///
+/// Revisiting a value builds its arm afresh; inactive arms are not kept alive. State that must
+/// survive a switch belongs in the model, not the subtree. Replaces runs of sibling
+/// `when(move || tab.get() == …, …)`.
+pub fn switch<K, P>(selector: impl Fn() -> K + 'static, arm: impl Fn(&K) -> P + 'static) -> Keyed<K>
+where
+    K: PartialEq + Clone + 'static,
+    P: Piece,
+{
+    keyed(move || Some(selector()), arm)
+}
+
+/// The piece [`keyed`] and [`switch`] build: an anchor whose single child subtree follows a key.
+pub struct Keyed<K: 'static> {
+    key: Rc<dyn Fn() -> Option<K>>,
+    build: Rc<dyn Fn(&K) -> AnyPiece>,
+}
+
+impl<K: PartialEq + Clone + 'static> Piece for Keyed<K> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let anchor = cx.layout_only(
+            Rc::new(PassThrough),
+            Flex {
+                is_group: true,
+                ..Default::default()
+            },
+            Boundary::No,
+        );
+        // Captured for the same reason `When::build` captures it: the watch below runs with no
+        // scope of its own, and the incoming subtree must be owned by this piece's subtree and
+        // see its ambient values (docs/state.md).
+        let owner = Scope::current();
+        let Keyed { key, build } = self;
+        let live: Rc<RefCell<Option<Scope>>> = Rc::new(RefCell::new(None));
+        let mount = {
+            let live = live.clone();
+            move |k: &Option<K>| {
+                if !with_tree(|t| t.node_exists(anchor)) {
+                    return;
+                }
+                // The outgoing subtree first, so a rebuilt arm never observes the old arm's
+                // still-live bindings.
+                if let Some(scope) = live.borrow_mut().take() {
+                    scope.dispose();
+                    while with_tree(|t| t.child_count(anchor)) > 0 {
+                        match with_tree(|t| t.first_child(anchor)) {
+                            Some(c) => with_tree(|t| t.remove_subtree(c)),
+                            None => break,
+                        }
+                    }
+                }
+                if let Some(k) = k {
+                    let scope = owner.enter(Scope::child);
+                    scope.enter(|| {
+                        let mut cx = BuildCx::new(anchor);
+                        let _ = build(k).build(&mut cx);
+                    });
+                    *live.borrow_mut() = Some(scope);
+                }
+            }
+        };
+        let initial = {
+            let key = key.clone();
+            day_reactive::untrack(move || key())
+        };
+        mount(&initial);
+        // `watch` compares with `PartialEq`: an unchanged key never reaches `mount`.
+        watch(
+            move || key(),
+            move |now, old| {
+                if Some(now) != old {
+                    mount(now);
+                }
+            },
+        );
+        anchor
+    }
+}
+
+/// Where a [`load`] reads its state: a [`Resource`](day_reactive::Resource), a
+/// `Signal<Load<T>>`, or a closure. The marker is the same E0119 dodge as [`IntoText`].
+pub trait LoadSource<T: 'static, M>: 'static {
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>>;
+}
+
+/// Marker for a [`Resource`](day_reactive::Resource).
+pub struct ResourceMark;
+
+impl<T: Clone + 'static> LoadSource<T, ResourceMark> for day_reactive::Resource<T> {
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>> {
+        Rc::new(move || self.signal().get())
+    }
+}
+
+impl<T: Clone + 'static> LoadSource<T, crate::SignalMark> for Signal<day_reactive::Load<T>> {
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>> {
+        Rc::new(move || self.get())
+    }
+}
+
+impl<T: 'static, F: Fn() -> day_reactive::Load<T> + 'static> LoadSource<T, crate::FnMark> for F {
+    fn into_load_reader(self) -> Rc<dyn Fn() -> day_reactive::Load<T>> {
+        Rc::new(self)
+    }
+}
+
+/// The loaded value, handed to a [`load`]'s ready arm: `get()` is a tracked read that follows
+/// `Ready(a)` to `Ready(b)` in place, without rebuilding the arm. `Copy`, like a signal.
+pub struct Loaded<T: 'static> {
+    source: Rc<dyn Fn() -> day_reactive::Load<T>>,
+    last: Rc<RefCell<T>>,
+}
+
+impl<T: 'static> Clone for Loaded<T> {
+    fn clone(&self) -> Self {
+        Loaded {
+            source: self.source.clone(),
+            last: self.last.clone(),
+        }
+    }
+}
+
+impl<T: Clone + 'static> Loaded<T> {
+    /// The value, tracked: inside a label or a binding this follows a reload's new value.
+    /// While the state is between values (loading again, or failed) the last ready value is
+    /// returned, so the arm never sees a hole.
+    pub fn get(&self) -> T {
+        if let day_reactive::Load::Ready(v) = (self.source)() {
+            *self.last.borrow_mut() = v.clone();
+            v
+        } else {
+            self.last.borrow().clone()
+        }
+    }
+    /// A tracked read through a projection, without cloning the whole value.
+    pub fn with<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        let v = self.get();
+        f(&v)
+    }
+}
+
+/// The three states of an async load as three subtrees (docs/async.md): the ready arm, and
+/// optional [`loading`](LoadPiece::loading) and [`failed`](LoadPiece::failed) arms (nothing is
+/// built for a state without an arm). Arms rebuild only when the *variant* changes; a new
+/// ready value updates the ready arm in place through [`Loaded::get`].
+///
+/// ```ignore
+/// load(stations, |s| station_list(s))
+///     .loading(spinner)
+///     .failed(|e| label(e.to_string()).secondary())
+/// ```
+///
+/// Whether a refetch passes through `Loading` is the [`Resource`](day_reactive::Resource)'s
+/// policy; an app that wants its stale content shown during a refresh keeps the last value in
+/// its own state and the ready arm reads it.
+pub fn load<T, P, M>(
+    state: impl LoadSource<T, M>,
+    ready: impl Fn(Loaded<T>) -> P + 'static,
+) -> LoadPiece<T>
+where
+    T: Clone + 'static,
+    P: Piece,
+{
+    LoadPiece {
+        source: state.into_load_reader(),
+        ready: Rc::new(move |v| AnyPiece::new(ready(v))),
+        loading: None,
+        failed: None,
+    }
+}
+
+/// The piece [`load`] builds.
+pub struct LoadPiece<T: 'static> {
+    source: Rc<dyn Fn() -> day_reactive::Load<T>>,
+    ready: Rc<dyn Fn(Loaded<T>) -> AnyPiece>,
+    loading: Option<Rc<dyn Fn() -> AnyPiece>>,
+    failed: Option<FailedArm>,
+}
+
+/// A [`load`]'s failed arm: the error in, the subtree out.
+type FailedArm = Rc<dyn Fn(&(dyn std::error::Error + 'static)) -> AnyPiece>;
+
+impl<T: Clone + 'static> LoadPiece<T> {
+    /// The subtree shown while loading (a spinner, a skeleton).
+    pub fn loading<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
+        self.loading = Some(Rc::new(move || AnyPiece::new(build())));
+        self
+    }
+    /// The subtree shown after a failure, given the error.
+    pub fn failed<P: Piece>(
+        mut self,
+        build: impl Fn(&(dyn std::error::Error + 'static)) -> P + 'static,
+    ) -> Self {
+        self.failed = Some(Rc::new(move |e| AnyPiece::new(build(e))));
+        self
+    }
+}
+
+/// Which arm a [`load`] shows: the variant alone, so a new ready value is an update, not a swap.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoadArm {
+    Loading,
+    Ready,
+    Failed,
+}
+
+impl<T: Clone + 'static> Piece for LoadPiece<T> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let LoadPiece {
+            source,
+            ready,
+            loading,
+            failed,
+        } = self;
+        let arm_source = source.clone();
+        let error_source = source.clone();
+        keyed(
+            move || {
+                Some(match arm_source() {
+                    day_reactive::Load::Loading => LoadArm::Loading,
+                    day_reactive::Load::Ready(_) => LoadArm::Ready,
+                    day_reactive::Load::Failed(_) => LoadArm::Failed,
+                })
+            },
+            move |arm| match arm {
+                LoadArm::Loading => loading.as_ref().map(|f| f()),
+                LoadArm::Failed => {
+                    failed
+                        .as_ref()
+                        .and_then(|f| match day_reactive::untrack(|| error_source()) {
+                            day_reactive::Load::Failed(e) => Some(f(&*e)),
+                            _ => None,
+                        })
+                }
+                LoadArm::Ready => match day_reactive::untrack(|| source()) {
+                    day_reactive::Load::Ready(v) => Some(ready(Loaded {
+                        source: source.clone(),
+                        last: Rc::new(RefCell::new(v)),
+                    })),
+                    _ => None,
+                },
+            },
+        )
+        .build(cx)
+    }
+}
+
+/// A stack that is a row on a regular width and a column on a compact one, re-laid out (never
+/// rebuilt) as the window crosses the breakpoint, so its children keep their state. The
+/// shape a label-plus-control-plus-result line wants, where wrapping members independently
+/// would tear apart what reads as one sentence.
+///
+/// ```ignore
+/// adaptive((label(t), slider(v), label(move || v.get().to_string()))).spacing(Space::S)
+/// ```
+///
+/// Stacked, the children align leading: they read as a control and the line it produced, and
+/// a centered member floats away from what it belongs to. `at` (default
+/// [`WidthClass::Compact`](day_spec::WidthClass::Compact)) is the widest class that stacks.
+pub fn adaptive<C: PieceSeq>(children: C) -> Adaptive<C> {
+    Adaptive {
+        children,
+        spacing: 0.0,
+        at: day_spec::WidthClass::Compact,
+        align: CrossAlign::Center,
+    }
+}
+
+/// The piece [`adaptive`] builds.
+pub struct Adaptive<C: PieceSeq> {
+    children: C,
+    spacing: f64,
+    at: day_spec::WidthClass,
+    align: CrossAlign,
+}
+
+#[day_macros::builder(AdaptiveBuilder)]
+impl<C: PieceSeq> Adaptive<C> {
+    /// The gap between children, in either arrangement: a [`Space`](crate::Space) step or points.
+    pub fn spacing(mut self, s: impl Into<f64>) -> Self {
+        self.spacing = s.into();
+        self
+    }
+    /// The widest [`WidthClass`](day_spec::WidthClass) at which the children stack.
+    pub fn stack_at(mut self, at: day_spec::WidthClass) -> Self {
+        self.at = at;
+        self
+    }
+    /// The cross-axis alignment while the children sit in a row (default centered, as a
+    /// [`row`](crate::row)); stacked, they always align leading.
+    pub fn align(mut self, a: crate::VAlign) -> Self {
+        self.align = match a {
+            crate::VAlign::Top => CrossAlign::Leading,
+            crate::VAlign::Center => CrossAlign::Center,
+            crate::VAlign::Bottom => CrossAlign::Trailing,
+            crate::VAlign::FirstBaseline => CrossAlign::FirstBaseline,
+        };
+        self
+    }
+}
+
+/// The adaptive stack's layout: a [`StackLayout`] whose axis is a cell the size-class watch
+/// flips, so a crossing is a relayout of the same nodes.
+struct AdaptiveLayout {
+    axis: std::cell::Cell<Axis>,
+    spacing: f64,
+    row_align: CrossAlign,
+}
+
+impl AdaptiveLayout {
+    fn stack(&self) -> StackLayout {
+        let axis = self.axis.get();
+        StackLayout {
+            axis,
+            spacing: self.spacing,
+            align: match axis {
+                Axis::Vertical => CrossAlign::Leading,
+                Axis::Horizontal => self.row_align,
+            },
+        }
+    }
+}
+
+impl Layout for AdaptiveLayout {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        self.stack().measure(cx, children, p)
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        self.stack().place(cx, children, bounds)
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        self.stack().baseline(cx, children, size)
+    }
+}
+
+impl<C: PieceSeq> Piece for Adaptive<C> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        let at = self.at;
+        let stacked = move || size_class().is_some_and(|c| c.width <= at);
+        let layout = Rc::new(AdaptiveLayout {
+            axis: std::cell::Cell::new(if day_reactive::untrack(stacked) {
+                Axis::Vertical
+            } else {
+                Axis::Horizontal
+            }),
+            spacing: self.spacing,
+            row_align: self.align,
+        });
+        let node = cx.native(
+            kinds::CONTAINER,
+            &ContainerProps::default(),
+            layout.clone(),
+            Flex::default(),
+            Boundary::No,
+        );
+        cx.under(node, |cx| self.children.build_each(cx));
+        // Crossing the breakpoint flips the axis and re-lays the same children out.
+        watch(stacked, move |now: &bool, _| {
+            layout.axis.set(if *now {
+                Axis::Vertical
+            } else {
+                Axis::Horizontal
+            });
+            day_core::invalidate_size(node);
+        });
+        node
     }
 }
 
@@ -482,16 +890,11 @@ pub struct List<S: RowSource> {
     multi_select: bool,
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
     scroll_to_end: Option<day_reactive::Trigger>,
-    scroll_to_row: Option<Signal<Option<usize>>>,
-    first_visible_row: Option<Signal<usize>>,
+    scroll_to_row: Option<AnyBinding<Option<usize>>>,
+    first_visible_row: Option<AnyBinding<usize>>,
     stick_to_bottom: bool,
-    reorderable: bool,
-    on_reorder: Option<Rc<dyn Fn(usize, usize)>>,
-    reorder_guard: Option<Rc<dyn Fn(usize, usize) -> Reorder>>,
-    deletable: bool,
-    delete_label: String,
-    on_delete: Option<Rc<dyn Fn(usize)>>,
-    delete_guard: Option<Rc<dyn Fn(usize) -> bool>>,
+    reorder: Option<Reorder>,
+    delete: Option<Delete>,
     swipe_leading: Option<SwipeProvider>,
     swipe_trailing: Option<SwipeProvider>,
     separators: Option<bool>,
@@ -509,20 +912,21 @@ type SwipeProvider = Rc<dyn Fn(usize) -> Vec<SwipeAction>>;
 /// user drags a row aside, built by [`swipe_action`]. Holds the label, the styling hints the
 /// backend maps onto its own affordance, and the handler the activation runs.
 pub struct SwipeAction {
-    label: String,
+    label: TextSource,
     destructive: bool,
     tint: Option<day_spec::Color>,
     symbol: Option<day_spec::Symbol>,
     handler: Rc<dyn Fn()>,
 }
 
-/// Build a swipe action with `label` (localized by the app: `res::str::…` formatted to a
-/// `String`). Chain [`destructive`](SwipeAction::destructive) or [`tint`](SwipeAction::tint)
-/// for styling and [`action`](SwipeAction::action) for the work; an action without a handler
-/// still reveals and dismisses, but does nothing.
-pub fn swipe_action(label: impl Into<String>) -> SwipeAction {
+/// Build a swipe action with `label` (a literal, a `res::str::…` text, a signal or a closure;
+/// resolved in the current locale each time the offer is pulled). Chain
+/// [`destructive`](SwipeAction::destructive) or [`tint`](SwipeAction::tint) for styling and
+/// [`action`](SwipeAction::action) for the work; an action without a handler still reveals and
+/// dismisses, but does nothing.
+pub fn swipe_action<M>(label: impl IntoText<M>) -> SwipeAction {
     SwipeAction {
-        label: label.into(),
+        label: label.into_text(),
         destructive: false,
         tint: None,
         symbol: None,
@@ -533,8 +937,8 @@ pub fn swipe_action(label: impl Into<String>) -> SwipeAction {
 impl SwipeAction {
     /// Mark the action destructive: the platform styles it as such (red, on the Apple
     /// toolkits) and may animate the row away on activation.
-    pub fn destructive(mut self, on: bool) -> Self {
-        self.destructive = on;
+    pub fn destructive(mut self) -> Self {
+        self.destructive = true;
         self
     }
     /// The button's background color, where the platform honors one. Left unset, the platform
@@ -559,11 +963,108 @@ impl SwipeAction {
     }
 }
 
+/// Drag-to-reorder for a [`list`] (docs/list.md): the handler that applies a committed move,
+/// an optional guard consulted while the drag is live, and whether the gesture is offered
+/// right now. A list is reorderable exactly when it carries one of these
+/// (`list(..).reorderable(Reorder::new(f))`).
+///
+/// The platform's own mechanism does the dragging (the macOS drop gap, the iOS long-press
+/// lift, Android's `ItemTouchHelper`) where the backend supports it (probe `Cap::ListReorder`;
+/// docs/list.md has the matrix).
+#[derive(Clone)]
+pub struct Reorder {
+    moved: Rc<dyn Fn(usize, usize)>,
+    guard: Option<Rc<dyn Fn(usize, usize) -> ReorderVerdict>>,
+    enabled: Reactive<bool>,
+}
+
+impl Reorder {
+    /// `moved(from, to)` runs after a committed move: row `from` now sits at row `to`. Apply the
+    /// same rotation to the backing data (`let it = v.remove(from); v.insert(to, it);`), and
+    /// persist it if the order should survive a relaunch. Runs on the main thread at the next
+    /// event drain, never inside the native drop callback.
+    pub fn new(moved: impl Fn(usize, usize) + 'static) -> Reorder {
+        Reorder {
+            moved: Rc::new(moved),
+            guard: None,
+            enabled: Reactive::Const(true),
+        }
+    }
+    /// Veto or override drops while the drag is live: called synchronously from the native
+    /// validate hook with `(from, proposed_to)`. Return [`ReorderVerdict::Deny`] to refuse,
+    /// [`ReorderVerdict::Retarget`] to accept at a different index (a "pinned rows" pattern), or
+    /// [`ReorderVerdict::Allow`] to accept as proposed (the default without a guard). Keep it
+    /// pure (read state, decide, return); it runs inside the platform's drag callback.
+    pub fn guard(mut self, g: impl Fn(usize, usize) -> ReorderVerdict + 'static) -> Reorder {
+        self.guard = Some(Rc::new(g));
+        self
+    }
+    /// Whether the gesture is offered right now (default `true`): a constant or a reactive
+    /// `bool`, read when the platform asks whether a drag may begin, so an edit mode or a
+    /// loading state can withhold it without rebuilding the list.
+    pub fn enabled<M>(mut self, on: impl IntoReactive<bool, M>) -> Reorder {
+        self.enabled = on.into_reactive();
+        self
+    }
+}
+
+/// Swipe-to-delete for a [`list`] (docs/list.md): the handler that applies a committed delete,
+/// the label the platform puts on its affordance, an optional per-row guard, and whether the
+/// gesture is offered right now. A list is deletable exactly when it carries one of these
+/// (`list(..).deletable(Delete::new(f))`).
+///
+/// The platform's delete gesture does the work (the iOS trailing swipe action, Android's
+/// `ItemTouchHelper` swipe, ArkUI's `ListItem` swipe action) where the backend supports it
+/// (probe `Cap::ListDelete`). The desktop toolkits answer `Unsupported`, so a list that must be
+/// editable everywhere pairs this with an explicit control (a menu item or a button).
+#[derive(Clone)]
+pub struct Delete {
+    deleted: Rc<dyn Fn(usize)>,
+    label: Option<TextSource>,
+    guard: Option<Rc<dyn Fn(usize) -> bool>>,
+    enabled: Reactive<bool>,
+}
+
+impl Delete {
+    /// `deleted(index)` runs after a committed delete: row `index` is gone. Apply the same
+    /// removal to the backing data (`v.remove(index)`), and persist it if the change should
+    /// survive a relaunch. Runs on the main thread at the next event drain, never inside the
+    /// native swipe callback.
+    pub fn new(deleted: impl Fn(usize) + 'static) -> Delete {
+        Delete {
+            deleted: Rc::new(deleted),
+            label: None,
+            guard: None,
+            enabled: Reactive::Const(true),
+        }
+    }
+    /// The word the platform puts on its delete affordance (`res::str::delete()`). Resolved in
+    /// the locale current when the list builds. Left unset, each backend falls back to a trash
+    /// glyph rather than shipping an English word into every locale.
+    pub fn label<M>(mut self, text: impl IntoText<M>) -> Delete {
+        self.label = Some(text.into_text());
+        self
+    }
+    /// Protect individual rows: called synchronously before the affordance is offered, so a row
+    /// that answers `false` shows no delete action rather than one that fails on use. Keep it
+    /// pure; it runs inside the platform's swipe callback.
+    pub fn guard(mut self, g: impl Fn(usize) -> bool + 'static) -> Delete {
+        self.guard = Some(Rc::new(g));
+        self
+    }
+    /// Whether the gesture is offered right now (default `true`): a constant or a reactive
+    /// `bool`, read when the platform asks whether a row may be deleted.
+    pub fn enabled<M>(mut self, on: impl IntoReactive<bool, M>) -> Delete {
+        self.enabled = on.into_reactive();
+        self
+    }
+}
+
 /// A reorder guard's verdict on a proposed row move (docs/list.md): consulted synchronously from
 /// the native drag's validate hook, so the affordance (gap, insertion mark, forbidden cursor)
 /// reflects the answer while the user is still dragging.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Reorder {
+pub enum ReorderVerdict {
     /// Accept the drop where proposed.
     Allow,
     /// Refuse the drop (the row springs back; most backends show a forbidden cursor live).
@@ -593,13 +1094,8 @@ where
         scroll_to_row: None,
         first_visible_row: None,
         stick_to_bottom: false,
-        reorderable: false,
-        on_reorder: None,
-        reorder_guard: None,
-        deletable: false,
-        delete_label: String::new(),
-        on_delete: None,
-        delete_guard: None,
+        reorder: None,
+        delete: None,
         swipe_leading: None,
         swipe_trailing: None,
         separators: None,
@@ -607,6 +1103,7 @@ where
     }
 }
 
+#[day_macros::builder(ListBuilder<S>)]
 impl<S: RowSource + 'static> List<S> {
     /// Row sizing: `Uniform(h)` (fastest) or `Automatic` (self-sizing).
     pub fn row_height(mut self, h: RowHeight) -> Self {
@@ -629,8 +1126,8 @@ impl<S: RowSource + 'static> List<S> {
     /// Allow selecting several rows at once, where the toolkit supports it (docs/list.md has
     /// the matrix; single-selection backends fall back to one row at a time). Every selection
     /// change calls [`Self::on_selection`] with the full set of selected rows.
-    pub fn multi_select(mut self, on: bool) -> Self {
-        self.multi_select = on;
+    pub fn multi_select(mut self) -> Self {
+        self.multi_select = true;
         self
     }
     /// Called with the full set of selected rows (row order, empty = cleared) whenever the
@@ -660,92 +1157,50 @@ impl<S: RowSource + 'static> List<S> {
     /// visible. Convenience over [`Self::scroll_to_end`] for feeds that always follow the newest
     /// row; for finer control (only stick when the user is already near the bottom) drive
     /// `scroll_to_end` from your own logic instead. Off by default.
-    pub fn stick_to_bottom(mut self, on: bool) -> Self {
-        self.stick_to_bottom = on;
+    pub fn stick_to_bottom(mut self) -> Self {
+        self.stick_to_bottom = true;
         self
     }
 
     /// Programmatic scroll-to-row (docs/list.md): set the signal to `Some(row)` and the native
     /// list scrolls that row into view, realizing it if it was virtualized away: the row rail's
     /// counterpart to `scroll(...).scroll_target(...)`. The signal is left as written; setting
-    /// the same row again re-fires.
-    pub fn scroll_to_row(mut self, sig: Signal<Option<usize>>) -> Self {
-        self.scroll_to_row = Some(sig);
+    /// the same row again re-fires. Takes a `Signal<Option<usize>>` or any other binding.
+    pub fn scroll_to_row(mut self, target: impl Binding<Option<usize>>) -> Self {
+        self.scroll_to_row = Some(AnyBinding::new(target));
         self
     }
 
-    /// The first actually visible article/item index, reported by native scrolling.
-    /// Use with a heading overlay for floating group headers. No periodic timer is used.
-    pub fn first_visible_row(mut self, signal: Signal<usize>) -> Self {
-        self.first_visible_row = Some(signal);
+    /// The first actually visible article/item index, reported by native scrolling into
+    /// `first` (a `Signal<usize>` or any other binding). Use with a heading overlay for
+    /// floating group headers. No periodic timer is used.
+    pub fn first_visible_row(mut self, first: impl Binding<usize>) -> Self {
+        self.first_visible_row = Some(AnyBinding::new(first));
         self
     }
 
-    /// Let the user drag rows into a new order with the platform's native mechanism (the
-    /// macOS drop gap, the iOS long-press lift, Android's `ItemTouchHelper`) where the backend
-    /// supports it (probe `Cap::ListReorder`; docs/list.md has the matrix). Pair with
-    /// [`on_reorder`](Self::on_reorder) so the app's data follows the move, and optionally
-    /// [`reorder_guard`](Self::reorder_guard) to veto or retarget drops.
-    pub fn reorderable(mut self, on: bool) -> Self {
-        self.reorderable = on;
-        self
-    }
-
-    /// A committed move: row `from` now sits at row `to`. Apply the same rotation to the backing
-    /// data (`let it = v.remove(from); v.insert(to, it);`), and persist it if the order should
-    /// survive a relaunch. Runs on the main thread at the next event drain, never inside the
-    /// native drop callback.
-    pub fn on_reorder(mut self, f: impl Fn(usize, usize) + 'static) -> Self {
-        self.on_reorder = Some(Rc::new(f));
-        self
-    }
-
-    /// Veto or override drops while the drag is live: called synchronously from the native
-    /// validate hook with `(from, proposed_to)`. Return [`Reorder::Deny`] to refuse,
-    /// [`Reorder::Retarget`] to accept at a different index (a "pinned rows" pattern), or
-    /// [`Reorder::Allow`] to accept as proposed (the default when no guard is set). Keep it
-    /// pure (read state, decide, return); it runs inside the platform's drag callback.
-    pub fn reorder_guard(mut self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
-        self.reorder_guard = Some(Rc::new(g));
-        self
-    }
-
-    /// Let the user delete rows with the platform's delete gesture (the iOS trailing swipe
-    /// action, Android's `ItemTouchHelper` swipe, ArkUI's `ListItem` swipe action) where the
-    /// backend supports it (probe `Cap::ListDelete`; docs/list.md has the matrix). Pair with
-    /// [`on_delete`](Self::on_delete) so the app's data follows, and optionally
-    /// [`delete_guard`](Self::delete_guard) to protect individual rows.
+    /// Let the user drag rows into a new order (docs/list.md): the list is reorderable exactly
+    /// when it carries a [`Reorder`], whose handler applies the move to the app's data.
     ///
-    /// The desktop toolkits answer `Unsupported` (macOS's row actions don't carry the delete
-    /// affordance yet; the rest have no swipe idiom), so a list that must be editable
-    /// everywhere pairs this with an explicit control (a menu item or a button) rather than
-    /// leaving desktop users with no way to delete.
-    pub fn deletable(mut self, on: bool) -> Self {
-        self.deletable = on;
+    /// ```ignore
+    /// list(rows, row_view)
+    ///     .reorderable(Reorder::new(move |from, to| scene.move_item(from, to)).guard(keep_pinned))
+    /// ```
+    pub fn reorderable(mut self, reorder: Reorder) -> Self {
+        self.reorder = Some(reorder);
         self
     }
 
-    /// The label the platform puts on its delete affordance, localized by the app (`res::str::…`
-    /// formatted to a `String`). Left unset, each backend falls back to a trash glyph rather than
-    /// shipping an English word into every locale.
-    pub fn delete_label(mut self, text: impl Into<String>) -> Self {
-        self.delete_label = text.into();
-        self
-    }
-
-    /// A committed delete: row `index` is gone. Apply the same removal to the backing data
-    /// (`v.remove(index)`), and persist it if the change should survive a relaunch. Runs on the
-    /// main thread at the next event drain, never inside the native swipe callback.
-    pub fn on_delete(mut self, f: impl Fn(usize) + 'static) -> Self {
-        self.on_delete = Some(Rc::new(f));
-        self
-    }
-
-    /// Protect individual rows: called synchronously before the affordance is offered, so a row
-    /// that answers `false` shows no delete action rather than one that fails on use. Keep it
-    /// pure; it runs inside the platform's swipe callback.
-    pub fn delete_guard(mut self, g: impl Fn(usize) -> bool + 'static) -> Self {
-        self.delete_guard = Some(Rc::new(g));
+    /// Let the user delete rows with the platform's delete gesture (docs/list.md): the list is
+    /// deletable exactly when it carries a [`Delete`], whose handler applies the removal to the
+    /// app's data.
+    ///
+    /// ```ignore
+    /// list(rows, row_view)
+    ///     .deletable(Delete::new(move |i| scene.remove_at(i)).label(res::str::delete()))
+    /// ```
+    pub fn deletable(mut self, delete: Delete) -> Self {
+        self.delete = Some(delete);
         self
     }
 
@@ -775,17 +1230,24 @@ impl<S: RowSource + 'static> List<S> {
     /// Draw a separator under each row. It is the host's separator, drawn at the row boundary
     /// and never by row content (docs/list.md): it aligns with the native selection and stays
     /// put while a macOS/iOS swipe slides the row past it, exactly as Mail's separators do.
-    /// Unset, each platform keeps its default (iOS draws them, the desktops don't). A backend
-    /// without a separator mechanism ignores this (the docs matrix says which); don't
-    /// re-create the old hand-drawn hairline there. Rows separate by their pitch.
-    pub fn separators(mut self, on: bool) -> Self {
-        self.separators = Some(on);
+    /// Unset, each platform keeps its default (iOS draws them, the desktops don't); see
+    /// [`Self::no_separators`] for the other override. A backend without a separator mechanism
+    /// ignores this (the docs matrix says which); don't re-create the old hand-drawn hairline
+    /// there. Rows separate by their pitch.
+    pub fn separators(mut self) -> Self {
+        self.separators = Some(true);
+        self
+    }
+
+    /// Draw no separator between rows, on a platform whose default draws one (iOS).
+    pub fn no_separators(mut self) -> Self {
+        self.separators = Some(false);
         self
     }
 
     /// Put the list in the platform's editing mode (docs/list.md): on iOS, the rows show
-    /// their delete controls (where [`deletable`](Self::deletable) offers one) and reorder
-    /// grips (where [`reorderable`](Self::reorderable) moves them), and a tap still activates
+    /// their delete controls (where a [`Delete`] offers one) and reorder grips (where a
+    /// [`Reorder`] moves them), and a tap still activates
     /// the row. Reactive, so an Edit/Done button can toggle it, and the change animates.
     ///
     /// Probe `Cap::ListEditing`. The other toolkits have no separate editing mode: their
@@ -805,9 +1267,14 @@ impl<S: RowSource + 'static> Piece for List<S> {
                 || self.on_selection.is_some()
                 || self.on_activate.is_some(),
             multi_select: self.multi_select,
-            reorderable: self.reorderable,
-            deletable: self.deletable,
-            delete_label: self.delete_label.clone(),
+            reorderable: self.reorder.is_some(),
+            deletable: self.delete.is_some(),
+            delete_label: self
+                .delete
+                .as_ref()
+                .and_then(|d| d.label.as_ref())
+                .map(TextSource::initial)
+                .unwrap_or_default(),
             swipe_actions: self.swipe_leading.is_some() || self.swipe_trailing.is_some(),
             separators: self.separators,
             editing: self.editing.get_untracked(),
@@ -873,7 +1340,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
 
         // A committed native move, deferred to the event drain (never run inside the platform's
         // drop callback): hand the app the same (from, to) the native side animated.
-        if let Some(on_reorder) = self.on_reorder.clone() {
+        if let Some(on_reorder) = self.reorder.as_ref().map(|r| r.moved.clone()) {
             cx.on(node, move |ev| {
                 if let Event::ListReorder { from, to } = ev {
                     on_reorder(*from, *to);
@@ -883,7 +1350,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
 
         // A committed native delete, deferred to the event drain (never run inside the
         // platform's swipe callback): hand the app the row the native side animated away.
-        if let Some(on_delete) = self.on_delete.clone() {
+        if let Some(on_delete) = self.delete.as_ref().map(|d| d.deleted.clone()) {
             cx.on(node, move |ev| {
                 if let Event::ListDelete(index) = ev {
                     on_delete(*index);
@@ -962,10 +1429,13 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     BuiltRow { scope, rebind }
                 })
             },
-            delete: self.deletable.then(|| ListDeleteDriver {
+            delete: self.delete.as_ref().map(|delete| ListDeleteDriver {
+                // Availability first (`Delete::enabled`), then the row's own guard.
                 can_delete: {
-                    let guard = self.delete_guard.clone();
-                    Box::new(move |i| guard.as_ref().is_none_or(|g| g(i)))
+                    let (guard, enabled) = (delete.guard.clone(), delete.enabled.clone());
+                    Box::new(move |i| {
+                        enabled.get_untracked() && guard.as_ref().is_none_or(|g| g(i))
+                    })
                 },
                 // Commit: drop the row from the snapshot now (subsequent len/token_at/bind_row
                 // serve the shorter list while the native removal animates), arm the echo skip,
@@ -982,15 +1452,20 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     })
                 },
             }),
-            reorder: self.reorderable.then(|| ListReorderDriver {
+            reorder: self.reorder.as_ref().map(|reorder| ListReorderDriver {
                 // The guard's verdict, encoded for the synchronous `can_move` callback:
-                // accepted index or -1.
+                // accepted index or -1. Availability (`Reorder::enabled`) is asked first.
                 can_move: {
-                    let guard = self.reorder_guard.clone();
-                    Box::new(move |from, to| match guard.as_ref().map(|g| g(from, to)) {
-                        None | Some(Reorder::Allow) => to as i64,
-                        Some(Reorder::Deny) => -1,
-                        Some(Reorder::Retarget(i)) => i as i64,
+                    let (guard, enabled) = (reorder.guard.clone(), reorder.enabled.clone());
+                    Box::new(move |from, to| {
+                        if !enabled.get_untracked() {
+                            return -1;
+                        }
+                        match guard.as_ref().map(|g| g(from, to)) {
+                            None | Some(ReorderVerdict::Allow) => to as i64,
+                            Some(ReorderVerdict::Deny) => -1,
+                            Some(ReorderVerdict::Retarget(i)) => i as i64,
+                        }
                     })
                 },
                 // Commit: rotate the snapshot now (subsequent len/token_at/bind_row serve the
@@ -1023,7 +1498,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
                             provider.map_or_else(Vec::new, |p| {
                                 p(i).iter()
                                     .map(|a| day_spec::ListSwipeAction {
-                                        label: a.label.clone(),
+                                        label: a.label.resolve(),
                                         destructive: a.destructive,
                                         tint: a.tint,
                                         symbol: a.symbol,
@@ -1485,182 +1960,6 @@ pub use model_rows::{ModelSlot, Rows, StoreRows, StoreTree, StoreTreeConn, Store
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`When`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait WhenBuilder: Sized {
-    fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self;
-}
-
-impl WhenBuilder for When {
-    fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self {
-        When::otherwise(self, build_arm)
-    }
-}
-
-impl<Inner: WhenBuilder + Piece> WhenBuilder for Decorated<Inner> {
-    fn otherwise<P: Piece>(self, build_arm: impl Fn() -> P + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.otherwise(build_arm))
-    }
-}
-
-/// [`List`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ListBuilder<S: RowSource + 'static>: Sized {
-    fn row_height(self, h: RowHeight) -> Self;
-    fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self;
-    fn on_activate(self, f: impl Fn(S::Ref) + 'static) -> Self;
-    fn multi_select(self, on: bool) -> Self;
-    fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self;
-    fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self;
-    fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self;
-    fn stick_to_bottom(self, on: bool) -> Self;
-    fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self;
-    fn first_visible_row(self, sig: Signal<usize>) -> Self;
-    fn reorderable(self, on: bool) -> Self;
-    fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self;
-    fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self;
-    fn deletable(self, on: bool) -> Self;
-    fn delete_label(self, text: impl Into<String>) -> Self;
-    fn on_delete(self, f: impl Fn(usize) + 'static) -> Self;
-    fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self;
-    fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self;
-    fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self;
-    fn separators(self, on: bool) -> Self;
-    fn editing<M>(self, on: impl crate::IntoReactive<bool, M>) -> Self;
-}
-
-impl<S: RowSource + 'static> ListBuilder<S> for List<S> {
-    fn row_height(self, h: RowHeight) -> Self {
-        List::row_height(self, h)
-    }
-    fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self {
-        List::on_select(self, f)
-    }
-    fn on_activate(self, f: impl Fn(S::Ref) + 'static) -> Self {
-        List::on_activate(self, f)
-    }
-    fn multi_select(self, on: bool) -> Self {
-        List::multi_select(self, on)
-    }
-    fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self {
-        List::on_selection(self, f)
-    }
-    fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
-        List::selected_rows(self, rows)
-    }
-    fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self {
-        List::scroll_to_end(self, trigger)
-    }
-    fn stick_to_bottom(self, on: bool) -> Self {
-        List::stick_to_bottom(self, on)
-    }
-    fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self {
-        List::scroll_to_row(self, sig)
-    }
-    fn first_visible_row(self, sig: Signal<usize>) -> Self {
-        List::first_visible_row(self, sig)
-    }
-    fn reorderable(self, on: bool) -> Self {
-        List::reorderable(self, on)
-    }
-    fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self {
-        List::on_reorder(self, f)
-    }
-    fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
-        List::reorder_guard(self, g)
-    }
-    fn deletable(self, on: bool) -> Self {
-        List::deletable(self, on)
-    }
-    fn delete_label(self, text: impl Into<String>) -> Self {
-        List::delete_label(self, text)
-    }
-    fn on_delete(self, f: impl Fn(usize) + 'static) -> Self {
-        List::on_delete(self, f)
-    }
-    fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
-        List::delete_guard(self, g)
-    }
-    fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
-        List::swipe_leading(self, provider)
-    }
-    fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
-        List::swipe_trailing(self, provider)
-    }
-    fn separators(self, on: bool) -> Self {
-        List::separators(self, on)
-    }
-    fn editing<M>(self, on: impl crate::IntoReactive<bool, M>) -> Self {
-        List::editing(self, on)
-    }
-}
-
-impl<S: RowSource + 'static, Inner: ListBuilder<S> + Piece> ListBuilder<S> for Decorated<Inner> {
-    fn row_height(self, h: RowHeight) -> Self {
-        self.map_inner(|inner_piece| inner_piece.row_height(h))
-    }
-    fn on_select(self, f: impl Fn(S::Ref) + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_select(f))
-    }
-    fn on_activate(self, f: impl Fn(S::Ref) + 'static) -> Self {
-        self.map_inner(|p| p.on_activate(f))
-    }
-    fn multi_select(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.multi_select(on))
-    }
-    fn on_selection(self, f: impl Fn(Vec<S::Ref>) + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_selection(f))
-    }
-    fn selected_rows(self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.selected_rows(rows))
-    }
-    fn scroll_to_end(self, trigger: day_reactive::Trigger) -> Self {
-        self.map_inner(|inner_piece| inner_piece.scroll_to_end(trigger))
-    }
-    fn stick_to_bottom(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.stick_to_bottom(on))
-    }
-    fn scroll_to_row(self, sig: Signal<Option<usize>>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.scroll_to_row(sig))
-    }
-    fn first_visible_row(self, sig: Signal<usize>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.first_visible_row(sig))
-    }
-    fn reorderable(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.reorderable(on))
-    }
-    fn on_reorder(self, f: impl Fn(usize, usize) + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_reorder(f))
-    }
-    fn reorder_guard(self, g: impl Fn(usize, usize) -> Reorder + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.reorder_guard(g))
-    }
-    fn deletable(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.deletable(on))
-    }
-    fn delete_label(self, text: impl Into<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.delete_label(text))
-    }
-    fn on_delete(self, f: impl Fn(usize) + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_delete(f))
-    }
-    fn delete_guard(self, g: impl Fn(usize) -> bool + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.delete_guard(g))
-    }
-    fn swipe_leading(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.swipe_leading(provider))
-    }
-    fn swipe_trailing(self, provider: impl Fn(usize) -> Vec<SwipeAction> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.swipe_trailing(provider))
-    }
-    fn separators(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.separators(on))
-    }
-    fn editing<M>(self, on: impl crate::IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.editing(on))
-    }
-}
-
 // ---------------------------------------------------------------------------
 // `tree`: native hierarchical tree (docs/tree.md)
 // ---------------------------------------------------------------------------
@@ -1864,6 +2163,46 @@ impl<T: Clone + 'static, K: Clone + Hash + Eq + 'static> TreeConn for BranchesCo
 /// The platform widget owns scrolling, disclosure and cell reuse; Day builds each visible row
 /// once and *rebinds* it as cells recycle ([`list`]'s contract, token-addressed). Gate its UI
 /// on `Cap::Tree`: a backend without tree support renders nothing.
+/// Drag-to-move for a [`tree`] (docs/tree.md): the handler that applies a committed
+/// re-parent, an optional guard consulted while the drag is live, and whether the gesture is
+/// offered right now. A tree is movable exactly when it carries one of these
+/// (`tree(..).movable(Move::new(f))`). The [`list`] counterpart is [`Reorder`].
+pub struct Move<K: 'static> {
+    moved: TreeMoveFn<K>,
+    guard: Option<TreeGuardFn<K>>,
+    enabled: Reactive<bool>,
+}
+
+impl<K: 'static> Move<K> {
+    /// `moved(key, parent, index)` runs after a committed move: `key` now sits under `parent`
+    /// (`None` = the root) at `index` (`None` = dropped onto the parent: append). Apply the
+    /// same re-parent to the backing data; its refresh reloads the tree. Runs at the next event
+    /// drain, never inside the native drop callback.
+    pub fn new(moved: impl Fn(K, Option<K>, Option<usize>) + 'static) -> Move<K> {
+        Move {
+            moved: Rc::new(moved),
+            guard: None,
+            enabled: Reactive::Const(true),
+        }
+    }
+    /// Veto drops while the drag is live. The structural refusals (a row into itself, into
+    /// its own descendant, into a leaf) are built in; this guard adds the app's own. Keep it
+    /// pure: it runs inside the platform's drag callback.
+    pub fn guard(
+        mut self,
+        g: impl Fn(&K, Option<&K>, Option<usize>) -> MoveVerdict + 'static,
+    ) -> Move<K> {
+        self.guard = Some(Rc::new(g));
+        self
+    }
+    /// Whether the gesture is offered right now (default `true`): a constant or a reactive
+    /// `bool`, read when the platform asks whether a drag may begin.
+    pub fn enabled<M>(mut self, on: impl IntoReactive<bool, M>) -> Move<K> {
+        self.enabled = on.into_reactive();
+        self
+    }
+}
+
 pub struct TreePiece<S: NodeSource> {
     source: Option<S>,
     build_row: Rc<dyn Fn(S::Slot) -> AnyPiece>,
@@ -1871,7 +2210,7 @@ pub struct TreePiece<S: NodeSource> {
     indent: Option<f64>,
     section_headers: bool,
     on_expansion: Option<ExpansionFn<S::Key>>,
-    expanded: Option<Signal<HashSet<S::Key>>>,
+    expanded: Option<AnyBinding<HashSet<S::Key>>>,
     expandable: Option<KeyPredicate<S::Key>>,
     selected: Option<Rc<dyn Fn() -> Vec<S::Key>>>,
     on_selection: Option<SelectionKeysFn<S::Key>>,
@@ -1880,7 +2219,7 @@ pub struct TreePiece<S: NodeSource> {
     on_move: Option<TreeMoveFn<S::Key>>,
     move_guard: Option<TreeGuardFn<S::Key>>,
     type_ahead: Option<KeyTextFn<S::Key>>,
-    reveal: Option<Signal<Option<S::Key>>>,
+    reveal: Option<AnyBinding<Option<S::Key>>>,
     row_id: Option<KeyTextFn<S::Key>>,
     row_menu: Option<RowMenuEntriesFn<S::Key>>,
 }
@@ -1929,6 +2268,7 @@ where
     }
 }
 
+#[day_macros::builder(TreeBuilder<S>)]
 impl<S: NodeSource + 'static> TreePiece<S> {
     /// Row sizing: `Uniform(h)` (fastest) or `Automatic` (self-sizing).
     pub fn row_height(mut self, h: RowHeight) -> Self {
@@ -1956,8 +2296,8 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     /// The app-owned expansion set (docs/tree.md): the user's disclosure clicks update it,
     /// and the app writing it discloses/collapses the native rows. Persist it (or don't);
     /// it is plain state.
-    pub fn expanded(mut self, sig: Signal<HashSet<S::Key>>) -> Self {
-        self.expanded = Some(sig);
+    pub fn expanded(mut self, set: impl Binding<HashSet<S::Key>>) -> Self {
+        self.expanded = Some(AnyBinding::new(set));
         self
     }
     /// Which rows can hold children at all: what draws (or omits) the disclosure, and which
@@ -1981,33 +2321,33 @@ impl<S: NodeSource + 'static> TreePiece<S> {
         self
     }
     /// Allow selecting several rows at once, where the toolkit supports it.
-    pub fn multi_select(mut self, on: bool) -> Self {
-        self.multi_select = on;
+    pub fn multi_select(mut self) -> Self {
+        self.multi_select = true;
         self
     }
     /// Let the user drag rows to a new parent/position with the platform's native mechanism,
-    /// where the backend supports it (probe `Cap::TreeMove`). Pair with
-    /// [`Self::on_move`] so the app's data follows, and optionally [`Self::move_guard`].
-    pub fn movable(mut self, on: bool) -> Self {
-        self.movable = on;
-        self
-    }
-    /// A committed move: `key` now sits under `parent` (`None` = the root) at `index`
-    /// (`None` = dropped onto the parent: append). Apply the same re-parent to the backing
-    /// data; its refresh reloads the tree. Runs at the next event drain, never inside the
-    /// native drop callback.
-    pub fn on_move(mut self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
-        self.on_move = Some(Rc::new(f));
-        self
-    }
-    /// Veto drops while the drag is live. The structural refusals (a row into itself, into
-    /// its own descendant, into a leaf) are built in; this guard adds the app's own. Keep it
-    /// pure: it runs inside the platform's drag callback.
-    pub fn move_guard(
-        mut self,
-        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
-    ) -> Self {
-        self.move_guard = Some(Rc::new(g));
+    /// where the backend supports it (probe `Cap::TreeMove`): the tree is movable exactly when
+    /// it carries a [`Move`], whose handler re-parents the app's data.
+    ///
+    /// ```ignore
+    /// tree(nodes, row_view).movable(Move::new(move |key, parent, index| store.reparent(key, parent, index)))
+    /// ```
+    pub fn movable(mut self, mv: Move<S::Key>) -> Self {
+        self.movable = true;
+        self.on_move = Some(mv.moved);
+        // Availability first (`Move::enabled`), then the app's guard, then the structural
+        // refusals the driver adds.
+        let enabled = mv.enabled;
+        let guard = mv.guard;
+        self.move_guard = Some(Rc::new(move |k: &S::Key, p: Option<&S::Key>, i| {
+            if !enabled.get_untracked() {
+                return MoveVerdict::Deny;
+            }
+            match &guard {
+                Some(g) => g(k, p, i),
+                None => MoveVerdict::Allow,
+            }
+        }));
         self
     }
     /// The row's type-ahead string (docs/tree.md): what native type-select matches against.
@@ -2018,8 +2358,8 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     }
     /// Programmatic reveal: set the signal to `Some(key)` and the row scrolls into view with
     /// every ancestor expanded (through [`Self::expanded`], so the app sees the change).
-    pub fn reveal(mut self, sig: Signal<Option<S::Key>>) -> Self {
-        self.reveal = Some(sig);
+    pub fn reveal(mut self, target: impl Binding<Option<S::Key>>) -> Self {
+        self.reveal = Some(AnyBinding::new(target));
         self
     }
     /// A dayscript element id per row, from its key (docs/tree.md): re-applied on every
@@ -2214,7 +2554,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                     // summoned, so a recycled cell asks about the row it currently shows.
                     Some(f) => {
                         let (conn, f) = (conn.clone(), f.clone());
-                        AnyPiece::new(shell.context_menu_fn(move |_p| {
+                        AnyPiece::new(shell.context_menu(move |_p: day_spec::Point| {
                             match conn.key_of(day_reactive::untrack(|| slot.get().0)) {
                                 Some(k) => f(&k),
                                 None => Vec::new(),
@@ -2243,7 +2583,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
             build_row,
         )
         .row_height(self.row_height)
-        .multi_select(self.multi_select)
+        .apply_if(self.multi_select, |l| l.multi_select())
         .scroll_to_row(scroll_sig);
         // A composed list may report a heading click. Reapply the last destination
         // selection even when the app's signal did not change, so headers never stay lit.
@@ -2942,137 +3282,6 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
     }
 }
 
-/// [`TreePiece`]'s own builders, reachable through a decoration (§5.2), like [`ListBuilder`].
-pub trait TreeBuilder<S: NodeSource + 'static>: Sized {
-    fn section_headers(self) -> Self;
-    fn on_expansion(self, f: impl Fn(S::Key, bool) + 'static) -> Self;
-    fn row_height(self, h: RowHeight) -> Self;
-    fn indent(self, pts: f64) -> Self;
-    fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self;
-    fn expandable(self, f: impl Fn(&S::Key) -> bool + 'static) -> Self;
-    fn selected(self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self;
-    fn on_selection(self, f: impl Fn(Vec<S::Key>) + 'static) -> Self;
-    fn multi_select(self, on: bool) -> Self;
-    fn movable(self, on: bool) -> Self;
-    fn on_move(self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self;
-    fn move_guard(
-        self,
-        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
-    ) -> Self;
-    fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self;
-    fn reveal(self, sig: Signal<Option<S::Key>>) -> Self;
-    fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self;
-    fn row_context_menu(self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self;
-}
-
-impl<S: NodeSource + 'static> TreeBuilder<S> for TreePiece<S> {
-    fn section_headers(self) -> Self {
-        TreePiece::section_headers(self)
-    }
-    fn on_expansion(self, f: impl Fn(S::Key, bool) + 'static) -> Self {
-        TreePiece::on_expansion(self, f)
-    }
-    fn row_height(self, h: RowHeight) -> Self {
-        TreePiece::row_height(self, h)
-    }
-    fn indent(self, pts: f64) -> Self {
-        TreePiece::indent(self, pts)
-    }
-    fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self {
-        TreePiece::expanded(self, sig)
-    }
-    fn expandable(self, f: impl Fn(&S::Key) -> bool + 'static) -> Self {
-        TreePiece::expandable(self, f)
-    }
-    fn selected(self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self {
-        TreePiece::selected(self, f)
-    }
-    fn on_selection(self, f: impl Fn(Vec<S::Key>) + 'static) -> Self {
-        TreePiece::on_selection(self, f)
-    }
-    fn multi_select(self, on: bool) -> Self {
-        TreePiece::multi_select(self, on)
-    }
-    fn movable(self, on: bool) -> Self {
-        TreePiece::movable(self, on)
-    }
-    fn on_move(self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
-        TreePiece::on_move(self, f)
-    }
-    fn move_guard(
-        self,
-        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
-    ) -> Self {
-        TreePiece::move_guard(self, g)
-    }
-    fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
-        TreePiece::type_ahead(self, f)
-    }
-    fn reveal(self, sig: Signal<Option<S::Key>>) -> Self {
-        TreePiece::reveal(self, sig)
-    }
-    fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
-        TreePiece::row_id(self, f)
-    }
-    fn row_context_menu(self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self {
-        TreePiece::row_context_menu(self, f)
-    }
-}
-
-impl<S: NodeSource + 'static, Inner: TreeBuilder<S> + Piece> TreeBuilder<S> for Decorated<Inner> {
-    fn section_headers(self) -> Self {
-        self.map_inner(|inner| inner.section_headers())
-    }
-    fn on_expansion(self, f: impl Fn(S::Key, bool) + 'static) -> Self {
-        self.map_inner(|inner| inner.on_expansion(f))
-    }
-    fn row_height(self, h: RowHeight) -> Self {
-        self.map_inner(|inner_piece| inner_piece.row_height(h))
-    }
-    fn indent(self, pts: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.indent(pts))
-    }
-    fn expanded(self, sig: Signal<HashSet<S::Key>>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.expanded(sig))
-    }
-    fn expandable(self, f: impl Fn(&S::Key) -> bool + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.expandable(f))
-    }
-    fn selected(self, f: impl Fn() -> Vec<S::Key> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.selected(f))
-    }
-    fn on_selection(self, f: impl Fn(Vec<S::Key>) + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_selection(f))
-    }
-    fn multi_select(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.multi_select(on))
-    }
-    fn movable(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.movable(on))
-    }
-    fn on_move(self, f: impl Fn(S::Key, Option<S::Key>, Option<usize>) + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_move(f))
-    }
-    fn move_guard(
-        self,
-        g: impl Fn(&S::Key, Option<&S::Key>, Option<usize>) -> MoveVerdict + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.move_guard(g))
-    }
-    fn type_ahead(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.type_ahead(f))
-    }
-    fn reveal(self, sig: Signal<Option<S::Key>>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.reveal(sig))
-    }
-    fn row_id(self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.row_id(f))
-    }
-    fn row_context_menu(self, f: impl Fn(&S::Key) -> Vec<MenuEntry> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.row_context_menu(f))
-    }
-}
-
 // ---------------------------------------------------------------------------
 // The test host (docs/testing.md)
 // ---------------------------------------------------------------------------
@@ -3288,7 +3497,7 @@ pub(crate) mod conformance {
             },
         )
         .row_height(RowHeight::Automatic)
-        .separators(false)
+        .no_separators()
     }
 
     /// Each `sized:` row's Day height and native top, in window points, in row order.
@@ -3433,13 +3642,12 @@ pub(crate) mod conformance {
                 column((
                     label(move || rows.get().join(",")).id("order"),
                     names_list(rows)
-                        .reorderable(true)
-                        .on_reorder(move |from, to| {
+                        .reorderable(Reorder::new(move |from, to| {
                             rows.update(|v| {
                                 let item = v.remove(from);
                                 v.insert(to.min(v.len()), item);
                             })
-                        })
+                        }))
                         .id("list")
                         .height(200.0),
                 ))
@@ -3461,12 +3669,11 @@ pub(crate) mod conformance {
                 column((
                     label(move || rows.get().join(",")).id("order"),
                     names_list(rows)
-                        .deletable(true)
-                        .on_delete(move |at| {
+                        .deletable(Delete::new(move |at| {
                             rows.update(|v| {
                                 v.remove(at);
                             })
-                        })
+                        }))
                         .id("list")
                         .height(200.0),
                 ))
@@ -3936,14 +4143,13 @@ pub(crate) mod conformance {
                     names_tree(rows)
                         .expanded(open)
                         .expandable(|k: &String| k == "Fruit" || k == "Nuts")
-                        .movable(true)
-                        .on_move(move |key, parent, _at| {
+                        .movable(Move::new(move |key, parent, _at| {
                             rows.update(|v| {
                                 if let Some(n) = v.iter_mut().find(|n| n.0 == key) {
                                     n.1 = parent;
                                 }
                             })
-                        })
+                        }))
                         .id("tree")
                         .height(240.0),
                 ))

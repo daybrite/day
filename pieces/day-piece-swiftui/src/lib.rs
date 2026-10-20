@@ -23,6 +23,7 @@
 //! It's a growing leaf, so constrain it with `.frame(w, h)` when it shouldn't fill the pane.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 pub use day_pieces::{IntoReactive, Reactive};
 use day_reactive::bind_seeded;
 
@@ -66,6 +67,7 @@ pub fn swiftui(name: impl Into<String>) -> SwiftUi {
     }
 }
 
+#[day_pieces::builder(SwiftUiBuilder)]
 impl SwiftUi {
     /// The JSON params string: a constant, a `Signal<String>`, or a `Fn() -> String`. When it's
     /// reactive the hosted view follows it live: each change re-invokes the provider's body with
@@ -243,30 +245,3 @@ pub mod json {
 day_pieces::glue_modules!(appkit, uikit);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`SwiftUi`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait SwiftUiBuilder: Sized {
-    fn params<M>(self, params: impl IntoReactive<String, M>) -> Self;
-    fn state_key(self, key: impl Into<String>) -> Self;
-}
-
-impl SwiftUiBuilder for SwiftUi {
-    fn params<M>(self, params: impl IntoReactive<String, M>) -> Self {
-        SwiftUi::params(self, params)
-    }
-    fn state_key(self, key: impl Into<String>) -> Self {
-        SwiftUi::state_key(self, key)
-    }
-}
-
-impl<Inner: SwiftUiBuilder + day_pieces::prelude::Piece> SwiftUiBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn params<M>(self, params: impl IntoReactive<String, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.params(params))
-    }
-    fn state_key(self, key: impl Into<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.state_key(key))
-    }
-}

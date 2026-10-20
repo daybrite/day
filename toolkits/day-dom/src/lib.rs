@@ -1299,7 +1299,7 @@ fn registration_menu() -> Vec<day_spec::MenuItem> {
         id: None,
         action: prefs,
         label: String::new(),
-        shortcut: Some(day_spec::Shortcut::new(",")),
+        shortcut: Some(day_spec::Shortcut::primary(",")),
         enabled: true,
         checked: None,
         role: Some(day_spec::MenuRole::Preferences),

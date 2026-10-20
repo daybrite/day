@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Inspector (`inspector`)
 
 Panels containing a native `list` or their own scrolling content should use
-`.scrollable(false)`. The default wraps the panel in a scroll view for property forms;
+`.not_scrollable()`. The default wraps the panel in a scroll view for property forms;
 disabling that wrapper gives a recycling list a bounded viewport in both desktop panes
 and compact sheets, avoiding nested scrolling and unbounded measurement.
 

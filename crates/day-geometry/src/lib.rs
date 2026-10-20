@@ -250,6 +250,16 @@ impl Insets {
         bottom: 0.0,
         trailing: 0.0,
     };
+    /// Four explicit edges, in the order they are named.
+    #[inline]
+    pub const fn new(top: f64, leading: f64, bottom: f64, trailing: f64) -> Self {
+        Insets {
+            top,
+            leading,
+            bottom,
+            trailing,
+        }
+    }
     #[inline]
     pub const fn all(d: f64) -> Self {
         Insets {
@@ -268,12 +278,56 @@ impl Insets {
             trailing: horizontal,
         }
     }
+    /// `d` on the leading and trailing edges, nothing above or below.
     #[inline]
-    pub fn horizontal(&self) -> f64 {
+    pub const fn horizontal(d: f64) -> Self {
+        Insets::symmetric(d, 0.0)
+    }
+    /// `d` above and below, nothing on the sides.
+    #[inline]
+    pub const fn vertical(d: f64) -> Self {
+        Insets::symmetric(0.0, d)
+    }
+    /// `d` above, nothing elsewhere.
+    #[inline]
+    pub const fn top(d: f64) -> Self {
+        Insets {
+            top: d,
+            ..Insets::ZERO
+        }
+    }
+    /// `d` below, nothing elsewhere.
+    #[inline]
+    pub const fn bottom(d: f64) -> Self {
+        Insets {
+            bottom: d,
+            ..Insets::ZERO
+        }
+    }
+    /// `d` on the leading edge, nothing elsewhere.
+    #[inline]
+    pub const fn leading(d: f64) -> Self {
+        Insets {
+            leading: d,
+            ..Insets::ZERO
+        }
+    }
+    /// `d` on the trailing edge, nothing elsewhere.
+    #[inline]
+    pub const fn trailing(d: f64) -> Self {
+        Insets {
+            trailing: d,
+            ..Insets::ZERO
+        }
+    }
+    /// The width the insets take: leading plus trailing.
+    #[inline]
+    pub fn horizontal_total(&self) -> f64 {
         self.leading + self.trailing
     }
+    /// The height the insets take: top plus bottom.
     #[inline]
-    pub fn vertical(&self) -> f64 {
+    pub fn vertical_total(&self) -> f64 {
         self.top + self.bottom
     }
 }

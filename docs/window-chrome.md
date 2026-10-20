@@ -17,17 +17,14 @@ Four options shape the frame, and one decorator turns any piece into a title bar
 use day::prelude::*;
 
 day::open_window(
-    Some("splash"),
-    day::WindowOptions {
-        size: Size::new(420.0, 240.0),
-        chrome: day::WindowChrome::Frameless,           // Standard | Overlay | Frameless
-        background: day::WindowBackground::Transparent, // Opaque | Transparent | Material(…)
-        shadow: false,
-        resizable: false,
-        placement: day::WindowPlacement::Centered,      // Automatic | Centered | At(point)
-        ..Default::default()
-    },
-    day::WindowKind::Normal,
+    res::window_options()
+        .key("splash")
+        .size(420.0, 240.0)
+        .chrome(day::WindowChrome::Frameless)           // Standard | Overlay | Frameless
+        .background(day::WindowBackground::Transparent) // Opaque | Transparent | Material(…)
+        .no_shadow()
+        .fixed_size()
+        .placement(day::WindowPlacement::Centered),     // Automatic | Centered | At(point)
     || {
         column((label("Loading…"), button("Close").action(close_splash)))
             .grow() // fill the window; only the rounded corners stay see-through
@@ -39,7 +36,7 @@ day::open_window(
 );
 ```
 
-The same fields apply to the first window through the `WindowOptions` handed to `day::launch`.
+The same builders apply to the first window through the `WindowOptions` handed to `day::launch`.
 Phones and the web ignore them: a phone window has no frame to change, and a window the platform
 cannot open presents as a cover inside the first one ([docs/windows.md](windows.md)), which is the
 right splash on a phone.
@@ -63,7 +60,7 @@ fn document_window() -> impl Piece {
     let top = day::current_window().map_or(0.0, |w| w.safe_area().top);
     column((
         row((spacer(), label("Untitled"), spacer()))
-            .padding(Insets { top, ..Default::default() })
+            .padding(Insets::top(top))
             .height(top + 40.0)
             .window_drag_region()
             .id("title-bar"),

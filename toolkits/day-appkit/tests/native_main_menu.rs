@@ -103,7 +103,7 @@ fn main() {
                         shortcut, enabled, ..
                     } = &mut quit
                     {
-                        *shortcut = Some(Shortcut::new("q").shift());
+                        *shortcut = Some(Shortcut::primary("q").shift());
                         *enabled = false;
                     }
                     toolkit.set_app_menu(&[

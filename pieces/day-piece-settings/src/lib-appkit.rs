@@ -172,7 +172,7 @@ impl Piece for Panel {
                     ))
                 })
                 .collect();
-            let _ = column(PieceVec(arms)).grow_w().build(cx);
+            let _ = column(arms).grow_w().build(cx);
         });
         let i = inst.clone();
         cx.on(node, move |ev| {

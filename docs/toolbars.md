@@ -57,9 +57,9 @@ page.toolbar(move || vec![…])          // re-derived on change
 ```
 
 An item that should come and go is a piece that comes and goes — `when` adds and withdraws it
-through the same scope disposal that tears down any other subtree. Use `.enabled_when(…)` instead
-where the command should stay visible but unavailable; that patches the one item rather than
-rebuilding the bar.
+through the same scope disposal that tears down any other subtree. Use a reactive
+`.enabled(…)` instead where the command should stay visible but unavailable; that patches the
+one item rather than rebuilding the bar.
 
 ## Placement
 
@@ -119,15 +119,15 @@ backend does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarI
 Qt keeps the button on the bar when its pane collapses (the track shrinks to it), XAML drops it because
 `NavigationView` draws its own pane button, and **UIKit drops it entirely** — `UISplitViewController`
 and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
-Suppress it with `.sidebar_toggle(false)`.
+Suppress it with `.no_sidebar_toggle()`.
 
 ### The items
 
 | constructor | what it is |
 |---|---|
 | `toolbar_button(id, label)` | a command |
-| `toolbar_toggle(id, label, signal)` | a two-state button, bound two-way |
-| `toolbar_segmented(id, segments, signal)` | one native segmented control over a `Signal<usize>` |
+| `toolbar_toggle(id, label, on)` | a two-state button, bound two-way (`on`: a `Signal<bool>` or any `Binding<bool>`) |
+| `toolbar_segmented(id, segments, selected)` | one native segmented control over a `usize` binding |
 | `toolbar_menu(id, label, entries)` | a pull-down, from the same `MenuEntry`s the menu bar takes |
 | `toolbar_label(id, text)` | static text — a status or a caption |
 | `toolbar_separator(id)` | a divider between neighbors in the same placement bucket |
@@ -140,8 +140,9 @@ IS rather than about where it happens to sit in a list, and it survives a bar th
 reserved id `day.search`. Declaring it on the surface lets the platform move it (into the
 navigation list on a window too narrow for a sidebar) without the app re-declaring anything.
 
-Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(bool)`,
-`.enabled_when(f)`, `.placement(…)`, `.label_style(…)`, `.prominent()`.
+Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(on)` (a
+`bool`, a `Signal<bool>` or a closure; a reactive value patches the one item), `.placement(…)`,
+`.label_style(…)`, `.prominent()`.
 
 **Use `toolbar_segmented` wherever exactly one of a set is on at a time**, such as a theme
 chooser or a view mode. Three toggles instead say "three independent switches" to the eye and to
@@ -152,7 +153,7 @@ toolbar_segmented("theme", vec![
     segment(tr("light")).icon(Symbol::Light),
     segment(tr("system")).icon(Symbol::Auto),
     segment(tr("dark")).icon(Symbol::Dark),
-], mode)   // mode: Signal<usize>
+], mode)   // mode: Signal<usize>, or any Binding<usize>
 ```
 
 Each backend draws the control its platform already has: `NSSegmentedControl` in `selectOne`
@@ -180,9 +181,9 @@ while the page around it changes.
 - **Values** (a toggle's state, a segment's selection, enablement, a search field's text and
   completions) change by `ToolbarPatch` on the live item, never by an edit. These ride their own
   bindings, so keep them out of a derived builder's reactive reads and put structure there:
-  - a `toolbar_toggle`'s signal
-  - a `.searchable()` surface's query signal ([docs/search.md](search.md))
-  - `.enabled_when(…)`
+  - a `toolbar_toggle`'s binding
+  - a `.searchable(..)` surface's query binding ([docs/search.md](search.md))
+  - a reactive `.enabled(…)`
 
   A value the user changes (typing, a click) is recorded in Day's model as it is reported, so the
   model never differs from what the widget shows.
@@ -413,7 +414,7 @@ A value patch goes to the live item, and into the mirror, so a later repaint sho
 Every contribution — the window's own and each showing page's — is composed into ONE model per
 window before it crosses to the toolkit, so a backend draws what it has always drawn and never has
 to know that a page contributed any of it. There is deliberately no per-page model: one authority,
-so a live `enabled_when` patch and a re-compose cannot disagree. (They did once, and a page command
+so a live `enabled` patch and a re-compose cannot disagree. (They did once, and a page command
 declared while nothing was selected stayed disabled on a window that never re-composed afterwards —
 a tiled Android tablet, where selecting a row changes no chrome.)
 

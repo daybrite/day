@@ -20,25 +20,27 @@ the annotations, testing, and [current platform limits](#current-limits).
 ```rust
 // An icon-only button: its accessible name can't be derived, so provide one.
 button("✕")
-    .a11y(|a| a.label(tr("close").format()))
+    .a11y(|a| a.label(tr("close")))
     .id("close-button")
 
 // A custom-drawn gauge: no native control underneath, so declare role and value.
 canvas(move |d, size| draw_gauge(d, size, value.get()))
-    .a11y(|a| a.role(Role::Meter).label(tr("cpu_usage").format()))
+    .a11y(|a| a.role(Role::Meter).label(tr("cpu_usage")))
     .frame(120.0, 120.0)
 
 // Decorative artwork: remove it from the accessibility tree entirely.
 image(res::images::hero_banner).a11y(|a| a.decorative())
 ```
 
-Put `.id` and `.a11y` before `.frame()` and `.padding()` on canvas and leaf [pieces](/docs/glossary#piece): those
-modifiers wrap the piece in a layout-only node, so annotations placed after them don't reach
-the native widget.
+`.id` names the piece's own node wherever it sits in the chain. Put `.a11y` before `.frame()`
+and `.padding()` on canvas and leaf [pieces](/docs/glossary#piece): those modifiers wrap the
+piece in a layout-only node, and `.a11y` annotates the node built so far, so an annotation
+placed after them lands on the wrapper instead of the native widget.
 
-The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. Labels are
-plain strings (`tr(...).format()` localizes one), taken as a snapshot at build time: they don't
-re-resolve on a [locale](/docs/glossary#locale) switch yet (a listed follow-up). Native controls report their roles on
+The builder covers `label`, `hint`, `value`, `role`, `hidden`, and `decorative`. The three
+strings take the same sources as a label (a literal, `tr(...)`, a signal, a closure) and are
+live: a localized label follows a [locale](/docs/glossary#locale) switch, and a `value` closure
+re-sends whenever what it reads changes. Native controls report their roles on
 their own, but no built-in invents a *label* for you; a `toggle` has no title parameter, so a
 titled switch is `labeled("Subscribe", toggle(subscribed))`. Your annotations merge onto the
 node's defaults.

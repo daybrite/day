@@ -27,7 +27,7 @@
 //!     .install();
 //! // … and in the nav, for the platforms with no menu bar:
 //! nav(section)
-//!     .items(move || prefs.nav_keys(Section::Settings), move |s| prefs.nav_item(*s))
+//!     .items(prefs.nav_item(Section::Settings))
 //!     .destination(move |_: &Section| prefs.page())
 //! ```
 
@@ -36,7 +36,7 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use day_core::{AnyPiece, Piece, PieceVec};
+use day_core::{AnyPiece, Piece};
 use day_pieces::prelude::*;
 use day_pieces::{Label, TextSource};
 use day_reactive::{Signal, watch};
@@ -561,7 +561,7 @@ enum RowKind {
         destructive: bool,
         confirm: Option<TextSource>,
         confirm_label: Option<TextSource>,
-        busy: Option<Signal<bool>>,
+        busy: Option<Reactive<bool>>,
     },
     Link(String),
     Navigate(Build),
@@ -579,7 +579,7 @@ pub struct Row {
     title: TextSource,
     caption: Option<TextSource>,
     id: Option<String>,
-    enabled: Option<Signal<bool>>,
+    enabled: Option<Reactive<bool>>,
     available: Option<Avail>,
     kind: RowKind,
 }
@@ -610,19 +610,11 @@ impl Row {
         self.id = Some(id.into());
         self
     }
-    /// Gray the control out while the signal is false.
-    pub fn enabled(mut self, enabled: Signal<bool>) -> Self {
-        self.enabled = Some(enabled);
+    /// Gray the control out while this reads false: a `Signal<bool>`, or a derived condition
+    /// (`|| !INCOGNITO.get()`), tracked like any reactive read.
+    pub fn enabled<M>(mut self, enabled: impl IntoReactive<bool, M>) -> Self {
+        self.enabled = Some(enabled.into_reactive());
         self
-    }
-    /// Gray the control out while `f` is false: a derived condition (`|| !INCOGNITO.get()`),
-    /// tracked like any reactive read.
-    pub fn enabled_when(self, f: impl Fn() -> bool + 'static) -> Self {
-        let sig = Signal::global(f());
-        day_reactive::Scope::root().enter(|| {
-            watch(f, move |v, _| sig.set_if_changed(*v));
-        });
-        self.enabled(sig)
     }
     /// Omit the row when false.
     pub fn available(mut self, f: impl Fn() -> bool + 'static) -> Self {
@@ -759,10 +751,11 @@ pub mod rows {
             }
             self
         }
-        /// An [`action`] that shows a spinner and disables while the signal is true.
-        pub fn busy(mut self, busy: Signal<bool>) -> Self {
+        /// An [`action`] that shows a spinner and disables while this reads true: a
+        /// `Signal<bool>` or a closure.
+        pub fn busy<M>(mut self, busy: impl IntoReactive<bool, M>) -> Self {
             if let RowKind::Action { busy: b, .. } = &mut self.kind {
-                *b = Some(busy);
+                *b = Some(busy.into_reactive());
             }
             self
         }
@@ -1347,14 +1340,19 @@ impl Prefs {
         self.0.presentation == Presentation::Navigation
             && day_core::capability(Cap::AppMenu) == Support::Unsupported
     }
-    /// The keys for a `nav().items(..)` source: `[key]` where [`Self::in_nav`], else empty.
-    pub fn nav_keys<K: Clone>(&self, key: K) -> Vec<K> {
-        if self.in_nav() { vec![key] } else { Vec::new() }
+    /// The Settings entry for the app's navigation, titled with the platform's word and
+    /// opening [`page`](Self::page): `Some` where [`Self::in_nav`], `None` where the platform's
+    /// application menu already carries Settings. Goes straight into a nav's items:
+    /// `nav(sel).items((…, prefs.nav_item(Section::Settings)))`.
+    pub fn nav_item<K>(&self, key: impl Into<K>) -> Option<NavItem<K>> {
+        self.in_nav().then(|| self.nav_item_everywhere(key))
     }
-    /// A ready nav item titled with the platform's word.
-    pub fn nav_item<K>(&self, key: K) -> NavItem<K> {
+    /// The Settings entry on every platform, menu or not: for an app that wants Settings in
+    /// its sidebar on the desktop too. Most apps want [`nav_item`](Self::nav_item).
+    pub fn nav_item_everywhere<K>(&self, key: impl Into<K>) -> NavItem<K> {
         let title = self.0.title.clone();
-        item(key, move || title.initial())
+        let inst = self.0.clone();
+        item(key, move || title.initial()).page(move || navigation_shell(inst.clone()))
     }
     /// The navigation presentation as a piece: the destination of the nav item, or any place
     /// the app embeds settings.
@@ -1413,12 +1411,10 @@ fn open_cover(inst: Rc<Installed>) -> bool {
         inst.path.set(Vec::new());
     }
     day_core::open_window(
-        Some(day_core::windows::PREFERENCES_KEY),
-        day_spec::WindowOptions {
-            title: inst.title.initial(),
-            ..day_spec::WindowOptions::default()
-        },
-        day_spec::WindowKind::Preferences,
+        day_spec::WindowOptions::default()
+            .title(inst.title.initial())
+            .key(day_core::windows::PREFERENCES_KEY)
+            .kind(day_spec::WindowKind::Preferences),
         move || navigation_shell_with_done(inst.clone()),
     );
     true
@@ -1761,22 +1757,18 @@ pub(crate) fn resolve_text(t: &TextSource) -> String {
     }
 }
 
-/// A choice row's picker, the same on every presentation: the option labels re-resolve on
-/// locale change (`options_reactive`), seeded from the same sources, and the row's enabled
-/// gate reaches the control. Every arm builds its picker here, so the two behaviors cannot
-/// drift between the composed rows and a native row's suffix control.
+/// A choice row's picker, the same on every presentation: the option titles are the row's
+/// text sources (so they re-resolve on locale change), bound to the row's index, and the
+/// row's enabled gate reaches the control. Every arm builds its picker here, so the two
+/// behaviors cannot drift between the composed rows and a native row's suffix control.
 pub(crate) fn choice_picker(
     labels: &[TextSource],
     index: Signal<usize>,
     segmented: bool,
     enabled: impl Fn() -> bool + 'static,
-) -> day_pieces::Picker<Signal<usize>> {
-    let sources: Rc<Vec<TextSource>> = Rc::new(labels.to_vec());
-    let initial: Vec<String> = sources.iter().map(resolve_text).collect();
-    let srcs = sources.clone();
-    let mut p = picker(initial, index)
-        .options_reactive(move || srcs.iter().map(resolve_text).collect())
-        .enabled(enabled);
+) -> day_pieces::Picker<usize, day_pieces::Required<Signal<usize>>> {
+    let options: Vec<(usize, TextSource)> = labels.iter().cloned().enumerate().collect();
+    let mut p = picker(index, options).enabled(enabled);
     if segmented {
         p = p.segmented();
     }
@@ -1791,15 +1783,16 @@ pub(crate) fn stepper_buttons(
     v: Signal<f64>,
     range: &std::ops::RangeInclusive<f64>,
     step: f64,
-    enabled: impl Fn() -> bool + Copy + 'static,
+    enabled: impl Fn() -> bool + Clone + 'static,
 ) -> (day_pieces::Button, day_pieces::Button) {
     let (lo, hi, st) = (*range.start(), *range.end(), step);
+    let enabled_inc = enabled.clone();
     let dec = button("−")
         .action(move || v.set((v.get_untracked() - st).max(lo)))
         .enabled(move || enabled() && v.get() > lo);
     let inc = button("+")
         .action(move || v.set((v.get_untracked() + st).min(hi)))
-        .enabled(move || enabled() && v.get() < hi);
+        .enabled(move || enabled_inc() && v.get() < hi);
     (dec, inc)
 }
 
@@ -1879,7 +1872,9 @@ fn composed_window_shell(inst: Rc<Installed>) -> AnyPiece {
             }
         };
         nav = match &g.icon {
-            Some(GroupIcon::Image(name)) => nav.item_icon(id, title, name.clone(), build),
+            Some(GroupIcon::Image(name)) => {
+                nav.items(item(id, title).icon(name.clone()).page(build))
+            }
             _ => nav.item(id, title, build),
         };
     }
@@ -1955,9 +1950,7 @@ fn composed_group_form(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiec
     if let Some(custom) = &g.custom {
         parts.push(custom());
     }
-    form(PieceVec(parts))
-        .id(format!("prefs-group-{}", g.id))
-        .any()
+    form(parts).id(format!("prefs-group-{}", g.id)).any()
 }
 
 /// A group's page from ordinary Day pieces: its sections as a form, then its custom piece.
@@ -1994,7 +1987,7 @@ fn section_piece(inst: Rc<Installed>, s: &Section, desktop: bool) -> Option<AnyP
     if rows.is_empty() {
         return None;
     }
-    let mut sec = section(PieceVec(rows));
+    let mut sec = section(rows);
     if let Some(t) = &s.title {
         sec = sec.title(text_source_fn(t));
     }
@@ -2076,12 +2069,12 @@ const VALUE_WIDTH: f64 = 52.0;
 
 fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
     let id = r.id.clone();
-    let enabled = r.enabled;
+    let enabled = r.enabled.clone();
     let with_id = |p: AnyPiece| match &id {
         Some(id) => p.id(id.clone()).any(),
         None => p,
     };
-    let enabled_fn = move || enabled.is_none_or(|e| e.get());
+    let enabled_fn = move || enabled.as_ref().is_none_or(|e| e.get());
     match &r.kind {
         RowKind::Toggle(sig) => {
             let ctl = with_id(toggle(*sig).enabled(enabled_fn).any());
@@ -2185,7 +2178,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
             let title = text_source_fn(&r.title);
             let confirm = confirm.clone();
             let confirm_label = confirm_label.clone();
-            let busy = *busy;
+            let busy = busy.clone();
             let run = move || {
                 let on = on.clone();
                 match &confirm {
@@ -2202,9 +2195,10 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
                     None => on(),
                 }
             };
+            let busy_gate = busy.clone();
             let b = button(text_source_fn(&r.title))
                 .action(run)
-                .enabled(move || enabled_fn() && !busy.is_some_and(|b| b.get()));
+                .enabled(move || enabled_fn() && !busy_gate.as_ref().is_some_and(|b| b.get()));
             let ctl = with_id(b.any());
             let ctl = match busy {
                 Some(b) => row((when(move || b.get(), spinner), ctl))
@@ -2294,14 +2288,12 @@ fn push_subpage(inst: Rc<Installed>, title: String, build: Build) {
             .update(|p| p.push(SettingsRoute::Group(format!("page:{title}"))));
     } else {
         day_core::open_window(
-            Some(&format!("day.settings.{title}")),
-            day_spec::WindowOptions {
-                title,
-                size: day_spec::Size::new(480.0, 560.0),
-                size_to_fit: true,
-                ..day_spec::WindowOptions::default()
-            },
-            day_spec::WindowKind::Preferences,
+            day_spec::WindowOptions::default()
+                .key(format!("day.settings.{title}"))
+                .title(title)
+                .size(480.0, 560.0)
+                .size_to_fit()
+                .kind(day_spec::WindowKind::Preferences),
             move || build(),
         );
     }
@@ -2502,15 +2494,9 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
                     .any()
             })
             .collect();
-        parts.push(section(PieceVec(rows)).any());
+        parts.push(section(rows).any());
     }
-    scroll(
-        form(PieceVec(parts))
-            .padding(16.0)
-            .grow_w()
-            .id("settings-root"),
-    )
-    .any()
+    scroll(form(parts).padding(16.0).grow_w().id("settings-root")).any()
 }
 
 /// The About header card on the mobile root: icon, name, version; tapping opens the About page.
@@ -2581,7 +2567,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         head.push(label(t).id("about-tagline").any());
     }
     let mut parts: Vec<AnyPiece> = vec![
-        column(PieceVec(head))
+        column(head)
             .spacing(6.0)
             .align(HAlign::Center)
             .grow_w()
@@ -2606,7 +2592,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         );
     }
     if !links.is_empty() {
-        parts.push(section(PieceVec(links)).any());
+        parts.push(section(links).any());
     }
     let mut notes: Vec<AnyPiece> = Vec::new();
     if let Some(c) = about.credits_text() {
@@ -2628,7 +2614,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         );
     }
     if !notes.is_empty() {
-        parts.push(section(PieceVec(notes)).any());
+        parts.push(section(notes).any());
     }
     if let Some(c) = about.copyright_text() {
         parts.push(
@@ -2639,10 +2625,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
                 .any(),
         );
     }
-    let body = form(PieceVec(parts))
-        .padding(20.0)
-        .grow_w()
-        .id("about-page");
+    let body = form(parts).padding(20.0).grow_w().id("about-page");
     // The About window fits its content like the settings panel and scrolls past the height
     // it can have; a pushed page scrolls.
     if inst.presentation == Presentation::Window {

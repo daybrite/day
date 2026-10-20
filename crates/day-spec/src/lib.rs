@@ -1094,8 +1094,8 @@ pub struct Shortcut {
 }
 
 impl Shortcut {
-    /// `primary`+`key` (⌘S / Ctrl+S), the common case.
-    pub fn new(key: impl Into<String>) -> Shortcut {
+    /// `primary`+`key` (⌘S / Ctrl+S), the common case: `Shortcut::primary("s").shift()`.
+    pub fn primary(key: impl Into<String>) -> Shortcut {
         Shortcut {
             key: key.into(),
             primary: true,
@@ -1229,7 +1229,7 @@ pub enum MenuItem {
         /// makes the item checkable and says which way it currently sits.
         ///
         /// The item still runs its `action` when chosen; a backend never flips this on its own.
-        /// The app owns the state, and re-installing the menu (`app_menu_reactive`) is what moves
+        /// The app owns the state, and re-installing the menu (`app_menu`, which re-lowers on change) is what moves
         /// the mark, so what the menu shows can never disagree with what the app thinks.
         checked: Option<bool>,
         role: Option<MenuRole>,
@@ -7754,6 +7754,116 @@ pub struct WindowOptions {
     /// that way next launch (docs/windows.md "Remembered frames"). A position that no attached
     /// display shows any more is dropped, so a window never reopens off-screen.
     pub remember_frame: Option<String>,
+    /// The logical window this opens (docs/windows.md): `open_window` focuses an already-open
+    /// window with the same key instead of opening a second (the preferences pattern). `None`
+    /// always opens a new one.
+    pub key: Option<String>,
+    /// The kind of window: a regular one, a preferences panel, an About panel.
+    pub kind: WindowKind,
+}
+
+impl WindowOptions {
+    /// The window title. Replaces a [`title_fn`](Self::title_fn) set earlier (the generated
+    /// `res::window_options()` sets one), so the last title named wins.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = title.into();
+        self.title_fn = None;
+        self
+    }
+    /// The content size the window opens at (desktop; phones fill the screen).
+    pub fn size(mut self, width: f64, height: f64) -> Self {
+        self.size = Size::new(width, height);
+        self
+    }
+    /// The smallest content size the user can resize to.
+    pub fn min_size(mut self, width: f64, height: f64) -> Self {
+        self.min_size = Some(Size::new(width, height));
+        self
+    }
+    /// The largest content size the user can resize to (`Cap::WindowGeometry`).
+    pub fn max_size(mut self, width: f64, height: f64) -> Self {
+        self.max_size = Some(Size::new(width, height));
+        self
+    }
+    /// Create and mount the window without showing it; see [`Self::start_hidden`].
+    pub fn start_hidden(mut self) -> Self {
+        self.start_hidden = true;
+        self
+    }
+    /// Size the window to its content once built; see [`Self::size_to_fit`].
+    pub fn size_to_fit(mut self) -> Self {
+        self.size_to_fit = true;
+        self
+    }
+    /// The app's display name for the application menu and About; see [`Self::app_name`].
+    pub fn app_name(mut self, name: impl Into<String>) -> Self {
+        self.app_name = Some(name.into());
+        self
+    }
+    /// The app's locale catalog, as `res::locales::{DEFAULT, CATALOG}`; see [`Self::locales`].
+    pub fn locales(
+        mut self,
+        default: &'static str,
+        catalog: &'static [(&'static str, &'static str)],
+    ) -> Self {
+        self.locales = Some((default, catalog));
+        self
+    }
+    /// The title, computed once the catalog is installed; see [`Self::title_fn`].
+    pub fn title_fn(mut self, f: fn() -> String) -> Self {
+        self.title_fn = Some(f);
+        self
+    }
+    /// The app's version, for Day's exit line; see [`Self::version`].
+    pub fn version(mut self, version: impl Into<String>) -> Self {
+        self.version = Some(version.into());
+        self
+    }
+    /// macOS window tabbing for this window; see [`Self::tabbing`].
+    pub fn tabbing(mut self, tabbing: WindowTabbing) -> Self {
+        self.tabbing = tabbing;
+        self
+    }
+    /// The window's frame; see [`Self::chrome`].
+    pub fn chrome(mut self, chrome: WindowChrome) -> Self {
+        self.chrome = chrome;
+        self
+    }
+    /// What shows behind the content; see [`Self::background`].
+    pub fn background(mut self, background: WindowBackground) -> Self {
+        self.background = background;
+        self
+    }
+    /// No drop shadow, for a transparent or shaped window; see [`Self::shadow`].
+    pub fn no_shadow(mut self) -> Self {
+        self.shadow = false;
+        self
+    }
+    /// A window the user cannot resize; see [`Self::resizable`].
+    pub fn fixed_size(mut self) -> Self {
+        self.resizable = false;
+        self
+    }
+    /// Where the window opens; see [`Self::placement`].
+    pub fn placement(mut self, placement: WindowPlacement) -> Self {
+        self.placement = placement;
+        self
+    }
+    /// Remember and restore this window's frame under `key`; see [`Self::remember_frame`].
+    pub fn remember_frame(mut self, key: impl Into<String>) -> Self {
+        self.remember_frame = Some(key.into());
+        self
+    }
+    /// The logical window this opens; see [`Self::key`].
+    pub fn key(mut self, key: impl Into<String>) -> Self {
+        self.key = Some(key.into());
+        self
+    }
+    /// The kind of window; see [`Self::kind`].
+    pub fn kind(mut self, kind: WindowKind) -> Self {
+        self.kind = kind;
+        self
+    }
 }
 
 impl Default for WindowOptions {
@@ -7776,6 +7886,8 @@ impl Default for WindowOptions {
             placement: WindowPlacement::Automatic,
             max_size: None,
             remember_frame: None,
+            key: None,
+            kind: WindowKind::Normal,
         }
     }
 }

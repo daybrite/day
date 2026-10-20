@@ -12,10 +12,11 @@
 //! (no `fill_measure`; each backend's default `measure` returns the native indicator's fitting
 //! size), so it does not need a `.frame(w, h)` to be visible (though one gives it a stable region).
 //! `.animating(_)` accepts a `bool`, a `Signal<bool>`, or a closure (default true): a reactive
-//! source starts/stops the animation through an `ActivityPatch::Animating` write. `.large(true)`
+//! source starts/stops the animation through an `ActivityPatch::Animating` write. `.large()`
 //! selects the platform's large control size.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 use day_pieces::{IntoReactive, Reactive};
 use day_reactive::bind_seeded;
 
@@ -47,7 +48,7 @@ pub enum ActivityPatch {
 }
 
 /// A native activity/loading spinner. Bind its running state with `.animating(_)` and pick the
-/// large control size with `.large(true)`.
+/// large control size with `.large()`.
 pub struct Activity {
     animating: Reactive<bool>,
     large: bool,
@@ -62,6 +63,7 @@ pub fn activity() -> Activity {
     }
 }
 
+#[day_pieces::builder(ActivityBuilder)]
 impl Activity {
     /// Start/stop the animation from a `bool`, a `Signal<bool>`, or a closure (default true). A
     /// reactive source is watched and drives an `ActivityPatch::Animating` on every change.
@@ -69,9 +71,9 @@ impl Activity {
         self.animating = source.into_reactive();
         self
     }
-    /// Use the platform's large control size (default false).
-    pub fn large(mut self, large: bool) -> Self {
-        self.large = large;
+    /// Use the platform's large control size.
+    pub fn large(mut self) -> Self {
+        self.large = true;
         self
     }
 }
@@ -112,33 +114,6 @@ impl Piece for Activity {
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`Activity`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ActivityBuilder: Sized {
-    fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self;
-    fn large(self, large: bool) -> Self;
-}
-
-impl ActivityBuilder for Activity {
-    fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self {
-        Activity::animating(self, source)
-    }
-    fn large(self, large: bool) -> Self {
-        Activity::large(self, large)
-    }
-}
-
-impl<Inner: ActivityBuilder + day_pieces::prelude::Piece> ActivityBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn animating<M>(self, source: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.animating(source))
-    }
-    fn large(self, large: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.large(large))
-    }
-}
 
 /// The activity indicator's conformance cases (docs/testing.md).
 #[cfg(feature = "conformance")]
@@ -201,7 +176,7 @@ mod tests {
             ..Default::default()
         };
         day_core::launch_with(mock, options, move || {
-            day_core::AnyPiece::new(activity().animating(spinning).large(true))
+            day_core::AnyPiece::new(activity().animating(spinning).large())
         });
 
         let found = probe.find_by_kind(KIND);

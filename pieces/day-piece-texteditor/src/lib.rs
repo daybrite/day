@@ -41,8 +41,8 @@
 //! the per-toolkit hook a future read-back would use.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
-use day_pieces::{IntoText, TextSource};
-use day_reactive::{Effect, Signal, bind_seeded, watch};
+use day_pieces::{Binding, Decorated, IntoText, TextSource};
+use day_reactive::{AnyBinding, Effect, Signal, bind_seeded, watch};
 use day_spec::{Event, Font, RunStyle, StyledText, Support};
 // Re-exported for the per-toolkit arms below, which build native attributes out of them.
 #[allow(unused_imports)]
@@ -167,8 +167,8 @@ pub fn support() -> Support {
 /// A styled-text editor bound two-way to a [`StyledText`] signal. Build with [`text_editor`].
 pub struct TextEditor {
     doc: Signal<StyledText>,
-    selection: Option<Signal<std::ops::Range<usize>>>,
-    typing: Option<Signal<RunStyle>>,
+    selection: Option<AnyBinding<std::ops::Range<usize>>>,
+    typing: Option<AnyBinding<RunStyle>>,
     base: Font,
     editable: day_pieces::Reactive<bool>,
     placeholder: Option<TextSource>,
@@ -254,6 +254,7 @@ pub fn text_editor_text(text: impl day_reactive::Binding<String>) -> TextEditor 
     text_editor(doc)
 }
 
+#[day_pieces::builder(TextEditorBuilder)]
 impl TextEditor {
     /// Live syntax highlighting: `f` turns the text into runs, and runs again after every edit
     /// (and whenever a signal it reads changes). The runs reach the native view as an attributes
@@ -302,8 +303,8 @@ impl TextEditor {
     }
     /// Bind the selection, in BYTE offsets into `doc.text`, two-way: the user moving the caret
     /// writes it, and writing it moves the caret. Collapsed when `start == end`.
-    pub fn selection(mut self, sel: Signal<std::ops::Range<usize>>) -> Self {
-        self.selection = Some(sel);
+    pub fn selection(mut self, sel: impl Binding<std::ops::Range<usize>>) -> Self {
+        self.selection = Some(AnyBinding::new(sel));
         self
     }
     /// Bind what the next typed character will be styled with.
@@ -312,8 +313,8 @@ impl TextEditor {
     /// with a collapsed caret there is no text to read a style off, and "what happens if I type
     /// now" is the platform's own pending state. Writing it is how a toolbar makes the next word
     /// bold rather than the last one.
-    pub fn typing_style(mut self, style: Signal<RunStyle>) -> Self {
-        self.typing = Some(style);
+    pub fn typing_style(mut self, style: impl Binding<RunStyle>) -> Self {
+        self.typing = Some(AnyBinding::new(style));
         self
     }
     /// The style unstyled text draws in, and what relative runs scale against (default `Body`).
@@ -325,9 +326,11 @@ impl TextEditor {
         self.editable = v.into_reactive();
         self
     }
-    /// Show the platform's spell-check squiggles (default on). Turn it off for code.
-    pub fn spellcheck(mut self, on: bool) -> Self {
-        self.spellcheck = on;
+    /// Hide the platform's spell-check squiggles (they are on by default); what prose that is
+    /// not in the system language, or an identifier field, wants. [`code`](Self::code) does
+    /// this too.
+    pub fn no_spellcheck(mut self) -> Self {
+        self.spellcheck = false;
         self
     }
     pub fn placeholder<M>(mut self, t: impl IntoText<M>) -> Self {
@@ -901,117 +904,6 @@ pub fn text_payload(text: &str) -> String {
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`TextEditor`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait TextEditorBuilder: Sized {
-    fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self;
-    fn typing_style(self, style: Signal<RunStyle>) -> Self;
-    fn base(self, base: Font) -> Self;
-    fn editable<M>(self, v: impl day_pieces::IntoReactive<bool, M>) -> Self;
-    fn spellcheck(self, on: bool) -> Self;
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
-    fn min_lines(self, n: u32) -> Self;
-    fn max_lines(self, n: u32) -> Self;
-    fn highlight(self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self;
-    fn highlight_limit(self, bytes: usize) -> Self;
-    fn single_line(self) -> Self;
-    fn on_submit(self, f: impl Fn() + 'static) -> Self;
-    fn code(self) -> Self;
-    fn indent(self, spaces: u8) -> Self;
-}
-
-impl TextEditorBuilder for TextEditor {
-    fn highlight(self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self {
-        TextEditor::highlight(self, f)
-    }
-    fn highlight_limit(self, bytes: usize) -> Self {
-        TextEditor::highlight_limit(self, bytes)
-    }
-    fn single_line(self) -> Self {
-        TextEditor::single_line(self)
-    }
-    fn on_submit(self, f: impl Fn() + 'static) -> Self {
-        TextEditor::on_submit(self, f)
-    }
-    fn code(self) -> Self {
-        TextEditor::code(self)
-    }
-    fn indent(self, spaces: u8) -> Self {
-        TextEditor::indent(self, spaces)
-    }
-    fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self {
-        TextEditor::selection(self, sel)
-    }
-    fn typing_style(self, style: Signal<RunStyle>) -> Self {
-        TextEditor::typing_style(self, style)
-    }
-    fn base(self, base: Font) -> Self {
-        TextEditor::base(self, base)
-    }
-    fn editable<M>(self, v: impl day_pieces::IntoReactive<bool, M>) -> Self {
-        TextEditor::editable(self, v)
-    }
-    fn spellcheck(self, on: bool) -> Self {
-        TextEditor::spellcheck(self, on)
-    }
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        TextEditor::placeholder(self, t)
-    }
-    fn min_lines(self, n: u32) -> Self {
-        TextEditor::min_lines(self, n)
-    }
-    fn max_lines(self, n: u32) -> Self {
-        TextEditor::max_lines(self, n)
-    }
-}
-
-impl<Inner: TextEditorBuilder + day_pieces::prelude::Piece> TextEditorBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn highlight(self, f: impl Fn(&str) -> Vec<TextRun> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.highlight(f))
-    }
-    fn highlight_limit(self, bytes: usize) -> Self {
-        self.map_inner(|inner_piece| inner_piece.highlight_limit(bytes))
-    }
-    fn single_line(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.single_line())
-    }
-    fn on_submit(self, f: impl Fn() + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_submit(f))
-    }
-    fn code(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.code())
-    }
-    fn indent(self, spaces: u8) -> Self {
-        self.map_inner(|inner_piece| inner_piece.indent(spaces))
-    }
-    fn selection(self, sel: Signal<std::ops::Range<usize>>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.selection(sel))
-    }
-    fn typing_style(self, style: Signal<RunStyle>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.typing_style(style))
-    }
-    fn base(self, base: Font) -> Self {
-        self.map_inner(|inner_piece| inner_piece.base(base))
-    }
-    fn editable<M>(self, v: impl day_pieces::IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.editable(v))
-    }
-    fn spellcheck(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.spellcheck(on))
-    }
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder(t))
-    }
-    fn min_lines(self, n: u32) -> Self {
-        self.map_inner(|inner_piece| inner_piece.min_lines(n))
-    }
-    fn max_lines(self, n: u32) -> Self {
-        self.map_inner(|inner_piece| inner_piece.max_lines(n))
-    }
-}
 
 /// The styled editor's conformance cases (docs/testing.md).
 #[cfg(feature = "conformance")]

@@ -83,20 +83,18 @@ imports; a filename alone is insufficient.
 Use the same import function from a reusable **Open** command:
 
 ```rust
-let open = Command {
-    id: "open-document",
-    label: res::str::open_document(),
-    action: move || {
-        day::task(async move {
-            if let Some(file) = open_file()
-                .filter(res::str::epub_files().format(), &["epub"])
-                .await
-            {
-                import_file(file).await;
-            }
-        });
-    },
-}.build().icon(Symbol::Open).shortcut(Shortcut::new("o"));
+let open = Command::new("open-document", res::str::open_document(), move || {
+    day::task(async move {
+        if let Some(file) = open_file()
+            .filter(res::str::epub_files().format(), &["epub"])
+            .await
+        {
+            import_file(file).await;
+        }
+    });
+})
+.icon(Symbol::Open)
+.shortcut(Shortcut::primary("o"));
 ```
 
 Put `open.menu_item()` in a `MenuBarRole::File` submenu and `open.toolbar_item()` in mobile

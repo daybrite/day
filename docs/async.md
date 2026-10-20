@@ -113,9 +113,20 @@ let stations = Resource::new(
     move || region.get(),                                   // tracked — refetch on change
     |region| async move { fetch_stations(region).await },   // Result<T, E: Error + Send + Sync>
 );
-when(move || stations.ready(), move || station_list(stations));
+load(stations, |s| station_list(s.get()))                  // the three states as subtrees
+    .loading(spinner)
+    .failed(|e| label(e.to_string()).secondary());
 stations.refetch();                                         // force, even if region is unchanged
 ```
+
+`load(state, ready)` shows the three states as three subtrees: the ready arm, and optional
+`.loading(build)` and `.failed(|err| build)` arms (a state without an arm builds nothing).
+`state` is a `Resource<T>`, a `Signal<Load<T>>` or a closure returning a `Load<T>`. Arms rebuild
+only when the variant changes; the ready arm is handed a `Loaded<T>`, whose `get()` is a tracked
+read that follows `Ready(a)` to `Ready(b)` in place, so a refetch updates the list without
+rebuilding it. Whether a refetch passes through `Loading` is the `Resource`'s policy (below); an
+app that wants its stale content shown during a refresh keeps the last value in its own state
+and the ready arm reads it.
 
 - `Load<T>` is `Loading | Ready(T) | Failed(Arc<dyn Error + Send + Sync>)`, `Clone`, with
   `ready()/is_loading()/is_ready()/error()` accessors. `Resource` is a `Copy` handle:

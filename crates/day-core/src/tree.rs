@@ -165,6 +165,9 @@ pub struct Tree<B: Toolkit> {
     windows: Vec<WindowEntry>,
     layout_dirty: bool,
     handlers: HashMap<RNode, Vec<EventHandler>>,
+    /// The gesture kinds each node asked the toolkit for (`enable_gesture`): where a gesture
+    /// addressed to a descendant is redirected (see `dispatch_to_node`).
+    gestures: HashMap<RNode, Vec<day_spec::GestureKind>>,
     // (kind, handle): the kind rides along so the drain can offer a satellite piece its
     // `release` hook before the backend frees the handle (§15.2).
     release_queue: Vec<(day_spec::PieceKind, B::Handle)>,
@@ -247,6 +250,7 @@ impl<B: Toolkit> Tree<B> {
             }],
             layout_dirty: true,
             handlers: HashMap::new(),
+            gestures: HashMap::new(),
             release_queue: Vec::new(),
             lists: HashMap::new(),
             trees: HashMap::new(),
@@ -522,6 +526,7 @@ impl<B: Toolkit> Tree<B> {
                 continue;
             };
             self.handlers.remove(&n);
+            self.gestures.remove(&n);
             if data.implicit_anim.is_some() {
                 self.implicit_anim_count = self.implicit_anim_count.saturating_sub(1);
             }
@@ -802,6 +807,12 @@ pub trait TreeOps {
     /// The layout-only wrappers directly above `node` (single child, no native view), nearest
     /// first: the same element as `node`, where an id or a modifier often sits.
     fn wrappers_above(&self, node: RNode) -> Vec<RNode>;
+    /// The node a `kind` gesture addressed to `node` is delivered to: `node` itself when it
+    /// enabled that gesture, else the nearest layout-only wrapper above it that did (where a
+    /// `.padding(..).on_tap(..)` registered its handler), else `None`. What makes a dayscript
+    /// step by id reach the handler the way a native gesture on the inner view reaches the
+    /// recognizer on its superview.
+    fn gesture_target(&self, node: RNode, kind: day_spec::GestureKind) -> Option<RNode>;
     fn set_id(&mut self, node: RNode, id: String);
     /// Merge non-default grid cell facts onto a node's [`Flex`]: what the `.grid_span`/
     /// `.grid_align` modifiers call (docs/grid.md). Called at build time, before the first layout.
@@ -1447,6 +1458,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
         None
     }
+    fn gesture_target(&self, node: RNode, kind: day_spec::GestureKind) -> Option<RNode> {
+        let has = |n: RNode| self.gestures.get(&n).is_some_and(|k| k.contains(&kind));
+        if has(node) {
+            return Some(node);
+        }
+        self.wrappers_above(node).into_iter().find(|w| has(*w))
+    }
+
     fn wrappers_above(&self, node: RNode) -> Vec<RNode> {
         let mut out = Vec::new();
         let mut cur = node;
@@ -1521,6 +1540,10 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn enable_gesture(&mut self, node: RNode, kind: day_spec::GestureKind) {
+        let kinds = self.gestures.entry(node).or_default();
+        if !kinds.contains(&kind) {
+            kinds.push(kind);
+        }
         // `.on_tap`/`.on_drag` often land on a layout-only wrapper (`.frame()`, `.padding()`,
         // `.grow()` produce one) that has no native view to carry a recognizer. Descend
         // through single-child layout-only nodes to the nearest native descendant and attach
@@ -3385,6 +3408,24 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
         with_tree(|t| t.root_node())
     } else {
         id_to_rnode(id)
+    };
+    // A gesture addressed to a piece's own node (a dayscript step by id, which names that node
+    // wherever `.id` sits in the chain; a probe's emit) is delivered to the node that enabled
+    // the gesture: the node itself, or the wrapper above it where `.padding(..).on_tap(..)`
+    // registered its handler, as a native gesture on the inner view reaches the recognizer on
+    // its superview. A natively delivered gesture already names that node, so nothing moves.
+    let gesture = match ev {
+        Event::Tap(_) => Some(day_spec::GestureKind::Tap),
+        Event::LongPress(_) => Some(day_spec::GestureKind::LongPress),
+        Event::Drag { .. } => Some(day_spec::GestureKind::Drag),
+        Event::Pan { .. } => Some(day_spec::GestureKind::Pan),
+        Event::Pinch { .. } => Some(day_spec::GestureKind::Pinch),
+        Event::Hover { .. } => Some(day_spec::GestureKind::Hover),
+        _ => None,
+    };
+    let node = match gesture.and_then(|k| with_tree(|t| t.gesture_target(node, k))) {
+        Some(target) => target,
+        None => node,
     };
     let mut handlers = with_tree(|t| t.handlers_for(node));
     // A key or a focus change the toolkit raised on a native view also reaches the layout-only

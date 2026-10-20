@@ -23,10 +23,10 @@ alone do not establish that a screen is usable.
 
 ```rust
 button(icon("trash"))
-    .a11y(|a| a.label(tr("delete-item").format()).hint(tr("delete-item-hint").format()))
+    .a11y(|a| a.label(tr("delete-item")).hint(tr("delete-item-hint")))
     .id("delete-button")
 
-image("chart").a11y(|a| a.label(tr("q3-chart-summary").format()))   // or .decorative()
+image("chart").a11y(|a| a.label(tr("q3-chart-summary")))   // or .decorative()
 
 gauge(level).a11y(|a| a.role(Role::Meter).label("Volume").value("72"))   // canvas → explicit role
 ```
@@ -49,8 +49,10 @@ Annotations merge onto a node: a piece default, `.a11y()`, and `.id()` accumulat
 the merged `A11yProps` on the node, re-applies the full picture on each change, and hands it to
 `a11y_audit` as the expectation).
 
-Put `.id`/`.a11y` before `.frame()`/`.padding()` on canvas/leaf pieces. Those wrap in a
-handle-less layout node, so annotations placed after them wouldn't reach a native widget.
+`.id` names the piece's own node wherever it sits in the chain. `.a11y` is an ordered
+modifier ([docs/api-style.md](api-style.md) "Modifier classes"): it annotates the node built so
+far, so put it before `.frame()`/`.padding()` on canvas/leaf pieces, which wrap in a handle-less
+layout node that annotations placed after them would land on.
 
 ## Roles
 

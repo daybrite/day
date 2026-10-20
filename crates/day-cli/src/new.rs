@@ -3261,15 +3261,10 @@ day::day_start!(options: window(), root);
 // Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
 day::resources!();
 
-/// Options for every window.
+/// Options for every window: the generated catalog, title and version; the size is for
+/// desktop (phones fill the screen).
 pub fn window() -> day::WindowOptions {
-    day::WindowOptions {
-        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
-        title_fn: Some(|| res::str::app_title().format()),
-        // Desktop only; phones fill the screen.
-        size: day::prelude::Size::new(960.0, 640.0),
-        ..Default::default()
-    }
+    res::window_options().size(960.0, 640.0)
 }
 
 /// The page. Each piece has an id, so `dayscript/demo.yaml` can find it.
@@ -3296,15 +3291,10 @@ day::day_start!(options: window(), root);
 // Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
 day::resources!();
 
-/// Options for every window.
+/// Options for every window: the generated catalog, title and version; the size is for
+/// desktop (phones fill the screen).
 pub fn window() -> day::WindowOptions {
-    day::WindowOptions {
-        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
-        title_fn: Some(|| res::str::app_title().format()),
-        // Desktop only; phones fill the screen.
-        size: day::prelude::Size::new(960.0, 640.0),
-        ..Default::default()
-    }
+    res::window_options().size(960.0, 640.0)
 }
 
 /// The page. Each piece has an id, so `dayscript/demo.yaml` can find it.

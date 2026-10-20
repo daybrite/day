@@ -343,7 +343,7 @@ pub fn test_pages() -> impl Piece {
     let selection = Signal::new(String::new());
     nav(selection)
         .presentation(day_spec::props::NavPresentation::Split)
-        .items(
+        .items(nav_items(
             || {
                 day_core::conformance::cases()
                     .into_iter()
@@ -352,7 +352,7 @@ pub fn test_pages() -> impl Piece {
                     .collect::<Vec<String>>()
             },
             |name: &String| item(name.clone(), name.clone()),
-        )
+        ))
         .destination(
             |key: &String| match day_core::conformance::case_named(key) {
                 Some(case) => guarded_page(case),

@@ -10,7 +10,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Scope, Signal, bind, bind_seeded};
+use day_reactive::{AnyBinding, Scope, Signal, bind, bind_seeded};
 use day_spec::{Event, Size, kinds};
 
 use crate::*;
@@ -403,7 +403,7 @@ fn nav_page(
 /// one layer at a time. Side by side, both layers are up and both keep their commands.
 fn list_layer_gate(
     visible: Option<Signal<bool>>,
-    detail_open: Option<Signal<bool>>,
+    detail_open: Option<AnyBinding<bool>>,
     pres: Option<Signal<day_spec::props::NavPresentation>>,
 ) -> Rc<dyn Fn() -> bool> {
     // `try_get` throughout: a gate is asked at merge time, which can be a window's
@@ -601,12 +601,14 @@ type DerivedRows<K> = (
 );
 
 #[derive(Clone)]
-struct SectionHeader {
+#[doc(hidden)]
+pub struct SectionHeader {
     id: Option<String>,
     title: TextSource,
 }
 
-struct SelItem<K> {
+#[doc(hidden)]
+pub struct SelItem<K> {
     key: K,
     title: TextSource,
     /// Optional bundled-image name for the item's native icon (docs/navigation.md).
@@ -628,12 +630,17 @@ struct SelItem<K> {
     /// Immersive-chrome page (docs/navigation.md): keeps the floating transparent bar on
     /// backends with an immersive nav mode; standard opaque bar otherwise.
     immersive: bool,
-    /// A static item carries its own page builder; a dynamic item (from `.items`) leaves this
-    /// `None` and its page is built by the nav's `.destination` fallback.
-    build: Option<Box<dyn Fn() -> AnyPiece>>,
+    /// The item's own page builder ([`NavItem::page`]); an item without one is built by the
+    /// nav's `.destination` fallback.
+    build: Option<PageFn>,
 }
 
-/// One data-driven nav item, returned by [`item`] inside a [`Nav::items`] mapper.
+/// A page builder, shared between an item and the nav's builder map.
+type PageFn = Rc<dyn Fn() -> AnyPiece>;
+
+/// One nav item (docs/navigation.md): a key, a title, and its decorations, built by [`item`].
+/// The same value describes a static destination (`item("home", title).page(home_page)`) and
+/// a row of a data-driven block (`nav_items(move || feeds(), |f| item(f.id, f.name))`).
 pub struct NavItem<K = String> {
     key: K,
     title: TextSource,
@@ -645,11 +652,14 @@ pub struct NavItem<K = String> {
     badge_tint: Option<day_spec::Color>,
     section: Option<SectionHeader>,
     immersive: bool,
+    page: Option<PageFn>,
 }
 
-/// A nav item for a data-driven list: `item(room.id, room.name).icon(res::images::room)`
-/// (docs/navigation.md). Used inside the `.items(signal, |t| …)` mapper; the page it selects is
-/// built by the nav's [`Nav::destination`].
+/// A nav item: `item("today", res::str::today()).icon(res::images::today).page(today_page)`
+/// (docs/navigation.md). Goes into a [`Nav::items`] or [`Nav::section`] block, alone, in a
+/// tuple, or from a [`nav_items`] mapper; an item without a [`page`](NavItem::page) is built by
+/// the nav's [`Nav::destination`]. For a typed nav over `Option<Section>` pass the bare
+/// `Section::X`.
 pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
     NavItem {
         key: key.into(),
@@ -662,13 +672,24 @@ pub fn item<M, K, I: Into<K>>(key: I, title: impl IntoText<M>) -> NavItem<K> {
         badge_tint: None,
         section: None,
         immersive: false,
+        page: None,
     }
 }
 
 impl<K> NavItem<K> {
-    /// A bundled-image name for the item's native icon (same convention as
-    /// [`Nav::item_icon`]), or an absolute local image path supplied as an owned string.
-    /// AppKit/UIKit preserve the colors of local files; bundled glyphs remain templates.
+    /// The page this item opens; `build` runs when the item is first shown. An item without
+    /// one is built by the nav's [`Nav::destination`], the usual choice for a data-driven block
+    /// whose rows share one page shape.
+    pub fn page<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
+        self.page = Some(Rc::new(move || AnyPiece::new(build())));
+        self
+    }
+    /// A bundled-image name for the item's native icon (typed [`ImageName`](day_spec::ImageName),
+    /// resolved like [`image`], e.g. `res::images::nav_home`), or an absolute local image path
+    /// supplied as an owned string. Shown beside the label where the backend's nav supports it
+    /// (the Windows NavigationView, the iOS/macOS source list); backends that can't decorate
+    /// rows ignore it. AppKit/UIKit preserve the colors of local files; bundled glyphs remain
+    /// templates.
     pub fn icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
         self.icon = Some(icon.into().as_str().to_owned());
         self
@@ -683,10 +704,13 @@ impl<K> NavItem<K> {
     /// long-press, the same `menu_item`/`sub_menu` builders as everywhere else. A chosen
     /// entry runs its action exactly like a piece context menu. Backends without per-row
     /// menus drop it (see the matrix in docs/menus.md).
-    pub fn context_menu(mut self, entries: Vec<crate::menus::MenuEntry>) -> Self {
+    pub fn context_menu(
+        mut self,
+        entries: impl IntoIterator<Item = crate::menus::MenuEntry>,
+    ) -> Self {
         // Scoped: row menus are re-lowered on every derive; the previous build's closures
         // are reclaimed when the registering scope (the nav's surface) is disposed.
-        self.menu = crate::menus::lower_menu_scoped(entries);
+        self.menu = crate::menus::lower_menu_scoped(entries.into_iter().collect());
         self
     }
     /// A trailing accessory for this row (an unread count, a status). Rendered right-aligned
@@ -729,13 +753,133 @@ impl<K> NavItem<K> {
         });
         self
     }
-    /// Mark this item's pushed page immersive-chrome (docs/navigation.md), the data-driven
-    /// counterpart of [`Nav::immersive`].
+    /// Mark this item's pushed page immersive-chrome (docs/navigation.md): on backends with an
+    /// immersive nav mode (android edge-to-edge today) its pushed page keeps the floating
+    /// transparent bar over full-bleed content; unmarked pages get the standard opaque bar. A
+    /// no-op on every other backend.
     pub fn immersive(mut self) -> Self {
         self.immersive = true;
         self
     }
+
+    fn into_source(self) -> ItemSource<K> {
+        ItemSource::Static(SelItem {
+            key: self.key,
+            title: self.title,
+            icon: self.icon,
+            tint: self.icon_tint,
+            menu: self.menu,
+            badge: self.badge,
+            badge_icon: self.badge_icon,
+            badge_tint: self.badge_tint,
+            section: self.section,
+            immersive: self.immersive,
+            build: self.page,
+        })
+    }
 }
+
+/// A data-driven block of nav items (docs/navigation.md), built by [`nav_items`]: re-derives
+/// whenever the signal changes.
+pub struct NavItems<K> {
+    derive: Box<dyn Fn() -> Vec<SelItem<K>>>,
+}
+
+/// A data-driven item block: `nav_items(move || st.feeds.get(), |f| item(f.id, f.name).icon(…))`
+/// (docs/navigation.md). `items` is a tracked reader (a `Signal<Vec<T>>` via its `Fn()` deref,
+/// or a closure); the block re-derives whenever it changes: rows are added and removed on the
+/// native sidebar/tab widget, and if the selected key disappears the selection resets (to
+/// `None` for an `Option` key). Static items and blocks may be mixed; the final list is their
+/// declaration order. A row without its own [`page`](NavItem::page) is built by the nav's
+/// [`Nav::destination`].
+pub fn nav_items<T: Clone + 'static, K: 'static>(
+    items: impl Fn() -> Vec<T> + 'static,
+    map: impl Fn(&T) -> NavItem<K> + 'static,
+) -> NavItems<K> {
+    NavItems {
+        derive: Box::new(move || {
+            items()
+                .iter()
+                .map(|t| match map(t).into_source() {
+                    ItemSource::Static(it) => it,
+                    ItemSource::Dynamic(_) => unreachable!("an item maps to one row"),
+                })
+                .collect()
+        }),
+    }
+}
+
+/// What a [`Nav::items`] or [`Nav::section`] block takes: one [`NavItem`], a tuple of them, an
+/// `Option` (an item the platform may not want: `prefs.nav_item(key)`), a `Vec` or array, or a
+/// data-driven [`nav_items`] block. Any mix nests: `(item(..), nav_items(..), Some(item(..)))`.
+pub trait NavContent<K> {
+    /// Append this content's sources, in order.
+    fn push_sources(self, out: &mut Vec<ItemSource<K>>);
+}
+
+impl<K> NavContent<K> for NavItem<K> {
+    fn push_sources(self, out: &mut Vec<ItemSource<K>>) {
+        out.push(self.into_source());
+    }
+}
+
+impl<K: 'static> NavContent<K> for NavItems<K> {
+    fn push_sources(self, out: &mut Vec<ItemSource<K>>) {
+        out.push(ItemSource::Dynamic(self.derive));
+    }
+}
+
+impl<K, C: NavContent<K>> NavContent<K> for Option<C> {
+    fn push_sources(self, out: &mut Vec<ItemSource<K>>) {
+        if let Some(c) = self {
+            c.push_sources(out);
+        }
+    }
+}
+
+impl<K, C: NavContent<K>> NavContent<K> for Vec<C> {
+    fn push_sources(self, out: &mut Vec<ItemSource<K>>) {
+        for c in self {
+            c.push_sources(out);
+        }
+    }
+}
+
+impl<K, C: NavContent<K>, const N: usize> NavContent<K> for [C; N] {
+    fn push_sources(self, out: &mut Vec<ItemSource<K>>) {
+        for c in self {
+            c.push_sources(out);
+        }
+    }
+}
+
+impl<K> NavContent<K> for () {
+    fn push_sources(self, _out: &mut Vec<ItemSource<K>>) {}
+}
+
+macro_rules! impl_nav_content_tuple {
+    ($($name:ident),+) => {
+        impl<K, $($name: NavContent<K>),+> NavContent<K> for ($($name,)+) {
+            #[allow(non_snake_case)]
+            fn push_sources(self, out: &mut Vec<ItemSource<K>>) {
+                let ($($name,)+) = self;
+                $($name.push_sources(out);)+
+            }
+        }
+    };
+}
+impl_nav_content_tuple!(A);
+impl_nav_content_tuple!(A, B);
+impl_nav_content_tuple!(A, B, C);
+impl_nav_content_tuple!(A, B, C, D);
+impl_nav_content_tuple!(A, B, C, D, E);
+impl_nav_content_tuple!(A, B, C, D, E, F);
+impl_nav_content_tuple!(A, B, C, D, E, F, G);
+impl_nav_content_tuple!(A, B, C, D, E, F, G, H);
+impl_nav_content_tuple!(A, B, C, D, E, F, G, H, I);
+impl_nav_content_tuple!(A, B, C, D, E, F, G, H, I, J);
+impl_nav_content_tuple!(A, B, C, D, E, F, G, H, I, J, L);
+impl_nav_content_tuple!(A, B, C, D, E, F, G, H, I, J, L, N);
 
 /// A source of nav items: a fixed item, or a signal-driven block that re-derives its items
 /// when the signal changes (docs/navigation.md).
@@ -744,7 +888,8 @@ impl<K> NavItem<K> {
 // and the static case is the overwhelmingly common one. The gap is only this wide because a row
 // carries its decorations inline (icon, tint, badge text, badge glyph, section, menu).
 #[allow(clippy::large_enum_variant)]
-enum ItemSource<K> {
+#[doc(hidden)]
+pub enum ItemSource<K> {
     Static(SelItem<K>),
     /// Reads a signal (tracked) and maps its elements to items. Called to (re)derive the block.
     Dynamic(Box<dyn Fn() -> Vec<SelItem<K>>>),
@@ -938,7 +1083,7 @@ fn sidebar_progress<K: Route>(
 fn section_sidebar<K: Route, S: Binding<K>>(
     rows: Rc<SelItems<K>>,
     selection: S,
-    collapsed: Signal<std::collections::HashSet<String>>,
+    collapsed: AnyBinding<std::collections::HashSet<String>>,
     changed: Option<Rc<dyn Fn(String, bool)>>,
     progress: Option<IconProgressSource<K>>,
 ) -> AnyPiece {
@@ -1168,29 +1313,30 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
             .into_iter()
             .collect()
     })
-    .reorderable(true)
-    .reorder_guard(move |from, to| {
-        let rows = guard();
-        if from >= rows.len()
-            || to >= rows.len()
-            || rows[from.min(to)..=from.max(to)]
-                .iter()
-                .any(|r| r.key.as_ref().is_none_or(|k| !(reorder.eligible)(k)))
-        {
-            Reorder::Deny
-        } else {
-            Reorder::Allow
-        }
-    })
-    .on_reorder(move |from, to| {
-        let rows = commit();
-        if let (Some(a), Some(b)) = (
-            rows.get(from).and_then(|r| r.key.clone()),
-            rows.get(to).and_then(|r| r.key.clone()),
-        ) {
-            (reorder.moved)(a, b);
-        }
-    })
+    .reorderable(
+        crate::Reorder::new(move |from, to| {
+            let rows = commit();
+            if let (Some(a), Some(b)) = (
+                rows.get(from).and_then(|r| r.key.clone()),
+                rows.get(to).and_then(|r| r.key.clone()),
+            ) {
+                (reorder.moved)(a, b);
+            }
+        })
+        .guard(move |from, to| {
+            let rows = guard();
+            if from >= rows.len()
+                || to >= rows.len()
+                || rows[from.min(to)..=from.max(to)]
+                    .iter()
+                    .any(|r| r.key.as_ref().is_none_or(|k| !(reorder.eligible)(k)))
+            {
+                ReorderVerdict::Deny
+            } else {
+                ReorderVerdict::Allow
+            }
+        }),
+    )
     .id("nav-reorder-list")
     .grow()
     .any()
@@ -1211,7 +1357,9 @@ struct NavRows<K> {
 }
 
 struct SelItems<K> {
-    static_builders: std::collections::HashMap<String, Box<dyn Fn() -> AnyPiece>>,
+    static_builders: std::collections::HashMap<String, PageFn>,
+    /// Page builders carried by the rows of data-driven blocks, refreshed on every derive.
+    dynamic_builders: RefCell<std::collections::HashMap<String, PageFn>>,
     meta: Rc<Vec<MetaSource<K>>>,
     destination: Option<DestFn<K>>,
 }
@@ -1248,6 +1396,7 @@ impl<K: Route> SelItems<K> {
         }
         SelItems {
             static_builders,
+            dynamic_builders: RefCell::new(std::collections::HashMap::new()),
             meta: Rc::new(meta),
             destination,
         }
@@ -1289,6 +1438,9 @@ impl<K: Route> SelItems<K> {
                 MetaSource::Static(k, t, m, _) => push(k.clone(), t.resolve(), m),
                 MetaSource::Dynamic(f) => {
                     for it in f() {
+                        if let Some(b) = it.build {
+                            self.dynamic_builders.borrow_mut().insert(it.key.key(), b);
+                        }
                         let m = RowMeta {
                             icon: it.icon,
                             tint: it.tint,
@@ -1328,10 +1480,14 @@ impl<K: Route> SelItems<K> {
         })
     }
 
-    /// Build a key's page: a static item's own builder, else the `.destination` fallback (data-
-    /// driven key), else a blank leaf (misconfigured: a dynamic item with no `.destination`).
+    /// Build a key's page: the item's own builder (static, or carried by a data-driven row),
+    /// else the `.destination` fallback, else a blank leaf (misconfigured: an item with neither).
     fn build_page(&self, key: &K) -> AnyPiece {
-        if let Some(b) = self.static_builders.get(&key.key()) {
+        let k = key.key();
+        let dynamic = self.dynamic_builders.borrow().get(&k).cloned();
+        if let Some(b) = self.static_builders.get(&k) {
+            b()
+        } else if let Some(b) = dynamic {
             b()
         } else if let Some(d) = &self.destination {
             d(key)
@@ -1383,13 +1539,11 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     /// Keep a filtered-out selection while its underlying record still exists.
     retain_selection: Option<ListPred<K>>,
     reorder_items: Option<NavReorder<K>>,
-    collapsed_sections: Option<Signal<std::collections::HashSet<String>>>,
+    collapsed_sections: Option<AnyBinding<std::collections::HashSet<String>>>,
     on_section_expansion: Option<Rc<dyn Fn(String, bool)>>,
-    /// A header from [`Nav::section`] waiting to be attached to the next item added.
-    pending_section: Option<SectionHeader>,
     /// Items declared on this host's own chrome ([`Nav::toolbar`]).
     toolbar: Vec<crate::ToolbarSource>,
-    /// Draw the platform's own sidebar toggle ([`Nav::sidebar_toggle`]).
+    /// Draw the platform's own sidebar toggle (off with [`Nav::no_sidebar_toggle`]).
     sidebar_toggle: bool,
     /// Search over this surface ([`Nav::searchable`]). `None` unless set.
     search: Option<SearchSpec>,
@@ -1404,28 +1558,235 @@ pub struct Nav<S: Binding<K>, K: Route = String> {
     content_list_width: f64,
     /// Which destinations show the pane ([`Nav::content_list_for`]); `None` = all of them.
     content_list_pred: Option<ListPred<K>>,
-    /// Whether the detail is showing, two-way ([`Nav::detail_visible`]): what gates the
-    /// detail push in a stacked presentation with a content list, and what native back writes
-    /// `false` into. `None` = the detail behaves classically (pushed on selection).
-    detail_visible: Option<Signal<bool>>,
+    /// Whether the detail is showing, two-way ([`ContentList::detail_visible`]): what gates
+    /// the detail push in a stacked presentation with a content list, and what native back
+    /// writes `false` into. `None` = the detail behaves classically (pushed on selection).
+    detail_visible: Option<AnyBinding<bool>>,
     /// The navigation-bar title of the detail layer a content list opens
-    /// ([`Nav::detail_title`]). `None` = the destination's own title.
+    /// ([`ContentList::detail_title`]). `None` = the destination's own title.
     detail_title: Option<TextSource>,
 }
 
-/// A pending search declaration ([`Nav::searchable`] and its modifiers). The query and the
-/// scope are app-owned signals, which is what lets the field move between the toolbar and the
-/// navigation list without the state moving with it (docs/search.md).
+/// Search over a navigation surface (docs/search.md), declared with [`Nav::searchable`]:
+/// `Search::new(query).prompt(res::str::search()).reveal(SearchReveal::OnPull)`.
+///
+/// Search is declared on the surface, not on the toolbar, the same move SwiftUI made with
+/// `.searchable()`. That is what lets the platform choose where to draw the field: the window
+/// toolbar on a wide window, attached to the navigation list on a narrow one, without the app
+/// branching on either. The query and the scope are app-owned bindings, which is what lets the
+/// field move between placements without the state moving with it. A `Search` holds those
+/// bindings, so build it where the nav is built; it is not a value to share across windows.
+pub struct Search {
+    query: AnyBinding<String>,
+    prompt: Option<TextSource>,
+    placement: day_spec::props::SearchPlacement,
+    reveal: SearchReveal,
+    /// Scope titles and the binding holding the chosen index. Empty titles = no scope bar.
+    scopes: Vec<TextSource>,
+    scope: Option<AnyBinding<usize>>,
+    /// Completions for the current text, re-derived whenever its reactive reads change.
+    suggestions: Option<SuggestFn>,
+}
+
+/// How a navigation surface's search field comes and goes on a phone (docs/search.md). The
+/// desktop toolbar field is always there whatever this says.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SearchReveal {
+    /// The field is always shown.
+    #[default]
+    Always,
+    /// The field and the title chrome collapse as the root list scrolls.
+    Scrolls,
+    /// The field starts hidden and is revealed by pulling down on the list; it collapses on
+    /// scroll afterwards (iOS owns the reveal/collapse transitions, with a compact title).
+    OnPull,
+}
+
+impl Search {
+    /// Search bound two-way to `query` (a `Signal<String>` or any other binding).
+    pub fn new(query: impl Binding<String>) -> Search {
+        Search {
+            query: AnyBinding::new(query),
+            prompt: None,
+            placement: day_spec::props::SearchPlacement::Automatic,
+            reveal: SearchReveal::Always,
+            scopes: Vec::new(),
+            scope: None,
+            suggestions: None,
+        }
+    }
+    /// The field's empty-state prompt.
+    pub fn prompt<M>(mut self, prompt: impl IntoText<M>) -> Search {
+        self.prompt = Some(prompt.into_text());
+        self
+    }
+    /// Ask for a particular placement. A preference: a backend that cannot honor it falls back
+    /// to its platform's own convention, so `Automatic` (the default) is almost always right.
+    pub fn placement(mut self, placement: day_spec::props::SearchPlacement) -> Search {
+        self.placement = placement;
+        self
+    }
+    /// How the field comes and goes on a phone (default [`SearchReveal::Always`]).
+    pub fn reveal(mut self, reveal: SearchReveal) -> Search {
+        self.reveal = reveal;
+        self
+    }
+    /// A one-of-N scope bar under the field, bound to `scope` (an index into `titles`).
+    ///
+    /// Native on UIKit alone; elsewhere it is a native component doing the same job (a
+    /// Material `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
+    /// `NSSegmentedControl`) or, on web and system XAML, one composed from primitives.
+    pub fn scopes<M>(
+        mut self,
+        scope: impl Binding<usize>,
+        titles: impl IntoIterator<Item = impl IntoText<M>>,
+    ) -> Search {
+        self.scopes = titles.into_iter().map(IntoText::into_text).collect();
+        self.scope = Some(AnyBinding::new(scope));
+        self
+    }
+    /// Completions for the current text, re-derived whenever a reactive read inside `f` changes.
+    ///
+    /// On a navigation surface these complete the field rather than replacing the list: the list
+    /// is already the filtered result set, so an overlay of results would cover the very thing it
+    /// is narrowing. Backends whose search widget does completions natively use it
+    /// (`AutoSuggestBox`, `QCompleter`, `<datalist>`, `UISearchResultsUpdating`).
+    pub fn suggestions(mut self, f: impl Fn(&str) -> Vec<String> + 'static) -> Search {
+        self.suggestions = Some(Rc::new(f));
+        self
+    }
+}
+
+/// The content-list pane of a Mail-shaped nav (docs/navigation.md), declared with
+/// [`Nav::content_list`]: mailboxes, message list, message. `build` makes the middle column,
+/// built once and resident for the host's life; its content follows the app's own signals
+/// (the selection scoping it, the row chosen from it), never a rebuild.
+///
+/// Where the toolkit has a native pane (`Cap::NavContentList`) the list gets its own column
+/// (an AppKit `contentList` split item, a UIKit supplementary column) and otherwise the nav
+/// composes it beside (split) or in place of (stacked) each destination. Pair it with
+/// [`detail_visible`](ContentList::detail_visible) so compact widths get the list-then-detail
+/// push flow, and [`only_for`](ContentList::only_for) to give full-width destinations (a
+/// settings page) the whole detail area.
+pub struct ContentList<K = String> {
+    build: Rc<dyn Fn() -> AnyPiece>,
+    width: f64,
+    pred: Option<ListPred<K>>,
+    detail_visible: Option<AnyBinding<bool>>,
+    detail_title: Option<TextSource>,
+}
+
+impl<K> ContentList<K> {
+    /// The pane, from its builder.
+    pub fn new<P: Piece>(build: impl Fn() -> P + 'static) -> ContentList<K> {
+        ContentList {
+            build: Rc::new(move || AnyPiece::new(build())),
+            width: day_spec::NAV_LIST_WIDTH,
+            pred: None,
+            detail_visible: None,
+            detail_title: None,
+        }
+    }
+    /// Preferred width of the pane in points (default [`day_spec::NAV_LIST_WIDTH`]). Where the
+    /// divider is user-draggable this is the initial width, not a limit.
+    pub fn width(mut self, width: f64) -> ContentList<K> {
+        self.width = width;
+        self
+    }
+    /// Which destinations show the pane (default: all of them). A destination answering
+    /// `false` collapses the pane and takes the whole detail area: the settings page beside a
+    /// mail-shaped app.
+    pub fn only_for(mut self, pred: impl Fn(&K) -> bool + 'static) -> ContentList<K> {
+        self.pred = Some(Rc::new(pred));
+        self
+    }
+    /// Whether the detail is showing, two-way (a `Signal<bool>` or any other binding).
+    /// Split-family presentations ignore it: the detail pane is always there, showing the
+    /// app's empty state until a row is chosen. A stacked presentation (a phone, a collapsed
+    /// split) uses it as the push gate: the list is the top of the stack until the app writes
+    /// `true` (a row was opened), the detail pushes then, and the platform's back writes
+    /// `false` on the way out.
+    pub fn detail_visible(mut self, visible: impl Binding<bool>) -> ContentList<K> {
+        self.detail_visible = Some(AnyBinding::new(visible));
+        self
+    }
+    /// The navigation-bar title of the detail layer the list opens: the editor a phone pushes
+    /// over the list, the detail column's bar where the toolkit titles one. Reactive like every
+    /// title: pass a closure reading your own state to title the page after the item it shows.
+    /// Unset, the detail layer keeps its destination's title.
+    pub fn detail_title<M>(mut self, t: impl IntoText<M>) -> ContentList<K> {
+        self.detail_title = Some(t.into_text());
+        self
+    }
+}
+
+/// Collapsible sidebar sections (docs/navigation.md), declared with [`Nav::sections`]. The
+/// state is the set of COLLAPSED section ids; missing ids default to expanded, and temporarily
+/// filtered-out ids are retained. Pair with [`Nav::section_id`] for stable identities; unkeyed
+/// headings use their first route as a fallback identity. Takes precedence over
+/// [`Nav::reorder_items`]; combined collapse/reordering is not supported.
+pub struct Sections {
+    collapsed: AnyBinding<std::collections::HashSet<String>>,
+    on_change: Option<Rc<dyn Fn(String, bool)>>,
+}
+
+impl Sections {
+    /// Sections whose collapsed set is app state (a `Signal<HashSet<String>>` or any binding).
+    pub fn collapsible(collapsed: impl Binding<std::collections::HashSet<String>>) -> Sections {
+        Sections {
+            collapsed: AnyBinding::new(collapsed),
+            on_change: None,
+        }
+    }
+    /// Sections whose collapsed set is persisted under `key` through the installed `NavStore`,
+    /// restored at build and saved on every change.
+    pub fn restored(key: impl Into<String>) -> Sections {
+        let key = key.into();
+        let saved = day_core::nav_store_load(&key).unwrap_or_default();
+        let mut rest = saved.as_str();
+        let mut ids = std::collections::HashSet::new();
+        while let Some((len, tail)) = rest.split_once(':') {
+            let Some(len) = len.parse::<usize>().ok() else {
+                break;
+            };
+            let Some(id) = tail.get(..len) else {
+                break;
+            };
+            ids.insert(id.to_owned());
+            rest = &tail[len..];
+        }
+        let state = Signal::new(ids);
+        bind(
+            move || state.get(),
+            move |ids| {
+                let mut ids: Vec<_> = ids.iter().collect();
+                ids.sort();
+                let saved = ids
+                    .iter()
+                    .map(|id| format!("{}:{id}", id.len()))
+                    .collect::<String>();
+                day_core::nav_store_save(&key, &saved);
+            },
+        );
+        Sections::collapsible(state)
+    }
+    /// Reports user/scripting disclosure after the collapsed set changed. Programmatic state
+    /// writes and restoration do not call it.
+    pub fn on_change(mut self, f: impl Fn(String, bool) + 'static) -> Sections {
+        self.on_change = Some(Rc::new(f));
+        self
+    }
+}
+
+/// The lowered form of a [`Search`], kept on the nav until build.
 struct SearchSpec {
-    query: Signal<String>,
+    query: AnyBinding<String>,
     prompt: Option<TextSource>,
     placement: day_spec::props::SearchPlacement,
     hides_on_scroll: bool,
     initially_hidden: bool,
-    /// Scope titles and the signal holding the chosen index. Empty titles = no scope bar.
     scopes: Vec<TextSource>,
-    scope: Option<Signal<usize>>,
-    /// Completions for the current text, re-derived whenever its reactive reads change.
+    scope: Option<AnyBinding<usize>>,
     suggestions: Option<SuggestFn>,
 }
 
@@ -1628,7 +1989,6 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
         icon_progress: None,
         refresh: None,
         style: NavStyle::default(),
-        pending_section: None,
         sidebar_toggle: true,
         title: TextSource::Static(String::new()),
         header: None,
@@ -1652,6 +2012,7 @@ pub fn nav<K: Route, S: Binding<K>>(selection: S) -> Nav<S, K> {
     }
 }
 
+#[day_macros::builder(NavBuilder<K>)]
 impl<K: Route, S: Binding<K>> Nav<S, K> {
     /// Add the platform's pull-to-refresh control to the sidebar rows (docs/navigation.md).
     /// UIKit uses UIRefreshControl, Android SwipeRefreshLayout. Other toolkits can ignore
@@ -1678,58 +2039,60 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         self.document_event = Some(Rc::new(event));
         self
     }
-    /// Collapsible sidebar sections. The set contains COLLAPSED stable section IDs;
-    /// missing IDs default to expanded, and temporarily filtered-out IDs are retained.
-    /// Pair with `section_id`; unkeyed headings use their first route as a fallback identity.
-    /// Takes precedence over `reorder_items`; combined collapse/reordering is not supported.
-    pub fn collapsed_sections(mut self, state: Signal<std::collections::HashSet<String>>) -> Self {
-        self.collapsed_sections = Some(state);
+    /// Collapsible sidebar sections (docs/navigation.md), as a [`Sections`] value:
+    /// `nav(sel).sections(Sections::restored("nav.sections").on_change(f))`.
+    pub fn sections(mut self, sections: Sections) -> Self {
+        self.collapsed_sections = Some(sections.collapsed);
+        self.on_section_expansion = sections.on_change;
         self
     }
-    /// Reports user/scripting disclosure after updating `collapsed_sections`.
-    /// Programmatic state writes and restoration do not call this callback.
-    pub fn on_section_expansion(mut self, f: impl Fn(String, bool) + 'static) -> Self {
-        self.on_section_expansion = Some(Rc::new(f));
-        self
-    }
-    /// Enable and persist section disclosure using the installed `NavStore`.
-    pub fn restore_sections(self, key: impl Into<String>) -> Self {
-        let key = key.into();
-        let saved = day_core::nav_store_load(&key).unwrap_or_default();
-        let mut rest = saved.as_str();
-        let mut ids = std::collections::HashSet::new();
-        while let Some((len, tail)) = rest.split_once(':') {
-            let Some(len) = len.parse::<usize>().ok() else {
-                break;
-            };
-            let Some(id) = tail.get(..len) else {
-                break;
-            };
-            ids.insert(id.to_owned());
-            rest = &tail[len..];
-        }
-        let state = Signal::new(ids);
-        bind(
-            move || state.get(),
-            move |ids| {
-                let mut ids: Vec<_> = ids.iter().collect();
-                ids.sort();
-                let saved = ids
-                    .iter()
-                    .map(|id| format!("{}:{id}", id.len()))
-                    .collect::<String>();
-                day_core::nav_store_save(&key, &saved);
+    /// A section with a persistent identity independent of its localized title or first row,
+    /// heading `content` (one item, a tuple, an `Option`, a [`nav_items`] block, or a mix).
+    pub fn section_id<M>(
+        mut self,
+        id: impl Into<String>,
+        title: impl IntoText<M>,
+        content: impl NavContent<K>,
+    ) -> Self {
+        self.push_section(
+            SectionHeader {
+                id: Some(id.into()),
+                title: title.into_text(),
             },
+            content,
         );
-        self.collapsed_sections(state)
-    }
-    /// Open a statically declared section with a persistent identity.
-    pub fn section_id<M>(mut self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
-        self.pending_section = Some(SectionHeader {
-            id: Some(id.into()),
-            title: title.into_text(),
-        });
         self
+    }
+    /// Append `content` under a section header (docs/navigation.md). Backends without grouped
+    /// rows ignore the header and show one flat list, so a section is a grouping hint, never a
+    /// source of items the user cannot otherwise reach.
+    fn push_section(&mut self, header: SectionHeader, content: impl NavContent<K>) {
+        let mut sources = Vec::new();
+        content.push_sources(&mut sources);
+        let mut sources = sources.into_iter();
+        // The header rides the first row of the content: a static item carries it directly; a
+        // data-driven block heads its first row with it, wherever the data starts.
+        match sources.next() {
+            Some(ItemSource::Static(mut it)) => {
+                if it.section.is_none() {
+                    it.section = Some(header);
+                }
+                self.sources.push(ItemSource::Static(it));
+            }
+            Some(ItemSource::Dynamic(f)) => {
+                self.sources.push(ItemSource::Dynamic(Box::new(move || {
+                    let mut rows = f();
+                    if let Some(first) = rows.first_mut()
+                        && first.section.is_none()
+                    {
+                        first.section = Some(header.clone());
+                    }
+                    rows
+                })));
+            }
+            None => {}
+        }
+        self.sources.extend(sources);
     }
 
     /// Enable dragging within contiguous runs of eligible sidebar items. Fixed items and
@@ -1778,55 +2141,26 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         self.title = t.into_text();
         self
     }
-    /// Open a section: the next item added (static or the first row of the next `.items` block)
-    /// carries this header. Backends without grouped rows ignore it and show one flat list, so
-    /// a section is a grouping hint, never a source of items the user cannot otherwise reach.
+    /// A section: `content` (one item, a tuple, an `Option`, a [`nav_items`] block, or a mix)
+    /// under a header. Backends without grouped rows ignore the header and show one flat list,
+    /// so a section is a grouping hint, never a source of items the user cannot otherwise reach.
     ///
     /// ```ignore
     /// nav(sel)
-    ///     .section(res::str::smart_feeds())
-    ///     .item_icon("today", res::str::today(), res::images::today, today_page)
-    ///     .section(res::str::feeds())
-    ///     .items(move || st.feeds.get(), |f| item(f.id, f.name))
+    ///     .section(res::str::smart_feeds(), (
+    ///         item("today", res::str::today()).icon(res::images::today).page(today_page),
+    ///         item("unread", res::str::unread()).icon(res::images::unread).page(unread_page),
+    ///     ))
+    ///     .section(res::str::feeds(), nav_items(move || st.feeds.get(), |f| item(f.id, f.name)))
     /// ```
-    pub fn section<M>(mut self, title: impl IntoText<M>) -> Self {
-        self.pending_section = Some(SectionHeader {
-            id: None,
-            title: title.into_text(),
-        });
-        self
-    }
-    /// Attach a trailing badge (an unread count, a status) to the item just added:
-    /// `.item(…).badge(move || n.get().to_string())`. Reactive, so a live count repaints on
-    /// its own signal. An empty string draws nothing, which is the natural "zero" case.
-    ///
-    /// Ignored (in release) when no static item precedes it; data-driven rows carry their own
-    /// badge via [`NavItem::badge`].
-    pub fn badge<M>(mut self, badge: impl IntoText<M>) -> Self {
-        match self.sources.last_mut() {
-            Some(ItemSource::Static(it)) => it.badge = Some(badge.into_text()),
-            _ => debug_assert!(false, "day: `.badge(…)` needs a preceding `.item…(…)`"),
-        }
-        self
-    }
-    /// The static-item counterpart of [`NavItem::badge_icon`]: a trailing glyph on the item just
-    /// added. `.item(…).badge_icon(Symbol::Star).badge_tint(STAR)`.
-    ///
-    /// Ignored (in release) when no static item precedes it.
-    pub fn badge_icon(mut self, icon: impl Into<day_spec::ImageName>) -> Self {
-        let name = icon.into().to_string();
-        match self.sources.last_mut() {
-            Some(ItemSource::Static(it)) => it.badge_icon = Some(name),
-            _ => debug_assert!(false, "day: `.badge_icon(…)` needs a preceding `.item…(…)`"),
-        }
-        self
-    }
-    /// The color for [`Self::badge_icon`] on the item just added.
-    pub fn badge_tint(mut self, color: day_spec::Color) -> Self {
-        match self.sources.last_mut() {
-            Some(ItemSource::Static(it)) => it.badge_tint = Some(color),
-            _ => debug_assert!(false, "day: `.badge_tint(…)` needs a preceding `.item…(…)`"),
-        }
+    pub fn section<M>(mut self, title: impl IntoText<M>, content: impl NavContent<K>) -> Self {
+        self.push_section(
+            SectionHeader {
+                id: None,
+                title: title.into_text(),
+            },
+            content,
+        );
         self
     }
     /// An optional piece shown above the sidebar list (a logo, app name…).
@@ -1854,178 +2188,56 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         self.presentation = Some(presentation);
         self
     }
-    /// A content-list pane between the sidebar and the detail, the Mail shape: mailboxes,
-    /// message list, message (docs/navigation.md). Built once and resident for the host's
-    /// life; its content follows the app's own signals (the selection scoping it, the row
-    /// chosen from it), never a rebuild.
+    /// A content-list pane between the sidebar and the detail, the Mail shape (docs/navigation.md),
+    /// as a [`ContentList`] value:
     ///
-    /// Where the toolkit has a native pane (`Cap::NavContentList`) the list gets its own
-    /// column (an AppKit `contentList` split item, a UIKit supplementary column) and
-    /// otherwise the nav composes it beside (split) or in place of (stacked) each
-    /// destination. Pair with [`Self::detail_visible`] so compact widths get the
-    /// list-then-detail push flow, and [`Self::content_list_for`] to give full-width
-    /// destinations (a settings page) the whole detail area.
-    pub fn content_list<P: Piece>(mut self, build: impl Fn() -> P + 'static) -> Self {
-        self.content_list = Some(Rc::new(move || AnyPiece::new(build())));
+    /// ```ignore
+    /// nav(scene.section).content_list(
+    ///     ContentList::new(pages::items::item_list_pane)
+    ///         .width(320.0)
+    ///         .only_for(|s: &Section| matches!(s, Section::Items))
+    ///         .detail_visible(scene.detail_open)
+    ///         .detail_title(move || pages::items::detail_title(scene)),
+    /// )
+    /// ```
+    pub fn content_list(mut self, list: ContentList<K>) -> Self {
+        self.content_list = Some(list.build);
+        self.content_list_width = list.width;
+        self.content_list_pred = list.pred;
+        self.detail_visible = list.detail_visible;
+        self.detail_title = list.detail_title;
         self
     }
-    /// Preferred width of the content-list pane in points (default
-    /// [`day_spec::NAV_LIST_WIDTH`]). Where the divider is user-draggable this is the initial
-    /// width, not a limit.
-    pub fn content_list_width(mut self, width: f64) -> Self {
-        self.content_list_width = width;
-        self
-    }
-    /// Which destinations show the content-list pane (default: all of them). A destination
-    /// answering `false` collapses the pane and takes the whole detail area: the settings
-    /// page beside a mail-shaped app.
-    pub fn content_list_for(mut self, pred: impl Fn(&K) -> bool + 'static) -> Self {
-        self.content_list_pred = Some(Rc::new(pred));
-        self
-    }
-    /// Whether the detail is showing, as a two-way signal (docs/navigation.md). Split-family
-    /// presentations ignore it: the detail pane is always there, showing the app's empty
-    /// state until a row is chosen. A stacked presentation (a phone, a collapsed split) uses
-    /// it as the push gate: the content list is the top of the stack until the app writes
-    /// `true` (a row was opened), the detail pushes then, and the platform's back writes
-    /// `false` on the way out.
-    pub fn detail_visible(mut self, visible: Signal<bool>) -> Self {
-        self.detail_visible = Some(visible);
-        self
-    }
-    /// The navigation-bar title of the detail layer a content list opens (docs/navigation.md):
-    /// the editor a phone pushes over the list, the detail column's bar where the toolkit
-    /// titles one. Reactive like every title: pass a closure reading your own state to title
-    /// the page after the item it shows, and the native bar follows as that state changes.
-    /// Unset, the detail layer keeps its destination's title.
-    pub fn detail_title<M>(mut self, t: impl IntoText<M>) -> Self {
-        self.detail_title = Some(t.into_text());
-        self
-    }
-    /// Add a destination. `key` addresses it (navigate / deep link / dayscript); `title` is
-    /// its label; `build` runs when the item is first shown. For a typed nav over
-    /// `Option<Section>` pass the bare `Section::X`.
+    /// Add one destination: `item(key, title).page(build)` in one call. `key` addresses it
+    /// (navigate / deep link / dayscript); `title` is its label; `build` runs when the item is
+    /// first shown. For a typed nav over `Option<Section>` pass the bare `Section::X`. For an
+    /// icon, a badge or a tint, build the [`item`] value and add it with [`items`](Self::items).
     pub fn item<M, P: Piece>(
-        mut self,
+        self,
         key: impl Into<K>,
         title: impl IntoText<M>,
         build: impl Fn() -> P + 'static,
     ) -> Self {
-        let section = self.pending_section.take();
-        self.sources.push(ItemSource::Static(SelItem {
-            key: key.into(),
-            title: title.into_text(),
-            icon: None,
-            tint: None,
-            menu: Vec::new(),
-            badge: None,
-            badge_icon: None,
-            badge_tint: None,
-            section,
-            immersive: false,
-            build: Some(Box::new(move || AnyPiece::new(build()))),
-        }));
-        self
+        self.items(crate::item(key, title).page(build))
     }
-    /// Like [`item`](Self::item) but with a native icon: `icon` is a bundled-image name (typed
-    /// [`ImageName`](day_spec::ImageName), resolved like [`image`], e.g. `res::images::nav_home`)
-    /// shown beside the label where the backend's nav supports it (e.g. the Windows
-    /// NavigationView, the iOS/macOS source list). Backends that can't decorate rows ignore it.
-    pub fn item_icon<M, P: Piece>(
-        mut self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        icon: impl Into<day_spec::ImageName>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self {
-        let section = self.pending_section.take();
-        self.sources.push(ItemSource::Static(SelItem {
-            key: key.into(),
-            title: title.into_text(),
-            icon: Some(icon.into().as_str().to_owned()),
-            tint: None,
-            menu: Vec::new(),
-            badge: None,
-            badge_icon: None,
-            badge_tint: None,
-            section,
-            immersive: false,
-            build: Some(Box::new(move || AnyPiece::new(build()))),
-        }));
-        self
-    }
-    /// Mark the last-added `.item`/`.item_icon` destination as an immersive-chrome page
-    /// (docs/navigation.md): on backends with an immersive nav mode (android edge-to-edge
-    /// today) its pushed page keeps the floating transparent bar over full-bleed content;
-    /// unmarked pages get the standard opaque bar. A no-op on every other backend. For a
-    /// data-driven `.items` block, mark individual rows with [`NavItem::immersive`] instead.
-    pub fn immersive(mut self) -> Self {
-        if let Some(ItemSource::Static(item)) = self.sources.last_mut() {
-            item.immersive = true;
-        }
-        self
-    }
-    /// Recolor the last-added `.item_icon` destination's glyph (docs/vectors.md), instead of
-    /// letting it take the sidebar's neutral template tint.
+    /// Add items (docs/navigation.md): one [`item`], a tuple of them, an `Option`, a `Vec`, a
+    /// data-driven [`nav_items`] block, or a mix. Static items and blocks may be mixed in any
+    /// order; the final list is their declaration order.
     ///
-    /// The static counterpart to [`NavItem::icon_tint`], and the same last-added-item shape as
-    /// [`immersive`](Self::immersive): a tint belongs to one row, but `.item_icon(…)` returns
-    /// the nav rather than the item, so the row is named by position rather than by handle.
-    ///
-    /// Untinted glyphs follow the theme, which is usually what a navigation list wants; reach
-    /// for this where the color carries something (a per-section identity, a status).
-    pub fn icon_tint(mut self, color: day_spec::Color) -> Self {
-        if let Some(ItemSource::Static(item)) = self.sources.last_mut() {
-            item.tint = Some(color);
-        }
+    /// ```ignore
+    /// nav(sel).items((
+    ///     item("home", res::str::home()).icon(res::images::home).page(home_page),
+    ///     nav_items(move || rooms.get(), |r| item(r.id.clone(), r.name.clone())),
+    ///     prefs.nav_item(Section::Settings),
+    /// ))
+    /// ```
+    pub fn items(mut self, content: impl NavContent<K>) -> Self {
+        content.push_sources(&mut self.sources);
         self
     }
-    /// A data-driven item block: `.items(rooms_signal, |r| item(r.id, r.name).icon(…))`
-    /// (docs/navigation.md). The block re-derives whenever the signal changes: rows are added
-    /// and removed on the native sidebar/tab widget, and if the selected key disappears the
-    /// selection resets (to `None` for an `Option` key). Static `.item`s and dynamic blocks may
-    /// be mixed; the final list is their declaration order. Pair with [`destination`] to build
-    /// the page for a data-driven key.
-    ///
-    /// [`destination`]: Self::destination
-    pub fn items<T: Clone + 'static>(
-        mut self,
-        items: impl Fn() -> Vec<T> + 'static,
-        map: impl Fn(&T) -> NavItem<K> + 'static,
-    ) -> Self {
-        // `items` is a tracked reader (a `Signal<Vec<T>>` via its `Fn()` deref, or a closure);
-        // reading it inside the derive effect subscribes the nav to changes.
-        // A pending `.section(…)` heads the block's first row, wherever the data starts.
-        let section = self.pending_section.take();
-        self.sources.push(ItemSource::Dynamic(Box::new(move || {
-            items()
-                .iter()
-                .enumerate()
-                .map(|(i, t)| {
-                    let mut ni = map(t);
-                    if i == 0 && ni.section.is_none() {
-                        ni.section = section.clone();
-                    }
-                    SelItem {
-                        key: ni.key,
-                        title: ni.title,
-                        icon: ni.icon,
-                        tint: ni.icon_tint,
-                        menu: ni.menu,
-                        badge: ni.badge,
-                        badge_icon: ni.badge_icon,
-                        badge_tint: ni.badge_tint,
-                        section: ni.section,
-                        immersive: ni.immersive,
-                        build: None,
-                    }
-                })
-                .collect()
-        })));
-        self
-    }
-    /// Build the page for a data-driven key (one added by [`items`](Self::items) with no static
-    /// item). Mirrors [`NavStack::destination`]; unused for a purely static nav.
+    /// Build the page for a key whose item has no [`page`](NavItem::page) of its own (the rows
+    /// of a data-driven block). Mirrors [`NavStack::destination`]; unused for a nav whose items
+    /// all carry a page.
     pub fn destination<P: Piece>(mut self, build: impl Fn(&K) -> P + 'static) -> Self {
         self.destination = Some(Rc::new(move |k| AnyPiece::new(build(k))));
         self
@@ -2074,103 +2286,39 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
         self
     }
 
-    /// Draw the platform's own show/hide-sidebar affordance on this host's chrome. On by default
-    /// for a sidebar presentation, since every desktop expects one and the toolkit owns both the
-    /// button and the behavior; pass `false` for a window that should not offer it.
-    pub fn sidebar_toggle(mut self, on: bool) -> Self {
-        self.sidebar_toggle = on;
+    /// Do not draw the platform's own show/hide-sidebar affordance on this host's chrome. It is
+    /// on by default for a sidebar presentation, since every desktop expects one and the
+    /// toolkit owns both the button and the behavior; this is for a window that should not
+    /// offer it.
+    pub fn no_sidebar_toggle(mut self) -> Self {
+        self.sidebar_toggle = false;
         self
     }
 
-    /// Make this surface searchable, bound two-way to `query` (docs/search.md).
-    ///
-    /// Search is declared on the surface, not on the toolbar, the same move SwiftUI made with
-    /// `.searchable()`. That is what lets the platform choose where to draw the field: the window
-    /// toolbar on a wide window, attached to the navigation list on a narrow one, without the app
-    /// branching on either. `query` stays app-owned, so the field moving between placements never
-    /// moves the state.
+    /// Make this surface searchable (docs/search.md), as a [`Search`] value:
     ///
     /// ```ignore
     /// nav(section)
     ///     .style(NavStyle::Sidebar)
-    ///     .searchable(query)
-    ///     .items(move || destinations().filter(|d| matches(d, &query.get())), …)
+    ///     .searchable(Search::new(query).prompt(res::str::search()).reveal(SearchReveal::OnPull))
+    ///     .items(nav_items(move || destinations().filter(|d| matches(d, &query.get())), …))
     /// ```
-    pub fn searchable(mut self, query: Signal<String>) -> Self {
+    pub fn searchable(mut self, search: Search) -> Self {
+        let (hides_on_scroll, initially_hidden) = match search.reveal {
+            SearchReveal::Always => (false, false),
+            SearchReveal::Scrolls => (true, false),
+            SearchReveal::OnPull => (true, true),
+        };
         self.search = Some(SearchSpec {
-            query,
-            prompt: None,
-            placement: day_spec::props::SearchPlacement::Automatic,
-            hides_on_scroll: false,
-            initially_hidden: false,
-            scopes: Vec::new(),
-            scope: None,
-            suggestions: None,
+            query: search.query,
+            prompt: search.prompt,
+            placement: search.placement,
+            hides_on_scroll,
+            initially_hidden,
+            scopes: search.scopes,
+            scope: search.scope,
+            suggestions: search.suggestions,
         });
-        self
-    }
-
-    /// The search field's empty-state prompt. No-op unless [`Nav::searchable`] was called.
-    pub fn search_prompt<M>(mut self, prompt: impl IntoText<M>) -> Self {
-        if let Some(s) = self.search.as_mut() {
-            s.prompt = Some(prompt.into_text());
-        }
-        self
-    }
-
-    /// Allow mobile search and title chrome to collapse as the root list scrolls.
-    /// Call after `searchable`. Defaults to false; desktop toolbar search is unchanged.
-    pub fn search_hides_on_scroll(mut self, hide: bool) -> Self {
-        if let Some(search) = self.search.as_mut() {
-            search.hides_on_scroll = hide;
-        }
-        self
-    }
-
-    /// Start iOS navigation search hidden, revealing it by pulling down on the list.
-    /// Uses a compact toolbar title and implies scrolling search on UIKit. Defaults to
-    /// false. Call after `searchable`; other backends keep their existing presentation.
-    /// UIKit owns subsequent reveal/collapse transitions; returning from a destination
-    /// does not reset the query or force a new scroll position.
-    pub fn search_initially_hidden(mut self, hide: bool) -> Self {
-        if let Some(search) = self.search.as_mut() {
-            search.initially_hidden = hide;
-        }
-        self
-    }
-
-    /// Ask for a particular placement. A preference: a backend that cannot honor it falls back
-    /// to its platform's own convention, so `Automatic` (the default) is almost always right.
-    pub fn search_placement(mut self, placement: day_spec::props::SearchPlacement) -> Self {
-        if let Some(s) = self.search.as_mut() {
-            s.placement = placement;
-        }
-        self
-    }
-
-    /// A one-of-N scope bar under the field, bound to `scope` (an index into `titles`).
-    ///
-    /// Native on UIKit alone; elsewhere it is a native component doing the same job (a
-    /// Material `ChipGroup` of single-selection filter chips, an ArkUI `SegmentButtonV2`, an
-    /// `NSSegmentedControl`) or, on web and system XAML, one composed from primitives.
-    pub fn search_scopes<M>(mut self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
-        if let Some(s) = self.search.as_mut() {
-            s.scopes = titles.into_iter().map(IntoText::into_text).collect();
-            s.scope = Some(scope);
-        }
-        self
-    }
-
-    /// Completions for the current text, re-derived whenever a reactive read inside `f` changes.
-    ///
-    /// On a navigation surface these complete the field rather than replacing the list: the list
-    /// is already the filtered result set, so an overlay of results would cover the very thing it
-    /// is narrowing. Backends whose search widget does completions natively use it
-    /// (`AutoSuggestBox`, `QCompleter`, `<datalist>`, `UISearchResultsUpdating`).
-    pub fn search_suggestions(mut self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
-        if let Some(s) = self.search.as_mut() {
-            s.suggestions = Some(Rc::new(f));
-        }
         self
     }
 }
@@ -2231,8 +2379,8 @@ fn persist_selection<K: Route, S: Binding<K>>(restore: Option<String>, selection
 /// What the gated flow needs from its nav, cloneable into the `when` branches that build
 /// one shape or the other as the presentation changes.
 struct GatedDetail<K: Route> {
-    /// Whether the detail layer is up: the nav's `detail_visible` signal, two-way.
-    open: Signal<bool>,
+    /// Whether the detail layer is up: the nav's `detail_visible` binding, two-way.
+    open: AnyBinding<bool>,
     /// Builds the content list, the root layer.
     list: Rc<dyn Fn() -> AnyPiece>,
     /// The nav's items: the detail content builder and the immersive flag.
@@ -4273,6 +4421,7 @@ pub fn nav_stack<K: Route, S: Binding<Vec<K>>>(path: S, root: impl Piece) -> Nav
     }
 }
 
+#[day_macros::builder(NavStackBuilder<K>)]
 impl<K: Route, S: Binding<Vec<K>>> NavStack<S, K> {
     pub fn title<M>(mut self, t: impl IntoText<M>) -> Self {
         self.title = t.into_text();
@@ -4817,6 +4966,7 @@ pub fn cover<R: Route, S: Binding<Option<R>>, P: Piece>(
     }
 }
 
+#[day_macros::builder(CoverBuilder<R>)]
 impl<S: Binding<Option<R>>, R: Route> Cover<S, R> {
     /// Prefer a native modal sheet. Backends without sheets retain their modal cover.
     pub fn sheet(mut self) -> Self {
@@ -5112,365 +5262,6 @@ impl<S: Binding<Option<R>>, R: Route> Piece for Cover<S, R> {
 }
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`Nav`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait NavBuilder<K: Route>: Sized {
-    fn refreshable<M>(
-        self,
-        refreshing: impl IntoReactive<bool, M>,
-        action: impl Fn() + 'static,
-    ) -> Self;
-    fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self;
-    fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self;
-    fn restore_sections(self, key: impl Into<String>) -> Self;
-    fn section_id<M>(self, id: impl Into<String>, title: impl IntoText<M>) -> Self;
-
-    fn style(self, style: NavStyle) -> Self;
-    fn title<M>(self, t: impl IntoText<M>) -> Self;
-    fn section<M>(self, title: impl IntoText<M>) -> Self;
-    fn badge<M>(self, badge: impl IntoText<M>) -> Self;
-    fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self;
-    fn badge_tint(self, color: day_spec::Color) -> Self;
-    fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self;
-    fn footer<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self;
-    fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self;
-    fn item<M, P: Piece>(
-        self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self;
-    fn item_icon<M, P: Piece>(
-        self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        icon: impl Into<day_spec::ImageName>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self;
-    fn immersive(self) -> Self;
-    fn icon_tint(self, color: day_spec::Color) -> Self;
-    fn items<T: Clone + 'static>(
-        self,
-        items: impl Fn() -> Vec<T> + 'static,
-        map: impl Fn(&T) -> NavItem<K> + 'static,
-    ) -> Self;
-    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
-    fn detail_title<M>(self, t: impl IntoText<M>) -> Self;
-    fn local(self) -> Self;
-    fn restore(self, key: impl Into<String>) -> Self;
-    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self;
-    fn sidebar_toggle(self, on: bool) -> Self;
-    fn searchable(self, query: Signal<String>) -> Self;
-    fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self;
-    fn search_hides_on_scroll(self, hide: bool) -> Self;
-    fn search_initially_hidden(self, hide: bool) -> Self;
-    fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self;
-    fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self;
-    fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self;
-}
-
-impl<K: Route, S: Binding<K>> NavBuilder<K> for Nav<S, K> {
-    fn refreshable<M>(
-        self,
-        refreshing: impl IntoReactive<bool, M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        Nav::refreshable(self, refreshing, action)
-    }
-    fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self {
-        Nav::collapsed_sections(self, state)
-    }
-    fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self {
-        Nav::on_section_expansion(self, f)
-    }
-    fn restore_sections(self, key: impl Into<String>) -> Self {
-        Nav::restore_sections(self, key)
-    }
-    fn section_id<M>(self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
-        Nav::section_id(self, id, title)
-    }
-
-    fn style(self, style: NavStyle) -> Self {
-        Nav::style(self, style)
-    }
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        Nav::title(self, t)
-    }
-    fn section<M>(self, title: impl IntoText<M>) -> Self {
-        Nav::section(self, title)
-    }
-    fn badge<M>(self, badge: impl IntoText<M>) -> Self {
-        Nav::badge(self, badge)
-    }
-    fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self {
-        Nav::badge_icon(self, icon)
-    }
-    fn badge_tint(self, color: day_spec::Color) -> Self {
-        Nav::badge_tint(self, color)
-    }
-    fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
-        Nav::header(self, build)
-    }
-    fn footer<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
-        Nav::footer(self, build)
-    }
-    fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
-        Nav::presentation(self, presentation)
-    }
-    fn item<M, P: Piece>(
-        self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self {
-        Nav::item(self, key, title, build)
-    }
-    fn item_icon<M, P: Piece>(
-        self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        icon: impl Into<day_spec::ImageName>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self {
-        Nav::item_icon(self, key, title, icon, build)
-    }
-    fn immersive(self) -> Self {
-        Nav::immersive(self)
-    }
-    fn icon_tint(self, color: day_spec::Color) -> Self {
-        Nav::icon_tint(self, color)
-    }
-    fn items<T: Clone + 'static>(
-        self,
-        items: impl Fn() -> Vec<T> + 'static,
-        map: impl Fn(&T) -> NavItem<K> + 'static,
-    ) -> Self {
-        Nav::items(self, items, map)
-    }
-    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
-        Nav::destination(self, build)
-    }
-    fn detail_title<M>(self, t: impl IntoText<M>) -> Self {
-        Nav::detail_title(self, t)
-    }
-    fn local(self) -> Self {
-        Nav::local(self)
-    }
-    fn restore(self, key: impl Into<String>) -> Self {
-        Nav::restore(self, key)
-    }
-    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        Nav::toolbar(self, content)
-    }
-    fn sidebar_toggle(self, on: bool) -> Self {
-        Nav::sidebar_toggle(self, on)
-    }
-    fn searchable(self, query: Signal<String>) -> Self {
-        Nav::searchable(self, query)
-    }
-    fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
-        Nav::search_prompt(self, prompt)
-    }
-    fn search_hides_on_scroll(self, hide: bool) -> Self {
-        Nav::search_hides_on_scroll(self, hide)
-    }
-    fn search_initially_hidden(self, hide: bool) -> Self {
-        Nav::search_initially_hidden(self, hide)
-    }
-    fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
-        Nav::search_placement(self, placement)
-    }
-    fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
-        Nav::search_scopes(self, scope, titles)
-    }
-    fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
-        Nav::search_suggestions(self, f)
-    }
-}
-
-impl<K: Route, Inner: NavBuilder<K> + Piece> NavBuilder<K> for Decorated<Inner> {
-    fn refreshable<M>(
-        self,
-        refreshing: impl IntoReactive<bool, M>,
-        action: impl Fn() + 'static,
-    ) -> Self {
-        self.map_inner(|inner| inner.refreshable(refreshing, action))
-    }
-    fn collapsed_sections(self, state: Signal<std::collections::HashSet<String>>) -> Self {
-        self.map_inner(|inner| inner.collapsed_sections(state))
-    }
-    fn on_section_expansion(self, f: impl Fn(String, bool) + 'static) -> Self {
-        self.map_inner(|inner| inner.on_section_expansion(f))
-    }
-    fn restore_sections(self, key: impl Into<String>) -> Self {
-        self.map_inner(|inner| inner.restore_sections(key))
-    }
-    fn section_id<M>(self, id: impl Into<String>, title: impl IntoText<M>) -> Self {
-        self.map_inner(|inner| inner.section_id(id, title))
-    }
-
-    fn style(self, style: NavStyle) -> Self {
-        self.map_inner(|inner_piece| inner_piece.style(style))
-    }
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.title(t))
-    }
-    fn section<M>(self, title: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.section(title))
-    }
-    fn badge<M>(self, badge: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.badge(badge))
-    }
-    fn badge_icon(self, icon: impl Into<day_spec::ImageName>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.badge_icon(icon))
-    }
-    fn badge_tint(self, color: day_spec::Color) -> Self {
-        self.map_inner(|inner_piece| inner_piece.badge_tint(color))
-    }
-    fn header<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.header(build))
-    }
-    fn footer<P: Piece>(self, build: impl FnOnce() -> P + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.footer(build))
-    }
-    fn presentation(self, presentation: day_spec::props::NavPresentation) -> Self {
-        self.map_inner(|inner_piece| inner_piece.presentation(presentation))
-    }
-    fn item<M, P: Piece>(
-        self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.item(key, title, build))
-    }
-    fn item_icon<M, P: Piece>(
-        self,
-        key: impl Into<K>,
-        title: impl IntoText<M>,
-        icon: impl Into<day_spec::ImageName>,
-        build: impl Fn() -> P + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.item_icon(key, title, icon, build))
-    }
-    fn immersive(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.immersive())
-    }
-    fn icon_tint(self, color: day_spec::Color) -> Self {
-        self.map_inner(|inner_piece| inner_piece.icon_tint(color))
-    }
-    fn items<T: Clone + 'static>(
-        self,
-        items: impl Fn() -> Vec<T> + 'static,
-        map: impl Fn(&T) -> NavItem<K> + 'static,
-    ) -> Self {
-        self.map_inner(|inner_piece| inner_piece.items(items, map))
-    }
-    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.destination(build))
-    }
-    fn detail_title<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.detail_title(t))
-    }
-    fn local(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.local())
-    }
-    fn restore(self, key: impl Into<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.restore(key))
-    }
-    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.toolbar(content))
-    }
-    fn sidebar_toggle(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.sidebar_toggle(on))
-    }
-    fn searchable(self, query: Signal<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.searchable(query))
-    }
-    fn search_prompt<M>(self, prompt: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.search_prompt(prompt))
-    }
-    fn search_hides_on_scroll(self, hide: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.search_hides_on_scroll(hide))
-    }
-    fn search_initially_hidden(self, hide: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.search_initially_hidden(hide))
-    }
-    fn search_placement(self, placement: day_spec::props::SearchPlacement) -> Self {
-        self.map_inner(|inner_piece| inner_piece.search_placement(placement))
-    }
-    fn search_scopes<M>(self, scope: Signal<usize>, titles: Vec<impl IntoText<M>>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.search_scopes(scope, titles))
-    }
-    fn search_suggestions(self, f: impl Fn(&str) -> Vec<String> + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.search_suggestions(f))
-    }
-}
-
-/// [`NavStack`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait NavStackBuilder<K: Route>: Sized {
-    fn title<M>(self, t: impl IntoText<M>) -> Self;
-    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self;
-    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self;
-    fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self;
-    fn restore(self, key: impl Into<String>) -> Self;
-}
-
-impl<K: Route, S: Binding<Vec<K>>> NavStackBuilder<K> for NavStack<S, K> {
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        NavStack::title(self, t)
-    }
-    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        NavStack::toolbar(self, content)
-    }
-    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
-        NavStack::destination(self, build)
-    }
-    fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self {
-        NavStack::on_back(self, guard)
-    }
-    fn restore(self, key: impl Into<String>) -> Self {
-        NavStack::restore(self, key)
-    }
-}
-
-impl<K: Route, Inner: NavStackBuilder<K> + Piece> NavStackBuilder<K> for Decorated<Inner> {
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.title(t))
-    }
-    fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
-        self.map_inner(|inner_piece| NavStackBuilder::toolbar(inner_piece, content))
-    }
-    fn destination<P: Piece>(self, build: impl Fn(&K) -> P + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.destination(build))
-    }
-    fn on_back(self, guard: impl Fn(BackRequest) -> BackResponse + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_back(guard))
-    }
-    fn restore(self, key: impl Into<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.restore(key))
-    }
-}
-
-/// [`Cover`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait CoverBuilder: Sized {
-    fn unrouted(self) -> Self;
-}
-
-impl<S: Binding<Option<R>>, R: Route> CoverBuilder for Cover<S, R> {
-    fn unrouted(self) -> Self {
-        Cover::unrouted(self)
-    }
-}
-
-impl<Inner: CoverBuilder + Piece> CoverBuilder for Decorated<Inner> {
-    fn unrouted(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.unrouted())
-    }
-}
 
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {

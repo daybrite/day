@@ -192,6 +192,33 @@ impl<A: Piece, B: Piece> Piece for Either<A, B> {
     }
 }
 
+/// An optional piece (§5.1): `Some` builds the piece, `None` builds the same zero-size,
+/// layout-transparent anchor a false [`when`](../day_pieces/fn.when.html) leaves behind, so
+/// the slot keeps its place in a tuple without drawing anything.
+///
+/// ```ignore
+/// let precip = (d.precip > 0).then(|| label(format!("{}%", d.precip)));
+/// row((icon, precip))
+/// ```
+///
+/// Resolved once at build. For an `Option` that changes while the piece lives, use
+/// `keyed(move || state.get(), |v| …)`.
+impl<P: Piece> Piece for Option<P> {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        match self {
+            Some(p) => p.build(cx),
+            None => cx.layout_only(
+                Rc::new(crate::layout::PassThrough),
+                Flex {
+                    is_group: true,
+                    ..Default::default()
+                },
+                Boundary::No,
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod any_piece_tests {
     use super::*;
@@ -217,8 +244,12 @@ mod any_piece_tests {
 // PieceSeq: tuple children (§5.1), flattening recursively.
 // ---------------------------------------------------------------------------
 
-/// Children of a container: a tuple of pieces (the floem `ViewTuple` pattern, implemented
-/// Only for tuples, `()`, and [`PieceVec`], never via a blanket, to stay coherent).
+/// Children of a container (§5.1): a tuple of pieces (the floem `ViewTuple` pattern), a
+/// `Vec` or array of one piece type, or an `Option` of a piece. Implemented for exactly those
+/// shapes, never via a blanket, to stay coherent. All of them are build-time children:
+/// evaluated once when the parent builds, with no keyed identity or reconciliation. A child
+/// that must come and go at runtime is a [`when`](../day_pieces/fn.when.html), a
+/// `keyed`, or an `each`.
 pub trait PieceSeq: 'static {
     fn build_each(self, cx: &mut BuildCx);
 }
@@ -227,12 +258,29 @@ impl PieceSeq for () {
     fn build_each(self, _cx: &mut BuildCx) {}
 }
 
-/// Runtime-heterogeneous children (`column_vec`-style call sites).
-pub struct PieceVec(pub Vec<AnyPiece>);
-
-impl PieceSeq for PieceVec {
+/// A homogeneous list of children, which is also how a runtime-heterogeneous list reads:
+/// `row(items.iter().map(cell).collect::<Vec<_>>())`, or a `Vec<AnyPiece>` when the children
+/// differ in type.
+impl<P: Piece> PieceSeq for Vec<P> {
     fn build_each(self, cx: &mut BuildCx) {
-        for p in self.0 {
+        for p in self {
+            let _ = p.build(cx);
+        }
+    }
+}
+
+impl<P: Piece, const N: usize> PieceSeq for [P; N] {
+    fn build_each(self, cx: &mut BuildCx) {
+        for p in self {
+            let _ = p.build(cx);
+        }
+    }
+}
+
+/// A child that may be absent: `None` builds nothing at all (no node).
+impl<P: Piece> PieceSeq for Option<P> {
+    fn build_each(self, cx: &mut BuildCx) {
+        if let Some(p) = self {
             let _ = p.build(cx);
         }
     }

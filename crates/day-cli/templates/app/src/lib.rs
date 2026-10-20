@@ -23,15 +23,10 @@ day::routes! {
     }
 }
 
-/// Configure the native window and locale catalog; the title is formatted in the active locale.
+/// The window: the generated options carry the locale catalog, the localized title and the
+/// version; the size is for desktop (phones fill the screen).
 pub fn window() -> day::WindowOptions {
-    day::WindowOptions {
-        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
-        title_fn: Some(|| res::str::app_title().format()),
-        size: Size::new(960.0, 640.0),
-        version: Some(env!("CARGO_PKG_VERSION").into()),
-        ..Default::default()
-    }
+    res::window_options().size(960.0, 640.0)
 }
 
 /// Provide one window's shared state and compose its pages: https://daybrite.dev/docs/internal/state/
@@ -55,33 +50,26 @@ pub fn root() -> impl Piece {
             .title(res::str::app_title())
             // The list and editor sit side by side on desktop and stack on a phone.
             // Navigation adapts the same pieces: https://daybrite.dev/docs/navigation/
-            .content_list(pages::items::item_list_pane)
-            .content_list_width(320.0)
-            .content_list_for(|s: &Section| matches!(s, Section::Items))
-            .detail_visible(scene.detail_open)
-            .detail_title(move || pages::items::detail_title(scene))
-            .item_icon(
-                Section::Welcome,
-                res::str::nav_welcome(),
-                res::vectors::tab_welcome,
-                pages::welcome::welcome_page,
+            .content_list(
+                ContentList::new(pages::items::item_list_pane)
+                    .width(320.0)
+                    .only_for(|s: &Section| matches!(s, Section::Items))
+                    .detail_visible(scene.detail_open)
+                    .detail_title(move || pages::items::detail_title(scene)),
             )
-            .item_icon(
-                Section::Items,
-                res::str::nav_items(),
-                res::vectors::tab_items,
-                pages::items::items_page,
-            )
-            // Use the desktop's conventional Settings menu/window; without a menu bar,
-            // keep Settings reachable as a navigation section.
-            .items(
-                {
-                    let prefs = prefs.clone();
-                    move || prefs.nav_keys(Section::Settings)
-                },
-                |s: &Section| item(*s, res::str::nav_settings()).icon(res::vectors::tab_settings),
-            )
-            .destination(move |_: &Section| prefs.page())
+            .items((
+                item(Section::Welcome, res::str::nav_welcome())
+                    .icon(res::vectors::tab_welcome)
+                    .page(pages::welcome::welcome_page),
+                item(Section::Items, res::str::nav_items())
+                    .icon(res::vectors::tab_items)
+                    .page(pages::items::items_page),
+                // The desktop's conventional Settings menu/window; without a menu bar, Settings
+                // stays reachable as a navigation section (`None` where the menu has it).
+                prefs
+                    .nav_item(Section::Settings)
+                    .map(|i| i.icon(res::vectors::tab_settings)),
+            ))
             .restore("app.section")
             .id("nav")
     })
@@ -92,19 +80,19 @@ pub fn root() -> impl Piece {
 fn menus(scene: Scene) -> Vec<MenuEntry> {
     vec![
         sub_menu(
-            res::str::menu_file().format(),
+            res::str::menu_file(),
             vec![
-                menu_item(res::str::cmd_add().format())
-                    .shortcut(Shortcut::new("n"))
+                menu_item(res::str::cmd_add())
+                    .shortcut(Shortcut::primary("n"))
                     .action(move || scene.new_item()),
                 menu_role(MenuRole::CloseWindow),
             ],
         ),
         sub_menu(
-            res::str::menu_edit().format(),
+            res::str::menu_edit(),
             vec![
-                menu_item(res::str::cmd_delete().format())
-                    .shortcut(Shortcut::new("Delete"))
+                menu_item(res::str::cmd_delete())
+                    .shortcut(Shortcut::primary("Delete"))
                     .action(move || scene.delete_selected()),
                 menu_separator(),
                 menu_role(MenuRole::Cut),

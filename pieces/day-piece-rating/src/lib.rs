@@ -39,7 +39,7 @@ pub struct Rating<S: Binding<usize>> {
     value: S,
     max: u32,
     star_size: f64,
-    editable: bool,
+    editable: Reactive<bool>,
     color: Color,
     id_prefix: Option<String>,
 }
@@ -51,12 +51,13 @@ pub fn rating<S: Binding<usize>>(value: S) -> Rating<S> {
         value,
         max: 5,
         star_size: 28.0,
-        editable: true,
+        editable: Reactive::Const(true),
         color: GOLD,
         id_prefix: None,
     }
 }
 
+#[day_pieces::builder(RatingBuilder)]
 impl<S: Binding<usize>> Rating<S> {
     /// How many stars to show (clamped to at least 1; default 5).
     pub fn max(mut self, max: u32) -> Self {
@@ -68,10 +69,11 @@ impl<S: Binding<usize>> Rating<S> {
         self.star_size = points;
         self
     }
-    /// Whether tapping a star updates the bound signal (default `true`). Set `false` for a read-only
-    /// display (e.g. an average rating).
-    pub fn editable(mut self, editable: bool) -> Self {
-        self.editable = editable;
+    /// Whether tapping a star updates the bound signal (default `true`): a constant, a
+    /// `Signal<bool>`, or a closure, read when a star is tapped. `false` makes a read-only
+    /// display (an average rating).
+    pub fn editable<M>(mut self, editable: impl IntoReactive<bool, M>) -> Self {
+        self.editable = editable.into_reactive();
         self
     }
     /// The filled-star color; empty stars are drawn as an outline in the same hue (default gold).
@@ -107,10 +109,10 @@ impl<S: Binding<usize>> Piece for Rating<S> {
                 // wrapper, so a dayscript `tap prefix:N` reaches the same node the tap handler
                 // lives on.
                 let id = id_prefix.as_ref().map(|p| format!("{p}:{}", i + 1));
-                star(i, value.clone(), star_size, color, editable, id)
+                star(i, value.clone(), star_size, color, editable.clone(), id)
             })
             .collect();
-        let stars = row(PieceVec(stars)).spacing((star_size * 0.15).max(2.0));
+        let stars = row(stars).spacing((star_size * 0.15).max(2.0));
         match id_prefix {
             Some(p) => stars.id(p).build(cx),
             None => stars.build(cx),
@@ -125,7 +127,7 @@ fn star<S: Binding<usize>>(
     value: S,
     size: f64,
     color: Color,
-    editable: bool,
+    editable: Reactive<bool>,
     id: Option<String>,
 ) -> AnyPiece {
     let v = value.clone();
@@ -151,11 +153,13 @@ fn star<S: Binding<usize>>(
         Some(id) => leaf.id(id),
         None => leaf,
     };
-    let leaf = if editable {
-        leaf.on_tap(move || value.write(index + 1))
-    } else {
-        leaf
-    };
+    // The tap is always wired; whether it writes is read at tap time, so an editability that
+    // changes while the rating lives (a form's edit mode) needs no rebuild.
+    let leaf = leaf.on_tap(move || {
+        if editable.get_untracked() {
+            value.write(index + 1)
+        }
+    });
     leaf.frame(size, size).any()
 }
 
@@ -226,47 +230,6 @@ pub fn badge(count: i64, over: AnyPiece) -> AnyPiece {
 }
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`Rating`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait RatingBuilder: Sized {
-    fn max(self, max: u32) -> Self;
-    fn star_size(self, points: f64) -> Self;
-    fn editable(self, editable: bool) -> Self;
-    fn color(self, color: Color) -> Self;
-}
-
-impl<S: Binding<usize>> RatingBuilder for Rating<S> {
-    fn max(self, max: u32) -> Self {
-        Rating::max(self, max)
-    }
-    fn star_size(self, points: f64) -> Self {
-        Rating::star_size(self, points)
-    }
-    fn editable(self, editable: bool) -> Self {
-        Rating::editable(self, editable)
-    }
-    fn color(self, color: Color) -> Self {
-        Rating::color(self, color)
-    }
-}
-
-impl<Inner: RatingBuilder + day_pieces::prelude::Piece> RatingBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn max(self, max: u32) -> Self {
-        self.map_inner(|inner_piece| inner_piece.max(max))
-    }
-    fn star_size(self, points: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.star_size(points))
-    }
-    fn editable(self, editable: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.editable(editable))
-    }
-    fn color(self, color: Color) -> Self {
-        self.map_inner(|inner_piece| inner_piece.color(color))
-    }
-}
 
 /// The rating's conformance cases (docs/testing.md).
 #[cfg(feature = "conformance")]

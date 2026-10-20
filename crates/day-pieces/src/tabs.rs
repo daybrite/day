@@ -240,10 +240,10 @@ impl<K: Route> Piece for DocumentTabs<K> {
         let host = nav(tabs.selected)
             .style(NavStyle::Tabs)
             .local()
-            .items(
+            .items(crate::nav_items(
                 move || tabs.keys(),
                 move |key| item(Some(key.clone()), title(key)),
-            )
+            ))
             .destination(move |key: &Option<K>| match key {
                 Some(k) => AnyPiece::new(MountTab {
                     key: k.clone(),
@@ -792,15 +792,14 @@ fn install_window_tabs<K: Route>(
                         .map(|r| r.size)
                         .unwrap_or(day_spec::Size::new(1000.0, 740.0));
                     let window = day_core::windows::open_window(
-                        Some(&format!("{group}:{}", key.key())),
                         day_spec::WindowOptions {
                             title: title.clone(),
                             size,
                             start_hidden: true,
                             tabbing: day_spec::WindowTabbing::Group(group.clone()),
+                            key: Some(format!("{group}:{}", key.key())),
                             ..Default::default()
                         },
-                        day_spec::WindowKind::Normal,
                         move || MoveTab(node),
                     );
                     let close_observer = observe.clone();

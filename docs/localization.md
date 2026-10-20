@@ -105,11 +105,26 @@ catalog and use private generation in the component crates.
 
 ## Generated message functions
 
-Generated functions return `LocalizedText`. Function parameters follow the message's
-`$variables`, sorted by name. Variable names must agree across translations. Arguments accept
-strings, numbers, or supported signals through `IntoFArg`. A variable used numerically in any
-translation requires `IntoNumberFArg`, which accepts `i64`, `f64`, `Signal<i64>`, and
-`Signal<f64>`.
+Generated functions return `LocalizedText`. A message with one `$variable` takes it as the
+function's one parameter. A message with two or more takes one named-field struct, generated
+beside the function and named after it in PascalCase, so two same-typed arguments can never be
+swapped silently and a translation that adds a variable cannot change the meaning of an
+existing call:
+
+```rust
+res::str::greeting(name)                                           // greeting = Hello, { $name }
+res::str::items_moved(res::str::ItemsMoved { count, folder })      // items-moved = { $count } moved to { $folder }
+```
+
+Variable names must agree across translations. Arguments accept strings, numbers, or supported
+signals through `IntoFArg`. A variable used numerically in any translation requires
+`IntoNumberFArg`, which accepts `i64`, `f64`, `Signal<i64>`, and `Signal<f64>`.
+
+The generated module also carries `res::window_options()`: the `WindowOptions` every window of
+the app starts from, with the locale catalog installed, the title taken from the `app_title`
+message (or the manifest's title when the catalog has none) and the version from Cargo.toml.
+An app chains the rest onto it (`res::window_options().size(960.0, 640.0)`) and hands the result
+to `day_start!`/`day::launch` and `open_window` ([docs/windows.md](windows.md)).
 
 Plural selectors and `NUMBER()` arguments are numeric. String selectors, such as a selection
 on `$gender`, remain string-capable. The generator unions message keys across locales;
@@ -173,7 +188,7 @@ and one store listing per language stay enough.
 ## Which language an app opens in
 
 `day::launch` collects backend locale hints, installs `WindowOptions::locales`, computes
-`title_fn`, and then builds the UI. The app catalog declares supported launch languages;
+the localized title `res::window_options()` carries, and then builds the UI. The app catalog declares supported launch languages;
 private catalogs do not add languages to that declaration.
 
 If `DAY_LOCALE` is set, it supplies the launch candidate. Otherwise Day considers the ordered

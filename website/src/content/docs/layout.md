@@ -24,11 +24,14 @@ column((
     label("Account").font(Font::Title),
     row((label("Notifications"), spacer(), toggle(enabled))),
 ))
-.spacing(12.0)
-.padding(16.0)
+.spacing(Space::M)
+.padding(Space::L)
 ```
 
-Here, `enabled` is a `Signal<bool>`. The spacer takes the row’s remaining horizontal space,
+Here, `enabled` is a `Signal<bool>`. `Space` is the spacing scale: `XS` (4), `S` (8), `M` (12),
+`L` (16) and `XL` (24) points, accepted wherever a gap or an inset is, beside a raw `f64`. Use
+the steps the way you use `Font::Headline` instead of a point size: `S` between siblings, `M`
+between groups, `L` for a page's edge inset, `XL` between major regions. The spacer takes the row’s remaining horizontal space,
 leaving the label and toggle at opposite ends. Use `scroll(content)` when the content can be
 taller than its window.
 
@@ -42,7 +45,8 @@ Day's layout modifiers are few and compose left to right:
 
 ```rust
 label("Total")
-    .padding(Insets::symmetric(12.0, 6.0))  // or .padding(8.0) for all edges
+    .padding(Insets::symmetric(12.0, 6.0))  // or .padding(Space::S) for all edges; Insets::horizontal(12.0),
+                                            // ::vertical, ::top, ::bottom, ::leading, ::trailing for one side or pair
     .frame(200.0, 44.0)                     // fixed size (or .width / .height for one axis)
     .grow()                                 // take flexible space in the parent's axis
 
@@ -53,7 +57,9 @@ scroll(long_column)
 ```
 
 `padding`, `frame`, and friends are layout-only wrapper nodes: they exist in Day's tree but
-create no native widget, so nesting them is cheap.
+create no native widget, so nesting them is cheap. They wrap in call order; `.id(..)` names the
+piece's own node wherever it sits in the chain, and `.card()` is the platform's grouped surface
+(rounded, with a `Space::M` inset) in one call.
 
 ## Parent proposes, child chooses
 

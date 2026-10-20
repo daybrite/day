@@ -773,7 +773,7 @@ fn page(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
 
 /// A page's lines without the scroll.
 fn body(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
-    column(PieceVec(lines))
+    column(lines)
         .spacing(0.0)
         .align(HAlign::Leading)
         .padding(day_spec::Insets {
@@ -884,7 +884,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
     // width), so its vertical breathing room is two spacers.
     let mut lines: Vec<AnyPiece> = vec![
         spacer().frame(1.0, HERO_PAD).any(),
-        column(PieceVec(hero))
+        column(hero)
             .spacing(6.0)
             .align(HAlign::Center)
             .grow_w()

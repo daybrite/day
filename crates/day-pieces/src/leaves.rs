@@ -233,6 +233,7 @@ pub fn label<M>(text: impl IntoText<M>) -> Label {
     }
 }
 
+#[day_macros::builder(LabelBuilder)]
 impl Label {
     /// Keep plain text on one line. UIKit, Android, GTK, AppKit and DOM truncate with an ellipsis.
     pub fn single_line(mut self) -> Self {
@@ -369,125 +370,27 @@ impl Label {
         self.color = Some(c.into_reactive());
         self
     }
-}
-
-/// [`Label`]'s own builders, reachable through a decoration (§5.2).
-///
-/// `label(…).padding(8.0).font(Font::Caption)` resolves because [`Decorated`] forwards this trait
-/// to the label it wraps, so generic modifiers and typed ones may be chained in any order. The
-/// inherent methods on `Label` remain the implementation; this trait carries them across a
-/// decoration.
-pub trait LabelBuilder: Sized {
-    fn single_line(self) -> Self;
-    fn max_lines(self, lines: u32) -> Self;
-    fn font_scale(self, scale: f64) -> Self;
-    fn font(self, f: Font) -> Self;
-    fn weight(self, w: day_spec::FontWeight) -> Self;
-    fn bold(self) -> Self;
-    fn italic(self) -> Self;
-    fn tabular(self) -> Self;
-    fn monospace(self) -> Self;
-    fn runs(self, runs: Vec<day_spec::TextRun>) -> Self;
-    fn runs_from(self, b: TextBuilder) -> Self;
-    fn markdown(self) -> Self;
-    fn align(self, align: TextAlign) -> Self;
-    fn on_link(self, f: impl Fn(&str) + 'static) -> Self;
-    fn color<M>(self, c: impl IntoReactive<day_spec::Color, M>) -> Self;
-}
-
-impl LabelBuilder for Label {
-    fn font_scale(self, scale: f64) -> Self {
-        Label::font_scale(self, scale)
-    }
-    fn max_lines(self, lines: u32) -> Self {
-        Label::max_lines(self, lines)
-    }
-    fn single_line(self) -> Self {
-        Label::single_line(self)
-    }
-    fn font(self, f: Font) -> Self {
-        Label::font(self, f)
-    }
-    fn weight(self, w: day_spec::FontWeight) -> Self {
-        Label::weight(self, w)
-    }
-    fn bold(self) -> Self {
-        Label::bold(self)
-    }
-    fn italic(self) -> Self {
-        Label::italic(self)
-    }
-    fn tabular(self) -> Self {
-        Label::tabular(self)
-    }
-    fn monospace(self) -> Self {
-        Label::monospace(self)
-    }
-    fn runs(self, runs: Vec<day_spec::TextRun>) -> Self {
-        Label::runs(self, runs)
-    }
-    fn runs_from(self, b: TextBuilder) -> Self {
-        Label::runs_from(self, b)
-    }
-    fn markdown(self) -> Self {
-        Label::markdown(self)
-    }
-    fn align(self, align: TextAlign) -> Self {
-        Label::align(self, align)
-    }
-    fn on_link(self, f: impl Fn(&str) + 'static) -> Self {
-        Label::on_link(self, f)
-    }
-    fn color<M>(self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
-        Label::color(self, c)
-    }
-}
-
-impl<P: LabelBuilder + Piece> LabelBuilder for Decorated<P> {
-    fn font_scale(self, scale: f64) -> Self {
-        self.map_inner(|p| p.font_scale(scale))
-    }
-    fn max_lines(self, lines: u32) -> Self {
-        self.map_inner(|p| p.max_lines(lines))
-    }
-    fn single_line(self) -> Self {
-        self.map_inner(LabelBuilder::single_line)
-    }
-    fn font(self, f: Font) -> Self {
-        self.map_inner(|p| p.font(f))
-    }
-    fn weight(self, w: day_spec::FontWeight) -> Self {
-        self.map_inner(|p| p.weight(w))
-    }
-    fn bold(self) -> Self {
-        self.map_inner(LabelBuilder::bold)
-    }
-    fn italic(self) -> Self {
-        self.map_inner(LabelBuilder::italic)
-    }
-    fn tabular(self) -> Self {
-        self.map_inner(LabelBuilder::tabular)
-    }
-    fn monospace(self) -> Self {
-        self.map_inner(LabelBuilder::monospace)
-    }
-    fn runs(self, runs: Vec<day_spec::TextRun>) -> Self {
-        self.map_inner(|p| p.runs(runs))
-    }
-    fn runs_from(self, b: TextBuilder) -> Self {
-        self.map_inner(|p| p.runs_from(b))
-    }
-    fn markdown(self) -> Self {
-        self.map_inner(LabelBuilder::markdown)
-    }
-    fn align(self, align: TextAlign) -> Self {
-        self.map_inner(|p| p.align(align))
-    }
-    fn on_link(self, f: impl Fn(&str) + 'static) -> Self {
-        self.map_inner(|p| p.on_link(f))
-    }
-    fn color<M>(self, c: impl IntoReactive<day_spec::Color, M>) -> Self {
-        self.map_inner(|p| p.color(c))
+    /// Apply a named [`TextPreset`](crate::TextPreset): the font, weight, scale, emphasis and
+    /// color an app defined once (`label(t).preset(&CAPTION)`).
+    pub fn preset(mut self, preset: &crate::TextPreset) -> Self {
+        self.font = preset.font;
+        self.font_scale = preset.font_scale;
+        if preset.weight.is_some() {
+            self.weight = preset.weight;
+        }
+        self.italic |= preset.italic;
+        self.tabular |= preset.tabular;
+        self.monospace |= preset.monospace;
+        if preset.secondary {
+            self.role = day_spec::props::TextRole::Secondary;
+        }
+        if preset.single_line {
+            self.wraps = false;
+        }
+        if let Some(c) = preset.color {
+            self.color = Some(Reactive::Const(c));
+        }
+        self
     }
 }
 
@@ -623,6 +526,7 @@ pub fn link<M>(text: impl IntoText<M>, url: impl Into<String>) -> Link {
     }
 }
 
+#[day_macros::builder(LinkBuilder)]
 impl Link {
     /// The text style (default [`Font::Body`]).
     pub fn font(mut self, f: Font) -> Self {
@@ -724,6 +628,7 @@ pub fn button<M>(title: impl IntoText<M>) -> Button {
     }
 }
 
+#[day_macros::builder(ButtonBuilder)]
 impl Button {
     /// Show a platform symbol. A signal or closure updates it without replacing the button.
     pub fn icon<M>(mut self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
@@ -829,97 +734,6 @@ impl Button {
     pub fn selected<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
         self.selected = v.into_reactive();
         self
-    }
-}
-
-/// [`Button`]'s builders, reachable through a decoration: the [`LabelBuilder`] pattern, for
-/// buttons, so `button(…).padding(8.0).prominent()` resolves.
-pub trait ButtonBuilder: Sized {
-    fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self;
-    fn image(self, name: impl Into<day_spec::ImageName>) -> Self;
-    fn icon_only(self) -> Self;
-    /// Handle native button activation, including through decorations. See [`Button::action`].
-    /// Use this rather than a generic `.on_tap(...)` gesture handler.
-    fn action(self, f: impl Fn() + 'static) -> Self;
-    fn bordered(self) -> Self;
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-    fn prominent(self) -> Self;
-    fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self;
-    fn compact(self) -> Self;
-    fn plain(self) -> Self;
-    /// The selected state, including through decorations. See [`Button::selected`].
-    fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-}
-
-impl ButtonBuilder for Button {
-    fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
-        Button::icon(self, symbol)
-    }
-    fn image(self, name: impl Into<day_spec::ImageName>) -> Self {
-        Button::image(self, name)
-    }
-    fn icon_only(self) -> Self {
-        Button::icon_only(self)
-    }
-    fn action(self, f: impl Fn() + 'static) -> Self {
-        Button::action(self, f)
-    }
-    fn bordered(self) -> Self {
-        Button::bordered(self)
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        Button::enabled(self, v)
-    }
-    fn prominent(self) -> Self {
-        Button::prominent(self)
-    }
-    fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
-        Button::tint(self, color)
-    }
-    fn compact(self) -> Self {
-        Button::compact(self)
-    }
-    fn plain(self) -> Self {
-        Button::plain(self)
-    }
-    fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        Button::selected(self, v)
-    }
-}
-
-impl<P: ButtonBuilder + Piece> ButtonBuilder for Decorated<P> {
-    fn icon<M>(self, symbol: impl IntoReactive<day_spec::Symbol, M>) -> Self {
-        self.map_inner(|p| p.icon(symbol))
-    }
-    fn image(self, name: impl Into<day_spec::ImageName>) -> Self {
-        self.map_inner(|p| p.image(name))
-    }
-    fn icon_only(self) -> Self {
-        self.map_inner(ButtonBuilder::icon_only)
-    }
-    fn action(self, f: impl Fn() + 'static) -> Self {
-        self.map_inner(|p| p.action(f))
-    }
-    fn bordered(self) -> Self {
-        self.map_inner(ButtonBuilder::bordered)
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|p| p.enabled(v))
-    }
-    fn prominent(self) -> Self {
-        self.map_inner(ButtonBuilder::prominent)
-    }
-    fn tint<M>(self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
-        self.map_inner(|p| p.tint(color))
-    }
-    fn compact(self) -> Self {
-        self.map_inner(ButtonBuilder::compact)
-    }
-    fn plain(self) -> Self {
-        self.map_inner(ButtonBuilder::plain)
-    }
-    fn selected<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|p| p.selected(v))
     }
 }
 
@@ -1037,6 +851,7 @@ pub fn toggle<S: Binding<bool>>(value: S) -> Toggle<S> {
     }
 }
 
+#[day_macros::builder(ToggleBuilder)]
 impl<S: Binding<bool>> Toggle<S> {
     /// Whether the toggle is interactive (default `true`; `false` = disabled/grayed). Reactive,
     /// e.g. `.enabled(capability(Cap::TextSpellCheck) == Support::Native)` to gray it out where a
@@ -1104,6 +919,7 @@ pub fn slider<S: Binding<f64>>(value: S) -> Slider<S> {
     }
 }
 
+#[day_macros::builder(SliderBuilder)]
 impl<S: Binding<f64>> Slider<S> {
     /// Whether the slider takes input (default `true`); a constant or a reactive `bool`.
     pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
@@ -1224,6 +1040,7 @@ pub fn secure_field<S: Binding<String>>(value: S) -> TextField<S> {
         .input_purpose(day_spec::InputPurpose::Password)
 }
 
+#[day_macros::builder(TextFieldBuilder)]
 impl<S: Binding<String>> TextField<S> {
     /// Whether the field takes input (default `true`); a constant or a reactive `bool`. A
     /// disabled field neither edits nor focuses; [`TextField::read_only`] keeps it selectable.
@@ -1476,6 +1293,7 @@ pub fn divider() -> Divider {
     Divider { vertical: false }
 }
 
+#[day_macros::builder(DividerBuilder)]
 impl Divider {
     /// Turn the rule on its side: a thin vertical line that fills the row's height, the way the
     /// horizontal one fills a column's width. Between a row's panes, where a horizontal rule
@@ -1528,24 +1346,6 @@ impl Layout for VerticalLeaf {
     fn place(&self, _cx: &mut dyn LayoutOps, _children: &[RNode], _bounds: Rect) {}
 }
 
-/// [`Divider`]'s own builder, reachable through a decoration (§5.2): `Decorated` forwards it
-/// to the piece it wraps, so `.id(..)` and `.vertical()` chain in either order.
-pub trait DividerBuilder: Sized {
-    fn vertical(self) -> Self;
-}
-
-impl DividerBuilder for Divider {
-    fn vertical(self) -> Self {
-        Divider::vertical(self)
-    }
-}
-
-impl<Inner: DividerBuilder + Piece> DividerBuilder for Decorated<Inner> {
-    fn vertical(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.vertical())
-    }
-}
-
 pub struct Spacer;
 
 pub fn spacer() -> Spacer {
@@ -1566,155 +1366,6 @@ impl Piece for Spacer {
 }
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`Link`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait LinkBuilder: Sized {
-    fn font(self, f: Font) -> Self;
-    fn color(self, c: day_spec::Color) -> Self;
-    fn bold(self) -> Self;
-}
-
-impl LinkBuilder for Link {
-    fn font(self, f: Font) -> Self {
-        Link::font(self, f)
-    }
-    fn color(self, c: day_spec::Color) -> Self {
-        Link::color(self, c)
-    }
-    fn bold(self) -> Self {
-        Link::bold(self)
-    }
-}
-
-impl<Inner: LinkBuilder + Piece> LinkBuilder for Decorated<Inner> {
-    fn font(self, f: Font) -> Self {
-        self.map_inner(|inner_piece| inner_piece.font(f))
-    }
-    fn color(self, c: day_spec::Color) -> Self {
-        self.map_inner(|inner_piece| inner_piece.color(c))
-    }
-    fn bold(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.bold())
-    }
-}
-
-/// [`Toggle`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ToggleBuilder: Sized {
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-}
-
-impl<S: Binding<bool>> ToggleBuilder for Toggle<S> {
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        Toggle::enabled(self, v)
-    }
-}
-
-impl<Inner: ToggleBuilder + Piece> ToggleBuilder for Decorated<Inner> {
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.enabled(v))
-    }
-}
-
-/// [`Slider`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait SliderBuilder: Sized {
-    fn range(self, r: std::ops::RangeInclusive<f64>) -> Self;
-    fn step(self, s: f64) -> Self;
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-}
-
-impl<S: Binding<f64>> SliderBuilder for Slider<S> {
-    fn range(self, r: std::ops::RangeInclusive<f64>) -> Self {
-        Slider::range(self, r)
-    }
-    fn step(self, s: f64) -> Self {
-        Slider::step(self, s)
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        Slider::enabled(self, v)
-    }
-}
-
-impl<Inner: SliderBuilder + Piece> SliderBuilder for Decorated<Inner> {
-    fn range(self, r: std::ops::RangeInclusive<f64>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.range(r))
-    }
-    fn step(self, s: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.step(s))
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.enabled(v))
-    }
-}
-
-/// [`TextField`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait TextFieldBuilder: Sized {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
-    fn on_submit(self, f: impl Fn() + 'static) -> Self;
-    fn secure<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-    fn read_only<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-    fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self;
-    fn submit_label(self, label: day_spec::SubmitLabel) -> Self;
-    fn max_length(self, characters: u32) -> Self;
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-}
-
-impl<S: Binding<String>> TextFieldBuilder for TextField<S> {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        TextField::placeholder(self, t)
-    }
-    fn on_submit(self, f: impl Fn() + 'static) -> Self {
-        TextField::on_submit(self, f)
-    }
-    fn secure<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        TextField::secure(self, v)
-    }
-    fn read_only<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        TextField::read_only(self, v)
-    }
-    fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self {
-        TextField::input_purpose(self, purpose)
-    }
-    fn submit_label(self, label: day_spec::SubmitLabel) -> Self {
-        TextField::submit_label(self, label)
-    }
-    fn max_length(self, characters: u32) -> Self {
-        TextField::max_length(self, characters)
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        TextField::enabled(self, v)
-    }
-}
-
-impl<Inner: TextFieldBuilder + Piece> TextFieldBuilder for Decorated<Inner> {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder(t))
-    }
-    fn on_submit(self, f: impl Fn() + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_submit(f))
-    }
-    fn secure<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.secure(v))
-    }
-    fn read_only<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.read_only(v))
-    }
-    fn input_purpose(self, purpose: day_spec::InputPurpose) -> Self {
-        self.map_inner(|inner_piece| inner_piece.input_purpose(purpose))
-    }
-    fn submit_label(self, label: day_spec::SubmitLabel) -> Self {
-        self.map_inner(|inner_piece| inner_piece.submit_label(label))
-    }
-    fn max_length(self, characters: u32) -> Self {
-        self.map_inner(|inner_piece| inner_piece.max_length(characters))
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.enabled(v))
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Conformance cases (docs/testing.md): each leaf's behavior on the real toolkit

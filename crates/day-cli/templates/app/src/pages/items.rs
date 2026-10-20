@@ -26,7 +26,7 @@ pub(crate) fn items_page() -> impl Piece {
         toolbar_button("tb-delete", res::str::cmd_delete())
             .icon(Symbol::Delete)
             .tooltip(res::str::cmd_delete())
-            .enabled_when(move || scene.selected.get().is_some())
+            .enabled(move || scene.selected.get().is_some())
             .action(move || scene.delete_selected()),
     )
 }
@@ -49,7 +49,7 @@ pub(crate) fn item_list_pane() -> impl Piece {
             || {
                 label(res::str::items_empty())
                     .secondary()
-                    .padding(16.0)
+                    .padding(Space::L)
                     .id("items-empty")
             },
         ),
@@ -75,10 +75,10 @@ pub(crate) fn item_list_pane() -> impl Piece {
                     },
                 ),
             ))
-            .spacing(8.0)
-            .padding(12.0)
-            .context_menu(vec![
-                menu_item(res::str::cmd_delete().format()).action(move || scene.remove(slot.key())),
+            .spacing(Space::S)
+            .padding(Space::M)
+            .context_menu([
+                menu_item(res::str::cmd_delete()).action(move || scene.remove(slot.key()))
             ])
         })
         // Unlike `on_select`, this also reports an empty selection when the user clears it.
@@ -94,18 +94,18 @@ pub(crate) fn item_list_pane() -> impl Piece {
                 .into_iter()
                 .collect()
         })
-        // Enable the backend's native drag gesture; the model persists the resulting order.
-        .reorderable(true)
-        .on_reorder(move |from, to| scene.move_item(from, to))
+        // The backend's native drag gesture; the model persists the resulting order.
+        .reorderable(Reorder::new(move |from, to| scene.move_item(from, to)))
         .a11y(|a| a.label(res::str::nav_items()))
         .scroll_to_row(scene.scroll_to)
-        .deletable(true)
-        .delete_label(res::str::cmd_delete().format())
-        .on_delete(move |index| {
-            if let Some(&id) = scene.items.keys().get(index) {
-                scene.remove(id);
-            }
-        })
+        .deletable(
+            Delete::new(move |index| {
+                if let Some(&id) = scene.items.keys().get(index) {
+                    scene.remove(id);
+                }
+            })
+            .label(res::str::cmd_delete()),
+        )
         .id("item-list")
         .grow(),
     ))

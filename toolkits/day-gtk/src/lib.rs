@@ -9520,8 +9520,8 @@ mod tests {
     /// GDK backend. Everywhere else <Primary> stays.
     #[test]
     fn primary_accelerator_is_command_on_macos() {
-        let z = accel_string(&day_spec::Shortcut::new("z"));
-        let sz = accel_string(&day_spec::Shortcut::new("z").shift());
+        let z = accel_string(&day_spec::Shortcut::primary("z"));
+        let sz = accel_string(&day_spec::Shortcut::primary("z").shift());
         if cfg!(target_os = "macos") {
             assert_eq!(z, "<Meta>z");
             assert_eq!(sz, "<Meta><Shift>z");

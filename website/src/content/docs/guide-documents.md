@@ -55,7 +55,7 @@ Requests received before the root mounts are queued. Registration ends when its 
 is disposed.
 
 Use the same import function for the native file picker. A reusable command can expose it in
-the desktop File menu with `Shortcut::new("o")`, and in a mobile toolbar. See
+the desktop File menu with `Shortcut::primary("o")`, and in a mobile toolbar. See
 [Reusable commands](/docs/guide-commands/).
 
 The app decides what an open request does. A reader can import into its private library,

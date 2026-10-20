@@ -2223,7 +2223,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         );
     }
     sections.push(GroupedSection::new(vec![GroupedCell::filled(
-        column(PieceVec(head))
+        column(head)
             .spacing(6.0)
             .align(HAlign::Center)
             .grow_w()

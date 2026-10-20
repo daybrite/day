@@ -64,6 +64,7 @@ pub fn inspector<V: Binding<bool>, C: Piece, P: Piece>(
     }
 }
 
+#[day_macros::builder(InspectorBuilder)]
 impl<V: Binding<bool>> Inspector<V> {
     /// The panel's preferred width in points (default [`INSPECTOR_WIDTH`]). Where the native
     /// pane has a user-draggable divider this is the initial width, not a limit.
@@ -72,10 +73,10 @@ impl<V: Binding<bool>> Inspector<V> {
         self
     }
 
-    /// Wrap the panel in a scroll view (default true). Disable for panels that own a
-    /// recycling list or their own scroller so they receive a bounded viewport.
-    pub fn scrollable(mut self, scrollable: bool) -> Self {
-        self.scrollable = scrollable;
+    /// Do not wrap the panel in a scroll view (it is wrapped by default): for a panel that owns
+    /// a recycling list or its own scroller, so it receives a bounded viewport.
+    pub fn not_scrollable(mut self) -> Self {
+        self.scrollable = false;
         self
     }
 
@@ -100,51 +101,6 @@ impl<V: Binding<bool>> Inspector<V> {
     pub fn half_sheet(mut self) -> Self {
         self.half_sheet = true;
         self
-    }
-}
-
-/// [`Inspector`]'s builders, forwarded through `Decorated` (docs/api-style.md).
-pub trait InspectorBuilder: Sized {
-    fn width(self, width: f64) -> Self;
-    fn scrollable(self, scrollable: bool) -> Self;
-    fn sheet_done<M>(self, t: impl IntoText<M>) -> Self;
-    fn edge(self, edge: PaneEdge) -> Self;
-    fn half_sheet(self) -> Self;
-}
-
-impl<V: Binding<bool>> InspectorBuilder for Inspector<V> {
-    fn scrollable(self, scrollable: bool) -> Self {
-        Inspector::scrollable(self, scrollable)
-    }
-    fn width(self, width: f64) -> Self {
-        Inspector::width(self, width)
-    }
-    fn sheet_done<M>(self, t: impl IntoText<M>) -> Self {
-        Inspector::sheet_done(self, t)
-    }
-    fn edge(self, edge: PaneEdge) -> Self {
-        Inspector::edge(self, edge)
-    }
-    fn half_sheet(self) -> Self {
-        Inspector::half_sheet(self)
-    }
-}
-
-impl<Inner: InspectorBuilder + Piece> InspectorBuilder for Decorated<Inner> {
-    fn scrollable(self, scrollable: bool) -> Self {
-        self.map_inner(|inner| inner.scrollable(scrollable))
-    }
-    fn width(self, width: f64) -> Self {
-        self.map_inner(|inner| inner.width(width))
-    }
-    fn sheet_done<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner| inner.sheet_done(t))
-    }
-    fn edge(self, edge: PaneEdge) -> Self {
-        self.map_inner(|inner| inner.edge(edge))
-    }
-    fn half_sheet(self) -> Self {
-        self.map_inner(|inner| inner.half_sheet())
     }
 }
 
@@ -589,7 +545,7 @@ pub(crate) mod conformance {
                             ))
                         },
                     )
-                    .scrollable(false)
+                    .not_scrollable()
                     .half_sheet(),
                 ))
             })

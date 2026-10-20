@@ -333,7 +333,7 @@ fn inject_preferences(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuI
         // Empty label: each backend falls back to its localized role label
         // ("Settings…" on macOS, "Preferences" elsewhere).
         label: String::new(),
-        shortcut: Some(day_spec::Shortcut::new(",")),
+        shortcut: Some(day_spec::Shortcut::primary(",")),
         enabled: true,
         checked: None,
         role: Some(day_spec::MenuRole::Preferences),

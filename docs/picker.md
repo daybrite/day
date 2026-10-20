@@ -11,24 +11,45 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Picker (built-in)
 
 > **Status: implemented** as a built-in piece (`kinds::PICKER`; moved in from the satellite
-> `day-piece-picker` 2026-07). One API, three SwiftUI-style stylings, each a distinct native
-> control per toolkit, bound two-way to a selection. In `day::prelude::*`, with no dependency to add.
+> `day-piece-picker` 2026-07; typed by value since 2026-10). One API, three SwiftUI-style
+> stylings, each a distinct native control per toolkit, bound two-way to a typed selection. In
+> `day::prelude::*`, with no dependency to add.
 
 ## Authoring
 
 ```rust
 use day::prelude::*;
 
-let size = Signal::new(1usize);
-picker(["Small", "Medium", "Large"], size).segmented().id("size")   // horizontal one-of-N
-picker(colors, color).menu()                                         // dropdown / pop-up
-picker(plans, plan).inline()                                         // vertical radio group
+#[derive(Clone, Copy, PartialEq)]
+enum Size { Small, Medium, Large }
+
+let size = Signal::new(Size::Medium);
+picker(size, [(Size::Small, res::str::small()), (Size::Medium, res::str::medium()), (Size::Large, res::str::large())])
+    .segmented()
+    .id("size")                                                      // horizontal one-of-N
+picker(color, colors).menu()                                         // dropdown / pop-up
+picker(plan, plans).inline()                                         // vertical radio group
 ```
 
-`picker(options, selected)` takes fixed `options` (`impl IntoIterator<Item: Into<String>>`) and a
-`Signal<usize>` bound two-way (the widget writes the selected index back; setting the signal moves the
-widget). Default style is `.menu()`; `.segmented()` / `.inline()` / `.style(PickerStyle)` switch it.
-`Picker` implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via `Decorate`.
+`picker(selected, options)` is bound two-way to a value of any `T: Clone + PartialEq` (an enum,
+a `String`, a `usize`): `selected` is a `Signal<T>`, a day-model `Field`, or any other
+`Binding<T>`, and `options` is an array or `Vec` of `(value, title)` pairs, the titles taking
+the same sources as a label. The mapping between values and the native control's indexes lives
+in the picker, once; there is no index to keep in step with an enum. Default style is `.menu()`;
+`.segmented()` / `.inline()` / `.style(PickerStyle)` switch it. `Picker` implements `Piece`, so
+`.id()`/`.a11y()`/`.frame()` chain via `Decorate`.
+
+`picker_optional(selected, options)` binds an `Option<T>`: `None` is "nothing chosen" (no
+selection where the toolkit can show none), and a user's choice writes `Some(value)`.
+
+### Selection rules
+
+The picker never writes the binding on its own; only a user's choice does. A bound value that
+is not among the options shows no selection where the toolkit can show none, and the first
+option otherwise. Empty options disable the control. When the options change, the native index
+is re-derived from the value, and a native choice that arrives after the options changed is
+mapped against the options the control was last given, so a late event cannot pick the wrong
+value.
 
 ### Menu groups
 
@@ -40,21 +61,20 @@ Other backends and non-menu styles present the same options without decorative g
 
 ### Options that come from data
 
-The labels are fixed by default. When they are not (a list of open documents, a tab that names
-its own contents), `.options_reactive(f)` recomputes them:
+The options are fixed by default. When they are not (a list of open documents, a tab that
+names its own contents), pass a closure that derives them instead of a list:
 
 ```rust
-picker(tab_labels(), tab)                    // seeds the control
+picker(tab, move || docs.get().iter().map(|d| (d.id, d.title.clone())).collect::<Vec<_>>())
     .segmented()
-    .options_reactive(tab_labels)            // …and patches it whenever they change
 ```
 
-`f` runs like any other reactive read, so it re-fires when the signals it touches change, and the
-new labels patch the native items in place: the pop-up refills, the segmented control relabels and
-grows or shrinks its buttons, the radio group does the same. The selected index is preserved where
-it still exists and clamped to the last option otherwise, so a shrinking list cannot leave a native
-control with nothing chosen. The app still owns the value: write a valid index to the binding when
-the count changes under it.
+The closure runs like any other reactive read, so it re-fires when the signals it touches
+change, and the new options patch the native items in place: the pop-up refills, the segmented
+control relabels and grows or shrinks its buttons, the radio group does the same. The native
+index is re-derived from the bound value against the new options (the selection rules above),
+so a shrinking list cannot leave a native control pointing at the wrong value. The app still
+owns the value: write a valid one to the binding when its option disappears.
 
 Use it only when the options change. Rebuilding a native menu costs more than
 moving a mark, and a picker whose choices are constant should stay constant.

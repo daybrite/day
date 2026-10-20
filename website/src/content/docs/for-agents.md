@@ -106,12 +106,8 @@ use day::prelude::*;
 
 fn main() {
     day::launch(
-        WindowOptions {
-            title: "My App".into(),
-            size: Size::new(480.0, 640.0),
-            // WindowOptions grows fields over time — always spread the default.
-            ..Default::default()
-        },
+        // In an app with resources, start from the generated `res::window_options()`.
+        WindowOptions::default().title("My App").size(480.0, 640.0),
         root,
     );
 }
@@ -232,7 +228,7 @@ macos-qt, which have no AppKit view tree.
 | text input | `text_field(sig)` · multiline: `text_area(sig)` |
 | number input | `slider(sig).range(a..=b)` |
 | boolean | `toggle(sig)` |
-| choice | `picker(opts, sig)` · editable: external `combo_box(opts, text_sig)` |
+| choice | `picker(sig, [(value, title), …])` · editable: external `combo_box(opts, text_sig)` |
 | vertical / horizontal / z-stack | `column((…))` / `row((…))` / `zstack((…))` |
 | scroll · spacer · divider | `scroll(child)` · `spacer()` · `divider()` |
 | conditional · list | `when(cond, view)` · `each(items, key, row)` |

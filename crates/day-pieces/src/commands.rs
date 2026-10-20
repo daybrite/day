@@ -13,64 +13,28 @@ use crate::{
     ToolbarEntry,
 };
 
-/// Named inputs for an application command. Call [`Self::build`] in the scope that owns it.
+/// An application operation shared by buttons, menus, toolbars, and direct callers
+/// (docs/commands.md): one id, one title, one availability, one handler, presented through
+/// [`button`](Command::button), [`menu_item`](Command::menu_item) and
+/// [`toolbar_item`](Command::toolbar_item).
 ///
-/// Field types are inferred, so labels accept localized text, strings, signals, or closures,
-/// and actions can capture application state without an explicit `Rc` or `Box`.
+/// Built with [`Command::new`] in the scope that owns it. Clones share the handler and reactive
+/// sources. Builders configure a copy, not existing presentations. Invocation after the owning
+/// scope's disposal is a no-op. This is a UI-thread value, not a global registry or a native
+/// edit role.
 ///
 /// ```
 /// use day_pieces::prelude::*;
 /// use day_reactive::Signal;
 ///
 /// let count = Signal::new(0);
-/// let add = Command {
-///     id: "add",
-///     label: "Add one",
-///     action: move || count.update(|n| *n += 1),
-/// }
-/// .build()
-/// .enabled(move || count.get() < 3);
+/// let add = Command::new("add", "Add one", move || count.update(|n| *n += 1))
+///     .enabled(move || count.get() < 3);
 /// assert!(add.invoke());
 /// assert_eq!(count.get(), 1);
 /// ```
-pub struct Command<Id, Label, Action> {
-    /// Default presentation id; this does not register a global shortcut or dispatch token.
-    pub id: Id,
-    /// Title, accepting the same text sources as a button.
-    pub label: Label,
-    /// Synchronous application operation. Availability is checked before it is called.
-    pub action: Action,
-}
-
-impl<Id, Label, Action> Command<Id, Label, Action> {
-    /// Initialize a shared command and capture the current reactive scope as its owner.
-    /// Constructing the definition alone does not capture a scope or register any controls.
-    pub fn build<M>(self) -> CommandHandle
-    where
-        Id: Into<String>,
-        Label: IntoText<M>,
-        Action: Fn() + 'static,
-    {
-        CommandHandle {
-            id: Rc::from(self.id.into()),
-            label: self.label.into_text(),
-            enabled: Reactive::Const(true),
-            checked: None,
-            icon: None,
-            shortcut: None,
-            handler: Rc::new(self.action),
-            owner: Scope::current(),
-        }
-    }
-}
-
-/// An initialized application operation shared by buttons, menus, toolbars, and direct callers.
-///
-/// Created by [`Command::build`]. Clones share the handler and reactive sources. Builders
-/// configure a copy, not existing presentations. Invocation after the owning scope's disposal
-/// is a no-op. This is a UI-thread value, not a global registry or a native edit role.
 #[derive(Clone)]
-pub struct CommandHandle {
+pub struct Command {
     id: Rc<str>,
     label: TextSource,
     enabled: Reactive<bool>,
@@ -81,7 +45,28 @@ pub struct CommandHandle {
     owner: Scope,
 }
 
-impl CommandHandle {
+impl Command {
+    /// A command with its default presentation id, its title (the same sources as a button:
+    /// a literal, a localized text, a signal, a closure) and its synchronous handler.
+    /// Availability is checked before the handler is called. Captures the current reactive
+    /// scope as the command's owner.
+    pub fn new<M>(
+        id: impl Into<String>,
+        label: impl IntoText<M>,
+        action: impl Fn() + 'static,
+    ) -> Command {
+        Command {
+            id: Rc::from(id.into()),
+            label: label.into_text(),
+            enabled: Reactive::Const(true),
+            checked: None,
+            icon: None,
+            shortcut: None,
+            handler: Rc::new(action),
+            owner: Scope::current(),
+        }
+    }
+
     /// Availability shared by every presentation and checked again on every invocation.
     pub fn enabled<M>(mut self, enabled: impl IntoReactive<bool, M>) -> Self {
         self.enabled = enabled.into_reactive();
@@ -162,18 +147,19 @@ impl CommandHandle {
         button.id(self.id.to_string())
     }
 
-    /// Snapshot for `app_menu_reactive`, a reactive nav mapper, or `context_menu_fn`.
-    /// A fixed menu keeps its snapshot until rebuilt, but invocation always rechecks availability.
+    /// A live menu entry: its title, availability and check mark follow the command, and the
+    /// menu it sits in re-lowers when they change. Invocation always rechecks availability.
     pub fn menu_item(&self) -> MenuEntry {
-        let action = self.clone();
-        let mut item = crate::menu_item(self.label())
+        let (title, enabled, action) = (self.clone(), self.clone(), self.clone());
+        let mut item = crate::menu_item(move || title.label())
             .id(self.id.to_string())
-            .enabled(self.is_enabled())
+            .enabled(move || enabled.is_enabled())
             .action(move || {
                 action.invoke();
             });
-        if let Some(on) = self.is_checked() {
-            item = item.checked(on);
+        if self.is_checked().is_some() {
+            let checked = self.clone();
+            item = item.checked(move || checked.is_checked().unwrap_or(false));
         }
         if let Some(shortcut) = &self.shortcut {
             item = item.shortcut(shortcut.clone());
@@ -191,8 +177,7 @@ impl CommandHandle {
     pub fn toolbar_item(&self) -> ToolbarEntry {
         let (enabled, action) = (self.clone(), self.clone());
         let mut item = crate::toolbar_button(self.id.to_string(), self.label())
-            .enabled(self.is_enabled())
-            .enabled_when(move || enabled.is_enabled())
+            .enabled(move || enabled.is_enabled())
             .action(move || {
                 action.invoke();
             });

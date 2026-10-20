@@ -218,16 +218,16 @@ fn star(i: usize, value: Signal<usize>, size_pt: f64, editable: bool, color: Col
 
 ### The body: a `row` of stars
 
-`build` lays the stars in a `row`. Because the count is dynamic, collect them into a `PieceVec`
-(the runtime-heterogeneous child sequence) and hand that to `row`:
+`build` lays the stars in a `row`. Because the count is dynamic, collect them into a `Vec` (a
+`Vec` of pieces is a child sequence like a tuple) and hand that to `row`:
 
 ```rust
 impl Piece for Rating {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Rating { value, max, star_size, editable, color } = self;
-        let stars: Vec<AnyPiece> =
+        let stars: Vec<_> =
             (0..max as usize).map(|i| star(i, value, star_size, editable, color)).collect();
-        row(PieceVec(stars)).spacing(4.0).build(cx)
+        row(stars).spacing(Space::XS).build(cx)
     }
 }
 ```

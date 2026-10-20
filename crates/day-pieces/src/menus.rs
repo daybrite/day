@@ -5,7 +5,12 @@
 //! with `app_menu`. Lowers to day_spec's toolkit-neutral `MenuItem` model and registers each
 //! item's action closure.
 
+use std::cell::RefCell;
 use std::rc::Rc;
+
+use day_reactive::Scope;
+
+use crate::{IntoReactive, IntoText, Reactive, TextSource};
 
 // ---------------------------------------------------------------------------
 // Menus: the app-side builder over day_spec's toolkit-neutral MenuItem model. Lowering registers
@@ -19,12 +24,14 @@ use std::rc::Rc;
 #[derive(Clone)]
 pub struct MenuEntry {
     id: Option<String>,
-    label: String,
+    /// The title, live: resolved (tracked) when the menu is lowered, so a localized title
+    /// follows a language switch and a title built from a signal follows the signal.
+    label: TextSource,
     shortcut: Option<day_spec::Shortcut>,
-    enabled: bool,
+    enabled: Reactive<bool>,
     role: Option<day_spec::MenuRole>,
     icon: Option<day_spec::Icon>,
-    checked: Option<bool>,
+    checked: Option<Reactive<bool>>,
     action: Option<Rc<dyn Fn()>>,
     children: Option<Vec<MenuEntry>>,
     separator: bool,
@@ -32,12 +39,12 @@ pub struct MenuEntry {
 }
 
 impl MenuEntry {
-    fn command(label: impl Into<String>) -> MenuEntry {
+    fn command(label: TextSource) -> MenuEntry {
         MenuEntry {
             id: None,
-            label: label.into(),
+            label,
             shortcut: None,
-            enabled: true,
+            enabled: Reactive::Const(true),
             role: None,
             icon: None,
             bar_role: None,
@@ -68,7 +75,7 @@ impl MenuEntry {
         self.action = Some(Rc::new(f));
         self
     }
-    /// Full shortcut spec, e.g. `Shortcut::new("s").shift()`.
+    /// Full shortcut spec, e.g. `Shortcut::primary("s").shift()`.
     pub fn shortcut(mut self, s: day_spec::Shortcut) -> MenuEntry {
         self.shortcut = Some(s);
         self
@@ -76,7 +83,7 @@ impl MenuEntry {
     /// Convenience: the platform's primary modifier (⌘ / Ctrl) + `key`. This sets the item's
     /// shortcut; to name the item, use [`MenuEntry::id`].
     pub fn key(mut self, key: impl Into<String>) -> MenuEntry {
-        self.shortcut = Some(day_spec::Shortcut::new(key));
+        self.shortcut = Some(day_spec::Shortcut::primary(key));
         self
     }
 
@@ -97,18 +104,20 @@ impl MenuEntry {
     /// command and reserves no room for a mark.
     ///
     /// Choosing the item still runs its [`action`](MenuEntry::action); no backend flips the mark
-    /// by itself. The app owns the state, so install the menu with [`app_menu_reactive`] and read
-    /// the signal here; the mark then follows the state instead of tracking it separately.
+    /// by itself. The app owns the state: pass the signal (or a closure reading it) and the mark
+    /// follows the state, the menu re-lowering when it changes.
     ///
     /// ```ignore
-    /// menu_item(tr("view-grid")).id("view-grid").checked(grid.get()).action(move || grid.set(!grid.get()))
+    /// menu_item(tr("view-grid")).id("view-grid").checked(grid).action(move || grid.set(!grid.get()))
     /// ```
-    pub fn checked(mut self, on: bool) -> MenuEntry {
-        self.checked = Some(on);
+    pub fn checked<M>(mut self, on: impl IntoReactive<bool, M>) -> MenuEntry {
+        self.checked = Some(on.into_reactive());
         self
     }
-    pub fn enabled(mut self, on: bool) -> MenuEntry {
-        self.enabled = on;
+    /// Whether the item can be chosen (default `true`): a constant, a `Signal<bool>`, or a
+    /// closure, re-read whenever the menu is lowered.
+    pub fn enabled<M>(mut self, on: impl IntoReactive<bool, M>) -> MenuEntry {
+        self.enabled = on.into_reactive();
         self
     }
     /// Tag a custom command with a standard [`day_spec::MenuRole`] (usually you use [`menu_role`]).
@@ -118,16 +127,18 @@ impl MenuEntry {
     }
 }
 
-/// A clickable command: `menu_item("Save").key("s").action(|| …)`.
-pub fn menu_item(label: impl Into<String>) -> MenuEntry {
-    MenuEntry::command(label)
+/// A clickable command: `menu_item(res::str::save()).key("s").action(|| …)`. The title takes
+/// the same sources as a label (a literal, a localized text, a signal, a closure) and stays
+/// live.
+pub fn menu_item<M>(label: impl IntoText<M>) -> MenuEntry {
+    MenuEntry::command(label.into_text())
 }
 
-/// A nested submenu: `sub_menu("File", vec![menu_item("New"), …])`.
-pub fn sub_menu(label: impl Into<String>, items: Vec<MenuEntry>) -> MenuEntry {
+/// A nested submenu: `sub_menu(res::str::menu_file(), vec![menu_item(…), …])`.
+pub fn sub_menu<M>(label: impl IntoText<M>, items: Vec<MenuEntry>) -> MenuEntry {
     MenuEntry {
         children: Some(items),
-        ..MenuEntry::command(label)
+        ..MenuEntry::command(label.into_text())
     }
 }
 
@@ -149,7 +160,7 @@ impl MenuEntry {
 pub fn menu_separator() -> MenuEntry {
     MenuEntry {
         separator: true,
-        ..MenuEntry::command("")
+        ..MenuEntry::command(TextSource::Static(String::new()))
     }
 }
 
@@ -160,7 +171,7 @@ pub fn menu_separator() -> MenuEntry {
 pub fn menu_role(role: day_spec::MenuRole) -> MenuEntry {
     MenuEntry {
         role: Some(role),
-        ..MenuEntry::command("")
+        ..MenuEntry::command(TextSource::Static(String::new()))
     }
 }
 
@@ -214,13 +225,15 @@ fn lower_menu_with(
                 day_spec::MenuItem::Separator
             } else if let Some(children) = e.children {
                 day_spec::MenuItem::Submenu {
-                    label: e.label,
+                    label: e.label.resolve(),
                     items: lower_menu_with(children, register),
                     role: e.bar_role,
                 }
             } else {
                 let mut action = e.action.map(register).unwrap_or(0);
-                let mut enabled = e.enabled;
+                // Tracked reads: a menu lowered inside `app_menu`'s effect re-lowers when
+                // a title, availability or check state changes.
+                let mut enabled = e.enabled.get();
                 let mut shortcut = e.shortcut;
                 // Window roles have no native selector on any platform: an action-less item
                 // lowers to the registered day dispatcher (docs/windows.md): live when the
@@ -230,7 +243,7 @@ fn lower_menu_with(
                         Some(day_spec::MenuRole::NewWindow) => {
                             action = day_core::windows::new_window_action_id();
                             enabled = enabled && action != 0;
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("n")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("n")));
                         }
                         // The undo pair and the clipboard trio lower to standing dispatchers
                         // too, for toolkits whose role items come back as plain menu actions
@@ -242,31 +255,31 @@ fn lower_menu_with(
                         // what gives GTK/Qt/web the same accelerators.
                         Some(day_spec::MenuRole::Undo) => {
                             action = day_core::undo_action_id(false);
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("z")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("z")));
                         }
                         Some(day_spec::MenuRole::Redo) => {
                             action = day_core::undo_action_id(true);
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("z").shift()));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("z").shift()));
                         }
                         Some(day_spec::MenuRole::Cut) => {
                             action = day_core::edit_action_id(day_spec::EditOp::Cut);
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("x")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("x")));
                         }
                         Some(day_spec::MenuRole::Copy) => {
                             action = day_core::edit_action_id(day_spec::EditOp::Copy);
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("c")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("c")));
                         }
                         Some(day_spec::MenuRole::Paste) => {
                             action = day_core::edit_action_id(day_spec::EditOp::Paste);
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("v")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("v")));
                         }
                         Some(day_spec::MenuRole::SelectAll) => {
                             action = day_core::edit_action_id(day_spec::EditOp::SelectAll);
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new("a")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary("a")));
                         }
                         Some(day_spec::MenuRole::Preferences) => {
                             action = day_core::windows::preferences_action_id();
-                            shortcut = shortcut.or(Some(day_spec::Shortcut::new(",")));
+                            shortcut = shortcut.or(Some(day_spec::Shortcut::primary(",")));
                         }
                         // About keeps the toolkit's stock panel (action 0) until an app
                         // registers its own (docs/settings.md); the updater command has no
@@ -281,9 +294,10 @@ fn lower_menu_with(
                         _ => {}
                     }
                 }
-                let label = match (e.label.is_empty(), e.role) {
+                let label = e.label.resolve();
+                let label = match (label.is_empty(), e.role) {
                     (true, Some(role)) => day_l10n::t(role_catalog_key(role)),
-                    _ => e.label,
+                    _ => label,
                 };
                 day_spec::MenuItem::Action {
                     id: e.id,
@@ -291,7 +305,7 @@ fn lower_menu_with(
                     label,
                     shortcut,
                     enabled,
-                    checked: e.checked,
+                    checked: e.checked.as_ref().map(Reactive::get),
                     role: e.role,
                     icon: e.icon,
                 }
@@ -300,64 +314,120 @@ fn lower_menu_with(
         .collect()
 }
 
-/// Install the application menu: the native menu bar on desktop, the app-bar overflow on Android,
-/// the UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(...)`s
-/// (the menu-bar menus). Call at startup or whenever the menu changes; it replaces any previous
-/// app menu.
-///
-/// Labels resolve once, in the install-time locale; an app whose language can change at
-/// runtime (a preferences language picker) should use [`app_menu_reactive`] instead.
-pub fn app_menu(menus: Vec<MenuEntry>) {
-    day_core::set_app_menu(lower_menu(menus));
+/// Where a menu's entries come from: a fixed list, or a closure that derives the list and
+/// re-runs whenever its reactive reads change. What [`app_menu`], [`dock_menu`] and
+/// [`StatusItem::menu`](crate::StatusItem::menu) accept, through [`MenuContent`].
+#[derive(Clone)]
+pub enum MenuSource {
+    Fixed(Vec<MenuEntry>),
+    Derived(Rc<dyn Fn() -> Vec<MenuEntry>>),
 }
 
-/// [`app_menu`] that re-lowers and re-installs whenever a locale-tracked read inside the
-/// builder changes. `menu_role` labels, `res::str` titles, and `day::tr` all read the
-/// locale signal, so a runtime language switch rebuilds the menu in the new language
-/// (docs/menus.md). Replacement drops the previous install's action closures (context
-/// menus are unaffected). The binding lives in a root-owned scope: install once, at startup.
-pub fn app_menu_reactive(builder: impl Fn() -> Vec<MenuEntry> + 'static) {
-    let scope = day_reactive::Scope::root().enter(day_reactive::Scope::child);
+impl MenuSource {
+    /// The entries right now: a tracked read for a derived source.
+    pub(crate) fn entries(&self) -> Vec<MenuEntry> {
+        match self {
+            MenuSource::Fixed(v) => v.clone(),
+            MenuSource::Derived(f) => f(),
+        }
+    }
+}
+
+/// Anything an app menu takes: a `Vec` or array of entries, or a closure that derives the
+/// entries and re-runs whenever its reactive reads change. The marker parameter is the same
+/// E0119 dodge as [`ToolbarContent`](crate::ToolbarContent).
+pub trait MenuContent<M> {
+    fn into_source(self) -> MenuSource;
+}
+
+impl MenuContent<crate::ManyMark> for Vec<MenuEntry> {
+    fn into_source(self) -> MenuSource {
+        MenuSource::Fixed(self)
+    }
+}
+
+impl<const N: usize> MenuContent<crate::ManyMark> for [MenuEntry; N] {
+    fn into_source(self) -> MenuSource {
+        MenuSource::Fixed(Vec::from(self))
+    }
+}
+
+impl<C, F> MenuContent<crate::DerivedMark> for F
+where
+    C: IntoIterator<Item = MenuEntry>,
+    F: Fn() -> C + 'static,
+{
+    fn into_source(self) -> MenuSource {
+        MenuSource::Derived(Rc::new(move || self().into_iter().collect()))
+    }
+}
+
+thread_local! {
+    /// The scope owning the current app-menu and dock-menu installs, so a second call replaces
+    /// the first (and reclaims its bindings) instead of leaving two installers racing.
+    static APP_MENU_SCOPE: RefCell<Option<Scope>> = const { RefCell::new(None) };
+    static DOCK_MENU_SCOPE: RefCell<Option<Scope>> = const { RefCell::new(None) };
+}
+
+/// Install `source` through `install`, in a root-owned scope that replaces the previous one.
+fn install_menu(
+    slot: &'static std::thread::LocalKey<RefCell<Option<Scope>>>,
+    source: MenuSource,
+    install: fn(Vec<day_spec::MenuItem>),
+) {
+    if let Some(old) = slot.with(|s| s.borrow_mut().take()) {
+        old.dispose();
+    }
+    let scope = Scope::root().enter(Scope::child);
     scope.enter(|| {
         day_reactive::bind(
             move || {
-                // Track the locale even when the builder itself has no localized reads,
-                // so role-label fallbacks still refresh.
+                // Track the locale even when the entries carry no localized reads, so
+                // role-label fallbacks still refresh; every entry's title, availability and
+                // check state is a tracked read of its own inside `lower_menu`.
                 let _ = day_l10n::locale().get();
-                lower_menu(builder())
+                lower_menu(source.entries())
             },
-            |items: &Vec<day_spec::MenuItem>| {
-                day_core::set_app_menu(items.clone());
-            },
+            move |items: &Vec<day_spec::MenuItem>| install(items.clone()),
         );
     });
+    slot.with(|s| *s.borrow_mut() = Some(scope));
+}
+
+/// Install the application menu: the native menu bar on desktop, the app-bar overflow on Android,
+/// the UIMenuBuilder main menu on iPadOS/Catalyst. Top-level entries are usually `sub_menu(…)`s
+/// (the menu-bar menus). Takes a list of entries or a closure that derives them.
+///
+/// The menu is live (docs/menus.md): every title, `enabled` and `checked` is re-read, and the
+/// menu re-lowered and reinstalled, whenever one of them changes, so `menu_role` labels,
+/// `res::str` titles and `day::tr` all follow a runtime language switch, and a derived closure
+/// re-runs on whatever signals it reads. Calling it again replaces the previous install and
+/// reclaims its action closures. Install once, at startup.
+///
+/// ```ignore
+/// app_menu([
+///     sub_menu(res::str::menu_file(), vec![menu_item(res::str::new_item()).key("n").action(add)]),
+///     sub_menu(res::str::menu_view(), vec![menu_item(res::str::grid()).checked(grid).action(flip)]),
+/// ]);
+/// ```
+pub fn app_menu<M>(menus: impl MenuContent<M>) {
+    install_menu(&APP_MENU_SCOPE, menus.into_source(), day_core::set_app_menu);
 }
 
 /// Install the app's Dock menu (docs/menus.md "Dock menu"): the entries macOS lists when the
 /// user right-clicks the app's Dock icon, above the app's `[[shortcuts]]` and the system's own
-/// Show / Hide / Quit items. Probe `Cap::DockMenu`; elsewhere the call does nothing.
+/// Show / Hide / Quit items. Probe `Cap::DockMenu`; elsewhere the call does nothing. Live, like
+/// [`app_menu`]: "Resume <last document>", a checked "Do Not Disturb", the locale. Install
+/// once, at startup.
 ///
 /// The menu works while the app runs, so its actions are ordinary closures, unlike shortcuts,
 /// which are routes because they also launch the app.
-pub fn dock_menu(entries: Vec<MenuEntry>) {
-    day_core::set_dock_menu(lower_menu(entries));
-}
-
-/// [`dock_menu`] that re-lowers and re-installs whenever a signal the builder reads changes:
-/// "Resume <last document>", a checked "Do Not Disturb", the locale. Install once, at startup.
-pub fn dock_menu_reactive(builder: impl Fn() -> Vec<MenuEntry> + 'static) {
-    let scope = day_reactive::Scope::root().enter(day_reactive::Scope::child);
-    scope.enter(|| {
-        day_reactive::bind(
-            move || {
-                let _ = day_l10n::locale().get();
-                lower_menu(builder())
-            },
-            |items: &Vec<day_spec::MenuItem>| {
-                day_core::set_dock_menu(items.clone());
-            },
-        );
-    });
+pub fn dock_menu<M>(entries: impl MenuContent<M>) {
+    install_menu(
+        &DOCK_MENU_SCOPE,
+        entries.into_source(),
+        day_core::set_dock_menu,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -374,7 +444,7 @@ const COMPOSED_CHECK_OFF: &str = "\u{2002}\u{2002}";
 const COMPOSED_MENU_W: f64 = 220.0;
 const COMPOSED_SUBMENU_INDENT: f64 = 12.0;
 
-/// Mount the composed presentation beside a `.context_menu`/`.context_menu_fn` node: an
+/// Mount the composed presentation beside a `.context_menu` node: an
 /// `Event::ContextMenu` handler plus a lazily-armed, unrouted [`crate::cover`] that shows the
 /// provider's items at the summon point. Nothing builds until the first summon arrives, so
 /// backends that serve the menu natively (and therefore never emit the event) never pay.
@@ -443,7 +513,7 @@ fn composed_menu_host(
     let mut next = 0usize;
     composed_menu_rows(&items, 0.0, &mut next, open, &mut rows);
 
-    let panel = crate::column(day_core::PieceVec(rows))
+    let panel = crate::column(rows)
         .padding(day_spec::Insets::symmetric(0.0, 5.0))
         .background(|| {
             if day_core::dark_mode() {
@@ -635,7 +705,7 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn context_menu_fn_builds_on_summon() -> Case {
         Case::new()
-            .proves_modifier("context_menu_fn")
+            .proves_modifier("context_menu")
             .proves_duty("set_context_menu_fn")
             .page(|| {
                 let count = Signal::new(0i64);
@@ -647,7 +717,7 @@ pub(crate) mod conformance {
                         .id("add"),
                     label("Target")
                         .padding(8.0)
-                        .context_menu_fn(move |_| {
+                        .context_menu(move || {
                             let n = count.get_untracked();
                             vec![menu_item(format!("Take {n}")).action(move || chose.set(n))]
                         })

@@ -424,8 +424,8 @@ pub use day_fluent::locale;
 // Tweaks (docs/tweaks.md): the realized-node id, the size-invalidation hook for native
 // mutations Day can't see, and the retained ref live in the prelude via day-pieces.
 pub use day_core::{RNode, invalidate_size};
+pub use day_pieces::Command;
 pub use day_pieces::NativeRef;
-pub use day_pieces::{Command, CommandHandle};
 // Typed routes (docs/navigation.md): `day::routes! { enum Section { Home => "home", … } }`.
 /// Tests that run inside the built app (docs/testing.md): `#[day::test]`, [`Case`], [`Drive`].
 pub use day_core::conformance;
@@ -438,6 +438,9 @@ pub use day_core::linkme;
 pub use day_core::shortcuts::LAUNCHER_SHORTCUTS;
 /// The roster of an app's tests for the targets with no link-time registry (docs/testing.md).
 pub use day_core::tests;
+/// `#[day::builder(FooBuilder)]`: a piece's builder trait, generated from its inherent impl
+/// (docs/api-style.md "Typed builders and erasure").
+pub use day_macros::builder;
 pub use day_macros::test;
 /// The built-in pieces' own cases and the conformance app's content (docs/testing.md).
 #[cfg(feature = "conformance")]
@@ -842,10 +845,7 @@ macro_rules! day_start_ios {
     };
     ($title:expr, $root:expr) => {
         $crate::day_start_ios!(
-            options: $crate::WindowOptions {
-                title: ($title).into(),
-                ..::core::default::Default::default()
-            },
+            options: $crate::WindowOptions::default().title($title),
             $root
         );
     };
@@ -874,12 +874,8 @@ macro_rules! day_start_macos {
     };
     ($title:expr, $root:expr) => {
         $crate::day_start_macos!(
-            options: $crate::WindowOptions {
-                title: ($title).into(),
-                // The same desktop default the scaffold's src/main.rs uses.
-                size: $crate::prelude::Size::new(960.0, 640.0),
-                ..::core::default::Default::default()
-            },
+            // The same desktop default the scaffold's src/main.rs uses.
+            options: $crate::WindowOptions::default().title($title).size(960.0, 640.0),
             $root
         );
     };
@@ -1093,10 +1089,7 @@ macro_rules! day_start_web {
     };
     ($title:expr, $root:expr) => {
         $crate::day_start_web!(
-            options: $crate::WindowOptions {
-                title: ($title).into(),
-                ..::core::default::Default::default()
-            },
+            options: $crate::WindowOptions::default().title($title),
             $root
         );
     };

@@ -72,7 +72,7 @@ fn one_signal_wakes_every_row() {
                 .any()
             })
             .collect();
-        column(day_core::PieceVec(rows)).any()
+        column(rows).any()
     });
     flush_sync();
     // Build and the measure pass each run the closures; only the delta after the write matters.
@@ -115,7 +115,7 @@ fn per_property_wakes_one_row() {
                 .any()
             })
             .collect();
-        column(day_core::PieceVec(rows)).any()
+        column(rows).any()
     });
     flush_sync();
     let baseline = runs.get();

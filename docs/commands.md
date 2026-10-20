@@ -7,10 +7,10 @@ description: "Define an application operation once and present it in buttons, me
 
 # Reusable commands
 
-`day::Command` is a named-field definition of an application's operation. Calling `.build()`
-returns a cloneable `day::CommandHandle` that shares its behavior and presentation metadata.
-Both types are in the prelude and live in `day-pieces`, above the toolkit-neutral menu, toolbar,
-and button models. There is no
+`day::Command` is an application operation: one id, one title, one availability, one handler.
+`Command::new(id, label, action)` builds it, and clones share its behavior and presentation
+metadata. The type is in the prelude and lives in `day-pieces`, above the toolkit-neutral menu,
+toolbar, and button models. There is no
 new backend protocol, global action registry, or toolkit dependency. Each presentation keeps its
 normal native widget and dispatch registration; the command shares Rust behavior and state.
 
@@ -21,21 +21,16 @@ use day::prelude::*;
 
 fn counter() -> impl Piece {
     let count = Signal::new(0);
-    let add = Command {
-        id: "add",
-        label: "Add one",
-        action: move || count.update(|n| *n += 1),
-    }
-    .build()
-    .enabled(move || count.get() < 3)
-    .icon(Symbol::Add)
-    .shortcut(Shortcut::new("+"));
+    let add = Command::new("add", "Add one", move || count.update(|n| *n += 1))
+        .enabled(move || count.get() < 3)
+        .icon(Symbol::Add)
+        .shortcut(Shortcut::primary("+"));
     let menu = add.clone();
     let toolbar = add.clone();
     column((
         label(move || count.get().to_string()),
         add.button(),
-        label("More actions").context_menu_fn(move |_| vec![menu.menu_item()]),
+        label("More actions").context_menu(move || vec![menu.menu_item()]),
     ))
     .toolbar(move || vec![toolbar.toolbar_item()])
 }
@@ -49,8 +44,7 @@ state that supplies `.checked(move || starred.get())`.
 
 | API | Contract |
 |---|---|
-| `Command { id, label, action }` | Define named required inputs; types are inferred and no command scope is captured yet. |
-| `.build()` | Consume the definition, capture the current reactive scope, and return a `CommandHandle`. |
+| `Command::new(id, label, action)` | The three required inputs, type-distinct so they cannot be swapped; captures the current reactive scope as the command's owner. |
 | `.enabled(value)` | Availability, default true; checked again before **every** invocation. |
 | `.checked(value)` | Optional check state; the handler decides whether and how to change it. |
 | `.icon(Symbol)` / `.image(name)` | Default icon for all presentations that can draw it. |
@@ -61,20 +55,14 @@ state that supplies `.checked(move || starred.get())`.
 | `.menu_item()` | Snapshot of title, availability, check, shortcut and icon; guarded handler. |
 | `.toolbar_item()` | Toolbar button, or native toggle when checkable; live availability/check bindings and guarded handler. |
 
-Optional modifiers and presentation methods belong to `CommandHandle`, after `.build()`. The
-definition's fields are generic: ids accept `Into<String>`, labels accept `IntoText`, and actions
-accept capturing `Fn()` closures without manual `Rc` wrapping or a `Clone` requirement. Command
-factories return `CommandHandle`, so callers need not name closure types:
+Optional modifiers and presentation methods chain onto the `Command`. The constructor's
+parameters are generic: ids accept `Into<String>`, labels accept `IntoText`, and actions accept
+capturing `Fn()` closures without manual `Rc` wrapping or a `Clone` requirement. Command
+factories return `Command`, so callers need not name closure types:
 
 ```rust
-fn refresh_command() -> CommandHandle {
-    Command {
-        id: "refresh",
-        label: res::str::refresh(),
-        action: refresh_document,
-    }
-    .build()
-    .icon(Symbol::Refresh)
+fn refresh_command() -> Command {
+    Command::new("refresh", res::str::refresh(), refresh_document).icon(Symbol::Refresh)
 }
 ```
 
@@ -93,16 +81,17 @@ content.toolbar(move || vec![bar_command.toolbar_item().id("save-toolbar")]);
 
 Toolbar availability and check state also bind in a fixed list, but its title is a snapshot.
 A derived toolbar uses the existing contribution replacement/rebinding machinery. It is not a
-new per-frame binding or a timer. Dynamic menus should be built with `app_menu_reactive`, a
-reactive navigation-row mapper, or the per-summon `context_menu_fn`:
+new per-frame binding or a timer. The app menu is live (a `Command::menu_item` re-lowers the
+menu when its title or availability changes); a context menu is built per summon from a
+closure:
 
 ```rust
 // Construct application-menu commands in application scope, not a disposable page.
 let menu_save = save.clone();
-app_menu_reactive(move || vec![sub_menu("File", vec![menu_save.menu_item()])]);
+app_menu(move || vec![sub_menu("File", vec![menu_save.menu_item()])]);
 ```
 
-A fixed `app_menu` or `context_menu(vec![...])` keeps its installed snapshot until replaced.
+A `context_menu(vec![...])` keeps its installed snapshot until replaced.
 Even a stale enabled snapshot cannot execute an unavailable command: the registered callback
 always calls `invoke()`. Do not override the adapter's `.action(...)` if you want that guarantee.
 Presentation-specific `.enabled(...)` overrides likewise do not replace the command's guard.
@@ -117,9 +106,9 @@ operations. Showcase's screenshot command uses primary+Alt+S, clear of File > Sa
 
 ## Ownership, windows, and checked commands
 
-A command records `Scope::current()` at `.build()`, not at the struct literal. Build it in the
-scope that owns the operation. Constructing a definition elsewhere does not extend the lifetime
-of signals captured by its fields; those must still outlive its use. After disposal it is unavailable, `invoke()`
+A command records `Scope::current()` in `Command::new`. Build it in the scope that owns the
+operation. Constructing it does not extend the lifetime of the signals its handler captures;
+those must still outlive its use. After disposal it is unavailable, `invoke()`
 is a no-op, its title reads empty, and an optional check reads false. This prevents an escaped
 command from touching its captured disposed signals. A retained clone still retains its captured
 Rust resources until dropped; it does not keep the reactive scope alive. Native registrations and
@@ -193,46 +182,12 @@ requests. Existing app walkthroughs cover migrated operations.
 
 ## Assessment: named definitions for other components
 
-This section is an API assessment, not an announcement of additional component types. The named
-`Command` definition and `CommandHandle` are implemented; the component wrappers below are
-potential follow-up work.
-
-Named fields help most when a call has several required arguments, especially multiple strings
-or callbacks. Rust spells this `ActionButton { id: ..., text: ..., ... }`, with braces; it does
-not support named arguments in `ActionButton(...)` calls. Such a definition can offer an
-explicit `.into_piece()` conversion, then retain the existing piece's modifiers and decorators.
-For menu/toolbar entries, the corresponding conversion could be `.into_entry()`.
-
-| Current constructor/helper | Assessment |
-|---|---|
-| Showcase's `action_button(id, text, color, enabled, on_tap)` | Strong, easy candidate for an app-local `ActionButton` definition: five named inputs, no existing type with that name. Delegate to the same composed row implementation, preserving its live dimming and guarded tap. It is currently a Showcase helper, not a framework function or a native push button. |
-| `toolbar_button(id, label)`, `toolbar_toggle(id, label, signal)`, `toolbar_segmented(id, segments, selection)`, `toolbar_menu(id, label, items)` | Good candidates for small named definitions returning `ToolbarEntry`. They would use the existing constructors and bindings; no toolkit changes. Keep their optional placement, tooltip, and icon settings as fluent modifiers. |
-| `link(text, url)`, `nav_link(label, path)`, `item(key, title)`, `labeled(text, control)` | Named inputs distinguish same-typed strings and clarify the relationship between a caption and its target. Thin wrappers are straightforward; some obvious type names already exist, so public naming needs care. |
-| `picker(options, selected)`, `nav_stack(path, root)`, `cover(selection, builder)` | Useful names for data, selection, and content. Feasible wrappers, with more generic/binding constraints to preserve. Retain the existing initialization path and reactive ownership. |
-| `when(predicate, builder)`, `list(source, build_row)`, `tree(source, build_row)` | Names can clarify callbacks, but closures, return types, and source/binding inference need a prototype. Explicit conversion methods can carry the same generic bounds as the existing functions. Do not duplicate the dynamic rebuilding or scope machinery. |
-| `button(title).action(handler)`, `label(text)`, `toggle(value)`, `slider(value).range(...).step(...)`, `text_field(value)`, `text_area(value)`, `stepper(value)` | Lower priority: there is only one required argument and the remaining options already have names. These already return concrete structs with fluent builders. A second definition would add syntax more often than clarity. |
-| `row(children)`, `column(children)`, `form(sections)`, `scroll(child)`, `spacer()`, `divider()` | Little readability gain; keep the compact functions. |
-
-Both forms can coexist. PascalCase types and snake_case functions have different names. Keep
-one implementation path: a definition converts through the existing constructor, or the function
-constructs a definition and delegates to its conversion. Neither should copy the other form's
-reactive bindings, event handlers, or native lowering. Conversion itself need not add a heap
-allocation or a view node; retain the existing concrete return type where practical.
-
-Most core pieces already have public type names (`Button`, `Label`, `Picker`, and so on), with
-private normalized fields and defaults. Making those internals public would require callers to
-construct `TextSource`, callback containers, and every default; it also exposes implementation
-details to future compatibility constraints. New definitions should use distinct names or an
-explicit namespace. Renaming all existing piece types to make room would be a much larger API
-migration than the new, unreleased command API.
-
-An explicit conversion method is the simplest initial design. It allows text-conversion marker
-types to be inferred on that method, as with `Command::build`, and avoids duplicating the many
-typed builder traits on definitions. Implementing `Piece` directly on arbitrary generic definitions
-requires resolving those conversions and preserving modifier chaining; an inherent no-argument
-`build()` can also obscure `Piece::build(self, &mut BuildCx)`. Use `.into_piece()` for such wrappers.
-
-Recommendation: retain the established function forms, add named definitions selectively for
-long or ambiguous signatures, and document the equivalent forms together. Start with the local
-`ActionButton` helper and toolbar definitions. There is no need for a separate struct wrapper
-for every one-argument constructor or for every optional modifier.
+This section recorded an assessment (2026-09) of named-field definitions for other
+constructors, with the then-current `Command { id, label, action }.build()` as the model. The
+outcome is the house style in [docs/api-style.md](api-style.md): a constructor keeps up to
+three positional, type-distinct arguments (`Command::new(id, label, action)` is one), coupled
+configuration is one value with its own builder (`Search`, `ContentList`, `Reorder`, `Delete`,
+`Move`), items are values (`item(..)`, `toolbar_button(..)`, `menu_item(..)`, `(value, title)`
+picker options), and named fields are reserved for same-typed arguments, where the generated
+`res::str` argument structs use them ([docs/localization.md](localization.md)). No
+`.into_piece()`/`.into_entry()` wrappers were added.

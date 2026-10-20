@@ -24,11 +24,11 @@ fn tray() {
     let _item = status_item("sync", move || {
         StatusItem::new()
             .vector(res::vectors::sync_mark)
-            .title(if paused.get() { "Paused" } else { "" })
+            .title(move || if paused.get() { "Paused" } else { "" }.to_string())
             .tooltip(res::str::sync_tooltip())
-            .menu(vec![
+            .menu([
                 menu_item(res::str::pause_sync())
-                    .checked(paused.get())
+                    .checked(paused)
                     .action(move || paused.set(!paused.get())),
                 menu_item(res::str::open_window()).action(|| {
                     let _ = day::open_new_window();
@@ -56,7 +56,7 @@ the user navigates a submenu. Removing the status item explicitly cancels its pe
 - **Icon.** `.vector(res::vectors::…)` draws a bundled glyph as a template: the shape alone, in
   the menu bar's or panel's own color, so one glyph reads in light and dark. `.icon(Symbol::…)`
   uses a platform symbol the same way. `.image(res::images::…)` draws a picture as it is; add
-  `.template(true)` for a monochrome image.
+  `.template()` for a monochrome image.
 - **Title.** Text beside the icon where the platform shows it: the macOS menu bar.
 - **Menu.** The same entries as `app_menu`, with the same dispatch. An app that keeps running with
   no window needs a way to quit in this menu: `menu_role(MenuRole::Quit)` or an item calling
@@ -79,7 +79,7 @@ logical point. For example, a 240×36 image at scale 2 occupies 120×18 points. 
 mismatched byte counts, nonpositive/nonfinite scales, buffers over 16 MiB and logical dimensions
 over 4096 points are rejected with `None`.
 
-A raster is drawn in color by default; `.template(true)` uses only its alpha silhouette.
+A raster is drawn in color by default; `.template()` uses only its alpha silhouette.
 AppKit preserves its aspect ratio and logical width, scaling down proportionally only when it
 is taller than 18 points. Unlike bundled glyphs, a wide raster is **not squeezed into 18×18**.
 The status item owns the shared source bytes, and the native image owns a copy of the pixels;
@@ -122,8 +122,8 @@ dock = false
 `day::set_dock_visible(bool)` shows or hides the Dock icon while the app runs, for an app with a
 "Show in Dock" setting (`Cap::DockVisibility`).
 
-To launch without showing a window, also pass `WindowOptions { start_hidden: true,
-..Default::default() }` to `day::launch` (or the `options:` argument of `day_start!`). On AppKit,
+To launch without showing a window, also pass `res::window_options().start_hidden()` to
+`day::launch` (or the `options:` argument of `day_start!`). On AppKit,
 the initial window is created and its root mounted, but it is never ordered front and launch
 does not activate the app. Timers and status-item updates run normally. Register Preferences
 with separate, default-visible options so the status menu can open Settings on demand. There

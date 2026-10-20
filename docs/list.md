@@ -81,7 +81,7 @@ across the whole collection leaves no observation claims behind
 (`day-pieces/tests/model_rows.rs` measures all three).
 
 Builder options: `.row_height(RowHeight)`, `.on_select(Fn(Ref))` (the key for a plain source,
-the row's `Elem` for a store source), `.multi_select(bool)`, `.on_selection(Fn(Vec<Ref>))`,
+the row's `Elem` for a store source), `.multi_select()`, `.on_selection(Fn(Vec<Ref>))`,
 `.selected_rows(Fn() -> Vec<usize>)`, and (reserved, unshipped) `.row_kind` mapping to native
 reuse pools.
 
@@ -115,7 +115,7 @@ native list's own scroller (not a Day-side scroll view):
 let follow = day_reactive::Trigger::new();
 list(items(move || messages.get(), |m| m.id), row_builder)
     .scroll_to_end(follow)   // each `follow.notify()` scrolls so the last row is fully visible
-    .stick_to_bottom(true)   // convenience: auto-scroll to end after every data reload
+    .stick_to_bottom()       // convenience: auto-scroll to end after every data reload
 // … after appending a message:
 follow.notify();
 ```
@@ -126,7 +126,7 @@ follow.notify();
   `GtkScrolledWindow` vadjustment→max · `QScrollArea` scrollbar→max ·
   `ListView::smoothScrollToPosition` · XAML `ScrollViewer::ChangeView`). day-core guards the
   empty-list case (no patch is sent), and building the list never auto-scrolls.
-- `.stick_to_bottom(bool)`: best-effort convenience that scrolls to the end after each data reload.
+- `.stick_to_bottom()`: best-effort convenience that scrolls to the end after each data reload.
   It does not check whether the user is already near the bottom (no cross-backend scroll-position
   read exists yet); for that finer behavior drive `scroll_to_end` from your own logic instead.
 
@@ -360,27 +360,35 @@ several reloads) and Qt; the other backends and every content change reload flat
 
 ```rust
 list(source, row)
-    .reorderable(true)
-    .on_reorder(|from, to| { /* rotate the backing Vec + persist */ })
-    .reorder_guard(|from, to| Reorder::Allow)   // optional: Deny / Retarget(i)
+    .reorderable(
+        Reorder::new(|from, to| { /* rotate the backing Vec + persist */ })
+            .guard(|from, to| ReorderVerdict::Allow)   // optional: Deny / Retarget(i)
+            .enabled(move || !busy.get()),             // optional: withhold the gesture live
+    )
 ```
 
-`reorderable` turns on the platform's drag mechanism; probe `Cap::ListReorder` for support.
-`on_reorder` is the commit: row `from` landed at row `to`; apply the identical rotation to the
-backing data (`let it = v.remove(from); v.insert(to, it);`) and persist it if the order should
-survive a relaunch. It runs at the next event drain, never inside the native drop callback.
+A list is reorderable exactly when it carries a `Reorder` value; the value holds the commit
+handler, an optional guard and an optional availability, so the feature cannot be half
+configured. `reorderable` turns on the platform's drag mechanism; probe `Cap::ListReorder` for
+support. `Reorder::new(moved)` is the commit: row `from` landed at row `to`; apply the identical
+rotation to the backing data (`let it = v.remove(from); v.insert(to, it);`) and persist it if
+the order should survive a relaunch. It runs at the next event drain, never inside the native
+drop callback.
 
-`reorder_guard` vets every proposed drop **synchronously, while the drag is live**: the native
+`Reorder::guard` vets every proposed drop **synchronously, while the drag is live**: the native
 affordance (the macOS gap, the no-drop cursor) reflects the answer before the user releases.
-`Deny` refuses the drop (the row springs back); `Retarget(i)` accepts it at a different index,
-the "pinned rows" pattern (the Showcase pins its first row this way). Keep the guard pure: it
-runs inside the platform's drag callback, so read state and return without mutating UI.
+`ReorderVerdict::Deny` refuses the drop (the row springs back); `ReorderVerdict::Retarget(i)`
+accepts it at a different index, the "pinned rows" pattern (the Showcase pins its first row
+this way). Keep the guard pure: it runs inside the platform's drag callback, so read state and
+return without mutating UI. `Reorder::enabled` takes a constant or a reactive `bool` and is read
+when the platform asks whether a drag may begin, so an edit mode or a loading state can withhold
+the gesture without rebuilding the list.
 
-The reorder half of `ListSource` (`ListSource::reorder`, present only when `.reorderable()`)
+The reorder half of `ListSource` (`ListSource::reorder`, present only when the list carries a `Reorder`)
 has two calls: `can_move(from, proposed) -> accepted-index-or--1` for the live verdict, and
 `move_row(from, to)` for the commit, which rotates Day's row snapshot **before returning**, so
 `len`/`token_at`/`bind_row` answer in the new order while the native move animates, and defers
-the app's `on_reorder` through the event queue. When the app's own data change echoes back with
+the app's `Reorder` handler through the event queue. When the app's own data change echoes back with
 exactly the committed token order, the piece skips the redundant `Reload`. When it answers with
 any other order, the piece reloads: a store's own row deltas describe the change from its order
 before the gesture, not from the rows the gesture already moved, so they cannot be replayed. On AppKit, a deferred
@@ -411,37 +419,41 @@ Per-backend affordances:
 
 ```rust
 list(source, row)
-    .deletable(true)
-    .delete_label(res::str::delete().format())   // optional: the word on the affordance
-    .on_delete(|index| { /* remove from the backing Vec + persist */ })
-    .delete_guard(|index| index != 0)            // optional: protect individual rows
+    .deletable(
+        Delete::new(|index| { /* remove from the backing Vec + persist */ })
+            .label(res::str::delete())      // optional: the word on the affordance
+            .guard(|index| index != 0),     // optional: protect individual rows
+    )
 ```
 
-`deletable` turns on the platform's delete gesture; probe `Cap::ListDelete` for support.
-`on_delete` is the commit: row `index` is gone; apply the identical removal to the backing data
+A list is deletable exactly when it carries a `Delete` value: the commit handler, an optional
+label, an optional per-row guard and an optional `.enabled(..)` availability. `deletable` turns
+on the platform's delete gesture; probe `Cap::ListDelete` for support. `Delete::new(deleted)` is
+the commit: row `index` is gone; apply the identical removal to the backing data
 (`v.remove(index)`) and persist it if the change should survive a relaunch. It runs at the next
 event drain, never inside the native swipe callback.
 
-`delete_guard` is consulted **before the affordance is offered**, not after the gesture: a row
+`Delete::guard` is consulted **before the affordance is offered**, not after the gesture: a row
 that answers `false` shows no delete action at all, rather than one that fails on use. Keep it
 pure; it runs inside the platform's swipe callback.
 
-`delete_label` carries the app's own word for the action, already localized. A toolkit has no
-access to the app's Fluent catalog and so cannot translate anything itself; left unset, each
-backend falls back to its platform's wordless idiom (a trash glyph), which needs no
-translation.
+`Delete::label` carries the app's own word for the action; it takes the same text sources as a
+label (`res::str::delete()` directly, no `.format()`), resolved in the locale current when the
+list builds. A toolkit has no access to the app's Fluent catalog and so cannot translate
+anything itself; left unset, each backend falls back to its platform's wordless idiom (a trash
+glyph), which needs no translation.
 
-The delete half of `ListSource` (`ListSource::delete`, present only when `.deletable()`) has
+The delete half of `ListSource` (`ListSource::delete`, present only when the list carries a `Delete`) has
 two calls: `can_delete(index) -> bool` for the offer, and `delete_row(index)` for the commit,
 which drops the row from Day's snapshot **before returning**, so `len`/`token_at`/`bind_row`
 answer for the shorter list while the native removal animates, and defers the app's
-`on_delete` through the event queue; the reorder half follows the same rule.
+`Delete` handler through the event queue; the reorder half follows the same rule.
 
 **WinUI supports deletion** through `SwipeControl` and the row context menu. Other desktop
 toolkits answer `Unsupported` for the delete affordance: GTK, Qt and XAML have
 no swipe idiom at all, and macOS's row actions (the swipe-actions section below rides them) do
 not carry the delete affordance yet. A list that must be editable everywhere pairs
-`.deletable()` with an explicit control (a menu item, a per-row button) and lets the mobile
+`.deletable(..)` with an explicit control (a menu item, a per-row button) and lets the mobile
 toolkits add the gesture on top.
 
 The dayscript step `delete_row: { id, row }` drives the same guard → commit path without a
@@ -467,15 +479,15 @@ list(source, row)
     .swipe_trailing(move |i| {
         let read = is_read(i);
         vec![
-            swipe_action(if read { str::mark_unread() } else { str::mark_read() }.format())
+            swipe_action(if read { str::mark_unread() } else { str::mark_read() })
                 .symbol(if read { Symbol::CircleFilled } else { Symbol::Circle })
                 .tint(palette().accent)
                 .action(move || set_read(i, !read)),
         ]
     })
     .swipe_leading(move |i| vec![
-        swipe_action(str::delete_word().format())
-            .destructive(true)
+        swipe_action(str::delete_word())
+            .destructive()
             .action(move || remove(i)),
     ])
 ```
@@ -499,7 +511,7 @@ swipe activates the edge's first action; WinUI uses reveal-and-press buttons. `d
 Probe `Cap::ListSwipeActions`: **Native** on macOS (`NSTableView`'s
 `tableView:rowActionsForRow:edge:`, the two-finger Mail swipe) and iOS
 (`UISwipeActionsConfiguration`, sharing one pipeline with swipe-to-delete: on the trailing
-edge a `.deletable()` list offers its delete action first, then the row's own trailing offer).
+edge a deletable list offers its delete action first, then the row's own trailing offer).
 It is also **Native** on WinUI (`SwipeControl`, with labels, symbols and tints), which adds a
 mouse/keyboard `MenuFlyout` for the same actions. Everywhere else the answer is `Unsupported`
 and no affordance is drawn, so pair each action
@@ -526,21 +538,19 @@ affordance.
 
 ```rust
 list(source, row)
-    .reorderable(true)
-    .on_reorder(|from, to| { /* … */ })
-    .deletable(true)
-    .on_delete(|index| { /* … */ })
+    .reorderable(Reorder::new(|from, to| { /* … */ }))
+    .deletable(Delete::new(|index| { /* … */ }))
     .on_activate(|row| edit(row))
     .editing(move || editing.get())   // or .editing(true) for a page that is always editing
 ```
 
 `editing` puts the list in the platform's own editing mode, the one an Edit button enters on
-iOS: each row the delete seam offers shows the red delete control at its leading edge, each
-row the reorder seam moves shows a grip at its trailing edge, and a tap still activates the
-row, so a list of things to configure can open each one from the same screen. The value is
-reactive; a change animates the controls in or out. The delete control commits through the
-same `delete_guard` → `on_delete` path as the swipe, and the grip through the same
-`reorder_guard` → `on_reorder` path as a long-press drag.
+iOS: each row the `Delete` offers shows the red delete control at its leading edge, each row
+the `Reorder` moves shows a grip at its trailing edge, and a tap still activates the row, so a
+list of things to configure can open each one from the same screen. The value is reactive; a
+change animates the controls in or out. The delete control commits through the same
+`Delete::guard` → handler path as the swipe, and the grip through the same `Reorder::guard` →
+handler path as a long-press drag.
 
 Probe `Cap::ListEditing`. Only UIKit has a separate editing mode: on the other toolkits a
 list's rows already drag, swipe, and open their menus as they are, so `editing` is ignored
@@ -560,7 +570,7 @@ row out to fit between them rather than under them.
 ## Separators
 
 ```rust
-list(source, row).separators(true)
+list(source, row).separators()      // or .no_separators()
 ```
 
 The host draws row separators, at the row boundary; row content does not. A hand-drawn
@@ -571,8 +581,8 @@ swipe-action reveal slides the row past it. The host's separator sits at the bou
 none of those apply.
 
 Left unset, each platform keeps its own default: iOS draws separators, the desktops don't.
-`.separators(true)` forces them on, `.separators(false)` off (an iOS list whose rows draw
-their own separation turns the native line off rather than showing both).
+`.separators()` forces them on, `.no_separators()` off (an iOS list whose rows draw their own
+separation turns the native line off rather than showing both).
 
 | Backend | Mechanism |
 |---|---|

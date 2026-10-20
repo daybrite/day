@@ -13,7 +13,7 @@
 //   turns it on; one that does not leaves it alone rather than turning it off, because clearing it
 //   would silently disable the alpha slider for some *other* well that asked for it. The piece's
 //   own front-end is what actually enforces opacity (it drops a non-opaque pick when
-//   `.alpha(false)`), so the panel setting is a hint, not the guarantee.
+//   no `.alpha()`), so the panel setting is a hint, not the guarantee.
 // - **`NSColorWell.supportsAlpha` is macOS 14.** Day's floor is 13, so it is called only behind a
 //   `respondsToSelector:` probe and the panel setting carries the older systems.
 // - **An `NSColor` is not necessarily RGB.** A pick from the CMYK tab, the gray tab or a named

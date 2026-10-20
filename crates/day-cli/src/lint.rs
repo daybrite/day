@@ -456,17 +456,22 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     });
 }
 
-/// String-keyed navigation declarations, including formatted icon-bearing items.
+/// String-keyed navigation declarations: `item("key", title)` values (alone, in a tuple, in a
+/// `nav_items` mapper) and the `nav.item("key", title, page)` shorthand, formatted on one line
+/// or several. `menu_item("…")` and `toolbar_item` are different functions: the character
+/// before `item(` must not be an identifier character.
 fn scan_nav_keys(dir: &Path, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
-        for pat in [".item(", ".item_icon("] {
-            for at in matches_of(src, pat) {
-                let rest = src[at + pat.len()..].trim_start();
-                if let Some(literal) = rest.strip_prefix('"')
-                    && let Some(end) = literal.find('"')
-                {
-                    out.push(Hit::found(path, src, &literal[..end]));
-                }
+        for at in matches_of(src, "item(") {
+            let before = src[..at].chars().next_back();
+            if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let rest = src[at + "item(".len()..].trim_start();
+            if let Some(literal) = rest.strip_prefix('"')
+                && let Some(end) = literal.find('"')
+            {
+                out.push(Hit::found(path, src, &literal[..end]));
             }
         }
         // `.items(keys, item_for)` (docs/settings.md declares the Settings section this way):
@@ -2455,8 +2460,8 @@ e = { PLATFORM() }
                     r#"fn root() { nav()
                     .item(
  "library", title, page)
-                    .item_icon(
- "catalogs", title, icon, page);
+                    .items((item(
+ "catalogs", title).icon(icon).page(page), menu_item("not-a-route")));
                     navigate("library"); navigate("catalogs"); navigate("missing");
                 }"#,
                 ),

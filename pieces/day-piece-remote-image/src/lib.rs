@@ -23,6 +23,7 @@
 use std::sync::Arc;
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 use day_reactive::{Signal, watch};
 use day_spec::Color;
 
@@ -151,6 +152,7 @@ pub fn remote_image(source: Signal<Option<Arc<Vec<u8>>>>) -> RemoteImage {
     }
 }
 
+#[day_pieces::builder(RemoteImageBuilder)]
 impl RemoteImage {
     /// Clip to a centered circle of diameter `min(width, height)`, for avatars.
     pub fn circle(mut self) -> Self {
@@ -238,47 +240,6 @@ impl Piece for RemoteImage {
 day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, arkui, xaml);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`RemoteImage`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait RemoteImageBuilder: Sized {
-    fn circle(self) -> Self;
-    fn rounded(self, radius: f64) -> Self;
-    fn content_mode(self, mode: ContentMode) -> Self;
-    fn placeholder_color(self, color: Color) -> Self;
-}
-
-impl RemoteImageBuilder for RemoteImage {
-    fn circle(self) -> Self {
-        RemoteImage::circle(self)
-    }
-    fn rounded(self, radius: f64) -> Self {
-        RemoteImage::rounded(self, radius)
-    }
-    fn content_mode(self, mode: ContentMode) -> Self {
-        RemoteImage::content_mode(self, mode)
-    }
-    fn placeholder_color(self, color: Color) -> Self {
-        RemoteImage::placeholder_color(self, color)
-    }
-}
-
-impl<Inner: RemoteImageBuilder + day_pieces::prelude::Piece> RemoteImageBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn circle(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.circle())
-    }
-    fn rounded(self, radius: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.rounded(radius))
-    }
-    fn content_mode(self, mode: ContentMode) -> Self {
-        self.map_inner(|inner_piece| inner_piece.content_mode(mode))
-    }
-    fn placeholder_color(self, color: Color) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder_color(color))
-    }
-}
 
 /// The remote image's conformance cases (docs/testing.md): the bytes path, which needs no
 /// network.

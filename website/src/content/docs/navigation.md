@@ -73,7 +73,7 @@ A `nav`'s items can come from a signal, so a sidebar or tab set follows your dat
 ```rust
 nav(current)
     .style(NavStyle::Tabs)
-    .items(move || rooms.get(), |r: &Room| item(r.id.clone(), r.name.clone()))
+    .items(nav_items(move || rooms.get(), |r: &Room| item(r.id.clone(), r.name.clone())))
     .destination(|k| room_page(k))
 ```
 

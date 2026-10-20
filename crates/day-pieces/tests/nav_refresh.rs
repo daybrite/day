@@ -87,8 +87,10 @@ fn selected_row_activation_presents_the_resident_list_again() {
         nav(selection)
             .style(NavStyle::Sidebar)
             .item(Some("all".to_string()), "All", || label("Fixture reader"))
-            .content_list(|| label("No fixture articles"))
-            .detail_visible(Signal::new(false))
+            .content_list(
+                ContentList::new(|| label("No fixture articles"))
+                    .detail_visible(Signal::new(false)),
+            )
             .any()
     });
     let menu = NodeId(probe.find_by_kind(kinds::NAV_MENU)[0].1.node);

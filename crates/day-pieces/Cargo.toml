@@ -20,8 +20,9 @@ day-l10n = { workspace = true }
 # Re-exported so external pieces register per-backend renderers through the `renderer!` macro
 # without depending on linkme (or day-spec's Renderer) directly.
 linkme = { workspace = true }
-# `#[day::test]` for the conformance cases, only with that feature (docs/testing.md).
-day-macros = { workspace = true, optional = true }
+# `#[builder]` for every piece's builder trait (docs/api-style.md), and `#[day::test]` for the
+# conformance cases.
+day-macros = { workspace = true }
 
 [features]
 # The dynamic piece registry (docs/lite.md §4 in https://github.com/daybrite/day-lite):
@@ -34,11 +35,10 @@ dyn-registry = []
 model = ["dep:day-model"]
 # The built-in pieces' conformance cases (docs/testing.md): compiled only into a test build,
 # never into a shipping app.
-conformance = ["dep:day-macros"]
+conformance = []
 
 [dev-dependencies]
 day-mock = { workspace = true }
-day-macros = { workspace = true }
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = { workspace = true }

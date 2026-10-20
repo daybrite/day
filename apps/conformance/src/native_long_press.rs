@@ -86,13 +86,12 @@ pub fn page() -> impl Piece {
                             },
                         )
                         .row_height(day_spec::props::RowHeight::Uniform(56.0))
-                        .reorderable(true)
-                        .on_reorder(move |from, to| {
+                        .reorderable(Reorder::new(move |from, to| {
                             rows.update(|rows| {
                                 let item = rows.remove(from);
                                 rows.insert(to.min(rows.len()), item);
                             })
-                        })
+                        }))
                         .height(240.0)
                         .id("list")
                     },

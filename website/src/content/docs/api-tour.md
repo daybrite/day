@@ -24,11 +24,7 @@ use day::prelude::*;
 
 fn main() {
     day::launch(
-        WindowOptions {
-            title: "Hello".into(),
-            size: Size::new(480.0, 640.0),
-            ..Default::default()
-        },
+        WindowOptions::default().title("Hello").size(480.0, 640.0),
         root,
     );
 }
@@ -107,11 +103,12 @@ column((
     text_field(name).placeholder("Your name"),
     slider(volume).range(0.0..=100.0),
     toggle(subscribed),
-    picker(["Small", "Medium", "Large"], size).segmented(),
+    picker(size, [(Size::S, "Small"), (Size::M, "Medium"), (Size::L, "Large")]).segmented(),
 ))
 ```
 
-`picker` is one-of-N with three native stylings (`.menu()`, `.segmented()`, `.inline()`);
+`picker` is one-of-N over a typed value (`size` is a `Signal<Size>` here, any `Clone + PartialEq`
+type works) with three native stylings (`.menu()`, `.segmented()`, `.inline()`);
 `text_area` is the multi-line counterpart of `text_field`.
 
 Keyboard focus is a binding too: `.focused(editing)` ties a control to a `Signal<bool>`, or

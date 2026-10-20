@@ -123,7 +123,9 @@ and no version pinning is needed. Three rules keep a tweak on the right side of 
 2. **Order tweaks after rebuilding modifiers.** Decorators run in chain order at mount, and
    `.selectable()` may *rebuild* the widget (UIKit). A tweak chained before it runs against the
    widget the rebuild discards, and Day logs a warning when that happens; chained after, the tweak
-   sees the widget that ships. When in doubt, tweaks go last in the chain.
+   sees the widget that ships. When in doubt, tweaks go last in the chain. This ordering rule is
+   the tweak's alone: `.id` names the piece's own node wherever it sits
+   ([docs/api-style.md](api-style.md) "Modifier classes"), so an id need not move to make room.
 3. **Prefer the widest surface that expresses the intent.** A mutation on the common superclass
    (`UIView`/`NSView` alpha, layers, tooltips) lands identically on every backing and survives a
    swap without a branch; reach for the concrete class only when the intent needs it.

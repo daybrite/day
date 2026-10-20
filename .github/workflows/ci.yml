@@ -565,7 +565,7 @@ jobs:
       # first use (~270 MB). The windows-winui scaffold job uses setup-day-deps' release cache.
       - name: Cache the Windows App SDK packages
         if: matrix.toolkit == 'winui'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~\AppData\Local\day\winappsdk
           key: winappsdk-${{ runner.arch }}-${{ hashFiles('crates/day-toolchain/src/winappsdk.rs') }}

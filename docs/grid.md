@@ -95,11 +95,10 @@ with `is_row` set, carrying a horizontal `StackLayout` that only runs when the r
 inside a grid; a stray `grid_row` degrades to a plain `row`. `.grid_span`/`.grid_align` build
 their piece and merge facts onto its root node (`TreeOps::set_grid_facts`): no wrapper node.
 
-**Ordering rule (the `.grow` rule, same class):** grid modifiers go last in the chain. They mark
-the node the grid will see; a later wrapper (`.padding`, `.frame`) would hide the facts:
-`label("x").padding(4.0).grid_span(2)` works, `label("x").grid_span(2).padding(4.0)` does not.
-A `day lint` rule (wrapper node carrying non-default `GridFacts` under a grid) is a candidate
-follow-up.
+**Position-free.** Grid facts are outer-layout facts ([docs/api-style.md](api-style.md)
+"Modifier classes"): they describe the piece to the grid it sits in, so they land on the
+outermost node whatever wrappers follow them. `label("x").padding(4.0).grid_span(2)` and
+`label("x").grid_span(2).padding(4.0)` are the same cell.
 
 ## 4. Layout algorithm (normative)
 

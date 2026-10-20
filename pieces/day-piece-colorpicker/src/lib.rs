@@ -8,7 +8,7 @@
 //! let tint = Signal::new(Color::hex(0xE86A3C));
 //! row((
 //!     vector(gv::nav_animation).tint(move || tint.get()).frame(28.0, 28.0),
-//!     color_picker(tint).alpha(true),              // the platform's chooser where there is one
+//!     color_picker(tint).alpha(),              // the platform's chooser where there is one
 //!     color_picker(tint).composed(),               // Day's own panel, identical everywhere
 //! ))
 //! ```
@@ -165,13 +165,14 @@ pub fn color_picker<C: Binding<Color>>(color: C) -> ColorPicker<C> {
     }
 }
 
+#[day_pieces::builder(ColorPickerBuilder)]
 impl<C: Binding<Color>> ColorPicker<C> {
     /// Offer an opacity channel, and let the bound signal carry a non-opaque alpha. Honored by
     /// the composed panel everywhere, and by every native chooser but one: a browser's
     /// `<input type="color">` gained an `alpha` attribute only recently, so the web arm sets it
     /// and stays opaque where the browser has not shipped it (docs/colorpicker.md).
-    pub fn alpha(mut self, on: bool) -> Self {
-        self.alpha = on;
+    pub fn alpha(mut self) -> Self {
+        self.alpha = true;
         self
     }
     /// Which chooser this well opens (see [`PickerIdiom`]).
@@ -211,8 +212,8 @@ impl<C: Binding<Color>> ColorPicker<C> {
     /// The panel's own parts carry fixed ids (`color-picker-panel`, `-shade`, `-hue`,
     /// `-opacity`, `-presets`, `-value`, `-cancel`, `-done`); only one panel is ever open, so
     /// they need no disambiguation.
-    pub fn key(mut self, key: impl Into<String>) -> Self {
-        self.key = key.into();
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.key = id.into();
         self
     }
 }
@@ -491,7 +492,7 @@ fn panel<C: Binding<Color>>(
         .any(),
     );
 
-    let card = column(PieceVec(rows))
+    let card = column(rows)
         .spacing(12.0)
         .align(HAlign::Leading)
         .padding(CARD_PAD)
@@ -643,7 +644,7 @@ fn preset_row(
             .any()
         })
         .collect();
-    row(PieceVec(swatches))
+    row(swatches)
         .spacing(6.0)
         .fit(RowFit::Wrap { run_spacing: 6.0 })
         .grow_w()
@@ -751,68 +752,6 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, xaml, dom);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`ColorPicker`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ColorPickerBuilder: Sized {
-    fn alpha(self, on: bool) -> Self;
-    fn idiom(self, idiom: PickerIdiom) -> Self;
-    fn native(self) -> Self;
-    fn composed(self) -> Self;
-    fn title<M>(self, t: impl IntoText<M>) -> Self;
-    fn presets(self, presets: Vec<Color>) -> Self;
-    fn key(self, key: impl Into<String>) -> Self;
-}
-
-impl<C: Binding<Color>> ColorPickerBuilder for ColorPicker<C> {
-    fn alpha(self, on: bool) -> Self {
-        ColorPicker::alpha(self, on)
-    }
-    fn idiom(self, idiom: PickerIdiom) -> Self {
-        ColorPicker::idiom(self, idiom)
-    }
-    fn native(self) -> Self {
-        ColorPicker::native(self)
-    }
-    fn composed(self) -> Self {
-        ColorPicker::composed(self)
-    }
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        ColorPicker::title(self, t)
-    }
-    fn presets(self, presets: Vec<Color>) -> Self {
-        ColorPicker::presets(self, presets)
-    }
-    fn key(self, key: impl Into<String>) -> Self {
-        ColorPicker::key(self, key)
-    }
-}
-
-impl<Inner: ColorPickerBuilder + day_pieces::prelude::Piece> ColorPickerBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn alpha(self, on: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.alpha(on))
-    }
-    fn idiom(self, idiom: PickerIdiom) -> Self {
-        self.map_inner(|inner_piece| inner_piece.idiom(idiom))
-    }
-    fn native(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.native())
-    }
-    fn composed(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.composed())
-    }
-    fn title<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.title(t))
-    }
-    fn presets(self, presets: Vec<Color>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.presets(presets))
-    }
-    fn key(self, key: impl Into<String>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.key(key))
-    }
-}
-
 /// The color picker's conformance cases (docs/testing.md): the composed panel, identical on
 /// every toolkit.
 #[cfg(feature = "conformance")]
@@ -839,7 +778,7 @@ pub mod conformance {
                 let tint = Signal::new(Color::rgb(232.0 / 255.0, 106.0 / 255.0, 60.0 / 255.0));
                 column((
                     label(move || format!("tint {}", hex(tint.get()))).id("tint-value"),
-                    color_picker(tint).composed().key("tint"),
+                    color_picker(tint).composed().id("tint"),
                 ))
             })
             .drive(|d: Drive| async move {

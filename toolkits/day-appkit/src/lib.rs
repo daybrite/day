@@ -10949,12 +10949,12 @@ fn install_application_menu(
         (
             res::str::hide_app(title).format(),
             sel!(hide:),
-            Some(day_spec::Shortcut::new("h")),
+            Some(day_spec::Shortcut::primary("h")),
         ),
         (
             res::str::hide_others().format(),
             sel!(hideOtherApplications:),
-            Some(day_spec::Shortcut::new("h").alt()),
+            Some(day_spec::Shortcut::primary("h").alt()),
         ),
         (
             res::str::show_all().format(),
@@ -11329,30 +11329,30 @@ fn role_spec(
     use day_spec::MenuRole as R;
     use day_spec::Shortcut as S;
     match role {
-        R::Cut => ("Cut", Some(sel!(cut:)), Some(S::new("x"))),
-        R::Copy => ("Copy", Some(sel!(copy:)), Some(S::new("c"))),
-        R::Paste => ("Paste", Some(sel!(paste:)), Some(S::new("v"))),
-        R::SelectAll => ("Select All", Some(sel!(selectAll:)), Some(S::new("a"))),
-        R::Undo => ("Undo", Some(sel!(undo:)), Some(S::new("z"))),
-        R::Redo => ("Redo", Some(sel!(redo:)), Some(S::new("z").shift())),
+        R::Cut => ("Cut", Some(sel!(cut:)), Some(S::primary("x"))),
+        R::Copy => ("Copy", Some(sel!(copy:)), Some(S::primary("c"))),
+        R::Paste => ("Paste", Some(sel!(paste:)), Some(S::primary("v"))),
+        R::SelectAll => ("Select All", Some(sel!(selectAll:)), Some(S::primary("a"))),
+        R::Undo => ("Undo", Some(sel!(undo:)), Some(S::primary("z"))),
+        R::Redo => ("Redo", Some(sel!(redo:)), Some(S::primary("z").shift())),
         R::Delete => ("Delete", Some(sel!(delete:)), None),
         R::About => ("About", Some(sel!(orderFrontStandardAboutPanel:)), None),
-        R::Quit => ("Quit", Some(sel!(terminate:)), Some(S::new("q"))),
-        R::Preferences => ("Settings…", None, Some(S::new(","))),
+        R::Quit => ("Quit", Some(sel!(terminate:)), Some(S::primary("q"))),
+        R::Preferences => ("Settings…", None, Some(S::primary(","))),
         R::Minimize => (
             "Minimize",
             Some(sel!(performMiniaturize:)),
-            Some(S::new("m")),
+            Some(S::primary("m")),
         ),
-        R::CloseWindow => ("Close", Some(sel!(performClose:)), Some(S::new("w"))),
+        R::CloseWindow => ("Close", Some(sel!(performClose:)), Some(S::primary("w"))),
         R::Fullscreen => (
             "Enter Full Screen",
             Some(sel!(toggleFullScreen:)),
-            Some(S::new("f").control()),
+            Some(S::primary("f").control()),
         ),
         // No native selector (docs/windows.md): the item dispatches the registered
         // new-window action through the ordinary custom-item path (`fire:`).
-        R::NewWindow => ("New Window", None, Some(S::new("n"))),
+        R::NewWindow => ("New Window", None, Some(S::primary("n"))),
         // Likewise: no selector, the registered updater action fires through `fire:`.
         R::CheckForUpdates => ("Check for Updates…", None, None),
     }

@@ -1,6 +1,6 @@
 ---
 title: "Search"
-description: "searchable(): a declared search surface each platform presents natively: toolbar field, navigation search, or list filter."
+description: "searchable(Search): a declared search surface each platform presents natively: toolbar field, navigation search, or list filter."
 ---
 
 # Search (`searchable`)
@@ -10,13 +10,13 @@ Search is declared on the **surface**, not on the toolbar.
 ```rust
 nav(section)
     .style(NavStyle::Sidebar)
-    .searchable(query)                   // Signal<String>, two-way
-    .search_prompt(tr("search-sections"))
-    .items(move || destinations_matching(query.get()), row)
+    .searchable(Search::new(query).prompt(tr("search-sections")))   // query: Signal<String>, two-way
+    .items(nav_items(move || destinations_matching(query.get()), row))
 ```
 
-That decision makes the rest work. Because the surface owns the declaration and the
-app owns the `Signal`, the toolkit is free to draw the field wherever its platform puts search (in
+The search is one `Search` value: the query binding it is built from, and the prompt,
+placement, reveal policy, scopes and suggestions chained onto it. That decision makes the rest
+work. Because the surface owns the declaration and the app owns the binding, the toolkit is free to draw the field wherever its platform puts search (in
 the window toolbar on a wide window, attached to the navigation list on a narrow one), and
 moving it never moves the state. The app filters its own rows from its own signal either way, and
 never branches on where the field went.
@@ -24,7 +24,7 @@ never branches on where the field went.
 This is the same move SwiftUI made with `.searchable()`, for the same reason.
 
 > [!NOTE]
-> **Implementation status (2026-08-09).** `.search_scopes()` lowers correctly but **no backend
+> **Implementation status (2026-08-09).** `Search::scopes` lowers correctly but **no backend
 > draws a scope bar yet**, because a scope bar belongs below the field, and the toolbar placement has
 > nowhere to put one (see below). Everything else on this page is implemented.
 >
@@ -41,13 +41,14 @@ This is the same move SwiftUI made with `.searchable()`, for the same reason.
 
 ## The modifiers
 
-| modifier | what it does |
+| spelling | what it does |
 |---|---|
-| `.searchable(query)` | makes the surface searchable, bound two-way to `query` |
-| `.search_prompt(text)` | the empty-state prompt |
-| `.search_placement(p)` | a placement **preference** (see below) |
-| `.search_scopes(scope, titles)` | a one-of-N scope bar, bound to `scope` |
-| `.search_suggestions(f)` | completions for the current text |
+| `.searchable(Search::new(query))` | makes the surface searchable, bound two-way to `query` (a `Signal<String>` or any binding) |
+| `Search::prompt(text)` | the empty-state prompt |
+| `Search::placement(p)` | a placement **preference** (see below) |
+| `Search::reveal(SearchReveal)` | how the field comes and goes on a phone (see below) |
+| `Search::scopes(scope, titles)` | a one-of-N scope bar, bound to `scope` |
+| `Search::suggestions(f)` | completions for the current text |
 
 ## Find commands
 
@@ -97,29 +98,28 @@ Each platform keeps its own convention.
 | android-mdc | Material `TextInputLayout` over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
-Call `.search_hides_on_scroll(true)` after `.searchable(query)` to opt into scrolling chrome.
-Desktop toolbar search is unchanged. UIKit explicitly associates the root page's scroll view
+`Search::reveal(SearchReveal::Scrolls)` opts into scrolling chrome. Desktop toolbar search
+is unchanged whatever the reveal policy says. UIKit explicitly associates the root page's scroll view
 with its top edge, so a header or a pinned footer does not prevent native large-title/search
 collapse. This applies to both the compact stack and the iPad sidebar.
 
-For a Mail-style iOS drawer, use `.search_initially_hidden(true)` after `.searchable(query)`:
+For a Mail-style iOS drawer, use `SearchReveal::OnPull`:
 
 ```rust,ignore
 nav(selection)
-    .searchable(query)
-    .search_hides_on_scroll(true) // optional Android scrolling search too
-    .search_initially_hidden(true)
+    .searchable(Search::new(query).reveal(SearchReveal::OnPull))
 ```
 
-The new flag defaults to `false`. On UIKit it implies scrolling search, keeps the title in
-one compact toolbar row, and starts the native search drawer collapsed. Pull down slightly
+The default is `SearchReveal::Always`. `OnPull` implies scrolling search (so Android's
+scrolling chrome comes with it); on UIKit it keeps the title in one compact toolbar row and
+starts the native search drawer collapsed. Pull down slightly
 on the list to reveal search. On iOS 16+ the drawer explicitly uses `Stacked` placement so
 an iPad does not substitute an always-visible inline field. iOS 15 uses its native stacked
 placement. UIKit owns subsequent scrolling, editing and navigation transitions: Day never
 resets the content offset or clears the query on layout, return navigation or rotation.
-Passing `false` preserves the previous large-title presentation and the independently chosen
-`search_hides_on_scroll` policy. Other backends ignore `search_initially_hidden`; their
-existing search placement and scrolling behavior are unchanged.
+`Always` keeps the large-title presentation, and `Scrolls` keeps it with the collapsing
+chrome. Other backends treat `OnPull` as `Scrolls`; their existing search placement is
+unchanged.
 
 Android uses `CoordinatorLayout` and Material `AppBarLayout` scroll/enter-always/snap flags.
 Only nested scrolls originating in the root navigation list move this chrome. The search
@@ -167,7 +167,7 @@ says so.)
 
 ## Scopes are not drawn yet
 
-`.search_scopes()` is in the API and lowers correctly, but **no backend draws a scope bar yet**,
+`Search::scopes` is in the API and lowers correctly, but **no backend draws a scope bar yet**,
 because a scope bar has nowhere to live at the Toolbar placement: it belongs *below* the field, and
 Day's toolbar model is a flat list of items with no "below the bar" slot. The field currently sits
 inside an `NSSearchToolbarItem` / an `AdwHeaderBar` entry / a `QToolBar` widget, none of which can
@@ -193,7 +193,7 @@ Neither claims to be the platform's scope bar.
 
 ## Suggestions complete the field
 
-On a navigation surface the list **is** the result set. So `.search_suggestions()` offers
+On a navigation surface the list **is** the result set. So `Search::suggestions` offers
 completions that fill the field; it does not open an overlay of results, which would cover the
 list it is narrowing.
 

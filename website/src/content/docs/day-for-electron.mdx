@@ -151,9 +151,9 @@ column((
     text_field(name).placeholder("Your name"),
     slider(volume).range(0.0..=100.0),
     toggle(subscribed),
-    picker(["Small", "Medium", "Large"], size).segmented(),
+    picker(size, [(Size::S, "Small"), (Size::M, "Medium"), (Size::L, "Large")]).segmented(),
 ))
-.spacing(12.0)
+.spacing(Space::M)
 ```
 
 For long lists, [`list`](/docs/internal/list) hands your rows to the platform's recycling
@@ -191,11 +191,11 @@ Menu.setApplicationMenu(Menu.buildFromTemplate([
 
 ```rust
 day::open_window(
-    "settings",
-    WindowOptions { title: "Settings".into(),
-                    size: Size::new(520.0, 420.0),
-                    ..Default::default() },
-    WindowKind::Preferences,
+    res::window_options()
+        .title("Settings")
+        .size(520.0, 420.0)
+        .key("settings")
+        .kind(WindowKind::Preferences),
     settings_page,
 );
 

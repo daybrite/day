@@ -299,8 +299,11 @@ fn a_native_field_the_toolkit_cannot_read_is_recorded_not_failed() {
 fn picker_selection_rejects_invalid_indices_without_changing_selection() {
     let _probe = boot_with(|| {
         day_core::AnyPiece::new(
-            day_pieces::picker(["First", "Second"], day_reactive::Signal::new(0usize))
-                .id("picker-bounds"),
+            day_pieces::picker(
+                day_reactive::Signal::new(0usize),
+                [(0usize, "First"), (1, "Second")],
+            )
+            .id("picker-bounds"),
         )
     });
     for index in [-1, 2, 999] {

@@ -76,7 +76,7 @@ the architecture-level view and the rationale.
 | menus — app menu, context menus, roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
 | deep links — scheme registration, cold/warm delivery, per-platform intake, desktop single-instance forwarding, `[[shortcuts]]` and run-time launcher shortcuts (iOS, Android, HarmonyOS, web, macOS Dock menu, Windows jump list, Linux `.desktop` actions) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
-| search — `.searchable()` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
+| search — `.searchable(Search)` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
 | cursor — `.cursor()`, the CSS vocabulary as `Cursor`, per-toolkit realization and `Cap::Cursor`, the `day::cursor::<toolkit>` extras | [docs/cursor.md](docs/cursor.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day prepare`, the layered master, the generated `build/day/host` tree the host projects reference, `--check` gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
@@ -89,7 +89,7 @@ the architecture-level view and the rationale.
 | inspector — `inspector(visible, content, panel)`, native trailing pane vs composed pane + compact sheet, `Cap::Inspector`; `.edge(PaneEdge::Leading)` for a leading utility pane | [docs/inspector.md](docs/inspector.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | split — `split(first, second)`, two panes and a dragged divider, `.axis(..)` side by side or stacked, `.fraction(share)` two-way; the toolkit's splitter where `Cap::Split` is Native, Day's layout and a drawn divider elsewhere | [docs/split.md](docs/split.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | tree — `tree(source, row)` hierarchical rows: native tree views where `Cap::Tree` is Native, the composed list-backed tree elsewhere; token identity, app-owned expansion, drag-to-reparent | [docs/tree.md](docs/tree.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
-| collapsible sidebar sections — stable `section_id`, app-owned `collapsed_sections`, expansion callbacks and `restore_sections`; native AppKit/UIKit/GTK/Qt/WinUI trees and Android two-level groups, composed DOM/ArkUI disclosure. Native cell heights are fed back into layout; destination rows fill that height and center their content within the selection. Selection survives hiding its section | [section contract](docs/navigation.md#collapsible-sidebar-sections), [native adapters](docs/tree.md#collapsible-sections) | [§10.5](#105-navigation-and-presentation) |
+| collapsible sidebar sections — stable `section_id`, one `Sections` value (`collapsible(binding)` / `restored(key)` with `on_change`); native AppKit/UIKit/GTK/Qt/WinUI trees and Android two-level groups, composed DOM/ArkUI disclosure. Native cell heights are fed back into layout; destination rows fill that height and center their content within the selection. Selection survives hiding its section | [section contract](docs/navigation.md#collapsible-sidebar-sections), [native adapters](docs/tree.md#collapsible-sections) | [§10.5](#105-navigation-and-presentation) |
 | forms — `form`/`section`/`labeled` | [docs/forms.md](docs/forms.md) | [§5.3](#53-built-in-pieces-mvp-set) |
 | grid — `grid`/`grid_row` eager grid, `.grid_span`/`.grid_align` | [docs/grid.md](docs/grid.md) | [§5.3](#53-built-in-pieces-mvp-set), [§7.2](#72-the-protocol-parent-proposes-child-chooses) |
 | keyboard focus — `.focused()`, `on_submit`, dayscript focus steps | [docs/focus.md](docs/focus.md) | [§4.4](#44-events-and-controlled-inputs), [§8.3](#83-events) |
@@ -718,8 +718,11 @@ refactoring. Children are **tuples** (`PieceSeq` implemented for tuples up to ar
 Authoring-surface edges, specified now so they don't accrete ad hoc:
 
 - **`PieceSeq` flattens recursively** — a tuple containing a `PieceSeq` contributes its children
-  in place with no extra node — and `PieceVec(Vec<AnyPiece>)` covers the runtime-heterogeneous
-  case (`row(PieceVec(stars))`). A build-time heterogeneous branch takes `Either<A, B>`
+  in place with no extra node — and a `Vec<P>`, an `[P; N]` and an `Option<P>` are child
+  sequences too (`row(stars)`, `row((icon, cond.then(|| badge)))`; `None` builds nothing), so
+  a runtime-sized list is a `Vec` and only a list whose elements differ in type is a
+  `Vec<AnyPiece>` (the `PieceVec` wrapper is gone, 2026-10). `Option<P>` is also a `Piece` in
+  its own right. A build-time heterogeneous branch takes `Either<A, B>`
   (`if compact { Either::Left(a) } else { Either::Right(b) }`), which keeps both arms concrete;
   `Decorate::any` erases when a single `AnyPiece` is what's actually needed. `AnyPiece::any` is
   inherent and returns `self`, so re-erasing an erased piece costs nothing.
@@ -738,15 +741,20 @@ Authoring-surface edges, specified now so they don't accrete ad hoc:
 
 #### Reusable application commands
 
-`day::Command { id, label, action }` is a generic named-field definition in `day-pieces`.
-Its `.build()` consumes the definition, converts its inputs, and captures `Scope::current()`,
-returning a cloneable, UI-thread `CommandHandle`. Creating the definition alone captures no
-command scope; captured signals still have their own lifetimes. Factory functions return
-`CommandHandle` without exposing closure types. Both types are exported by `day` and the prelude.
-The handle owns a shared `Rc<dyn Fn()>`, reactive title/availability/optional check state,
-icon, menu shortcut, default presentation id, and the scope captured at build. `invoke()` rechecks
-availability untracked on every path and refuses invocation after scope disposal. Clones do not
-extend the reactive scope's life and builder changes do not mutate existing presentations.
+> [!NOTE]
+> **Revised 2026-10.** The named-field `Command { id, label, action }.build()` → `CommandHandle`
+> pair became one type, `Command`, built by `Command::new(id, label, action)`: three positional,
+> type-distinct arguments ([docs/api-style.md](docs/api-style.md) rule 3), so the two-type split
+> and the `.build()` step were removed.
+
+`day::Command::new(id, label, action)` builds the command in `day-pieces`, converting its inputs
+and capturing `Scope::current()` as the owner; the value is cloneable and UI-thread. Captured
+signals still have their own lifetimes. Factory functions return `Command` without exposing
+closure types. The type is exported by `day` and the prelude. It owns a shared `Rc<dyn Fn()>`,
+reactive title/availability/optional check state, icon, menu shortcut, default presentation id,
+and the scope captured at construction. `invoke()` rechecks availability untracked on every path
+and refuses invocation after scope disposal. Clones do not extend the reactive scope's life and
+builder changes do not mutate existing presentations.
 
 Adapters lower to the existing Button, MenuEntry, and ToolbarEntry APIs; there is no new
 backend protocol or global command lookup. Buttons bind titles/availability; menus are snapshots
@@ -756,26 +764,31 @@ native requested state differs from its current check, then restores the resulti
 check, including rejected native flips. The boolean payload is intent, not a direct assignment
 into app state. Standard edit roles retain their native responder-chain path.
 A command captures its target explicitly; it neither chooses a window nor installs a global key
-handler. The handle keeps `.enabled()`, `.checked()`, and presentation adapters; there is no
-positional command constructor. Unsupported menu/toolbar surfaces remain unsupported. See [commands](docs/commands.md)
-for examples, platform limits, the sample audit, and linked regression tests.
+handler. The command keeps `.enabled()`, `.checked()`, and presentation adapters. Unsupported
+menu/toolbar surfaces remain unsupported. See [commands](docs/commands.md) for examples, platform
+limits, the sample audit, and linked regression tests.
 
-Named definitions are additive authoring syntax where required positional arguments are
-ambiguous. Existing piece constructors and builder traits remain unchanged. The
+Named fields are reserved for same-typed arguments: the generated `res::str` argument structs
+for messages with two or more variables ([docs/localization.md](docs/localization.md)). The
 [component assessment](docs/commands.md#assessment-named-definitions-for-other-components)
-recommends selective definitions that delegate to those constructors, with `.into_piece()` or
-`.into_entry()` conversions and one implementation path for both forms; these wrappers are
-proposals, not part of the current API.
+records how the 2026-09 proposal for named-field wrappers resolved into the API style rules
+(feature values with their own builders, items as values) instead.
 
 ### §5.2 The `Piece` trait
 
 > [!NOTE]
-> **Status: shipped as written**, with one revision (2026-08-24): `form` and `labeled` were the
+> **Status: shipped as written**, with two revisions. (2026-08-24) `form` and `labeled` were the
 > last built-in constructors returning `AnyPiece`. They now return `Form<C>` and `Labeled<P>`, so
 > no constructor in day-pieces erases and `.any()` is always the caller's explicit choice. That
 > erasure had been justified as bounding monomorphization; measured on Day-Showcase (116 `labeled`
 > rows) for a macos-appkit release build, removing it cost +90 KB of machine code (+0.81% of
 > `__text`, +0.40% of the stripped executable) and +10% on that crate's compile time.
+> (2026-10) The hand-written `*Builder` traits are generated by `#[day::builder(FooBuilder)]` on
+> the piece's inherent impl, modifiers are classified (identity / wrapping / outer-layout facts)
+> so `.id` and the grid facts are position-free, and two-way builders take `impl Binding<T>`
+> erased into `AnyBinding<T>` inside the piece. The `Option`/`Vec`/array child impls and the
+> generated traits are to be measured the same way as the 2026-08 figure; no number is recorded
+> yet.
 
 A Piece value is a *description consumed once*:
 
@@ -810,13 +823,19 @@ the native-detachment boundary.
 **Modifiers do not erase.** Each `Decorate` method returns `Decorated<Self>` — the piece plus an
 ordered op list — so the concrete piece type survives a chain; inherent methods on `Decorated<P>`
 shadow the trait's, keeping the chain flat rather than nesting. A piece's own builders are also
-declared in a `*Builder` trait (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder`, `RowBuilder`)
-that `Decorated<P>` forwards through `map_inner`, so `label(…).padding(8.0).font(…)` resolves and
-there is no "typed modifiers must come first" ordering rule. Toolkit and `day-tweak-*` extension
-traits follow the same signature ([docs/tweaks.md](docs/tweaks.md), [docs/api-style.md](docs/api-style.md) "Typed builders and erasure").
+reachable after a modifier through a `*Builder` trait (`LabelBuilder`, `ButtonBuilder`,
+`ColumnBuilder`, `RowBuilder`) that `#[day::builder(..)]` generates from the inherent impl, with
+its forwarding impl for `Decorated<P>`, so `label(…).padding(8.0).font(…)` resolves and there is
+no "typed modifiers must come first" ordering rule. Toolkit and `day-tweak-*` extension traits
+follow the same signature ([docs/tweaks.md](docs/tweaks.md), [docs/api-style.md](docs/api-style.md) "Typed builders and erasure").
 `Decorate::modifier` is the one erasing modifier, because `Modifier` is defined over `AnyPiece`.
-Annotating ops (`id`, `selectable`, `grid_span`) still target the node built so far, which is why
-grid facts are documented as applying LAST.
+Modifiers fall into three classes ([docs/api-style.md](docs/api-style.md) "Modifier classes"):
+identity (`id`, `id_of`, `id_keyed`) names the piece's own node wherever it sits in the chain;
+wrapping modifiers (`padding`, `frame`, `background`, `grow`, `a11y`, …) each apply to the node
+built so far, in call order; outer-layout facts (`grid_span`, `grid_align`) describe the piece to
+its container and land on the outermost node whatever follows. `wrapper_id` names the outermost
+wrapper deliberately. Two-way builders take `impl Binding<T>` (a `Signal<T>` still works) and
+store an `AnyBinding<T>`, so a piece needs no type parameter per bound value.
 
 **Constructors do not erase either.** A constructor returns its own concrete piece — `label()` →
 `Label`, `column()` → `Column<C>`, `labeled()` → `Labeled<P>` — or, where the body must wait for
@@ -824,8 +843,9 @@ the build to read an ambient `environment` or a laid-out size, an `impl Piece` o
 (`canvas`, `each`, `with_environment`). A deferred piece worth naming defers inside its own
 `build` instead: `Labeled` reads the enclosing form's shared label column there and stays a plain
 struct. `AnyPiece` appears only where a boundary needs ONE type — a stored `Rc<dyn Fn() ->
-AnyPiece>` (nav destinations, `when` arms, window and preferences builders), a `PieceVec`, or a
-build-time branch between two piece types that does not use `Either<A, B>`. Erasure is the
+AnyPiece>` (nav destinations, `when` arms, window and preferences builders), a `Vec<AnyPiece>`
+of differently typed children, or a build-time branch between two piece types that does not use
+`Either<A, B>`. Erasure is the
 caller's `.any()`, never the constructor's.
 
 ### §5.3 Built-in pieces (MVP set)
@@ -842,6 +862,21 @@ caller's `.any()`, never the constructor's.
 > focus-scoped key route in the modifier list below. `Decorate` did instead grow the
 > transform family (`.opacity()`, `.rotation()`, `.scale()`, `.translation()`, `.transform()`) and
 > `.animation()`. Per-subsystem detail lives in the docs/ files named in the subsystem index.
+>
+> **Refined 2026-10** ([docs/api-style.md](docs/api-style.md) rules 6–11): coupled
+> configuration became one value with its own builder — `Search`/`SearchReveal`, `ContentList`,
+> `Sections` on `nav`, `Reorder`/`Delete`/`ReorderVerdict` on `list`, `Move` on `tree` — in
+> place of the `search_*`, `content_list_*`, `on_reorder`/`reorder_guard` method families; nav
+> items are values (`item(..).icon(..).badge(..).page(..)`, `nav_items(reader, map)`,
+> `Option<NavItem>`, tuples) and `.section(title, content)` takes its content; the structure
+> idioms every app re-derived shipped as `keyed`, `switch`, `load`/`Loaded` and `adaptive`;
+> `.card()` is the platform's grouped surface; `picker(binding, [(value, title)])` is typed by
+> value (`picker_optional` for `Option<T>`); `Space` and `TextPreset` are the tokens; menu and
+> toolbar `enabled`/`checked` take a constant or a reactive `bool`, `app_menu`/`dock_menu` are
+> live and take a list or a closure, `context_menu` takes a list or a summon-time closure;
+> `open_window(options, build)` reads key and kind from `WindowOptions` builders
+> (`res::window_options()` is generated); `Command::new(id, label, action)`; `Shortcut::primary`;
+> the `Insets` constructors. The vocabulary below is the current one.
 
 `TabSet<K>` owns ordered document keys and selection. `document_tabs` keeps each document
 resident across reorder and `.native(...)` presentation changes; `.on_close` separates a close
@@ -876,7 +911,9 @@ text_field(text).placeholder(p).on_submit(f)   // two-way String; focus via .foc
 secure_field(text)                             // a password field: text_field + secure + Password purpose
 text_area(text).min_lines(3).max_lines(8)      // two-way String, multi-line (docs/textarea.md)
     .editable(e).selectable(s).spellcheck(sc)  // reactive attrs; Cap::Text{Editable,Selectable,SpellCheck}
-picker(opts, idx).segmented()      // one-of-N: .menu()/.segmented()/.inline() (docs/picker.md)
+picker(value, [(v, title), …])     // one-of-N typed by value (T: Clone + PartialEq), options fixed or
+    .segmented()                   //   a derived closure; .menu()/.segmented()/.inline() (docs/picker.md)
+picker_optional(opt_value, opts)   // Option<T>: None = nothing chosen
 progress(fraction)   spinner()     // docs/progress.md
 image(res::images::logo)           // typed resource constants (§18.5)
 image(bytes)   image(&bitmap)      // encoded bytes / a `day::decode_image` handle (docs/images.md);
@@ -889,41 +926,59 @@ column(children).spacing(8.0).align(HAlign::Leading)
 row(children).spacing(8.0).align(VAlign::Center)
     .fit(RowFit::Wrap { run_spacing })   // what happens when the row outgrows its width
     .fit(RowFit::WrapColumns { run_spacing })     //   (docs/size-classes.md "Row fit
-    .fit(RowFit::ColumnAt(WidthClass::Compact))   //   policies"); Wrap is ragged, WrapColumns
-    .fit(RowFit::Scroll)                 //   uniform (a grow_w cell stretches it to the
+    .fit(RowFit::Scroll)                 //   policies"); Wrap is ragged, WrapColumns
+adaptive(children).spacing(..)           //   uniform (a grow_w cell stretches it to the
                                          //   width); default Clip logs overflow in debug
 zstack(children)                   // overlay
 grid((grid_row((…)), …)).spacing(8.0)   // SwiftUI-style eager grid (docs/grid.md): columns
                                    //   infer from cells; .grid_span(n)/.grid_align(a) per cell
 scroll(child)
+adaptive((label, control, result)) // a row that stacks on a compact width without rebuilding
+    .spacing(Space::S).stack_at(c) //   its children (docs/size-classes.md)
 form((section((…)).title(t), …))   // grouped platform forms (docs/forms.md)
 labeled(caption, control)
+x.card()                           // the platform's grouped surface: rounded, Space::M inset
+x.padding(Space::L).spacing(Space::S)  // tokens: Space::{XS,S,M,L,XL} beside raw points;
+label(t).preset(&CAPTION)          //   const CAPTION: TextPreset = TextPreset::new(Font::Caption).secondary()
 
 // structure
 when(cond_fn, build_fn)            // reactive conditional subtree
     .otherwise(build_fn)           //   optional else arm; without it, false builds nothing
+keyed(key_fn, build_fn)            // one subtree per Option<K>: rebuilt when the key changes,
+                                   //   None builds nothing (docs/state.md)
+switch(selector_fn, arm_fn)        // one tracked read, one arm per value (a `match` inside)
+load(resource, ready_fn)           // Loading/Ready/Failed as subtrees; ready gets a Loaded<T>
+    .loading(f).failed(f)          //   whose .get() follows a refetch in place (docs/async.md)
 each(items_fn, key_fn, build_fn)   // reactive keyed collection (§5.4)
 test_host(content_fn)              // a test build's root: the content, or the case `day test`
                                    //   drives shown alone, built fresh (docs/testing.md)
 list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
+    .reorderable(Reorder::new(f).guard(g).enabled(e))  // a list reorders exactly when it carries one
+    .deletable(Delete::new(f).label(t).guard(g))       // ReorderVerdict::{Allow,Deny,Retarget(i)}
+    .multi_select().separators()/.no_separators().stick_to_bottom()
 tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-addressed rows,
-                                   //   app-owned expansion, drag-to-reparent; sources are
+    .movable(Move::new(f).guard(g))//   app-owned expansion, drag-to-reparent; sources are
                                    //   branches(items, key, parent) or store.tree(children_of);
                                    //   NATIVE where Cap::Tree says so (appkit/gtk/uikit/qt/xaml),
                                    //   COMPOSED onto list() everywhere else (web-dom, qt)
 
 // navigation & presentation (docs/navigation.md, docs/cover.md, docs/dialogs.md, docs/menus.md, docs/files.md)
 nav(section)                       // sidebar / tabs / segmented, per NavStyle
+    .items((item(k, t).icon(i).badge(b).page(f), nav_items(reader, map), prefs.nav_item(k)))
+                                   //   items are values: one, a tuple, an Option, a Vec, a
+                                   //   data-driven block; .item(k, t, f) is the shorthand
+    .section(title, content)       //   a header over any of the above; .section_id(id, t, c)
+    .sections(Sections::restored(key).on_change(f))   // collapsible headings, one value
+    .searchable(Search::new(q).prompt(p).reveal(SearchReveal::OnPull))   // docs/search.md
     .refreshable(busy, refresh)    //   native UIKit/Android sidebar pull; app-owned busy state
-    .content_list(build)           //   the Mail shape's middle column (2026-08): a resident
-                                   //   Pane::List page — a real contentList split item on
-                                   //   appkit, the uikit triple-column supplementary column,
-                                   //   composed beside the detail elsewhere
-                                   //   (Cap::NavContentList); .content_list_for(pred) collapses
-                                   //   it per destination, .detail_visible(sig) gates the
-                                   //   compact push flow two-way — a nested nav host inside a
-                                   //   tab, a merged push while stacked — and
-                                   //   .detail_title(text) names the detail layer's bar, live
+    .content_list(ContentList::new(build)   // the Mail shape's middle column (2026-08): a
+        .width(w)                  //   resident Pane::List page — a real contentList split item
+        .only_for(pred)            //   on appkit, the uikit triple-column supplementary column,
+        .detail_visible(sig)       //   composed beside the detail elsewhere (Cap::NavContentList);
+        .detail_title(text))       //   only_for collapses it per destination, detail_visible
+                                   //   gates the compact push flow two-way, detail_title names
+                                   //   the detail layer's bar, live
+    .no_sidebar_toggle()           //   drop the platform's show/hide-sidebar affordance
 nav_stack(path, root)              // push/pop navigation bound to a Vec<Route> signal
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
@@ -939,7 +994,10 @@ split(first, second)               // two panes and the divider the user drags (
                                    //   a drawn, dragged divider elsewhere
 nav_link(…)   navigate_to(…)   current_route()   route_param(…)
 alert(…)   confirm(…)   prompt(…)   open_file(…)   save_file(…)
-app_menu(…)   menu_item(…)   sub_menu(…)   menu_role(…)   menu_separator()
+app_menu(entries | derive_fn)   dock_menu(…)   // live: titles, enabled, checked re-read
+menu_item(t).enabled(e).checked(c)   sub_menu(t, …)   menu_role(…)   menu_separator()
+open_window(res::window_options().key(k).kind(WindowKind::X).size(w, h), build)
+Command::new(id, title, action).enabled(e)   // one value for button/menu/toolbar (docs/commands.md)
 
 // drawing (§11, docs/shapes.md)
 canvas(draw_fn)
@@ -1011,10 +1069,9 @@ sends `day:synthesized-text` before `TextChanged`; the paint notification must n
 the binding a second time, or one inspector edit creates two undo units. The native and
 composed paths are covered by `day-piece-stepper`'s `scripted_typing_commits_once_in_both_idioms`
 regression test; see [docs/stepper.md](docs/stepper.md).
-The stepper's inherent `.id()` names its interactive field in both idioms (`.key()` is an alias).
-The generic decoration previously tagged only the composed row, so scripted input/value events
-worked on native steppers but never reached the composed binding. Both idioms are tested using
-the public `.id()` API, including range clamping and the preview/commit boundary.
+The stepper's `.id()` names its interactive field in both idioms, wherever it sits in the chain.
+Both idioms are tested using the public `.id()` API, including range clamping and the
+preview/commit boundary.
 
 Example — the shipped composition idiom (from the showcase's Controls page; the live app is the
 complete reference, [Appendix A](#appendix-a--the-showcase-app-end-to-end)):
@@ -1067,7 +1124,7 @@ automatic native appearance (see [buttons](docs/buttons.md)). Styling never repl
 native button or its activation path. Android retains the original foreground/icon colors
 alongside background and metrics so a later style patch restores all state lists.
 
-`Inspector::scrollable(false)` omits its automatic scrolling wrapper in native panes,
+`Inspector::not_scrollable()` omits its automatic scrolling wrapper in native panes,
 composed panes, and compact sheets. Panels owning a recycling list receive the finite
 viewport directly; the default remains scrollable for existing property forms. See
 [inspector](docs/inspector.md).
@@ -1272,7 +1329,7 @@ role is the window's own background, the card of a composed modal sheet.
 ```rust
 // OS-level branches: ordinary cfg (the map page exists only on Apple targets)
 #[cfg(any(target_os = "macos", target_os = "ios"))]
-let nav = nav.item_icon(Section::Map, …);
+let nav = nav.items(item(Section::Map, …).icon(…).page(map_page));
 
 // toolkit-level branches: the backend cargo feature (one per binary, §3.2)
 let pad = if cfg!(feature = "qt") { 8.0 } else { 12.0 };
@@ -1858,7 +1915,7 @@ through window creation.
 > `Event::{WindowClosed, WindowFocused}` on the window's root node. The tree stayed
 > SINGULAR: a second window's content container is adopted as an additional boundary root
 > (multi-ROOT, not the once-sketched tree-per-window), so `with_tree`, `find_by_id`, and
-> dayscript work across windows unchanged. `day::open_window(key, …)` is the app API
+> dayscript work across windows unchanged. `day::open_window(options, build)` (key and kind on the options) is the app API
 > (open-or-focus singletons), `day::register_preferences*`/`open_preferences` the settings
 > paradigm behind the auto Settings…/⌘, menu item, `register_new_window` the File ▸ New
 > Window / macOS tab-bar "+" builder. Native on the desktop backends AND the
@@ -2464,7 +2521,7 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > day-model field accessors are the shipped two-way path ([docs/model.md](docs/model.md)).
 > **Drag-to-reorder shipped** (2026-08): `ListProps::reorderable` + the `ListSource::reorder`
 > sync seam (`can_move` guard verdict / `move_row` commit), the piece API
-> (`.reorderable/.on_reorder/.reorder_guard`), `Cap::ListReorder`, and the dayscript `reorder`
+> (`.reorderable(Reorder::new(f).guard(g))` since 2026-10; the `.on_reorder`/`.reorder_guard` method family before), `Cap::ListReorder`, and the dayscript `reorder`
 > step — native mechanisms on AppKit (`.gap` drop style), UIKit (drag delegates), Android
 > (ItemTouchHelper on the list, which **migrated from framework ListView to RecyclerView** in
 > the same change), GTK (DragSource/DropTarget), Qt (QDrag), ArkUI (SetNodeDraggable +
@@ -2489,7 +2546,7 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > Native AppKit drops also schedule a table reload and retile after the drop callback,
 > because the matching app-data echo deliberately skips Reload. This reconciles the document
 > scroll extent while retaining the viewport and selection; cell realization runs outside the
-> tree borrow. The deferred task resolves live handles again so disposal during `on_reorder`
+> tree borrow. The deferred task resolves live handles again so disposal during the reorder handler
 > is safe (`day-appkit/tests/native_list_scroll.rs`).
 > UIKit also queues programmatic row/end scrolling after pending table splices and reloads,
 > outside the tree and list-state borrows. It resolves the live table at execution time and
@@ -2511,7 +2568,7 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > slide AppKit performs for row-action swipes — actions revealed behind a motionless row.
 > Plain has no inset, so the custom row view is gone and the swipe slides whole rows natively.
 > **Host-drawn separators** joined in the same change (`ListProps::separators`,
-> `.separators(bool)`, tri-state over each platform's default): the row boundary line belongs
+> `.separators()`/`.no_separators()`, tri-state over each platform's default): the row boundary line belongs
 > to the host, where it aligns with the native selection and holds still under a swipe —
 > lowered on AppKit (grid mask), UIKit (`separatorStyle`), GTK (row CSS) and web (cell
 > border); the docs matrix tracks the rest.
@@ -2723,12 +2780,12 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   `NSTabView` owning the pages; an `AdwViewSwitcher` over the `AdwViewStack`, pages in
 >   filling `DayCell`s), labeled when the `NAV_MENU` is inserted; Qt's `QTabWidget` now
 >   honors a programmatic `NavPatch::Select` too (its suite branch was unreachable).
-> - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title)` and
+> - **Section headers in a derived sidebar** *(2026-09)* — `nav(…).section(title, content)` (content-taking since 2026-10) and
 >   `Nav::retain_selection_when` lets filtered sidebars keep the selected destination alive
 >   when its row disappears. The native row selection becomes empty; the document and toolbar
 >   remain resident. The predicate runs when items change and can reject deleted records,
 >   preserving the default fallback. See `nav_can_hide_the_selected_row_without_disposing_its_detail`.
->   `item(…).section(title)` open a group header before the next row, so a data-driven,
+>   `item(…).section(title)` open a group header over the content's first row, so a data-driven,
 >   search-filtered sidebar (the showcase's eight groups) keeps its grouping through the derive;
 >   flat-list backends ignore it. Qt, web-dom, Windows and HarmonyOS draw them too since
 >   2026-09-14 — a flagless `QListWidgetItem`, a heading element between the rows, a
@@ -2754,8 +2811,9 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   (a real `contentList` `NSSplitViewItem` that persists through every presentation),
 >   `Emulated` on ios-uikit (`UISplitViewController` triple-column, merged into the stack at
 >   compact width, interposed by `NavPatch::ListInStack` and gated by the app's
->   `.detail_visible(sig)` binding), composed by the nav host everywhere else.
->   `.content_list_for(pred)` collapses the pane per destination (`NavPatch::ListVisible`).
+>   `ContentList::detail_visible(sig)` binding), composed by the nav host everywhere else.
+>   `ContentList::only_for(pred)` collapses the pane per destination (`NavPatch::ListVisible`;
+>   the pane's options are one `ContentList` value since 2026-10).
 >   Outcome (2026-09): Qt answers `Native` too — the middle pane of its three-pane
 >   navigation `QSplitter`, and its toolbar packs columns over the panes. On ios-uikit a
 >   destination without a list gets a double-column host and one with a list a triple-column
@@ -2780,17 +2838,17 @@ to update and are ignored; the selected destination's navigation host owns its t
 >   [docs/navigation.md](docs/navigation.md) and [docs/focus.md](docs/focus.md) are normative.
 > - **The composed gated detail is real push navigation** *(2026-08)* — where the pane is
 >   composed (`Cap::NavContentList` Unsupported, and every tabs presentation), a list-backed
->   destination with `.detail_visible` no longer swaps list and detail in place. In a chrome
+>   destination with `detail_visible` no longer swaps list and detail in place. In a chrome
 >   presentation the destination's page is a NESTED nav host — a `UINavigationController`
 >   inside the tab, a Material toolbar over the fragment back stack — carrying the nav host's
 >   bar actions (a tabs chrome draws none of its own); stacked, the detail pushes onto the
 >   enclosing host, the same merge a nested `nav_stack()` performs. The native back writes the
 >   signal `false`; a pop-only route surface lets `nav_back()` close the layer first. The new
->   `.detail_title(text)` names the detail layer's bar, reactively, on the native pane shapes
+>   `ContentList::detail_title(text)` names the detail layer's bar, reactively, on the native pane shapes
 >   too. To keep a mid-build inner push ordered, a stacked destination page is now PRESENTED
 >   (`NavPatch::Pushed`) before its content builds, not after.
 > - **Back closes a side-by-side detail first** *(2026-09)* — a detail open beside its content
->   list (`.detail_visible` true in a split) is now the innermost layer: `nav_back()` closes it
+>   list (`detail_visible` true in a split) is now the innermost layer: `nav_back()` closes it
 >   before leaving the section. Where the list is composed into the destination's page, the
 >   nav host arms `NavPatch::GuardTop` while the detail is open, so the Android and HarmonyOS
 >   system back closes it too, where it used to pop the page holding list and detail. A host
@@ -4373,8 +4431,8 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day devices boot -t <target> [<id>] [--device <name>] [--os <version>] [--orientation <o>] [--wait] [--headless]` | start a simulator, AVD or the Oniro emulator so a launch has somewhere to go. iOS/Android resolve `--device` against the machine's catalog (a name pattern, newest match wins); harmony-arkui has one image whose screen is whatever QEMU is told, so there `--device` names a PANEL (`phone` 360×720, `tablet` 1280×800, or `WxH`) and `--orientation` turns it, which is what the shared workflow's `harmony-devices` rows pass ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)); the Xcode scaffolds also call `stage-resources` (macOS bundle resources) and `stage-strings` (iOS `[[shortcuts]]` label localizations) |
 
-Navigation route linting recognizes string keys in both `.item` and `.item_icon`, including
-multiline rustfmt output. Typed route macros remain an independent source of declared keys.
+Navigation route linting recognizes string keys in `.item(..)`, `item(..)` and `nav_items(..)`,
+including multiline rustfmt output. Typed route macros remain an independent source of declared keys.
 Regression: `lint::tests::formatted_navigation_items_declare_routes`.
 
 

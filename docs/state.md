@@ -113,7 +113,7 @@ fn front(f: impl Fn(Scene) + 'static) -> impl Fn() + 'static {
     move || if let Some(scene) = Scene::focused() { f(scene) }
 }
 
-menu_item("New Item").shortcut(Shortcut::new("n").shift()).action(front(|s| s.new_item()))
+menu_item("New Item").shortcut(Shortcut::primary("n").shift()).action(front(|s| s.new_item()))
 ```
 
 `T::focused()` (SwiftUI's `@FocusedValue`) resolves through the key window's own scope, falling
@@ -144,6 +144,27 @@ selection in `Scene` when each window should have its own value.
 The exception is state that really is process-wide and really has no owner: `Signal::global` is
 still the right tool for, say, a network-reachability flag that the whole app observes. `T::app()`
 is the typed version of the same idea, and is preferable when the state has more than one field.
+
+## Subtrees that follow state: `keyed` and `switch`
+
+A subtree that depends on a value is declared with the value, not rebuilt by hand:
+
+```rust
+keyed(move || scene.selected.get(), |id| editor(*id))        // Option<K>: None builds nothing
+switch(move || tab.get(), |t| match t {                       // one arm per value
+    Tab::Body => body_pane().any(),
+    Tab::Headers => headers_pane().any(),
+})
+```
+
+`keyed(key, build)` rebuilds its subtree when the key changes (compared with `PartialEq`) and
+leaves it alone while it does not, so focus and local state survive; `None` builds nothing. The
+outgoing subtree's scope is disposed before the incoming one builds, which aborts its pending
+tasks and subscriptions, exactly as `when` does. `switch(selector, arm)` is `keyed` over a value
+that is always present: one tracked read, one arm per value, where a run of sibling
+`when(move || tab.get() == …, …)` would read each signal once per arm. Revisiting a value builds
+its arm afresh; state that must survive a switch belongs in the model, not the subtree. For an
+either/or on a `bool`, `when(..).otherwise(..)` reads better.
 
 ## The primitives underneath
 

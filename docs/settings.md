@@ -40,14 +40,16 @@ the surface in its navigation:
 
 ```rust
 nav(section)
-    .items(move || prefs.nav_keys(Section::Settings),
-           |s: &Section| item(*s, res::str::nav_settings()).icon(res::vectors::tab_settings))
-    .destination(move |_: &Section| prefs.page())
+    .items((
+        item(Section::Welcome, res::str::nav_welcome()).page(welcome_page),
+        prefs.nav_item(Section::Settings).map(|i| i.icon(res::vectors::tab_settings)),
+    ))
 ```
 
-`prefs.nav_keys(key)` is `[key]` exactly when the platform gives no app menu (the phones)
-(`Cap::AppMenu` unsupported), so the same source compiles everywhere and the section appears
-only where it should. `day_piece_settings::open()` opens the window on desktop and selects the
+`prefs.nav_item(key)` is an `Option<NavItem>` carrying the settings page: `Some` exactly when
+the platform gives no app menu (the phones, `Cap::AppMenu` unsupported), `None` elsewhere, and
+an `Option` is valid nav content, so the same source compiles everywhere and the section appears
+only where it should. `.map(|i| i.icon(..))` decorates it like any other item. `day_piece_settings::open()` opens the window on desktop and selects the
 section on a phone (a welcome page's "Settings" link).
 
 ## Values: `Pref<T>`
@@ -116,7 +118,8 @@ already is the right place, and a value that is one JSON document stays one key.
 | `rows::custom(build)` | Any piece as a row. |
 
 Every row takes `.caption(..)` (a secondary line), `.id(..)` (default `pref-<key>` for a pref
-row), `.enabled(signal)` or `.enabled_when(|| bool)`, and `.available(|| bool)` / `.requires(Cap)`.
+row), `.enabled(on)` and `.busy(on)` (a `bool`, a signal or a closure), and `.available(|| bool)`
+/ `.requires(Cap)`.
 A long caption wraps inside the title column rather than widening it; prose that belongs to
 the whole card goes in `Section::footer`. A color value has no row of its own yet: wrap
 `day-piece-colorpicker` in `rows::custom` over a hex `Pref<String>`. Rows never name a

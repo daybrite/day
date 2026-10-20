@@ -83,6 +83,15 @@ impl LocalizedText {
     }
 }
 
+/// A formatted snapshot in the current locale, for the places that hold a `String`. Lets a
+/// closure returning a `LocalizedText` be an `IntoText` too (`label(move || res::str::n(count.get()))`),
+/// since the closure form converts through `Into<String>`.
+impl From<LocalizedText> for String {
+    fn from(t: LocalizedText) -> String {
+        t.format()
+    }
+}
+
 pub struct LocalizedMark;
 
 impl IntoText<LocalizedMark> for LocalizedText {

@@ -7,7 +7,7 @@
 use std::rc::Rc;
 
 use day_core::*;
-use day_reactive::{Signal, watch};
+use day_reactive::{AnyBinding, Binding, watch};
 use day_spec::kinds;
 use day_spec::props::*;
 
@@ -17,14 +17,14 @@ use crate::Decorated;
 // Containers
 // ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum HAlign {
     Leading,
     #[default]
     Center,
     Trailing,
 }
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VAlign {
     Top,
     #[default]
@@ -52,9 +52,11 @@ pub fn column<C: PieceSeq>(children: C) -> Column<C> {
     }
 }
 
+#[day_macros::builder(ColumnBuilder)]
 impl<C: PieceSeq> Column<C> {
-    pub fn spacing(mut self, s: f64) -> Self {
-        self.spacing = s;
+    /// The gap between children: a [`Space`](crate::Space) step or points.
+    pub fn spacing(mut self, s: impl Into<f64>) -> Self {
+        self.spacing = s.into();
         self
     }
     pub fn align(mut self, a: HAlign) -> Self {
@@ -64,31 +66,6 @@ impl<C: PieceSeq> Column<C> {
             HAlign::Trailing => CrossAlign::Trailing,
         };
         self
-    }
-}
-
-/// [`Column`]'s builders, reachable through a decoration (§5.2); see [`LabelBuilder`] for the
-/// pattern. `column(…).padding(8.0).spacing(4.0)` resolves.
-pub trait ColumnBuilder: Sized {
-    fn spacing(self, s: f64) -> Self;
-    fn align(self, a: HAlign) -> Self;
-}
-
-impl<C: PieceSeq> ColumnBuilder for Column<C> {
-    fn spacing(self, s: f64) -> Self {
-        Column::spacing(self, s)
-    }
-    fn align(self, a: HAlign) -> Self {
-        Column::align(self, a)
-    }
-}
-
-impl<P: ColumnBuilder + Piece> ColumnBuilder for Decorated<P> {
-    fn spacing(self, s: f64) -> Self {
-        self.map_inner(|p| p.spacing(s))
-    }
-    fn align(self, a: HAlign) -> Self {
-        self.map_inner(|p| p.align(a))
     }
 }
 
@@ -115,7 +92,9 @@ impl<C: PieceSeq> Piece for Column<C> {
 ///
 /// A row's children negotiate one line; the fit policy is what happens when that line is
 /// wider than the space the row is given. Every policy keeps the same children and the same
-/// call shape, `row((…)).fit(…)`, so a page can move between them as its needs change.
+/// call shape, `row((…)).fit(…)`, so a page can move between them as its needs change. A row
+/// that should become a column on a narrow window is [`adaptive`](crate::adaptive), a piece of
+/// its own.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum RowFit {
     /// One line at natural sizes; what does not fit lands offscreen. The default, and the
@@ -138,12 +117,6 @@ pub enum RowFit {
     /// authored, fixed column count with
     /// per-cell spans is [`grid`]'s job instead (docs/grid.md).
     WrapColumns { run_spacing: f64 },
-    /// Re-arrange into a leading-aligned column while the window's [`WidthClass`] is at or
-    /// below the given one: the shape a label-plus-control-plus-result line wants, where
-    /// wrapping members independently would tear apart what reads as one sentence. The
-    /// `size_class()` read is tracked, so crossing the breakpoint re-arranges it live; app
-    /// state lives in signals and survives the rebuild.
-    ColumnAt(day_spec::WidthClass),
     /// Keep the single line and make it a horizontal scroll strip instead of clipping. The
     /// strip stays one row tall and fills the width it is given.
     Scroll,
@@ -165,9 +138,11 @@ pub fn row<C: PieceSeq>(children: C) -> Row<C> {
     }
 }
 
+#[day_macros::builder(RowBuilder)]
 impl<C: PieceSeq> Row<C> {
-    pub fn spacing(mut self, s: f64) -> Self {
-        self.spacing = s;
+    /// The gap between children: a [`Space`](crate::Space) step or points.
+    pub fn spacing(mut self, s: impl Into<f64>) -> Self {
+        self.spacing = s.into();
         self
     }
     pub fn align(mut self, a: VAlign) -> Self {
@@ -205,38 +180,6 @@ impl<C: PieceSeq> Row<C> {
     }
 }
 
-/// [`Row`]'s builders, reachable through a decoration (§5.2); see [`LabelBuilder`] for the
-/// pattern.
-pub trait RowBuilder: Sized {
-    fn spacing(self, s: f64) -> Self;
-    fn align(self, a: VAlign) -> Self;
-    fn fit(self, fit: RowFit) -> Self;
-}
-
-impl<C: PieceSeq> RowBuilder for Row<C> {
-    fn spacing(self, s: f64) -> Self {
-        Row::spacing(self, s)
-    }
-    fn align(self, a: VAlign) -> Self {
-        Row::align(self, a)
-    }
-    fn fit(self, fit: RowFit) -> Self {
-        Row::fit(self, fit)
-    }
-}
-
-impl<P: RowBuilder + Piece> RowBuilder for Decorated<P> {
-    fn spacing(self, s: f64) -> Self {
-        self.map_inner(|p| p.spacing(s))
-    }
-    fn align(self, a: VAlign) -> Self {
-        self.map_inner(|p| p.align(a))
-    }
-    fn fit(self, fit: RowFit) -> Self {
-        self.map_inner(|p| p.fit(fit))
-    }
-}
-
 impl<C: PieceSeq> Piece for Row<C> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         match self.fit {
@@ -259,17 +202,6 @@ impl<C: PieceSeq> Piece for Row<C> {
                 );
                 cx.under(node, |cx| self.children.build_each(cx));
                 node
-            }
-            RowFit::ColumnAt(limit) => {
-                let stacked = size_class().is_some_and(|c| c.width <= limit);
-                if stacked {
-                    // Leading, not centered: stacked, these read as a control and the line
-                    // it produced, and a centered member floats away from what it belongs to.
-                    self.build_line(cx, Axis::Vertical, CrossAlign::Leading)
-                } else {
-                    let align = self.align;
-                    self.build_line(cx, Axis::Horizontal, align)
-                }
             }
             RowFit::Scroll => {
                 // The row keeps its natural one-line measure inside a horizontal scroll
@@ -319,19 +251,21 @@ pub fn grid<C: PieceSeq>(children: C) -> Grid<C> {
     }
 }
 
+#[day_macros::builder(GridBuilder)]
 impl<C: PieceSeq> Grid<C> {
-    /// Set both the row and column gutters.
-    pub fn spacing(mut self, s: f64) -> Self {
+    /// Set both the row and column gutters: a [`Space`](crate::Space) step or points.
+    pub fn spacing(mut self, s: impl Into<f64>) -> Self {
+        let s = s.into();
         self.row_spacing = s;
         self.column_spacing = s;
         self
     }
-    pub fn row_spacing(mut self, s: f64) -> Self {
-        self.row_spacing = s;
+    pub fn row_spacing(mut self, s: impl Into<f64>) -> Self {
+        self.row_spacing = s.into();
         self
     }
-    pub fn column_spacing(mut self, s: f64) -> Self {
-        self.column_spacing = s;
+    pub fn column_spacing(mut self, s: impl Into<f64>) -> Self {
+        self.column_spacing = s.into();
         self
     }
     /// Default alignment of every cell within its cell rect (cell/row overrides win).
@@ -375,6 +309,7 @@ pub fn grid_row<C: PieceSeq>(children: C) -> GridRow<C> {
     }
 }
 
+#[day_macros::builder(GridRowBuilder)]
 impl<C: PieceSeq> GridRow<C> {
     /// Vertical alignment override for this row's cells (the grid's alignment applies otherwise).
     pub fn align(mut self, a: VAlign) -> Self {
@@ -416,7 +351,7 @@ impl<C: PieceSeq> Piece for GridRow<C> {
 pub struct Scroll<P: Piece> {
     child: P,
     axis: Axis,
-    target: Option<Signal<Option<day_core::ScrollTarget>>>,
+    target: Option<AnyBinding<Option<day_core::ScrollTarget>>>,
 }
 
 pub fn scroll<P: Piece>(child: P) -> Scroll<P> {
@@ -427,6 +362,7 @@ pub fn scroll<P: Piece>(child: P) -> Scroll<P> {
     }
 }
 
+#[day_macros::builder(ScrollBuilder)]
 impl<P: Piece> Scroll<P> {
     /// Scroll horizontally instead of vertically (a filmstrip of cards, a chip row). The content
     /// is measured unconstrained on the horizontal axis and the native view scrolls sideways.
@@ -449,8 +385,8 @@ impl<P: Piece> Scroll<P> {
     /// scroll(rows).scroll_target(jump);
     /// button("Bottom").action(move || jump.set(Some(ScrollTarget::Bottom)));
     /// ```
-    pub fn scroll_target(mut self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self {
-        self.target = Some(sig);
+    pub fn scroll_target(mut self, target: impl Binding<Option<day_core::ScrollTarget>>) -> Self {
+        self.target = Some(AnyBinding::new(target));
         self
     }
 }
@@ -506,7 +442,7 @@ pub struct ZStack<C: PieceSeq> {
     align: Alignment,
 }
 
-/// Build a [`ZStack`] from a tuple of children (or a [`PieceVec`]).
+/// Build a [`ZStack`] from a tuple, `Vec` or array of children.
 pub fn zstack<C: PieceSeq>(children: C) -> ZStack<C> {
     ZStack {
         children,
@@ -514,6 +450,7 @@ pub fn zstack<C: PieceSeq>(children: C) -> ZStack<C> {
     }
 }
 
+#[day_macros::builder(ZStackBuilder)]
 impl<C: PieceSeq> ZStack<C> {
     /// Where children sit within the stack's bounds (default [`Alignment::Center`]).
     pub fn align(mut self, a: Alignment) -> Self {
@@ -539,115 +476,6 @@ impl<C: PieceSeq> Piece for ZStack<C> {
     }
 }
 
-// --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`Grid`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait GridBuilder: Sized {
-    fn spacing(self, s: f64) -> Self;
-    fn row_spacing(self, s: f64) -> Self;
-    fn column_spacing(self, s: f64) -> Self;
-    fn align(self, a: Alignment) -> Self;
-}
-
-impl<C: PieceSeq> GridBuilder for Grid<C> {
-    fn spacing(self, s: f64) -> Self {
-        Grid::spacing(self, s)
-    }
-    fn row_spacing(self, s: f64) -> Self {
-        Grid::row_spacing(self, s)
-    }
-    fn column_spacing(self, s: f64) -> Self {
-        Grid::column_spacing(self, s)
-    }
-    fn align(self, a: Alignment) -> Self {
-        Grid::align(self, a)
-    }
-}
-
-impl<Inner: GridBuilder + Piece> GridBuilder for Decorated<Inner> {
-    fn spacing(self, s: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.spacing(s))
-    }
-    fn row_spacing(self, s: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.row_spacing(s))
-    }
-    fn column_spacing(self, s: f64) -> Self {
-        self.map_inner(|inner_piece| inner_piece.column_spacing(s))
-    }
-    fn align(self, a: Alignment) -> Self {
-        self.map_inner(|inner_piece| inner_piece.align(a))
-    }
-}
-
-/// [`GridRow`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait GridRowBuilder: Sized {
-    fn align(self, a: VAlign) -> Self;
-}
-
-impl<C: PieceSeq> GridRowBuilder for GridRow<C> {
-    fn align(self, a: VAlign) -> Self {
-        GridRow::align(self, a)
-    }
-}
-
-impl<Inner: GridRowBuilder + Piece> GridRowBuilder for Decorated<Inner> {
-    fn align(self, a: VAlign) -> Self {
-        self.map_inner(|inner_piece| inner_piece.align(a))
-    }
-}
-
-/// [`Scroll`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ScrollBuilder: Sized {
-    fn horizontal(self) -> Self;
-    fn axis(self, axis: Axis) -> Self;
-    fn scroll_target(self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self;
-}
-
-impl<P: Piece> ScrollBuilder for Scroll<P> {
-    fn horizontal(self) -> Self {
-        Scroll::horizontal(self)
-    }
-    fn axis(self, axis: Axis) -> Self {
-        Scroll::axis(self, axis)
-    }
-    fn scroll_target(self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self {
-        Scroll::scroll_target(self, sig)
-    }
-}
-
-impl<Inner: ScrollBuilder + Piece> ScrollBuilder for Decorated<Inner> {
-    fn horizontal(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.horizontal())
-    }
-    fn axis(self, axis: Axis) -> Self {
-        self.map_inner(|inner_piece| inner_piece.axis(axis))
-    }
-    fn scroll_target(self, sig: Signal<Option<day_core::ScrollTarget>>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.scroll_target(sig))
-    }
-}
-
-/// [`ZStack`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ZStackBuilder: Sized {
-    fn align(self, a: Alignment) -> Self;
-}
-
-impl<C: PieceSeq> ZStackBuilder for ZStack<C> {
-    fn align(self, a: Alignment) -> Self {
-        ZStack::align(self, a)
-    }
-}
-
-impl<Inner: ZStackBuilder + Piece> ZStackBuilder for Decorated<Inner> {
-    fn align(self, a: Alignment) -> Self {
-        self.map_inner(|inner_piece| inner_piece.align(a))
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Conformance cases (docs/testing.md)
 // ---------------------------------------------------------------------------
@@ -656,7 +484,7 @@ impl<Inner: ZStackBuilder + Piece> ZStackBuilder for Decorated<Inner> {
 #[cfg(feature = "conformance")]
 pub(crate) mod conformance {
     use day_core::conformance::{Case, Drive, FrameExpect};
-    use day_core::{AnyPiece, PieceVec, ScrollTarget};
+    use day_core::{AnyPiece, ScrollTarget};
     use day_reactive::Signal;
     use day_spec::{Color, kinds};
 
@@ -782,7 +610,7 @@ pub(crate) mod conformance {
                     })
                     .collect();
                 column((
-                    scroll(column(PieceVec(rows)).spacing(0.0))
+                    scroll(column(rows).spacing(0.0))
                         .scroll_target(jump)
                         .id("scroll")
                         .frame(120.0, 120.0),

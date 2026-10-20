@@ -20,7 +20,7 @@ fn boot(inset: f64, rows: usize) -> MockProbe {
     };
     day_core::launch_with(mock, options, move || {
         let labels: Vec<AnyPiece> = (0..rows).map(|r| label(format!("row {r}")).any()).collect();
-        scroll(column(PieceVec(labels))).any()
+        scroll(column(labels)).any()
     });
     probe
 }

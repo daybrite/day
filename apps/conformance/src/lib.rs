@@ -22,17 +22,10 @@ mod native_textarea;
 // Entry point for the mobile hosts; a desktop build enters through src/main.rs.
 day::day_start!(options: window(), root);
 
-/// Options for every window. The catalog and title go to `launch`, which installs them.
+/// Options for every window: the generated catalog, title and version, plus the desktop size
+/// (phones fill the screen).
 pub fn window() -> day::WindowOptions {
-    day::WindowOptions {
-        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
-        title_fn: Some(|| res::str::app_title().format()),
-        // Desktop only; phones fill the screen.
-        size: day::prelude::Size::new(960.0, 640.0),
-        // Named in Day's exit line (https://daybrite.dev/docs/lifecycle).
-        version: Some(env!("CARGO_PKG_VERSION").into()),
-        ..Default::default()
-    }
+    res::window_options().size(960.0, 640.0)
 }
 
 // Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).

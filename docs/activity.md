@@ -25,8 +25,7 @@ let spinning = Signal::new(true);
 
 activity()
     .animating(spinning) // a bool, a Signal<bool>, or a closure (default true)
-    .large(false)        // default false: the platform's regular control size
-    .id("spinner")
+    .id("spinner")       // .large() for the platform's large control size
 
 toggle(spinning).id("spinner-toggle"); // flips the same signal → starts/stops the spinner
 ```
@@ -35,7 +34,7 @@ toggle(spinning).id("spinner-toggle"); // flips the same signal → starts/stops
 same disjoint conversions as `label`/`progress` (via `IntoReactive<bool, _>`): a plain `bool`, a
 `Signal<bool>`, or a `Fn() -> bool` closure. A reactive source is watched: whenever it changes,
 the piece writes a sparse `ActivityPatch::Animating(bool)` that starts or stops the native
-animation. `.large(true)` selects the platform's large control size.
+animation. `.large()` selects the platform's large control size; the default is the regular one.
 
 `Activity` implements `Piece`, so `.id()` / `.a11y()` / `.frame()` chain via `Decorate`. It is a
 natural-size leaf (`Flex::default()`, and each backend's default `measure` returns the native

@@ -347,12 +347,15 @@ tree(model::nodes().tree(model::children_of), |slot: ModelSlot<Node>| {
 .expanded(model::open_groups())
 .selected(move || model::selection().get())
 .on_selection(move |keys| model::selection().set(keys))
-.movable(true)
-.move_guard(|node, parent, _| {
-    // Not into itself, not into a descendant, not into a leaf.
-    Move::deny_if(parent.is_some_and(|p| p == node || model::is_descendant(p, node)))
-})
-.on_move(|node, parent, index| model::reparent(node, parent, index))
+.movable(
+    Move::new(|node, parent, index| model::reparent(node, parent, index))
+        // The structural refusals (into itself, into a descendant, into a leaf) are built in;
+        // this guard adds the app's own.
+        .guard(|_node, parent, _| match parent {
+            Some(p) if model::is_locked(*p) => MoveVerdict::Deny,
+            _ => MoveVerdict::Allow,
+        }),
+)
 .id("layers")
 ```
 
@@ -419,7 +422,7 @@ pub struct TreeSource {
     pub recycle: Rc<dyn Fn(RawHandle)>,
     /// The row's type-ahead string (see Keyboard below).
     pub type_select_text: Rc<dyn Fn(u64) -> String>,
-    /// The drag half, present only under `.movable(true)`.
+    /// The drag half, present only when the tree carries a `Move`.
     pub moves: Option<TreeMoves>,
 }
 
@@ -428,7 +431,7 @@ pub struct TreeMoves {
     /// under `parent` at `index`? `index: None` means "onto the parent" (append).
     pub can_move: Rc<dyn Fn(u64, Option<u64>, Option<usize>) -> MoveVerdict>,
     /// The commit, after the drop is accepted. Rewrites Day's snapshot before returning and
-    /// defers the app's `on_move` through the event queue, as `list`'s reorder does.
+    /// defers the app's `Move` handler through the event queue, as `list`'s reorder does.
     pub move_node: Rc<dyn Fn(u64, Option<u64>, Option<usize>)>,
 }
 ```
@@ -880,13 +883,17 @@ after the reload.
 
 ## Moving nodes
 
-`.movable(true)` turns on the platform's drag; `move_guard` answers **while the drag is
-live**, so the affordance reflects the verdict before the user lets go; that is the same
-contract as `list`'s `reorder_guard`, and the reason a guard must stay pure. Every tree needs
-the same refusals: a node cannot move into itself, into its own descendant, or into a leaf.
+A tree is movable exactly when it carries a `Move` value: `.movable(Move::new(moved))` turns
+on the platform's drag, `.guard(..)` on the value answers **while the drag is live**, so the
+affordance reflects the verdict before the user lets go, and `.enabled(..)` takes a constant or
+a reactive `bool` read when a drag may begin. That is the same contract as `list`'s
+`Reorder::guard`, and the reason a guard must stay pure. The structural refusals every tree
+needs (a node into itself, into its own descendant, or into a leaf) are built into the driver;
+the guard adds the app's own.
 
-`on_move` is the commit. In Day Sketch it writes `parent` and a fractional `z` between the new
-neighbors, in one undo unit, which is the same write the Arrange menu makes.
+`Move::new(moved)` is the commit, handed `(key, parent, index)`. In Day Sketch it writes
+`parent` and a fractional `z` between the new neighbors, in one undo unit, which is the same
+write the Arrange menu makes.
 
 ## Accessibility
 
@@ -937,7 +944,7 @@ change, since they have been composite all along.
 *day-pieces* (`src/tree.rs`): `tree(source, row)`, the `NodeSource` trait with two
 implementations (`branches(items, key, parent)` and the store adapter
 `Store::tree(children_projection)`), and the builder: `.expanded`, `.selected`,
-`.on_selection`, `.multi_select`, `.movable`, `.on_move`, `.move_guard`, `.on_activate`,
+`.on_selection`, `.multi_select`, `.movable(Move)`, `.on_activate`,
 `.type_ahead`, `.reveal`, `.indent`, plus the hooks (`.row_height_for`, `.can_expand`,
 `.can_select`, `.is_group_row`) and `.row_tweak`.
 
@@ -946,7 +953,7 @@ tree_move, tree_type_ahead}`.
 
 **Done when** these pass headlessly: only visible rows build; collapsing a row disposes its
 descendants' scopes; recycling rebinds by slot-write rather than rebuilding; a move rewrites
-the snapshot before returning and defers `on_move` to the next drain; a guard denial leaves
+the snapshot before returning and defers the `Move` handler to the next drain; a guard denial leaves
 the tree untouched; expansion and selection survive a reload by token; reveal expands
 ancestors before scrolling; type-ahead selects the right row and resets on timeout; every hook
 is consulted by the flattener; `.row_tweak` fires on each bind and rebind with the right
@@ -998,7 +1005,7 @@ render on any backend with the list machinery. Per row:
   come from the list backend.
 - **The row shell is a native transparent container**, not a layout-only node: the row's
   dayscript id lands as a real a11y identifier, and `.row_context_menu` (lowered onto the
-  ordinary `.context_menu_fn` decorator, key read at summon) needs an element to arm its
+  ordinary summon-time `.context_menu(|p: Point| ..)` decorator, key read at summon) needs an element to arm its
   listener on ([docs/menus.md](menus.md) "Dynamic context menus").
 - **The driver still installs** on the returned node: `expand:`/`tree_move:` resolve rows
   and route moves through the same guard → commit path, so one `tree.yaml` passes verbatim
@@ -1140,7 +1147,7 @@ The page shows one tree deep enough to be interesting and small enough to read: 
 with folders, files and a nested folder, each row a disclosure plus an icon plus a name, and
 below it a live readout of the current selection, expansion set and last move. Controls beside
 it exercise the API: a multi-select toggle, an "expand all" and
-"collapse all" pair driving the expansion signal, a `move_guard` switch that refuses drops
+"collapse all" pair driving the expansion signal, a `Move::guard` switch that refuses drops
 into one particular folder (so the denied affordance is visible on every platform), and a
 reveal field.
 
@@ -1162,22 +1169,22 @@ portable option driven from real controls: Expand/Collapse All writing the app-o
 expansion set, a Reveal button (`.reveal` targeting a leaf under two collapsed ancestors),
 Add File into the selected folder, a Multi-select toggle that rebuilds the tree with the
 other flag (a build-time option, swapped through `when(...).otherwise(...)`), a Lock toggle
-arming the `move_guard` (docs/ refuses drops while locked, showing the native no-drop cursor
+arming the `Move::guard` (docs/ refuses drops while locked, showing the native no-drop cursor
 on macOS), `.type_ahead` from the names, and summon-time `.row_context_menu` menus (folders:
 New File; files: Duplicate; both: Move Up/Down through sibling swaps, Delete of the
-subtree). Readouts mirror `on_selection`, the node count, and exactly what `on_move` was
-handed. Deltas from the plan above: the toggleable hook shipped as the Lock/`move_guard`
+subtree). Readouts mirror `on_selection`, the node count, and exactly what the `Move` handler
+was handed. Deltas from the plan above: the toggleable hook shipped as the Lock/`Move::guard`
 switch (`can_select` does not exist yet; see M1's notes); the reveal "field" is a button
 with a fixed deep target; the walkthrough cannot assert a denied move or type-ahead
 (dayscript has no assert-this-step-fails form and no `type_ahead:` step; the deny verdict
 and type-select stay pointer checks); and the tweak line ships as
 `.tree_style(TreeStyle::sidebar())` from `tweaks/day-tweak-tree-style`, AppKit clearing the
 scroll/outline backgrounds via `Subcontrol::Content` (plus an `alternating_rows` option),
-GTK adding Adwaita's `navigation-sidebar` class, a documented no-op elsewhere. Two traps
-to remember: `.id("demo-tree")` must chain on the tree builder itself; after `.height`
-it tags the wrapper and every `expand:`/`tree_move:` step fails with "no tree at this
-node"; and `assert_text` against argumented Fluent messages must go through `key:`+`args:`
-(the runner formats them with the same bidi isolates the label carries). Verified locally:
+GTK adding Adwaita's `navigation-sidebar` class, a documented no-op elsewhere. One trap
+to remember: `assert_text` against argumented Fluent messages must go through `key:`+`args:`
+(the runner formats them with the same bidi isolates the label carries). (A second trap of the
+time, `.id` after `.height` tagging the wrapper so `expand:`/`tree_move:` steps found no tree,
+is gone: `.id` names the tree's own node wherever it sits in the chain.) Verified locally:
 tree.yaml 53/53 on macos-appkit, macos-gtk, macos-qt, web-dom, android-mdc, ios-uikit and
 harmony-arkui; the walkthrough.yaml tree block in the appkit full run (705/705); real
 right-click context menus, a real Duplicate commit and real chevron disclosure on web-dom
@@ -1205,10 +1212,10 @@ above, verbatim.
 the two stay in step without either knowing the other exists, and undo's transient selection
 restoration already flows to both.
 
-**Moving.** `on_move(node, parent, index)` writes `parent` and a fractional `z` between the
-new neighbors in one undo unit labeled `move`, which is the write the Arrange menu already
-makes. `move_guard` refuses a node into itself or a descendant, and refuses a drop into a
-leaf.
+**Moving.** The `Move` handler `(node, parent, index)` writes `parent` and a fractional `z`
+between the new neighbors in one undo unit labeled `move`, which is the write the Arrange menu
+already makes. The driver refuses a node into itself or a descendant, and a drop into a leaf;
+`Move::guard` adds the app's own refusals.
 
 **Keyboard and type-ahead** come with the piece: arrows walk the tree, left and right climb
 and open, type-ahead jumps by node name.
@@ -1231,9 +1238,9 @@ than in properties. The first two are still tweak-shaped. The hooks are not twea
 and calling them "deep customization via tweaks" would misfile them. Depth comes from
 `TreeSource` and the hooks; the tweak hatch stays shallow so it stays safe.
 
-**The policy rung already existed, unnamed.** `list` grew `reorder_guard` and `delete_guard`;
+**The policy rung already existed, unnamed.** `list` grew `Reorder::guard` and `Delete::guard`;
 `nav` grew `on_back`; this piece needs `can_expand`, `can_select`, `row_height_for`,
-`move_guard`. All have the same shape: pure, synchronous, called inside a native callback,
+`Move::guard`. All have the same shape: pure, synchronous, called inside a native callback,
 with Day answering the platform's question by asking the app. The extension ladder in
 [docs/tweaks.md](tweaks.md) documents styling / tweaks / native pieces; the fourth rung,
 policy, has been growing piecemeal since `list` shipped. When the tree lands, the ladder
@@ -1272,7 +1279,7 @@ step through them.
   `TreeController` does not, and Qt's index-widget path would not either. `Cap::ListRecycling`
   has to answer accurately per backend, and the docs have to say which trees stay small.
 - **Two natives cannot guard a drag live.** ArkUI reports a move after the fact; the emulated
-  path can be as live as Day makes it. `move_guard`'s contract must therefore be "consulted as
+  path can be as live as Day makes it. `Move::guard`'s contract must therefore be "consulted as
   early as the platform allows", with the per-backend table saying where that is, the same
   shape `list`'s reorder guard already documents.
 - **Two identity contracts until `list` migrates.** The tree is token-addressed; `list` is

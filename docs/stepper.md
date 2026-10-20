@@ -43,9 +43,8 @@ labeled(
   native where an arm exists (`support()` answers `Native` on appkit, gtk, qt), composed
   everywhere else. `Native` is literal: pinned on a toolkit with no renderer it draws Day's
   visible placeholder.
-- **`.id(…)`** names the interactive field for dayscript on both idioms, before adding other
-  decorators. This inherent method avoids tagging only the composed row's layout node.
-  **`.key(…)`** remains an alias for existing callers.
+- **`.id(…)`** names the interactive field for dayscript on both idioms, wherever it sits in the
+  chain.
 
 ## Driving and asserting from dayscript
 

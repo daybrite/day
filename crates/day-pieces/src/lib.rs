@@ -20,6 +20,9 @@ pub mod render;
 // UIs through.
 #[cfg(feature = "dyn-registry")]
 pub mod dynreg;
+/// `#[day_pieces::builder(FooBuilder)]`: a piece's builder trait, generated from its inherent
+/// impl (docs/api-style.md "Typed builders and erasure").
+pub use day_macros::builder;
 pub use day_spec::Renderer;
 pub use linkme;
 pub use render::fill_measure;
@@ -27,7 +30,7 @@ pub use render::fill_measure;
 // The piece vocabulary: one logical group per module, re-exported flat (see each module's docs).
 mod canvas;
 mod commands;
-pub use commands::{Command, CommandHandle};
+pub use commands::Command;
 mod containers;
 mod decorators;
 mod dialogs;
@@ -51,8 +54,10 @@ mod split;
 mod status;
 mod structure;
 mod tabs;
+mod tokens;
 mod toolbar;
 pub use tabs::*;
+pub use tokens::*;
 
 pub use canvas::*;
 pub use containers::*;
@@ -84,24 +89,27 @@ pub mod prelude {
     pub use crate::routes;
     pub use crate::{
         A11yBuilder, Alert, Ambient, BackRequest, BackResponse, Binding, ButtonBuilder,
-        ColumnBuilder, Command, CommandHandle, Confirm, Corner, Cover, Decorate, Decorated, Drag,
-        Draw, FileAccess, FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector,
+        ColumnBuilder, Command, Confirm, ContentList, Corner, Cover, Decorate, Decorated, Delete,
+        Drag, Draw, FileAccess, FileUrl, Form, FormSection, Grid, GridRow, HAlign, Inspector,
         IntoFocusBinding, IntoFraction, IntoImageSource, IntoReactive, IntoText, ItemSlot,
-        LabelBuilder, Labeled, Link, List, MenuEntry, Modifier, NativeRef, Nav, NavItem, NavStack,
-        NavStyle, OpenFile, Pan, PathBuilder, Pinch, Prompt, Reactive, Reorder, Route, RoutePath,
-        RowBuilder, RowFit, SaveFile, ShapeKind, ShapePiece, StatusItem, SwipeAction, TextBuilder,
-        VAlign, VectorWeight, When, ZStack, alert, app_environment, app_menu, app_menu_reactive,
-        arc, button, canvas, capsule, circle, column, confirm, cover, current_route, divider,
-        dock_menu, dock_menu_reactive, each, ellipse, environment, focused_environment, form,
-        frame_clock, grid, grid_row, image, inspector, item, items, label, labeled, line, link,
-        list, menu_item, menu_role, menu_separator, nav, nav_back, nav_link, nav_link_to,
-        nav_stack, navigate, navigate_to, open_file, open_link, picker, polygon, progress, prompt,
-        rectangle, rounded_rectangle, route, route_param, route_params, row, save_file, scroll,
-        section, secure_field, segment, shape, shape_group, shape_group_fn, slider, spacer,
-        spinner, split, status_item, sub_menu, swipe_action, text_area, text_field, toggle,
-        toolbar_button, toolbar_label, toolbar_menu, toolbar_segmented, toolbar_separator,
-        toolbar_toggle, vector, when, with_environment, zstack,
+        LabelBuilder, Labeled, Link, List, Loaded, MenuContent, MenuEntry, Modifier, Move,
+        NativeRef, Nav, NavContent, NavItem, NavStack, NavStyle, OpenFile, Pan, PathBuilder, Pinch,
+        Prompt, Reactive, Reorder, ReorderVerdict, Route, RoutePath, RowBuilder, RowFit, SaveFile,
+        Search, SearchReveal, Sections, ShapeKind, ShapePiece, StatusItem, SwipeAction,
+        TextBuilder, VAlign, VectorWeight, When, ZStack, adaptive, alert, app_environment,
+        app_menu, arc, button, canvas, capsule, circle, column, confirm, cover, current_route,
+        divider, dock_menu, each, ellipse, environment, focused_environment, form, frame_clock,
+        grid, grid_row, image, inspector, item, items, keyed, label, labeled, line, link, list,
+        load, menu_item, menu_role, menu_separator, nav, nav_back, nav_items, nav_link,
+        nav_link_to, nav_stack, navigate, navigate_to, open_file, open_link, picker,
+        picker_optional, polygon, progress, prompt, rectangle, rounded_rectangle, route,
+        route_param, route_params, row, save_file, scroll, section, secure_field, segment, shape,
+        shape_group, shape_group_fn, slider, spacer, spinner, split, status_item, sub_menu,
+        swipe_action, switch, text_area, text_field, toggle, toolbar_button, toolbar_label,
+        toolbar_menu, toolbar_segmented, toolbar_separator, toolbar_toggle, vector, when,
+        with_environment, zstack,
     };
+    pub use crate::{Space, TextPreset};
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{
         Branches, MoveVerdict, NodeSource, TreeBuilder, TreeConn, TreePiece, branches, tree,
@@ -112,23 +120,22 @@ pub mod prelude {
     // become ambiguous at a call site. (`LabelBuilder`, `ButtonBuilder`, `ColumnBuilder` and
     // `RowBuilder` sit in the list above, in alphabetical company.)
     pub use crate::{
-        CoverBuilder, DividerBuilder, FormSectionBuilder, GridBuilder, GridRowBuilder,
-        ImageBuilder, InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder, NavStackBuilder,
-        PickerBuilder, ScrollBuilder, ShapePieceBuilder, SliderBuilder, SplitBuilder,
-        TextAreaBuilder, TextFieldBuilder, ToggleBuilder, VectorBuilder, WhenBuilder,
+        AdaptiveBuilder, CoverBuilder, DividerBuilder, FormSectionBuilder, GridBuilder,
+        GridRowBuilder, ImageBuilder, InspectorBuilder, LinkBuilder, ListBuilder, NavBuilder,
+        NavStackBuilder, PickerBuilder, ScrollBuilder, ShapePieceBuilder, SliderBuilder,
+        SplitBuilder, TextAreaBuilder, TextFieldBuilder, ToggleBuilder, VectorBuilder, WhenBuilder,
         ZStackBuilder,
     };
     #[cfg(feature = "model")]
     pub use crate::{ModelSlot, Rows, StoreRows, StoreTree, StoreTrees};
     pub use crate::{Picker, TextArea};
     pub use day_core::{
-        Alignment, AnyPiece, BuildCx, Either, Piece, PieceFn, PieceSeq, PieceVec, RNode,
-        ScrollTarget, announce, announce_urgent, invalidate_size, open_url, piece_fn,
-        with_animation,
+        Alignment, AnyPiece, BuildCx, Either, Piece, PieceFn, PieceSeq, RNode, ScrollTarget,
+        announce, announce_urgent, invalidate_size, open_url, piece_fn, with_animation,
     };
     pub use day_geometry::{Affine, Animatable, Color, Insets, Point, Rect, Size, Transform};
     pub use day_reactive::{
-        Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
+        AnyBinding, Effect, Memo, Scope, Setter, Signal, Trigger, batch, bind, untrack, watch,
     };
     // `Nav::presentation` takes one (docs/size-classes.md); apps that leave the
     // presentation automatic never name it.

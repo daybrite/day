@@ -1598,6 +1598,128 @@ impl<T: Clone + 'static> Binding<T> for Signal<T> {
     fn write_teardown(&self, _v: T) {}
 }
 
+/// The object-safe half of [`Binding`], behind [`AnyBinding`]. Its methods carry an `erased_`
+/// prefix so a call on a `Signal` inside this crate never sees two candidates named `read`.
+trait ErasedBinding<T: 'static> {
+    fn erased_read(&self) -> T;
+    fn erased_peek(&self) -> T;
+    fn erased_write(&self, v: T);
+    fn erased_write_preview(&self, v: T);
+    fn erased_write_commit(&self, v: T);
+    fn erased_write_teardown(&self, v: T);
+}
+
+impl<T: 'static, B: Binding<T>> ErasedBinding<T> for B {
+    fn erased_read(&self) -> T {
+        Binding::read(self)
+    }
+    fn erased_peek(&self) -> T {
+        Binding::peek(self)
+    }
+    fn erased_write(&self, v: T) {
+        Binding::write(self, v)
+    }
+    fn erased_write_preview(&self, v: T) {
+        Binding::write_preview(self, v)
+    }
+    fn erased_write_commit(&self, v: T) {
+        Binding::write_commit(self, v)
+    }
+    fn erased_write_teardown(&self, v: T) {
+        Binding::write_teardown(self, v)
+    }
+}
+
+/// A type-erased [`Binding`]: what a piece stores when its builder takes `impl Binding<T>`
+/// (docs/api-style.md "Three input spellings"), so the piece itself needs no type parameter
+/// per bound value.
+///
+/// `Copy`, like [`Signal`], so it captures into closures the same way: the erased binding lives
+/// in a slot owned by the reactive scope that created it, which is the scope building the
+/// piece. Reads and writes forward to the binding it wraps, preview and commit included.
+pub struct AnyBinding<T: 'static> {
+    slot: Signal<Rc<dyn ErasedBinding<T>>>,
+}
+
+impl<T: 'static> Clone for AnyBinding<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+impl<T: 'static> Copy for AnyBinding<T> {}
+
+impl<T: 'static> AnyBinding<T> {
+    /// Erase `binding`. Call it where the piece is built: the slot belongs to the current scope.
+    pub fn new(binding: impl Binding<T>) -> Self {
+        let erased: Rc<dyn ErasedBinding<T>> = Rc::new(binding);
+        AnyBinding {
+            slot: Signal::new(erased),
+        }
+    }
+    fn inner(self) -> Rc<dyn ErasedBinding<T>> {
+        self.slot.get_untracked()
+    }
+    /// Tracked read.
+    pub fn get(self) -> T {
+        self.inner().erased_read()
+    }
+    /// Tracked read, or `None` once the scope that created the binding is disposed.
+    pub fn try_get(self) -> Option<T> {
+        self.slot.try_get().map(|b| b.erased_read())
+    }
+    /// Untracked read.
+    pub fn get_untracked(self) -> T {
+        self.inner().erased_peek()
+    }
+    /// Tracked read through a projection.
+    pub fn with<R>(self, f: impl FnOnce(&T) -> R) -> R {
+        let v = self.inner().erased_read();
+        f(&v)
+    }
+    /// Write, waking whatever tracks the binding.
+    pub fn set(self, v: T) {
+        self.inner().erased_write(v)
+    }
+    /// Write only when the value differs from the current one.
+    pub fn set_if_changed(self, v: T)
+    where
+        T: PartialEq,
+    {
+        let b = self.inner();
+        if b.erased_peek() != v {
+            b.erased_write(v);
+        }
+    }
+    /// Read the current value, let `f` change it, write it back.
+    pub fn update(self, f: impl FnOnce(&mut T)) {
+        let b = self.inner();
+        let mut v = b.erased_peek();
+        f(&mut v);
+        b.erased_write(v);
+    }
+}
+
+impl<T: 'static> Binding<T> for AnyBinding<T> {
+    fn read(&self) -> T {
+        self.inner().erased_read()
+    }
+    fn peek(&self) -> T {
+        self.inner().erased_peek()
+    }
+    fn write(&self, v: T) {
+        self.inner().erased_write(v)
+    }
+    fn write_preview(&self, v: T) {
+        self.inner().erased_write_preview(v)
+    }
+    fn write_commit(&self, v: T) {
+        self.inner().erased_write_commit(v)
+    }
+    fn write_teardown(&self, v: T) {
+        self.inner().erased_write_teardown(v)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Async data loading: Load + Resource (§4.5, docs/async.md)
 // ---------------------------------------------------------------------------

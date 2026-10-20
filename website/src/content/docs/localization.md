@@ -81,17 +81,19 @@ unread_count = { $count ->
 Use snake_case keys because they become Rust function names. Fluent permits `unread-count`,
 but Day's generator requires `unread_count`.
 
-Pass the catalog through the `WindowOptions` used by your app's entry points:
+Pass the catalog through the `WindowOptions` used by your app's entry points. The generated
+`res::window_options()` already carries it, with the title from the `app_title` message and the
+version from Cargo.toml:
 
 ```rust
 pub fn window() -> day::WindowOptions {
-    day::WindowOptions {
-        locales: Some((res::locales::DEFAULT, res::locales::CATALOG)),
-        title_fn: Some(|| res::str::app_title().format()),
-        ..Default::default()
-    }
+    res::window_options().size(960.0, 640.0)
 }
 ```
+
+A message with two or more variables takes one generated named-field struct
+(`res::str::items_moved(res::str::ItemsMoved { count, folder })`), so same-typed arguments
+cannot be swapped.
 
 Day installs this catalog after collecting the platform's language preferences and before
 computing the window title. Use the same options for `day::launch` and `day::day_start!`.

@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use day_core::{Alignment, AnyPiece, PieceVec};
+use day_core::{Alignment, AnyPiece};
 use day_reactive::Signal;
 use day_spec::{Color, Edges, Font};
 
@@ -218,10 +218,10 @@ pub struct DynPiece(Rc<std::cell::RefCell<Option<Inner>>>);
 enum Inner {
     Label(Label),
     Button(Button),
-    Column(Column<PieceVec>),
-    Row(Row<PieceVec>),
-    Grid(Grid<PieceVec>),
-    GridRow(GridRow<PieceVec>),
+    Column(Column<Vec<AnyPiece>>),
+    Row(Row<Vec<AnyPiece>>),
+    Grid(Grid<Vec<AnyPiece>>),
+    GridRow(GridRow<Vec<AnyPiece>>),
     TextField(TextField<Signal<String>>),
     Toggle(Toggle<Signal<bool>>),
     Slider(Slider<Signal<f64>>),
@@ -355,7 +355,7 @@ fn str_arg(args: &[DynValue], i: usize, what: &'static str) -> Result<String, Dy
         .ok_or(want(args, i, what, "a string"))
 }
 
-fn children(args: &[DynValue]) -> Result<PieceVec, DynError> {
+fn children(args: &[DynValue]) -> Result<Vec<AnyPiece>, DynError> {
     // Accept both `column(a, b, c)` and `column([a, b, c])`.
     let mut out = Vec::new();
     let mut push = |v: &DynValue| -> Result<(), DynError> {
@@ -381,7 +381,7 @@ fn children(args: &[DynValue]) -> Result<PieceVec, DynError> {
             other => push(other)?,
         }
     }
-    Ok(PieceVec(out))
+    Ok(out)
 }
 
 /// Text-ish argument: literal, reactive callback, or string signal.
@@ -530,8 +530,8 @@ fn builtin_ctors() -> HashMap<&'static str, CtorFn> {
     });
     m.insert("scroll", |a| {
         let kids = children(a)?;
-        let one: AnyPiece = if kids.0.len() == 1 {
-            kids.0.into_iter().next().expect("len checked")
+        let one: AnyPiece = if kids.len() == 1 {
+            kids.into_iter().next().expect("len checked")
         } else {
             column(kids).any()
         };

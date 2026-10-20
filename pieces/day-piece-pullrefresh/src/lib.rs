@@ -33,6 +33,7 @@
 use std::rc::Rc;
 
 use day_core::{BuildCx, Flex, Piece, RNode};
+use day_pieces::Decorated;
 use day_reactive::Signal;
 use day_spec::Event;
 
@@ -89,6 +90,7 @@ pub fn pull_to_refresh<P: Piece>(refreshing: Signal<bool>, child: P) -> PullRefr
     }
 }
 
+#[day_pieces::builder(PullRefreshBuilder)]
 impl<P: Piece> PullRefresh<P> {
     /// Run `f` when a refresh BEGINS (user pull, dayscript toggle, or programmatic
     /// `refreshing.set(true)` routed through a pull). Start the reload here and set the bound
@@ -290,26 +292,6 @@ mod appkit_glue;
 mod gtk_glue;
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`PullRefresh`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait PullRefreshBuilder: Sized {
-    fn on_refresh(self, f: impl Fn() + 'static) -> Self;
-}
-
-impl<P: Piece> PullRefreshBuilder for PullRefresh<P> {
-    fn on_refresh(self, f: impl Fn() + 'static) -> Self {
-        PullRefresh::on_refresh(self, f)
-    }
-}
-
-impl<Inner: PullRefreshBuilder + day_pieces::prelude::Piece> PullRefreshBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn on_refresh(self, f: impl Fn() + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_refresh(f))
-    }
-}
 
 /// Pull-to-refresh's conformance cases (docs/testing.md). The `toggle` step is the synthetic
 /// pull, on every backend.

@@ -5,9 +5,9 @@ order: 33
 section: Guides
 ---
 
-Define a `Command { id, label, action }` when several controls perform the same operation.
-Call `.build()` to obtain a cloneable `CommandHandle`, then configure availability, optional
-checked state, icon, and keyboard shortcut with its modifiers.
+Define a `Command::new(id, label, action)` when several controls perform the same operation.
+It is cloneable, and its modifiers configure availability, optional checked state, icon, and
+keyboard shortcut.
 A menu item that is still visible after the operation becomes unavailable cannot bypass the
 command's guard.
 
@@ -15,22 +15,19 @@ command's guard.
 use day::prelude::*;
 
 let starred = Signal::new(false);
-let star = Command {
-    id: "star",
-    label: move || {
-        if starred.get() { "Unstar" } else { "Star" }.to_string()
-    },
-    action: move || starred.update(|on| *on = !*on),
-}
-.build()
+let star = Command::new(
+    "star",
+    move || if starred.get() { "Unstar" } else { "Star" }.to_string(),
+    move || starred.update(|on| *on = !*on),
+)
 .checked(starred)
 .icon(Symbol::Star)
-.shortcut(Shortcut::new("d"));
+.shortcut(Shortcut::primary("d"));
 
 let menu = star.clone();
 let bar = star.clone();
 let content = star.button()
-    .context_menu_fn(move |_| vec![menu.menu_item()])
+    .context_menu(move || vec![menu.menu_item()])
     .toolbar(move || vec![bar.toolbar_item()]);
 ```
 
@@ -40,10 +37,10 @@ caller. It returns whether the handler ran; it does not report the result of asy
 
 ## Choose the owning scope and target
 
-Handle clones share behavior and reactive sources. `.build()` captures the owning reactive scope;
-the struct literal alone does not. Call `.build()` in the scope that owns the operation; the handle
-stops accepting invocations after that scope is disposed. Captured signals must still outlive
-their use. Command factory functions return `CommandHandle`. Capture a window's scene
+Clones share behavior and reactive sources. `Command::new` captures the owning reactive scope,
+so build the command in the scope that owns the operation; it stops accepting invocations after
+that scope is disposed. Captured signals must still outlive their use. Command factory functions
+return `Command`. Capture a window's scene
 for a window command, or resolve the focused scene inside an app-menu command. Commands do not
 implicitly select a window or redirect an operation to whichever document is frontmost.
 
@@ -57,9 +54,10 @@ star.toolbar_item().id("star-toolbar");
 
 ## Keep the presentations reactive
 
-Buttons bind automatically. Use a derived `.toolbar(move || ...)` for changing titles, and
-`app_menu_reactive` or `context_menu_fn` for current menu state. A fixed menu remains a snapshot;
-its handler still rechecks availability. Toolbar check and enabled state bind live even in fixed
+Buttons bind automatically. Use a derived `.toolbar(move || ...)` for changing titles. The app
+menu is live (a command's menu item re-lowers it when the title or availability changes), and a
+`.context_menu(move || ...)` closure builds the menu on summon. A fixed `context_menu(vec![..])`
+remains a snapshot; its handler still rechecks availability. Toolbar check and enabled state bind live even in fixed
 lists. The application handler owns check changes; native toggle activation does not write a
 second mirror signal.
 

@@ -5,7 +5,7 @@
 //!
 //! Native: the piece realizes its kind, a native pick (`Event::Custom` carrying the component
 //! form) and dayscript's `input:` step (`Event::TextChanged` carrying hex) both drive the bound
-//! signal, an app write patches through to the well, and `.alpha(false)` refuses to let a picker
+//! signal, an app write patches through to the well, and `` refuses to let a picker
 //! clear the app's opacity.
 //!
 //! Composed: the panel realizes no native kind at all (it is ordinary pieces), so what these
@@ -17,6 +17,7 @@ use std::rc::Rc;
 
 use day_core::AnyPiece;
 use day_mock::{MockProbe, MockToolkit};
+use day_piece_colorpicker::ColorPickerBuilder;
 use day_piece_colorpicker::{KIND, PICK_TAG, color_picker};
 use day_pieces::prelude::*;
 use day_reactive::{Signal, flush_sync};
@@ -47,7 +48,10 @@ fn with_picker(initial: Color, alpha: bool) -> (MockProbe, Signal<Color>, NodeId
     let probe = boot(move || {
         let color = Signal::new(initial);
         cell2.set(Some(color));
-        color_picker(color).native().alpha(alpha).any()
+        color_picker(color)
+            .native()
+            .apply_if(alpha, |p| p.alpha())
+            .any()
     });
     let color = cell.get().unwrap();
     let node = picker_node(&probe);
@@ -103,7 +107,7 @@ fn app_writes_patch_native() {
 
 #[test]
 fn opaque_picker_cannot_clear_alpha() {
-    // `.alpha(false)` is the default, and the promise it makes is that the bound color stays
+    // `` is the default, and the promise it makes is that the bound color stays
     // opaque no matter what a backend reports: an arm whose native control has a stray alpha
     // channel must not be able to make an app's brand color half-transparent.
     let (probe, color, node) = with_picker(Color::hex(0xE86A3C), false);
@@ -125,7 +129,10 @@ fn with_composed(
     let probe = boot(move || {
         let color = Signal::new(initial);
         cell2.set(Some(color));
-        color_picker(color).composed().alpha(alpha).any()
+        color_picker(color)
+            .composed()
+            .apply_if(alpha, |p| p.alpha())
+            .any()
     });
     let color = cell.get().unwrap();
     let wells = probe.find_by_kind("day.canvas");

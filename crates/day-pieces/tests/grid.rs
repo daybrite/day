@@ -213,7 +213,7 @@ fn grid_in_scroll_reports_content() {
         let rows: Vec<AnyPiece> = (0..40)
             .map(|r| grid_row((label(format!("row {r}")), label("x"))).any())
             .collect();
-        scroll(grid(PieceVec(rows)).spacing(10.0)).any()
+        scroll(grid(rows).spacing(10.0)).any()
     });
     // Unconstrained-height measure inside the viewport: 40 × 16 + 39 × 10 = 1030 (> the 600pt
     // window, so the viewport clamp doesn't mask it).
@@ -254,12 +254,12 @@ fn grid_measure_calls_bounded() {
                         cells.push(label(format!("r{r}c{c}")).any());
                     }
                 }
-                grid_row(PieceVec(cells)).any()
+                grid_row(cells).any()
             })
             .collect();
         column((
             button("+").action(move || hot.set("bbbb".to_string())),
-            grid(PieceVec(rows)).spacing(2.0),
+            grid(rows).spacing(2.0),
         ))
         .any()
     });

@@ -32,7 +32,7 @@ column((
     date_picker(date)
         .min(DayDate::new(2026, 1, 1).unwrap())
         .max(DayDate::new(2026, 12, 31).unwrap()),
-    time_picker(time).seconds(true),         // seconds honored on AppKit/Qt only
+    time_picker(time).seconds(),             // seconds honored on AppKit/Qt only
 ))
 ```
 
@@ -79,7 +79,7 @@ Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity that
 ## What the unified pieces do not promise
 
 - **Identical chrome** — Android's chooser is a modal dialog, iOS's a popover, Qt's a popup.
-- **Seconds everywhere** — `.seconds(true)` is honored on AppKit and Qt (the two toolkits whose
+- **Seconds everywhere** — `.seconds()` is honored on AppKit and Qt (the two toolkits whose
   controls have a seconds field) and is a no-op elsewhere.
 - **A combined date+time single control** — compose the two pieces; a `date_time_picker`
   convenience that upgrades to the native combined control on AppKit/UIKit/Qt is a possible v2.

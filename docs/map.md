@@ -27,7 +27,7 @@ button("San Francisco").action(move || where_to.set((37.7749, -122.4194)));
 button("New York").action(move || where_to.set((40.7128, -74.0060)));
 
 map()
-    .center_signal(where_to)      // preset buttons recenter the map live
+    .center(where_to)             // preset buttons recenter the map live
     .span(0.05)                   // ~5 km across (smaller = more zoomed in)
     .marker(37.7749, -122.4194)   // drop a pin
     .frame(320.0, 240.0)          // a map is a growing leaf, so constrain it
@@ -35,11 +35,11 @@ map()
 ```
 
 `map()` starts at `(0, 0)` with the default span (a few city blocks). Set a fixed region at build
-with `.center(lat, lon)` + `.span(degrees)` and drop a pin with `.marker(lat, lon)`. The center can
-also be bound reactively with `.center_signal(signal)`, which takes a `Signal<(f64, f64)>` or a
-`Fn() -> (f64, f64)`, so a preset row or a location feed recenters the map live (a `Center` patch to
-the native view; a `Const` center from `.center` seeds once and never patches). `.center` and
-`.center_signal` are last-writer-wins. `Map` implements `Piece`, so `.id()` / `.a11y()` / `.frame()`
+with `.center((lat, lon))` + `.span(degrees)` and drop a pin with `.marker(lat, lon)`. `.center`
+takes a constant or a reactive source: a `Signal<(f64, f64)>` or a `Fn() -> (f64, f64)` recenters
+the map live (a `Center` patch to the native view) whenever it changes, so a preset row or a
+location feed drives it; a constant seeds once and never patches. A later `.center` replaces an
+earlier one. `Map` implements `Piece`, so `.id()` / `.a11y()` / `.frame()`
 chain via `Decorate`. It's a growing leaf (`Flex { grow_w, grow_h }` + `day_pieces::fill_measure`),
 so put it in a `.frame(w, h)` (or last in a `column`) and it fills the space it's offered.
 

@@ -77,6 +77,14 @@ pub trait IntoText<M> {
 pub struct StaticMark;
 pub struct SignalMark;
 pub struct FnMark;
+/// Marker for an already-converted [`TextSource`].
+pub struct SourceMark;
+
+impl IntoText<SourceMark> for TextSource {
+    fn into_text(self) -> TextSource {
+        self
+    }
+}
 
 /// A focus-binding target for [`Decorate::focused`] (docs/focus.md): either a `Signal<bool>`
 /// (one control) or a `(Signal<Option<K>>, K)` pair (one control of a group sharing a signal).

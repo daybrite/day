@@ -50,7 +50,7 @@ The pieces, all in the `day_pieces` prelude:
 
 | Builder | Produces |
 |---|---|
-| `menu_item(label)` | A clickable command. Chain `.action(f)`, `.key("s")`, `.shortcut(_)`, `.enabled(bool)`, `.id("…")`, `.checked(bool)`. |
+| `menu_item(label)` | A clickable command. `label` is any text source (a literal, `res::str::x()`, a signal, a closure), live. Chain `.action(f)`, `.key("s")`, `.shortcut(_)`, `.enabled(on)`, `.id("…")`, `.checked(on)`; `on` is a `bool`, a `Signal<bool>` or a closure. |
 | `sub_menu(label, vec![…])` | A nested submenu (arbitrarily deep on desktop; see platform notes). |
 | `menu_separator()` | A divider between groups. |
 | `menu_role(role)` | A standard system command; see [Standard roles](#standard-roles). |
@@ -75,15 +75,16 @@ They never reach the user.
 
 ## Checked items
 
-`.checked(bool)` draws the platform's check mark beside the item — for a setting the menu
-toggles, or one of several mutually exclusive choices:
+`.checked(on)` draws the platform's check mark beside the item — for a setting the menu
+toggles, or one of several mutually exclusive choices. `on` is a `bool`, a `Signal<bool>` or a
+closure; pass the signal and the mark follows the state:
 
 ```rust
-app_menu_reactive(move || vec![sub_menu(tr("menu-view"), vec![
-    menu_item(tr("view-grid")).id("view-grid").checked(grid.get()).action(move || grid.set(!grid.get())),
+app_menu([sub_menu(tr("menu-view"), vec![
+    menu_item(tr("view-grid")).id("view-grid").checked(grid).action(move || grid.set(!grid.get())),
     menu_separator(),
-    menu_item(tr("view-day")).id("view-day").key("1").checked(mode.get() == 0).action(move || mode.set(0)),
-    menu_item(tr("view-both")).id("view-both").key("2").checked(mode.get() == 1).action(move || mode.set(1)),
+    menu_item(tr("view-day")).id("view-day").key("1").checked(move || mode.get() == 0).action(move || mode.set(0)),
+    menu_item(tr("view-both")).id("view-both").key("2").checked(move || mode.get() == 1).action(move || mode.set(1)),
 ])]);
 ```
 
@@ -94,8 +95,8 @@ stepping in and out by a tick's width as the selection moves.
 **The app owns the state.** Choosing a checked item runs its `.action` and nothing else — no backend
 flips the mark by itself, and the ones whose native control would (GTK's stateful action, Qt's
 checkable `QAction`, WinUI's `ToggleMenuFlyoutItem`) have that flip suppressed. The mark moves when
-the menu is re-installed carrying the new value, which is what [`app_menu_reactive`](#runtime-language-changes-app_menu_reactive)
-does on its own as soon as the builder reads the signal. So what the menu shows can never disagree
+the menu is re-installed carrying the new value, which [`app_menu`](#runtime-language-changes)
+does on its own as soon as a `checked` source changes. So what the menu shows can never disagree
 with what the app thinks, and an action that declines to change anything leaves the mark where it was.
 
 | Backend | Drawn as |
@@ -141,11 +142,11 @@ Ctrl elsewhere), so one spec is correct everywhere:
 
 ```rust
 menu_item("Save").key("s")                       // ⌘S / Ctrl+S   (primary + key, the common case)
-menu_item("Save As…").shortcut(Shortcut::new("s").shift())   // ⇧⌘S / Ctrl+Shift+S
+menu_item("Save As…").shortcut(Shortcut::primary("s").shift())   // ⇧⌘S / Ctrl+Shift+S
 menu_item("Delete").shortcut(Shortcut::plain("Delete"))      // no primary modifier
 ```
 
-`Shortcut::new(key)` sets `primary`; `Shortcut::plain(key)` sets no modifiers; `.shift()`, `.alt()`,
+`Shortcut::primary(key)` sets `primary`; `Shortcut::plain(key)` sets no modifiers; `.shift()`, `.alt()`,
 `.control()` add the others (`.control()` is the physical Control key, distinct from `primary` on
 macOS). Named keys (`"Return"`, `"Delete"`, `"Space"`, `"F5"`, arrows) are recognized alongside
 single characters. The shortcut is drawn in the native accelerator position and is live whenever the
@@ -314,8 +315,9 @@ app_menu(vec![
 ])
 ```
 
-Top-level entries are the menu-bar menus. Call `app_menu` at startup or any time the menu changes; it
-replaces the previous app menu.
+Top-level entries are the menu-bar menus. `app_menu` takes a `Vec` or an array of entries, or
+a closure that derives them and re-runs whenever its reactive reads change. Call it once, at
+startup; a second call replaces the previous app menu.
 
 ### Claiming a standard slot
 
@@ -429,14 +431,14 @@ matrix.
 `dock_menu(entries)` installs the items macOS lists when the user right-clicks the app's Dock
 icon, above the system's Show, Hide and Quit (`Cap::DockMenu`). The entries are the same
 `MenuEntry` tree as `app_menu`, with ordinary closures, because the Dock menu only exists while
-the app runs. `dock_menu_reactive(builder)` rebuilds it whenever a signal the builder reads
-changes, for a "Resume <document>" item or a check mark:
+the app runs. It is live like `app_menu`: a derived closure rebuilds it whenever a signal it
+reads changes, for a "Resume <document>" item or a check mark:
 
 ```rust
 use day::prelude::*;
 
 fn install_dock_menu(timer_running: Signal<bool>) {
-    dock_menu_reactive(move || {
+    dock_menu(move || {
         vec![
             menu_item(if timer_running.get() { "Pause Timer" } else { "Start Timer" })
                 .action(move || timer_running.set(!timer_running.get())),
@@ -451,15 +453,15 @@ in the menu, then these entries. Other platforms have no Dock menu; their equiva
 shortcuts themselves: Windows jump lists, Linux `.desktop` actions, iOS quick actions, Android
 launcher shortcuts.
 
-## Runtime language changes: `app_menu_reactive`
+## Runtime language changes
 
-`app_menu(vec)` resolves labels once, in the install-time locale. An app whose language can
-change at runtime (a preferences language picker, [docs/windows.md](windows.md)) installs with
-`app_menu_reactive(builder)` instead: the builder re-runs whenever a locale-tracked read
-inside it changes (`menu_role` labels, `res::str` titles, and `day::tr` all read the locale
-signal), re-lowering and re-installing the whole bar in the new language. Replacement drops
-the previous install's action closures; context menus share the dispatch map and are
-untouched, and the durable Preferences/New Window dispatch ids always survive.
+The app menu is live. Every title, `enabled` and `checked` source is re-read, and the menu
+re-lowered and re-installed, whenever one of them changes: `menu_role` labels, `res::str`
+titles and `day::tr` all read the locale signal, so a preferences language picker
+([docs/windows.md](windows.md)) retitles the whole bar, and a derived closure
+(`app_menu(move || vec![..])`) re-runs on whatever else it reads. Replacement drops the
+previous install's action closures; context menus share the dispatch map and are untouched,
+and the durable Preferences/New Window dispatch ids always survive.
 
 ## The auto Preferences item + the Window menu
 
@@ -492,9 +494,11 @@ know their menu until the click lands (a canvas whose commands describe the sele
 the pointer, a tree whose rows each mean something different), so two summon-time forms
 exist ([docs/tree.md](tree.md) is the driving case):
 
-- `.context_menu_fn(|point| … -> Vec<MenuEntry>)` on any piece: the closure runs when the
-  user summons the menu (right-click on desktop, long-press on touch), receives the location
-  in the piece's own coordinates, and whatever it returns is shown. An empty result shows
+- `.context_menu(|point: Point| … -> Vec<MenuEntry>)` on any piece (the same `context_menu`
+  that takes a fixed list; a closure taking the point must type its argument): the closure runs
+  when the user summons the menu (right-click on desktop, long-press on touch), receives the
+  location in the piece's own coordinates, and whatever it returns is shown. A closure with no
+  argument (`.context_menu(|| …)`) builds on summon without the point. An empty result shows
   nothing. The closure may adjust app state first (select what is under the pointer, then
   build); it runs on the UI thread, outside any day-core borrow, like every other synchronous
   Toolkit callback.

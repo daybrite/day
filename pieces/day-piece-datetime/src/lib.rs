@@ -30,6 +30,7 @@
 //! any picker on any backend.
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 use day_reactive::{Binding, bind_seeded};
 use day_spec::Event;
 
@@ -372,6 +373,8 @@ pub fn date_picker<S: Binding<DayDate>>(date: S) -> DatePicker<S> {
     }
 }
 
+#[day_pieces::builder(DatePickerBuilder)]
+#[day_pieces::builder(TimePickerBuilder)]
 impl<S: Binding<DayDate>> DatePicker<S> {
     pub fn compact(mut self) -> Self {
         self.style = Style::Compact;
@@ -486,8 +489,8 @@ impl<S: Binding<DayTime>> TimePicker<S> {
     }
     /// Show/edit seconds; honored on AppKit and Qt, a documented no-op elsewhere
     /// (docs/datepicker.md).
-    pub fn seconds(mut self, seconds: bool) -> Self {
-        self.seconds = seconds;
+    pub fn seconds(mut self) -> Self {
+        self.seconds = true;
         self
     }
 }
@@ -550,95 +553,6 @@ day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc, xaml, arkui, dom);
 // ---------------------------------------------------------------------------
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`DatePicker`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait DatePickerBuilder: Sized {
-    fn compact(self) -> Self;
-    fn inline(self) -> Self;
-    fn style(self, style: Style) -> Self;
-    fn min(self, min: DayDate) -> Self;
-    fn max(self, max: DayDate) -> Self;
-}
-
-impl<S: Binding<DayDate>> DatePickerBuilder for DatePicker<S> {
-    fn compact(self) -> Self {
-        DatePicker::compact(self)
-    }
-    fn inline(self) -> Self {
-        DatePicker::inline(self)
-    }
-    fn style(self, style: Style) -> Self {
-        DatePicker::style(self, style)
-    }
-    fn min(self, min: DayDate) -> Self {
-        DatePicker::min(self, min)
-    }
-    fn max(self, max: DayDate) -> Self {
-        DatePicker::max(self, max)
-    }
-}
-
-impl<Inner: DatePickerBuilder + day_pieces::prelude::Piece> DatePickerBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn compact(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.compact())
-    }
-    fn inline(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.inline())
-    }
-    fn style(self, style: Style) -> Self {
-        self.map_inner(|inner_piece| inner_piece.style(style))
-    }
-    fn min(self, min: DayDate) -> Self {
-        self.map_inner(|inner_piece| inner_piece.min(min))
-    }
-    fn max(self, max: DayDate) -> Self {
-        self.map_inner(|inner_piece| inner_piece.max(max))
-    }
-}
-
-/// [`TimePicker`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait TimePickerBuilder: Sized {
-    fn compact(self) -> Self;
-    fn inline(self) -> Self;
-    fn style(self, style: Style) -> Self;
-    fn seconds(self, seconds: bool) -> Self;
-}
-
-impl<S: Binding<DayTime>> TimePickerBuilder for TimePicker<S> {
-    fn compact(self) -> Self {
-        TimePicker::compact(self)
-    }
-    fn inline(self) -> Self {
-        TimePicker::inline(self)
-    }
-    fn style(self, style: Style) -> Self {
-        TimePicker::style(self, style)
-    }
-    fn seconds(self, seconds: bool) -> Self {
-        TimePicker::seconds(self, seconds)
-    }
-}
-
-impl<Inner: TimePickerBuilder + day_pieces::prelude::Piece> TimePickerBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn compact(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.compact())
-    }
-    fn inline(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.inline())
-    }
-    fn style(self, style: Style) -> Self {
-        self.map_inner(|inner_piece| inner_piece.style(style))
-    }
-    fn seconds(self, seconds: bool) -> Self {
-        self.map_inner(|inner_piece| inner_piece.seconds(seconds))
-    }
-}
 
 /// The date and time pickers' conformance cases (docs/testing.md). Every picker takes a
 /// synthetic ISO `input`, on every backend.

@@ -279,7 +279,7 @@ call shape:
 row((a, b, c)).spacing(8.0)                                  // RowFit::Clip, the default
 row((chips,)).spacing(8.0).fit(RowFit::Wrap { run_spacing: 8.0 })
 row((keys,)).spacing(8.0).fit(RowFit::WrapColumns { run_spacing: 8.0 })
-row((label, control)).fit(RowFit::ColumnAt(WidthClass::Compact))
+adaptive((label, control)).spacing(Space::S)                 // a column on a compact window
 row((chips,)).spacing(8.0).fit(RowFit::Scroll)
 ```
 
@@ -321,11 +321,13 @@ row((tiles,)).spacing(16.0).fit(RowFit::WrapColumns { run_spacing: 16.0 })
 An authored, fixed column count with per-cell spans is a different job; that is
 [`grid`](grid.md), whose children are rows rather than items.
 
-`ColumnAt(class)` re-arranges the row into a leading-aligned column while the window's width
-class is at or below `class`, the shape a label-plus-control-plus-result line wants, where
-wrapping members independently would tear apart what reads as one sentence. The `size_class()`
-read is tracked, so crossing the breakpoint re-arranges it live; app state lives in signals and
-survives the rebuild.
+A row that should become a leading-aligned column while the window's width class is compact
+(the shape a label-plus-control-plus-result line wants, where wrapping members independently
+would tear apart what reads as one sentence) is `adaptive((label, control, result)).spacing(Space::S)`,
+with `.stack_at(class)` naming the widest class that stacks (default `Compact`) and `.align(VAlign)`
+the cross-axis alignment of the row arrangement (stacked, the children align leading). An `adaptive`
+is re-laid out, never rebuilt, when the window crosses the breakpoint, so its children keep
+their local state (a focused field stays focused).
 
 `Scroll` keeps the single line and makes it a horizontal scroll strip: one row tall, filling the
 width it is given, with the tail a swipe away instead of gone. It is the policy for rows whose order

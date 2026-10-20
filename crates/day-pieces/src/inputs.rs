@@ -1,7 +1,7 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! Native input pieces: `picker` (a bound one-of-N selector: menu, segmented, or inline) and
+//! Native input pieces: `picker` (a typed one-of-N selector: menu, segmented, or inline) and
 //! `text_area` (a multi-line, auto-growing editor bound two-way to a `Signal<String>`).
 
 use std::cell::RefCell;
@@ -17,33 +17,165 @@ use crate::*;
 // Picker (kinds::PICKER, docs/picker.md), built-in since 2026-07.
 // ---------------------------------------------------------------------------
 
-/// A native picker bound two-way to `selected`. Style via `.menu()`/`.segmented()`/`.inline()`.
-pub struct Picker<Sel: Binding<usize>> {
-    options: Vec<String>,
+/// The options of a [`picker`]: `(value, title)` pairs, fixed or derived.
+pub enum PickerOptions<T: 'static> {
+    Fixed(Vec<(T, TextSource)>),
+    Derived(Rc<dyn Fn() -> Vec<(T, TextSource)>>),
+}
+
+impl<T: Clone + 'static> PickerOptions<T> {
+    /// The current `(values, titles)`: a tracked read, of the derived closure and of every
+    /// title (so a localized title follows the locale).
+    fn resolve(&self) -> (Vec<T>, Vec<String>) {
+        let pairs = match self {
+            PickerOptions::Fixed(v) => v.clone(),
+            PickerOptions::Derived(f) => f(),
+        };
+        let mut values = Vec::with_capacity(pairs.len());
+        let mut titles = Vec::with_capacity(pairs.len());
+        for (v, t) in pairs {
+            values.push(v);
+            titles.push(t.resolve());
+        }
+        (values, titles)
+    }
+}
+
+/// Anything [`picker`] takes as its options: an array or `Vec` of `(value, title)` pairs, or a
+/// closure that derives the list and re-runs whenever its reactive reads change. Titles take the
+/// same sources as a label. The two-level marker is the same E0119 dodge as
+/// [`IntoText`](crate::IntoText).
+pub trait IntoPickerOptions<T: 'static, M> {
+    fn into_picker_options(self) -> PickerOptions<T>;
+}
+
+/// Marker for a fixed list of options.
+pub struct FixedOptionsMark;
+/// Marker for a derived list of options.
+pub struct DerivedOptionsMark;
+
+impl<T: 'static, X: IntoText<M>, M, const N: usize> IntoPickerOptions<T, (FixedOptionsMark, M)>
+    for [(T, X); N]
+{
+    fn into_picker_options(self) -> PickerOptions<T> {
+        PickerOptions::Fixed(self.into_iter().map(|(v, t)| (v, t.into_text())).collect())
+    }
+}
+
+impl<T: 'static, X: IntoText<M>, M> IntoPickerOptions<T, (FixedOptionsMark, M)> for Vec<(T, X)> {
+    fn into_picker_options(self) -> PickerOptions<T> {
+        PickerOptions::Fixed(self.into_iter().map(|(v, t)| (v, t.into_text())).collect())
+    }
+}
+
+impl<T: 'static, X: IntoText<M>, M, F> IntoPickerOptions<T, (DerivedOptionsMark, M)> for F
+where
+    F: Fn() -> Vec<(T, X)> + 'static,
+{
+    fn into_picker_options(self) -> PickerOptions<T> {
+        PickerOptions::Derived(Rc::new(move || {
+            self()
+                .into_iter()
+                .map(|(v, t)| (v, t.into_text()))
+                .collect()
+        }))
+    }
+}
+
+/// How a picker reads and writes its selection: a required value ([`picker`]) or an optional
+/// one ([`picker_optional`]). Implemented by the two adapters below, never by apps.
+pub trait PickerSelection<T: 'static>: Clone + 'static {
+    /// Tracked read of the current value, `None` when nothing is chosen.
+    fn current(&self) -> Option<T>;
+    /// The user chose `value`.
+    fn choose(&self, value: T);
+}
+
+/// A [`picker`]'s selection: a binding to `T`.
+#[derive(Clone)]
+pub struct Required<Sel>(Sel);
+
+impl<T: 'static, Sel: Binding<T>> PickerSelection<T> for Required<Sel> {
+    fn current(&self) -> Option<T> {
+        Some(self.0.read())
+    }
+    fn choose(&self, value: T) {
+        self.0.write(value);
+    }
+}
+
+/// A [`picker_optional`]'s selection: a binding to `Option<T>`.
+#[derive(Clone)]
+pub struct Optional<Sel>(Sel);
+
+impl<T: 'static, Sel: Binding<Option<T>>> PickerSelection<T> for Optional<Sel> {
+    fn current(&self) -> Option<T> {
+        self.0.read()
+    }
+    fn choose(&self, value: T) {
+        self.0.write(Some(value));
+    }
+}
+
+/// A native one-of-N selector bound two-way to a typed value (docs/picker.md). Style via
+/// `.menu()`/`.segmented()`/`.inline()`.
+pub struct Picker<T: Clone + PartialEq + 'static, S: PickerSelection<T>> {
+    options: PickerOptions<T>,
     separators_before: Vec<usize>,
-    reactive_options: Option<Rc<dyn Fn() -> Vec<String>>>,
-    selected: Sel,
+    selected: S,
     style: day_spec::props::PickerStyle,
     enabled: Reactive<bool>,
 }
 
-/// `picker(["A", "B", "C"], choice).segmented()`: options are fixed, `selected` is the bound
-/// index: a `Signal<usize>`, or any other two-way binding (a day-model `Field`, a `Mapped` view).
-pub fn picker<S: Into<String>, Sel: Binding<usize>>(
-    options: impl IntoIterator<Item = S>,
+/// `picker(sort, [(Sort::Name, res::str::name()), (Sort::Date, res::str::date())]).segmented()`:
+/// `selected` is a two-way binding to the chosen value (a `Signal<T>`, a day-model `Field`, a
+/// `Mapped` view), and the options are `(value, title)` pairs, fixed or derived from a closure.
+/// The mapping between values and the native control's indexes lives here, once.
+///
+/// Selection rules (docs/picker.md): the picker never writes the binding on its own, only a
+/// user's choice does. A bound value that is not among the options shows no selection where
+/// the toolkit can show none, and the first option otherwise; empty options disable the
+/// control; when the options change, the native index is re-derived from the value, and a
+/// native choice that arrives after the options changed is mapped against the options the
+/// control was last given.
+pub fn picker<T, Sel, M>(
     selected: Sel,
-) -> Picker<Sel> {
+    options: impl IntoPickerOptions<T, M>,
+) -> Picker<T, Required<Sel>>
+where
+    T: Clone + PartialEq + 'static,
+    Sel: Binding<T>,
+{
     Picker {
-        options: options.into_iter().map(Into::into).collect(),
+        options: options.into_picker_options(),
         separators_before: Vec::new(),
-        reactive_options: None,
-        selected,
+        selected: Required(selected),
         style: day_spec::props::PickerStyle::Menu,
         enabled: Reactive::Const(true),
     }
 }
 
-impl<Sel: Binding<usize>> Picker<Sel> {
+/// [`picker`] over an optional value: `None` is "nothing chosen" (no selection where the
+/// toolkit can show none), and a user's choice writes `Some(value)`.
+pub fn picker_optional<T, Sel, M>(
+    selected: Sel,
+    options: impl IntoPickerOptions<T, M>,
+) -> Picker<T, Optional<Sel>>
+where
+    T: Clone + PartialEq + 'static,
+    Sel: Binding<Option<T>>,
+{
+    Picker {
+        options: options.into_picker_options(),
+        separators_before: Vec::new(),
+        selected: Optional(selected),
+        style: day_spec::props::PickerStyle::Menu,
+        enabled: Reactive::Const(true),
+    }
+}
+
+#[day_macros::builder(PickerBuilder)]
+impl<T: Clone + PartialEq + 'static, S: PickerSelection<T>> Picker<T, S> {
     /// Whether the picker takes input (default `true`); a constant or a reactive `bool`.
     pub fn enabled<M>(mut self, v: impl IntoReactive<bool, M>) -> Self {
         self.enabled = v.into_reactive();
@@ -74,69 +206,55 @@ impl<Sel: Binding<usize>> Picker<Sel> {
         self.style = style;
         self
     }
-    /// Recompute the option labels reactively, for choices that come from data (the open
-    /// documents, a live count) rather than from a fixed list. The labels passed to
-    /// [`picker`] seed the control; every later change patches the native items in place,
-    /// keeping the selected index where it still exists.
-    ///
-    /// The count may change too, so a shrinking list can strand the app's `selected`
-    /// binding past the end; the backend clamps its own selection, and the app is expected
-    /// to write a valid index. Reach for this only when the options really do change, since
-    /// rebuilding a native menu costs more than moving a mark.
-    pub fn options_reactive(mut self, f: impl Fn() -> Vec<String> + 'static) -> Self {
-        self.reactive_options = Some(Rc::new(f));
-        self
-    }
 }
 
-impl<Sel: Binding<usize>> Piece for Picker<Sel> {
+impl<T: Clone + PartialEq + 'static, S: PickerSelection<T>> Piece for Picker<T, S> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Picker {
             options,
-            reactive_options,
             separators_before,
             selected,
             style,
             enabled,
         } = self;
+        let (values0, titles0) = day_reactive::untrack(|| options.resolve());
+        debug_assert!(
+            values0
+                .iter()
+                .enumerate()
+                .all(|(i, v)| !values0[..i].contains(v)),
+            "day: a picker's option values must be distinct"
+        );
+        // The options the control was last given: what a native index is mapped against.
+        let values: Rc<RefCell<Vec<T>>> = Rc::new(RefCell::new(values0));
+        let index_of = {
+            let values = values.clone();
+            move |v: Option<T>| -> Option<usize> {
+                let v = v?;
+                values.borrow().iter().position(|x| *x == v)
+            }
+        };
+        let initial_index = index_of(day_reactive::untrack(|| selected.current())).unwrap_or(0);
+        let enabled_now = enabled.get_untracked() && !titles0.is_empty();
         let initial = day_spec::props::PickerProps {
-            options,
+            options: titles0,
             separators_before,
-            selected: selected.peek(),
+            selected: initial_index,
             style,
-            enabled: enabled.get_untracked(),
+            enabled: enabled_now,
         };
         let node = cx.leaf(kinds::PICKER, &initial, Flex::default());
-        // A reactive `enabled` patches on change; a constant is applied once at realize.
-        if let Reactive::Dyn(_) = &enabled {
-            bind(
-                move || enabled.get(),
-                move |e: &bool| {
-                    with_tree(|t| {
-                        t.patch(
-                            node,
-                            Box::new(day_spec::props::PickerPatch::Enabled(*e)),
-                            false,
-                        )
-                    });
-                },
-            );
-        }
-        // Data-driven labels: patch the native items whenever they change. Always a
-        // remeasure, since the option strings are the control's intrinsic width, in every style.
-        if let Some(f) = reactive_options {
+        let patch = move |p: day_spec::props::PickerPatch, affects_size: bool| {
+            with_tree(|t| t.patch(node, Box::new(p), affects_size));
+        };
+        // Availability: the app's value, and never with no options to choose from.
+        {
+            let enabled = enabled.clone();
+            let values = values.clone();
             bind_seeded(
-                initial.options.clone(),
-                move || f(),
-                move |opts: &Vec<String>| {
-                    with_tree(|t| {
-                        t.patch(
-                            node,
-                            Box::new(day_spec::props::PickerPatch::Options(opts.clone())),
-                            true,
-                        )
-                    });
-                },
+                enabled_now,
+                move || enabled.get() && !values.borrow().is_empty(),
+                move |e: &bool| patch(day_spec::props::PickerPatch::Enabled(*e), false),
             );
         }
         // A menu-style picker's intrinsic size follows the selected value (the collapsed
@@ -144,25 +262,51 @@ impl<Sel: Binding<usize>> Piece for Picker<Sel> {
         // control keeps the width of the build-time value and ellipsizes anything longer.
         // Segmented and inline render every option at once; selection moves a mark only.
         let affects_size = matches!(initial.style, day_spec::props::PickerStyle::Menu);
-        let sel = selected.clone();
-        bind_seeded(
-            initial.selected,
-            move || sel.read(),
-            move |v: &usize| {
-                with_tree(|t| {
-                    t.patch(
-                        node,
-                        Box::new(day_spec::props::PickerPatch::Selected(*v)),
-                        affects_size,
-                    )
-                });
-            },
-        );
+        // The options, live: a derived closure re-running, or a title following the locale.
+        // The native items are patched (always a remeasure, since the option strings are the
+        // control's intrinsic width), and the selected index re-derived from the value, since
+        // the value's position may have moved.
+        {
+            let (values, sel) = (values.clone(), selected.clone());
+            let index_of = index_of.clone();
+            bind_seeded(
+                initial.options.clone(),
+                move || {
+                    let (vs, titles) = options.resolve();
+                    *values.borrow_mut() = vs;
+                    titles
+                },
+                move |titles: &Vec<String>| {
+                    patch(day_spec::props::PickerPatch::Options(titles.clone()), true);
+                    if let Some(i) = index_of(day_reactive::untrack(|| sel.current())) {
+                        patch(day_spec::props::PickerPatch::Selected(i), affects_size);
+                    }
+                },
+            );
+        }
+        // The value, live: the app writing its binding moves the native selection. A value
+        // absent from the options patches nothing (the control keeps showing what it shows).
+        {
+            let sel = selected.clone();
+            let index_of = index_of.clone();
+            bind_seeded(
+                Some(initial.selected),
+                move || index_of(sel.current()),
+                move |i: &Option<usize>| {
+                    if let Some(i) = i {
+                        patch(day_spec::props::PickerPatch::Selected(*i), affects_size);
+                    }
+                },
+            );
+        }
+        // The user's choice: a native index, mapped against the options the control was last
+        // given; an index outside them (a stale event) is dropped.
         cx.on(node, move |ev| {
             if let Event::SelectionChanged(i) = ev
                 && *i >= 0
+                && let Some(v) = values.borrow().get(*i as usize).cloned()
             {
-                selected.write(*i as usize);
+                selected.choose(v);
             }
         });
         node
@@ -204,6 +348,7 @@ pub fn text_area<S: Binding<String>>(text: S) -> TextArea<S> {
     }
 }
 
+#[day_macros::builder(TextAreaBuilder)]
 impl<S: Binding<String>> TextArea<S> {
     /// The empty-state prompt shown when the editor is empty (a constant, `Signal<String>`, or
     /// closure, evaluated once for the initial value; not reactive after build).
@@ -381,112 +526,6 @@ impl<S: Binding<String>> Piece for TextArea<S> {
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
 
-/// [`Picker`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait PickerBuilder: Sized {
-    fn separators_before(self, indexes: impl IntoIterator<Item = usize>) -> Self;
-    fn menu(self) -> Self;
-    fn segmented(self) -> Self;
-    fn inline(self) -> Self;
-    fn style(self, style: day_spec::props::PickerStyle) -> Self;
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-}
-
-impl<Sel: Binding<usize>> PickerBuilder for Picker<Sel> {
-    fn separators_before(self, indexes: impl IntoIterator<Item = usize>) -> Self {
-        Picker::separators_before(self, indexes)
-    }
-    fn menu(self) -> Self {
-        Picker::menu(self)
-    }
-    fn segmented(self) -> Self {
-        Picker::segmented(self)
-    }
-    fn inline(self) -> Self {
-        Picker::inline(self)
-    }
-    fn style(self, style: day_spec::props::PickerStyle) -> Self {
-        Picker::style(self, style)
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        Picker::enabled(self, v)
-    }
-}
-
-impl<Inner: PickerBuilder + Piece> PickerBuilder for Decorated<Inner> {
-    fn separators_before(self, indexes: impl IntoIterator<Item = usize>) -> Self {
-        self.map_inner(|inner| inner.separators_before(indexes))
-    }
-    fn menu(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.menu())
-    }
-    fn segmented(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.segmented())
-    }
-    fn inline(self) -> Self {
-        self.map_inner(|inner_piece| inner_piece.inline())
-    }
-    fn style(self, style: day_spec::props::PickerStyle) -> Self {
-        self.map_inner(|inner_piece| inner_piece.style(style))
-    }
-    fn enabled<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.enabled(v))
-    }
-}
-
-/// [`TextArea`]'s own builders, reachable through a decoration (§5.2): `Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait TextAreaBuilder: Sized {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
-    fn min_lines(self, lines: u32) -> Self;
-    fn max_lines(self, lines: u32) -> Self;
-    fn editable<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-    fn spellcheck<M>(self, v: impl IntoReactive<bool, M>) -> Self;
-    fn on_submit(self, f: impl Fn() + 'static) -> Self;
-}
-
-impl<S: Binding<String>> TextAreaBuilder for TextArea<S> {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        TextArea::placeholder(self, t)
-    }
-    fn min_lines(self, lines: u32) -> Self {
-        TextArea::min_lines(self, lines)
-    }
-    fn max_lines(self, lines: u32) -> Self {
-        TextArea::max_lines(self, lines)
-    }
-    fn editable<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        TextArea::editable(self, v)
-    }
-    fn spellcheck<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        TextArea::spellcheck(self, v)
-    }
-    fn on_submit(self, f: impl Fn() + 'static) -> Self {
-        TextArea::on_submit(self, f)
-    }
-}
-
-impl<Inner: TextAreaBuilder + Piece> TextAreaBuilder for Decorated<Inner> {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder(t))
-    }
-    fn min_lines(self, lines: u32) -> Self {
-        self.map_inner(|inner_piece| inner_piece.min_lines(lines))
-    }
-    fn max_lines(self, lines: u32) -> Self {
-        self.map_inner(|inner_piece| inner_piece.max_lines(lines))
-    }
-    fn editable<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.editable(v))
-    }
-    fn spellcheck<M>(self, v: impl IntoReactive<bool, M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.spellcheck(v))
-    }
-    fn on_submit(self, f: impl Fn() + 'static) -> Self {
-        self.map_inner(|inner_piece| inner_piece.on_submit(f))
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Conformance cases (docs/testing.md)
 // ---------------------------------------------------------------------------
@@ -500,7 +539,7 @@ pub(crate) mod conformance {
 
     use crate::*;
 
-    const FRUIT: [&str; 3] = ["Apple", "Pear", "Plum"];
+    const FRUIT: [(usize, &str); 3] = [(0, "Apple"), (1, "Pear"), (2, "Plum")];
 
     /// A menu picker shows its selection natively and reports a choice to its signal.
     #[day_macros::test(day_core)]
@@ -510,7 +549,7 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(FRUIT, choice).id("picker"),
+                    picker(choice, FRUIT).id("picker"),
                     label(move || choice.get().to_string()).id("index"),
                 ))
                 .spacing(8.0)
@@ -532,7 +571,7 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(FRUIT, choice).segmented().id("picker"),
+                    picker(choice, FRUIT).segmented().id("picker"),
                     label(move || choice.get().to_string()).id("index"),
                 ))
                 .spacing(8.0)
@@ -554,7 +593,7 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(FRUIT, choice).inline().id("picker"),
+                    picker(choice, FRUIT).inline().id("picker"),
                     label(move || choice.get().to_string()).id("index"),
                 ))
                 .spacing(8.0)
@@ -574,7 +613,7 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(FRUIT, choice).id("picker"),
+                    picker(choice, FRUIT).id("picker"),
                     button("Plum").action(move || choice.set(2)).id("set"),
                 ))
                 .spacing(8.0)
@@ -594,15 +633,14 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(["One", "Two"], choice)
-                        .options_reactive(move || {
-                            let mut v = vec!["One".to_owned(), "Two".to_owned()];
-                            if more.get() {
-                                v.push("Three".to_owned());
-                            }
-                            v
-                        })
-                        .id("picker"),
+                    picker(choice, move || {
+                        let mut v = vec![(0usize, "One"), (1, "Two")];
+                        if more.get() {
+                            v.push((2, "Three"));
+                        }
+                        v
+                    })
+                    .id("picker"),
                     button("More").action(move || more.set(true)).id("more"),
                 ))
                 .spacing(8.0)
@@ -628,12 +666,12 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(FRUIT, a).enabled(move || enabled.get()).id("menu"),
-                    picker(FRUIT, b)
+                    picker(a, FRUIT).enabled(move || enabled.get()).id("menu"),
+                    picker(b, FRUIT)
                         .segmented()
                         .enabled(move || enabled.get())
                         .id("segmented"),
-                    picker(FRUIT, c)
+                    picker(c, FRUIT)
                         .inline()
                         .enabled(move || enabled.get())
                         .id("inline"),

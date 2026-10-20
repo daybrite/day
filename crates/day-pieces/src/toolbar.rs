@@ -30,10 +30,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use day_reactive::{Scope, Signal, bind, bind_seeded};
+use day_reactive::{AnyBinding, Binding, Scope, bind, bind_seeded};
 use day_spec::{Icon, Symbol, ToolbarItem, ToolbarItemKind, ToolbarPatch, ToolbarValue};
 
-use crate::{IntoText, MenuEntry, TextSource};
+use crate::{IntoReactive, IntoText, MenuEntry, Reactive, TextSource};
 
 /// A toolbar item under construction. Build a command with [`toolbar_button`], a two-state
 /// button with [`toolbar_toggle`], a pull-down with [`toolbar_menu`], one control over a set of
@@ -47,8 +47,7 @@ pub struct ToolbarEntry {
     label: Option<TextSource>,
     tooltip: Option<TextSource>,
     icon: Option<Icon>,
-    enabled: bool,
-    enabled_when: Option<Rc<dyn Fn() -> bool>>,
+    enabled: Reactive<bool>,
     action: Option<Rc<dyn Fn()>>,
     placement: day_spec::ToolbarPlacement,
     label_style: day_spec::LabelStyle,
@@ -59,8 +58,8 @@ pub struct ToolbarEntry {
 #[derive(Clone)]
 enum Kind {
     Button,
-    Segmented(Vec<Segment>, Signal<usize>),
-    Toggle(Signal<bool>),
+    Segmented(Vec<Segment>, AnyBinding<usize>),
+    Toggle(AnyBinding<bool>),
     // A command owns its checked state; native toggle intent invokes its handler, then reads
     // the resulting value back instead of writing into a second, mirrored signal.
     CommandToggle(Rc<dyn Fn() -> bool>),
@@ -76,8 +75,7 @@ fn entry(id: impl Into<String>, kind: Kind) -> ToolbarEntry {
         label: None,
         tooltip: None,
         icon: None,
-        enabled: true,
-        enabled_when: None,
+        enabled: Reactive::Const(true),
         action: None,
         placement: day_spec::ToolbarPlacement::Automatic,
         label_style: day_spec::LabelStyle::Automatic,
@@ -110,11 +108,11 @@ pub fn toolbar_button<M>(id: impl Into<String>, label: impl IntoText<M>) -> Tool
 pub fn toolbar_segmented(
     id: impl Into<String>,
     segments: Vec<Segment>,
-    selected: Signal<usize>,
+    selected: impl Binding<usize>,
 ) -> ToolbarEntry {
     ToolbarEntry {
         label: None,
-        ..entry(id, Kind::Segmented(segments, selected))
+        ..entry(id, Kind::Segmented(segments, AnyBinding::new(selected)))
     }
 }
 
@@ -146,16 +144,16 @@ impl Segment {
     }
 }
 
-/// A two-state button bound to `on`: the user flipping it writes the signal, and writing the
-/// signal restyles the button.
+/// A two-state button bound to `on` (a `Signal<bool>` or any other binding): the user flipping
+/// it writes the binding, and writing the binding restyles the button.
 pub fn toolbar_toggle<M>(
     id: impl Into<String>,
     label: impl IntoText<M>,
-    on: Signal<bool>,
+    on: impl Binding<bool>,
 ) -> ToolbarEntry {
     ToolbarEntry {
         label: Some(label.into_text()),
-        ..entry(id, Kind::Toggle(on))
+        ..entry(id, Kind::Toggle(AnyBinding::new(on)))
     }
 }
 
@@ -224,17 +222,12 @@ impl ToolbarEntry {
         self
     }
 
-    /// Enable or disable the item once, at build.
-    pub fn enabled(mut self, on: bool) -> ToolbarEntry {
-        self.enabled = on;
-        self
-    }
-
-    /// Enable the item while `f` reads true, re-evaluated whenever its reactive reads change.
-    /// This is the live path: it patches the one item rather than rebuilding the bar, so a
-    /// command greying out never disturbs a search field mid-word.
-    pub fn enabled_when(mut self, f: impl Fn() -> bool + 'static) -> ToolbarEntry {
-        self.enabled_when = Some(Rc::new(f));
+    /// Whether the item can be used (default `true`): a constant, a `Signal<bool>`, or a
+    /// closure re-evaluated whenever its reactive reads change. A reactive value patches the
+    /// one item rather than rebuilding the bar, so a command greying out never disturbs a
+    /// search field mid-word.
+    pub fn enabled<M>(mut self, on: impl IntoReactive<bool, M>) -> ToolbarEntry {
+        self.enabled = on.into_reactive();
         self
     }
 
@@ -381,7 +374,7 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
 }
 
 /// Lower app-side entries to the spec model, registering each item's closures with day-core and
-/// wiring the live bindings (toggle state, search text, `enabled_when`).
+/// wiring the live bindings (toggle state, search text, a reactive `enabled`).
 fn lower(
     entries: Vec<ToolbarEntry>,
     chrome: day_core::Chrome,
@@ -397,7 +390,6 @@ fn lower(
                 tooltip,
                 icon,
                 enabled,
-                enabled_when,
                 action,
                 placement,
                 label_style,
@@ -537,20 +529,17 @@ fn lower(
                 Kind::Separator => (ToolbarItemKind::Separator, 0),
             };
 
-            // Seed the item from the predicate, rather than leaving the declared default and
+            // Seed the item from the source, rather than leaving the declared default and
             // letting the binding correct it: the binding's first run happens here, inside
             // `lower`, and the model it patches is only stored by the window-bar edit this list
             // is on its way to, so the correction landed on the previous bar (or nothing)
             // and the new one installed enabled. A command that starts out unavailable then
             // lowered live and answered dayscript's `toolbar:` step.
-            let enabled = match &enabled_when {
-                Some(f) => day_reactive::untrack(|| f()),
-                None => enabled,
-            };
-            if let Some(f) = enabled_when {
+            let enabled_now = enabled.get_untracked();
+            if let Reactive::Dyn(_) = &enabled {
                 let item = id.clone();
                 bind(
-                    move || f(),
+                    move || enabled.get(),
                     move |on: &bool| {
                         day_core::patch_chrome(
                             chrome,
@@ -562,6 +551,7 @@ fn lower(
                     },
                 );
             }
+            let enabled = enabled_now;
 
             ToolbarItem {
                 id,

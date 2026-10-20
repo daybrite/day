@@ -157,11 +157,30 @@ type Build = Box<dyn FnOnce(&mut BuildCx) -> RNode>;
 /// append in place (the inherent methods below shadow the trait's), so a chain stays flat instead
 /// of nesting `Decorated<Decorated<…>>`.
 ///
-/// Erase explicitly with `.any()` when a single [`AnyPiece`] is what's needed (a `PieceVec`, a
+/// Modifiers fall into three classes (docs/api-style.md "Modifier classes"), and only one of
+/// them is ordered:
+///
+/// - **Identity** (`id`, `id_of`, `id_keyed`) names the piece's own node, the one its build
+///   returns, wherever it sits in the chain: `label(t).padding(8.0).id("x")` and
+///   `label(t).id("x").padding(8.0)` are the same tree.
+/// - **Wrapping** modifiers (`padding`, `frame`, `background`, `grow`, …) each add a node around
+///   what came before, so they compose outward in call order, as they read.
+/// - **Outer-layout facts** (`grid_span`, `grid_align`) describe the piece to the container it
+///   sits in, so they land on the outermost node whatever wrappers follow them.
+///
+/// `wrapper_id` is the one way to name a wrapper deliberately: it tags whatever node is
+/// outermost at the point it is called, for a frame assertion on a padded box.
+///
+/// Erase explicitly with `.any()` when a single [`AnyPiece`] is what's needed (a `Vec<AnyPiece>`, a
 /// `-> AnyPiece` signature).
 pub struct Decorated<P> {
     inner: P,
+    /// Wrapping modifiers, applied outward in call order.
     ops: Vec<Box<dyn FnOnce(Build) -> Build>>,
+    /// Identity modifiers, applied to the node the piece's own build returns.
+    node_ops: Vec<Box<dyn FnOnce(RNode)>>,
+    /// Outer-layout facts, applied to the outermost node once every wrapper is in place.
+    outer_ops: Vec<Box<dyn FnOnce(RNode)>>,
 }
 
 impl<P: Piece> Decorated<P> {
@@ -173,15 +192,30 @@ impl<P: Piece> Decorated<P> {
     /// let leaf = match id { Some(id) => leaf.id(id), None => leaf };
     /// let leaf = if editable { leaf.on_tap(f) } else { leaf };
     /// ```
+    ///
+    /// [`apply_if`](Self::apply_if) and [`apply_some`](Self::apply_some) are the same move as a
+    /// chain step.
     pub fn new(inner: P) -> Self {
         Decorated {
             inner,
             ops: Vec::new(),
+            node_ops: Vec::new(),
+            outer_ops: Vec::new(),
         }
     }
 
     fn push(mut self, op: impl FnOnce(Build) -> Build + 'static) -> Self {
         self.ops.push(Box::new(op));
+        self
+    }
+
+    fn push_node(mut self, op: impl FnOnce(RNode) + 'static) -> Self {
+        self.node_ops.push(Box::new(op));
+        self
+    }
+
+    fn push_outer(mut self, op: impl FnOnce(RNode) + 'static) -> Self {
+        self.outer_ops.push(Box::new(op));
         self
     }
 
@@ -192,43 +226,84 @@ impl<P: Piece> Decorated<P> {
         Decorated {
             inner: f(self.inner),
             ops: self.ops,
+            node_ops: self.node_ops,
+            outer_ops: self.outer_ops,
+        }
+    }
+
+    /// Apply `f` to the chain when `cond` holds, else continue unchanged: the conditional
+    /// modifier, with no `let x = if c { x.m() } else { x }` rebinding and no erasure.
+    ///
+    /// ```ignore
+    /// nav(sel).apply_if(!primary, |n| n.local())
+    /// ```
+    ///
+    /// `cond` is a plain `bool` resolved at build, like the arms of a `match`; the modifiers
+    /// `f` applies may themselves be reactive.
+    pub fn apply_if(self, cond: bool, f: impl FnOnce(Self) -> Self) -> Self {
+        if cond { f(self) } else { self }
+    }
+
+    /// Apply `f` with the value when there is one, else continue unchanged:
+    /// `canvas(draw).apply_some(id, |c, id| c.id(id))`.
+    pub fn apply_some<T>(self, value: Option<T>, f: impl FnOnce(Self, T) -> Self) -> Self {
+        match value {
+            Some(v) => f(self, v),
+            None => self,
         }
     }
 }
 
 impl<P: Piece> Piece for Decorated<P> {
     fn build(self, cx: &mut BuildCx) -> RNode {
-        let Decorated { inner, ops } = self;
-        // Ops compose outward in call order: the first modifier is innermost, matching the
-        // per-modifier wrapper chain this replaced.
-        let mut build: Build = Box::new(move |cx| inner.build(cx));
+        let Decorated {
+            inner,
+            ops,
+            node_ops,
+            outer_ops,
+        } = self;
+        // The piece's own node first, with its identity; then the wrappers, composed outward
+        // in call order (the first modifier is innermost); then the facts for the parent, on
+        // whatever ended up outermost.
+        let mut build: Build = Box::new(move |cx| {
+            let n = inner.build(cx);
+            for op in node_ops {
+                op(n);
+            }
+            n
+        });
         for op in ops {
             build = op(build);
         }
-        build(cx)
+        let outer = build(cx);
+        for op in outer_ops {
+            op(outer);
+        }
+        outer
     }
 }
 
 // --- The modifier bodies, written once and shared by the trait and the inherent impl ---
 
-fn op_id(id: String) -> impl FnOnce(Build) -> Build {
+fn op_id(id: String) -> impl FnOnce(RNode) {
+    move |n| with_tree(|t| t.set_id(n, id))
+}
+
+fn op_id_of(id: impl Fn() -> String + 'static) -> impl FnOnce(RNode) {
+    move |n| {
+        day_reactive::bind(id, move |s: &String| {
+            let s = s.clone();
+            with_tree(|t| t.set_id(n, s));
+        });
+    }
+}
+
+/// Name whatever node is outermost at this point in the chain (see [`Decorated::wrapper_id`]).
+fn op_wrapper_id(id: String) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
             with_tree(|t| t.set_id(n, id));
-            n
-        })
-    }
-}
-
-fn op_id_of(id: impl Fn() -> String + 'static) -> impl FnOnce(Build) -> Build {
-    move |inner| {
-        Box::new(move |cx| {
-            let n = inner(cx);
-            day_reactive::bind(id, move |s: &String| {
-                let s = s.clone();
-                with_tree(|t| t.set_id(n, s));
-            });
             n
         })
     }
@@ -617,7 +692,7 @@ impl Layout for OverlayHost {
 }
 
 fn op_context_menu_fn(
-    f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static,
+    f: Rc<dyn Fn(day_spec::Point) -> Vec<MenuEntry>>,
 ) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -633,7 +708,7 @@ fn op_context_menu_fn(
 
 fn op_context_menu_fn_body(
     inner: Build,
-    f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static,
+    f: Rc<dyn Fn(day_spec::Point) -> Vec<MenuEntry>>,
     cx: &mut day_core::BuildCx,
 ) -> day_core::RNode {
     {
@@ -797,6 +872,31 @@ fn op_background(color: Reactive<Color>) -> impl FnOnce(Build) -> Build {
     }
 }
 
+/// A semantic surface around the content: the toolkit's material for `role`, clipped to
+/// `radius` corners.
+fn op_surface(role: day_spec::SurfaceRole, radius: f64) -> impl FnOnce(Build) -> Build {
+    move |inner| {
+        Box::new(move |cx| {
+            let w = cx.native(
+                kinds::CONTAINER,
+                &ContainerProps {
+                    background: None,
+                    corner_radius: radius,
+                    clips: true,
+                    role: Some(role),
+                },
+                Rc::new(FillThrough),
+                Flex::default(),
+                Boundary::No,
+            );
+            cx.under(w, |cx| {
+                let _ = inner(cx);
+            });
+            w
+        })
+    }
+}
+
 fn op_corner_radius(radius: f64) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
@@ -933,14 +1033,8 @@ fn op_grow_axes(w: bool, h: bool) -> impl FnOnce(Build) -> Build {
     }
 }
 
-fn op_grid_facts(facts: GridFacts) -> impl FnOnce(Build) -> Build {
-    move |inner| {
-        Box::new(move |cx| {
-            let node = inner(cx);
-            with_tree(|t| t.set_grid_facts(node, facts));
-            node
-        })
-    }
+fn op_grid_facts(facts: GridFacts) -> impl FnOnce(RNode) {
+    move |node| with_tree(|t| t.set_grid_facts(node, facts))
 }
 
 fn op_defers_system_gestures(edges: day_spec::Edges) -> impl FnOnce(Build) -> Build {
@@ -989,13 +1083,16 @@ fn op_interactive_dismiss_disabled() -> impl FnOnce(Build) -> Build {
 // functions above. Documentation stays on the trait, which is the surface every piece has.
 impl<P: Piece> Decorated<P> {
     pub fn id(self, id: impl Into<String>) -> Self {
-        self.push(op_id(id.into()))
+        self.push_node(op_id(id.into()))
     }
     pub fn id_of(self, id: impl Fn() -> String + 'static) -> Self {
-        self.push(op_id_of(id))
+        self.push_node(op_id_of(id))
     }
     pub fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> Self {
         self.id(format!("{prefix}:{key}"))
+    }
+    pub fn wrapper_id(self, id: impl Into<String>) -> Self {
+        self.push(op_wrapper_id(id.into()))
     }
     pub fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> Self {
         self.push(op_tweak(f))
@@ -1096,15 +1193,11 @@ impl<P: Piece> Decorated<P> {
             })
         })
     }
-    pub fn context_menu(self, items: Vec<MenuEntry>) -> Self {
-        self.push(op_context_menu(items))
-    }
-    /// A context menu built when the menu is summoned (docs/menus.md "Dynamic context menus"):
-    /// the closure runs at that moment, with the location in this piece's own coordinates, and
-    /// whatever it returns is shown, so a canvas can select what is under the pointer and offer
-    /// commands for that selection. An empty result shows nothing.
-    pub fn context_menu_fn(self, f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static) -> Self {
-        self.push(op_context_menu_fn(f))
+    pub fn context_menu<M>(self, menu: impl ContextMenuContent<M>) -> Self {
+        match menu.into_context_menu() {
+            ContextMenuSource::Fixed(items) => self.push(op_context_menu(items)),
+            ContextMenuSource::OnSummon(f) => self.push(op_context_menu_fn(f)),
+        }
     }
     pub fn on_drag(self, f: impl Fn(Drag) + 'static) -> Self {
         self.push(op_on_drag(f))
@@ -1124,6 +1217,13 @@ impl<P: Piece> Decorated<P> {
     /// reachable by a tap**: wire `on_tap_at` alongside it, exactly as a chart's selection does.
     pub fn on_hover(self, f: impl Fn(Option<day_spec::Point>) + 'static) -> Self {
         self.push(op_on_hover(f))
+    }
+    /// The platform's card: the grouped-content surface (`SurfaceRole::SectionCard`) with
+    /// rounded corners and a `Space::M` inset. Drawn by the toolkit, so it follows the
+    /// appearance and never steals hit testing from the content.
+    pub fn card(self) -> Self {
+        self.padding(crate::Space::M)
+            .push(op_surface(day_spec::SurfaceRole::SectionCard, 10.0))
     }
     pub fn background<M>(self, color: impl IntoReactive<Color, M>) -> Self {
         self.push(op_background(color.into_reactive()))
@@ -1179,17 +1279,17 @@ impl<P: Piece> Decorated<P> {
         self.grow_axes(false, true)
     }
     #[doc(hidden)]
-    pub fn grow_axes(self, w: bool, h: bool) -> Self {
+    fn grow_axes(self, w: bool, h: bool) -> Self {
         self.push(op_grow_axes(w, h))
     }
     pub fn grid_span(self, n: usize) -> Self {
-        self.push(op_grid_facts(GridFacts {
+        self.push_outer(op_grid_facts(GridFacts {
             col_span: n.clamp(1, u16::MAX as usize) as u16,
             ..Default::default()
         }))
     }
     pub fn grid_align(self, a: Alignment) -> Self {
-        self.push(op_grid_facts(GridFacts {
+        self.push_outer(op_grid_facts(GridFacts {
             align: Some(a),
             ..Default::default()
         }))
@@ -1209,10 +1309,91 @@ impl<P: Piece> Decorated<P> {
     }
 }
 
+/// Where a context menu's entries come from (see [`Decorate::context_menu`]).
+pub enum ContextMenuSource {
+    Fixed(Vec<MenuEntry>),
+    OnSummon(Rc<dyn Fn(day_spec::Point) -> Vec<MenuEntry>>),
+}
+
+/// Anything [`Decorate::context_menu`] accepts: a `Vec` or array of entries, a closure building
+/// them on summon, or a closure given the summon point. The marker parameter is the same E0119
+/// dodge as [`IntoText`].
+pub trait ContextMenuContent<M> {
+    fn into_context_menu(self) -> ContextMenuSource;
+}
+
+/// Marker for a summon-time closure that takes the summon point.
+pub struct AtPointMark;
+
+impl ContextMenuContent<crate::ManyMark> for Vec<MenuEntry> {
+    fn into_context_menu(self) -> ContextMenuSource {
+        ContextMenuSource::Fixed(self)
+    }
+}
+
+impl<const N: usize> ContextMenuContent<crate::ManyMark> for [MenuEntry; N] {
+    fn into_context_menu(self) -> ContextMenuSource {
+        ContextMenuSource::Fixed(Vec::from(self))
+    }
+}
+
+impl<C, F> ContextMenuContent<crate::DerivedMark> for F
+where
+    C: IntoIterator<Item = MenuEntry>,
+    F: Fn() -> C + 'static,
+{
+    fn into_context_menu(self) -> ContextMenuSource {
+        ContextMenuSource::OnSummon(Rc::new(move |_| self().into_iter().collect()))
+    }
+}
+
+impl<C, F> ContextMenuContent<AtPointMark> for F
+where
+    C: IntoIterator<Item = MenuEntry>,
+    F: Fn(day_spec::Point) -> C + 'static,
+{
+    fn into_context_menu(self) -> ContextMenuSource {
+        ContextMenuSource::OnSummon(Rc::new(move |p| self(p).into_iter().collect()))
+    }
+}
+
 pub trait Decorate: Piece + Sized {
     /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
+    ///
+    /// Names the piece's own node wherever it sits in the chain (docs/api-style.md "Modifier
+    /// classes"): `.padding(8.0).id("x")` and `.id("x").padding(8.0)` tag the same node. To name
+    /// a wrapper instead, use [`wrapper_id`](Self::wrapper_id).
     fn id(self, id: impl Into<String>) -> Decorated<Self> {
         Decorated::new(self).id(id)
+    }
+
+    /// Name the node that is outermost at this point in the chain: the padding box, the frame,
+    /// the background, whichever wrapper the modifiers before it built. For a dayscript frame
+    /// assertion on the wrapper rather than on the piece. Ordered, unlike [`id`](Self::id).
+    fn wrapper_id(self, id: impl Into<String>) -> Decorated<Self> {
+        Decorated::new(self).wrapper_id(id)
+    }
+
+    /// Apply `f` to the chain when `cond` holds, else continue unchanged
+    /// (see [`Decorated::apply_if`]): `nav(sel).apply_if(!primary, |n| n.local())`. The
+    /// closure receives the decorated piece, so forwarded builder methods and modifiers both
+    /// chain inside it.
+    fn apply_if(
+        self,
+        cond: bool,
+        f: impl FnOnce(Decorated<Self>) -> Decorated<Self>,
+    ) -> Decorated<Self> {
+        Decorated::new(self).apply_if(cond, f)
+    }
+
+    /// Apply `f` with the value when there is one, else continue unchanged
+    /// (see [`Decorated::apply_some`]): `canvas(draw).apply_some(id, |c, id| c.id(id))`.
+    fn apply_some<T>(
+        self,
+        value: Option<T>,
+        f: impl FnOnce(Decorated<Self>, T) -> Decorated<Self>,
+    ) -> Decorated<Self> {
+        Decorated::new(self).apply_some(value, f)
     }
 
     /// Reactive element id: the id for rows inside a recycling [`list`](crate::list). A plain
@@ -1396,7 +1577,7 @@ pub trait Decorate: Piece + Sized {
     /// ```ignore
     /// page.toolbar(toolbar_button("share", tr("share")).icon(Symbol::Share).action(share))
     /// page.toolbar([reply, forward, archive])
-    /// page.toolbar(move || vec![toolbar_button("undo", tr("undo")).enabled_when(can_undo)])
+    /// page.toolbar(move || vec![toolbar_button("undo", tr("undo")).enabled(can_undo)])
     /// ```
     ///
     /// Which chrome carries them follows from where this piece is built (a destination page's
@@ -1428,18 +1609,20 @@ pub trait Decorate: Piece + Sized {
     fn drop_target(self, target: day_spec::transfer::Target) -> Decorated<Self> {
         Decorated::new(self).drop_target(target)
     }
-    fn context_menu(self, items: Vec<MenuEntry>) -> Decorated<Self> {
-        Decorated::new(self).context_menu(items)
-    }
-    /// See [`Decorated::context_menu_fn`]: a context menu built at summon time.
-    fn context_menu_fn(
-        self,
-        f: impl Fn(day_spec::Point) -> Vec<MenuEntry> + 'static,
-    ) -> Decorated<Self> {
-        Decorated::new(self).context_menu_fn(f)
+    /// A context menu (docs/menus.md): shown on secondary-click / long-press, built from the
+    /// same `menu_item`/`sub_menu` entries as everywhere else. Takes a fixed list, or a closure
+    /// built when the menu is summoned ("Dynamic context menus"): with no argument, or with the
+    /// summon point in this piece's own coordinates, so a canvas can select what is under the
+    /// pointer and offer commands for that selection. An empty result shows nothing.
+    ///
+    /// ```ignore
+    /// label(t).context_menu([menu_item(res::str::copy()).action(copy)])
+    /// canvas(draw).context_menu(move |at: Point| commands_for(hit_test(at)))
+    /// ```
+    fn context_menu<M>(self, menu: impl ContextMenuContent<M>) -> Decorated<Self> {
+        Decorated::new(self).context_menu(menu)
     }
 
-    /// Fire on each phase of a drag over this piece.
     fn on_drag(self, f: impl Fn(Drag) + 'static) -> Decorated<Self> {
         Decorated::new(self).on_drag(f)
     }
@@ -1470,6 +1653,12 @@ pub trait Decorate: Piece + Sized {
     /// reactive color repaints the surface when its source changes. Wraps the piece in a native
     /// container that carries the fill, so it composes with [`Self::corner_radius`] for a rounded
     /// colored surface and with [`Self::padding`] for interior inset.
+    /// The platform's card around this piece: the grouped-content surface with rounded
+    /// corners and a `Space::M` inset (see [`Decorated::card`]).
+    fn card(self) -> Decorated<Self> {
+        Decorated::new(self).card()
+    }
+
     fn background<M>(self, color: impl IntoReactive<Color, M>) -> Decorated<Self> {
         Decorated::new(self).background(color)
     }
@@ -1577,10 +1766,6 @@ pub trait Decorate: Piece + Sized {
     }
 
     #[doc(hidden)]
-    fn grow_axes(self, w: bool, h: bool) -> Decorated<Self> {
-        Decorated::new(self).grow_axes(w, h)
-    }
-
     /// Span `n` columns (n ≥ 1) of the enclosing [`grid`] (docs/grid.md). Grid modifiers set
     /// facts on the node the grid sees: apply them last (outermost), like `.grow_w()`; an
     /// outer wrapper would hide the facts from the grid.
@@ -1622,7 +1807,7 @@ pub trait Decorate: Piece + Sized {
         Decorated::new(self).interactive_dismiss_disabled()
     }
 
-    /// Erase to a single [`AnyPiece`]: for a `PieceVec`, a `-> AnyPiece` signature, or any other
+    /// Erase to a single [`AnyPiece`]: for a `Vec<AnyPiece>`, a `-> AnyPiece` signature, or any other
     /// place one concrete type is required. [`AnyPiece::any`] is inherent and returns `self`, so
     /// erasing an already-erased piece costs nothing.
     fn any(self) -> AnyPiece {
@@ -1788,13 +1973,16 @@ pub(crate) mod conformance {
     fn padding_insets() -> Case {
         Case::new()
             .proves_modifier("padding")
+            .proves_modifier("wrapper_id")
             .page(|| {
+                // `id` names the rectangle wherever it sits; the padding box is a wrapper, so
+                // it is named with `wrapper_id`, the one ordered identity modifier.
                 rectangle()
                     .fill(Color::rgb(1.0, 0.0, 0.0))
                     .id("inner")
                     .frame(40.0, 20.0)
                     .padding(10.0)
-                    .id("outer")
+                    .wrapper_id("outer")
             })
             .drive(|d: Drive| async move {
                 d.assert_frame("outer", size(60.0, 40.0)).await?;
@@ -2308,12 +2496,11 @@ pub(crate) mod conformance {
             })
     }
 
-    /// `.grow_h` takes the height its column has left; `.grow_axes` grows on the axes named.
+    /// `.grow_h` takes the height its column has left, in a column and in a row alike.
     #[day_macros::test(day_core)]
     fn grow_vertical_fills_column() -> Case {
         Case::new()
             .proves_modifier("grow_h")
-            .proves_modifier("grow_axes")
             .page(|| {
                 row((
                     column((
@@ -2333,7 +2520,7 @@ pub(crate) mod conformance {
                         .fill(Color::rgb(0.0, 1.0, 0.0))
                         .id("both")
                         .width(30.0)
-                        .grow_axes(false, true),
+                        .grow_h(),
                 ))
                 .spacing(0.0)
                 .align(VAlign::Top)

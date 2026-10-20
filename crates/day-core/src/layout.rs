@@ -171,7 +171,7 @@ impl<B: Toolkit> LayoutOps for EngineCx<'_, B> {
         log::warn!(
             "day layout: children overflow their container by {:.0}pt ({needed:.0} needed, \
              {available:.0} available; {who}) — give the row a fit policy: \
-             .fit(RowFit::Wrap/ColumnAt/Scroll) (docs/size-classes.md)",
+             .fit(RowFit::Wrap/Scroll) or adaptive(..) (docs/size-classes.md)",
             needed - available,
         );
     }
@@ -1391,16 +1391,18 @@ pub struct PaddingLayout {
 impl Layout for PaddingLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let inner = Proposal::new(
-            p.width.map(|w| (w - self.insets.horizontal()).max(0.0)),
-            p.height.map(|h| (h - self.insets.vertical()).max(0.0)),
+            p.width
+                .map(|w| (w - self.insets.horizontal_total()).max(0.0)),
+            p.height
+                .map(|h| (h - self.insets.vertical_total()).max(0.0)),
         );
         let s = match children.first() {
             Some(&c) => cx.measure_child(c, inner),
             None => Size::ZERO,
         };
         Size::new(
-            s.width + self.insets.horizontal(),
-            s.height + self.insets.vertical(),
+            s.width + self.insets.horizontal_total(),
+            s.height + self.insets.vertical_total(),
         )
     }
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
@@ -1419,8 +1421,8 @@ impl Layout for PaddingLayout {
     fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
         // The one wrapper with a real offset: its child starts below the top inset.
         let inner = Size::new(
-            (size.width - self.insets.horizontal()).max(0.0),
-            (size.height - self.insets.vertical()).max(0.0),
+            (size.width - self.insets.horizontal_total()).max(0.0),
+            (size.height - self.insets.vertical_total()).max(0.0),
         );
         wrapper_baseline(cx, children, inner, self.insets.top)
     }

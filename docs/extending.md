@@ -63,21 +63,25 @@ impl Piece for Gauge {
 realize payload; a sparse `Patch` enum carries changes.
 
 Those modifiers return `Decorated<YourPiece>` rather than erasing, so a chain keeps your type. To
-make your own builder methods reachable after one, declare them in a `*Builder` trait and forward
-it through `Decorated::map_inner`, the pattern every built-in piece follows, written up in
-[docs/api-style.md](api-style.md) "Typed builders and erasure":
+make your own builder methods reachable after one, put `#[day::builder(GaugeBuilder)]` on the
+inherent `impl` block that holds them; the attribute generates the `GaugeBuilder` trait, its
+impl for `Gauge`, and the forwarding impl for `Decorated<Gauge>`, the pattern every built-in
+piece follows, written up in [docs/api-style.md](api-style.md) "Typed builders and erasure":
 
 ```rust
-pub trait GaugeBuilder: Sized {
-    fn ticks(self, n: usize) -> Self;
-}
-impl GaugeBuilder for Gauge {
-    fn ticks(self, n: usize) -> Self { Gauge::ticks(self, n) }
-}
-impl<Inner: GaugeBuilder + Piece> GaugeBuilder for Decorated<Inner> {
-    fn ticks(self, n: usize) -> Self { self.map_inner(|p| p.ticks(n)) }
+use day::prelude::*;   // `Decorated` and `Piece` must be in scope for the generated impls
+
+#[day::builder(GaugeBuilder)]
+impl Gauge {
+    /// Tick marks around the dial.
+    pub fn ticks(mut self, n: usize) -> Self { self.ticks = n; self }
 }
 ```
+
+Every `pub fn` in the block that takes `self` by value and returns `Self` becomes a trait method;
+the rest (`&self` accessors, non-`pub` helpers) are left out. A generic piece names its
+parameters in the attribute (`#[day::builder(GaugeBuilder<T>)]`). A hand-written `*Builder`
+trait, or a `map_inner` forward, is not accepted in a piece crate.
 
 Skip any method whose name `Decorate` already defines (`id`, `background`, `scale`, …): the
 inherent method on `Decorated` wins resolution, so a forwarded twin would never be called.

@@ -124,12 +124,15 @@ let forecast: Resource<String> = Resource::new(
         Ok::<_, day_part_http::HttpError>(resp.text().into_owned())
     },
 );
-label(move || forecast.with(|l| match l {
-    Load::Loading => "…".to_string(),
-    Load::Ready(s) => s.clone(),
-    Load::Failed(e) => format!("error: {e}"),
-}))
+load(forecast, |f| label(move || f.get()))      // the three states as subtrees
+    .loading(|| label("…"))
+    .failed(|e| label(format!("error: {e}")))
 ```
+
+`load(state, ready)` builds one subtree per state: the ready arm, and optional `.loading` and
+`.failed` arms. The ready arm gets a `Loaded<T>` whose `get()` is a tracked read, so a refetch
+updates the label in place instead of rebuilding it. A `label` that only needs the text can
+also `match` on `forecast.with(|l| ..)` directly.
 
 The latest source value wins. A source change aborts the in-flight fetch (dropping its
 `FetchFuture`, the same cancel path as above) and a stale completion writes nothing. Scope

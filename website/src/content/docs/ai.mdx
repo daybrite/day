@@ -170,7 +170,7 @@ pub(crate) fn weather_page() -> impl Piece {
     let temps = ["18 °C", "24 °C", "11 °C"];
     column((
         label(crate::res::str::weather_title()).font(Font::Title).id("weather-title"),
-        picker(cities.iter().cloned(), city).id("weather-city"),
+        picker(city, [(0, cities[0]), (1, cities[1]), (2, cities[2])]).id("weather-city"),
         label(move || temps[city.get()].to_string())
             .font(Font::LargeTitle)
             .id("weather-temp"),

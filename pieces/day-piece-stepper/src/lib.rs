@@ -156,11 +156,6 @@ impl<V: Binding<f64>> Stepper<V> {
         self.key = id.into();
         self
     }
-
-    /// Alias for [`Self::id`], retained for existing callers.
-    pub fn key(self, key: impl Into<String>) -> Self {
-        self.id(key)
-    }
 }
 
 impl<V: Binding<f64>> Piece for Stepper<V> {
@@ -492,7 +487,7 @@ pub mod conformance {
         let value = Signal::new(3.0f64);
         // Each idiom asked for explicitly: a toolkit with no native arm renders a placeholder
         // for `.native()`, and the native cases skip there.
-        let field = stepper(value).range(0.0..=10.0).key("count");
+        let field = stepper(value).range(0.0..=10.0).id("count");
         column((
             label(move || format!("value {}", value.get())).id("value"),
             if composed {

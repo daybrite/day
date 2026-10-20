@@ -5,8 +5,10 @@
 //!
 //! [`build_path!`]: SVG path data in, a `PathBuilder` method chain out. [`Observable`]
 //! (`#[derive]`): a struct in, typed per-field accessors for day-model out, with
-//! [`observable_impls!`] as the same expansion for derives layered on it.
+//! [`observable_impls!`] as the same expansion for derives layered on it. [`macro@builder`]: a
+//! piece's builder trait and its `Decorated` forwarding, generated from the inherent impl.
 
+mod builder;
 mod java;
 mod obs;
 mod svg;
@@ -338,4 +340,27 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let mut out: TokenStream = item;
     out.extend(entry.parse::<TokenStream>().unwrap_or_default());
     out
+}
+
+/// A piece's builder trait, generated from the inherent `impl` that holds its builder methods
+/// (docs/api-style.md "Typed builders and erasure").
+///
+/// ```ignore
+/// #[day::builder(RatingBuilder)]
+/// impl Rating {
+///     /// The number of stars.
+///     pub fn max(mut self, n: u32) -> Self { self.max = n; self }
+///     pub fn editable<M>(mut self, on: impl IntoReactive<bool, M>) -> Self { … }
+/// }
+/// ```
+///
+/// The block is emitted unchanged, followed by `pub trait RatingBuilder: Sized` declaring every
+/// `pub fn …(self, …) -> Self` of the block, `impl RatingBuilder for Rating`, and
+/// `impl<Inner: RatingBuilder + Piece> RatingBuilder for Decorated<Inner>`, so
+/// `rating(v).padding(8.0).max(10)` resolves. A trait that carries one of the impl's type
+/// parameters names it: `#[day::builder(NavBuilder<K>)]` on `impl<K: Route, S: Binding<K>>
+/// Nav<S, K>` copies `K: Route` onto the trait. `Decorated` and `Piece` must be in scope.
+#[proc_macro_attribute]
+pub fn builder(attr: TokenStream, item: TokenStream) -> TokenStream {
+    builder::builder(attr, item)
 }

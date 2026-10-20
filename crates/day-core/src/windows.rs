@@ -402,18 +402,20 @@ enum CloseAction {
     None,
 }
 
-/// Open a secondary window (docs/windows.md). `key` names the logical window: when a
-/// window with this key is already open it is focused and returned instead of duplicated
-/// (the preferences pattern); `None` always opens a new one. Where the toolkit cannot
-/// open windows (`Cap::MultiWindow` = `Unsupported`; probe it to adapt chrome) the
-/// content presents as a fullscreen cover in the primary window instead, closable the
-/// same way.
+/// Open a secondary window (docs/windows.md): `open_window(res::window_options().key("city").size(…), build)`.
+/// `options.key` names the logical window: when a window with this key is already open it is
+/// focused and returned instead of duplicated (the preferences pattern); no key always opens a
+/// new one. `options.kind` says whether it is a regular window or a preferences/About panel.
+/// Where the toolkit cannot open windows (`Cap::MultiWindow` = `Unsupported`; probe it to adapt
+/// chrome) the content presents as a fullscreen cover in the primary window instead, closable
+/// the same way.
 pub fn open_window<P: Piece>(
-    key: Option<&str>,
     mut options: WindowOptions,
-    kind: WindowKind,
     build: impl FnOnce() -> P + 'static,
 ) -> WindowHandle {
+    let key = options.key.take();
+    let key = key.as_deref();
+    let kind = options.kind;
     if let Some(k) = key
         && let Some(existing) = window_by_key(k)
     {
@@ -1166,9 +1168,7 @@ pub fn open_preferences() -> bool {
         return false;
     };
     open_window(
-        Some(PREFERENCES_KEY),
-        options,
-        WindowKind::Preferences,
+        options.key(PREFERENCES_KEY).kind(WindowKind::Preferences),
         move || build(),
     );
     true
@@ -1207,9 +1207,7 @@ pub fn register_about_window<P: Piece>(options: WindowOptions, build: impl Fn() 
     register_about(move || {
         let build = build.clone();
         open_window(
-            Some(ABOUT_KEY),
-            options.clone(),
-            WindowKind::About,
+            options.clone().key(ABOUT_KEY).kind(WindowKind::About),
             move || build(),
         );
     });
@@ -1293,7 +1291,6 @@ pub fn open_new_window() -> Option<WindowHandle> {
     })
     .unwrap_or(Size::new(800.0, 600.0));
     Some(open_window(
-        None,
         WindowOptions {
             title: launch.as_ref().map(|o| o.title.clone()).unwrap_or_default(),
             size,
@@ -1309,7 +1306,6 @@ pub fn open_new_window() -> Option<WindowHandle> {
             tabbing: WindowTabbing::Automatic,
             ..WindowOptions::default()
         },
-        WindowKind::Normal,
         move || build(),
     ))
 }
@@ -1368,7 +1364,6 @@ pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
     })
     .unwrap_or(Size::new(800.0, 600.0));
     Some(open_window(
-        None,
         WindowOptions {
             title: launch.as_ref().map(|o| o.title.clone()).unwrap_or_default(),
             size,
@@ -1378,7 +1373,6 @@ pub fn open_new_window_for_group(group: &str) -> Option<WindowHandle> {
             tabbing: WindowTabbing::Group(group.to_string()),
             ..WindowOptions::default()
         },
-        WindowKind::Normal,
         move || build(),
     ))
 }

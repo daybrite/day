@@ -24,6 +24,7 @@
 //! ```
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
+use day_pieces::Decorated;
 use day_pieces::{IntoText, TextSource};
 use day_reactive::{Signal, bind_seeded};
 use day_spec::Event;
@@ -67,6 +68,7 @@ pub fn combo_box(items: Signal<Vec<String>>, text: Signal<String>) -> ComboBox {
     }
 }
 
+#[day_pieces::builder(ComboBoxBuilder)]
 impl ComboBox {
     /// The empty-state prompt shown while the entry has no text (a constant, `Signal<String>`, or
     /// closure, evaluated once for the initial value; not reactive after build).
@@ -150,26 +152,6 @@ impl Piece for ComboBox {
 day_pieces::glue_modules!(appkit, gtk, qt, mdc, xaml, arkui);
 
 // --- Typed builders, forwarded through `Decorated` (docs/api-style.md) ---
-
-/// [`ComboBox`]'s own builders, reachable through a decoration (§5.2): `day_pieces::Decorated` forwards them
-/// to the piece it wraps, so generic modifiers and typed ones chain in any order.
-pub trait ComboBoxBuilder: Sized {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self;
-}
-
-impl ComboBoxBuilder for ComboBox {
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        ComboBox::placeholder(self, t)
-    }
-}
-
-impl<Inner: ComboBoxBuilder + day_pieces::prelude::Piece> ComboBoxBuilder
-    for day_pieces::Decorated<Inner>
-{
-    fn placeholder<M>(self, t: impl IntoText<M>) -> Self {
-        self.map_inner(|inner_piece| inner_piece.placeholder(t))
-    }
-}
 
 /// The combo box's conformance cases (docs/testing.md).
 #[cfg(feature = "conformance")]

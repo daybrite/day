@@ -85,6 +85,25 @@ uses its own: `secondaryLabelColor` on macOS and iOS, `?android:attr/textColorSe
 still wins, and a backend with no such color renders the primary one, which is legible but not
 dimmed.
 
+## Presets
+
+A style an app applies to many labels is named once as a `TextPreset` and applied with
+`.preset(&NAME)`:
+
+```rust
+const CAPTION: TextPreset = TextPreset::new(Font::Caption).secondary();
+const PRICE: TextPreset = TextPreset::new(Font::Headline).tabular().bold();
+
+label(tr("last_updated")).preset(&CAPTION)
+label(move || format!("{:.2}", price.get())).preset(&PRICE)
+```
+
+Every `TextPreset` builder is `const` (`font_scale`, `weight`, `bold`, `italic`, `tabular`,
+`monospace`, `secondary`, `single_line`, `color`), so a preset is a constant rather than a
+runtime value, and `.preset` applies the same steps the equivalent chain would. It replaces a
+repeated `label(t).font(Font::Caption).secondary()` without adding a style system: the preset
+is still semantic fonts and the platform's colors.
+
 ## Custom sizes and accessibility
 
 `Font::System(pt)` takes an explicit point size, but it is still scaled by the platform's
