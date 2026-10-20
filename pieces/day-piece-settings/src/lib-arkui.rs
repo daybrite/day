@@ -1486,9 +1486,9 @@ fn entry_row(e: &RootEntry, card: CardPos, about: bool) -> AnyPiece {
         }
     });
     let id = if about {
-        "settings-about".to_string()
+        day_core::id!(settings_about)
     } else {
-        format!("prefs-group-{}", e.id)
+        day_core::id!(prefs_group, e.id.clone())
     };
     row.id(id).any()
 }

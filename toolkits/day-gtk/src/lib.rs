@@ -3430,7 +3430,7 @@ pub fn vector_icon_name(name: &str) -> Option<String> {
     };
     if stale {
         let px = ICON_PX * 4;
-        let pixbuf = gtk4::gdk_pixbuf::Pixbuf::from_file_at_size(&svg, px, px).ok()?;
+        let pixbuf = vector::symbolic_pixbuf(&std::fs::read(&svg).ok()?, px)?;
         let pixbuf = if pixbuf.has_alpha() {
             pixbuf
         } else {

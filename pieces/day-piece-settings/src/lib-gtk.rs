@@ -1063,7 +1063,7 @@ struct Slot {
     /// The action a marker runs on a (scripted) tap.
     on_tap: Option<Rc<dyn Fn()>>,
     /// The row's element id, when the slot node carries it (a marker, a busy action).
-    id: Option<String>,
+    id: Option<day_core::ElementId>,
 }
 
 impl Piece for Slot {
@@ -1088,7 +1088,7 @@ impl Piece for Slot {
         );
         shared.node.set(Some(node));
         if let Some(id) = id {
-            with_tree(|t| t.set_id(node, id));
+            with_tree(|t| t.set_id(node, id.as_str().to_owned()));
         }
         if let Some(child) = child {
             cx.under(node, |cx| {
@@ -1608,7 +1608,7 @@ impl ShellBuild {
         kind: SlotKind,
         child: Option<AnyPiece>,
         on_tap: Option<Rc<dyn Fn()>>,
-        id: Option<String>,
+        id: Option<day_core::ElementId>,
     ) -> u64 {
         let key = next_key();
         self.slots.push(Slot {

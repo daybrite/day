@@ -13,6 +13,26 @@ use gtk4::glib::translate::*;
 use gtk4::prelude::*;
 use gtk4::{gdk, glib, graphene};
 
+/// Icon-theme widgets require a symbolic bitmap. Select the SVG decoder explicitly:
+/// gdk-pixbuf's format sniffing misses SVGs with long leading license comments.
+pub(super) fn symbolic_pixbuf(source: &[u8], size: i32) -> Option<gtk4::gdk_pixbuf::Pixbuf> {
+    let loader = gtk4::gdk_pixbuf::PixbufLoader::with_type("svg").ok()?;
+    loader.connect_size_prepared(move |loader, width, height| {
+        if width > 0 && height > 0 {
+            let scale = f64::from(size) / f64::from(width.max(height));
+            loader.set_size(
+                (f64::from(width) * scale).round().max(1.0) as i32,
+                (f64::from(height) * scale).round().max(1.0) as i32,
+            );
+        }
+    });
+    let written = loader.write(source);
+    let closed = loader.close();
+    written.ok()?;
+    closed.ok()?;
+    loader.pixbuf()
+}
+
 #[repr(C)]
 #[derive(Default)]
 struct Rectangle {
@@ -206,5 +226,26 @@ impl SvgPaintable {
     pub fn set_tint(&self, tint: Option<day_spec::Color>) {
         self.imp().tint.set(tint);
         self.invalidate_contents();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn symbolic_svg_with_long_header_preserves_aspect_ratio_and_alpha() {
+        let source = format!(
+            "<!-- {} -->\n\
+             <svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"12\">\
+             <path d=\"M0 0H12V12H0Z\"/></svg>",
+            "license and author notes ".repeat(100)
+        );
+        let pixbuf = super::symbolic_pixbuf(source.as_bytes(), 80).expect("decode SVG");
+        assert_eq!((pixbuf.width(), pixbuf.height()), (80, 40));
+        assert!(pixbuf.has_alpha());
+        let bytes = pixbuf.read_pixel_bytes();
+        let alpha =
+            |x: usize, y: usize| bytes.as_ref()[y * pixbuf.rowstride() as usize + x * 4 + 3];
+        assert_eq!(alpha(10, 20), 255, "filled half survives");
+        assert_eq!(alpha(60, 20), 0, "transparent half stays transparent");
     }
 }

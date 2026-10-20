@@ -103,7 +103,7 @@ already is the right place, and a value that is one JSON document stays one key.
 
 | | |
 |---|---|
-| `Group::new(id, title)` | `id` is the route segment and the element id (`prefs-group-<id>`), so it must not equal a key of the app's own navigation (an `account` group beside an `account` section is reached by the section); `title` is any text source. `.icon(res::vectors::x)` or `.icon(Symbol::Settings)`, `.subtitle(..)` (the mobile root list's second line), `.section(..)`, `.row(..)` (appends to a trailing untitled section), `.custom(build)` (a bespoke piece that is the whole page), `.order(n)`, `.available(|| bool)`, `.requires(Cap)`. |
+| `Group::new(id, title)` | `id` is the route segment and the element id (`prefs_group:<id>`), so it must not equal a key of the app's own navigation (an `account` group beside an `account` section is reached by the section); `title` is any text source. `.icon(res::vectors::x)` or `.icon(Symbol::Settings)`, `.subtitle(..)` (the mobile root list's second line), `.section(..)`, `.row(..)` (appends to a trailing untitled section), `.custom(build)` (a bespoke piece that is the whole page), `.order(n)`, `.available(|| bool)`, `.requires(Cap)`. |
 | `Section::new()` | `.title(..)`, `.footer(..)`, `.row(..)`, `.rows(..)`. One card. |
 | `rows::toggle(&pref, title)` | On/off. |
 | `rows::choice(&pref, title, [(value, label), …])` | One of N: a menu, or `.segmented()` for a few short labels. Two-way: a write to the pref from elsewhere (a menu command) moves the control. |
@@ -117,7 +117,7 @@ already is the right place, and a value that is one JSON document stays one key.
 | `rows::note(text)` | A footnote inside the card. |
 | `rows::custom(build)` | Any piece as a row. |
 
-Every row takes `.caption(..)` (a secondary line), `.id(..)` (default `pref-<key>` for a pref
+Every row takes `.caption(..)` (a secondary line), `.id(day::id!(name))` (default `pref:<key>` for a pref
 row), `.enabled(on)` and `.busy(on)` (a `bool`, a signal or a closure), and `.available(|| bool)`
 / `.requires(Cap)`.
 A long caption wraps inside the title column rather than widening it; prose that belongs to
@@ -131,9 +131,9 @@ name with a piece in the prelude (`toggle`, `slider`, `link`, `navigate`).
 ### The General group
 
 `general_group(res::locales::ALL)` is the group every app starts with: Appearance (Light /
-Dark / System, id `theme-picker`, present only where the toolkit honors a runtime override,
+Dark / System, id `theme_picker`, present only where the toolkit honors a runtime override,
 `Cap::Appearance`) and Language (System plus every bundled locale under its own name, id
-`language-picker`). The prefs behind them are `APPEARANCE` (`day.appearance`) and `LANGUAGE`
+`language_picker`). The prefs behind them are `APPEARANCE` (`day.appearance`) and `LANGUAGE`
 (`day.locale`); a View menu or a toolbar that also sets the theme writes the same pref, so the
 two can never disagree. `wire_general()` applies the stored values at boot and keeps applying
 changes; the group calls it, and an app using the rows alone (`appearance_row()`,
@@ -242,15 +242,20 @@ and KDE (`day-settings` / `day-preferences`), read from the running toolkit.
 | `prefs.page()` / `day_piece_settings::page()` | The navigation presentation as a piece: the nav item's destination, or any place the app embeds settings. The free function serves code that holds no `Prefs` (an app struct that must stay `Copy`). |
 | `prefs.group_page("reading")` / `day_piece_settings::group_page_of("reading")` | One group's page alone (an in-reader sheet); `prefs.group_body(..)` is the same without the scroll, for a sheet that stacks several groups in one `scroll` of its own (on the phones the native page sizes itself to its rows). |
 | `prefs.about_page()` | The composed About page. |
-| `navigate("about")` / `navigate("settings/about")` | The About window on desktop; on a phone the About page is a stack destination under the settings section, so the route is `settings/about` (or a tap on `settings-about`). |
+| `navigate("about")` / `navigate("settings/about")` | The About window on desktop; on a phone the About page is a stack destination under the settings section, so the route is `settings/about` (or a tap on `settings_about`). |
 | `day::open_about()`, `day::register_about(action)`, `day::register_about_window(options, build)` | The day-core layer underneath. |
 
-Element ids: `settings-root`, `settings-stack`, `settings-about` (the header card),
-`prefs-group-<id>` (a group's root-list row and its page), `pref-<key>` (a pref row's control),
-`theme-picker`, `language-picker`, `about-page`, `about-name`, `about-version`,
-`about-tagline`, `about-link-<n>` (links in declaration order), `about-privacy`, `about-copyright`, and
-`settings-done`, the cover's Done bar button (a toolbar item: dayscript reaches it with
-`toolbar: { item: settings-done }`, not `tap`).
+Element ids: `settings_root`, `settings_stack`, `settings_about` (the header card),
+`prefs_group:<id>` (a group's root-list row and its page), `pref:<key>` (a pref row's control),
+`theme_picker`, `language_picker`, `about_page`, `about_name`, `about_version`,
+`about_tagline`, `about_link:<n>` (links in declaration order), `about_privacy`, `about_copyright`, and
+`settings_done`, the cover's Done bar button (a toolbar item: dayscript reaches it with
+`toolbar: { item: settings_done }`, not `tap`).
+
+These are declared with `id!` on every toolkit, including native settings shells. Keyed
+IDs use the macro's canonical encoding: for example, group `general` is
+`prefs_group:general`. A custom row ID stays an `ElementId` through the native shell and
+becomes text only when registered with the element tree.
 
 ## Providers
 
@@ -286,7 +291,7 @@ The crate's `#[day::test]` cases (`settings_theme_applies_and_persists`,
 `settings_rows_persist`) run in the conformance app on every toolkit and under `cargo test` on
 the mock. The day-pieces mock e2e suite covers the window registration, the menu injection and
 the singleton reopen. The starter's `dayscript/demo.yaml` navigates to `settings` and waits for
-`language-picker` on every target, so a broken route or id fails the template's CI. In a
+`language_picker` on every target, so a broken route or id fails the template's CI. In a
 script, `screenshot: { name: s, window: day.preferences }` (or `day.about`) captures the panel
 instead of the primary window, and `menu: { key: day-about }` / `menu: { key: day-check-for-updates }`
 dispatch the injected role items, which carry no id of their own.

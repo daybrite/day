@@ -72,6 +72,8 @@ icons, still use the existing symbolic PNG cache at 4× icon size. Those constra
 are not covered by the retained-paintable path; making them resolution independent requires
 separate work on the icon-theme integration. Ordinary GTK image widgets, button icons,
 sidebar rows, and toolbar icons use the retained SVG path.
+The symbolic cache explicitly selects the SVG decoder, so leading license comments do not
+make a valid glyph fail image-format detection. Its decode preserves aspect ratio and alpha.
 
 These backends require development libraries at build time: `qt6-svg-dev` for Qt and
 `librsvg2-dev` (2.52+) for GTK on Debian/Ubuntu; Homebrew's `qt` / `librsvg`, or MSYS2's
