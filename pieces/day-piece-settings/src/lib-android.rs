@@ -592,7 +592,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
             let (dec, inc) = (dec.compact(), inc.compact());
-            let ctl = stepper_control(v, dec, inc, id.as_deref());
+            let ctl = stepper_control(v, dec, inc, id.as_ref());
             NativeRow::of(r).control(ctl).any()
         }
         RowKind::Text {
@@ -769,12 +769,12 @@ fn group_lines(inst: &Rc<Installed>, g: &Group, out: &mut Vec<AnyPiece>) {
 }
 
 /// The page: its lines in a full-bleed scrolling list.
-fn page(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
+fn page(lines: Vec<AnyPiece>, id: day_core::ElementId) -> AnyPiece {
     scroll(body(lines, id)).any()
 }
 
 /// A page's lines without the scroll.
-fn body(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
+fn body(lines: Vec<AnyPiece>, id: day_core::ElementId) -> AnyPiece {
     column(lines)
         .spacing(0.0)
         .align(HAlign::Leading)
@@ -785,7 +785,7 @@ fn body(lines: Vec<AnyPiece>, id: &str) -> AnyPiece {
             trailing: 0.0,
         })
         .grow_w()
-        .id(id.to_string())
+        .id(id)
         .any()
 }
 
@@ -805,7 +805,7 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         if let Some(icon) = &a.icon {
             row = row.icon(icon_drawable(icon), false);
         }
-        lines.push(row.on_tap(move || open()).id("settings-about").any());
+        lines.push(row.on_tap(move || open()).id(day_core::id!(settings_about)).any());
     }
     let visible = inst.visible_groups();
     if let [g] = visible[..] {
@@ -822,26 +822,26 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
             }
             lines.push(
                 row.on_tap(move || open())
-                    .id(format!("prefs-group-{}", e.id))
+                    .id(day_core::id!(prefs_group, e.id.clone()))
                     .any(),
             );
         }
     }
-    Some(page(lines, "settings-root"))
+    Some(page(lines, day_core::id!(settings_root)))
 }
 
 /// One group's page: its sections as category headers, rows and footnotes.
 pub(super) fn group_page(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
     let mut lines: Vec<AnyPiece> = Vec::new();
     group_lines(&inst, g, &mut lines);
-    Some(page(lines, &format!("prefs-group-{}", g.id)))
+    Some(page(lines, day_core::id!(prefs_group, g.id)))
 }
 
 /// One group's lines with no scroll, for a sheet's own `scroll`.
 pub(super) fn group_body(inst: Rc<Installed>, g: &Group) -> Option<AnyPiece> {
     let mut lines: Vec<AnyPiece> = Vec::new();
     group_lines(&inst, g, &mut lines);
-    Some(body(lines, &format!("prefs-group-{}", g.id)))
+    Some(body(lines, day_core::id!(prefs_group, g.id)))
 }
 
 /// The About page: the app's identity centered at the top, then the links, the
@@ -861,17 +861,17 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         label(about.display_name())
             .font(day_spec::Font::Title2)
             .bold()
-            .id("about-name")
+            .id(day_core::id!(about_name))
             .any(),
     );
     if let Some(v) = about.version_line() {
-        hero.push(label(v).secondary().id("about-version").any());
+        hero.push(label(v).secondary().id(day_core::id!(about_version)).any());
     }
     if let Some(t) = about.tagline_text() {
         hero.push(
             label(t)
                 .align(day_spec::props::TextAlign::Center)
-                .id("about-tagline")
+                .id(day_core::id!(about_tagline))
                 .padding(day_spec::Insets {
                     top: 0.0,
                     leading: PAD_H,
@@ -894,17 +894,17 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         spacer().frame(1.0, HERO_PAD).any(),
     ];
     // Ids by position (`about-link-0`, …) and `about-privacy`: what a walkthrough asserts.
-    let mut links: Vec<(TextSource, String, String)> = about
+    let mut links: Vec<(TextSource, String, day_core::ElementId)> = about
         .links()
         .iter()
         .enumerate()
-        .map(|(i, (t, url))| (t.clone(), url.clone(), format!("about-link-{i}")))
+        .map(|(i, (t, url))| (t.clone(), url.clone(), day_core::id!(about_link, i)))
         .collect();
     if let Some(p) = about.privacy_url() {
         links.push((
             day_fluent::tr("day-about-privacy").into_text(),
             p.to_string(),
-            "about-privacy".into(),
+            day_core::id!(about_privacy),
         ));
     }
     for (title, url, id) in links {
@@ -931,7 +931,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         lines.push(crate::row_piece(inst.clone(), &r, false));
     }
     if let Some(c) = about.copyright_text() {
-        lines.push(footnote(&TextSource::Static(c)).id("about-copyright").any());
+        lines.push(footnote(&TextSource::Static(c)).id(day_core::id!(about_copyright)).any());
     }
-    Some(page(lines, "about-page"))
+    Some(page(lines, day_core::id!(about_page)))
 }

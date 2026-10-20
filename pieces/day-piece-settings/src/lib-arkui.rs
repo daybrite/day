@@ -785,7 +785,7 @@ fn row_at(inst: Rc<Installed>, r: &Row, card: CardPos) -> Option<AnyPiece> {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            row.control = Some(stepper_control(v, dec, inc, id.as_deref()));
+            row.control = Some(stepper_control(v, dec, inc, id.as_ref()));
         }
         RowKind::Text {
             value,
@@ -1548,7 +1548,7 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
             groups: cards,
             hug: false,
         }
-        .id("settings-root")
+        .id(day_core::id!(settings_root))
         .any(),
     )
 }
@@ -1572,6 +1572,6 @@ fn group_list(inst: &Rc<Installed>, g: &Group, hug: bool) -> AnyPiece {
         cards
     });
     ListPage { groups: cards, hug }
-        .id(format!("prefs-group-{}", g.id))
+        .id(day_core::id!(prefs_group, g.id.clone()))
         .any()
 }

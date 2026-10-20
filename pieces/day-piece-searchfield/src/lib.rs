@@ -167,11 +167,13 @@ pub mod conformance {
             .page(|| {
                 let query = Signal::new(String::new());
                 column((
-                    label(move || format!("query {}", query.get())).id("query"),
-                    search_field(query).placeholder("Search").id("search"),
+                    label(move || format!("query {}", query.get())).id(day_core::id!(query)),
+                    search_field(query)
+                        .placeholder("Search")
+                        .id(day_core::id!(search)),
                     button("Clear")
                         .action(move || query.set(String::new()))
-                        .id("clear"),
+                        .id(day_core::id!(clear)),
                 ))
             })
             .drive(|d: Drive| async move {

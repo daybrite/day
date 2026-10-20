@@ -39,8 +39,8 @@ fn button_press() -> Case {
     Case::new()
         .proves(kinds::BUTTON)
         .page(move || column((
-            button("Press").action(move || presses.update(|n| *n += 1)).id("btn-press"),
-            label(move || presses.get().to_string()).id("btn-count"),
+            button("Press").action(move || presses.update(|n| *n += 1)).id(id!(btn_press)),
+            label(move || presses.get().to_string()).id(id!(btn_count)),
         )))
         .shot("default")
         .drive(|d: Drive| async move {

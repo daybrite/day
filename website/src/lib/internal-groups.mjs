@@ -141,6 +141,7 @@ export const groups = [
       ['screenshot-archive', 'the screenshots.tar.xz bundle `day screenshot pack` writes, and normalized captures'],
       ['flavors', '`Day-<name>.toml` and `--flavor`: one source tree, several shipped apps'],
       ['agent', 'dayscript sessions, `day drive`, and the agent-facing tooling'],
+      ['element-ids', 'typed id! declarations, compiled registries, and dayscript coverage gates'],
       ['testing', '`day test`: #[day::test] cases run inside the app, the conformance app, the evidence'],
       ['api-style', 'the API design conventions Day itself follows'],
       ['vscode', 'editor setup'],

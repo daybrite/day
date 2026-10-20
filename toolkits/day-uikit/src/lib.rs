@@ -2203,7 +2203,7 @@ mod imp {
 
     // ── A page's own search field (docs/search.md, "Page search") ─────────────────────
     //
-    // A navigation page that declares `.searchable(…)` contributes the reserved `day.search`
+    // A navigation page that declares `.searchable(…)` contributes the reserved `day::search`
     // item to its own chrome, and Day merges a page's chrome into its window's bar only while
     // that page is the one showing. So the item in the window's model always belongs to the
     // page on top, and that page's `navigationItem` takes a `UISearchController`: Mail's search
@@ -2218,7 +2218,7 @@ mod imp {
     // with the page's scope), and with the page itself.
 
     struct PageSearchIvars {
-        /// The item's dispatch id: the slot Day keeps for `day.search` on this window.
+        /// The item's dispatch id: the slot Day keeps for `day::search` on this window.
         action: Cell<u64>,
         /// Suppresses the echo while Day writes the field's text into it.
         suppress: Cell<bool>,
@@ -2331,7 +2331,7 @@ mod imp {
         static PAGE_SEARCH: RefCell<HashMap<usize, PageSearch>> = RefCell::new(HashMap::new());
     }
 
-    /// The window's `day.search` item, if its bar has one.
+    /// The window's `day::search` item, if its bar has one.
     fn page_search_item(root: usize) -> Option<day_spec::ToolbarItem> {
         WINDOW_TOOLBARS.with(|t| {
             t.borrow().get(&root).and_then(|w| {
@@ -2428,7 +2428,7 @@ mod imp {
         }
     }
 
-    /// Put the window's `day.search` item on the page it belongs to, and take it off the page
+    /// Put the window's `day::search` item on the page it belongs to, and take it off the page
     /// on top when that page stopped offering one. Run after every change to the bar's model,
     /// after a page shows, and before a value patch, so the field is in place to take it.
     /// Answers the page's controller and its handler, when the item is on one.

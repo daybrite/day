@@ -21,10 +21,10 @@ Give the controls you want to test stable IDs. For the counter from
 [Getting started](/docs/getting-started), add IDs to the label and button:
 
 ```rust
-label(move || format!("Count: {}", count.get())).id("counter-label"),
+label(move || format!("Count: {}", count.get())).id(id!(counter_label)),
 button("Add one")
     .action(move || count.update(|n| *n += 1))
-    .id("increment-button"),
+    .id(id!(increment_button)),
 ```
 
 Keep these two pieces inside the existing `column`. Save this script as
@@ -33,9 +33,9 @@ Keep these two pieces inside the existing `column`. Save this script as
 ```yaml
 name: counter
 flow:
-  - wait_for:     { id: increment-button }
-  - tap:          { id: increment-button }
-  - assert_value: { id: counter-label, value: "Count: 1" }
+  - wait_for:     { id: increment_button }
+  - tap:          { id: increment_button }
+  - assert_value: { id: counter_label, value: "Count: 1" }
   - screenshot:  counter
 ```
 
@@ -63,8 +63,8 @@ add `on_failure: stop` beside `name`:
 name: reader
 on_failure: stop
 flow:
-  - tap: { id: open-book }
-  - wait_for: { id: book-webview, timeout_secs: 60 }
+  - tap: { id: open_book }
+  - wait_for: { id: book_webview, timeout_secs: 60 }
   - screenshot: reading
 ```
 
@@ -149,8 +149,8 @@ The same two gates match a [build flavor](/docs/flavors), written `flavor:<name>
 `flavor:none` for the base app. A paid build and a free one then share one walkthrough:
 
 ```yaml
-- assert_text: { id: welcome-title, text: "Welcome to Notes", skip_on: [flavor:paid] }
-- assert_text: { id: welcome-title, text: "Welcome to Notes Pro", only_on: [flavor:paid] }
+- assert_text: { id: welcome_title, text: "Welcome to Notes", skip_on: [flavor:paid] }
+- assert_text: { id: welcome_title, text: "Welcome to Notes Pro", only_on: [flavor:paid] }
 ```
 
 ## Run reports and background memory sampling

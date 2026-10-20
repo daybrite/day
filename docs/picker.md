@@ -26,7 +26,7 @@ enum Size { Small, Medium, Large }
 let size = Signal::new(Size::Medium);
 picker(size, [(Size::Small, res::str::small()), (Size::Medium, res::str::medium()), (Size::Large, res::str::large())])
     .segmented()
-    .id("size")                                                      // horizontal one-of-N
+    .id(id!(size))                                                      // horizontal one-of-N
 picker(color, colors).menu()                                         // dropdown / pop-up
 picker(plan, plans).inline()                                         // vertical radio group
 ```

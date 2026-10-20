@@ -356,7 +356,7 @@ pub(crate) mod conformance {
             .page(|| {
                 image(RED_BLUE.to_vec())
                     .stretch()
-                    .id("image")
+                    .id(day_core::id!(image))
                     .frame(120.0, 60.0)
             })
             .shot("default")
@@ -376,7 +376,7 @@ pub(crate) mod conformance {
             .page(|| {
                 image(RED_BLUE.to_vec())
                     .fit()
-                    .id("image")
+                    .id(day_core::id!(image))
                     .frame(100.0, 100.0)
             })
             .drive(|d: Drive| async move {
@@ -394,7 +394,7 @@ pub(crate) mod conformance {
             .page(|| {
                 image(RED_BLUE.to_vec())
                     .a11y(|a| a.label("Red and blue"))
-                    .id("image")
+                    .id(day_core::id!(image))
                     .frame(40.0, 20.0)
             })
             .drive(|d: Drive| async move { d.a11y_audit(Some("image")).await })

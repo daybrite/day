@@ -118,10 +118,10 @@ Files go through the existing `present` path ([docs/dialogs.md](dialogs.md)) and
 A file picker is a presentation, so a script answers it with a path ([docs/dialogs.md](dialogs.md)):
 
 ```yaml
-- tap: { id: btn-save-file }
+- tap: { id: btn_save_file }
 - assert_presented: {}
 - respond: { path: "notes.txt" }        # relative → the app temp dir (writable on every target)
-- tap: { id: btn-open-file }
+- tap: { id: btn_open_file }
 - assert_presented: {}
 - respond: { path: "notes.txt" }         # reads the file just written: a real round-trip
 ```

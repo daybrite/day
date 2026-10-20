@@ -22,6 +22,7 @@ pub mod render;
 pub mod dynreg;
 /// `#[day_pieces::builder(FooBuilder)]`: a piece's builder trait, generated from its inherent
 /// impl (docs/api-style.md "Typed builders and erasure").
+pub use day_core::{ElementId, IntoElementKey, id};
 pub use day_macros::builder;
 pub use day_spec::Renderer;
 pub use linkme;
@@ -83,6 +84,7 @@ pub use toolbar::*;
 
 pub mod prelude {
     pub use crate::{DocumentTabs, TabActions, TabSet, document_tabs};
+    pub use day_core::{ElementId, IntoElementKey, id};
     // Model-driven rows (docs/model.md): the store-as-RowSource surface.
     pub use crate::TextStyle;
     pub use crate::ToolbarEntry;

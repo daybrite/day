@@ -101,7 +101,7 @@ pub struct Stepper<V: Binding<f64>> {
     step: f64,
     decimals: u32,
     idiom: StepperIdiom,
-    key: String,
+    key: day_core::ElementId,
 }
 
 /// `stepper(value)`: a numeric field with increment/decrement arrows. `value` is a
@@ -115,7 +115,7 @@ pub fn stepper<V: Binding<f64>>(value: V) -> Stepper<V> {
         step: 1.0,
         decimals: 0,
         idiom: StepperIdiom::Automatic,
-        key: "stepper".to_string(),
+        key: day_core::id!(stepper),
     }
 }
 
@@ -152,8 +152,8 @@ impl<V: Binding<f64>> Stepper<V> {
     /// The field's dayscript id (default `"stepper"`; its − and + buttons are
     /// `<id>-dec` and `<id>-inc`). Names the interactive field in both idioms, rather than
     /// the composed layout row that a generic `Decorate::id` would tag.
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.key = id.into();
+    pub fn id(mut self, id: day_core::ElementId) -> Self {
+        self.key = id;
         self
     }
 }
@@ -199,7 +199,7 @@ fn build_native<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNode
     );
     // The leaf's dayscript id: one `.key` drives both idioms (`Decorate::id` on the piece
     // would tag the wrapper the composed row returns, which no toolkit realizes).
-    with_tree(|t| t.set_id(node, key));
+    with_tree(|t| t.set_id(node, key.as_str().to_owned()));
     let note_probe = move |v: f64| {
         with_tree(|t| t.set_probe_value(node, v, fmt_value(v, decimals)));
     };
@@ -308,7 +308,10 @@ fn build_composed<V: Binding<f64>>(stepper: Stepper<V>, cx: &mut BuildCx) -> RNo
     // Glyph-sized buttons: a stock Material button is 88 dp wide, and two of them beside the
     // field made the composed stepper a 240 dp control that clipped in a 280 dp inspector.
     // The buttons carry ids derived from the key, so a script can press them as a person would.
-    let (dec_id, inc_id) = (format!("{key}-dec"), format!("{key}-inc"));
+    let (dec_id, inc_id) = (
+        day_core::id!(stepper_decrement, key.as_str()),
+        day_core::id!(stepper_increment, key.as_str()),
+    );
     // dayscript's `set_value:` lands `ValueChanged`/`ValueCommitted` on the id, which the
     // field itself has no use for (it carries text); the composed idiom takes them the way
     // the native leaf does, so a scripted value reaches the binding on every toolkit.
@@ -414,7 +417,7 @@ mod tests {
             } else {
                 field.composed()
             }
-            .id("fixture-stepper")
+            .id(day_core::id!(fixture_stepper))
             .any()
         });
         let node = with_tree(|t| t.find_by_id("fixture-stepper")).unwrap();
@@ -487,9 +490,9 @@ pub mod conformance {
         let value = Signal::new(3.0f64);
         // Each idiom asked for explicitly: a toolkit with no native arm renders a placeholder
         // for `.native()`, and the native cases skip there.
-        let field = stepper(value).range(0.0..=10.0).id("count");
+        let field = stepper(value).range(0.0..=10.0).id(day_core::id!(count));
         column((
-            label(move || format!("value {}", value.get())).id("value"),
+            label(move || format!("value {}", value.get())).id(day_core::id!(value)),
             if composed {
                 field.composed().any()
             } else {

@@ -22,8 +22,8 @@
 //!
 //! ```ignore
 //! reader_page(article).toolbar([
-//!     toolbar_button("refresh", tr("refresh")).icon(Symbol::Refresh).action(refresh_all),
-//!     toolbar_toggle("star", tr("star"), starred).icon(Symbol::Star),
+//!     toolbar_button(day_core::id!(refresh), tr("refresh")).icon(Symbol::Refresh).action(refresh_all),
+//!     toolbar_toggle(day_core::id!(star), tr("star"), starred).icon(Symbol::Star),
 //! ])
 //! ```
 
@@ -68,9 +68,9 @@ enum Kind {
     Separator,
 }
 
-fn entry(id: impl Into<String>, kind: Kind) -> ToolbarEntry {
+fn entry(id: day_core::ElementId, kind: Kind) -> ToolbarEntry {
     ToolbarEntry {
-        id: id.into(),
+        id: id.as_str().to_owned(),
         kind,
         label: None,
         tooltip: None,
@@ -83,8 +83,8 @@ fn entry(id: impl Into<String>, kind: Kind) -> ToolbarEntry {
     }
 }
 
-/// A push button: `toolbar_button("refresh", tr("refresh")).icon(Symbol::Refresh).action(…)`.
-pub fn toolbar_button<M>(id: impl Into<String>, label: impl IntoText<M>) -> ToolbarEntry {
+/// A push button: `toolbar_button(day_core::id!(refresh), tr("refresh")).icon(Symbol::Refresh).action(…)`.
+pub fn toolbar_button<M>(id: day_core::ElementId, label: impl IntoText<M>) -> ToolbarEntry {
     ToolbarEntry {
         label: Some(label.into_text()),
         ..entry(id, Kind::Button)
@@ -99,14 +99,14 @@ pub fn toolbar_button<M>(id: impl Into<String>, label: impl IntoText<M>) -> Tool
 /// one, and keeps the exclusivity itself; three toggles leave all of that to the app.
 ///
 /// ```ignore
-/// toolbar_segmented("theme", vec![
+/// toolbar_segmented(day_core::id!(theme), vec![
 ///     segment(tr("light")).icon(Symbol::Light),
 ///     segment(tr("system")).icon(Symbol::Auto),
 ///     segment(tr("dark")).icon(Symbol::Dark),
 /// ], mode)
 /// ```
 pub fn toolbar_segmented(
-    id: impl Into<String>,
+    id: day_core::ElementId,
     segments: Vec<Segment>,
     selected: impl Binding<usize>,
 ) -> ToolbarEntry {
@@ -147,7 +147,7 @@ impl Segment {
 /// A two-state button bound to `on` (a `Signal<bool>` or any other binding): the user flipping
 /// it writes the binding, and writing the binding restyles the button.
 pub fn toolbar_toggle<M>(
-    id: impl Into<String>,
+    id: day_core::ElementId,
     label: impl IntoText<M>,
     on: impl Binding<bool>,
 ) -> ToolbarEntry {
@@ -159,7 +159,7 @@ pub fn toolbar_toggle<M>(
 
 /// A button that drops a menu, built from the same entries [`crate::app_menu`] takes.
 pub fn toolbar_menu<M>(
-    id: impl Into<String>,
+    id: day_core::ElementId,
     label: impl IntoText<M>,
     items: Vec<MenuEntry>,
 ) -> ToolbarEntry {
@@ -170,7 +170,7 @@ pub fn toolbar_menu<M>(
 }
 
 /// Static text in the bar: a status or a caption.
-pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> ToolbarEntry {
+pub fn toolbar_label<M>(id: day_core::ElementId, text: impl IntoText<M>) -> ToolbarEntry {
     ToolbarEntry {
         label: Some(text.into_text()),
         ..entry(id, Kind::Label)
@@ -180,7 +180,7 @@ pub fn toolbar_label<M>(id: impl Into<String>, text: impl IntoText<M>) -> Toolba
 /// A divider, where the platform draws one (macOS toolbars have none, so AppKit renders it as a
 /// fixed gap; docs/toolbars.md). It takes an id like every other item: an id is an item's
 /// identity on the bar, which is what lets Day add and remove one item at a time.
-pub fn toolbar_separator(id: impl Into<String>) -> ToolbarEntry {
+pub fn toolbar_separator(id: day_core::ElementId) -> ToolbarEntry {
     entry(id, Kind::Separator)
 }
 
@@ -191,8 +191,8 @@ impl ToolbarEntry {
     }
 
     /// Override a presentation id (for example, preserve an existing dayscript toolbar id).
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = id.into();
+    pub fn id(mut self, id: day_core::ElementId) -> Self {
+        self.id = id.as_str().to_owned();
         self
     }
     /// Run `f` when the item is chosen. On a toggle or a search field the value binding carries
@@ -307,7 +307,7 @@ impl<F: Fn() -> Vec<ToolbarEntry> + 'static> ToolbarContent<DerivedMark> for F {
 /// action, since the click drives that window's split directly.
 pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     toolbar_button(
-        day_spec::SIDEBAR_TOGGLE_ID,
+        day_core::id!(day::sidebar_toggle),
         day_l10n::t("day-toggle-sidebar"),
     )
     .icon(Symbol::Sidebar)
@@ -589,10 +589,9 @@ pub(crate) mod conformance {
             .page(|| {
                 let count = Signal::new(0i64);
                 label(move || format!("count {}", count.get()))
-                    .id("count")
-                    .toolbar([
-                        toolbar_button("bump", "Bump").action(move || count.update(|n| *n += 1))
-                    ])
+                    .id(day_core::id!(count))
+                    .toolbar([toolbar_button(day_core::id!(bump), "Bump")
+                        .action(move || count.update(|n| *n += 1))])
             })
             .drive(|d: Drive| async move {
                 d.toolbar_press("bump").await?;
@@ -611,8 +610,8 @@ pub(crate) mod conformance {
             .page(|| {
                 let on = Signal::new(false);
                 label(move || format!("star {}", on.get()))
-                    .id("star")
-                    .toolbar([toolbar_toggle("star", "Star", on)])
+                    .id(day_core::id!(star))
+                    .toolbar([toolbar_toggle(day_core::id!(star), "Star", on)])
             })
             .drive(|d: Drive| async move {
                 d.toolbar_toggle("star", true).await?;

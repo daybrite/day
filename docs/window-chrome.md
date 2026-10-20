@@ -63,7 +63,7 @@ fn document_window() -> impl Piece {
             .padding(Insets::top(top))
             .height(top + 40.0)
             .window_drag_region()
-            .id("title-bar"),
+            .id(id!(title_bar)),
         label("Document content"),
     ))
 }

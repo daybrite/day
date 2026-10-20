@@ -1391,8 +1391,8 @@ pub(crate) mod conformance {
                 column((
                     button("Press")
                         .action(move || presses.update(|n| *n += 1))
-                        .id("press"),
-                    label(move || presses.get().to_string()).id("count"),
+                        .id(day_core::id!(press)),
+                    label(move || presses.get().to_string()).id(day_core::id!(count)),
                 ))
                 .spacing(8.0)
             })
@@ -1421,11 +1421,11 @@ pub(crate) mod conformance {
                     button("Off")
                         .enabled(move || enabled.get())
                         .action(move || presses.update(|n| *n += 1))
-                        .id("off"),
-                    label(move || presses.get().to_string()).id("count"),
+                        .id(day_core::id!(off)),
+                    label(move || presses.get().to_string()).id(day_core::id!(count)),
                     button("Enable")
                         .action(move || enabled.set(true))
-                        .id("enable"),
+                        .id(day_core::id!(enable)),
                 ))
                 .spacing(8.0)
             })
@@ -1447,19 +1447,22 @@ pub(crate) mod conformance {
             .proves(kinds::TOGGLE)
             .page(move || {
                 column((
-                    toggle(on).id("tgl-switch"),
-                    label(move || if on.get() { "on" } else { "off" }.to_owned()).id("tgl-state"),
-                    button("Set on").action(move || on.set(true)).id("tgl-set"),
+                    toggle(on).id(day_core::id!(tgl_switch)),
+                    label(move || if on.get() { "on" } else { "off" }.to_owned())
+                        .id(day_core::id!(tgl_state)),
+                    button("Set on")
+                        .action(move || on.set(true))
+                        .id(day_core::id!(tgl_set)),
                 ))
                 .spacing(8.0)
             })
             .drive(|d: Drive| async move {
-                d.toggle("tgl-switch", true).await?;
-                d.assert_text("tgl-state", "on").await?;
-                d.toggle("tgl-switch", false).await?;
-                d.assert_text("tgl-state", "off").await?;
-                d.tap("tgl-set").await?;
-                d.assert_on("tgl-switch", true).await
+                d.toggle("tgl_switch", true).await?;
+                d.assert_text("tgl_state", "on").await?;
+                d.toggle("tgl_switch", false).await?;
+                d.assert_text("tgl_state", "off").await?;
+                d.tap("tgl_set").await?;
+                d.assert_on("tgl_switch", true).await
             })
     }
 
@@ -1471,19 +1474,21 @@ pub(crate) mod conformance {
             .proves(kinds::TEXT_FIELD)
             .page(move || {
                 column((
-                    text_field(name).placeholder("Name").id("tf-field"),
-                    label(move || name.get()).id("tf-echo"),
+                    text_field(name)
+                        .placeholder("Name")
+                        .id(day_core::id!(tf_field)),
+                    label(move || name.get()).id(day_core::id!(tf_echo)),
                     button("Set")
                         .action(move || name.set("Ada".into()))
-                        .id("tf-set"),
+                        .id(day_core::id!(tf_set)),
                 ))
                 .spacing(8.0)
             })
             .drive(|d: Drive| async move {
-                d.input("tf-field", "Grace").await?;
-                d.assert_text("tf-echo", "Grace").await?;
-                d.tap("tf-set").await?;
-                d.assert_text("tf-field", "Ada").await
+                d.input("tf_field", "Grace").await?;
+                d.assert_text("tf_echo", "Grace").await?;
+                d.tap("tf_set").await?;
+                d.assert_text("tf_field", "Ada").await
             })
     }
 
@@ -1501,26 +1506,27 @@ pub(crate) mod conformance {
                     secure_field(password)
                         .secure(move || !shown.get())
                         .placeholder("Password")
-                        .id("tfs-pass"),
-                    toggle(shown).id("tfs-show"),
-                    label(move || password.get().chars().count().to_string()).id("tfs-len"),
+                        .id(day_core::id!(tfs_pass)),
+                    toggle(shown).id(day_core::id!(tfs_show)),
+                    label(move || password.get().chars().count().to_string())
+                        .id(day_core::id!(tfs_len)),
                 ))
                 .spacing(8.0)
             })
             .shot("masked")
             .drive(|d: Drive| async move {
-                d.input("tfs-pass", "correct horse").await?;
-                d.assert_text("tfs-len", "13").await?;
-                d.focus("tfs-pass").await?;
-                d.toggle("tfs-show", true).await?;
+                d.input("tfs_pass", "correct horse").await?;
+                d.assert_text("tfs_len", "13").await?;
+                d.focus("tfs_pass").await?;
+                d.toggle("tfs_show", true).await?;
                 d.wait_idle().await?;
                 d.shot("shown").await?;
-                d.assert_focused("tfs-pass", true).await?;
-                d.input("tfs-pass", "battery").await?;
-                d.assert_text("tfs-len", "7").await?;
-                d.toggle("tfs-show", false).await?;
+                d.assert_focused("tfs_pass", true).await?;
+                d.input("tfs_pass", "battery").await?;
+                d.assert_text("tfs_len", "7").await?;
+                d.toggle("tfs_show", false).await?;
                 d.wait_idle().await?;
-                d.assert_text("tfs-pass", "battery").await
+                d.assert_text("tfs_pass", "battery").await
             })
     }
 
@@ -1532,15 +1538,15 @@ pub(crate) mod conformance {
             .proves(kinds::TEXT_FIELD)
             .page(move || {
                 column((
-                    text_field(pin).max_length(4).id("tfm-pin"),
-                    label(move || pin.get()).id("tfm-echo"),
+                    text_field(pin).max_length(4).id(day_core::id!(tfm_pin)),
+                    label(move || pin.get()).id(day_core::id!(tfm_echo)),
                 ))
                 .spacing(8.0)
             })
             .drive(|d: Drive| async move {
-                d.input("tfm-pin", "123456").await?;
-                d.assert_text("tfm-echo", "1234").await?;
-                d.assert_text("tfm-pin", "1234").await
+                d.input("tfm_pin", "123456").await?;
+                d.assert_text("tfm_echo", "1234").await?;
+                d.assert_text("tfm_pin", "1234").await
             })
     }
 
@@ -1553,15 +1559,18 @@ pub(crate) mod conformance {
             .proves(kinds::SLIDER)
             .page(move || {
                 column((
-                    slider(value).range(0.0..=100.0).step(10.0).id("sl-slider"),
-                    label(move || format!("{:.0}", value.get())).id("sl-value"),
+                    slider(value)
+                        .range(0.0..=100.0)
+                        .step(10.0)
+                        .id(day_core::id!(sl_slider)),
+                    label(move || format!("{:.0}", value.get())).id(day_core::id!(sl_value)),
                 ))
                 .spacing(8.0)
             })
             .drive(|d: Drive| async move {
-                d.set_value("sl-slider", 72.0).await?;
-                d.assert_text("sl-value", "70").await?;
-                d.assert_value("sl-slider", 70.0).await
+                d.set_value("sl_slider", 72.0).await?;
+                d.assert_text("sl_value", "70").await?;
+                d.assert_value("sl_slider", 70.0).await
             })
     }
 
@@ -1578,18 +1587,18 @@ pub(crate) mod conformance {
                     label(move || text.get())
                         .font(Font::Headline)
                         .a11y(|a| a.role(Role::Heading(2)))
-                        .id("lbl-heading"),
+                        .id(day_core::id!(lbl_heading)),
                     button("Rename")
                         .action(move || text.set("Renamed".into()))
-                        .id("lbl-rename"),
+                        .id(day_core::id!(lbl_rename)),
                 ))
                 .spacing(8.0)
             })
             .drive(|d: Drive| async move {
-                d.assert_text("lbl-heading", "Hello").await?;
-                d.tap("lbl-rename").await?;
-                d.assert_text("lbl-heading", "Renamed").await?;
-                d.a11y_audit(Some("lbl-heading")).await
+                d.assert_text("lbl_heading", "Hello").await?;
+                d.tap("lbl_rename").await?;
+                d.assert_text("lbl_heading", "Renamed").await?;
+                d.a11y_audit(Some("lbl_heading")).await
             })
     }
 
@@ -1598,7 +1607,7 @@ pub(crate) mod conformance {
     fn label_text() -> Case {
         Case::new()
             .proves(kinds::LABEL)
-            .page(|| label("Plain text").id("text"))
+            .page(|| label("Plain text").id(day_core::id!(text)))
             .drive(|d: Drive| async move { d.assert_text("text", "Plain text").await })
     }
 
@@ -1612,10 +1621,10 @@ pub(crate) mod conformance {
             .proves_duty("read_native")
             .page(move || {
                 column((
-                    label(move || format!("Count {}", count.get())).id("text"),
+                    label(move || format!("Count {}", count.get())).id(day_core::id!(text)),
                     button("Add")
                         .action(move || count.update(|n| *n += 1))
-                        .id("add"),
+                        .id(day_core::id!(add)),
                 ))
                 .spacing(8.0)
             })
@@ -1643,7 +1652,7 @@ pub(crate) mod conformance {
                             .text(" and ")
                             .emphasis("emphasized"),
                     )
-                    .id("runs")
+                    .id(day_core::id!(runs))
             })
             .shot("default")
             .drive(|d: Drive| async move {
@@ -1661,15 +1670,17 @@ pub(crate) mod conformance {
             .requires(Cap::TextRuns)
             .page(move || {
                 column((
-                    label(text).markdown().id("links"),
-                    button("Replace").id("replace").action(move || {
-                        text.set("[東京](#tokyo) then [again](#again)".into());
-                    }),
+                    label(text).markdown().id(day_core::id!(links)),
+                    button("Replace")
+                        .id(day_core::id!(replace))
+                        .action(move || {
+                            text.set("[東京](#tokyo) then [again](#again)".into());
+                        }),
                     button("Plain")
-                        .id("plain")
+                        .id(day_core::id!(plain))
                         .action(move || text.set("Plain 😀".into())),
                     button("Restore")
-                        .id("restore")
+                        .id(day_core::id!(restore))
                         .action(move || text.set("[Restored](#restored)".into())),
                 ))
             })
@@ -1692,7 +1703,7 @@ pub(crate) mod conformance {
             .proves(kinds::LABEL)
             .proves_modifier("selectable")
             .proves_duty("set_selectable")
-            .page(|| label("Copy me").selectable().id("text"))
+            .page(|| label("Copy me").selectable().id(day_core::id!(text)))
             .drive(|d: Drive| async move { d.assert_text("text", "Copy me").await })
     }
 
@@ -1705,7 +1716,7 @@ pub(crate) mod conformance {
             .page(move || {
                 button(move || if saved.get() { "Saved" } else { "Save" }.to_owned())
                     .action(move || saved.set(true))
-                    .id("save")
+                    .id(day_core::id!(save))
             })
             .drive(|d: Drive| async move {
                 d.assert_text("save", "Save").await?;
@@ -1723,7 +1734,7 @@ pub(crate) mod conformance {
             .page(|| {
                 button("Send")
                     .a11y(|a| a.label("Send the message"))
-                    .id("send")
+                    .id(day_core::id!(send))
             })
             .drive(|d: Drive| async move { d.a11y_audit(Some("send")).await })
     }
@@ -1741,7 +1752,7 @@ pub(crate) mod conformance {
                     .icon(day_spec::Symbol::Play)
                     .action(move || playing.set(true))
                     .a11y(|a| a.label("Playback"))
-                    .id("play")
+                    .id(day_core::id!(play))
             })
             .drive(|d: Drive| async move {
                 d.a11y_audit(Some("play")).await?;
@@ -1760,10 +1771,12 @@ pub(crate) mod conformance {
             .proves(kinds::TOGGLE)
             .page(move || {
                 column((
-                    toggle(on).enabled(move || enabled.get()).id("switch"),
+                    toggle(on)
+                        .enabled(move || enabled.get())
+                        .id(day_core::id!(switch)),
                     button("Enable")
                         .action(move || enabled.set(true))
-                        .id("enable"),
+                        .id(day_core::id!(enable)),
                 ))
                 .spacing(8.0)
             })
@@ -1782,7 +1795,7 @@ pub(crate) mod conformance {
         let on = Signal::new(true);
         Case::new()
             .proves(kinds::TOGGLE)
-            .page(move || toggle(on).enabled(false).id("switch"))
+            .page(move || toggle(on).enabled(false).id(day_core::id!(switch)))
             .drive(|d: Drive| async move {
                 d.assert_enabled("switch", false).await?;
                 d.assert_on("switch", true).await
@@ -1795,7 +1808,11 @@ pub(crate) mod conformance {
         let on = Signal::new(false);
         Case::new()
             .proves(kinds::TOGGLE)
-            .page(move || toggle(on).a11y(|a| a.label("Notifications")).id("switch"))
+            .page(move || {
+                toggle(on)
+                    .a11y(|a| a.label("Notifications"))
+                    .id(day_core::id!(switch))
+            })
             .drive(|d: Drive| async move { d.a11y_audit(Some("switch")).await })
     }
 
@@ -1808,10 +1825,12 @@ pub(crate) mod conformance {
             .proves(kinds::SLIDER)
             .page(move || {
                 column((
-                    slider(value).enabled(move || enabled.get()).id("slider"),
+                    slider(value)
+                        .enabled(move || enabled.get())
+                        .id(day_core::id!(slider)),
                     button("Enable")
                         .action(move || enabled.set(true))
-                        .id("enable"),
+                        .id(day_core::id!(enable)),
                 ))
                 .spacing(8.0)
             })
@@ -1832,8 +1851,10 @@ pub(crate) mod conformance {
             .proves(kinds::SLIDER)
             .page(move || {
                 column((
-                    slider(value).range(0.0..=50.0).id("slider"),
-                    button("Set 40").action(move || value.set(40.0)).id("set"),
+                    slider(value).range(0.0..=50.0).id(day_core::id!(slider)),
+                    button("Set 40")
+                        .action(move || value.set(40.0))
+                        .id(day_core::id!(set)),
                 ))
                 .spacing(8.0)
             })
@@ -1850,7 +1871,11 @@ pub(crate) mod conformance {
         let value = Signal::new(0.5f64);
         Case::new()
             .proves(kinds::SLIDER)
-            .page(move || slider(value).a11y(|a| a.label("Volume")).id("slider"))
+            .page(move || {
+                slider(value)
+                    .a11y(|a| a.label("Volume"))
+                    .id(day_core::id!(slider))
+            })
             .drive(|d: Drive| async move { d.a11y_audit(Some("slider")).await })
     }
 
@@ -1863,10 +1888,12 @@ pub(crate) mod conformance {
             .proves(kinds::TEXT_FIELD)
             .page(move || {
                 column((
-                    text_field(text).enabled(move || enabled.get()).id("field"),
+                    text_field(text)
+                        .enabled(move || enabled.get())
+                        .id(day_core::id!(field)),
                     button("Enable")
                         .action(move || enabled.set(true))
-                        .id("enable"),
+                        .id(day_core::id!(enable)),
                 ))
                 .spacing(8.0)
             })
@@ -1889,10 +1916,10 @@ pub(crate) mod conformance {
             .proves_duty("set_input_traits")
             .page(move || {
                 column((
-                    text_field(text).read_only(true).id("field"),
+                    text_field(text).read_only(true).id(day_core::id!(field)),
                     button("Replace")
                         .action(move || text.set("Replaced".into()))
-                        .id("replace"),
+                        .id(day_core::id!(replace)),
                 ))
                 .spacing(8.0)
             })
@@ -1916,8 +1943,8 @@ pub(crate) mod conformance {
                     text_field(text)
                         .submit_label(day_spec::SubmitLabel::Send)
                         .on_submit(move || sent.set(text.get_untracked()))
-                        .id("field"),
-                    label(move || sent.get()).id("sent"),
+                        .id(day_core::id!(field)),
+                    label(move || sent.get()).id(day_core::id!(sent)),
                 ))
                 .spacing(8.0)
             })
@@ -1936,10 +1963,10 @@ pub(crate) mod conformance {
             .proves(kinds::PROGRESS)
             .page(move || {
                 column((
-                    progress(done).id("bar"),
+                    progress(done).id(day_core::id!(bar)),
                     button("Advance")
                         .action(move || done.set(0.75))
-                        .id("advance"),
+                        .id(day_core::id!(advance)),
                 ))
                 .spacing(8.0)
             })
@@ -1955,7 +1982,7 @@ pub(crate) mod conformance {
     fn spinner_renders() -> Case {
         Case::new()
             .proves(kinds::PROGRESS)
-            .page(|| spinner().id("spin"))
+            .page(|| spinner().id(day_core::id!(spin)))
             .drive(|d: Drive| async move {
                 d.assert_visible("spin").await?;
                 d.assert_native(
@@ -1975,9 +2002,13 @@ pub(crate) mod conformance {
         Case::new()
             .proves(kinds::DIVIDER)
             .page(|| {
-                column((label("Above"), divider().id("rule"), label("Below")))
-                    .spacing(8.0)
-                    .width(200.0)
+                column((
+                    label("Above"),
+                    divider().id(day_core::id!(rule)),
+                    label("Below"),
+                ))
+                .spacing(8.0)
+                .width(200.0)
             })
             .drive(|d: Drive| async move {
                 d.assert_visible("rule").await?;
@@ -2001,12 +2032,12 @@ pub(crate) mod conformance {
             .page(|| {
                 row((
                     label("Left"),
-                    divider().vertical().id("rule"),
+                    divider().vertical().id(day_core::id!(rule)),
                     label("Right"),
                 ))
                 .spacing(8.0)
                 .height(120.0)
-                .id("row")
+                .id(day_core::id!(row))
             })
             .drive(|d: Drive| async move {
                 d.assert_visible("rule").await?;
@@ -2030,12 +2061,12 @@ pub(crate) mod conformance {
             .page(|| {
                 row((
                     // The sized boxes, not the labels' own nodes.
-                    label("A").width(50.0).wrapper_id("first"),
+                    label("A").width(50.0).wrapper_id(day_core::id!(first)),
                     spacer(),
-                    label("B").width(50.0).wrapper_id("last"),
+                    label("B").width(50.0).wrapper_id(day_core::id!(last)),
                 ))
                 .width(300.0)
-                .wrapper_id("row")
+                .wrapper_id(day_core::id!(row))
             })
             .drive(|d: Drive| async move {
                 d.assert_frame(
@@ -2056,7 +2087,7 @@ pub(crate) mod conformance {
     fn link_opens_url() -> Case {
         Case::new()
             .proves_duty("open_url")
-            .page(|| link("daybrite.dev", "https://daybrite.dev/").id("link"))
+            .page(|| link("daybrite.dev", "https://daybrite.dev/").id(day_core::id!(link)))
             .drive(|d: Drive| async move {
                 d.assert_text("link", "daybrite.dev").await?;
                 d.tap("link").await?;

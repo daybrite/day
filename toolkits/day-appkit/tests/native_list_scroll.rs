@@ -244,7 +244,7 @@ mod native {
                         .row_height(RowHeight::Uniform(44.))
                         .height(280.)
                         .grow_w()
-                        .id("fixture-list"),
+                        .id(day_core::id!(fixture_list)),
                         label(move || format!("{} fixture rows", rows.with(|r| r.len()))),
                     ))
                     .spacing(10.)

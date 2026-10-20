@@ -93,7 +93,7 @@ fn hidden_and_sheet_inspectors_leave_the_full_content_width() {
         390.0,
         "a sheet does not narrow the page beneath it"
     );
-    let done = day_core::with_tree(|tree| tree.find_by_id("day-inspector-done")).unwrap();
+    let done = day_core::with_tree(|tree| tree.find_by_id("day_inspector_done")).unwrap();
     probe.emit(day_core::rnode_to_id(done), Event::Pressed);
     flush_sync();
     assert!(

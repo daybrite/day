@@ -655,7 +655,7 @@ pub(crate) mod conformance {
     fn asker() -> impl day_core::Piece {
         let answer = Signal::new(String::from("none"));
         column((
-            label(move || format!("answer {}", answer.get())).id("answer"),
+            label(move || format!("answer {}", answer.get())).id(day_core::id!(answer)),
             button("Ask")
                 .action(move || {
                     let set = answer.setter();
@@ -664,10 +664,13 @@ pub(crate) mod conformance {
                         set.set(if yes { "yes" } else { "no" }.into());
                     });
                 })
-                .id("ask"),
+                .id(day_core::id!(ask)),
             // A focus target without an IME: opening the keyboard here would change the
             // viewport inherited by the next test on mobile toolkits.
-            rectangle().frame(40.0, 40.0).focusable().id("after-dialog"),
+            rectangle()
+                .frame(40.0, 40.0)
+                .focusable()
+                .id(day_core::id!(after_dialog)),
         ))
     }
 
@@ -689,8 +692,8 @@ pub(crate) mod conformance {
                 d.assert_text("answer", "answer yes").await?;
                 // A completed modal must release native focus to the underlying page,
                 // including when a scripted answer arrives before its first frame.
-                d.focus("after-dialog").await?;
-                d.assert_focused("after-dialog", true).await
+                d.focus("after_dialog").await?;
+                d.assert_focused("after_dialog", true).await
             })
     }
 
@@ -707,16 +710,16 @@ pub(crate) mod conformance {
                 d.assert_presented(None).await?;
                 d.respond(None).await?;
                 d.assert_text("answer", "answer no").await?;
-                d.focus("after-dialog").await?;
-                d.assert_focused("after-dialog", true).await
+                d.focus("after_dialog").await?;
+                d.assert_focused("after_dialog", true).await
             })
     }
 
     fn prompt_asker() -> impl day_core::Piece {
         let answer = Signal::new(String::from("pending"));
         column((
-            label(move || answer.get()).id("answer"),
-            button("Ask").id("ask").action(move || {
+            label(move || answer.get()).id(day_core::id!(answer)),
+            button("Ask").id(day_core::id!(ask)).action(move || {
                 let set = answer.setter();
                 day_core::task(async move {
                     let value = prompt("Your name")
@@ -775,8 +778,8 @@ pub(crate) mod conformance {
             .page(|| {
                 let answer = Signal::new(String::from("pending"));
                 column((
-                    label(move || answer.get()).id("answer"),
-                    button("Ask").id("ask").action(move || {
+                    label(move || answer.get()).id(day_core::id!(answer)),
+                    button("Ask").id(day_core::id!(ask)).action(move || {
                         let set = answer.setter();
                         day_core::task(async move {
                             let value = Alert::new("Choose an action")

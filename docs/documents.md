@@ -83,7 +83,7 @@ imports; a filename alone is insufficient.
 Use the same import function from a reusable **Open** command:
 
 ```rust
-let open = Command::new("open-document", res::str::open_document(), move || {
+let open = Command::new(id!(open_document), res::str::open_document(), move || {
     day::task(async move {
         if let Some(file) = open_file()
             .filter(res::str::epub_files().format(), &["epub"])

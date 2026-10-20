@@ -20,7 +20,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 use day_piece_searchfield::search_field;
 
 let query = Signal::new(String::new());
-search_field(query).placeholder("Search fruit…").id("search")
+search_field(query).placeholder("Search fruit…").id(id!(search))
 ```
 
 `search_field(query)` takes a `Signal<String>` bound two-way: every native edit writes the text back

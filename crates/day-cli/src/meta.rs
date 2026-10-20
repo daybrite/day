@@ -21,6 +21,8 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default)]
+    pub dayscript: crate::id_coverage::DayscriptConfig,
     /// Manifest schema version (currently 1).
     pub schema: u32,
     pub app: App,

@@ -549,8 +549,8 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(choice, FRUIT).id("picker"),
-                    label(move || choice.get().to_string()).id("index"),
+                    picker(choice, FRUIT).id(day_core::id!(picker)),
+                    label(move || choice.get().to_string()).id(day_core::id!(index)),
                 ))
                 .spacing(8.0)
             })
@@ -571,8 +571,8 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(choice, FRUIT).segmented().id("picker"),
-                    label(move || choice.get().to_string()).id("index"),
+                    picker(choice, FRUIT).segmented().id(day_core::id!(picker)),
+                    label(move || choice.get().to_string()).id(day_core::id!(index)),
                 ))
                 .spacing(8.0)
             })
@@ -593,8 +593,8 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(choice, FRUIT).inline().id("picker"),
-                    label(move || choice.get().to_string()).id("index"),
+                    picker(choice, FRUIT).inline().id(day_core::id!(picker)),
+                    label(move || choice.get().to_string()).id(day_core::id!(index)),
                 ))
                 .spacing(8.0)
             })
@@ -613,8 +613,10 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(choice, FRUIT).id("picker"),
-                    button("Plum").action(move || choice.set(2)).id("set"),
+                    picker(choice, FRUIT).id(day_core::id!(picker)),
+                    button("Plum")
+                        .action(move || choice.set(2))
+                        .id(day_core::id!(set)),
                 ))
                 .spacing(8.0)
             })
@@ -640,8 +642,10 @@ pub(crate) mod conformance {
                         }
                         v
                     })
-                    .id("picker"),
-                    button("More").action(move || more.set(true)).id("more"),
+                    .id(day_core::id!(picker)),
+                    button("More")
+                        .action(move || more.set(true))
+                        .id(day_core::id!(more)),
                 ))
                 .spacing(8.0)
             })
@@ -666,18 +670,20 @@ pub(crate) mod conformance {
             .proves(kinds::PICKER)
             .page(move || {
                 column((
-                    picker(a, FRUIT).enabled(move || enabled.get()).id("menu"),
+                    picker(a, FRUIT)
+                        .enabled(move || enabled.get())
+                        .id(day_core::id!(menu)),
                     picker(b, FRUIT)
                         .segmented()
                         .enabled(move || enabled.get())
-                        .id("segmented"),
+                        .id(day_core::id!(segmented)),
                     picker(c, FRUIT)
                         .inline()
                         .enabled(move || enabled.get())
-                        .id("inline"),
+                        .id(day_core::id!(inline)),
                     button("Enable")
                         .action(move || enabled.set(true))
-                        .id("enable"),
+                        .id(day_core::id!(enable)),
                 ))
                 .spacing(8.0)
             })
@@ -702,11 +708,11 @@ pub(crate) mod conformance {
             .proves(kinds::TEXT_AREA)
             .page(move || {
                 column((
-                    text_area(text).placeholder("Notes").id("area"),
-                    label(move || text.get().chars().count().to_string()).id("len"),
+                    text_area(text).placeholder("Notes").id(day_core::id!(area)),
+                    label(move || text.get().chars().count().to_string()).id(day_core::id!(len)),
                     button("Set")
                         .action(move || text.set("Set from Day".into()))
-                        .id("set"),
+                        .id(day_core::id!(set)),
                 ))
                 .spacing(8.0)
             })
@@ -724,7 +730,7 @@ pub(crate) mod conformance {
         let text = Signal::new("first\nsecond".to_owned());
         Case::new()
             .proves(kinds::TEXT_AREA)
-            .page(move || text_area(text).min_lines(3).id("area"))
+            .page(move || text_area(text).min_lines(3).id(day_core::id!(area)))
             .drive(|d: Drive| async move {
                 d.assert_text("area", "first\nsecond").await?;
                 d.input("area", "one\ntwo\nthree").await?;
@@ -750,9 +756,9 @@ pub(crate) mod conformance {
                             count.update(|n| *n += 1);
                             text.set(String::new());
                         })
-                        .id("area"),
-                    label(move || sent.get()).id("sent"),
-                    label(move || count.get().to_string()).id("count"),
+                        .id(day_core::id!(area)),
+                    label(move || sent.get()).id(day_core::id!(sent)),
+                    label(move || count.get().to_string()).id(day_core::id!(count)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -780,10 +786,10 @@ pub(crate) mod conformance {
             .requires(Cap::TextEditable)
             .page(move || {
                 column((
-                    text_area(text).editable(false).id("area"),
+                    text_area(text).editable(false).id(day_core::id!(area)),
                     button("Replace")
                         .action(move || text.set("Replaced".into()))
-                        .id("replace"),
+                        .id(day_core::id!(replace)),
                 ))
                 .spacing(8.0)
             })
@@ -803,7 +809,12 @@ pub(crate) mod conformance {
             .proves(kinds::TEXT_AREA)
             .proves_cap(Cap::TextSelectable)
             .requires(Cap::TextSelectable)
-            .page(move || text_area(text).selectable(false).editable(false).id("area"))
+            .page(move || {
+                text_area(text)
+                    .selectable(false)
+                    .editable(false)
+                    .id(day_core::id!(area))
+            })
             .drive(|d: Drive| async move { d.assert_text("area", "Fixed").await })
     }
 
@@ -823,16 +834,16 @@ pub(crate) mod conformance {
                     text_area(text)
                         .editable(editable)
                         .selectable(selectable)
-                        .id("area"),
-                    label(move || text.get()).id("model"),
-                    button("Lock").id("lock").action(move || {
+                        .id(day_core::id!(area)),
+                    label(move || text.get()).id(day_core::id!(model)),
+                    button("Lock").id(day_core::id!(lock)).action(move || {
                         editable.set(false);
                         selectable.set(false);
                     }),
                     button("Replace")
-                        .id("replace")
+                        .id(day_core::id!(replace))
                         .action(move || text.set("Updated\n東京".into())),
-                    button("Unlock").id("unlock").action(move || {
+                    button("Unlock").id(day_core::id!(unlock)).action(move || {
                         selectable.set(true);
                         editable.set(true);
                     }),

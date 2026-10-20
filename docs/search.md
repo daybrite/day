@@ -59,7 +59,7 @@ at the trailing edge in the Detail column. On AppKit the native search field sen
 action for user edits from the run loop, just after the keystroke; application text
 synchronization remains echo-guarded.
 Focus requests use transient toolbar/inline patches, without rebuilding the field. A synthetic
-`toolbar: { item: day.search, text: ... }` verifies model wiring, but native keyboard/input
+`toolbar: { item: day::search, text: ... }` verifies model wiring, but native keyboard/input
 validation is also needed to verify actual AppKit event delivery.
 
 ## Placement is a preference
@@ -151,7 +151,7 @@ resolved once at realize and cannot change ([docs/navigation.md](navigation.md))
 ## How the toolbar placement is realized
 
 Day hands the resolved field to day-core as an ordinary `ToolbarItemKind::Search` item, which is
-merged into the window's bar under the reserved id **`day.search`**, trailing. This has two
+merged into the window's bar under the reserved id **`day::search`**, trailing. This has two
 consequences:
 
 - every backend that already drew a toolbar search field draws this one, with no per-backend code;
@@ -160,10 +160,10 @@ consequences:
   any reactive change. An item injected once would be dropped by the next rebuild.
 
 dayscript addresses the field by that id wherever the platform put it: `toolbar: { item:
-day.search, text: "…" }`. On the bar that is the item above; inline, where no item exists, day-core
+day::search, text: "…" }`. On the bar that is the item above; inline, where no item exists, day-core
 resolves the id to the host showing the field (`inline_search_host`) and delivers
 `Event::SearchChanged`, the event the native field emits, so one step types the same query on a
-desktop and on a phone. (A bare `toolbar: { item: day.search }` has nothing to press inline, and
+desktop and on a phone. (A bare `toolbar: { item: day::search }` has nothing to press inline, and
 says so.)
 
 ## Scopes are not drawn yet
@@ -237,7 +237,7 @@ results_page(feed)
     )
 ```
 
-The field is the reserved `day.search` item on the page's own chrome, so it follows the page:
+The field is the reserved `day::search` item on the page's own chrome, so it follows the page:
 it shows while the page is on top of its stack and leaves when another page is pushed over it or
 the page is popped. Each toolkit draws it where its platform puts a page's search:
 
@@ -270,7 +270,7 @@ field emits `Event::SearchSubmitted` (the inline fields of ios-uikit, android-md
 harmony-arkui, on the keyboard's Search key). A field sends any text the app has not heard yet
 before it submits, so the query is current when `on_submit` runs.
 
-dayscript submits with `toolbar: { item: day.search, text: "…", submit: true }`. The step paints
+dayscript submits with `toolbar: { item: day::search, text: "…", submit: true }`. The step paints
 the field with the text first, as `input:` does for a text field, so a screenshot shows what the
 app is searching for.
 

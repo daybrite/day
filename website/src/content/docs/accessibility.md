@@ -21,7 +21,7 @@ the annotations, testing, and [current platform limits](#current-limits).
 // An icon-only button: its accessible name can't be derived, so provide one.
 button("✕")
     .a11y(|a| a.label(tr("close")))
-    .id("close-button")
+    .id(id!(close_button))
 
 // A custom-drawn gauge: no native control underneath, so declare role and value.
 canvas(move |d, size| draw_gauge(d, size, value.get()))
@@ -53,7 +53,7 @@ interactive pieces is a listed follow-up):
 
 ## Identifiers
 
-`.id("save-button")` sets a stable identifier used by three consumers: [dayscript](/docs/dayscript)
+`.id(id!(save_button))` sets a stable identifier used by three consumers: [dayscript](/docs/dayscript)
 element targeting, external automation tools, and Day's diagnostics. For external tools the
 platform mapping is uneven:
 

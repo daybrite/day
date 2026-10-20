@@ -830,7 +830,7 @@ no "typed modifiers must come first" ordering rule. Toolkit and `day-tweak-*` ex
 follow the same signature ([docs/tweaks.md](docs/tweaks.md), [docs/api-style.md](docs/api-style.md) "Typed builders and erasure").
 `Decorate::modifier` is the one erasing modifier, because `Modifier` is defined over `AnyPiece`.
 Modifiers fall into three classes ([docs/api-style.md](docs/api-style.md) "Modifier classes"):
-identity (`id`, `id_of`, `id_keyed`) names the piece's own node wherever it sits in the chain;
+identity (`id`, `id_of`) names the piece's own node wherever it sits in the chain;
 wrapping modifiers (`padding`, `frame`, `background`, `grow`, `a11y`, …) each apply to the node
 built so far, in call order; outer-layout facts (`grid_span`, `grid_align`) describe the piece to
 its container and land on the outermost node whatever follows. `wrapper_id` names the outermost
@@ -981,7 +981,7 @@ nav(section)                       // sidebar / tabs / segmented, per NavStyle
     .no_sidebar_toggle()           //   drop the platform's show/hide-sidebar affordance
 nav_stack(path, root)              // push/pop navigation bound to a Vec<Route> signal
 page.searchable(Search::new(q).on_submit(f).available(v))   // a nav_stack page's own field:
-                                   //   day.search on the page's chrome, drawn where the platform
+                                   //   day::search on the page's chrome, drawn where the platform
                                    //   puts a page's search (docs/search.md "Page search")
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
@@ -1038,7 +1038,7 @@ when switching tabs; those surfaces do not re-register on selection. Resident-pa
 read the selection signal directly, so the newly selected page can receive its nested route
 within the same event batch, before its native presentation updates.
 
-The **`Decorate`** extension trait carries the universal modifiers: `.id()` / `.id_keyed()`,
+The **`Decorate`** extension trait carries the universal modifiers: `.id(id!(name))` / `.id(id!(family, key))`,
 `.padding()`, `.frame()` / `.width()` / `.height()`, `.grow()` variants, `.background()`,
 `.corner_radius()`, `.overlay()` / `.overlay_aligned()`, `.grid_span()` / `.grid_align()`
 ([docs/grid.md](docs/grid.md); inert outside a grid), `.a11y()`, `.on_tap()` / `.on_drag()` /
@@ -1088,20 +1088,20 @@ fn basics_section() -> impl Piece {
     section((
         text_field(name)
             .placeholder(res::str::name_placeholder())
-            .id("name-field"),
+            .id(id!(name_field)),
         when(
             move || !name.with(|s| s.is_empty()),
-            move || label(res::str::greeting(name)).id("greeting-label"),
+            move || label(res::str::greeting(name)).id(id!(greeting_label)),
         ),
         labeled(
             res::str::volume_label(),
             row((
-                slider(volume).range(0.0..=100.0).id("volume-slider"),
-                label(move || format!("{:.0}", volume.get())).id("volume-value"),
+                slider(volume).range(0.0..=100.0).id(id!(volume_slider)),
+                label(move || format!("{:.0}", volume.get())).id(id!(volume_value)),
             ))
             .spacing(8.0),
         ),
-        labeled(res::str::subscribe_label(), toggle(subscribed).id("subscribe-toggle")),
+        labeled(res::str::subscribe_label(), toggle(subscribed).id(id!(subscribe_toggle))),
     ))
     .title(res::str::controls_basics())
 }
@@ -1231,7 +1231,7 @@ column((
                     v.remove(item.key());
                 }))
                 .a11y(|a| a.label(tr("todo-remove")))
-                .id_keyed("todo-remove", item.key()),  // stable per-item id (§5.5)
+                .id(id!(todo_remove, item.key())),  // stable per-item id (§5.5)
         )).spacing(6.0)
     }),
 ))
@@ -1270,15 +1270,63 @@ Semantics (identical for `list`):
 
 ### §5.5 Node identity, ids, and the element index
 
-Every realized node has a `NodeId` (slotmap key). Separately, `.id("volume-slider")` assigns a
-**stable string identifier**, and `.id_keyed("todo-remove", key)` its keyed form for collection
-items (rendered as `todo-remove:<key>`; `day lint` enforces prefix uniqueness). Three consumers:
-the platform automation/accessibility identifier where one truly exists (the verified per-toolkit
-matrix is in [§13](#13-accessibility) — notably Android has **no** external automation-id channel below API 33, and GTK
-has none at all today; the doc does not pretend otherwise), the dayscript element index ([§14](#14-scripting-dayscript),
-which reads day-core directly and therefore works uniformly regardless of platform id support),
-and `day lint` uniqueness checks. Ids are the contract between the app and its tests; a lint rule
-forbids leaking them into `contentDescription`/a11y labels (screen readers would speak them).
+Every realized node has a `NodeId` (slotmap key). Application-owned element identities are
+**declared values**, never freeform string setters:
+
+```rust
+button(res::str::save()).id(id!(account::save))
+row(content).id_of(move || id!(query_row, slot.item().key()))
+```
+
+`id!` accepts exact ASCII snake_case identifier segments, optionally namespaced with `::`,
+and returns `ElementId`. Const validation rejects keywords, raw identifiers, uppercase,
+Unicode, and leading/trailing/doubled underscores. The macro stringifies each segment
+separately; there is no snake/kebab case conversion. `IntoElementKey` explicitly accepts
+integers, text, and application-defined canonical keys; there is no blanket `Display`
+conversion. Key expressions run once. A keyed locator is `family:key`; key UTF-8 bytes
+outside ASCII unreserved characters are percent-encoded with uppercase hex. Thus a key
+beginning with `:` cannot collide with a namespace. Integer `42` and text `"42"` intentionally
+identify the same instance. `ElementId` is Clone, not Copy; helpers accept it by value.
+
+`.id`, `.id_of`, `.wrapper_id`, menu/toolbar builders, command presentation identities,
+tree `.row_id`, settings rows, steppers, and color pickers accept typed IDs only. The old
+keyed modifier and string adapters do not exist. Rating stars use `.star_id(|n| id!(stars, n))`
+independently of the row's `.id`; chart legends use `.entry_id(|key| id!(legend, key))`.
+Route keys, model keys, OS identifiers, and external-document DOM identities remain separate.
+
+Each macro expansion registers its family, static/keyed shape, and package/version. Native
+builds use a linkme distributed slice; wasm32 emits framed, versioned byte records in a
+`day_ids` custom section, including a sentinel for empty catalogs. The web shim reads all
+sections from the final compiled module and installs them before app startup. Missing or
+malformed metadata fails script validation rather than becoming an empty successful catalog.
+WASM records and the sentinel also emit unique inert export anchors through a small hidden
+`day-macros` attribute. This keeps their archive members linked even for unused generic helpers;
+`#[used]` alone does not guarantee that. The `id!` call surface remains a declarative macro,
+with no build scanner or separate declaration list. Native registration already uses linkme's
+procedural attribute. Debug and stripped-LTO retention are regression-tested in CI.
+A compiled but wholly unlinked dependency contributes nothing; ordinary unused helpers in
+linked crates still declare IDs. Registry normalization sorts and deduplicates matching
+records and rejects conflicting shape or package ownership. Debug native records include
+source locations; release and web records retain family/shape/owner. No source scanner,
+build-script generation, resource catalog, or mount-time registration defines the denominator.
+
+The tree, native accessibility identifiers, and DOM attributes continue storing the canonical
+full string. The verified platform identifier channels remain those in [§13](#13-accessibility).
+Script validation queries the compiled app's vocabulary before the first applicable step.
+Offline `day lint` reads macro tokens for shape conflicts and source locations, with explicit
+cfg/macro-expansion limits. IDs must never be copied into accessibility labels.
+
+Coverage measures declared families, with separate successful interaction/assertion sets and
+their union (exercised). Mounting, waits, screenshots, negative assertions, failed operations,
+and optional absent actions do not earn exercised credit. The tree retains cumulative mounted
+families for diagnostics, including recycled/disposed nodes. Reports retain the registry and
+family-only step evidence. `[dayscript.coverage]` enables reports and optional per-target
+minimums/exclusions. `day coverage check --manifest suite.json` consumes an explicit complete
+suite, rejects missing/failed/mixed reports, and unions families rather than averaging scores.
+Zero eligible families are not 100%; enabled minimum gates fail on an empty denominator.
+See [element IDs and coverage](docs/element-ids.md) for migration, commands, limitations, and
+regression tests. This is a coordinated breaking API migration; other apps must migrate before
+building against this framework version.
 
 When the same id is mounted in several windows (for example Settings in both a sidebar and
 a floating panel), `find_by_id` prefers the focused window's subtree. Cover-backed windows
@@ -3206,7 +3254,7 @@ Day's job is to (a) not break it, (b) provide the uniform annotation API, (c) en
 ```rust
 button(icon("trash"))
     .a11y(|a| a.label(tr("delete-item")).hint(tr("delete-item-hint")))
-    .id("delete-button")
+    .id(id!(delete_button))
 
 image(res::images::chart)
     .a11y(|a| a.label(tr("q3-chart-summary")))     // or .decorative()
@@ -3271,17 +3319,17 @@ canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.g
 name: showcase-walkthrough
 description: Exercise every control and take localized screenshots.
 flow:
-  - wait_for: { id: controls-title }
+  - wait_for: { id: controls_title }
   - screenshot: home
-  - input: { id: name-field, text: "Ada" }
-  - assert_visible: { id: greeting-label }
-  - assert_text: { id: greeting-label, key: greeting, args: { name: "Ada" } }
-  - set_value: { id: volume-slider, value: 80 }
-  - assert_text: { id: volume-value, text: "80" }
-  - tap: { id: subscribe-toggle }
-  - assert_value: { id: subscribe-toggle, value: true }   # typed per piece kind (§C): toggle=bool
-  - tap: { id: increment-button, repeat: 3 }
-  - assert_text: { id: counter-label, key: counter-value, args: { count: 3 } }
+  - input: { id: name_field, text: "Ada" }
+  - assert_visible: { id: greeting_label }
+  - assert_text: { id: greeting_label, key: greeting, args: { name: "Ada" } }
+  - set_value: { id: volume_slider, value: 80 }
+  - assert_text: { id: volume_value, text: "80" }
+  - tap: { id: subscribe_toggle }
+  - assert_value: { id: subscribe_toggle, value: true }   # typed per piece kind (§C): toggle=bool
+  - tap: { id: increment_button, repeat: 3 }
+  - assert_text: { id: counter_label, key: counter-value, args: { count: 3 } }
   - screenshot: after-actions
 ```
 
@@ -3529,7 +3577,7 @@ whose route settles a frame late. Each is recorded as one **absolute** `navigate
 multi-level stack (`items/item-1`) in a single step, folding in the tap/select that triggered it.
 
 Every recorded step is **annotated** with the control it came from — a trailing `# "label"` comment
-on the `id:`/`route:` line (`route: focus # "Focus"`, `id: focus-next-button # "Focus next"`),
+on the `id:`/`route:` line (`route: focus # "Focus"`, `id: focus_next_button # "Focus next"`),
 naming the element's accessibility label, or its visible text when it has no a11y label, in the
 current locale. Comments are ordinary YAML, so an annotated script parses and replays unchanged;
 `annotate_yaml` renders this form, `steps_to_yaml` the bare one. `day_core::label_of(NodeId)`
@@ -4923,7 +4971,7 @@ missing-key class a compile error instead.
 > get theirs from real spans — `fluent-syntax` attaches none, so day-build recovers each one by
 > comparing the parsed fragment's address against the source it borrows from
 > (`day_build::offset_in` / `ftl_key_offsets` / `FtlCall.offset`). Source-literal rules carry the
-> position of the `tr("…")` or `.id("…")` that produced them; manifest rules find their own value
+> position of the `tr("…")` or `id!(name)` that produced them; manifest rules find their own value
 > in `Day.toml`'s text, because the parsed manifest keeps no spans. A finding about something
 > ABSENT — a locale with no listing, a key no catalog defines — has no place and reports none.
 >
@@ -7420,7 +7468,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `id` \| `item` \| `key`, `path?` | invoke an app-menu action. `id` names the item the app named with `MenuEntry::id` — the address that survives a locale change or a moving check mark, and the one to prefer; `item` matches a literal label, `key` a Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
 | `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
-| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day.search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
+| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day::search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll ([docs/scroll.md](docs/scroll.md)); unanimated |
@@ -7893,7 +7941,7 @@ can synchronously reenter delegates. Other backends focus their existing native 
 see [docs/search.md](docs/search.md).
 
 A `nav_stack` page declares its own field with `.searchable(Search)` (2026-10): the reserved
-`day.search` item on that page's chrome, which the desktops merge into the window bar while the
+`day::search` item on that page's chrome, which the desktops merge into the window bar while the
 page is on top, UIKit installs as the page's `UISearchController`, and Android as its app bar's
 search action. `Search::on_submit` runs on the field's Return or Search key, carried as
 `ToolbarValue::Submit` from a bar item and `Event::SearchSubmitted` from an inline surface field,

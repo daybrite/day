@@ -130,9 +130,9 @@ fn only(report: &RunReport, name: &str) -> Outcome {
 
 fn panics_in_its_drive() -> Case {
     Case::new()
-        .page(|| day_pieces::label("here").id("pd-label"))
+        .page(|| day_pieces::label("here").id(day_core::id!(pd_label)))
         .drive(|d: Drive| async move {
-            d.assert_text("pd-label", "here").await?;
+            d.assert_text("pd_label", "here").await?;
             panic!("the drive gave up");
         })
 }
@@ -261,10 +261,10 @@ fn test_names_come_from_the_function() {
 
 fn reads_what_the_mock_cannot() -> Case {
     Case::new()
-        .page(|| day_pieces::label("here").id("unread-label"))
+        .page(|| day_pieces::label("here").id(day_core::id!(unread_label)))
         .drive(|d: Drive| async move {
             d.assert_native(
-                "unread-label",
+                "unread_label",
                 day_core::conformance::NativeExpect {
                     visible: Some(true),
                     ..Default::default()
@@ -286,7 +286,7 @@ fn a_native_field_the_toolkit_cannot_read_is_recorded_not_failed() {
         "reads-what-the-mock-cannot",
     );
     assert_eq!(t.verdict, "pass", "{t:?}");
-    assert_eq!(t.native_unread, ["unread-label visible"]);
+    assert_eq!(t.native_unread, ["unread_label visible"]);
     // The default native follow-up ran on every built-in case without leaving gaps on the
     // mock, whose reader answers every field the leaves assert.
     let report = run(&["button-*", "text-field-*", "toggle-*", "slider-*"]);
@@ -303,12 +303,12 @@ fn picker_selection_rejects_invalid_indices_without_changing_selection() {
                 day_reactive::Signal::new(0usize),
                 [(0usize, "First"), (1, "Second")],
             )
-            .id("picker-bounds"),
+            .id(day_core::id!(picker_bounds)),
         )
     });
     for index in [-1, 2, 999] {
         let reply = day_script::step(Step::Select {
-            id: "picker-bounds".into(),
+            id: "picker_bounds".into(),
             index,
             if_present: false,
         });
@@ -316,20 +316,20 @@ fn picker_selection_rejects_invalid_indices_without_changing_selection() {
         assert!(reply.error.unwrap().contains("out of range for 2 options"));
     }
     let current: Step = serde_json::from_value(serde_json::json!({
-        "op": "assert_text", "id": "picker-bounds", "text": "First"
+        "op": "assert_text", "id": "picker_bounds", "text": "First"
     }))
     .unwrap();
     assert!(day_script::step(current).ok);
     assert!(
         day_script::step(Step::Select {
-            id: "picker-bounds".into(),
+            id: "picker_bounds".into(),
             index: 1,
             if_present: false,
         })
         .ok
     );
     let current: Step = serde_json::from_value(serde_json::json!({
-        "op": "assert_text", "id": "picker-bounds", "text": "Second"
+        "op": "assert_text", "id": "picker_bounds", "text": "Second"
     }))
     .unwrap();
     assert!(day_script::step(current).ok);

@@ -1204,12 +1204,12 @@ mod tests {
 
         // A composed `.on_tap` piece sends only the gesture, with nothing pressed before it, so it
         // records. This is the case that was silently lost.
-        assert!(!is_press_twin(&gesture, &tap("list-shuffle"), None));
+        assert!(!is_press_twin(&gesture, &tap("list_shuffle"), None));
 
         // A gesture on a different node than the last press is its own tap, not a twin.
         assert!(!is_press_twin(
             &gesture,
-            &tap("list-reset"),
+            &tap("list_reset"),
             Some("list-shuffle")
         ));
 

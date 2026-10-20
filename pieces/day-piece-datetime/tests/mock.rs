@@ -190,7 +190,7 @@ fn readout_label_follows_picks() {
         let date = Signal::new(d(2026, 7, 18));
         column((
             date_picker(date),
-            label(move || date.get().to_string()).id("date-value"),
+            label(move || date.get().to_string()).id(day_core::id!(date_value)),
         ))
         .any()
     });

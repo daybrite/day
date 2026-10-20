@@ -3020,6 +3020,19 @@ async function boot(wasmUrl) {
     }
   }));
   wasm = (await WebAssembly.instantiate(module, foreignStubs(module, { env }))).exports;
+  // Registry comes from the final served module, never from mounted UI. All section
+  // contributions are framed records; Rust validates schema and the empty-catalog sentinel.
+  const idSections = WebAssembly.Module.customSections(module, 'day_ids');
+  const idLength = idSections.reduce((n, section) => n + section.byteLength, 0);
+  if (idLength > 16 * 1024 * 1024) throw new Error('Day element registry exceeds 16 MiB');
+  const idPtr = wasm.day_dom_alloc(idLength);
+  let idOffset = 0;
+  for (const section of idSections) {
+    new Uint8Array(wasm.memory.buffer, idPtr + idOffset, section.byteLength).set(new Uint8Array(section));
+    idOffset += section.byteLength;
+  }
+  wasm.day_dom_install_ids(idPtr, idLength);
+
 
   // Installed PWA file handling (Chromium). Other browsers retain the ordinary picker.
   if ('launchQueue' in window) window.launchQueue.setConsumer(async launch => {

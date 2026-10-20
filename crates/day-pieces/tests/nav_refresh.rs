@@ -36,7 +36,7 @@ fn requests_follow_app_busy_state_and_disposal() {
                 nav(Signal::new(None::<String>))
                     .style(NavStyle::Sidebar)
                     .item(Some("all".to_string()), "All", || label("Fixture articles"))
-                    .id("fixture-nav") // Builder forwarding must work after decoration too.
+                    .id(day_core::id!(fixture_nav)) // Builder forwarding must work after decoration too.
                     .refreshable(busy, move || {
                         requests.update(|n| *n += 1);
                         busy.set(accept.get_untracked());
@@ -119,7 +119,7 @@ fn sidebar_footer_reserves_space_without_recreating_menu_or_destination() {
         nav(selection)
             .style(NavStyle::Sidebar)
             .item(Some("all".to_string()), "All", || label("Fixture articles"))
-            .id("fixture-nav")
+            .id(day_core::id!(fixture_nav))
             .footer(move || {
                 when(
                     move || busy.get(),

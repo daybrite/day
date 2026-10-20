@@ -490,7 +490,7 @@ pub(crate) mod conformance {
 
     use crate::*;
 
-    fn block(color: Color, id: &str, w: f64, h: f64) -> AnyPiece {
+    fn block(color: Color, id: day_core::ElementId, w: f64, h: f64) -> AnyPiece {
         rectangle().fill(color).id(id).frame(w, h).any()
     }
 
@@ -514,8 +514,8 @@ pub(crate) mod conformance {
             .proves(kinds::CONTAINER)
             .page(|| {
                 column((
-                    block(Color::rgb(1.0, 0.0, 0.0), "a", 50.0, 20.0),
-                    block(Color::rgb(0.0, 0.0, 1.0), "b", 50.0, 20.0),
+                    block(Color::rgb(1.0, 0.0, 0.0), day_core::id!(a), 50.0, 20.0),
+                    block(Color::rgb(0.0, 0.0, 1.0), day_core::id!(b), 50.0, 20.0),
                 ))
                 .spacing(10.0)
                 .align(HAlign::Leading)
@@ -531,7 +531,7 @@ pub(crate) mod conformance {
         Case::new()
             .proves(kinds::CONTAINER)
             .page(|| {
-                row((block(Color::rgb(1.0, 0.0, 0.0), "a", 50.0, 20.0), block(Color::rgb(0.0, 0.0, 1.0), "b", 50.0, 40.0)))
+                row((block(Color::rgb(1.0, 0.0, 0.0), day_core::id!(a), 50.0, 20.0), block(Color::rgb(0.0, 0.0, 1.0), day_core::id!(b), 50.0, 40.0)))
                     .spacing(8.0)
                     .align(VAlign::Center)
             })
@@ -548,12 +548,12 @@ pub(crate) mod conformance {
             .page(|| {
                 grid((
                     grid_row((
-                        block(Color::rgb(1.0, 0.0, 0.0), "a", 40.0, 20.0),
-                        block(Color::rgb(0.0, 0.0, 1.0), "b", 60.0, 20.0),
+                        block(Color::rgb(1.0, 0.0, 0.0), day_core::id!(a), 40.0, 20.0),
+                        block(Color::rgb(0.0, 0.0, 1.0), day_core::id!(b), 60.0, 20.0),
                     )),
                     grid_row((
-                        block(Color::rgb(0.0, 0.0, 1.0), "c", 30.0, 20.0),
-                        block(Color::rgb(1.0, 0.0, 0.0), "d", 30.0, 20.0),
+                        block(Color::rgb(0.0, 0.0, 1.0), day_core::id!(c), 30.0, 20.0),
+                        block(Color::rgb(1.0, 0.0, 0.0), day_core::id!(d), 30.0, 20.0),
                     )),
                 ))
                 .spacing(0.0)
@@ -575,10 +575,10 @@ pub(crate) mod conformance {
             .proves_cap(day_spec::Cap::Snapshot)
             .page(|| {
                 zstack((
-                    block(Color::rgb(1.0, 0.0, 0.0), "under", 100.0, 60.0),
-                    block(Color::rgb(0.0, 0.0, 1.0), "over", 50.0, 30.0),
+                    block(Color::rgb(1.0, 0.0, 0.0), day_core::id!(under), 100.0, 60.0),
+                    block(Color::rgb(0.0, 0.0, 1.0), day_core::id!(over), 50.0, 30.0),
                 ))
-                .id("stack")
+                .id(day_core::id!(stack))
             })
             .shot("default")
             .drive(|d: Drive| async move {
@@ -612,11 +612,11 @@ pub(crate) mod conformance {
                 column((
                     scroll(column(rows).spacing(0.0))
                         .scroll_target(jump)
-                        .id("scroll")
+                        .id(day_core::id!(scroll))
                         .frame(120.0, 120.0),
                     button("Bottom")
                         .action(move || jump.set(Some(ScrollTarget::Bottom)))
-                        .id("bottom"),
+                        .id(day_core::id!(bottom)),
                 ))
                 .spacing(8.0)
             })

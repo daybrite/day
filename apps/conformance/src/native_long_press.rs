@@ -47,10 +47,10 @@ pub fn page() -> impl Piece {
     let rows = Signal::new(vec!["Alpha", "Beta", "Gamma", "Delta"]);
     column((
         label("Native long press"),
-        label(move || format!("Holds: {}", holds.get())).id("holds"),
-        label(move || format!("Taps: {}", taps.get())).id("taps"),
-        label(move || point.get()).id("point"),
-        label(move || format!("Order: {}", rows.get().join(","))).id("order"),
+        label(move || format!("Holds: {}", holds.get())).id(day::id!(holds)),
+        label(move || format!("Taps: {}", taps.get())).id(day::id!(taps)),
+        label(move || point.get()).id(day::id!(point)),
+        label(move || format!("Order: {}", rows.get().join(","))).id(day::id!(order)),
         row((
             button("Reset")
                 .action(move || {
@@ -58,17 +58,17 @@ pub fn page() -> impl Piece {
                     taps.set(0);
                     point.set("Point: none".into());
                 })
-                .id("reset"),
+                .id(day::id!(reset)),
             button("Mount/unmount")
                 .action(move || mounted.update(|v| *v = !*v))
-                .id("mount"),
+                .id(day::id!(mount)),
             button("Pad/list")
                 .action(move || list_mode.update(|v| *v = !*v))
-                .id("mode"),
+                .id(day::id!(mode)),
         )),
         button("Remove on next hold")
             .action(move || remove_on_hold.set(true))
-            .id("remove-on-hold"),
+            .id(day::id!(remove_on_hold)),
         when(
             move || mounted.get(),
             move || {
@@ -93,7 +93,7 @@ pub fn page() -> impl Piece {
                             })
                         }))
                         .height(240.0)
-                        .id("list")
+                        .id(day::id!(list))
                     },
                 )
                 .otherwise(move || {
@@ -104,7 +104,7 @@ pub fn page() -> impl Piece {
                             child: label("Hold here")
                                 .frame(220.0, 100.0)
                                 .on_tap(move || taps.update(|n| *n += 1))
-                                .id("pad"),
+                                .id(day::id!(pad)),
                             holds,
                             point,
                             mounted,
@@ -113,7 +113,7 @@ pub fn page() -> impl Piece {
                         label("Scroll content").height(800.0),
                     )))
                     .height(240.0)
-                    .id("scroll")
+                    .id(day::id!(scroll))
                 })
             },
         ),

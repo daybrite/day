@@ -777,7 +777,10 @@ fn when_builds_and_disposes() {
 /// `Decorated<Decorated<…>>`, and the piece's type survives to the end. This signature is the
 /// assertion; if the inherent shadows on `Decorated` were lost, it would stop compiling.
 fn typed_chain() -> Decorated<day_pieces::Label> {
-    label("chained").padding(4.0).grow_w().id("chained")
+    label("chained")
+        .padding(4.0)
+        .grow_w()
+        .id(day_core::id!(chained))
 }
 
 #[test]
@@ -1069,9 +1072,9 @@ fn scroll_reports_content_size() {
 
 #[test]
 fn ids_land_as_a11y_identifiers() {
-    let probe = boot(|| column((button("go").id("go-button"),)).any());
+    let probe = boot(|| column((button("go").id(day_core::id!(go_button)),)).any());
     let buttons = probe.find_by_kind("day.button");
-    assert_eq!(buttons[0].1.a11y.identifier.as_deref(), Some("go-button"));
+    assert_eq!(buttons[0].1.a11y.identifier.as_deref(), Some("go_button"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1084,7 +1087,7 @@ fn tabs_selector(sel: Signal<String>) -> AnyPiece {
         .item("one", "One", || label("one-content"))
         .item("two", "Two", || label("two-content"))
         .item("three", "Three", || label("three-content"))
-        .id("main-tabs")
+        .id(day_core::id!(main_tabs))
         .any()
 }
 
@@ -1353,7 +1356,7 @@ fn nav_sidebar_deep_link_at_startup() {
 fn nav_stack_root(path: Signal<Vec<String>>) -> AnyPiece {
     nav_stack(path, label("home-content"))
         .destination(|key| label(format!("detail:{key}")))
-        .id("nav-stack")
+        .id(day_core::id!(nav_stack))
         .any()
 }
 
@@ -2879,7 +2882,7 @@ fn confirm_true_when_confirm_button_chosen() {
                     *o2.borrow_mut() = Some(ok);
                 });
             })
-            .id("ask")
+            .id(day_core::id!(ask))
             .any()
     });
     let btn = node_id(&probe, "day.button", 0);
@@ -2911,7 +2914,7 @@ fn confirm_false_on_dismiss() {
                     *o2.borrow_mut() = Some(confirm("Q").await);
                 });
             })
-            .id("ask")
+            .id(day_core::id!(ask))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -2937,7 +2940,7 @@ fn prompt_returns_text_or_none() {
                     *o2.borrow_mut() = Some(prompt("Name").await);
                 });
             })
-            .id("ask")
+            .id(day_core::id!(ask))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -2977,7 +2980,7 @@ fn alert_returns_typed_payload_and_sequences() {
                     }
                 });
             })
-            .id("go")
+            .id(day_core::id!(go))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -3077,7 +3080,7 @@ fn pooled_list_cells_skip_resize_and_dirty_layout_until_rebound() {
                 .grow()
             },
         )
-        .id("viewport")
+        .id(day_core::id!(viewport))
         .row_height(RowHeight::Uniform(40.))
         .grow()
     });
@@ -4140,7 +4143,7 @@ fn open_file_reads_the_chosen_path() {
                     }
                 });
             })
-            .id("open")
+            .id(day_core::id!(open))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -4413,7 +4416,7 @@ fn save_file_writes_data_to_the_chosen_path() {
                     *s2.borrow_mut() = dest.and_then(|d| d.file_name());
                 });
             })
-            .id("save")
+            .id(day_core::id!(save))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -4649,11 +4652,11 @@ fn form_aligns_labels_and_sections_carry_the_card_surface() {
     let probe = boot(move || {
         form((
             section((
-                labeled("Short", toggle(on).id("t1")),
-                labeled("A much longer label", slider(level).id("s1")),
+                labeled("Short", toggle(on).id(day_core::id!(t1))),
+                labeled("A much longer label", slider(level).id(day_core::id!(s1))),
             ))
             .title("Sound"),
-            section((labeled("Name", text_field(name).id("f1")),)),
+            section((labeled("Name", text_field(name).id(day_core::id!(f1))),)),
         ))
     });
     flush_sync();
@@ -4705,7 +4708,12 @@ fn form_aligns_labels_and_sections_carry_the_card_surface() {
 #[test]
 fn labeled_rows_put_their_label_and_control_on_one_baseline() {
     let name = Signal::new(String::new());
-    let probe = boot(move || form((section((labeled("Name", text_field(name).id("f1")),)),)));
+    let probe = boot(move || {
+        form((section((labeled(
+            "Name",
+            text_field(name).id(day_core::id!(f1)),
+        ),)),))
+    });
     flush_sync();
 
     let (_, lbl) = probe
@@ -4737,7 +4745,12 @@ fn a_control_with_no_baseline_keeps_its_row_centered() {
     // A toggle has no text, so the mock reports no baseline for it and the row must fall back
     // to centering, the guarantee that makes baseline-by-default safe on every backend.
     let on = Signal::new(true);
-    let probe = boot(move || form((section((labeled("Sound", toggle(on).id("t1")),)),)));
+    let probe = boot(move || {
+        form((section((labeled(
+            "Sound",
+            toggle(on).id(day_core::id!(t1)),
+        ),)),))
+    });
     flush_sync();
 
     let (_, lbl) = probe
@@ -4764,7 +4777,7 @@ fn decorated_children_keep_their_baseline() {
     let probe = boot(move || {
         row((
             label("Qty").width(90.0),
-            text_field(name).width(70.0).id("d-field"),
+            text_field(name).width(70.0).id(day_core::id!(d_field)),
             label("items").padding(4.0),
         ))
         .align(VAlign::FirstBaseline)
@@ -4804,9 +4817,9 @@ fn a_baseline_row_aligns_text_and_leaves_baseline_less_children_centered() {
     let name = Signal::new(String::new());
     let probe = boot(move || {
         row((
-            label("Qty").id("b-label"),
-            text_field(name).id("b-field"),
-            image("icon".to_string()).id("b-image"),
+            label("Qty").id(day_core::id!(b_label)),
+            text_field(name).id(day_core::id!(b_field)),
+            image("icon".to_string()).id(day_core::id!(b_image)),
         ))
         .align(VAlign::FirstBaseline)
         .any()
@@ -4838,7 +4851,11 @@ fn scroll_target_signal_drives_offset() {
     let probe = boot(move || {
         scroll(column(
             (0..100)
-                .map(|i| label(format!("row {i}")).id(format!("mock-row-{i}")).any())
+                .map(|i| {
+                    label(format!("row {i}"))
+                        .id(day_core::id!(mock_row, i))
+                        .any()
+                })
                 .collect::<Vec<_>>(),
         ))
         .scroll_target(jump2)
@@ -4876,7 +4893,7 @@ fn scroll_target_signal_drives_offset() {
     );
 
     // Reveal-by-id: a row far below the fold scrolls its enclosing scroll.
-    jump.set(Some(ScrollTarget::Id("mock-row-90".into())));
+    jump.set(Some(ScrollTarget::Id("mock_row:90".into())));
     flush_sync();
     let y = probe.find_by_kind("day.scroll")[0].1.scroll_offset.y;
     assert!(y > 123.0, "revealing row 90 scrolled further down: {y}");
@@ -4894,8 +4911,10 @@ fn picker_and_text_area_are_built_in() {
         column((
             picker(choice2, [(0usize, "A"), (1, "B"), (2, "C")])
                 .segmented()
-                .id("pk"),
-            text_area(draft2).placeholder("write…").id("ta"),
+                .id(day_core::id!(pk)),
+            text_area(draft2)
+                .placeholder("write…")
+                .id(day_core::id!(ta)),
         ))
         .any()
     });
@@ -4985,20 +5004,22 @@ fn queued_native_events_finish_the_current_handler_before_dispatch() {
     let second = order.clone();
     let probe = boot(move || {
         column((
-            button("First fixture").id("first-fixture").action(move || {
-                first.borrow_mut().push("start");
-                let node = day_core::with_tree(|t| t.find_by_id("second-fixture").unwrap());
-                day_core::enqueue_event(day_core::rnode_to_id(node), Event::Pressed);
-                first.borrow_mut().push("end");
-            }),
+            button("First fixture")
+                .id(day_core::id!(first_fixture))
+                .action(move || {
+                    first.borrow_mut().push("start");
+                    let node = day_core::with_tree(|t| t.find_by_id("second_fixture").unwrap());
+                    day_core::enqueue_event(day_core::rnode_to_id(node), Event::Pressed);
+                    first.borrow_mut().push("end");
+                }),
             button("Second fixture")
-                .id("second-fixture")
+                .id(day_core::id!(second_fixture))
                 .action(move || {
                     second.borrow_mut().push("queued");
                 }),
         ))
     });
-    let node = day_core::with_tree(|t| t.find_by_id("first-fixture").unwrap());
+    let node = day_core::with_tree(|t| t.find_by_id("first_fixture").unwrap());
     probe.emit(day_core::rnode_to_id(node), Event::Pressed);
     assert_eq!(*order.borrow(), ["start", "end", "queued"]);
 }
@@ -5014,11 +5035,11 @@ fn cover_removes_input_handlers_before_disposing_their_signals() {
             let observed = observed.clone();
             Scope::current().on_cleanup(move || {
                 assert!(day_core::with_tree(|t| t
-                    .find_by_id("closing-input")
+                    .find_by_id("closing_input")
                     .is_none()));
                 observed.set(true);
             });
-            text_field(Signal::new(String::new())).id("closing-input")
+            text_field(Signal::new(String::new())).id(day_core::id!(closing_input))
         })
     });
     open.set(Some("fixture".into()));
@@ -5218,7 +5239,7 @@ fn cover_cycle_root() -> AnyPiece {
                 items(
                     move || {
                         let generation = rev.get() as i64;
-                        vec![format!("row-a:{generation}"), format!("row-b:{generation}")]
+                        vec![format!("row_a:{generation}"), format!("row_b:{generation}")]
                     },
                     |item: &String| item.clone(),
                 ),
@@ -5226,7 +5247,11 @@ fn cover_cycle_root() -> AnyPiece {
                     let name = slot.get();
                     button(name.clone())
                         .action(move || taps.set(taps.get_untracked() + 1.0))
-                        .id(name)
+                        .id(if let Some(key) = name.strip_prefix("row_a:") {
+                            day_core::id!(row_a, key)
+                        } else {
+                            day_core::id!(row_b, name.strip_prefix("row_b:").unwrap())
+                        })
                 },
             ),
         ))
@@ -5271,7 +5296,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     // Rebuild the rows once before any cover (the install-confirm shape).
     rev.set(1.0);
     flush_sync();
-    tap_button(&probe, "row-a:1");
+    tap_button(&probe, "row_a:1");
     assert_eq!(tap_count(&probe), "taps 1", "pre-cover rows respond");
 
     // Present, size, dismiss, and finish the hide transition.
@@ -5293,7 +5318,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     flush_sync();
 
     // 1) Siblings built before the cycle still respond.
-    tap_button(&probe, "row-a:1");
+    tap_button(&probe, "row_a:1");
     assert_eq!(
         tap_count(&probe),
         "taps 2",
@@ -5303,7 +5328,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     // 2) Rows rebuilt after the cycle respond.
     rev.set(2.0);
     flush_sync();
-    tap_button(&probe, "row-b:2");
+    tap_button(&probe, "row_b:2");
     assert_eq!(
         tap_count(&probe),
         "taps 3",
@@ -5329,7 +5354,7 @@ fn cover_cycle_keeps_siblings_alive_and_represents() {
     probe.emit(cover_id, Event::CoverHidden);
     probe.emit(cover_id, Event::CoverHidden);
     flush_sync();
-    tap_button(&probe, "row-b:2");
+    tap_button(&probe, "row_b:2");
     assert_eq!(
         tap_count(&probe),
         "taps 4",
@@ -5374,7 +5399,7 @@ fn text_area_attr_root() -> AnyPiece {
         .editable(editable)
         .selectable(selectable)
         .spellcheck(spellcheck)
-        .id("ta")
+        .id(day_core::id!(ta))
         .any()
 }
 
@@ -5420,7 +5445,12 @@ fn text_area_attributes_realize_and_patch_reactively() {
 
 #[test]
 fn toggle_enabled_false_renders_disabled() {
-    let probe = boot(|| toggle(Signal::new(false)).enabled(false).id("t").any());
+    let probe = boot(|| {
+        toggle(Signal::new(false))
+            .enabled(false)
+            .id(day_core::id!(t))
+            .any()
+    });
     flush_sync();
     let t = probe
         .find_by_kind("day.toggle")
@@ -5437,7 +5467,7 @@ fn toggle_enabled_false_renders_disabled() {
 #[test]
 fn selectable_modifier_marks_the_node_and_is_opt_in() {
     // `.selectable()` calls the backend's set_selectable exactly once, on the label's node.
-    let probe = boot(|| label("copy me").selectable().id("sel").any());
+    let probe = boot(|| label("copy me").selectable().id(day_core::id!(sel)).any());
     flush_sync();
     let sel_ops: Vec<String> = probe
         .log()
@@ -5451,7 +5481,7 @@ fn selectable_modifier_marks_the_node_and_is_opt_in() {
     );
 
     // A plain label is not selectable; the modifier is strictly opt-in.
-    let probe2 = boot(|| label("plain").id("plain").any());
+    let probe2 = boot(|| label("plain").id(day_core::id!(plain)).any());
     flush_sync();
     assert!(
         !probe2.log().iter().any(|o| o.starts_with("set_selectable")),
@@ -5733,7 +5763,9 @@ fn win_options(title: &str, w: f64, h: f64) -> WindowOptions {
 fn open_window_builds_and_lays_out_at_its_own_size() {
     let probe = boot(|| label("main").any());
     let handle = day_core::open_window(win_options("second", 300.0, 200.0), || {
-        column((label("in window").id("w2-label"),)).grow().any()
+        column((label("in window").id(day_core::id!(w2_label)),))
+            .grow()
+            .any()
     });
     flush_sync();
 
@@ -5765,13 +5797,13 @@ fn cross_window_find_and_tap_by_id() {
     day_core::open_window(win_options("second", 300.0, 200.0), move || {
         button("press")
             .action(move || clicks.set(clicks.get() + 1))
-            .id("w2-btn")
+            .id(day_core::id!(w2_btn))
             .any()
     });
     flush_sync();
 
     // The one tree spans windows: the id resolves without any window scoping.
-    assert!(day_core::with_tree(|t| t.find_by_id("w2-btn")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("w2_btn")).is_some());
     let btn = node_id(&probe, "day.button", 0);
     probe.emit(btn, Event::Pressed);
     flush_sync();
@@ -5825,11 +5857,11 @@ fn programmatic_close_round_trips_and_tears_down() {
     let probe = boot(|| label("main").any());
     let closed = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(false));
     let handle = day_core::open_window(win_options("second", 300.0, 200.0).key("second"), || {
-        label("in window").id("w2-label").any()
+        label("in window").id(day_core::id!(w2_label)).any()
     });
     handle.on_close(move || closed.set(true));
     flush_sync();
-    assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("w2_label")).is_some());
 
     handle.close();
     flush_sync();
@@ -5841,7 +5873,7 @@ fn programmatic_close_round_trips_and_tears_down() {
     assert!(!handle.is_open());
     assert!(day_core::window_by_key("second").is_none());
     // Leak canary: the window's content is gone from the widget table and the tree.
-    assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_none());
+    assert!(day_core::with_tree(|t| t.find_by_id("w2_label")).is_none());
     assert!(
         !probe
             .find_by_kind("day.label")
@@ -5862,7 +5894,7 @@ fn native_close_tears_down_and_fires_on_close() {
     let probe = boot(|| label("main").any());
     let closed = day_reactive::Scope::root().enter(|| day_reactive::Signal::new(false));
     let handle = day_core::open_window(win_options("second", 300.0, 200.0), || {
-        label("in window").id("w2-label").any()
+        label("in window").id(day_core::id!(w2_label)).any()
     });
     handle.on_close(move || closed.set(true));
     flush_sync();
@@ -5871,7 +5903,7 @@ fn native_close_tears_down_and_fires_on_close() {
     probe.close_window_natively(probe.windows()[0].node);
     flush_sync();
     assert!(!handle.is_open());
-    assert!(day_core::with_tree(|t| t.find_by_id("w2-label")).is_none());
+    assert!(day_core::with_tree(|t| t.find_by_id("w2_label")).is_none());
     assert!(closed.get_untracked(), "on_close did not run");
 }
 
@@ -6065,7 +6097,7 @@ fn fallback_presents_as_cover_and_close_dismisses() {
         win_options("Settings", 520.0, 640.0)
             .key("prefs")
             .kind(day_spec::WindowKind::Preferences),
-        || label("prefs body").id("prefs-label").any(),
+        || label("prefs body").id(day_core::id!(prefs_label)).any(),
     );
     flush_sync();
 
@@ -6083,7 +6115,7 @@ fn fallback_presents_as_cover_and_close_dismisses() {
     let cover_node = NodeId(covers[0].1.node);
     probe.emit(cover_node, Event::FrameChanged(Size::new(400.0, 600.0)));
     flush_sync();
-    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs_label")).is_some());
     // And laid out at the reported size; the primary root's PassThrough never descends
     // into a second child, so the fallback surface must drive its own layout entry (the
     // regression the first iOS run caught: content present but frameless).
@@ -6104,12 +6136,12 @@ fn fallback_presents_as_cover_and_close_dismisses() {
         "close did not dismiss the cover"
     );
     // Content survives until the hide transition confirms…
-    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs_label")).is_some());
     probe.emit(cover_node, Event::CoverHidden);
     flush_sync();
     // …then everything goes.
     assert!(!handle.is_open());
-    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_none());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs_label")).is_none());
     assert!(day_core::window_by_key("prefs").is_none());
 }
 
@@ -6123,7 +6155,7 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
             win_options("Settings", 520.0, 640.0)
                 .key("prefs")
                 .kind(day_spec::WindowKind::Preferences),
-            || label("prefs body").id("prefs-label").any(),
+            || label("prefs body").id(day_core::id!(prefs_label)).any(),
         )
     };
     let handle = open();
@@ -6131,7 +6163,7 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
     let cover_node = NodeId(probe.find_by_kind("day.cover")[0].1.node);
     probe.emit(cover_node, Event::FrameChanged(Size::new(400.0, 600.0)));
     flush_sync();
-    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs_label")).is_some());
 
     // Close, then reopen before the hide transition confirms: the phone animates it, and a
     // walkthrough (or a user) reaches the Settings item again inside those milliseconds.
@@ -6164,7 +6196,7 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
     flush_sync();
     assert!(reopened.is_open(), "the revived window closed anyway");
     assert!(
-        day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some(),
+        day_core::with_tree(|t| t.find_by_id("prefs_label")).is_some(),
         "the belated CoverHidden tore the reopened window down"
     );
 
@@ -6174,7 +6206,7 @@ fn cover_reopened_mid_dismiss_reverses_instead_of_going_blank() {
     probe.emit(cover_node, Event::CoverHidden);
     flush_sync();
     assert!(!reopened.is_open());
-    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_none());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs_label")).is_none());
 }
 
 #[test]
@@ -6182,14 +6214,14 @@ fn pending_open_completes_and_builds() {
     let probe = boot(|| label("main").any());
     probe.set_pending_windows(true);
     let handle = day_core::open_window(win_options("Detail", 300.0, 200.0).key("detail"), || {
-        label("detail body").id("detail-label").any()
+        label("detail body").id(day_core::id!(detail_label)).any()
     });
     flush_sync();
 
     // Parked: record exists, nothing built, no live window yet.
     assert!(handle.is_open());
     assert!(probe.windows().is_empty());
-    assert!(day_core::with_tree(|t| t.find_by_id("detail-label")).is_none());
+    assert!(day_core::with_tree(|t| t.find_by_id("detail_label")).is_none());
 
     // The native side finishes creation (the scene/activity/ability connecting).
     let node = day_core::windows::window_node_id(&handle);
@@ -6204,7 +6236,7 @@ fn pending_open_completes_and_builds() {
     flush_sync();
 
     assert_eq!(probe.windows().len(), 1);
-    assert!(day_core::with_tree(|t| t.find_by_id("detail-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("detail_label")).is_some());
     // The parked title applied at completion.
     assert!(
         probe
@@ -6220,7 +6252,7 @@ fn pending_close_before_completion_cancels() {
     let probe = boot(|| label("main").any());
     probe.set_pending_windows(true);
     let handle = day_core::open_window(win_options("Detail", 300.0, 200.0), || {
-        label("detail body").id("detail-label").any()
+        label("detail body").id(day_core::id!(detail_label)).any()
     });
     flush_sync();
     handle.close();
@@ -6239,7 +6271,7 @@ fn pending_close_before_completion_cancels() {
         Size::new(300.0, 200.0)
     ));
     flush_sync();
-    assert!(day_core::with_tree(|t| t.find_by_id("detail-label")).is_none());
+    assert!(day_core::with_tree(|t| t.find_by_id("detail_label")).is_none());
 }
 
 #[test]
@@ -6247,7 +6279,7 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     let probe = boot(|| label("main").any());
     // App menu installed before registration; the retained-model re-forward self-heals.
     app_menu(vec![sub_menu("File", vec![menu_item("Save").key("s")])]);
-    day_core::register_preferences(|| label("prefs body").id("prefs-label").any());
+    day_core::register_preferences(|| label("prefs body").id(day_core::id!(prefs_label)).any());
     flush_sync();
 
     // The injection appended a live Preferences item to the File menu.
@@ -6274,7 +6306,7 @@ fn register_preferences_injects_menu_item_and_dispatch_opens_singleton() {
     flush_sync();
     assert_eq!(probe.windows().len(), 1);
     assert_eq!(probe.windows()[0].kind, "preferences");
-    assert!(day_core::with_tree(|t| t.find_by_id("prefs-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("prefs_label")).is_some());
     // …and dispatching again focuses instead of duplicating.
     day_core::dispatch_menu_action(prefs_id);
     flush_sync();
@@ -6299,7 +6331,7 @@ fn register_about_wires_the_role_and_opens_singleton() {
             title: "About".into(),
             ..Default::default()
         },
-        || label("about body").id("about-label").any(),
+        || label("about body").id(day_core::id!(about_label)).any(),
     );
     day_core::register_check_for_updates(|| {});
     flush_sync();
@@ -6340,7 +6372,7 @@ fn register_about_wires_the_role_and_opens_singleton() {
     flush_sync();
     assert_eq!(probe.windows().len(), 1);
     assert_eq!(probe.windows()[0].kind, "about");
-    assert!(day_core::with_tree(|t| t.find_by_id("about-label")).is_some());
+    assert!(day_core::with_tree(|t| t.find_by_id("about_label")).is_some());
     day_core::dispatch_menu_action(about_id);
     flush_sync();
     assert_eq!(probe.windows().len(), 1);
@@ -6375,11 +6407,11 @@ fn toolbar_page_change_with_same_commands_installs_nothing() {
                 label(page.clone()).toolbar(move || {
                     let (log, page) = (log.clone(), page.clone());
                     let mut items = vec![
-                        toolbar_button("share", "Share")
+                        toolbar_button(day_core::id!(share), "Share")
                             .action(move || log.borrow_mut().push(page.clone())),
                     ];
                     if extra {
-                        items.push(toolbar_button("more", "More"));
+                        items.push(toolbar_button(day_core::id!(more), "More"));
                     }
                     items
                 })
@@ -6437,9 +6469,9 @@ fn toolbar_edit_the_toolkit_declined_is_sent_again() {
     let title = Signal::new("Share".to_string());
     let probe = boot(move || {
         label("main").toolbar(move || {
-            let mut items = vec![toolbar_button("share", title.get())];
+            let mut items = vec![toolbar_button(day_core::id!(share), title.get())];
             if extra.get() {
-                items.push(toolbar_button("more", "More"));
+                items.push(toolbar_button(day_core::id!(more), "More"));
             }
             items
         })
@@ -6476,10 +6508,10 @@ fn toolbar_edit_replaces_only_what_changed() {
     let probe = boot(move || {
         label("main").toolbar(move || {
             vec![
-                toolbar_button("share", title.get()),
-                toolbar_toggle("grid", "Grid", on),
-                toolbar_separator("sep"),
-                toolbar_button("print", "Print"),
+                toolbar_button(day_core::id!(share), title.get()),
+                toolbar_toggle(day_core::id!(grid), "Grid", on),
+                toolbar_separator(day_core::id!(sep)),
+                toolbar_button(day_core::id!(print), "Print"),
             ]
         })
     });
@@ -6541,7 +6573,7 @@ fn toolbar_search_falls_back_inline_where_the_bar_holds_no_field() {
     assert!(
         day_core::toolbar::toolbar_model()
             .iter()
-            .all(|i| i.id != "day.search"),
+            .all(|i| i.id != "day::search"),
         "no search item rides a bar that cannot draw it"
     );
     // The field is inline: its edits arrive against the host.
@@ -6550,8 +6582,8 @@ fn toolbar_search_falls_back_inline_where_the_bar_holds_no_field() {
     flush_sync();
     assert_eq!(query.get_untracked(), "al");
     // The reserved id still names the field: day-core resolves it to this host, which is how a
-    // dayscript `toolbar: { item: day.search, text }` types the same query on a phone.
-    let resolved = day_core::inline_search_host().expect("the inline host answers for day.search");
+    // dayscript `toolbar: { item: day::search, text }` types the same query on a phone.
+    let resolved = day_core::inline_search_host().expect("the inline host answers for day::search");
     assert_eq!(day_core::rnode_to_id(resolved), host);
     day_core::enqueue_event(host, Event::SearchChanged("alp".into()));
     flush_sync();
@@ -6588,9 +6620,13 @@ fn toolbar_search_text_survives_a_page_change() {
             ))
             // Pages with different commands: moving between them changes the bar's shape.
             .destination(|s: &Option<String>| match s.as_deref() {
-                Some("beta") => label("beta")
-                    .toolbar(|| vec![toolbar_button("one", "One"), toolbar_button("two", "Two")]),
-                _ => label("alpha").toolbar(|| vec![toolbar_button("one", "One")]),
+                Some("beta") => label("beta").toolbar(|| {
+                    vec![
+                        toolbar_button(day_core::id!(one), "One"),
+                        toolbar_button(day_core::id!(two), "Two"),
+                    ]
+                }),
+                _ => label("alpha").toolbar(|| vec![toolbar_button(day_core::id!(one), "One")]),
             })
             .any()
     });
@@ -6622,8 +6658,8 @@ fn toolbar_search_text_survives_a_page_change() {
     let last = probe.toolbar_edits().last().cloned().unwrap();
     assert!(
         last.iter().all(|op| match op {
-            day_spec::ToolbarOp::Remove { id } => id != "day.search",
-            day_spec::ToolbarOp::Insert { item, .. } => item.id != "day.search",
+            day_spec::ToolbarOp::Remove { id } => id != "day::search",
+            day_spec::ToolbarOp::Insert { item, .. } => item.id != "day::search",
         }),
         "the search field being typed into is never removed or re-inserted: {last:?}"
     );
@@ -6658,7 +6694,7 @@ fn toolbar_search_text_survives_a_page_change() {
     assert_eq!(text(), "");
 }
 
-/// A `nav_stack` page's own search field (docs/search.md, "Page search"): the `day.search`
+/// A `nav_stack` page's own search field (docs/search.md, "Page search"): the `day::search`
 /// item on that page's chrome, there while the page shows, bound both ways to the app's query,
 /// and submitted with the field's Return key.
 #[test]
@@ -6681,7 +6717,7 @@ fn page_search_rides_its_page_and_submits() {
     let search = || {
         day_core::toolbar::toolbar_model()
             .into_iter()
-            .find(|i| i.id == "day.search")
+            .find(|i| i.id == "day::search")
     };
     let text = || match search().map(|i| i.kind) {
         Some(day_spec::ToolbarItemKind::Search { text, .. }) => text,
@@ -6738,7 +6774,7 @@ fn page_search_is_offered_when_available() {
     let search = || {
         day_core::toolbar::toolbar_model()
             .into_iter()
-            .find(|i| i.id == "day.search")
+            .find(|i| i.id == "day::search")
     };
     assert!(search().is_none(), "nothing to search yet");
     batch(|| can.set(true));
@@ -7185,8 +7221,8 @@ fn adaptive_selector(sel: Signal<String>, style: Option<NavStyle>) -> AnyPiece {
     // `.style()` before `.id()`: the id decorator wraps the piece, and the style belongs to the
     // nav itself.
     match style {
-        Some(st) => s.style(st).id("nav").any(),
-        None => s.id("nav").any(),
+        Some(st) => s.style(st).id(day_core::id!(nav)).any(),
+        None => s.id(day_core::id!(nav)).any(),
     }
 }
 
@@ -8054,7 +8090,7 @@ fn ambient_resolves_inside_a_nav_destination() {
     day_pieces::routes! { enum Sec { One => "one", Two => "two" } }
     fn page() -> AnyPiece {
         label(move || Scene::ambient().label.read())
-            .id("dest")
+            .id(day_core::id!(dest))
             .any()
     }
     let probe = boot(|| {
@@ -8098,7 +8134,7 @@ fn ambient_survives_a_when_remount_and_a_late_each_row() {
             column((
                 when(
                     move || show.get(),
-                    || label(move || Scene::ambient().label.read()).id("arm"),
+                    || label(move || Scene::ambient().label.read()).id(day_core::id!(arm)),
                 ),
                 each(
                     day_pieces::items(move || rows.get(), |t: &(u64, &str)| t.0),
@@ -8201,14 +8237,14 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
         let saved = Signal::new(String::new());
         let form = move |value: Signal<String>| {
             column((
-                text_field(value).id("fixture-field"),
+                text_field(value).id(day_core::id!(fixture_field)),
                 button("Fixture Save")
                     .action(move || saved.set(value.get_untracked()))
-                    .id("fixture-save"),
+                    .id(day_core::id!(fixture_save)),
                 list(items(|| vec![0usize], |i: &usize| *i), move |_| {
                     button("Fixture row action")
                         .action(move || saved.set(format!("row: {}", value.get_untracked())))
-                        .id("fixture-row-action")
+                        .id(day_core::id!(fixture_row_action))
                 })
                 .row_height(RowHeight::Uniform(40.0)),
             ))
@@ -8216,7 +8252,7 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
         let probe = boot(move || {
             column((
                 form(primary),
-                label("Fixture primary only").id("fixture-primary"),
+                label("Fixture primary only").id(day_core::id!(fixture_primary)),
             ))
         });
         probe.set_no_multi_window(cover);
@@ -8232,8 +8268,8 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
         }
         let find = |id| day_core::with_tree(|t| t.find_by_id(id)).unwrap();
         let type_and_save = |text: &str| {
-            day_core::synthesize_text(find("fixture-field"), text.to_string());
-            day_core::enqueue_event(day_core::rnode_to_id(find("fixture-save")), Event::Pressed);
+            day_core::synthesize_text(find("fixture_field"), text.to_string());
+            day_core::enqueue_event(day_core::rnode_to_id(find("fixture_save")), Event::Pressed);
             flush_sync();
         };
         type_and_save("secondary fixture");
@@ -8241,12 +8277,12 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
         assert_eq!(saved.get_untracked(), "secondary fixture");
         assert_eq!(primary.get_untracked(), "");
         day_core::enqueue_event(
-            day_core::rnode_to_id(find("fixture-row-action")),
+            day_core::rnode_to_id(find("fixture_row_action")),
             Event::Pressed,
         );
         assert_eq!(saved.get_untracked(), "row: secondary fixture");
         // Unique ids elsewhere remain reachable.
-        let _ = find("fixture-primary");
+        let _ = find("fixture_primary");
 
         if cover {
             // A dismissing cover is still in the tree until CoverHidden arrives.
@@ -8262,7 +8298,7 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
         assert_eq!(saved.get_untracked(), "primary fixture");
         assert_eq!(secondary.get_untracked(), "secondary fixture");
         day_core::enqueue_event(
-            day_core::rnode_to_id(find("fixture-row-action")),
+            day_core::rnode_to_id(find("fixture_row_action")),
             Event::Pressed,
         );
         assert_eq!(saved.get_untracked(), "row: primary fixture");
@@ -8554,9 +8590,13 @@ fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
         vec![sub_menu(
             "View",
             vec![
-                menu_item("Grid").id("view-grid").checked(grid.get()),
-                menu_item("Ruler").id("view-ruler").checked(false),
-                menu_item("Zoom In").id("view-zoom"),
+                menu_item("Grid")
+                    .id(day_core::id!(view_grid))
+                    .checked(grid.get()),
+                menu_item("Ruler")
+                    .id(day_core::id!(view_ruler))
+                    .checked(false),
+                menu_item("Zoom In").id(day_core::id!(view_zoom)),
             ],
         )]
     });
@@ -8582,10 +8622,10 @@ fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
     assert_eq!(
         view_items(),
         vec![
-            (Some("view-grid".into()), Some(true)),
-            (Some("view-ruler".into()), Some(false)),
+            (Some("view_grid".into()), Some(true)),
+            (Some("view_ruler".into()), Some(false)),
             // An item that never called `.checked` stays a plain command and reserves no mark.
-            (Some("view-zoom".into()), None),
+            (Some("view_zoom".into()), None),
         ]
     );
 
@@ -8596,9 +8636,9 @@ fn menu_id_and_checked_survive_lowering_and_a_reactive_reinstall() {
     assert_eq!(
         view_items(),
         vec![
-            (Some("view-grid".into()), Some(false)),
-            (Some("view-ruler".into()), Some(false)),
-            (Some("view-zoom".into()), None),
+            (Some("view_grid".into()), Some(false)),
+            (Some("view_ruler".into()), Some(false)),
+            (Some("view_zoom".into()), None),
         ]
     );
     drop(probe);
@@ -8776,7 +8816,7 @@ fn list_activation_is_independent_and_uses_current_rows() {
             |row: ItemSlot<String, String>| label(move || row.get()),
         )
         .on_select(move |key| selected.borrow_mut().push(key))
-        .id("activatable-list")
+        .id(day_core::id!(activatable_list))
         .on_activate(move |key| activated.borrow_mut().push(key))
     });
     let node = node_id(&probe, "day.list", 0);
@@ -8877,7 +8917,7 @@ fn decoding_bytes_answers_with_what_the_image_is_and_releases_on_drop() {
                     *sink.borrow_mut() = Some(day_core::decode_image(png_bytes()).await);
                 });
             })
-            .id("load")
+            .id(day_core::id!(load))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -8928,7 +8968,7 @@ fn a_bitmap_dropped_inside_the_tree_borrow_releases_once_the_borrow_ends() {
                     *sink.borrow_mut() = Some(day_core::decode_image(png_bytes()).await);
                 });
             })
-            .id("load")
+            .id(day_core::id!(load))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -8968,7 +9008,7 @@ fn an_encode_outlives_the_handle_it_was_asked_of() {
                     *sink.borrow_mut() = Some(export.await);
                 });
             })
-            .id("go")
+            .id(day_core::id!(go))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -9002,7 +9042,7 @@ fn a_canvas_draws_a_decoded_image_by_its_handle() {
                         }
                     });
                 })
-                .id("load"),
+                .id(day_core::id!(load)),
             canvas(move |d, size| {
                 if let Some(bitmap) = img.get() {
                     d.image(&bitmap, day_spec::Rect::from_size(size));
@@ -9058,7 +9098,7 @@ fn undecodable_bytes_answer_decode_rather_than_a_handle_to_nothing() {
                     *sink.borrow_mut() = Some(day_core::decode_image(bytes).await);
                 });
             })
-            .id("load")
+            .id(day_core::id!(load))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -9097,7 +9137,7 @@ fn encoding_honors_the_format_list_and_refuses_the_rest() {
                     sink.borrow_mut().push(webp);
                 });
             })
-            .id("go")
+            .id(day_core::id!(go))
             .any()
     });
     probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
@@ -9126,7 +9166,7 @@ fn an_image_piece_carries_bytes_and_swaps_them_without_realizing_again() {
     let probe = boot(move || {
         let source = Signal::new(day_spec::ImageSource::Named("logo".to_string()));
         out.set(Some(source));
-        image(source).id("shot").any()
+        image(source).id(day_core::id!(shot)).any()
     });
     let images = probe.find_by_kind("day.image");
     assert_eq!(images.len(), 1);
@@ -9169,7 +9209,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     let on = Signal::new(false);
     let title = Signal::new("Enable grid".to_string());
     let calls = Signal::new(0usize);
-    let command = Command::new("grid", title, move || {
+    let command = Command::new(day_core::id!(grid), title, move || {
         calls.update(|n| *n += 1);
         on.update(|v| *v = !*v);
     })
@@ -9182,8 +9222,11 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     let button = command.clone();
     let probe = boot(move || {
         app_menu(move || vec![sub_menu("View", vec![menu.menu_item()])]);
-        column((button.button(), button.button().id("grid-second")))
-            .toolbar(move || vec![bar.toolbar_item().id("grid-toolbar")])
+        column((
+            button.button(),
+            button.button().id(day_core::id!(grid_second)),
+        ))
+        .toolbar(move || vec![bar.toolbar_item().id(day_core::id!(grid_toolbar))])
     });
     fn menu_action() -> day_spec::MenuItem {
         let day_spec::MenuItem::Submenu { items, .. } = day_core::menu::app_menu_model().remove(0)
@@ -9209,7 +9252,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     assert_eq!(calls.get(), 1);
     let bar = day_core::toolbar::toolbar_model()
         .into_iter()
-        .find(|i| i.id == "grid-toolbar")
+        .find(|i| i.id == "grid_toolbar")
         .unwrap();
     assert_eq!(bar.kind, day_spec::ToolbarItemKind::Toggle { on: true });
     day_core::toolbar::dispatch_toolbar_value(bar.action, &ToolbarValue::On(false));
@@ -9217,7 +9260,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     assert!(!on.get());
     let bar = day_core::toolbar::toolbar_model()
         .into_iter()
-        .find(|i| i.id == "grid-toolbar")
+        .find(|i| i.id == "grid_toolbar")
         .unwrap();
     day_core::toolbar::dispatch_toolbar_value(bar.action, &ToolbarValue::On(false));
     flush_sync();
@@ -9245,7 +9288,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     assert_eq!(
         day_core::toolbar::toolbar_model()
             .iter()
-            .find(|i| i.id == "grid-toolbar")
+            .find(|i| i.id == "grid_toolbar")
             .unwrap()
             .label,
         "Disable grid"
@@ -9256,7 +9299,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     };
     let bar = day_core::toolbar::toolbar_model()
         .into_iter()
-        .find(|i| i.id == "grid-toolbar")
+        .find(|i| i.id == "grid_toolbar")
         .unwrap();
     // Defer presentation updates: every adapter must guard the still-enabled UI snapshot.
     day_reactive::batch(|| {
@@ -9270,7 +9313,7 @@ fn reusable_command_shares_state_and_guards_every_dispatch_path() {
     assert_eq!(calls.get(), 3);
     let bar = day_core::toolbar::toolbar_model()
         .into_iter()
-        .find(|i| i.id == "grid-toolbar")
+        .find(|i| i.id == "grid_toolbar")
         .unwrap();
     assert!(!bar.enabled);
     assert_eq!(bar.kind, day_spec::ToolbarItemKind::Toggle { on: true });
@@ -9283,14 +9326,14 @@ fn reusable_command_does_not_outlive_its_owner_or_cross_window_state() {
     let first = owner.enter(|| {
         let count = Signal::new(0);
         let calls = calls.clone();
-        Command::new("increment", "Increment", move || {
+        Command::new(day_core::id!(increment), "Increment", move || {
             count.update(|n| *n += 1);
             calls.set(count.get());
         })
         .enabled(move || count.get() < 2)
     });
     let other_count = Signal::new(0);
-    let second = Command::new("increment", "Increment", move || {
+    let second = Command::new(day_core::id!(increment), "Increment", move || {
         other_count.update(|n| *n += 1)
     });
     let clone = first.clone();
@@ -9309,7 +9352,7 @@ fn reusable_command_does_not_outlive_its_owner_or_cross_window_state() {
 #[test]
 fn reusable_command_definition_captures_owner_only_when_built() {
     let calls = Signal::new(0);
-    let id = String::from("deferred-command");
+    let id = day_core::id!(deferred_command, String::from("owned"));
     let defining_scope = Scope::child();
     // A boxed handler is deliberately not Clone. Cloning the handle must share it.
     let action: Box<dyn Fn()> = Box::new(move || calls.update(|n| *n += 1));
@@ -9319,9 +9362,9 @@ fn reusable_command_definition_captures_owner_only_when_built() {
 
     let owner = Scope::child();
     let command: Command =
-        owner.enter(|| Command::new(id.as_str(), "Increment", action).checked(true));
-    drop(id); // `new` owns the id, even when its input was a borrowed string
-    assert_eq!(command.id(), "deferred-command");
+        owner.enter(|| Command::new(id.clone(), "Increment", action).checked(true));
+    drop(id); // `new` owns the id, independently of the caller’s cloned typed value
+    assert_eq!(command.id(), "deferred_command:owned");
     let clone = command.clone();
     assert!(command.invoke());
     assert!(clone.invoke());
@@ -9337,7 +9380,7 @@ fn reusable_command_definition_captures_owner_only_when_built() {
 
 #[test]
 fn reusable_command_checked_toolbar_restores_rejected_native_toggle() {
-    let command = Command::new("fixed", "Fixed", || {}).checked(false);
+    let command = Command::new(day_core::id!(fixed), "Fixed", || {}).checked(false);
     let _probe = boot(move || label("main").toolbar(move || vec![command.toolbar_item()]));
     let item = day_core::toolbar::toolbar_model()
         .into_iter()
@@ -9378,7 +9421,7 @@ fn single_line_labels_stay_one_line_when_text_changes() {
                 .padding(2.)
                 .single_line()
                 .width(90.)
-                .id("one-line"),
+                .id(day_core::id!(one_line)),
             label("A long publication title repeated several times").width(90.),
         ))
     });
@@ -9486,14 +9529,14 @@ fn automatic_list_rows_report_a_changed_height() {
                 rows,
             )
             .row_height(RowHeight::Automatic)
-            .id("automatic")
+            .id(day_core::id!(automatic))
             .height(100.0),
             list(
                 items(|| vec!["second".to_string()], |s: &String| s.clone()),
                 rows,
             )
             .row_height(RowHeight::Uniform(40.0))
-            .id("uniform")
+            .id(day_core::id!(uniform))
             .height(100.0),
         ))
     });
@@ -9642,14 +9685,14 @@ fn nav_sidebar_reorder_keeps_fixed_sections_and_selected_route() {
     // select it (Android). It must select a different destination too.
     probe.list_bind(host, 1, MockHandle(9301));
     probe.list_bind(host, 4, MockHandle(9302));
-    let row = day_core::with_tree(|tree| tree.find_by_id("sidebar:item:today").unwrap());
+    let row = day_core::with_tree(|tree| tree.find_by_id("sidebar:item%3Atoday").unwrap());
     probe.emit(
         day_core::rnode_to_id(row),
         Event::Tap(day_spec::Point::new(20.0, 18.0)),
     );
     flush_sync();
     assert_eq!(selected.get_untracked().as_deref(), Some("today"));
-    let row = day_core::with_tree(|tree| tree.find_by_id("sidebar:item:feed:b").unwrap());
+    let row = day_core::with_tree(|tree| tree.find_by_id("sidebar:item%3Afeed%3Ab").unwrap());
     probe.emit(
         day_core::rnode_to_id(row),
         Event::Tap(day_spec::Point::new(20.0, 18.0)),
@@ -9848,9 +9891,9 @@ fn dock_menu_installs_and_dispatches() {
 #[test]
 fn window_drag_region_marks_the_native_view() {
     let probe = boot(|| {
-        row((label("Title").id("title-text"), spacer()))
+        row((label("Title").id(day_core::id!(title_text)), spacer()))
             .window_drag_region()
-            .id("title-bar")
+            .id(day_core::id!(title_bar))
             .any()
     });
     flush_sync();
@@ -10418,9 +10461,9 @@ fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
                 let disposed = disposed.clone();
                 Scope::current().on_cleanup(move || disposed.set(disposed.get() + 1));
                 text_field(Signal::new(key.clone()))
-                    .id(key.clone())
+                    .id(day_core::id!(fixture_document, key.clone()))
                     .toolbar(toolbar_button(
-                        format!("fixture-command-{key}"),
+                        day_core::id!(fixture_command, key),
                         key.clone(),
                     ))
             },
@@ -10428,13 +10471,13 @@ fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
         .native(move || native.get())
         .any()
     });
-    let before = day_core::with_tree(|t| t.find_by_id("fixture-one")).unwrap();
+    let before = day_core::with_tree(|t| t.find_by_id("fixture_document:fixture-one")).unwrap();
     for _ in 0..3 {
         native.set(true);
         flush_sync();
         assert_eq!(probe.windows().iter().filter(|w| w.open).count(), 2);
         assert_eq!(
-            day_core::with_tree(|t| t.find_by_id("fixture-one")),
+            day_core::with_tree(|t| t.find_by_id("fixture_document:fixture-one")),
             Some(before)
         );
         assert_eq!(builds.get(), 2);
@@ -10442,7 +10485,7 @@ fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
         assert_eq!(
             day_core::toolbar::toolbar_model()
                 .iter()
-                .filter(|item| item.id.starts_with("fixture-command-"))
+                .filter(|item| item.id.starts_with("fixture_command:"))
                 .count(),
             2
         );
@@ -10471,14 +10514,14 @@ fn document_tabs_switch_windows_without_rebuilding_or_disposing_content() {
         native.set(false);
         flush_sync();
         assert_eq!(
-            day_core::with_tree(|t| t.find_by_id("fixture-one")),
+            day_core::with_tree(|t| t.find_by_id("fixture_document:fixture-one")),
             Some(before)
         );
         assert_eq!(probe.windows().iter().filter(|w| w.open).count(), 0);
         assert_eq!(
             day_core::toolbar::toolbar_model()
                 .iter()
-                .filter(|item| item.id.starts_with("fixture-command-"))
+                .filter(|item| item.id.starts_with("fixture_command:"))
                 .count(),
             1
         );
@@ -10526,7 +10569,7 @@ fn document_tabs_observe_native_order_on_focus_and_close_without_frames() {
                 built.set(built.get() + 1);
                 let disposed = disposed.clone();
                 Scope::current().on_cleanup(move || disposed.set(disposed.get() + 1));
-                label(key.clone()).id(key)
+                label(key.clone()).id(day_core::id!(fixture_document, key))
             },
         )
         .native(move || native.get())
@@ -10539,7 +10582,7 @@ fn document_tabs_observe_native_order_on_focus_and_close_without_frames() {
         frame_count.set(frame_count.get() + 1);
         Box::new(|| {})
     });
-    let original = day_core::with_tree(|t| t.find_by_id("fixture-a")).unwrap();
+    let original = day_core::with_tree(|t| t.find_by_id("fixture_document:fixture-a")).unwrap();
     native.set(true);
     flush_sync();
     let windows = probe.windows();
@@ -10574,7 +10617,7 @@ fn document_tabs_observe_native_order_on_focus_and_close_without_frames() {
         grouped
     );
     assert_eq!(
-        day_core::with_tree(|t| t.find_by_id("fixture-a")),
+        day_core::with_tree(|t| t.find_by_id("fixture_document:fixture-a")),
         Some(original)
     );
     assert_eq!(builds.get(), 4);
@@ -10670,7 +10713,7 @@ fn scripted_tap_by_id_reaches_only_that_elements_handler() {
                 .corner_radius(20.0)
                 .on_tap(move || opened.set(Some(i)))
                 .a11y(move |a| a.label(format!("Tile {i}")))
-                .id(format!("tile-{i}"))
+                .id(day_core::id!(tile, i))
                 .grow_w()
         };
         column((
@@ -10679,11 +10722,11 @@ fn scripted_tap_by_id_reaches_only_that_elements_handler() {
                 .fit(RowFit::WrapColumns { run_spacing: 16.0 }),
             column((button("Inner")
                 .action(move || button_taps.set(button_taps.get_untracked() + 1))
-                .id("inner-button"),))
+                .id(day_core::id!(inner_button)),))
             .padding(12.0)
             .background(Color::WHITE)
             .on_tap(move || card_taps.set(card_taps.get_untracked() + 1))
-            .id("card"),
+            .id(day_core::id!(card)),
         ))
     });
     let tap = |id: &str| {
@@ -10696,10 +10739,10 @@ fn scripted_tap_by_id_reaches_only_that_elements_handler() {
         flush_sync();
     };
     for i in [0usize, 2, 1] {
-        tap(&format!("tile-{i}"));
+        tap(&format!("tile:{i}"));
         assert_eq!(opened.get(), Some(i), "a tap on tile {i}");
     }
-    tap("inner-button");
+    tap("inner_button");
     assert_eq!((button_taps.get(), card_taps.get()), (1, 0));
     tap("card");
     assert_eq!((button_taps.get(), card_taps.get()), (1, 1));

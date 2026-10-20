@@ -431,7 +431,7 @@ fn build_composed<V: Binding<bool>>(inspector: Inspector<V>, cx: &mut BuildCx) -
                             spacer(),
                             button(done.clone())
                                 .action(move || close.write(false))
-                                .id("day-inspector-done"),
+                                .id(day_core::id!(day_inspector_done)),
                         ))
                         .padding(Insets::symmetric(12.0, 8.0)),
                         panel_content(sheet_panel(), scrollable).grow(),
@@ -470,12 +470,12 @@ pub(crate) mod conformance {
                 inspector(
                     show,
                     column((
-                        label("Content").id("content"),
+                        label("Content").id(day_core::id!(content)),
                         button("Toggle")
                             .action(move || show.update(|v| *v = !*v))
-                            .id("toggle"),
+                            .id(day_core::id!(toggle)),
                     )),
-                    || label("Properties").id("panel"),
+                    || label("Properties").id(day_core::id!(panel)),
                 )
             })
             .drive(|d: Drive| async move {
@@ -533,14 +533,14 @@ pub(crate) mod conformance {
                     inspector(
                         show,
                         column((
-                            label("Content").id("content"),
+                            label("Content").id(day_core::id!(content)),
                             button("Toggle")
                                 .action(move || show.update(|v| *v = !*v))
-                                .id("toggle"),
+                                .id(day_core::id!(toggle)),
                         )),
                         move || {
                             column((
-                                label("Properties").id("panel"),
+                                label("Properties").id(day_core::id!(panel)),
                                 crate::nav::conformance::height_probe(panel_h.clone()),
                             ))
                         },

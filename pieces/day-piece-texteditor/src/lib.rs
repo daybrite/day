@@ -924,11 +924,11 @@ pub mod conformance {
             .page(|| {
                 let doc = Signal::new(StyledText::plain("Start"));
                 column((
-                    label(move || format!("doc {}", doc.get().text)).id("doc"),
+                    label(move || format!("doc {}", doc.get().text)).id(day_core::id!(doc)),
                     button("Replace")
                         .action(move || doc.set(StyledText::markdown("**Bold** end", Font::Body)))
-                        .id("replace"),
-                    text_editor(doc).min_lines(3).id("editor"),
+                        .id(day_core::id!(replace)),
+                    text_editor(doc).min_lines(3).id(day_core::id!(editor)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -957,11 +957,11 @@ pub mod conformance {
             .page(|| {
                 let doc = Signal::new(StyledText::default());
                 column((
-                    label(move || format!("runs {}", doc.get().runs.len())).id("runs"),
+                    label(move || format!("runs {}", doc.get().runs.len())).id(day_core::id!(runs)),
                     text_editor(doc)
                         .highlight(highlighter(Language::Json, Palette::default(), false))
                         .min_lines(3)
-                        .id("editor"),
+                        .id(day_core::id!(editor)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -989,11 +989,11 @@ pub mod conformance {
                 let text = Signal::new(String::new());
                 let submits = Signal::new(0u32);
                 column((
-                    label(move || format!("submits {}", submits.get())).id("submits"),
+                    label(move || format!("submits {}", submits.get())).id(day_core::id!(submits)),
                     super::text_editor_text(text)
                         .single_line()
                         .on_submit(move || submits.update(|n| *n += 1))
-                        .id("editor"),
+                        .id(day_core::id!(editor)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -1019,7 +1019,10 @@ pub mod conformance {
             .proves(KIND)
             .page(|| {
                 let text = Signal::new(String::new());
-                column((super::text_editor_text(text).code().indent(4).id("editor"),))
+                column((super::text_editor_text(text)
+                    .code()
+                    .indent(4)
+                    .id(day_core::id!(editor)),))
             })
             .drive(|d: Drive| async move {
                 d.key(Some("editor"), "Tab").await?;
@@ -1044,7 +1047,9 @@ pub mod conformance {
             .proves(KIND)
             .page(|| {
                 let text = Signal::new(String::new());
-                column((super::text_editor_text(text).code().id("editor"),))
+                column((super::text_editor_text(text)
+                    .code()
+                    .id(day_core::id!(editor)),))
             })
             .drive(|d: Drive| async move {
                 // Each key is two round trips through the view (the character, then what the

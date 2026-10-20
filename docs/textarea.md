@@ -24,7 +24,7 @@ text_area(body)
     .placeholder("Write a message…")
     .min_lines(3)     // never shorter than 3 lines
     .max_lines(8)     // grows to 8, then scrolls internally
-    .id("compose")
+    .id(id!(compose))
 ```
 
 `text_area(text)` binds a `Signal<String>` two-way: keystrokes write the signal, and setting the

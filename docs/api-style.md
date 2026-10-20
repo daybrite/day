@@ -34,7 +34,7 @@ SwiftUI-like terseness where it doesn't. The rules, in priority order:
 
 3. **Generic-ergonomic constructors keep ≤3 positional, type-distinct arguments.**
    `route("controls", tr("nav-controls"), controls_page)` and
-   `Command::new("add", res::str::add(), add_item)` stay positional: the three types are mutually
+   `Command::new(id!(add), res::str::add(), add_item)` stay positional: the three types are mutually
    incompatible, so every mis-ordering is a compile error, and funneling `impl IntoText<M>`
    through struct fields would force `.into()`/`Box::new` noise at every call site (struct
    literals don't do implicit conversion). Names would cost more ergonomics than they buy.
@@ -69,7 +69,7 @@ SwiftUI-like terseness where it doesn't. The rules, in priority order:
    text is live. Filenames, ids and keys are the only `Into<String>` text.
 
 9. **Modifiers are classified**, and a piece's docs name its semantic target. Identity modifiers
-   (`id`, `id_of`, `id_keyed`) name the piece's own node wherever they sit in the chain;
+   (`id`, `id_of`) name the piece's own node wherever they sit in the chain;
    outer-layout facts (`grid_span`, `grid_align`) land on the outermost node whatever follows;
    wrapping modifiers are ordered, as they read. See "Modifier classes" below. No rule may ask
    the caller to place `.id` before `.padding`.
@@ -155,9 +155,9 @@ is the single spelling.
 
 A `Decorated<P>` chain is a piece plus its modifiers, and only one class of modifier is ordered:
 
-- **Identity** (`id`, `id_of`, `id_keyed`) names the piece's own node, the one its `build`
-  returns, wherever it sits in the chain: `label(t).padding(8.0).id("x")` and
-  `label(t).id("x").padding(8.0)` are the same tree. A dayscript step addressed to that id
+- **Identity** (`id`, `id_of`) names the piece's own node, the one its `build`
+  returns, wherever it sits in the chain: `label(t).padding(8.0).id(id!(x))` and
+  `label(t).id(id!(x)).padding(8.0)` are the same tree. A dayscript step addressed to that id
   reaches the handler a wrapping modifier above it registered (`.padding(..).on_tap(..)`),
   through every wrapper the same chain built, a native container such as `.background(..)`
   included, as a native gesture on an inner view reaches the recognizer on its superview. The

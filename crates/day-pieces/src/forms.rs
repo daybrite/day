@@ -446,10 +446,12 @@ pub(crate) mod conformance {
             .proves_modifier("grow")
             .page(move || {
                 form((
-                    section((labeled("Name", text_field(name).id("name")),)).title("Profile"),
-                    section((labeled("Updates", toggle(on).id("updates")),)).title("Mail"),
+                    section((labeled("Name", text_field(name).id(day_core::id!(name))),))
+                        .title("Profile"),
+                    section((labeled("Updates", toggle(on).id(day_core::id!(updates))),))
+                        .title("Mail"),
                 ))
-                .id("form")
+                .id(day_core::id!(form))
             })
             .shot("default")
             .drive(|d: Drive| async move {
@@ -467,8 +469,8 @@ pub(crate) mod conformance {
         Case::new()
             .page(move || {
                 form((section((
-                    labeled("Name", text_field(a).id("short")),
-                    labeled("A much longer label", text_field(b).id("long")),
+                    labeled("Name", text_field(a).id(day_core::id!(short))),
+                    labeled("A much longer label", text_field(b).id(day_core::id!(long))),
                 )),))
             })
             .drive(|d: Drive| async move {
@@ -543,14 +545,18 @@ pub(crate) mod conformance {
                 column((
                     // The Tree page's two labeled switches, outside a form.
                     row((
-                        labeled("Multi", toggle(a).id("pair-a")).id("pair-a-row"),
-                        labeled("Lock", toggle(b).id("pair-b")).id("pair-b-row"),
+                        labeled("Multi", toggle(a).id(day_core::id!(pair_a)))
+                            .id(day_core::id!(pair_a_row)),
+                        labeled("Lock", toggle(b).id(day_core::id!(pair_b)))
+                            .id(day_core::id!(pair_b_row)),
                     ))
                     .spacing(16.0)
                     .fit(RowFit::Wrap { run_spacing: 8.0 }),
                     form((section((
-                        labeled("Updates", toggle(a).id("form-toggle")).id("form-toggle-row"),
-                        labeled("Level", slider(value).id("form-slider")).id("form-slider-row"),
+                        labeled("Updates", toggle(a).id(day_core::id!(form_toggle)))
+                            .id(day_core::id!(form_toggle_row)),
+                        labeled("Level", slider(value).id(day_core::id!(form_slider)))
+                            .id(day_core::id!(form_slider_row)),
                     )),)),
                 ))
                 .spacing(12.0)
@@ -558,15 +564,15 @@ pub(crate) mod conformance {
             })
             .drive(|d: Drive| async move {
                 let pairs = [
-                    ("pair-a-row", "pair-a"),
-                    ("pair-b-row", "pair-b"),
-                    ("form-toggle-row", "form-toggle"),
-                    ("form-slider-row", "form-slider"),
+                    ("pair_a_row", "pair_a"),
+                    ("pair_b_row", "pair_b"),
+                    ("form_toggle_row", "form_toggle"),
+                    ("form_slider_row", "form_slider"),
                 ];
                 controls_align(&d, &pairs).await?;
                 d.shot("centered-controls").await?;
-                d.toggle("pair-a", true).await?;
-                d.toggle("pair-b", false).await?;
+                d.toggle("pair_a", true).await?;
+                d.toggle("pair_b", false).await?;
                 d.wait_idle().await?;
                 controls_align(&d, &pairs).await
             })
@@ -582,20 +588,20 @@ pub(crate) mod conformance {
             .proves_duty("set_frame")
             .page(move || {
                 column((
-                    row((label("Switch"), toggle(on).id("row-toggle")))
+                    row((label("Switch"), toggle(on).id(day_core::id!(row_toggle))))
                         .spacing(12.0)
-                        .id("toggle-row"),
-                    row((label("Level"), slider(value).id("row-slider")))
+                        .id(day_core::id!(toggle_row)),
+                    row((label("Level"), slider(value).id(day_core::id!(row_slider))))
                         .spacing(12.0)
-                        .id("slider-row"),
+                        .id(day_core::id!(slider_row)),
                 ))
                 .spacing(16.0)
                 .padding(Insets::all(18.0))
             })
             .drive(|d: Drive| async move {
-                let pairs = [("toggle-row", "row-toggle"), ("slider-row", "row-slider")];
+                let pairs = [("toggle_row", "row_toggle"), ("slider_row", "row_slider")];
                 controls_align(&d, &pairs).await?;
-                d.toggle("row-toggle", false).await?;
+                d.toggle("row_toggle", false).await?;
                 d.wait_idle().await?;
                 controls_align(&d, &pairs).await
             })
@@ -614,28 +620,30 @@ pub(crate) mod conformance {
             .page(move || {
                 column((
                     row((
-                        labeled("Pause delivery", toggle(on).id("pause")).id("pause-row"),
-                        labeled("Go offline", toggle(on).id("offline")).id("offline-row"),
+                        labeled("Pause delivery", toggle(on).id(day_core::id!(pause)))
+                            .id(day_core::id!(pause_row)),
+                        labeled("Go offline", toggle(on).id(day_core::id!(offline)))
+                            .id(day_core::id!(offline_row)),
                     ))
                     .spacing(16.0)
                     .fit(RowFit::Wrap { run_spacing: 8.0 })
-                    .id("wrapped-pairs")
+                    .id(day_core::id!(wrapped_pairs))
                     .width(220.0),
                     row((
-                        button("Add task").id("add"),
-                        button("Delete selected").id("delete"),
-                        button("Undo").id("undo"),
-                        button("Redo").id("redo"),
+                        button("Add task").id(day_core::id!(add)),
+                        button("Delete selected").id(day_core::id!(delete)),
+                        button("Undo").id(day_core::id!(undo)),
+                        button("Redo").id(day_core::id!(redo)),
                     ))
                     .spacing(8.0)
                     .fit(RowFit::Wrap { run_spacing: 8.0 })
-                    .id("wrapped-actions")
+                    .id(day_core::id!(wrapped_actions))
                     .width(220.0),
                 ))
                 .spacing(20.0)
             })
             .drive(|d: Drive| async move {
-                controls_align(&d, &[("pause-row", "pause"), ("offline-row", "offline")]).await?;
+                controls_align(&d, &[("pause_row", "pause"), ("offline_row", "offline")]).await?;
                 d.shot("wrapped-controls").await?;
                 day_core::with_tree(|t| {
                     let frame = |id| {
@@ -645,8 +653,8 @@ pub(crate) mod conformance {
                             .ok_or_else(|| Fail(format!("{id}: native frame unavailable")))
                     };
                     for (parent, children) in [
-                        ("wrapped-pairs", &["pause", "offline"][..]),
-                        ("wrapped-actions", &["add", "delete", "undo", "redo"][..]),
+                        ("wrapped_pairs", &["pause", "offline"][..]),
+                        ("wrapped_actions", &["add", "delete", "undo", "redo"][..]),
                     ] {
                         let bounds = frame(parent)?;
                         for &id in children {

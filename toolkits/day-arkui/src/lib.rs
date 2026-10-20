@@ -2059,7 +2059,7 @@ mod imp {
     }
 
     /// The user edited (or, with `submit`, submitted) a page's search field (docs/search.md):
-    /// the window bar's `day.search` item, drawn on host `owner`'s page by
+    /// the window bar's `day::search` item, drawn on host `owner`'s page by
     /// [`paint_page_search`]. Reported as that item's value: the text when it differs from what
     /// Day last had, then the submission, so a submit always follows the text it carries.
     pub fn nav_page_search(owner: u64, text: &str, submit: bool) {
@@ -2143,7 +2143,7 @@ mod imp {
             .map_or(-1, |k| k as i64)
     }
 
-    /// Draw the window bar's `day.search` item (docs/search.md, "Page search") as an ArkUI
+    /// Draw the window bar's `day::search` item (docs/search.md, "Page search") as an ArkUI
     /// `Search` at the top of the page that declared it, under its title bar, the place the
     /// navigation surface's inline field takes on the root page.
     ///

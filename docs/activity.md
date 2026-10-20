@@ -25,9 +25,9 @@ let spinning = Signal::new(true);
 
 activity()
     .animating(spinning) // a bool, a Signal<bool>, or a closure (default true)
-    .id("spinner")       // .large() for the platform's large control size
+    .id(id!(spinner))       // .large() for the platform's large control size
 
-toggle(spinning).id("spinner-toggle"); // flips the same signal → starts/stops the spinner
+toggle(spinning).id(id!(spinner_toggle)); // flips the same signal → starts/stops the spinner
 ```
 
 `activity()` builds a native indeterminate spinner, animating by default. `.animating(_)` takes the

@@ -321,7 +321,7 @@ tree(
 .on_selection(move |keys| picked.set(keys))   // native selection → app state
 .on_activate(move |key| open_entry(key))      // double-click / Enter
 .type_ahead(|slot| slot.field(|e| e.name.clone()))
-.id("library")
+.id(id!(library))
 ```
 
 Both directions of selection point at one signal, so anything else reading `picked` stays in
@@ -356,7 +356,7 @@ tree(model::nodes().tree(model::children_of), |slot: ModelSlot<Node>| {
             _ => MoveVerdict::Allow,
         }),
 )
-.id("layers")
+.id(id!(layers))
 ```
 
 `ModelSlot`'s costs land exactly as they do under `list`: a field edit patches the one control

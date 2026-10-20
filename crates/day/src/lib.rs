@@ -22,7 +22,6 @@
 ))]
 compile_error!("day: enable exactly one backend feature");
 
-/// Display-synchronized, cancellable frame callbacks for any UI client.
 pub use day_core::frame;
 pub use day_core::{
     AnyPiece, Blocking, BlockingError, BuildCx, Piece, PieceSeq, TaskHandle, blocking_limit,
@@ -43,6 +42,8 @@ pub use day_core::{
     Bitmap, decode_image, decode_image_async, image_decode_support, image_encode_formats,
     image_encode_support,
 };
+/// Display-synchronized, cancellable frame callbacks for any UI client.
+pub use day_core::{ElementId, IntoElementKey, id};
 pub use day_core::{
     application_handlers, default_browser, open_url_with_application, share_support, share_url,
 };
@@ -526,6 +527,7 @@ pub const fn toolkit_name() -> &'static str {
 }
 
 pub mod prelude {
+    pub use day_core::{ElementId, IntoElementKey, id};
     pub use day_fluent::{
         LocalizedText, install as install_locales, matches_search, set_locale, sort_localized, tr,
     };

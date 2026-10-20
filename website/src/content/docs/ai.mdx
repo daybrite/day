@@ -169,11 +169,11 @@ pub(crate) fn weather_page() -> impl Piece {
     let cities = ["Lisbon", "Nairobi", "Osaka"]; // res::str keys in the real page
     let temps = ["18 °C", "24 °C", "11 °C"];
     column((
-        label(crate::res::str::weather_title()).font(Font::Title).id("weather-title"),
-        picker(city, [(0, cities[0]), (1, cities[1]), (2, cities[2])]).id("weather-city"),
+        label(crate::res::str::weather_title()).font(Font::Title).id(id!(weather_title)),
+        picker(city, [(0, cities[0]), (1, cities[1]), (2, cities[2])]).id(id!(weather_city)),
         label(move || temps[city.get()].to_string())
             .font(Font::LargeTitle)
-            .id("weather-temp"),
+            .id(id!(weather_temp)),
         // …conditions label, and a Refresh button whose action is
         // day::task(async move { day::sleep(600).await; /* set signals */ })
     ))
@@ -196,13 +196,13 @@ flow:
   - wait_for: { id: nav }
   - navigate: { route: weather }
   - assert_route: { route: weather }
-  - assert_visible: { id: weather-title }
+  - assert_visible: { id: weather_title }
 
   # The picker drives a signal; the labels read it; assert the round trip.
-  - select: { id: weather-city, index: 1 }
-  - assert_text: { id: weather-temp, text: "24 °C" }
-  - tap: { id: weather-refresh }
-  - assert_visible: { id: weather-conditions }
+  - select: { id: weather_city, index: 1 }
+  - assert_text: { id: weather_temp, text: "24 °C" }
+  - tap: { id: weather_refresh }
+  - assert_visible: { id: weather_conditions }
 
   - screenshot: weather
 ```

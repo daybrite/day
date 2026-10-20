@@ -572,8 +572,8 @@ pub mod conformance {
             .page(|| {
                 let date = Signal::new(DayDate::new(2026, 1, 15).unwrap_or(DayDate::today()));
                 column((
-                    label(move || format!("date {}", date.get())).id("value"),
-                    date_picker(date).compact().id("date"),
+                    label(move || format!("date {}", date.get())).id(day_core::id!(value)),
+                    date_picker(date).compact().id(day_core::id!(date)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -595,8 +595,8 @@ pub mod conformance {
                     picker = picker.min(lo).max(hi);
                 }
                 column((
-                    label(move || format!("date {}", date.get())).id("value"),
-                    picker.id("date"),
+                    label(move || format!("date {}", date.get())).id(day_core::id!(value)),
+                    picker.id(day_core::id!(date)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -613,8 +613,8 @@ pub mod conformance {
             .page(|| {
                 let time = Signal::new(DayTime::new(9, 0, 0).unwrap_or(DayTime::now()));
                 column((
-                    label(move || format!("time {}", time.get())).id("value"),
-                    time_picker(time).compact().id("time"),
+                    label(move || format!("time {}", time.get())).id(day_core::id!(value)),
+                    time_picker(time).compact().id(day_core::id!(time)),
                 ))
             })
             .drive(|d: Drive| async move {

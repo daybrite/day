@@ -134,10 +134,10 @@ permissions, filters or document-provider integration.
 
 ```yaml
 flow:
-  - tap: { id: btn-open-file }
+  - tap: { id: btn_open_file }
   - assert_presented: {}
   - respond: { dismiss: true }
-  - assert_text: { id: files-status, text: "open-cancel" }
+  - assert_text: { id: files_status, text: "open-cancel" }
   - assert_not_presented:
 ```
 
@@ -157,7 +157,7 @@ A script or `day drive` can change the policy before opening a dialog:
 
 ```yaml
   - dialog_mode: { mode: scripted }
-  - tap: { id: btn-prompt }
+  - tap: { id: btn_prompt }
   - assert_presented: {}
   - respond: { text: "Ada" }
   - assert_not_presented:

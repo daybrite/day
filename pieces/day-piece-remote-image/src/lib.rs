@@ -296,10 +296,10 @@ pub mod conformance {
                 column((
                     button("Load")
                         .action(move || source.set(Some(Arc::new(RED_BLUE.to_vec()))))
-                        .id("load"),
+                        .id(day_core::id!(load)),
                     remote_image(source)
                         .placeholder_color(Color::rgb(0.5, 0.5, 0.5))
-                        .id("image")
+                        .id(day_core::id!(image))
                         .frame(120.0, 60.0),
                 ))
             })
@@ -326,26 +326,28 @@ pub mod conformance {
                     row((
                         button("Green")
                             .action(move || source.set(Some(Arc::new(GREEN.to_vec()))))
-                            .id("green"),
-                        button("Clear").action(move || source.set(None)).id("clear"),
+                            .id(day_core::id!(green)),
+                        button("Clear")
+                            .action(move || source.set(None))
+                            .id(day_core::id!(clear)),
                         button("Empty")
                             .action(move || source.set(Some(Arc::new(Vec::new()))))
-                            .id("empty"),
+                            .id(day_core::id!(empty)),
                     )),
                     row((
                         button("Invalid")
                             .action(move || source.set(Some(Arc::new(vec![1, 2, 3]))))
-                            .id("invalid"),
+                            .id(day_core::id!(invalid)),
                         button("Mount")
                             .action(move || shown.set(!shown.get()))
-                            .id("mount"),
+                            .id(day_core::id!(mount)),
                     )),
                     when(
                         move || shown.get(),
                         move || {
                             remote_image(source)
                                 .placeholder_color(Color::hex(0x808080))
-                                .id("image")
+                                .id(day_core::id!(image))
                                 .frame(120.0, 60.0)
                         },
                     ),
@@ -384,12 +386,12 @@ pub mod conformance {
                     remote_image(source)
                         .content_mode(ContentMode::Fit)
                         .placeholder_color(Color::hex(0x808080))
-                        .id("fit")
+                        .id(day_core::id!(fit))
                         .frame(100.0, 100.0),
                     remote_image(source)
                         .content_mode(ContentMode::Fill)
                         .placeholder_color(Color::hex(0x808080))
-                        .id("fill")
+                        .id(day_core::id!(fill))
                         .frame(100.0, 100.0),
                 ))
             })
@@ -414,21 +416,23 @@ pub mod conformance {
             .page(|| {
                 let source = Signal::new(Some(Arc::new(GREEN.to_vec())));
                 column((
-                    button("Clear").action(move || source.set(None)).id("clear"),
+                    button("Clear")
+                        .action(move || source.set(None))
+                        .id(day_core::id!(clear)),
                     remote_image(source)
                         .circle()
                         .placeholder_color(Color::hex(0x808080))
-                        .id("wide")
+                        .id(day_core::id!(wide))
                         .frame(120.0, 60.0),
                     remote_image(source)
                         .circle()
                         .placeholder_color(Color::hex(0x808080))
-                        .id("tall")
+                        .id(day_core::id!(tall))
                         .frame(60.0, 120.0),
                     remote_image(source)
                         .rounded(20.0)
                         .placeholder_color(Color::hex(0x808080))
-                        .id("rounded")
+                        .id(day_core::id!(rounded))
                         .frame(120.0, 60.0),
                 ))
                 .background(Color::hex(0x000000))
@@ -466,11 +470,11 @@ pub mod conformance {
                 // Keep the sampled view directly in the root row: sample_pixel uses the
                 // Day frame, which is relative to the nearest native parent.
                 row((
-                    remote_image(source).circle().id("image"),
+                    remote_image(source).circle().id(day_core::id!(image)),
                     when(move || narrow.get(), || label("").frame(60.0, 60.0)),
                     button("Resize")
                         .action(move || narrow.set(!narrow.get()))
-                        .id("resize")
+                        .id(day_core::id!(resize))
                         .frame(80.0, 60.0),
                 ))
                 .spacing(0.0)

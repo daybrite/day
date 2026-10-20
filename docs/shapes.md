@@ -46,7 +46,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
   Line(Point,Point), Polygon(Vec<Point>) }`: the geometry enum (`day-spec`).
 - `Draw::fill(Shape, Color)`, `Draw::stroke(Shape, Color, f64)`, `Draw::text(...)`.
 - `Color { r,g,b,a }` (rgba/hex), a `LinearGradient` via `.fill_linear(...)`, or a `RadialGradient` via `.fill_radial(...)` (angular is a later phase).
-- `Decorate` blanket impl → `.id/.id_keyed/.a11y/.frame/.padding/.any` for every Piece.
+- `Decorate` blanket impl → `.id/.id_of/.a11y/.frame/.padding/.any` for every Piece.
 - Reserved hooks: `AnimSpec { duration_ms }` threaded through `update`/`set_frame`; and
   §8.4's "day-driven frame-clock ticker for canvas only", the exact hook shape animation needs.
 

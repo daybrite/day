@@ -342,7 +342,7 @@ dayscript's `size_class:` step reports a class the way a backend would, without 
 
 ```yaml
 - size_class: { width: compact }              # height defaults to `expanded`
-- assert_visible: { id: nav-list }
+- assert_visible: { id: nav_list }
 - size_class: { width: expanded, height: medium }
 - size_class: { width: auto }                 # back to what the window reports
 ```
@@ -355,7 +355,7 @@ Where the geometry itself is under test, `resize:` moves it:
 
 ```yaml
 - resize: { width: 1100, height: 900 }        # real points
-- assert_visible: { id: content-list }
+- assert_visible: { id: content_list }
 - resize: auto                                # back to the device's own geometry
 ```
 

@@ -31,7 +31,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use day_core::{Alignment, AnyPiece};
+use day_core::{Alignment, AnyPiece, ElementId};
 use day_reactive::Signal;
 use day_spec::{Color, Edges, Font};
 
@@ -106,6 +106,8 @@ pub enum DynValue {
     Bool(bool),
     Num(f64),
     Str(String),
+    /// An identity declared by the compiled host using `id!`.
+    ElementId(ElementId),
     List(Vec<DynValue>),
     Map(Vec<(String, DynValue)>),
     Fn(DynCallback),
@@ -120,6 +122,7 @@ impl DynValue {
             DynValue::Bool(_) => "bool",
             DynValue::Num(_) => "number",
             DynValue::Str(_) => "string",
+            DynValue::ElementId(_) => "element_id",
             DynValue::List(_) => "list",
             DynValue::Map(_) => "map",
             DynValue::Fn(_) => "function",
@@ -752,7 +755,15 @@ fn apply_modifier(inner: Inner, name: &str, args: &[DynValue]) -> Result<Inner, 
     // costs exactly the one box the old per-modifier chain cost.
     let p = inner.into_any();
     let out: AnyPiece = match name {
-        "id" => p.id(str_arg(args, 0, "id")?).any(),
+        "id" => match args.first() {
+            Some(DynValue::ElementId(id)) => p.id(id.clone()).any(),
+            _ => {
+                return Err(DynError::Type {
+                    what: "id",
+                    want: "an ElementId declared by the host",
+                });
+            }
+        },
         "padding" => p.padding(num(args, 0, "padding")?).any(),
         "frame" => p
             .frame(num(args, 0, "frame")?, num(args, 1, "frame")?)
@@ -887,7 +898,7 @@ pub fn catalog() -> Vec<SpecEntry> {
         t("step", "slider.step(n)"),
         t("placeholder", "text_field.placeholder(s)"),
         t("on_submit", "text_field.on_submit(fn)"),
-        g("id", "id(s)"),
+        g("id", "id(element_id)"),
         g("padding", "padding(n)"),
         g("frame", "frame(w, h)"),
         g("width", "width(n)"),
@@ -957,7 +968,7 @@ mod tests {
         .expect("column");
         col.modify("spacing", &[DynValue::Num(12.0)])
             .expect("spacing");
-        col.modify("id", &[DynValue::Str("root".into())])
+        col.modify("id", &[DynValue::ElementId(day_core::id!(root))])
             .expect("id");
         let _ = col.into_any();
     }
@@ -970,6 +981,15 @@ mod tests {
             .modify("font", &[DynValue::Str("body".into())])
             .unwrap_err();
         assert!(matches!(err, DynError::LateTyped { .. }));
+    }
+
+    #[test]
+    fn identity_requires_a_host_declaration() {
+        let piece = construct("label", &[DynValue::Str("fixture".into())]).unwrap();
+        assert!(matches!(
+            piece.modify("id", &[DynValue::Str("undeclared".into())]),
+            Err(DynError::Type { what: "id", .. })
+        ));
     }
 
     #[test]

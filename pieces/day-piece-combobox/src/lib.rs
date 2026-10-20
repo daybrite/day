@@ -170,8 +170,10 @@ pub mod conformance {
         ]);
         let text = Signal::new(String::new());
         column((
-            label(move || format!("chose {}", text.get())).id("chose"),
-            combo_box(items, text).placeholder("Flavor").id("combo"),
+            label(move || format!("chose {}", text.get())).id(day_core::id!(chose)),
+            combo_box(items, text)
+                .placeholder("Flavor")
+                .id(day_core::id!(combo)),
         ))
     }
 

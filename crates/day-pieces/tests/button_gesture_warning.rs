@@ -27,15 +27,15 @@ fn button_tap_warns_through_wrappers_without_changing_event_routing() {
     day_core::launch_with(mock, WindowOptions::default(), move || {
         column((
             button("Fixture tap")
-                .id("direct-button")
+                .id(day_core::id!(direct_button))
                 .on_tap(move || tap_count.set(tap_count.get() + 1)),
             button("Fixture wrapped tap")
-                .id("wrapped-button")
+                .id(day_core::id!(wrapped_button))
                 .padding(8.0)
                 .frame(160.0, 40.0)
                 .on_tap(|| {}),
             button("Fixture positioned tap")
-                .id("positioned-button")
+                .id(day_core::id!(positioned_button))
                 .on_tap_at(|_| {}),
             button("Fixture action")
                 .padding(8.0)
@@ -47,7 +47,7 @@ fn button_tap_warns_through_wrappers_without_changing_event_routing() {
 
     let warnings = WARNINGS.lock().unwrap().clone();
     assert_eq!(warnings.len(), 3, "{warnings:?}");
-    for id in ["direct-button", "wrapped-button", "positioned-button"] {
+    for id in ["direct_button", "wrapped_button", "positioned_button"] {
         assert!(warnings.iter().any(|line| {
             line.contains(id)
                 && line.contains("tap gesture attached to native button")

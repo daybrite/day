@@ -51,7 +51,7 @@ list(items(move || messages.get(), |m| m.id), move |row: ItemSlot<Message, u64>|
 })
 .row_height(RowHeight::Automatic)       // the default: each row as tall as its content
 .on_select(move |key| open(key))
-.id("inbox")
+.id(id!(inbox))
 ```
 
 The row builder receives an `ItemSlot<T, K>` (Copy handle, tracked `get()`, memoised `field()`

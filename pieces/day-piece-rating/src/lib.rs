@@ -41,7 +41,7 @@ pub struct Rating<S: Binding<usize>> {
     star_size: f64,
     editable: Reactive<bool>,
     color: Color,
-    id_prefix: Option<String>,
+    star_id: Option<std::rc::Rc<dyn Fn(usize) -> day_core::ElementId>>,
 }
 
 /// Build a [`Rating`] bound two-way to `value` (5 gold, editable, 28-pt stars by default).
@@ -53,7 +53,7 @@ pub fn rating<S: Binding<usize>>(value: S) -> Rating<S> {
         star_size: 28.0,
         editable: Reactive::Const(true),
         color: GOLD,
-        id_prefix: None,
+        star_id: None,
     }
 }
 
@@ -82,13 +82,10 @@ impl<S: Binding<usize>> Rating<S> {
         self
     }
 
-    /// Assign a dayscript/a11y id scheme so the widget is scriptable. Because a rating is a
-    /// composite of individually tappable stars (not one node), an inherent `id` sets the row's id
-    /// to `prefix` and each star's id to `prefix:N` (1-based), so a walkthrough can `tap` a
-    /// specific star (`prefix:4` sets the value to 4). Shadows [`Decorate::id`], which would only
-    /// tag the row (leaving the stars unaddressable).
-    pub fn id(mut self, prefix: impl Into<String>) -> Self {
-        self.id_prefix = Some(prefix.into());
+    /// Declare the keyed family for individual stars (one-based). `.id(id!(rating))`
+    /// independently names the row; it never synthesizes undeclared child identities.
+    pub fn star_id(mut self, id: impl Fn(usize) -> day_core::ElementId + 'static) -> Self {
+        self.star_id = Some(std::rc::Rc::new(id));
         self
     }
 }
@@ -101,22 +98,19 @@ impl<S: Binding<usize>> Piece for Rating<S> {
             star_size,
             editable,
             color,
-            id_prefix,
+            star_id,
         } = self;
         let stars: Vec<AnyPiece> = (0..max as usize)
             .map(|i| {
                 // The per-star id goes on the canvas leaf (inside `star`), not on the frame
                 // wrapper, so a dayscript `tap prefix:N` reaches the same node the tap handler
                 // lives on.
-                let id = id_prefix.as_ref().map(|p| format!("{p}:{}", i + 1));
+                let id = star_id.as_ref().map(|id| id(i + 1));
                 star(i, value.clone(), star_size, color, editable.clone(), id)
             })
             .collect();
         let stars = row(stars).spacing((star_size * 0.15).max(2.0));
-        match id_prefix {
-            Some(p) => stars.id(p).build(cx),
-            None => stars.build(cx),
-        }
+        stars.build(cx)
     }
 }
 
@@ -128,7 +122,7 @@ fn star<S: Binding<usize>>(
     size: f64,
     color: Color,
     editable: Reactive<bool>,
-    id: Option<String>,
+    id: Option<day_core::ElementId>,
 ) -> AnyPiece {
     let v = value.clone();
     let draw = canvas(move |d, sz| {
@@ -247,8 +241,10 @@ pub mod conformance {
             .page(|| {
                 let value = Signal::new(1usize);
                 column((
-                    label(move || format!("value {}", value.get())).id("value"),
-                    rating(value).id("stars"),
+                    label(move || format!("value {}", value.get())).id(day_core::id!(value)),
+                    rating(value)
+                        .star_id(|n| day_core::id!(star, n))
+                        .id(day_core::id!(stars)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -264,8 +260,11 @@ pub mod conformance {
             .page(|| {
                 let value = Signal::new(2usize);
                 column((
-                    label(move || format!("value {}", value.get())).id("value"),
-                    rating(value).editable(false).id("stars"),
+                    label(move || format!("value {}", value.get())).id(day_core::id!(value)),
+                    rating(value)
+                        .star_id(|n| day_core::id!(star, n))
+                        .editable(false)
+                        .id(day_core::id!(stars)),
                 ))
             })
             .drive(|d: Drive| async move {

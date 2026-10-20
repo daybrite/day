@@ -162,9 +162,9 @@ A flavor changes what the app says, so a walkthrough that covers both says which
 which. `skip_on:` and `only_on:` match `flavor:<name>`, and `flavor:none` is the base app:
 
 ```yaml
-- assert_text: { id: welcome-title, text: "Welcome to Notes", skip_on: [flavor:custom] }
-- assert_text: { id: welcome-title, text: "Welcome to the Custom edition", only_on: [flavor:custom] }
-- assert_visible: { id: edition-badge, only_on: [flavor:custom] }
+- assert_text: { id: welcome_title, text: "Welcome to Notes", skip_on: [flavor:custom] }
+- assert_text: { id: welcome_title, text: "Welcome to the Custom edition", only_on: [flavor:custom] }
+- assert_visible: { id: edition_badge, only_on: [flavor:custom] }
 ```
 
 One script then runs on every target and every flavor, and each run captures its screenshots

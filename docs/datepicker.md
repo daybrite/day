@@ -96,9 +96,9 @@ existing `input:` step drives any picker on any backend, and ISO readouts bound 
 assert locale-independently:
 
 ```yaml
-- input: { id: date-compact, text: "2026-11-05" }
-- assert_text: { id: date-value, text: "2026-11-05" }
-- input: { id: time-compact, text: "14:45" }
+- input: { id: date_compact, text: "2026-11-05" }
+- assert_text: { id: date_value, text: "2026-11-05" }
+- input: { id: time_compact, text: "14:45" }
 ```
 
 ## Limits

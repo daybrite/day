@@ -118,7 +118,7 @@ impl Location {
 /// `unknown-key` passes that test and is still a warning, because of how it is detected. Its
 /// evidence is the literal after `tr("`, and `tr(` is a two-character name: it occurs inside
 /// other identifiers (`push_str("` cost us every SVG tag in a file), and the literal after it is
-/// not always a key at all. The longer patterns behind the other codes (`navigate("`, `.id("`,
+/// not always a key at all. The longer patterns behind the other codes (`navigate("`, `id!(`,
 /// `Permission::`) do not collide that way, and the manifest and Fluent rules come from a parse
 /// rather than a scan. An error is a claim worth holding to the standard of the evidence for it.
 ///
@@ -418,7 +418,7 @@ fn scan_permission_uses(dir: &Path, out: &mut Vec<Hit>) {
 
 /// Every Rust source root the lint scans: the project package's `src/` plus each workspace
 /// member crate's `src/` inside the project directory (a multi-crate app keeps its
-/// `tr("key")` / `.id("…")` literals in member crates too; Games Fair's games live in
+/// `tr("key")` literals and `id!(name)` declarations in member crates too; Games Fair's games live in
 /// `games/<name>/src`). A member is any `src/` directory beside a `Cargo.toml`, found by a
 /// shallow walk that skips build products and the native host projects.
 fn source_roots(root: &Path) -> Vec<std::path::PathBuf> {
@@ -478,7 +478,7 @@ fn scan_key_like_literals(dir: &Path, out: &mut BTreeSet<String>) {
     });
 }
 
-/// Every literal that follows `pat` up to the closing quote (`tr("`, `.id("`, `navigate("`).
+/// Every literal that follows `pat` up to the closing quote (`tr("`, `navigate("`).
 fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
         for at in matches_of(src, pat) {
@@ -1633,30 +1633,30 @@ fn collect(project: &Project) -> Vec<Finding> {
         }
     }
 
-    // --- Duplicate ids ---
-    let mut ids = Vec::new();
-    for r in &roots {
-        scan_sources(r, ".id(\"", &mut ids);
-    }
-    let mut first_id: BTreeMap<String, Location> = BTreeMap::new();
-    for hit in &ids {
-        let at = hit.location(&project.root);
-        match first_id.get(&hit.text) {
-            Some(first) => findings.push(
-                Finding {
-                    code: "day::lint::duplicate-id",
-                    message: format!(
-                        "element id {:?} is already used at {}:{}",
-                        hit.text, first.file, first.line
-                    ),
-                    ..Default::default()
+    // Lexical assistance only. Compiled registry validation is authoritative: this
+    // reader cannot evaluate cfg or expand caller-defined macros/dependencies.
+    let mut first_id: BTreeMap<String, (bool, Location)> = BTreeMap::new();
+    for root in &roots {
+        for_each_rs(root, &mut |path, source| {
+            for (family, keyed, line, column) in declared_ids(source) {
+                let at = Location {
+                    file: rel(&project.root, path),
+                    line,
+                    column,
+                };
+                if let Some((prior_keyed, prior)) = first_id.get(&family) {
+                    if *prior_keyed != keyed {
+                        findings.push(Finding {
+                            code: "day::lint::duplicate-id",
+                            message: format!("element family {family:?} has conflicting static/keyed declarations (also {}:{}); lexical check, cfg not evaluated", prior.file, prior.line),
+                            ..Default::default()
+                        }.located(at));
+                    }
+                } else {
+                    first_id.insert(family, (keyed, at));
                 }
-                .located(at),
-            ),
-            None => {
-                first_id.insert(hit.text.clone(), at);
             }
-        }
+        });
     }
 
     findings
@@ -2784,5 +2784,75 @@ e = { PLATFORM() }
             "the filter is not part of the route: {routes:?}"
         );
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+/// Token-aware, advisory declaration reader. Ignores strings/comments, supports spaced
+/// namespace syntax and nested macro groups, and never executes app code or build scripts.
+fn declared_ids(source: &str) -> Vec<(String, bool, usize, usize)> {
+    use proc_macro2::{TokenStream, TokenTree};
+    fn walk(tokens: TokenStream, out: &mut Vec<(String, bool, usize, usize)>) {
+        let tokens: Vec<_> = tokens.into_iter().collect();
+        for (i, token) in tokens.iter().enumerate() {
+            if let TokenTree::Group(group) = token {
+                walk(group.stream(), out);
+            }
+            if !matches!(token, TokenTree::Ident(name) if name == "id") {
+                continue;
+            }
+            if !matches!(tokens.get(i+1), Some(TokenTree::Punct(p)) if p.as_char() == '!') {
+                continue;
+            }
+            let Some(TokenTree::Group(group)) = tokens.get(i + 2) else {
+                continue;
+            };
+            let args: Vec<_> = group.stream().into_iter().collect();
+            let mut j = 0;
+            let mut names = Vec::new();
+            while let Some(TokenTree::Ident(name)) = args.get(j) {
+                names.push(name.to_string());
+                j += 1;
+                if matches!((args.get(j), args.get(j+1)), (Some(TokenTree::Punct(a)),Some(TokenTree::Punct(b))) if a.as_char()==':' && b.as_char()==':')
+                {
+                    j += 2;
+                } else {
+                    break;
+                }
+            }
+            if names.is_empty() {
+                continue;
+            }
+            let keyed = matches!(args.get(j), Some(TokenTree::Punct(p)) if p.as_char()==',')
+                && args.len() > j + 1;
+            if j < args.len()
+                && !matches!(args.get(j), Some(TokenTree::Punct(p)) if p.as_char()==',')
+            {
+                continue;
+            }
+            let at = token.span().start();
+            out.push((names.join("::"), keyed, at.line, at.column + 1));
+        }
+    }
+    let mut out = Vec::new();
+    if let Ok(tokens) = source.parse() {
+        walk(tokens, &mut out);
+    }
+    out
+}
+#[cfg(test)]
+mod id_declaration_tests {
+    #[test]
+    fn reads_tokens_not_comments_or_strings() {
+        let source = r#"// id!(comment)
+            fn fixture() { let _ = "id!(literal)"; x.id(day::id!(account :: save));
+            wrapper! { y.id(id!(row, key())) } }
+        "#;
+        let ids = super::declared_ids(source);
+        assert_eq!(
+            ids.iter()
+                .map(|(n, k, _, _)| (n.as_str(), *k))
+                .collect::<Vec<_>>(),
+            vec![("account::save", false), ("row", true)]
+        );
     }
 }

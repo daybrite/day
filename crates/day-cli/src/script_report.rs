@@ -6,7 +6,7 @@
 use crate::targets::{Target, TargetKind};
 use day_script_proto::{MemorySample, Reply};
 use serde_json::{Value, json};
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::net::{Shutdown, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,10 +45,13 @@ impl Live {
         // Every checkpoint is a complete document; a killed writer leaves the previous one.
         let tmp = self.path.with_extension("tmp");
         let result = (|| -> std::io::Result<()> {
-            let mut file = std::fs::File::create(&tmp)?;
+            // Catalogs and accumulated evidence make checkpoints substantial. Buffer serde's
+            // small writes so reporting cannot stall the socket reader or timed UI actions.
+            let mut file = BufWriter::new(std::fs::File::create(&tmp)?);
             serde_json::to_writer(&mut file, &self.value)?;
             file.write_all(b"\n")?;
-            file.sync_all()?;
+            file.flush()?;
+            file.get_ref().sync_all()?;
             std::fs::rename(&tmp, &self.path)
         })();
         if let Err(error) = result
@@ -104,6 +107,61 @@ impl Live {
         });
         self.value["error"] = json!(error);
         self.value["finished_at_unix_ms"] = json!(unix_ms());
+        if let Some(declarations) = self.value["id_catalog"]["declarations"].as_array() {
+            let mut interacted = std::collections::BTreeSet::new();
+            let mut asserted = std::collections::BTreeSet::new();
+            for step in self.value["step_results"].as_array().into_iter().flatten() {
+                if step["status"] != "passed" {
+                    continue;
+                }
+                for evidence in step["id_evidence"].as_array().into_iter().flatten() {
+                    if let Some(family) = evidence["family"].as_str() {
+                        match evidence["class"].as_str() {
+                            Some("interaction") => {
+                                interacted.insert(family.to_owned());
+                            }
+                            Some("assertion") => {
+                                asserted.insert(family.to_owned());
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+            let exercised: std::collections::BTreeSet<_> =
+                interacted.union(&asserted).cloned().collect();
+            let uncovered: Vec<_> = declarations
+                .iter()
+                .filter_map(|d| d["family"].as_str())
+                .filter(|f| !exercised.contains(*f))
+                .map(str::to_owned)
+                .collect();
+            let denominator = declarations.len();
+            let mounted = self.value["mounted_id_families"]
+                .as_array()
+                .map(|families| {
+                    families
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .collect::<std::collections::BTreeSet<_>>()
+                });
+            let never_mounted = mounted.as_ref().map(|mounted| {
+                uncovered
+                    .iter()
+                    .filter(|family| !mounted.contains(family.as_str()))
+                    .collect::<Vec<_>>()
+            });
+            let mounted_unexercised = mounted.as_ref().map(|mounted| {
+                uncovered
+                    .iter()
+                    .filter(|family| mounted.contains(family.as_str()))
+                    .collect::<Vec<_>>()
+            });
+            self.value["id_coverage"] = json!({"mode":"compiled_registry", "registered":denominator,
+                "interacted":interacted,"asserted":asserted,"exercised":exercised,"uncovered":uncovered,
+                "never_mounted":never_mounted,"mounted_unexercised":mounted_unexercised,
+                "percent": if denominator == 0 { None } else { Some(exercised.len() as f64 * 100.0 / denominator as f64) }});
+        }
         self.save();
     }
 }
@@ -143,7 +201,8 @@ impl Reports {
             interval_ms: 1000,
             summarize,
         };
-        if !summarize
+        if !project.manifest.dayscript.coverage.active()
+            && !summarize
             && !matches!(
                 std::env::var("DAY_SCRIPT_REPORT").as_deref(),
                 Ok("1" | "true")
@@ -208,6 +267,37 @@ impl Reports {
         reports
     }
 
+    pub fn coverage(&self, policy: &crate::id_coverage::CoveragePolicy) -> Result<(), String> {
+        if !policy.active() {
+            return Ok(());
+        }
+        let reports: Vec<_> = self
+            .records
+            .iter()
+            .map(|r| r.lock().unwrap().value.clone())
+            .collect();
+        let summary = crate::id_coverage::summarize(&reports, policy)?;
+        eprintln!(
+            "Element ID coverage [{}]: {}/{} ({:.1}%), {} excluded",
+            summary.target,
+            summary.exercised.len(),
+            summary.eligible,
+            summary.percent.unwrap_or(0.0),
+            summary.excluded.len()
+        );
+        if summary.passed {
+            Ok(())
+        } else {
+            Err("element ID coverage is below the required minimum".into())
+        }
+    }
+    pub fn mounted(&self, families: &Value) {
+        if let Some(record) = self.active.record() {
+            let mut live = record.lock().unwrap();
+            live.value["mounted_id_families"] = families.clone();
+            live.save();
+        }
+    }
     pub fn enabled(&self) -> bool {
         !self.records.is_empty()
     }
@@ -221,6 +311,14 @@ impl Reports {
                 live.value["started_at_unix_ms"] = json!(unix_ms());
                 live.save();
             }
+        }
+    }
+    pub fn catalog(&self, suite: &str, catalog: &day_script_proto::IdCatalog) {
+        if let Some(record) = self.active.record() {
+            let mut live = record.lock().unwrap();
+            live.value["id_catalog"] = json!(catalog);
+            live.value["id_suite"] = json!(suite);
+            live.save();
         }
     }
     pub fn memory_error(&self, message: &str) {
@@ -241,6 +339,7 @@ impl Reports {
             record,
             index: index + 1,
             op: op.into(),
+            evidence: Vec::new(),
             outcome: "failed",
             error: Some("runner interrupted while executing this step".into()),
         }
@@ -299,6 +398,7 @@ impl Reports {
 }
 
 pub(crate) struct StepGuard {
+    evidence: Vec<day_script_proto::IdEvidence>,
     record: Option<Record>,
     index: usize,
     op: String,
@@ -306,6 +406,10 @@ pub(crate) struct StepGuard {
     error: Option<String>,
 }
 impl StepGuard {
+    pub fn evidence(&mut self, evidence: &[day_script_proto::IdEvidence]) {
+        self.evidence = evidence.to_vec();
+    }
+
     pub fn result(&mut self, outcome: &'static str, error: Option<String>) {
         self.outcome = outcome;
         self.error = error;
@@ -318,7 +422,7 @@ impl Drop for StepGuard {
             let count = live.value["steps"][self.outcome].as_u64().unwrap() + 1;
             live.value["steps"][self.outcome] = json!(count);
             live.value["step_results"].as_array_mut().unwrap().push(
-                json!({"index":self.index,"op":self.op,"status":self.outcome,"error":self.error}),
+                json!({"index":self.index,"op":self.op,"status":self.outcome,"error":self.error,"id_evidence":if self.outcome == "passed" { &self.evidence[..] } else { &[] }}),
             );
             live.value["current_step"] = Value::Null;
             live.save();

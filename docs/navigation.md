@@ -302,7 +302,7 @@ rides follows from that:
 
 ```rust
 nav(section)
-    .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))  // the list's
+    .toolbar(toolbar_button(id!(add), tr("add")).icon(Symbol::Add).action(add_item))  // the list's
     .destination(|k| page(k).toolbar(share_button()))                              // the page's
 ```
 

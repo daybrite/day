@@ -28,14 +28,14 @@ use crate::{
 /// use day_reactive::Signal;
 ///
 /// let count = Signal::new(0);
-/// let add = Command::new("add", "Add one", move || count.update(|n| *n += 1))
+/// let add = Command::new(day_core::id!(add), "Add one", move || count.update(|n| *n += 1))
 ///     .enabled(move || count.get() < 3);
 /// assert!(add.invoke());
 /// assert_eq!(count.get(), 1);
 /// ```
 #[derive(Clone)]
 pub struct Command {
-    id: Rc<str>,
+    id: day_core::ElementId,
     label: TextSource,
     enabled: Reactive<bool>,
     checked: Option<Reactive<bool>>,
@@ -51,12 +51,12 @@ impl Command {
     /// Availability is checked before the handler is called. Captures the current reactive
     /// scope as the command's owner.
     pub fn new<M>(
-        id: impl Into<String>,
+        id: day_core::ElementId,
         label: impl IntoText<M>,
         action: impl Fn() + 'static,
     ) -> Command {
         Command {
-            id: Rc::from(id.into()),
+            id,
             label: label.into_text(),
             enabled: Reactive::Const(true),
             checked: None,
@@ -96,7 +96,7 @@ impl Command {
     }
 
     pub fn id(&self) -> &str {
-        &self.id
+        self.id.as_str()
     }
 
     /// Current title, with tracked reads for reactive presentation builders.
@@ -144,7 +144,7 @@ impl Command {
             Some(Icon::Image(name)) => button.image(name.clone()),
             None => button,
         };
-        button.id(self.id.to_string())
+        button.id(self.id.clone())
     }
 
     /// A live menu entry: its title, availability and check mark follow the command, and the
@@ -152,7 +152,7 @@ impl Command {
     pub fn menu_item(&self) -> MenuEntry {
         let (title, enabled, action) = (self.clone(), self.clone(), self.clone());
         let mut item = crate::menu_item(move || title.label())
-            .id(self.id.to_string())
+            .id(self.id.clone())
             .enabled(move || enabled.is_enabled())
             .action(move || {
                 action.invoke();
@@ -176,7 +176,7 @@ impl Command {
     /// Reactive builders refresh titles/checks; availability also gets a targeted live binding.
     pub fn toolbar_item(&self) -> ToolbarEntry {
         let (enabled, action) = (self.clone(), self.clone());
-        let mut item = crate::toolbar_button(self.id.to_string(), self.label())
+        let mut item = crate::toolbar_button(self.id.clone(), self.label())
             .enabled(move || enabled.is_enabled())
             .action(move || {
                 action.invoke();

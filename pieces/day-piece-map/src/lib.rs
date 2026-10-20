@@ -21,7 +21,7 @@
 //!     .span(0.05)               // ~5 km across
 //!     .marker(37.7749, -122.4194)
 //!     .frame(320.0, 240.0)
-//!     .id("map");
+//!     .id(day_core::id!(map));
 //! ```
 
 use day_core::{BuildCx, Flex, Piece, RNode, with_tree};
@@ -183,7 +183,7 @@ pub mod conformance {
                     .center((48.8566, 2.3522))
                     .span(0.2)
                     .marker(48.8566, 2.3522)
-                    .id("map")
+                    .id(day_core::id!(map))
                     .frame(300.0, 200.0)
             })
             .drive(|d: Drive| async move {

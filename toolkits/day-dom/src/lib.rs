@@ -3179,7 +3179,7 @@ impl Toolkit for Dom {
         if a11y.hidden || a11y.decorative {
             attr(h.0, "aria-hidden", "true");
         }
-        // The Day element id (`.id("counter-label")`) becomes the DOM id — the same duty that
+        // The Day element id (`.id(day_core::id!(counter_label))`) becomes the DOM id — the same duty that
         // sets accessibilityIdentifier on Apple backends. Day ids are app-unique by contract
         // (dayscript addresses by them), so they satisfy the DOM's uniqueness rule too. Only
         // nodes with native handles get one, exactly like every other backend.
@@ -4727,6 +4727,17 @@ pub extern "C" fn day_dom_alloc(len: usize) -> *mut u8 {
     let ptr = v.as_mut_ptr();
     std::mem::forget(v);
     ptr
+}
+
+/// Consume the final module's declaration sections before the application starts.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // allocated by day_dom_alloc in the trusted shim
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_install_ids(ptr: *mut u8, len: usize) {
+    // SAFETY: the shim allocated and initialized exactly len bytes with day_dom_alloc.
+    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    if let Err(error) = day_core::element_id::install_web_registry(&bytes) {
+        log::error!("element registry: {error}");
+    }
 }
 
 fn take_string(ptr: *mut u8, len: usize) -> String {

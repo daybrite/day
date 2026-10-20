@@ -24,7 +24,7 @@ alone do not establish that a screen is usable.
 ```rust
 button(icon("trash"))
     .a11y(|a| a.label(tr("delete-item")).hint(tr("delete-item-hint")))
-    .id("delete-button")
+    .id(id!(delete_button))
 
 image("chart").a11y(|a| a.label(tr("q3-chart-summary")))   // or .decorative()
 

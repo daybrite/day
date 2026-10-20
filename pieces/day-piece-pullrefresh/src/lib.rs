@@ -314,13 +314,13 @@ pub mod conformance {
                 let runs = Signal::new(0i64);
                 column((
                     label(move || format!("refreshing {} runs {}", refreshing.get(), runs.get()))
-                        .id("state"),
+                        .id(day_core::id!(state)),
                     button("Done")
                         .action(move || refreshing.set(false))
-                        .id("done"),
+                        .id(day_core::id!(done)),
                     pull_to_refresh(refreshing, scroll(column((label("Row 1"), label("Row 2")))))
                         .on_refresh(move || runs.update(|n| *n += 1))
-                        .id("pull")
+                        .id(day_core::id!(pull))
                         .height(200.0),
                 ))
             })

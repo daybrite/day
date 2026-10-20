@@ -395,9 +395,9 @@ For private catalogs, qualify text assertions with the Cargo package name and op
 stem. Hyphens in the package name become underscores:
 
 ```yaml
-- assert_text: { id: game-heading, key: blockblast::game_title }
+- assert_text: { id: game_heading, key: blockblast::game_title }
 - assert_text:
-    id: move-count
+    id: move_count
     key: blockblast::board::moves
     args: { count: 4 }
 ```

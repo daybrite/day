@@ -104,8 +104,8 @@ the [toolbar reference](/docs/internal/toolbars) describes each toolkit’s beha
 
 ```rust
 item_list(scene).grow().toolbar([
-    toolbar_toggle("show-done", "Show Done", scene.show_done).icon(Symbol::Filter),
-    toolbar_button("add", "Add")
+    toolbar_toggle(id!(show_done), "Show Done", scene.show_done).icon(Symbol::Filter),
+    toolbar_button(id!(add), "Add")
         .icon(Symbol::Add)
         .placement(ToolbarPlacement::Primary)
         .action(move || scene.new_item()),

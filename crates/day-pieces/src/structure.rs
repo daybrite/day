@@ -2220,7 +2220,7 @@ pub struct TreePiece<S: NodeSource> {
     move_guard: Option<TreeGuardFn<S::Key>>,
     type_ahead: Option<KeyTextFn<S::Key>>,
     reveal: Option<AnyBinding<Option<S::Key>>>,
-    row_id: Option<KeyTextFn<S::Key>>,
+    row_id: Option<KeyIdFn<S::Key>>,
     row_menu: Option<RowMenuEntriesFn<S::Key>>,
 }
 
@@ -2233,8 +2233,10 @@ type TreeGuardFn<K> = Rc<dyn Fn(&K, Option<&K>, Option<usize>) -> MoveVerdict>;
 type KeyPredicate<K> = Rc<dyn Fn(&K) -> bool>;
 /// The full-selection callback (`.on_selection`), aliased for the field above.
 type SelectionKeysFn<K> = Rc<dyn Fn(Vec<K>)>;
-/// A per-key string (`.type_ahead`, `.row_id`), aliased for the fields above.
+/// A per-key string (`.type_ahead`), aliased for the field above.
 type KeyTextFn<K> = Rc<dyn Fn(&K) -> String>;
+/// A registered identity per tree row, reevaluated on recycle.
+type KeyIdFn<K> = Rc<dyn Fn(&K) -> day_core::ElementId>;
 /// A row's summon-time context-menu builder (`.row_context_menu`), aliased for the field above.
 type RowMenuEntriesFn<K> = Rc<dyn Fn(&K) -> Vec<MenuEntry>>;
 
@@ -2365,7 +2367,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
     /// A dayscript element id per row, from its key (docs/tree.md): re-applied on every
     /// recycle, so `tap`/`assert_text` address the row wherever its cell currently sits. It
     /// is also what the `expand:`/`tree_move:` steps resolve rows by.
-    pub fn row_id(mut self, f: impl Fn(&S::Key) -> String + 'static) -> Self {
+    pub fn row_id(mut self, f: impl Fn(&S::Key) -> day_core::ElementId + 'static) -> Self {
         self.row_id = Some(Rc::new(f));
         self
     }
@@ -2534,7 +2536,7 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                             if let Some(rid) = &row_id
                                 && let Some(k) = id_conn.key_of(tok)
                             {
-                                with_tree(|t| t.set_id(n, rid(&k)));
+                                with_tree(|t| t.set_id(n, rid(&k).as_str().to_owned()));
                             }
                         };
                         set_ids(token0);
@@ -2692,9 +2694,11 @@ impl<S: NodeSource + 'static> TreePiece<S> {
                 let (conn, row_id) = (conn.clone(), self.row_id.clone());
                 Box::new(move |id| {
                     let rid = row_id.as_ref()?;
-                    conn.tokens_now()
-                        .into_iter()
-                        .find(|t| conn.key_of(*t).map(|k| rid(&k) == id).unwrap_or(false))
+                    conn.tokens_now().into_iter().find(|t| {
+                        conn.key_of(*t)
+                            .map(|k| rid(&k).as_str() == id)
+                            .unwrap_or(false)
+                    })
                 })
             },
             row_menu: None,
@@ -3017,7 +3021,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                         if let Some(rid) = &row_id
                             && let Some(k) = conn.key_of(token)
                         {
-                            with_tree(|t| t.set_id(root, rid(&k)));
+                            with_tree(|t| t.set_id(root, rid(&k).as_str().to_owned()));
                         }
                         // Rebind on recycle: point the slot (and the row's element id) at
                         // the cell's new row.
@@ -3026,7 +3030,7 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                             if let Some(rid) = &row_id
                                 && let Some(k) = conn.key_of(tok)
                             {
-                                with_tree(|t| t.set_id(root, rid(&k)));
+                                with_tree(|t| t.set_id(root, rid(&k).as_str().to_owned()));
                             }
                         }) as Rc<dyn Fn(u64)>
                     });
@@ -3044,9 +3048,11 @@ impl<S: NodeSource + 'static> Piece for TreePiece<S> {
                 let (conn, row_id) = (conn.clone(), self.row_id.clone());
                 Box::new(move |id| {
                     let rid = row_id.as_ref()?;
-                    conn.tokens_now()
-                        .into_iter()
-                        .find(|t| conn.key_of(*t).map(|k| rid(&k) == id).unwrap_or(false))
+                    conn.tokens_now().into_iter().find(|t| {
+                        conn.key_of(*t)
+                            .map(|k| rid(&k).as_str() == id)
+                            .unwrap_or(false)
+                    })
                 })
             },
             row_menu: self.row_menu.clone().map(|f| {
@@ -3355,7 +3361,7 @@ pub(crate) mod conformance {
                 // A reactive id, before the padding: a recycled cell rebinds to other rows, and
                 // the id must name the label rather than its wrapper.
                 label(move || row.get())
-                    .id_of(move || format!("row:{}", row.get()))
+                    .id_of(move || day_core::id!(conformance_row, row.get()))
                     .padding(Insets::symmetric(12.0, 6.0))
             },
         )
@@ -3376,12 +3382,12 @@ pub(crate) mod conformance {
             .proves(kinds::LIST_CELL)
             .page(|| {
                 names_list(names(&["Alpha", "Beta", "Gamma"]))
-                    .id("list")
+                    .id(day_core::id!(list))
                     .height(200.0)
             })
             .drive(|d: Drive| async move {
-                d.assert_text("row:Alpha", "Alpha").await?;
-                d.assert_text("row:Gamma", "Gamma").await
+                d.assert_text("conformance_row:Alpha", "Alpha").await?;
+                d.assert_text("conformance_row:Gamma", "Gamma").await
             })
     }
 
@@ -3396,20 +3402,20 @@ pub(crate) mod conformance {
                 column((
                     button("Add")
                         .action(move || rows.update(|v| v.push("Delta".into())))
-                        .id("add"),
+                        .id(day_core::id!(add)),
                     button("Drop")
                         .action(move || rows.update(|v| v.retain(|n| n != "Alpha")))
-                        .id("drop"),
-                    names_list(rows).id("list").height(200.0),
+                        .id(day_core::id!(drop)),
+                    names_list(rows).id(day_core::id!(list)).height(200.0),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.assert_missing("row:Delta").await?;
+                d.assert_missing("conformance_row:Delta").await?;
                 d.tap("add").await?;
-                d.assert_text("row:Delta", "Delta").await?;
+                d.assert_text("conformance_row:Delta", "Delta").await?;
                 d.tap("drop").await?;
-                d.assert_missing("row:Alpha").await?;
-                d.assert_text("row:Beta", "Beta").await
+                d.assert_missing("conformance_row:Alpha").await?;
+                d.assert_text("conformance_row:Beta", "Beta").await
             })
     }
 
@@ -3423,13 +3429,13 @@ pub(crate) mod conformance {
                 let rows = names(&[]);
                 let scroll = Signal::new(None);
                 column((
-                    button("Append").id("append").action(move || {
+                    button("Append").id(day_core::id!(append)).action(move || {
                         rows.update(|rows| rows.push(format!("Item {}", rows.len())));
                         scroll.set(Some(rows.with(|rows| rows.len() - 1)));
                     }),
                     names_list(rows)
                         .scroll_to_row(scroll)
-                        .id("list")
+                        .id(day_core::id!(list))
                         .height(120.0),
                 ))
             })
@@ -3437,7 +3443,8 @@ pub(crate) mod conformance {
                 // Start empty, then grow past the viewport to prove the scroll actually runs.
                 for index in 0..8 {
                     d.tap("append").await?;
-                    d.assert_visible(&format!("row:Item {index}")).await?;
+                    d.assert_visible(&format!("conformance_row:Item%20{index}"))
+                        .await?;
                 }
                 Ok(())
             })
@@ -3481,7 +3488,7 @@ pub(crate) mod conformance {
                                 }
                             })
                             .font(font)
-                            .id_of(move || format!("sized:{}", slot.get()))
+                            .id_of(move || day_core::id!(sized, slot.get()))
                         },
                     )
                 };
@@ -3568,8 +3575,11 @@ pub(crate) mod conformance {
                 column((
                     button("Grow")
                         .action(move || grown.update(|g| *g = !*g))
-                        .id("grow"),
-                    sized_list(grown).id("list").width(240.0).height(480.0),
+                        .id(day_core::id!(grow)),
+                    sized_list(grown)
+                        .id(day_core::id!(list))
+                        .width(240.0)
+                        .height(480.0),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -3615,12 +3625,12 @@ pub(crate) mod conformance {
                 let picked = Signal::new(String::new());
                 let opened = Signal::new(String::new());
                 column((
-                    label(move || format!("picked {}", picked.get())).id("picked"),
-                    label(move || format!("opened {}", opened.get())).id("opened"),
+                    label(move || format!("picked {}", picked.get())).id(day_core::id!(picked)),
+                    label(move || format!("opened {}", opened.get())).id(day_core::id!(opened)),
                     names_list(names(&["Alpha", "Beta", "Gamma"]))
                         .on_select(move |k| picked.set(k))
                         .on_activate(move |k| opened.set(k))
-                        .id("list")
+                        .id(day_core::id!(list))
                         .height(200.0),
                 ))
             })
@@ -3640,7 +3650,7 @@ pub(crate) mod conformance {
             .page(|| {
                 let rows = names(&["Alpha", "Beta", "Gamma"]);
                 column((
-                    label(move || rows.get().join(",")).id("order"),
+                    label(move || rows.get().join(",")).id(day_core::id!(order)),
                     names_list(rows)
                         .reorderable(Reorder::new(move |from, to| {
                             rows.update(|v| {
@@ -3648,14 +3658,14 @@ pub(crate) mod conformance {
                                 v.insert(to.min(v.len()), item);
                             })
                         }))
-                        .id("list")
+                        .id(day_core::id!(list))
                         .height(200.0),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.reorder("list", 0, 2).await?;
                 d.assert_text("order", "Beta,Gamma,Alpha").await?;
-                d.assert_text("row:Alpha", "Alpha").await
+                d.assert_text("conformance_row:Alpha", "Alpha").await
             })
     }
 
@@ -3667,21 +3677,21 @@ pub(crate) mod conformance {
             .page(|| {
                 let rows = names(&["Alpha", "Beta", "Gamma"]);
                 column((
-                    label(move || rows.get().join(",")).id("order"),
+                    label(move || rows.get().join(",")).id(day_core::id!(order)),
                     names_list(rows)
                         .deletable(Delete::new(move |at| {
                             rows.update(|v| {
                                 v.remove(at);
                             })
                         }))
-                        .id("list")
+                        .id(day_core::id!(list))
                         .height(200.0),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.delete_row("list", 1).await?;
                 d.assert_text("order", "Alpha,Gamma").await?;
-                d.assert_missing("row:Beta").await
+                d.assert_missing("conformance_row:Beta").await
             })
     }
 
@@ -3694,13 +3704,13 @@ pub(crate) mod conformance {
                 let rows = names(&["Alpha", "Beta", "Gamma"]);
                 let flagged = Signal::new(String::new());
                 column((
-                    label(move || format!("flagged {}", flagged.get())).id("flagged"),
+                    label(move || format!("flagged {}", flagged.get())).id(day_core::id!(flagged)),
                     names_list(rows)
                         .swipe_trailing(move |at| {
                             let name = rows.get_untracked()[at].clone();
                             vec![swipe_action("Flag").action(move || flagged.set(name.clone()))]
                         })
-                        .id("list")
+                        .id(day_core::id!(list))
                         .height(200.0),
                 ))
             })
@@ -3722,17 +3732,17 @@ pub(crate) mod conformance {
                 column((
                     button("Jump")
                         .action(move || jump.set(Some(250)))
-                        .id("jump"),
+                        .id(day_core::id!(jump)),
                     names_list(rows)
                         .scroll_to_row(jump)
-                        .id("list")
+                        .id(day_core::id!(list))
                         .height(200.0),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.assert_missing("row:Row 250").await?;
+                d.assert_missing("conformance_row:Row%20250").await?;
                 d.tap("jump").await?;
-                d.assert_text("row:Row 250", "Row 250").await
+                d.assert_text("conformance_row:Row%20250", "Row 250").await
             })
     }
 
@@ -3791,12 +3801,14 @@ pub(crate) mod conformance {
                 let next = Signal::new(40usize);
                 let pressed = Signal::new(String::new());
                 column((
-                    button("Far").id("far").action(move || {
+                    button("Far").id(day_core::id!(far)).action(move || {
                         jump.set(Some(next.get_untracked()));
                         next.update(|n| *n += 40);
                     }),
-                    button("Back").id("back").action(move || jump.set(Some(0))),
-                    label(move || pressed.get()).id("pressed"),
+                    button("Back")
+                        .id(day_core::id!(back))
+                        .action(move || jump.set(Some(0))),
+                    label(move || pressed.get()).id(day_core::id!(pressed)),
                     list(items(move || rows.get(), |n: &usize| *n), move |slot| {
                         count.set(count.get() + 1);
                         let guard = RowAlive::new(&alive);
@@ -3804,7 +3816,7 @@ pub(crate) mod conformance {
                             let _ = &guard;
                             format!("Row {}", slot.get())
                         })
-                        .id_of(move || format!("row:{}", slot.key()))
+                        .id_of(move || day_core::id!(conformance_row, slot.key()))
                         .action(move || pressed.set(format!("Pressed {}", slot.get())))
                     })
                     .row_height(RowHeight::Uniform(32.0))
@@ -3815,7 +3827,7 @@ pub(crate) mod conformance {
             .drive(move |d: Drive| {
                 let (built, live) = (built.clone(), live.clone());
                 async move {
-                    d.assert_text("row:0", "Row 0").await?;
+                    d.assert_text("conformance_row:0", "Row 0").await?;
                     // Distinct regions: retaining a cell for every visited index must fail.
                     // Row 1, not row 0, is the one that must go: GtkListView keeps its
                     // focused item's widget realized wherever the view scrolls, and row 0
@@ -3825,14 +3837,14 @@ pub(crate) mod conformance {
                     // times over, where every pool measured stays under it.
                     for row in (40..=3600).step_by(40) {
                         d.tap("far").await?;
-                        d.assert_text(&format!("row:{row}"), &format!("Row {row}"))
+                        d.assert_text(&format!("conformance_row:{row}"), &format!("Row {row}"))
                             .await?;
-                        d.assert_missing("row:1").await?;
-                        d.tap(&format!("row:{row}")).await?;
+                        d.assert_missing("conformance_row:1").await?;
+                        d.tap(&format!("conformance_row:{row}")).await?;
                         d.assert_text("pressed", &format!("Pressed {row}")).await?;
                         d.tap("back").await?;
-                        d.assert_text("row:0", "Row 0").await?;
-                        d.tap("row:0").await?;
+                        d.assert_text("conformance_row:0", "Row 0").await?;
+                        d.tap("conformance_row:0").await?;
                         d.assert_text("pressed", "Pressed 0").await?;
                     }
                     // Settled: a host that releases discarded cells on a later turn (a
@@ -3883,7 +3895,7 @@ pub(crate) mod conformance {
                 column((
                     // A stride coprime with the count walks the whole list in a scattered
                     // order, so consecutive jumps never share a cell.
-                    button("Far").id("far").action(move || {
+                    button("Far").id(day_core::id!(far)).action(move || {
                         let next = (at.get_untracked() + STRIDE) % TOTAL;
                         at.set(next);
                         jump.set(Some(next));
@@ -3891,16 +3903,16 @@ pub(crate) mod conformance {
                     // Five rows fill the viewport exactly, so after the shrink every row is on
                     // screen wherever the host clamps its scroll offset.
                     button("Shrink")
-                        .id("shrink")
+                        .id(day_core::id!(shrink))
                         .action(move || rows.set((0..5).collect())),
                     button("Regrow")
-                        .id("regrow")
+                        .id(day_core::id!(regrow))
                         .action(move || rows.set((0..TOTAL).collect())),
                     // The same rows in a new order: a reload that keeps every token.
                     button("Rotate")
-                        .id("rotate")
+                        .id(day_core::id!(rotate))
                         .action(move || rows.update(|r| r.rotate_left(7))),
-                    label(move || pressed.get()).id("pressed"),
+                    label(move || pressed.get()).id(day_core::id!(pressed)),
                     list(items(move || rows.get(), |n: &usize| *n), move |slot| {
                         count.set(count.get() + 1);
                         let guard = RowAlive::new(&alive);
@@ -3908,7 +3920,7 @@ pub(crate) mod conformance {
                             let _ = &guard;
                             format!("Row {}", slot.get())
                         })
-                        .id_of(move || format!("row:{}", slot.key()))
+                        .id_of(move || day_core::id!(conformance_row, slot.key()))
                         .action(move || pressed.set(format!("Pressed {}", slot.get())))
                     })
                     .row_height(RowHeight::Uniform(32.0))
@@ -3919,7 +3931,7 @@ pub(crate) mod conformance {
             .drive(move |d: Drive| {
                 let (built, live) = (built.clone(), live.clone());
                 async move {
-                    d.assert_text("row:0", "Row 0").await?;
+                    d.assert_text("conformance_row:0", "Row 0").await?;
                     let (mut at, mut rotation) = (0usize, 0usize);
                     // The key of the row at index `i` after `rotation` left-rotations.
                     let key_at = |i: usize, rotation: usize| (i + rotation) % TOTAL;
@@ -3928,23 +3940,23 @@ pub(crate) mod conformance {
                         at = (at + STRIDE) % TOTAL;
                         d.tap("far").await?;
                         let key = key_at(at, rotation);
-                        d.assert_text(&format!("row:{key}"), &format!("Row {key}"))
+                        d.assert_text(&format!("conformance_row:{key}"), &format!("Row {key}"))
                             .await?;
-                        d.tap(&format!("row:{key}")).await?;
+                        d.tap(&format!("conformance_row:{key}")).await?;
                         d.assert_text("pressed", &format!("Pressed {key}")).await?;
                         // Two jumps back to back: the second one wins.
                         d.tap("far").await?;
                         d.tap("far").await?;
                         at = (at + 2 * STRIDE) % TOTAL;
                         let key = key_at(at, rotation);
-                        d.assert_text(&format!("row:{key}"), &format!("Row {key}"))
+                        d.assert_text(&format!("conformance_row:{key}"), &format!("Row {key}"))
                             .await?;
                         // Shrinking under the viewport discards the rows past the new end;
                         // none of them may still answer.
                         d.tap("shrink").await?;
-                        d.assert_text("row:3", "Row 3").await?;
+                        d.assert_text("conformance_row:3", "Row 3").await?;
                         if key >= 5 {
-                            d.assert_missing(&format!("row:{key}")).await?;
+                            d.assert_missing(&format!("conformance_row:{key}")).await?;
                         }
                         d.tap("regrow").await?;
                         // The same set in a new order (regrowing restored the original one),
@@ -3954,7 +3966,7 @@ pub(crate) mod conformance {
                         at = (at + STRIDE) % TOTAL;
                         d.tap("far").await?;
                         let key = key_at(at, rotation);
-                        d.assert_text(&format!("row:{key}"), &format!("Row {key}"))
+                        d.assert_text(&format!("conformance_row:{key}"), &format!("Row {key}"))
                             .await?;
                     }
                     d.wait_idle().await?;
@@ -3982,26 +3994,31 @@ pub(crate) mod conformance {
                 let jump = Signal::new(None);
                 column((
                     button("Jump")
-                        .id("jump")
+                        .id(day_core::id!(jump))
                         .action(move || jump.set(Some(250))),
                     button("Clear")
-                        .id("clear")
+                        .id(day_core::id!(clear))
                         .action(move || rows.set(Vec::new())),
-                    button("Restore").id("restore").action(move || {
-                        rows.set(vec!["New first".into(), "New last".into()]);
-                        jump.set(Some(1));
-                    }),
+                    button("Restore")
+                        .id(day_core::id!(restore))
+                        .action(move || {
+                            rows.set(vec!["New first".into(), "New last".into()]);
+                            jump.set(Some(1));
+                        }),
                     names_list(rows).scroll_to_row(jump).height(160.0),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.tap("jump").await?;
-                d.assert_text("row:Row 250", "Row 250").await?;
+                d.assert_text("conformance_row:Row%20250", "Row 250")
+                    .await?;
                 d.tap("clear").await?;
-                d.assert_missing("row:Row 250").await?;
+                d.assert_missing("conformance_row:Row%20250").await?;
                 d.tap("restore").await?;
-                d.assert_text("row:New first", "New first").await?;
-                d.assert_text("row:New last", "New last").await
+                d.assert_text("conformance_row:New%20first", "New first")
+                    .await?;
+                d.assert_text("conformance_row:New%20last", "New last")
+                    .await
             })
     }
 
@@ -4018,12 +4035,12 @@ pub(crate) mod conformance {
             ),
             |row: ItemSlot<Node, String>| {
                 label(move || row.get().0)
-                    .id_of(move || format!("row:{}", row.get().0))
+                    .id_of(move || day_core::id!(conformance_row, row.get().0))
                     .padding(Insets::symmetric(8.0, 4.0))
             },
         )
         .row_height(RowHeight::Uniform(28.0))
-        .row_id(|k: &String| k.clone())
+        .row_id(|k: &String| day_core::id!(tree_row, k))
     }
 
     fn fruit() -> Signal<Vec<Node>> {
@@ -4044,15 +4061,15 @@ pub(crate) mod conformance {
             .proves_cap(Cap::Tree)
             .proves(kinds::TREE)
             .requires(Cap::Tree)
-            .page(|| names_tree(fruit()).id("tree").height(240.0))
+            .page(|| names_tree(fruit()).id(day_core::id!(tree)).height(240.0))
             .drive(|d: Drive| async move {
-                d.assert_text("row:Fruit", "Fruit").await?;
-                d.assert_text("row:Nuts", "Nuts").await?;
-                d.assert_missing("row:Apple").await?;
-                d.expand("tree", "Fruit", true).await?;
-                d.assert_text("row:Apple", "Apple").await?;
-                d.expand("tree", "Fruit", false).await?;
-                d.assert_missing("row:Apple").await
+                d.assert_text("conformance_row:Fruit", "Fruit").await?;
+                d.assert_text("conformance_row:Nuts", "Nuts").await?;
+                d.assert_missing("conformance_row:Apple").await?;
+                d.expand("tree", "tree_row:Fruit", true).await?;
+                d.assert_text("conformance_row:Apple", "Apple").await?;
+                d.expand("tree", "tree_row:Fruit", false).await?;
+                d.assert_missing("conformance_row:Apple").await
             })
     }
 
@@ -4064,9 +4081,12 @@ pub(crate) mod conformance {
             .requires(Cap::Tree)
             .page(|| {
                 let open = Signal::new(std::collections::HashSet::from(["Fruit".to_string()]));
-                names_tree(fruit()).expanded(open).id("tree").height(240.0)
+                names_tree(fruit())
+                    .expanded(open)
+                    .id(day_core::id!(tree))
+                    .height(240.0)
             })
-            .drive(|d: Drive| async move { d.assert_text("row:Pear", "Pear").await })
+            .drive(|d: Drive| async move { d.assert_text("conformance_row:Pear", "Pear").await })
     }
 
     /// Synthetic fixture strings. Restoration has no callback echo; filtering preserves
@@ -4086,33 +4106,35 @@ pub(crate) mod conformance {
                     label(move || {
                         format!("{}:{}", open.with(|s| s.contains("Fruit")), changes.get())
                     })
-                    .id("state"),
-                    button("restore").id("restore").action(move || {
-                        open.set(std::collections::HashSet::from(["Fruit".to_owned()]))
-                    }),
+                    .id(day_core::id!(state)),
+                    button("restore")
+                        .id(day_core::id!(restore))
+                        .action(move || {
+                            open.set(std::collections::HashSet::from(["Fruit".to_owned()]))
+                        }),
                     button("filter")
-                        .id("filter")
+                        .id(day_core::id!(filter))
                         .action(move || rows.update(|r| r.retain(|n| n.0 != "Apple"))),
                     names_tree(rows)
                         .section_headers()
                         .expanded(open)
                         .on_expansion(move |_, _| changes.update(|n| *n += 1))
-                        .id("tree")
+                        .id(day_core::id!(tree))
                         .height(240.0),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.assert_text("state", "true:0").await?;
-                d.assert_text("row:Apple", "Apple").await?;
-                d.expand("tree", "Fruit", false).await?;
+                d.assert_text("conformance_row:Apple", "Apple").await?;
+                d.expand("tree", "tree_row:Fruit", false).await?;
                 d.assert_text("state", "false:1").await?;
-                d.assert_missing("row:Apple").await?;
-                d.expand("tree", "Fruit", false).await?;
+                d.assert_missing("conformance_row:Apple").await?;
+                d.expand("tree", "tree_row:Fruit", false).await?;
                 d.assert_text("state", "false:1").await?;
                 d.tap("filter").await?;
-                d.assert_missing("row:Pear").await?;
+                d.assert_missing("conformance_row:Pear").await?;
                 d.tap("restore").await?;
-                d.assert_text("row:Pear", "Pear").await?;
+                d.assert_text("conformance_row:Pear", "Pear").await?;
                 d.assert_text("state", "true:1").await
             })
     }
@@ -4138,7 +4160,7 @@ pub(crate) mod conformance {
                             .collect::<Vec<_>>()
                             .join(",")
                     })
-                    .id("shape"),
+                    .id(day_core::id!(shape)),
                     // "Nuts" has no children, so it takes a dropped row only as a declared folder.
                     names_tree(rows)
                         .expanded(open)
@@ -4150,15 +4172,16 @@ pub(crate) mod conformance {
                                 }
                             })
                         }))
-                        .id("tree")
+                        .id(day_core::id!(tree))
                         .height(240.0),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.tree_move("tree", "Pear", Some("Nuts"), None).await?;
+                d.tree_move("tree", "tree_row:Pear", Some("tree_row:Nuts"), None)
+                    .await?;
                 d.assert_text("shape", "Fruit<,Apple<Fruit,Pear<Nuts,Nuts<")
                     .await?;
-                d.assert_text("row:Pear", "Pear").await
+                d.assert_text("conformance_row:Pear", "Pear").await
             })
     }
 

@@ -18,7 +18,7 @@ pub fn root() -> AnyPiece {
             }
         })
         .toolbar(
-            toolbar_button("plain-action", "Window action")
+            toolbar_button(day_core::id!(plain_action), "Window action")
                 .icon(Symbol::Add)
                 .action(move || clicked.set(true)),
         )
@@ -33,7 +33,7 @@ pub fn root() -> AnyPiece {
                 mounted.update(|v| *v = !*v);
                 reset.update(|v| *v += 1);
             })
-            .id("mount-tabs"),
+            .id(day_core::id!(mount_tabs)),
         label(move || format!("Generation {}", reset.get())),
         when(move || mounted.get(), tabs).grow(),
     ))
@@ -57,13 +57,13 @@ fn tabs() -> impl Piece {
                 return scroll_probe().any();
             }
             column((
-                label("SETTINGS ONLY").id("settings-marker"),
+                label("SETTINGS ONLY").id(day_core::id!(settings_marker)),
                 label("No Catalogs header should be above this page."),
             ))
             .padding(20.)
             .any()
         })
-        .id("probe-tabs")
+        .id(day_core::id!(probe_tabs))
 }
 fn stack(name: &'static str, path: Signal<Vec<String>>, other: Signal<Vec<String>>) -> impl Piece {
     let guarded = Signal::new(false);
@@ -128,7 +128,7 @@ fn scroll_probe() -> impl Piece {
         label("SCROLL EXTENT PROBE"),
         button("Change content height")
             .action(move || expanded.update(|v| *v = !*v))
-            .id("resize-scroll-content"),
+            .id(day_core::id!(resize_scroll_content)),
         scroll(
             column((
                 label("Wrapped text must be measured at the actual viewport width. ".repeat(35)),
@@ -136,12 +136,12 @@ fn scroll_probe() -> impl Piece {
                     move || expanded.get(),
                     || label("Dynamically added wrapping content. ".repeat(90)),
                 ),
-                button("BOTTOM SENTINEL").action(|| {}).id("scroll-end"),
+                button("BOTTOM SENTINEL").action(|| {}).id(day_core::id!(scroll_end)),
             ))
             .spacing(12.)
             .padding(8.),
         )
-        .id("probe-scroll")
+        .id(day_core::id!(probe_scroll))
         .grow(),
     ))
     .spacing(8.)

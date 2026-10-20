@@ -48,8 +48,8 @@ A command's id defaults each presentation's id. Override it when two controls in
 distinct ids, or to preserve an existing Dayscript target:
 
 ```rust
-star.button().id("star-footer");
-star.toolbar_item().id("star-toolbar");
+star.button().id(id!(star_footer));
+star.toolbar_item().id(id!(star_toolbar));
 ```
 
 ## Keep the presentations reactive

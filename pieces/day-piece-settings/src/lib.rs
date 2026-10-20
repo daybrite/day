@@ -578,7 +578,7 @@ enum RowKind {
 pub struct Row {
     title: TextSource,
     caption: Option<TextSource>,
-    id: Option<String>,
+    id: Option<day_core::ElementId>,
     enabled: Option<Reactive<bool>>,
     available: Option<Avail>,
     kind: RowKind,
@@ -606,8 +606,8 @@ impl Row {
         self
     }
     /// The element id of the row's control (default `pref-<key>` for a pref row).
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+    pub fn id(mut self, id: day_core::ElementId) -> Self {
+        self.id = Some(id);
         self
     }
     /// Gray the control out while this reads false: a `Signal<bool>`, or a derived condition
@@ -635,8 +635,8 @@ impl Row {
 pub mod rows {
     use super::*;
 
-    fn pref_id<T: PrefValue>(p: &Pref<T>) -> String {
-        format!("pref-{}", p.key)
+    fn pref_id<T: PrefValue>(p: &Pref<T>) -> day_core::ElementId {
+        day_core::id!(pref, p.key)
     }
 
     /// An on/off row bound to a `Pref<bool>`.
@@ -1654,7 +1654,7 @@ pub fn appearance_row() -> Row {
         ],
     )
     .segmented()
-    .id("theme-picker")
+    .id(day_core::id!(theme_picker))
     .requires(Cap::Appearance)
 }
 
@@ -1670,7 +1670,8 @@ pub fn language_row(locales: LocaleTable) -> Row {
             .iter()
             .map(|(tag, name)| ((*tag).to_string(), TextSource::Static((*name).to_string()))),
     );
-    choice_text(&LANGUAGE, day_fluent::tr("day-settings-language"), options).id("language-picker")
+    choice_text(&LANGUAGE, day_fluent::tr("day-settings-language"), options)
+        .id(day_core::id!(language_picker))
 }
 
 /// [`choice`] over already-resolved label sources (what [`language_row`] builds from a
@@ -1802,14 +1803,14 @@ pub(crate) fn stepper_control(
     value: Signal<f64>,
     dec: day_pieces::Button,
     inc: day_pieces::Button,
-    id: Option<&str>,
+    id: Option<&day_core::ElementId>,
 ) -> AnyPiece {
     let value_label = label(move || format!("{}", value.get() as i64)).tabular();
     match id {
         Some(id) => row((
-            dec.id(format!("{id}-decrement")),
-            value_label.id(id),
-            inc.id(format!("{id}-increment")),
+            dec.id(day_core::id!(pref_decrement, id.as_str())),
+            value_label.id(id.clone()),
+            inc.id(day_core::id!(pref_increment, id.as_str())),
         ))
         .spacing(8.0)
         .align(VAlign::Center)
@@ -1859,7 +1860,7 @@ fn composed_window_shell(inst: Rc<Installed>) -> AnyPiece {
     let mut nav = nav(inst.selected)
         .style(NavStyle::Sidebar)
         .local()
-        .id("prefs-nav");
+        .id(day_core::id!(prefs_nav));
     for g in groups {
         let id = g.id;
         let title = text_source_fn(&g.title);
@@ -1950,7 +1951,7 @@ fn composed_group_form(inst: Rc<Installed>, g: &Group, desktop: bool) -> AnyPiec
     if let Some(custom) = &g.custom {
         parts.push(custom());
     }
-    form(parts).id(format!("prefs-group-{}", g.id)).any()
+    form(parts).id(day_core::id!(prefs_group, g.id)).any()
 }
 
 /// A group's page from ordinary Day pieces: its sections as a form, then its custom piece.
@@ -2123,7 +2124,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
                         .align(day_spec::props::TextAlign::Trailing);
                     let value_label = match &id {
                         Some(i) => value_label
-                            .id(format!("{i}-value"))
+                            .id(day_core::id!(pref_value, i.as_str()))
                             .min_width(VALUE_WIDTH)
                             .max_width(VALUE_WIDTH)
                             .any(),
@@ -2144,7 +2145,7 @@ fn composed_row(inst: Rc<Installed>, r: &Row, _desktop: bool) -> AnyPiece {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let ctl = stepper_control(v, dec, inc, id.as_deref());
+            let ctl = stepper_control(v, dec, inc, id.as_ref());
             trailing_row(title_column(r), ctl)
         }
         RowKind::Text {
@@ -2335,14 +2336,18 @@ fn navigation_stack(inst: Rc<Installed>, done: bool) -> AnyPiece {
         .destination(move |r: &SettingsRoute| destination(dest_inst.clone(), r));
     if done {
         stack = stack.toolbar(
-            toolbar_button("settings-done", day_fluent::tr("day-settings-done")).action(|| {
+            toolbar_button(
+                day_core::id!(settings_done),
+                day_fluent::tr("day-settings-done"),
+            )
+            .action(|| {
                 if let Some(w) = day_core::window_by_key(day_core::windows::PREFERENCES_KEY) {
                     w.close();
                 }
             }),
         );
     }
-    stack.id("settings-stack").any()
+    stack.id(day_core::id!(settings_stack)).any()
 }
 
 fn destination(inst: Rc<Installed>, r: &SettingsRoute) -> AnyPiece {
@@ -2490,13 +2495,19 @@ fn composed_root_page(inst: Rc<Installed>) -> AnyPiece {
                     .align(VAlign::Center)
                     .grow_w()
                     .on_tap(move || path.update(|p| p.push(SettingsRoute::Group(id.to_string()))))
-                    .id(format!("prefs-group-{id}"))
+                    .id(day_core::id!(prefs_group, id))
                     .any()
             })
             .collect();
         parts.push(section(rows).any());
     }
-    scroll(form(parts).padding(16.0).grow_w().id("settings-root")).any()
+    scroll(
+        form(parts)
+            .padding(16.0)
+            .grow_w()
+            .id(day_core::id!(settings_root)),
+    )
+    .any()
 }
 
 /// The About header card on the mobile root: icon, name, version; tapping opens the About page.
@@ -2523,7 +2534,7 @@ fn about_header(inst: Rc<Installed>, about: &About) -> AnyPiece {
     .align(VAlign::Center)
     .grow_w()
     .on_tap(move || path.update(|p| p.push(SettingsRoute::About)))
-    .id("settings-about"),))
+    .id(day_core::id!(settings_about)),))
     .any()
 }
 
@@ -2557,14 +2568,14 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         label(about.display_name())
             .font(day_spec::Font::Title2)
             .bold()
-            .id("about-name")
+            .id(day_core::id!(about_name))
             .any(),
     );
     if let Some(v) = about.version_line() {
-        head.push(label(v).secondary().id("about-version").any());
+        head.push(label(v).secondary().id(day_core::id!(about_version)).any());
     }
     if let Some(t) = about.tagline_text() {
-        head.push(label(t).id("about-tagline").any());
+        head.push(label(t).id(day_core::id!(about_tagline)).any());
     }
     let mut parts: Vec<AnyPiece> = vec![
         column(head)
@@ -2580,14 +2591,14 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         .enumerate()
         .map(|(i, (t, url))| {
             link(text_source_fn(t), url.clone())
-                .id(format!("about-link-{i}"))
+                .id(day_core::id!(about_link, i))
                 .any()
         })
         .collect();
     if let Some(p) = about.privacy_url() {
         links.push(
             link(day_fluent::tr("day-about-privacy"), p.to_string())
-                .id("about-privacy")
+                .id(day_core::id!(about_privacy))
                 .any(),
         );
     }
@@ -2621,11 +2632,14 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
             label(c)
                 .font(day_spec::Font::Footnote)
                 .secondary()
-                .id("about-copyright")
+                .id(day_core::id!(about_copyright))
                 .any(),
         );
     }
-    let body = form(parts).padding(20.0).grow_w().id("about-page");
+    let body = form(parts)
+        .padding(20.0)
+        .grow_w()
+        .id(day_core::id!(about_page));
     // The About window fits its content like the settings panel and scrolls past the height
     // it can have; a pushed page scrolls.
     if inst.presentation == Presentation::Window {
@@ -2900,7 +2914,9 @@ pub mod conformance {
                 let g = inst.groups[0].clone();
                 column((
                     group_page(inst, &g, true),
-                    button("Enable").action(move || gate.set(true)).id("enable"),
+                    button("Enable")
+                        .action(move || gate.set(true))
+                        .id(day_core::id!(enable)),
                 ))
             })
             .drive(|d: Drive| async move {

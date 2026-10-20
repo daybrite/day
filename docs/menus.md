@@ -50,7 +50,7 @@ The pieces, all in the `day_pieces` prelude:
 
 | Builder | Produces |
 |---|---|
-| `menu_item(label)` | A clickable command. `label` is any text source (a literal, `res::str::x()`, a signal, a closure), live. Chain `.action(f)`, `.key("s")`, `.shortcut(_)`, `.enabled(on)`, `.id("…")`, `.checked(on)`; `on` is a `bool`, a `Signal<bool>` or a closure. |
+| `menu_item(label)` | A clickable command. `label` is any text source (a literal, `res::str::x()`, a signal, a closure), live. Chain `.action(f)`, `.key("s")`, `.shortcut(_)`, `.enabled(on)`, `.id(id!(name))`, `.checked(on)`; `on` is a `bool`, a `Signal<bool>` or a closure. |
 | `sub_menu(label, vec![…])` | A nested submenu (arbitrarily deep on desktop; see platform notes). |
 | `menu_separator()` | A divider between groups. |
 | `menu_role(role)` | A standard system command; see [Standard roles](#standard-roles). |
@@ -60,11 +60,11 @@ The pieces, all in the `day_pieces` prelude:
 `.key("s")` sets the item's ⌘/Ctrl SHORTCUT. To NAME an item, use `.id`:
 
 ```rust
-menu_item(tr("view-grid")).id("view-grid").action(|| grid.set(!grid.get()))
+menu_item(tr("view-grid")).id(id!(view_grid)).action(|| grid.set(!grid.get()))
 ```
 
 An id is what something outside the menu addresses the item by — a dayscript
-`menu: { id: "view-grid" }` step (`context_menu: { id: <element>, item_id: "view-grid" }` for an
+`menu: { id: "view_grid" }` step (`context_menu: { id: <element>, item_id: "view_grid" }` for an
 element's context menu), or a `tap` on the row of the
 [composed presentation](#the-composed-presentation-web-dom). A label cannot do that job: it is
 localized, so it changes with the run's language, and a [checked](#checked-items) item rewrites its
@@ -81,10 +81,10 @@ closure; pass the signal and the mark follows the state:
 
 ```rust
 app_menu([sub_menu(tr("menu-view"), vec![
-    menu_item(tr("view-grid")).id("view-grid").checked(grid).action(move || grid.set(!grid.get())),
+    menu_item(tr("view-grid")).id(id!(view_grid)).checked(grid).action(move || grid.set(!grid.get())),
     menu_separator(),
-    menu_item(tr("view-day")).id("view-day").key("1").checked(move || mode.get() == 0).action(move || mode.set(0)),
-    menu_item(tr("view-both")).id("view-both").key("2").checked(move || mode.get() == 1).action(move || mode.set(1)),
+    menu_item(tr("view-day")).id(id!(view_day)).key("1").checked(move || mode.get() == 0).action(move || mode.set(0)),
+    menu_item(tr("view-both")).id(id!(view_both)).key("2").checked(move || mode.get() == 1).action(move || mode.set(1)),
 ])]);
 ```
 
@@ -472,7 +472,7 @@ Window menu. The mechanics (injection into an installed menu, role rewiring, and
 
 ## Driving menus from dayscript
 
-`menu: { id: "view-grid" }` invokes the item the app NAMED with [`.id`](#naming-an-item-id). Prefer
+`menu: { id: "view_grid" }` invokes the item the app NAMED with [`.id`](#naming-an-item-id). Prefer
 it to everything below: it is the only address that survives a locale change or a moving check mark,
 and it never falls back to matching a label, so a step naming an id that is not in the menu fails
 instead of quietly hitting some other item that reads the same.

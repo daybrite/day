@@ -574,11 +574,55 @@ fn hosts_settled() -> Result<(), Reply> {
     }
 }
 
+fn id_catalog() -> Result<&'static day_script_proto::IdCatalog, String> {
+    static CATALOG: std::sync::OnceLock<Result<day_script_proto::IdCatalog, String>> =
+        std::sync::OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            Ok(day_script_proto::IdCatalog {
+                schema_version: 1,
+                declarations: day_core::element_id::registry()?
+                    .iter()
+                    .cloned()
+                    .map(|d| day_script_proto::IdDeclaration {
+                        family: d.family,
+                        keyed: d.keyed,
+                        package: d.package,
+                        version: d.version,
+                        locations: d.locations,
+                    })
+                    .collect(),
+            })
+        })
+        .as_ref()
+        .map_err(Clone::clone)
+}
+
 fn exec(step: Step, revision: u32) -> Reply {
+    let evidence_class = step.evidence_class();
+    let evidence_id = step.element_references().into_iter().next();
+    // An optional absent action succeeds without an interaction. Capture presence before
+    // executing, since a successful button can remove itself or close its window.
+    let absent_optional_action = matches!(&step,
+        Step::Tap { id, if_present: true, .. }
+        | Step::Select { id, if_present: true, .. }
+        | Step::ContextMenu { id, if_present: true, .. } if find(id).is_err());
+
     use day_spec::Event;
     use day_spec::present::PresentResult;
     let result: Result<Reply, Reply> = (|| {
         match step {
+            Step::IdMounted => Ok(Reply {
+                data: Some(serde_json::json!(with_tree(|t| t.mounted_id_families()))),
+                ..Reply::ok()
+            }),
+            Step::IdCatalog => {
+                let catalog = id_catalog().map_err(|e| Reply::fail(e, false))?;
+                Ok(Reply {
+                    data: Some(serde_json::to_value(catalog).unwrap()),
+                    ..Reply::ok()
+                })
+            }
             Step::WaitFor { id, .. } => {
                 visible(&id)?;
                 Ok(Reply::ok())
@@ -1267,7 +1311,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                     {
                         let Some(t) = text else {
                             return Err(Reply::fail(
-                                "toolbar: day.search rides the navigation surface here, which takes text (or key) only",
+                                "toolbar: day::search rides the navigation surface here, which takes text (or key) only",
                                 false,
                             ));
                         };
@@ -2100,6 +2144,17 @@ fn exec(step: Step, revision: u32) -> Reply {
         }
     })();
     let mut reply = result.unwrap_or_else(|r| r);
+    if reply.ok
+        && !absent_optional_action
+        && let (Some(class), Some(id)) = (evidence_class, evidence_id)
+        && let Ok(catalog) = id_catalog()
+        && let Ok(d) = catalog.resolve(&id)
+    {
+        reply.id_evidence = Box::new([day_script_proto::IdEvidence {
+            family: d.family.clone(),
+            class,
+        }]);
+    }
     reply.fast_animations = Some(day_core::testing::fast_animations());
     reply
 }
@@ -2341,7 +2396,7 @@ mod tests {
             button("Remove fixture")
                 .enabled(move || enabled.get())
                 .action(move || presses.update(|n| *n += 1))
-                .id("remove-fixture")
+                .id(day_core::id!(remove_fixture))
                 .height(50.)
                 .grow_w()
                 .any()
@@ -2356,15 +2411,25 @@ mod tests {
             )
         };
         assert!(!tap("missing", false).ok);
-        assert!(tap("missing", true).ok);
+        let absent = tap("missing", true);
+        assert!(absent.ok);
+        assert!(absent.id_evidence.is_empty());
         probe.state.borrow_mut().ui_busy = true;
         assert!(!tap("missing", true).ok);
         probe.state.borrow_mut().ui_busy = false;
-        let disabled = tap("remove-fixture", true);
+        let disabled = tap("remove_fixture", true);
         assert!(!disabled.ok && disabled.retryable);
         assert_eq!(presses.get(), 0);
         enabled.set(true);
-        assert!(tap("remove-fixture", true).ok);
+        id_catalog().expect("the compiled test fixture registry is valid");
+        let present = tap("remove_fixture", true);
+        assert!(present.ok);
+        assert_eq!(present.id_evidence.len(), 1);
+        assert_eq!(present.id_evidence[0].family, "remove_fixture");
+        assert_eq!(
+            present.id_evidence[0].class,
+            day_script_proto::EvidenceClass::Interaction
+        );
         assert_eq!(presses.get(), 1);
         day_core::uninstall_tree();
     }
@@ -2381,7 +2446,7 @@ mod tests {
             button("Fixture download")
                 .enabled(move || enabled.get())
                 .action(move || presses.update(|n| *n += 1))
-                .id("fixture-download")
+                .id(day_core::id!(fixture_download))
                 .height(50.)
                 .grow_w()
                 .any()
@@ -2389,7 +2454,7 @@ mod tests {
         let tap = || {
             exec(
                 serde_json::from_value(serde_json::json!({
-                    "op": "tap", "id": "fixture-download"
+                    "op": "tap", "id": "fixture_download"
                 }))
                 .unwrap(),
                 1,

@@ -43,12 +43,12 @@ these pauses until an ordinary engine reply confirms that the app enabled fast m
 older apps and a pause before the first engine reply retain their wait. Screenshot render
 checkpoints still run. For asynchronous application work, prefer an `assert_text` or
 `wait_for` with an appropriate timeout: these already retry until their condition holds.
-For idempotent fixture cleanup, `tap: { id: remove-fixture, if_present: true }`
+For idempotent fixture cleanup, `tap: { id: remove_fixture, if_present: true }`
 skips an absent element after UI transitions settle. Wait for the containing screen
 first: this does not wait for an asynchronously loaded element to appear. Existing
 elements must still be visible and enabled; ordinary taps continue to fail on missing IDs.
 `select` takes the same flag, for a control that only some layouts have:
-`select: { id: pane-picker, index: 0, if_present: true }` switches a phone's one-pane editor
+`select: { id: pane_picker, index: 0, if_present: true }` switches a phone's one-pane editor
 back to its first pane and passes on a wide window, where both panes show and there is no
 switcher.
 Do not mark network loads, media playback, physics or crash-observation pauses as

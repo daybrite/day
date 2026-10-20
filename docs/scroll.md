@@ -54,9 +54,9 @@ buttons drive the recycling list's row rail (`.scroll_to_row`/`.scroll_to_end`, 
 ## dayscript
 
 ```yaml
-- scroll_to: { id: page-scroll, edge: bottom }     # top | bottom | leading | trailing
-- scroll_to: { id: page-scroll, x: 0, y: 300 }     # pin the viewport origin
-- scroll_to: { id: row-100 }                       # reveal an element in its nearest scroll
+- scroll_to: { id: page_scroll, edge: bottom }     # top | bottom | leading | trailing
+- scroll_to: { id: page_scroll, x: 0, y: 300 }     # pin the viewport origin
+- scroll_to: { id: row_100 }                       # reveal an element in its nearest scroll
 ```
 
 The step is unanimated so the next step sees the settled position. `assert_visible` remains a

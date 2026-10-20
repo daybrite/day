@@ -343,7 +343,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            Some(stepper_control(v, dec, inc, id.as_deref()))
+            Some(stepper_control(v, dec, inc, id.as_ref()))
         }
         RowKind::Text {
             value,

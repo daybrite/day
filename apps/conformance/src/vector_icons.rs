@@ -16,7 +16,7 @@ fn vector_tint_preserves_strokes() -> Case {
         .page(|| {
             vector(res::vectors::vector_outline)
                 .tint(Color::hex(0xff0000))
-                .id("outline")
+                .id(day::id!(outline))
                 .frame(128.0, 128.0)
                 .background(Color::hex(0x000000))
         })
@@ -43,11 +43,11 @@ fn vector_tint_preserves_fill_rules() -> Case {
             row((
                 vector(res::vectors::vector_holes)
                     .tint(Color::hex(0x0000ff))
-                    .id("evenodd")
+                    .id(day::id!(evenodd))
                     .frame(96.0, 96.0),
                 vector(res::vectors::vector_winding)
                     .tint(Color::hex(0xff0000))
-                    .id("nonzero")
+                    .id(day::id!(nonzero))
                     .frame(96.0, 96.0),
             ))
             .background(Color::hex(0x000000))
@@ -69,15 +69,15 @@ fn vector_tint_at_multiple_sizes() -> Case {
             row((
                 vector(res::vectors::vector_outline)
                     .tint(Color::hex(0xff0000))
-                    .id("small")
+                    .id(day::id!(small))
                     .frame(32.0, 32.0),
                 vector(res::vectors::vector_outline)
                     .tint(Color::hex(0x808080))
-                    .id("medium")
+                    .id(day::id!(medium))
                     .frame(64.0, 64.0),
                 vector(res::vectors::vector_outline)
                     .tint(Color::hex(0xff0000))
-                    .id("large")
+                    .id(day::id!(large))
                     .frame(128.0, 128.0),
             ))
             .background(Color::hex(0x000000))
@@ -106,7 +106,7 @@ fn vector_fine_detail_exceeds_raster_cache() -> Case {
             // container keeps the image's native bounds distinct from the scroll viewport.
             scroll(row((vector(res::vectors::vector_detail)
                 .tint(Color::hex(0xff0000))
-                .id("detail")
+                .id(day::id!(detail))
                 .frame(1024.0, 128.0),)))
             .horizontal()
             // Leave room for toolkits whose scrollbar consumes layout space.
@@ -135,7 +135,7 @@ fn vector_native_icon_slot_preserves_strokes() -> Case {
                 .image(res::vectors::vector_slot)
                 .icon_only()
                 .tint(Color::hex(0x000000))
-                .id("icon-button")
+                .id(day::id!(icon_button))
                 .frame(96.0, 64.0)
         })
         .drive(|d: Drive| async move {
@@ -164,7 +164,7 @@ fn vector_resize_retains_fine_detail() -> Case {
                             .height(128.0)
                             .grow_w()
                             // The sized box, not the vector's own node.
-                            .wrapper_id("detail"),
+                            .wrapper_id(day::id!(detail)),
                         when(move || compact.get(), || spacer().width(768.0)),
                     ))
                     .spacing(0.0)
@@ -175,7 +175,7 @@ fn vector_resize_retains_fine_detail() -> Case {
                 .background(Color::hex(0x000000)),
                 button("Resize")
                     .action(move || compact.set(!compact.get()))
-                    .id("resize"),
+                    .id(day::id!(resize)),
             ))
         })
         .drive(|d: Drive| async move {
@@ -204,7 +204,7 @@ fn vector_reactive_tint_preserves_alpha() -> Case {
             column((
                 button("Recolor")
                     .action(move || blue.set(!blue.get()))
-                    .id("recolor"),
+                    .id(day::id!(recolor)),
                 vector(res::vectors::vector_alpha)
                     .tint(move || {
                         if blue.get() {
@@ -216,7 +216,7 @@ fn vector_reactive_tint_preserves_alpha() -> Case {
                     .frame(96.0, 96.0)
                     .background(Color::hex(0x000000))
                     // The black box around the vector is what the corner sample reads.
-                    .wrapper_id("alpha"),
+                    .wrapper_id(day::id!(alpha)),
                 vector(res::vectors::vector_outline)
                     .tint(move || {
                         if blue.get() {
@@ -227,7 +227,7 @@ fn vector_reactive_tint_preserves_alpha() -> Case {
                     })
                     .frame(96.0, 96.0)
                     .background(Color::hex(0x000000))
-                    .wrapper_id("stroke"),
+                    .wrapper_id(day::id!(stroke)),
             ))
         })
         .drive(|d: Drive| async move {
@@ -255,15 +255,15 @@ fn vector_non_square_content_modes() -> Case {
             row((
                 image(res::vectors::vector_aspect)
                     .fit()
-                    .id("fit")
+                    .id(day::id!(fit))
                     .frame(80.0, 80.0),
                 image(res::vectors::vector_aspect)
                     .fill()
-                    .id("fill")
+                    .id(day::id!(fill))
                     .frame(40.0, 80.0),
                 image(res::vectors::vector_aspect)
                     .stretch()
-                    .id("stretch")
+                    .id(day::id!(stretch))
                     .frame(80.0, 80.0),
             ))
             .background(Color::hex(0x000000))
@@ -296,7 +296,7 @@ fn vector_source_swaps_with_bitmap() -> Case {
             column((
                 button("Swap")
                     .action(move || bitmap.set(!bitmap.get()))
-                    .id("swap"),
+                    .id(day::id!(swap)),
                 image(move || {
                     if bitmap.get() {
                         day::ImageSource::Bytes(BLUE.to_vec().into())
@@ -307,7 +307,7 @@ fn vector_source_swaps_with_bitmap() -> Case {
                 .frame(80.0, 80.0)
                 .background(Color::hex(0x000000))
                 // The black box around the image is what the top sample reads.
-                .wrapper_id("source"),
+                .wrapper_id(day::id!(source)),
             ))
         })
         .drive(|d: Drive| async move {
@@ -335,12 +335,12 @@ fn vector_native_icon_follows_button_tint() -> Case {
             column((
                 button("Change tint")
                     .action(move || light.set(!light.get()))
-                    .id("change"),
+                    .id(day::id!(change)),
                 button("Icon")
                     .image(res::vectors::vector_slot)
                     .icon_only()
                     .tint(move || Color::hex(if light.get() { 0xffffff } else { 0x000000 }))
-                    .id("button")
+                    .id(day::id!(button))
                     .frame(96.0, 64.0),
             ))
         })

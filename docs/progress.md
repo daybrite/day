@@ -115,8 +115,8 @@ progress(move || volume.get() / 100.0)
   a walkthrough can assert it:
 
   ```yaml
-  - set_value: { id: volume-slider, value: 80 }
-  - assert_value: { id: volume-progress, value: 0.8 }   # 80/100, reactive
+  - set_value: { id: volume_slider, value: 80 }
+  - assert_value: { id: volume_progress, value: 0.8 }   # 80/100, reactive
   ```
 
   The showcase `controls` page carries a `volume-progress` determinate bar bound to the

@@ -219,11 +219,11 @@ progress(move || volume.get() / 100.0)
 
 ## Ids and testing
 
-Give any Piece a stable `.id("…")` and dayscript can find, drive, and assert it, using the same
+Give any Piece a stable `.id(id!(name))` and dayscript can find, drive, and assert it, using the same
 script on every platform.
 
 ```rust
-button("Increment").action(move || count.update(|c| *c += 1)).id("increment-button")
+button("Increment").action(move || count.update(|c| *c += 1)).id(id!(increment_button))
 ```
 
 ## Extending with Day Pieces
@@ -237,7 +237,7 @@ use day_piece_combobox::combo_box;
 
 let flavors = Signal::new(vec!["vanilla".into(), "chocolate".into()]);
 let flavor  = Signal::new(String::new());   // the typed-or-picked text
-combo_box(flavors, flavor).id("flavor-combo")
+combo_box(flavors, flavor).id(id!(flavor_combo))
 ```
 
 Day Pieces ship as ordinary Rust crates. [The extension model](/docs/extending) explains the

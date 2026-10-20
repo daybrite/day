@@ -34,7 +34,7 @@ watch(move || refreshing.get(), move |now, _| {
     }
 });
 
-pull_to_refresh(refreshing, scroll(rows)).id("feed-refresh")   // or list(items, …)
+pull_to_refresh(refreshing, scroll(rows)).id(id!(feed_refresh))   // or list(items, …)
 ```
 
 The bound `refreshing: Signal<bool>` is **two-way** (the same contract as `UIRefreshControl`,
@@ -55,8 +55,8 @@ The piece's node accepts `Event::ToggleChanged` as a synthetic begin/end, so the
 `toggle:` step drives it identically on every backend:
 
 ```yaml
-- toggle: { id: feed-refresh, value: true }     # begin (runs the app's reload)
-- assert_text: { id: refresh-status, key: refresh_status_refreshing }
+- toggle: { id: feed_refresh, value: true }     # begin (runs the app's reload)
+- assert_text: { id: refresh_status, key: refresh_status_refreshing }
 ```
 
 ## Per-toolkit realization

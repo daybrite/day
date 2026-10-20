@@ -25,15 +25,15 @@ fn settlement_freezes_identity_and_rejects_stale_callbacks_without_rebuilding_pa
                     state,
                     busy,
                     vec![
-                        label("fixture first").id("first-page").any(),
-                        label("fixture second").id("second-page").any(),
+                        label("fixture first").id(day_core::id!(first_page)).any(),
+                        label("fixture second").id(day_core::id!(second_page)).any(),
                     ],
                     move |slot| {
                         let was_busy = busy.get_untracked();
                         commits.update(|v| v.push((slot, was_busy)));
                     },
                 )
-                .id("fixture-pager")
+                .id(day_core::id!(fixture_pager))
             },
         )
         .any()

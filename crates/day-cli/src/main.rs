@@ -20,6 +20,7 @@ mod flavor;
 mod git;
 mod grant;
 mod icon;
+mod id_coverage;
 mod interactive;
 mod json5;
 mod lint;

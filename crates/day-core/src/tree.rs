@@ -160,6 +160,7 @@ enum ContextMenuModel {
 }
 
 pub struct Tree<B: Toolkit> {
+    mounted_id_families: std::collections::BTreeSet<String>,
     pub toolkit: B,
     nodes: SlotMap<RNode, NodeData<B::Handle>>,
     windows: Vec<WindowEntry>,
@@ -245,6 +246,7 @@ impl<B: Toolkit> Tree<B> {
             is_boundary: true,
         });
         Tree {
+            mounted_id_families: Default::default(),
             toolkit,
             nodes,
             windows: vec![WindowEntry {
@@ -825,6 +827,8 @@ pub trait TreeOps {
     /// are the same node.
     fn set_element_outer(&mut self, inner: RNode, outer: RNode);
     fn set_id(&mut self, node: RNode, id: String);
+    /// Families attached at least once, including subsequently disposed/recycled nodes.
+    fn mounted_id_families(&self) -> Vec<String>;
     /// Merge non-default grid cell facts onto a node's [`Flex`]: what the `.grid_span`/
     /// `.grid_align` modifiers call (docs/grid.md). Called at build time, before the first layout.
     fn set_grid_facts(&mut self, node: RNode, facts: GridFacts);
@@ -1530,7 +1534,14 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         self.toolkit.reduce_motion()
     }
 
+    fn mounted_id_families(&self) -> Vec<String> {
+        self.mounted_id_families.iter().cloned().collect()
+    }
     fn set_id(&mut self, node: RNode, id: String) {
+        if self.nodes.contains_key(node) {
+            self.mounted_id_families
+                .insert(crate::element_id::family_of(&id).to_owned());
+        }
         if let Some(n) = self.nodes.get_mut(node) {
             n.id = Some(id.clone());
             n.a11y.merge(&A11yProps {
@@ -1717,6 +1728,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
     }
 
     fn set_app_menu(&mut self, items: Vec<day_spec::MenuItem>) {
+        collect_menu_families(&items, &mut self.mounted_id_families);
         self.toolkit.set_app_menu(&items);
     }
 
@@ -1724,6 +1736,12 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         let Some(h) = self.nodes.get(root).and_then(|n| n.handle.clone()) else {
             return false;
         };
+        for op in &ops {
+            if let day_spec::ToolbarOp::Insert { item, .. } = op {
+                self.mounted_id_families
+                    .insert(crate::element_id::family_of(&item.id).to_owned());
+            }
+        }
         self.toolkit.edit_toolbar(&h, &ops)
     }
 
@@ -1751,6 +1769,7 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             log::warn!("context_menu on a subtree with no native view — menu dropped");
             return;
         };
+        collect_menu_families(&items, &mut self.mounted_id_families);
         let model = ContextMenuModel::Items(items.clone());
         self.context_menus.insert(node, model.clone());
         self.context_menus.insert(t, model);
@@ -3516,6 +3535,21 @@ fn dispatch_to_node(id: NodeId, ev: &Event) {
             h(ev);
         }
     });
+}
+
+fn collect_menu_families(
+    items: &[day_spec::MenuItem],
+    families: &mut std::collections::BTreeSet<String>,
+) {
+    for item in items {
+        match item {
+            day_spec::MenuItem::Action { id: Some(id), .. } => {
+                families.insert(crate::element_id::family_of(id).to_owned());
+            }
+            day_spec::MenuItem::Submenu { items, .. } => collect_menu_families(items, families),
+            _ => {}
+        }
+    }
 }
 
 #[cfg(test)]

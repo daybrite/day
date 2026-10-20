@@ -354,7 +354,7 @@ fn build_composed(split: Split, cx: &mut BuildCx) -> RNode {
             }
         }
     })
-    .id("day-split-divider");
+    .id(day_core::id!(day_split_divider));
     cx.under(node, |cx| {
         let _ = first.build(cx);
         let _ = divider.build(cx);
@@ -402,18 +402,18 @@ pub(crate) mod conformance {
             .page(|| {
                 let share = Signal::new(0.5);
                 column((
-                    label(move || format!("share {:.2}", share.get())).id("share"),
+                    label(move || format!("share {:.2}", share.get())).id(day_core::id!(share)),
                     button("Quarter")
                         .action(move || share.set(0.25))
-                        .id("quarter"),
+                        .id(day_core::id!(quarter)),
                     split(
-                        column((label("First"),)).grow().id("first"),
-                        column((label("Second"),)).grow().id("second"),
+                        column((label("First"),)).grow().id(day_core::id!(first)),
+                        column((label("Second"),)).grow().id(day_core::id!(second)),
                     )
                     .fraction(share)
                     .width(400.0)
                     .height(200.0)
-                    .id("split"),
+                    .id(day_core::id!(split)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -450,16 +450,16 @@ pub(crate) mod conformance {
                 column((
                     button("Sliver")
                         .action(move || share.set(0.02))
-                        .id("sliver"),
+                        .id(day_core::id!(sliver)),
                     split(
-                        column((label("First"),)).grow().id("first"),
-                        column((label("Second"),)).grow().id("second"),
+                        column((label("First"),)).grow().id(day_core::id!(first)),
+                        column((label("Second"),)).grow().id(day_core::id!(second)),
                     )
                     .fraction(share)
                     .min_pane(80.0)
                     .width(400.0)
                     .height(200.0)
-                    .id("split"),
+                    .id(day_core::id!(split)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -488,13 +488,13 @@ pub(crate) mod conformance {
                 column((
                     button("Stack")
                         .action(move || stacked.set(true))
-                        .id("stack"),
+                        .id(day_core::id!(stack)),
                     // Each pane's content fills its pane, so the pane's extent is what the
                     // frame assertions read; a native pane's Day frame carries its toolkit
                     // size but not its toolkit position.
                     split(
-                        column((label("First"),)).grow().id("first"),
-                        column((label("Second"),)).grow().id("second"),
+                        column((label("First"),)).grow().id(day_core::id!(first)),
+                        column((label("Second"),)).grow().id(day_core::id!(second)),
                     )
                     .axis(move || {
                         if stacked.get() {
@@ -505,7 +505,7 @@ pub(crate) mod conformance {
                     })
                     .width(400.0)
                     .height(200.0)
-                    .id("split"),
+                    .id(day_core::id!(split)),
                 ))
             })
             .drive(|d: Drive| async move {

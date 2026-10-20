@@ -109,7 +109,7 @@ fn climate_card(temp: Signal<f64>) -> AnyPiece {
     }
     crate::swiftui::TemperatureDial(String::from("Living room"), move || temp.get())
         .frame(220.0, 220.0)
-        .id("climate-dial")
+        .id(id!(climate_dial))
         .any()
 }
 ```

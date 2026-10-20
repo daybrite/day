@@ -39,8 +39,8 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
         list(
             items(move || rows.get(), |n: &u64| n.to_string()),
             |slot: ItemSlot<u64, String>| {
-                column((label(move || format!("row {}", slot.get())).id("row-label"),))
-                    .id_of(move || format!("row-{}", slot.get()))
+                column((label(move || format!("row {}", slot.get())).id(day_core::id!(row_label)),))
+                    .id_of(move || day_core::id!(row, slot.get()))
             },
         )
         .row_height(RowHeight::Uniform(40.0))
@@ -51,19 +51,19 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
     probe.list_bind(host, 0, cell);
     flush_sync();
     assert!(
-        has_id("row-0"),
+        has_id("row:0"),
         "the reactive id is registered on first bind"
     );
     assert!(
-        has_id("row-label"),
+        has_id("row_label"),
         "the static id is registered on first bind"
     );
 
     // Scrolled out: the pooled cell must stop answering, or a hidden row past a shrunk source
     // would satisfy a lookup meant for a visible one.
     probe.list_recycle(host, cell);
-    assert!(!has_id("row-0"), "a pooled cell's reactive id is parked");
-    assert!(!has_id("row-label"), "a pooled cell's static id is parked");
+    assert!(!has_id("row:0"), "a pooled cell's reactive id is parked");
+    assert!(!has_id("row_label"), "a pooled cell's static id is parked");
 
     // Bound to the same row: an unchanged slot value fires nothing, and the ids must still
     // come back: a search cleared, a refresh, any data swap that lands a cell on the row it
@@ -71,11 +71,11 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
     probe.list_bind(host, 0, cell);
     flush_sync();
     assert!(
-        has_id("row-0"),
+        has_id("row:0"),
         "reactive id restored after a same-row rebind"
     );
     assert!(
-        has_id("row-label"),
+        has_id("row_label"),
         "static id restored after a same-row rebind"
     );
 
@@ -83,17 +83,17 @@ fn a_pooled_cell_rebound_to_the_same_row_answers_lookups_again() {
     probe.list_recycle(host, cell);
     probe.list_bind(host, 7, cell);
     flush_sync();
-    assert!(has_id("row-7"), "reactive id follows the rebound row");
-    assert!(!has_id("row-0"), "…and the old row's id is gone");
+    assert!(has_id("row:7"), "reactive id follows the rebound row");
+    assert!(!has_id("row:0"), "…and the old row's id is gone");
     assert!(
-        has_id("row-label"),
+        has_id("row_label"),
         "static id restored after a cross-row rebind"
     );
 }
 
 /// Whether the dayscript ids of a row built in `cell` are registered right now.
 fn row_answers(key: u64) -> bool {
-    has_id(&format!("row-{key}")) || has_id("row-label")
+    has_id(&format!("row-{key}")) || has_id("row_label")
 }
 
 #[test]
@@ -106,8 +106,8 @@ fn a_released_cell_takes_its_row_with_it_and_a_rebind_builds_afresh() {
             items(move || rows.get(), |n: &u64| n.to_string()),
             move |slot: ItemSlot<u64, String>| {
                 count.set(count.get() + 1);
-                column((label(move || format!("row {}", slot.get())).id("row-label"),))
-                    .id_of(move || format!("row-{}", slot.get()))
+                column((label(move || format!("row {}", slot.get())).id(day_core::id!(row_label)),))
+                    .id_of(move || day_core::id!(row, slot.get()))
             },
         )
         .row_height(RowHeight::Uniform(40.0))
@@ -167,8 +167,8 @@ fn a_release_inside_a_tree_borrow_is_held_not_dropped() {
         list(
             items(move || rows.get(), |n: &u64| n.to_string()),
             |slot: ItemSlot<u64, String>| {
-                column((label(move || format!("row {}", slot.get())).id("row-label"),))
-                    .id_of(move || format!("row-{}", slot.get()))
+                column((label(move || format!("row {}", slot.get())).id(day_core::id!(row_label)),))
+                    .id_of(move || day_core::id!(row, slot.get()))
             },
         )
         .row_height(RowHeight::Uniform(40.0))
@@ -178,7 +178,7 @@ fn a_release_inside_a_tree_borrow_is_held_not_dropped() {
     let cell = MockHandle(9600);
     probe.list_bind(host, 0, cell);
     flush_sync();
-    assert!(has_id("row-0"));
+    assert!(has_id("row:0"));
     // A host that tears a cell down from inside work Day started (a reload, a removal) calls
     // release while the tree is borrowed. The park would be skipped there; the release must
     // not be, or the row leaks: it runs at the borrow's end.
@@ -190,7 +190,7 @@ fn a_release_inside_a_tree_borrow_is_held_not_dropped() {
         );
     });
     assert!(
-        !has_id("row-0"),
+        !has_id("row:0"),
         "the held release ran once the borrow ended"
     );
 }

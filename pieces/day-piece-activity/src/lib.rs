@@ -133,8 +133,10 @@ pub mod conformance {
             .page(|| {
                 let on = Signal::new(true);
                 column((
-                    activity().animating(on).id("spinner"),
-                    button("Stop").action(move || on.set(false)).id("stop"),
+                    activity().animating(on).id(day_core::id!(spinner)),
+                    button("Stop")
+                        .action(move || on.set(false))
+                        .id(day_core::id!(stop)),
                 ))
             })
             .drive(|d: Drive| async move {

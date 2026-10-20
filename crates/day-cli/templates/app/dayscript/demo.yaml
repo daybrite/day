@@ -4,34 +4,34 @@
 flow:
   - wait_for: { id: nav }
   - navigate: { route: welcome }
-  - assert_visible: { id: welcome-mark }
-  - assert_text: { id: welcome-title, key: welcome_title }
-  - assert_visible: { id: welcome-body }
+  - assert_visible: { id: welcome_mark }
+  - assert_text: { id: welcome_title, key: welcome_title }
+  - assert_visible: { id: welcome_body }
   - a11y_audit: {}
   - screenshot: welcome
 
   - navigate: { route: items }
   - assert_route: { route: items }
-  - wait_for: { id: item-list }
+  - wait_for: { id: item_list }
   - screenshot: list
 
   - toolbar: { item: tb-add }
-  - wait_for: { id: field-name }
-  - input: { id: field-name, text: "Written by the demo" }
-  - assert_text: { id: field-name, text: "Written by the demo" }
-  - toggle: { id: field-done, value: true }
-  - assert_value: { id: field-done, value: true }
+  - wait_for: { id: field_name }
+  - input: { id: field_name, text: "Written by the demo" }
+  - assert_text: { id: field_name, text: "Written by the demo" }
+  - toggle: { id: field_done, value: true }
+  - assert_value: { id: field_done, value: true }
   - a11y_audit: {}
   - screenshot: editor
 
   # Remove only the item this run created, leaving existing items alone.
   - toolbar: { item: tb-delete }
-  - wait_for: { id: item-list }
-  - assert_missing: { id: field-name }
+  - wait_for: { id: item_list }
+  - assert_missing: { id: field_name }
 
   # Settings: the window on desktop, the section on a phone; the language row exists everywhere.
   # A plain screenshot captures the primary window, so the desktop panel is captured by its key.
   - navigate: { route: settings }
-  - wait_for: { id: language-picker }
+  - wait_for: { id: language_picker }
   - screenshot: settings
   - screenshot: { name: settings-window, window: day.preferences, skip_on: [uikit, mdc, arkui, dom] }

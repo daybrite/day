@@ -170,7 +170,7 @@ Two things make the recreation read as a theme change rather than a relaunch:
   ordered: the overlay comes down after the restored page is laid out.
 
 A scripted run sees the whole switch as one step: `ui_idle` reports busy from the moment the
-theme is asked for until the crossfade is done, so `select: { id: theme-picker, index: 1 }`
+theme is asked for until the crossfade is done, so `select: { id: theme_picker, index: 1 }`
 followed by `wait_idle` and `assert_route` proves both halves. Secondary windows do not survive
 the primary's recreation (their activities go down with it), and a `std::sync::Once` in
 `root()` runs once per process, not per mount.

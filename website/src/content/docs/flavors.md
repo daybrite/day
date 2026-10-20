@@ -104,8 +104,8 @@ A flavor changes what the app says, so the [dayscript](/docs/dayscript) gates ma
 `skip_on: [flavor:custom]` and `only_on: [flavor:custom]`, with `flavor:none` for the base app.
 
 ```yaml
-- assert_text: { id: welcome-title, text: "Welcome to Notes", skip_on: [flavor:custom] }
-- assert_text: { id: welcome-title, text: "Welcome to the Custom edition", only_on: [flavor:custom] }
+- assert_text: { id: welcome_title, text: "Welcome to Notes", skip_on: [flavor:custom] }
+- assert_text: { id: welcome_title, text: "Welcome to the Custom edition", only_on: [flavor:custom] }
 ```
 
 ## Checks

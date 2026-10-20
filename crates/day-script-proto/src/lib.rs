@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 pub mod format;
+pub mod ids;
+pub use ids::{EvidenceClass, IdCatalog, IdDeclaration, IdEvidence};
 mod memory;
 pub use format::{FailurePolicy, FormatError, Script, ScriptStep, steps_from_yaml, steps_to_yaml};
 pub use memory::MemorySize;
@@ -44,6 +46,10 @@ pub enum DialogMode {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Step {
+    /// Compiled declaration registry, independent of the mounted tree.
+    IdCatalog,
+    /// Cumulative mounted families, diagnostic only.
+    IdMounted,
     WaitFor {
         id: String,
         /// Upper bound in seconds for the implicit retry wait (§14.3), for elements that
@@ -681,6 +687,8 @@ impl Step {
             Self::WaitIdle => "wait_idle",
             Self::MemoryUsage { .. } => "memory_usage",
             Self::MemoryWatch { .. } => "memory_watch",
+            Self::IdCatalog => "id_catalog",
+            Self::IdMounted => "id_mounted",
             Self::ScrollTo { .. } => "scroll_to",
             Self::Tap { .. } => "tap",
             Self::Key { .. } => "key",
@@ -747,6 +755,8 @@ fn default_true() -> bool {
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq)]
 pub struct Reply {
+    #[serde(default, skip_serializing_if = "<[IdEvidence]>::is_empty")]
+    pub id_evidence: Box<[IdEvidence]>,
     pub ok: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,

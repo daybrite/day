@@ -3273,8 +3273,8 @@ pub fn root() -> impl Piece {
     column((
         label(res::str::app_title())
             .font(Font::Title)
-            .id("demo-title"),
-        piece.id("demo-piece"),
+            .id(id!(demo_title)),
+        piece.id(id!(demo_piece)),
     ))
     .spacing(12.0)
     .padding(16.0)
@@ -3306,11 +3306,11 @@ pub fn root() -> impl Piece {
     column((
         label(res::str::app_title())
             .font(Font::Title)
-            .id("demo-title"),
+            .id(id!(demo_title)),
         piece
             .placeholder(res::str::demo_placeholder())
-            .id("demo-piece"),
-        label(move || text.get()).id("demo-echo"),
+            .id(id!(demo_piece)),
+        label(move || text.get()).id(id!(demo_echo)),
     ))
     .spacing(12.0)
     .padding(16.0)
@@ -3333,9 +3333,9 @@ const DEMO_COMPOSITE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrit
 #
 #     day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 flow:
-  - wait_for: { id: demo-piece }
-  - assert_text: { id: demo-title, text: "__TITLE__" }
-  - assert_visible: { id: demo-piece }
+  - wait_for: { id: demo_piece }
+  - assert_text: { id: demo_title, text: "__TITLE__" }
+  - assert_visible: { id: demo_piece }
   - screenshot: demo
 "#;
 
@@ -3343,11 +3343,11 @@ const DEMO_NATIVE_SCRIPT: &str = r#"# The demo's walkthrough (https://daybrite.d
 #
 #     day launch -t __FIRST_TARGET__ --script dayscript/demo.yaml
 flow:
-  - wait_for: { id: demo-piece }
-  - assert_text: { id: demo-title, text: "__TITLE__" }
+  - wait_for: { id: demo_piece }
+  - assert_text: { id: demo_title, text: "__TITLE__" }
   # Typing reaches the app through the piece's own event handler, and the label shows what arrived.
-  - input: { id: demo-piece, text: "Typed by the walkthrough" }
-  - assert_text: { id: demo-echo, text: "Typed by the walkthrough" }
+  - input: { id: demo_piece, text: "Typed by the walkthrough" }
+  - assert_text: { id: demo_echo, text: "Typed by the walkthrough" }
   - screenshot: demo
 "#;
 
@@ -4199,7 +4199,7 @@ mod scaffold_tests {
                         .any(|(p, _)| p.starts_with("platform/macos/"))
                 );
                 assert!(!rendered.iter().any(|(p, _)| p.starts_with("platform/ios/")));
-                assert!(text("dayscript/demo.yaml").contains("input: { id: demo-piece"));
+                assert!(text("dayscript/demo.yaml").contains("input: { id: demo_piece"));
             }
         }
     }

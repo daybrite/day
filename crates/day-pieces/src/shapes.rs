@@ -523,7 +523,7 @@ pub(crate) mod conformance {
     /// `shape` on a white ground, so a sample outside it reads white on every theme.
     fn on_white(s: ShapePiece) -> impl Piece {
         zstack((rectangle().fill(Color::WHITE), s))
-            .id("ground")
+            .id(day_core::id!(ground))
             .frame(80.0, 80.0)
     }
 
@@ -582,7 +582,7 @@ pub(crate) mod conformance {
                         .fill(Color::rgb(0.0, 0.0, 1.0))
                         .at(0.5, 0.0, 0.5, 1.0),
                 ])
-                .id("group")
+                .id(day_core::id!(group))
                 .frame(80.0, 40.0)
             })
             .drive(|d: Drive| async move {

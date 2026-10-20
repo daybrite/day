@@ -514,9 +514,11 @@ pub(crate) mod conformance {
                             .label("Level")
                             .value(move || format!("{:.0}", level.get()))
                     })
-                    .id("meter")
+                    .id(day_core::id!(meter))
                     .frame(160.0, 24.0),
-                    button("Raise").action(move || level.set(80.0)).id("raise"),
+                    button("Raise")
+                        .action(move || level.set(80.0))
+                        .id(day_core::id!(raise)),
                 ))
                 .spacing(8.0)
             })
@@ -543,8 +545,8 @@ pub(crate) mod conformance {
                         );
                     })
                     .frame(80.0, 60.0)
-                    .id("painted"),
-                    canvas(|_, _| {}).frame(40.0, 40.0).id("empty"),
+                    .id(day_core::id!(painted)),
+                    canvas(|_, _| {}).frame(40.0, 40.0).id(day_core::id!(empty)),
                 ))
             })
             .drive(|d: Drive| async move {

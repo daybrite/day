@@ -153,7 +153,7 @@ When a Piece's `build` runs, three things are created together and live together
    Piece (builder)          realized tree node             native widget
   ┌───────────────┐   build   ┌──────────────────┐  realize  ┌─────────────┐
   │ label("Hi")   │ ────────► │ kind: "label"    │ ────────► │ NSTextField │
-  │  .id("hi")    │           │ handle ──────────┼───────────│  (AppKit)   │
+  │  .id(id!(hi))    │           │ handle ──────────┼───────────│  (AppKit)   │
   └───────────────┘           │ layout, flex     │           └─────────────┘
                               │ scope ──┐        │
                               │ id, a11y│        │
@@ -217,7 +217,7 @@ materializing every row.
 Any Piece can carry a stable string id:
 
 ```rust
-button(tr("save")).action(save).id("save-button")
+button(tr("save")).action(save).id(id!(save_button))
 ```
 
 [dayscript](/docs/dayscript) targets elements by id, [accessibility](/docs/accessibility) uses them

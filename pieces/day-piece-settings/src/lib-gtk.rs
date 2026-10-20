@@ -530,7 +530,7 @@ pub(super) fn row_piece(inst: Rc<Installed>, r: &Row, _desktop: bool) -> Option<
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let ctl = stepper_control(v, dec, inc, id.as_deref());
+            let ctl = stepper_control(v, dec, inc, id.as_ref());
             native(props(false, None), Some(ctl), None, None)
         }
         RowKind::Text {
@@ -1722,7 +1722,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
                         .align(day_spec::props::TextAlign::Trailing);
                     let value_label = match &id {
                         Some(i) => value_label
-                            .id(format!("{i}-value"))
+                            .id(day_core::id!(pref_value, i.as_str()))
                             .min_width(VALUE_WIDTH)
                             .max_width(VALUE_WIDTH)
                             .any(),
@@ -1744,7 +1744,7 @@ fn shell_row(inst: Rc<Installed>, r: &Row, b: &mut ShellBuild) -> ShellRow {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let ctl = stepper_control(v, dec, inc, id.as_deref());
+            let ctl = stepper_control(v, dec, inc, id.as_ref());
             let slot = b.slot(SlotKind::Suffix, Some(ctl), None, None);
             mk_row(false, None, ShellRowKind::Row { slot: Some(slot) })
         }

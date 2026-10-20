@@ -2388,7 +2388,7 @@ mod imp {
     /// fields: id, kind, label, icon, enabled, action, extra. A menu item's extra is the app-menu
     /// spec `serialize_menu` writes (its own `\t`/`\n` never collide with these separators); a
     /// segmented item's is the selected index and the segment titles, `\u{1d}`-separated, each
-    /// title followed by its glyph after a `\u{1c}`. A page's search field (`day.search`,
+    /// title followed by its glyph after a `\u{1c}`. A page's search field (`day::search`,
     /// docs/search.md) is a `search` record whose extra is its text and its placeholder,
     /// `\u{1d}`-separated: the bar draws it as a collapsible search action. The sidebar toggle
     /// never reaches a phone's bar and is left out: this backend has no pane the toggle could

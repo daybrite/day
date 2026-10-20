@@ -1205,8 +1205,8 @@ fn section_sidebar<K: Route, S: Binding<K>>(
             .map(|r| r.title.clone())
             .unwrap_or_default()
     })
-    .row_id(|id| format!("sidebar:{id}"))
-    .id("nav-sections")
+    .row_id(|id| day_core::id!(sidebar, id))
+    .id(day_core::id!(nav_sections))
     .grow()
     .any()
 }
@@ -1275,7 +1275,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
                 }),))
                 .align(VAlign::Center)
                 .grow()
-                .id(format!("sidebar:{}", slot.field(|r| r.id.clone())))
+                .id_of(move || day_core::id!(sidebar, slot.field(|r| r.id.clone())))
                 .on_tap(move || {
                     if let Some(key) = slot.field(|r| r.key.clone()) {
                         let title = slot.field(|r| r.title.clone());
@@ -1337,7 +1337,7 @@ fn reorder_sidebar<K: Route, S: Binding<K>>(
             }
         }),
     )
-    .id("nav-reorder-list")
+    .id(day_core::id!(nav_reorder_list))
     .grow()
     .any()
 }
@@ -1681,7 +1681,7 @@ impl Search {
 }
 
 /// Install a navigation page's own search field (docs/search.md, "Page search"): the reserved
-/// `day.search` item on the page's chrome, which each toolkit draws where its platform puts a
+/// `day::search` item on the page's chrome, which each toolkit draws where its platform puts a
 /// page's search (the window toolbar on a desktop, the page's navigation bar on iOS, its app bar
 /// on Android). The field shows while its page does and leaves with it.
 ///
@@ -1722,7 +1722,7 @@ pub(crate) fn install_page_search(search: Search) {
         }))
     };
     let item = move |text: String, suggestions: Vec<String>| day_spec::ToolbarItem {
-        id: SEARCH_ITEM_ID.to_string(),
+        id: day_core::id!(day::search).as_str().to_owned(),
         kind: day_spec::ToolbarItemKind::Search {
             text,
             placeholder: prompt.clone(),
@@ -2054,7 +2054,7 @@ impl SearchSpec {
             let token = day_core::register_contribution(
                 chrome,
                 vec![day_spec::ToolbarItem {
-                    id: SEARCH_ITEM_ID.to_string(),
+                    id: day_core::id!(day::search).as_str().to_owned(),
                     kind: day_spec::ToolbarItemKind::Search {
                         text: seed.text.clone(),
                         placeholder: seed.prompt.clone(),
@@ -2075,7 +2075,7 @@ impl SearchSpec {
             Scope::current().on_cleanup(move || day_core::unregister_contribution(token));
         } else {
             // Inline: no bar item exists, so the reserved id is answered by the host itself.
-            // That is what lets a dayscript `toolbar: { item: day.search, text }` reach the same
+            // That is what lets a dayscript `toolbar: { item: day::search, text }` reach the same
             // query on a phone as on a desktop (docs/search.md): day-core resolves the id to
             // this host and delivers `Event::SearchChanged`, the event the native field emits.
             day_core::register_search_host(host);
@@ -2444,7 +2444,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     ///
     /// ```ignore
     /// nav(section)
-    ///     .toolbar(toolbar_button("add", tr("add")).icon(Symbol::Add).action(add_item))
+    ///     .toolbar(toolbar_button(day_core::id!(add), tr("add")).icon(Symbol::Add).action(add_item))
     /// ```
     pub fn toolbar<M>(mut self, content: impl crate::ToolbarContent<M>) -> Self {
         self.toolbar.push(content.into_source());
@@ -3398,7 +3398,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 });
                 node
             })
-            .id("nav-menu")
+            .id(day_core::id!(nav_menu))
             .any()
         };
         let content: AnyPiece = match sel.header {
@@ -5475,14 +5475,16 @@ pub(crate) mod conformance {
         nav_stack(
             path,
             column((
-                label(move || format!("depth {}", path.get().len())).id("depth"),
+                label(move || format!("depth {}", path.get().len())).id(day_core::id!(depth)),
                 button("Open")
                     .action(move || path.update(|p| p.push("detail".into())))
-                    .id("open"),
+                    .id(day_core::id!(open)),
             )),
         )
         .title("Root")
-        .destination(|key: &String| label(format!("Page {key}")).id(format!("page-{key}")))
+        .destination(|key: &String| {
+            label(format!("Page {key}")).id(day_core::id!(page, key.to_owned()))
+        })
     }
 
     /// Pushing a page shows it; going back pops it and writes the pop into the path.
@@ -5495,10 +5497,10 @@ pub(crate) mod conformance {
             .drive(|d: Drive| async move {
                 d.assert_text("depth", "depth 0").await?;
                 d.tap("open").await?;
-                d.assert_text("page-detail", "Page detail").await?;
+                d.assert_text("page:detail", "Page detail").await?;
                 d.wait_idle().await?;
                 d.nav_back().await?;
-                d.assert_missing("page-detail").await?;
+                d.assert_missing("page:detail").await?;
                 d.assert_text("depth", "depth 0").await
             })
     }
@@ -5510,14 +5512,14 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| stack(Signal::new(vec!["first".into(), "second".into()])))
             .drive(|d: Drive| async move {
-                d.assert_text("page-second", "Page second").await?;
+                d.assert_text("page:second", "Page second").await?;
                 d.wait_idle().await?;
                 d.nav_back().await?;
-                d.assert_missing("page-second").await?;
-                d.assert_text("page-first", "Page first").await?;
+                d.assert_missing("page:second").await?;
+                d.assert_text("page:first", "Page first").await?;
                 d.wait_idle().await?;
                 d.nav_back().await?;
-                d.assert_missing("page-first").await?;
+                d.assert_missing("page:first").await?;
                 d.assert_text("depth", "depth 0").await
             })
     }
@@ -5530,16 +5532,20 @@ pub(crate) mod conformance {
             .proves(kinds::NAV_MENU)
             .page(|| {
                 nav(Signal::new("alpha".to_string()))
-                    .item("alpha", "Alpha", || label("Page Alpha").id("page-alpha"))
-                    .item("beta", "Beta", || label("Page Beta").id("page-beta"))
+                    .item("alpha", "Alpha", || {
+                        label("Page Alpha").id(day_core::id!(page_alpha))
+                    })
+                    .item("beta", "Beta", || {
+                        label("Page Beta").id(day_core::id!(page_beta))
+                    })
             })
             .drive(|d: Drive| async move {
                 d.navigate("beta").await?;
-                d.assert_text("page-beta", "Page Beta").await?;
+                d.assert_text("page_beta", "Page Beta").await?;
                 d.assert_route("beta").await?;
                 d.wait_idle().await?;
                 d.navigate("alpha").await?;
-                d.assert_text("page-alpha", "Page Alpha").await
+                d.assert_text("page_alpha", "Page Alpha").await
             })
     }
 
@@ -5551,13 +5557,17 @@ pub(crate) mod conformance {
             .page(|| {
                 nav(Signal::new("alpha".to_string()))
                     .presentation(NavPresentation::Tabs)
-                    .item("alpha", "Alpha", || label("Tab Alpha").id("tab-alpha"))
-                    .item("beta", "Beta", || label("Tab Beta").id("tab-beta"))
+                    .item("alpha", "Alpha", || {
+                        label("Tab Alpha").id(day_core::id!(tab_alpha))
+                    })
+                    .item("beta", "Beta", || {
+                        label("Tab Beta").id(day_core::id!(tab_beta))
+                    })
             })
             .drive(|d: Drive| async move {
-                d.assert_text("tab-alpha", "Tab Alpha").await?;
+                d.assert_text("tab_alpha", "Tab Alpha").await?;
                 d.navigate("beta").await?;
-                d.assert_text("tab-beta", "Tab Beta").await?;
+                d.assert_text("tab_beta", "Tab Beta").await?;
                 d.assert_route("beta").await
             })
     }
@@ -5566,15 +5576,18 @@ pub(crate) mod conformance {
     fn covered(open: Signal<Option<String>>, sheet: bool) -> impl Piece {
         let c = cover(open, move |key: &String| {
             column((
-                label(format!("Cover {key}")).id("cover-text"),
-                button("Close").action(move || open.set(None)).id("close"),
+                label(format!("Cover {key}")).id(day_core::id!(cover_text)),
+                button("Close")
+                    .action(move || open.set(None))
+                    .id(day_core::id!(close)),
             ))
         });
         column((
-            label(move || format!("open {}", open.get().unwrap_or_default())).id("state"),
+            label(move || format!("open {}", open.get().unwrap_or_default()))
+                .id(day_core::id!(state)),
             button("Show")
                 .action(move || open.set(Some("panel".into())))
-                .id("show"),
+                .id(day_core::id!(show)),
             if sheet { c.sheet().any() } else { c.any() },
         ))
     }
@@ -5587,12 +5600,12 @@ pub(crate) mod conformance {
             .proves(kinds::COVER)
             .page(|| covered(Signal::new(None), false))
             .drive(|d: Drive| async move {
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.tap("show").await?;
-                d.assert_text("cover-text", "Cover panel").await?;
+                d.assert_text("cover_text", "Cover panel").await?;
                 d.wait_idle().await?;
                 d.tap("close").await?;
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.assert_text("state", "open ").await
             })
     }
@@ -5605,11 +5618,11 @@ pub(crate) mod conformance {
             .page(|| covered(Signal::new(None), true))
             .drive(|d: Drive| async move {
                 d.tap("show").await?;
-                d.assert_text("cover-text", "Cover panel").await?;
+                d.assert_text("cover_text", "Cover panel").await?;
                 d.assert_text("state", "open panel").await?;
                 d.wait_idle().await?;
                 d.nav_back().await?;
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.assert_text("state", "open ").await
             })
     }
@@ -5667,19 +5680,22 @@ pub(crate) mod conformance {
         cover_h.set(0.0);
         let sheet = cover(open, move |key: &String| {
             column((
-                label(format!("Cover {key}")).id("cover-text"),
+                label(format!("Cover {key}")).id(day_core::id!(cover_text)),
                 height_probe(cover_h.clone()),
-                button("Close").action(move || open.set(None)).id("close"),
+                button("Close")
+                    .action(move || open.set(None))
+                    .id(day_core::id!(close)),
             ))
         })
         .half_sheet();
         zstack((
             height_probe(page_h),
             column((
-                label(move || format!("open {}", open.get().unwrap_or_default())).id("state"),
+                label(move || format!("open {}", open.get().unwrap_or_default()))
+                    .id(day_core::id!(state)),
                 button("Show")
                     .action(move || open.set(Some("panel".into())))
-                    .id("show"),
+                    .id(day_core::id!(show)),
                 sheet,
             )),
         ))
@@ -5723,15 +5739,15 @@ pub(crate) mod conformance {
             .proves(kinds::COVER)
             .page(|| half_covered(Signal::new(None)))
             .drive(|d: Drive| async move {
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.tap("show").await?;
-                d.assert_text("cover-text", "Cover panel").await?;
+                d.assert_text("cover_text", "Cover panel").await?;
                 d.wait_idle().await?;
                 let heights = HALF_HEIGHTS.with(|h| h.clone());
                 check_half(&d, "half sheet content", &heights).await?;
                 d.assert_text("state", "open panel").await?;
                 d.tap("close").await?;
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.assert_text("state", "open ").await
             })
     }
@@ -5744,10 +5760,10 @@ pub(crate) mod conformance {
             .page(|| half_covered(Signal::new(None)))
             .drive(|d: Drive| async move {
                 d.tap("show").await?;
-                d.assert_text("cover-text", "Cover panel").await?;
+                d.assert_text("cover_text", "Cover panel").await?;
                 d.wait_idle().await?;
                 d.nav_back().await?;
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.assert_text("state", "open ").await
             })
     }
@@ -5779,9 +5795,11 @@ pub(crate) mod conformance {
                 let open = Signal::new(None::<String>);
                 let sheet = cover(open, move |key: &String| {
                     column((
-                        label(format!("Cover {key}")).id("cover-text"),
+                        label(format!("Cover {key}")).id(day_core::id!(cover_text)),
                         height_probe(sheet_h.clone()),
-                        button("Close").action(move || open.set(None)).id("close"),
+                        button("Close")
+                            .action(move || open.set(None))
+                            .id(day_core::id!(close)),
                     ))
                 })
                 .sheet()
@@ -5790,10 +5808,10 @@ pub(crate) mod conformance {
                     height_probe(page_h),
                     column((
                         label(move || format!("open {}", open.get().unwrap_or_default()))
-                            .id("state"),
+                            .id(day_core::id!(state)),
                         button("Show")
                             .action(move || open.set(Some("panel".into())))
-                            .id("show"),
+                            .id(day_core::id!(show)),
                         sheet,
                     )),
                 ))
@@ -5806,7 +5824,7 @@ pub(crate) mod conformance {
                 });
                 d.wait_idle().await?;
                 d.tap("show").await?;
-                d.assert_text("cover-text", "Cover panel").await?;
+                d.assert_text("cover_text", "Cover panel").await?;
                 let heights = SHEET_HEIGHTS.with(|h| h.clone());
                 let mut got = (0.0, 0.0);
                 for _ in 0..40 {
@@ -5823,7 +5841,7 @@ pub(crate) mod conformance {
                 )?;
                 d.assert_text("state", "open panel").await?;
                 d.tap("close").await?;
-                d.assert_missing("cover-text").await?;
+                d.assert_missing("cover_text").await?;
                 d.assert_text("state", "open ").await
             })
     }

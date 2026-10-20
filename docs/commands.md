@@ -21,7 +21,7 @@ use day::prelude::*;
 
 fn counter() -> impl Piece {
     let count = Signal::new(0);
-    let add = Command::new("add", "Add one", move || count.update(|n| *n += 1))
+    let add = Command::new(id!(add), "Add one", move || count.update(|n| *n += 1))
         .enabled(move || count.get() < 3)
         .icon(Symbol::Add)
         .shortcut(Shortcut::primary("+"));
@@ -62,7 +62,7 @@ factories return `Command`, so callers need not name closure types:
 
 ```rust
 fn refresh_command() -> Command {
-    Command::new("refresh", res::str::refresh(), refresh_document).icon(Symbol::Refresh)
+    Command::new(id!(refresh), res::str::refresh(), refresh_document).icon(Symbol::Refresh)
 }
 ```
 
@@ -76,7 +76,7 @@ Content buttons bind automatically. Use a **derived** toolbar for changing label
 
 ```rust
 let bar_command = save.clone();
-content.toolbar(move || vec![bar_command.toolbar_item().id("save-toolbar")]);
+content.toolbar(move || vec![bar_command.toolbar_item().id(id!(save_toolbar))]);
 ```
 
 Toolbar availability and check state also bind in a fixed list, but its title is a snapshot.
@@ -98,7 +98,7 @@ Presentation-specific `.enabled(...)` overrides likewise do not replace the comm
 
 The command id is a default UI id, not a globally unique dispatch token. Buttons, menus, and
 toolbars retain their existing separate dispatch rules. Give two buttons in the same tree
-separate ids (`command.button().id("save-footer")`); keep toolbar ids unique within their chrome
+separate ids (`command.button().id(id!(save_footer))`); keep toolbar ids unique within their chrome
 and menu ids unambiguous in the installed menu. Toolkit ids remain internal. Sharing a command
 does not register a second application-wide keyboard handler or resolve accelerator conflicts.
 Install a shortcut in one appropriate menu; do not assign the same accelerator to unrelated

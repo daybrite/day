@@ -128,7 +128,7 @@ pub struct DocumentTabs<K: Route> {
     native: Rc<dyn Fn() -> bool>,
     chrome: Option<Rc<dyn Fn(TabActions<K>) -> AnyPiece>>,
     layout: Option<Box<dyn FnOnce(AnyPiece, AnyPiece) -> AnyPiece>>,
-    strip_id: Option<String>,
+    strip_id: Option<day_core::ElementId>,
 }
 /// Labels are required rather than supplying untranslated English chrome.
 pub fn document_tabs<K: Route, P: Piece, N, C>(
@@ -156,8 +156,8 @@ impl<K: Route> DocumentTabs<K> {
     /// Name the default strip's elements for scripts and tests: `{prefix}-strip` on the row of
     /// tabs, `{prefix}-tab-{key}` and `{prefix}-close-{key}` per document, `{prefix}-new` on
     /// the add button. Without it the prefix is `day-documents-{n}`, unique per host.
-    pub fn strip_id(mut self, prefix: impl Into<String>) -> Self {
-        self.strip_id = Some(prefix.into());
+    pub fn strip_id(mut self, id: day_core::ElementId) -> Self {
+        self.strip_id = Some(id);
         self
     }
     /// Reactive preference. Switching chrome preserves every resident page and native view.
@@ -198,7 +198,7 @@ impl<K: Route> Piece for DocumentTabs<K> {
         let host_id = NEXT_HOST.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let strip_prefix = Rc::new(
             self.strip_id
-                .unwrap_or_else(|| format!("day-documents-{host_id}")),
+                .unwrap_or_else(|| day_core::id!(document_strip, host_id)),
         );
         let tabs = self.tabs;
         let preference = self.native;
@@ -327,7 +327,10 @@ impl<K: Route> Piece for DocumentTabs<K> {
                                 .action(move || {
                                     tabs.select(&select_key);
                                 })
-                                .id(format!("{tab_prefix}-tab-{}", key.key()))
+                                .id(day_core::id!(
+                                    document_tab,
+                                    format!("{}:{}", tab_prefix.as_str(), key.key())
+                                ))
                                 .a11y(move |a| {
                                     a.role(day_spec::Role::Tab).selected(move || {
                                         tabs.selected().as_ref() == Some(&announced_key)
@@ -343,7 +346,10 @@ impl<K: Route> Piece for DocumentTabs<K> {
                                         tabs.close(&close_key);
                                     }
                                 })
-                                .id(format!("{tab_prefix}-close-{}", key.key())),
+                                .id(day_core::id!(
+                                    document_close,
+                                    format!("{}:{}", tab_prefix.as_str(), key.key())
+                                )),
                         ))
                         .spacing(2.0)
                         .context_menu(vec![crate::menu_item(close_label.clone()).action(
@@ -398,7 +404,7 @@ impl<K: Route> Piece for DocumentTabs<K> {
                     },
                 ),))
                 .spacing(4.0)
-                .id(format!("{prefix}-strip"))
+                .id((*prefix).clone())
                 .a11y(|a| a.role(day_spec::Role::TabList)),
             )
             .horizontal()
@@ -413,7 +419,7 @@ impl<K: Route> Piece for DocumentTabs<K> {
                                 f();
                             }
                         })
-                        .id(format!("{prefix}-new"))
+                        .id(day_core::id!(document_new, prefix.as_str()))
                 },
             );
             AnyPiece::new(crate::row((strip.grow(), add)).spacing(4.0))
@@ -962,16 +968,17 @@ pub(crate) mod conformance {
                 let count = Signal::new(0u32);
                 let key = key.clone();
                 column((
-                    label(format!("Document {key}")).id(format!("doc-{key}")),
+                    label(format!("Document {key}")).id(day_core::id!(doc, key.to_owned())),
                     button("Bump")
                         .action(move || count.update(|n| *n += 1))
-                        .id(format!("bump-{key}")),
-                    label(move || count.get().to_string()).id(format!("count-{key}")),
+                        .id(day_core::id!(document_bump, key.to_owned())),
+                    label(move || count.get().to_string())
+                        .id(day_core::id!(document_count, key.to_owned())),
                 ))
                 .spacing(4.0)
             },
         )
-        .strip_id("docs")
+        .strip_id(day_core::id!(docs))
         .native(move || pref.get());
         if closing == Closing::VetoFirst {
             host = host.on_close(move |key: String| {
@@ -992,7 +999,7 @@ pub(crate) mod conformance {
         let opens = KEYS.map(|key| {
             button(format!("Open {key}"))
                 .action(move || tabs.open(key.to_string(), true))
-                .id(format!("open-{key}"))
+                .id(day_core::id!(document_open, key.to_owned()))
         });
         let [open_a, open_b, open_c] = opens;
         column((
@@ -1002,45 +1009,46 @@ pub(crate) mod conformance {
                 open_c,
                 button("Open c behind")
                     .action(move || tabs.open("c".to_string(), false))
-                    .id("open-c-bg"),
+                    .id(day_core::id!(open_c_bg)),
                 button("Close b")
                     .action(move || {
                         tabs.close(&"b".to_string());
                     })
-                    .id("close-b"),
+                    .id(day_core::id!(close_b)),
             ))
             .spacing(4.0),
             row((
                 button("Next")
                     .action(move || tabs.select_next(false))
-                    .id("next"),
+                    .id(day_core::id!(next)),
                 button("Previous")
                     .action(move || tabs.select_next(true))
-                    .id("prev"),
+                    .id(day_core::id!(prev)),
                 button("Last first")
                     .action(move || {
                         if let Some(last) = tabs.keys().last() {
                             tabs.move_to(last, 0);
                         }
                     })
-                    .id("move-last-first"),
+                    .id(day_core::id!(move_last_first)),
                 button("A far")
                     .action(move || {
                         tabs.move_to(&"a".to_string(), 99);
                     })
-                    .id("move-a-far"),
+                    .id(day_core::id!(move_a_far)),
                 button("Rename")
                     .action(move || renames.update(|n| *n += 1))
-                    .id("rename"),
-                toggle(pref).id("native-pref"),
+                    .id(day_core::id!(rename)),
+                toggle(pref).id(day_core::id!(native_pref)),
             ))
             .spacing(4.0),
             row((
                 label(move || format!("selected {}", tabs.selected().unwrap_or("none".into())))
-                    .id("selected"),
-                label(move || format!("order {}", tabs.keys().join(","))).id("order"),
-                label(move || format!("vetoes {}", vetoes.get())).id("vetoes"),
-                label(move || format!("closes {}", closes.get().join(","))).id("closes"),
+                    .id(day_core::id!(selected)),
+                label(move || format!("order {}", tabs.keys().join(","))).id(day_core::id!(order)),
+                label(move || format!("vetoes {}", vetoes.get())).id(day_core::id!(vetoes)),
+                label(move || format!("closes {}", closes.get().join(",")))
+                    .id(day_core::id!(closes)),
             ))
             .spacing(8.0),
             host.grow(),
@@ -1058,17 +1066,17 @@ pub(crate) mod conformance {
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
                 // A foreground open selects what it opens.
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
                 d.assert_text("selected", "selected b").await?;
-                d.assert_text("doc-b", "Document b").await?;
-                d.assert_text("docs-tab-a", "Doc a").await?;
-                d.assert_enabled("docs-tab-a", true).await?;
-                d.assert_enabled("docs-tab-b", true).await?;
-                d.assert_on("docs-tab-b", true).await?;
-                d.assert_on("docs-tab-a", false).await?;
+                d.assert_text("doc:b", "Document b").await?;
+                d.assert_text("document_tab:docs%3Aa", "Doc a").await?;
+                d.assert_enabled("document_tab:docs%3Aa", true).await?;
+                d.assert_enabled("document_tab:docs%3Ab", true).await?;
+                d.assert_on("document_tab:docs%3Ab", true).await?;
+                d.assert_on("document_tab:docs%3Aa", false).await?;
                 d.assert_native(
-                    "docs-tab-b",
+                    "document_tab:docs%3Ab",
                     NativeExpect {
                         checked: Some(true),
                         ..Default::default()
@@ -1076,7 +1084,7 @@ pub(crate) mod conformance {
                 )
                 .await?;
                 d.assert_native(
-                    "docs-tab-a",
+                    "document_tab:docs%3Aa",
                     NativeExpect {
                         checked: Some(false),
                         ..Default::default()
@@ -1084,13 +1092,13 @@ pub(crate) mod conformance {
                 )
                 .await?;
                 d.shot("two-tabs").await?;
-                d.tap("docs-tab-a").await?;
+                d.tap("document_tab:docs%3Aa").await?;
                 d.assert_text("selected", "selected a").await?;
-                d.assert_text("doc-a", "Document a").await?;
-                d.assert_on("docs-tab-b", false).await?;
-                d.assert_on("docs-tab-a", true).await?;
+                d.assert_text("doc:a", "Document a").await?;
+                d.assert_on("document_tab:docs%3Ab", false).await?;
+                d.assert_on("document_tab:docs%3Aa", true).await?;
                 d.assert_native(
-                    "docs-tab-a",
+                    "document_tab:docs%3Aa",
                     NativeExpect {
                         checked: Some(true),
                         enabled: Some(true),
@@ -1099,7 +1107,7 @@ pub(crate) mod conformance {
                 )
                 .await?;
                 d.assert_native(
-                    "docs-tab-b",
+                    "document_tab:docs%3Ab",
                     NativeExpect {
                         checked: Some(false),
                         enabled: Some(true),
@@ -1108,9 +1116,9 @@ pub(crate) mod conformance {
                 )
                 .await?;
                 // Re-activating the current tab is harmless.
-                d.tap("docs-tab-a").await?;
+                d.tap("document_tab:docs%3Aa").await?;
                 d.assert_text("selected", "selected a").await?;
-                d.assert_on("docs-tab-a", true).await
+                d.assert_on("document_tab:docs%3Aa", true).await
             })
     }
 
@@ -1122,24 +1130,24 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
-                d.tap("open-c").await?;
-                d.tap("docs-tab-b").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
+                d.tap("document_open:c").await?;
+                d.tap("document_tab:docs%3Ab").await?;
                 d.assert_text("order", "order a,b,c").await?;
-                d.tap("docs-close-b").await?;
+                d.tap("document_close:docs%3Ab").await?;
                 d.assert_text("selected", "selected c").await?;
                 d.assert_text("order", "order a,c").await?;
-                d.assert_missing("doc-b").await?;
-                d.assert_missing("docs-tab-b").await?;
-                d.tap("docs-close-c").await?;
+                d.assert_missing("doc:b").await?;
+                d.assert_missing("document_tab:docs%3Ab").await?;
+                d.tap("document_close:docs%3Ac").await?;
                 d.assert_text("selected", "selected a").await?;
                 d.assert_text("order", "order a").await?;
-                d.tap("docs-close-a").await?;
+                d.tap("document_close:docs%3Aa").await?;
                 d.assert_text("selected", "selected none").await?;
                 d.assert_text("order", "order ").await?;
-                d.assert_missing("docs-tab-a").await?;
-                d.assert_missing("doc-a").await
+                d.assert_missing("document_tab:docs%3Aa").await?;
+                d.assert_missing("doc:a").await
             })
     }
 
@@ -1151,17 +1159,17 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| fixture(Closing::VetoFirst, false, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
-                d.tap("docs-close-a").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
+                d.tap("document_close:docs%3Aa").await?;
                 d.assert_text("vetoes", "vetoes 1").await?;
                 d.assert_text("order", "order a,b").await?;
-                d.assert_text("doc-a", "Document a").await?;
-                d.tap("docs-close-a").await?;
+                d.assert_text("doc:a", "Document a").await?;
+                d.tap("document_close:docs%3Aa").await?;
                 d.assert_text("closes", "closes a").await?;
                 d.assert_text("order", "order b").await?;
                 d.assert_text("selected", "selected b").await?;
-                d.assert_missing("doc-a").await
+                d.assert_missing("doc:a").await
             })
     }
 
@@ -1174,34 +1182,34 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
-                d.tap("open-c").await?;
-                d.tap("docs-tab-b").await?;
-                d.tap("bump-b").await?;
-                d.tap("bump-b").await?;
-                d.assert_text("count-b", "2").await?;
-                d.tap("move-last-first").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
+                d.tap("document_open:c").await?;
+                d.tap("document_tab:docs%3Ab").await?;
+                d.tap("document_bump:b").await?;
+                d.tap("document_bump:b").await?;
+                d.assert_text("document_count:b", "2").await?;
+                d.tap("move_last_first").await?;
                 d.assert_text("order", "order c,a,b").await?;
                 d.assert_text("selected", "selected b").await?;
-                d.assert_text("count-b", "2").await?;
+                d.assert_text("document_count:b", "2").await?;
                 d.wait_idle().await?;
                 d.assert_frame(
-                    "docs-tab-c",
+                    "document_tab:docs%3Ac",
                     FrameExpect {
                         x: Some(0.0),
-                        relative_to: Some("docs-strip".into()),
+                        relative_to: Some("docs".into()),
                         ..Default::default()
                     },
                 )
                 .await?;
-                d.tap("move-a-far").await?;
+                d.tap("move_a_far").await?;
                 d.assert_text("order", "order c,b,a").await?;
                 d.assert_text("selected", "selected b").await?;
-                d.assert_text("count-b", "2").await?;
-                d.tap("docs-tab-a").await?;
+                d.assert_text("document_count:b", "2").await?;
+                d.tap("document_tab:docs%3Aa").await?;
                 d.assert_text("selected", "selected a").await?;
-                d.assert_text("doc-a", "Document a").await
+                d.assert_text("doc:a", "Document a").await
             })
     }
 
@@ -1213,19 +1221,19 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.tap("open-c-bg").await?;
+                d.tap("document_open:a").await?;
+                d.tap("open_c_bg").await?;
                 d.assert_text("order", "order a,c").await?;
                 d.assert_text("selected", "selected a").await?;
-                d.assert_text("doc-c", "Document c").await?;
-                d.assert_on("docs-tab-c", false).await?;
-                d.tap("open-a").await?;
-                d.tap("open-c-bg").await?;
+                d.assert_text("doc:c", "Document c").await?;
+                d.assert_on("document_tab:docs%3Ac", false).await?;
+                d.tap("document_open:a").await?;
+                d.tap("open_c_bg").await?;
                 d.assert_text("order", "order a,c").await?;
                 d.assert_text("selected", "selected a").await?;
                 d.tap("next").await?;
                 d.assert_text("selected", "selected c").await?;
-                d.assert_on("docs-tab-c", true).await
+                d.assert_on("document_tab:docs%3Ac", true).await
             })
     }
 
@@ -1238,10 +1246,10 @@ pub(crate) mod conformance {
             .drive(|d: Drive| async move {
                 d.tap("next").await?;
                 d.assert_text("selected", "selected none").await?;
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
-                d.tap("open-c").await?;
-                d.tap("docs-tab-a").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
+                d.tap("document_open:c").await?;
+                d.tap("document_tab:docs%3Aa").await?;
                 d.tap("next").await?;
                 d.assert_text("selected", "selected b").await?;
                 d.tap("next").await?;
@@ -1250,8 +1258,8 @@ pub(crate) mod conformance {
                 d.assert_text("selected", "selected a").await?;
                 d.tap("prev").await?;
                 d.assert_text("selected", "selected c").await?;
-                d.assert_on("docs-tab-c", true).await?;
-                d.assert_on("docs-tab-a", false).await
+                d.assert_on("document_tab:docs%3Ac", true).await?;
+                d.assert_on("document_tab:docs%3Aa", false).await
             })
     }
 
@@ -1263,16 +1271,16 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| fixture(Closing::Direct, true, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.assert_text("docs-new", "New document").await?;
-                d.tap("docs-new").await?;
+                d.tap("document_open:a").await?;
+                d.assert_text("document_new:docs", "New document").await?;
+                d.tap("document_new:docs").await?;
                 d.assert_text("order", "order a,n1").await?;
                 d.assert_text("selected", "selected n1").await?;
-                d.assert_text("doc-n1", "Document n1").await?;
-                d.tap("docs-new").await?;
+                d.assert_text("doc:n1", "Document n1").await?;
+                d.tap("document_new:docs").await?;
                 d.assert_text("order", "order a,n1,n2").await?;
                 d.assert_text("selected", "selected n2").await?;
-                d.tap("docs-close-n2").await?;
+                d.tap("document_close:docs%3An2").await?;
                 d.assert_text("selected", "selected n1").await
             })
     }
@@ -1286,16 +1294,16 @@ pub(crate) mod conformance {
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
                 d.assert_text("selected", "selected none").await?;
-                d.assert_missing("docs-tab-a").await?;
-                d.assert_missing("docs-new").await?;
-                d.tap("open-b").await?;
+                d.assert_missing("document_tab:docs%3Aa").await?;
+                d.assert_missing("document_new:docs").await?;
+                d.tap("document_open:b").await?;
                 d.assert_text("selected", "selected b").await?;
-                d.assert_text("docs-tab-b", "Doc b").await?;
+                d.assert_text("document_tab:docs%3Ab", "Doc b").await?;
                 d.assert_frame(
-                    "docs-tab-b",
+                    "document_tab:docs%3Ab",
                     FrameExpect {
                         x: Some(0.0),
-                        relative_to: Some("docs-strip".into()),
+                        relative_to: Some("docs".into()),
                         ..Default::default()
                     },
                 )
@@ -1311,14 +1319,14 @@ pub(crate) mod conformance {
             .proves(kinds::NAV)
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
-                d.assert_text("docs-tab-b", "Doc b").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
+                d.assert_text("document_tab:docs%3Ab", "Doc b").await?;
                 d.tap("rename").await?;
-                d.assert_text("docs-tab-a", "Doc a (1)").await?;
-                d.assert_text("docs-tab-b", "Doc b (1)").await?;
+                d.assert_text("document_tab:docs%3Aa", "Doc a (1)").await?;
+                d.assert_text("document_tab:docs%3Ab", "Doc b (1)").await?;
                 d.assert_native(
-                    "docs-tab-b",
+                    "document_tab:docs%3Ab",
                     NativeExpect {
                         text: Some("Doc b (1)".into()),
                         ..Default::default()
@@ -1339,32 +1347,36 @@ pub(crate) mod conformance {
             .timeout(90.0)
             .page(|| fixture(Closing::Direct, false, false))
             .drive(|d: Drive| async move {
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
-                d.tap("docs-tab-a").await?;
-                d.tap("bump-a").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
+                d.tap("document_tab:docs%3Aa").await?;
+                d.tap("document_bump:a").await?;
                 let mut count = 1;
-                d.assert_text("count-a", &count.to_string()).await?;
+                d.assert_text("document_count:a", &count.to_string())
+                    .await?;
                 for _ in 0..2 {
-                    d.toggle("native-pref", true).await?;
+                    d.toggle("native_pref", true).await?;
                     d.wait_idle().await?;
-                    d.assert_text("count-a", &count.to_string()).await?;
+                    d.assert_text("document_count:a", &count.to_string())
+                        .await?;
                     d.assert_text("selected", "selected a").await?;
-                    d.assert_text("doc-b", "Document b").await?;
+                    d.assert_text("doc:b", "Document b").await?;
                     // A bump while presented natively lands on the same counter.
-                    d.tap("bump-a").await?;
+                    d.tap("document_bump:a").await?;
                     count += 1;
-                    d.assert_text("count-a", &count.to_string()).await?;
-                    d.toggle("native-pref", false).await?;
+                    d.assert_text("document_count:a", &count.to_string())
+                        .await?;
+                    d.toggle("native_pref", false).await?;
                     d.wait_idle().await?;
-                    d.assert_text("count-a", &count.to_string()).await?;
-                    d.assert_text("doc-a", "Document a").await?;
-                    d.assert_text("docs-tab-a", "Doc a").await?;
-                    d.assert_on("docs-tab-a", true).await?;
+                    d.assert_text("document_count:a", &count.to_string())
+                        .await?;
+                    d.assert_text("doc:a", "Document a").await?;
+                    d.assert_text("document_tab:docs%3Aa", "Doc a").await?;
+                    d.assert_on("document_tab:docs%3Aa", true).await?;
                 }
-                d.assert_text("count-a", "3").await?;
+                d.assert_text("document_count:a", "3").await?;
                 d.assert_text("order", "order a,b").await?;
-                d.tap("docs-tab-b").await?;
+                d.tap("document_tab:docs%3Ab").await?;
                 d.assert_text("selected", "selected b").await
             })
     }
@@ -1416,29 +1428,29 @@ pub(crate) mod conformance {
                         &format!("{what}: {got} windows open, expected {want} ({base} before)"),
                     )
                 }
-                d.tap("open-a").await?;
-                d.tap("open-b").await?;
+                d.tap("document_open:a").await?;
+                d.tap("document_open:b").await?;
                 d.wait_idle().await?;
                 d.assert_text("selected", "selected b").await?;
                 windows(&d, "after opening a and b", base, base + 2).await?;
-                d.tap("bump-b").await?;
-                d.assert_text("count-b", "1").await?;
-                d.tap("close-b").await?;
+                d.tap("document_bump:b").await?;
+                d.assert_text("document_count:b", "1").await?;
+                d.tap("close_b").await?;
                 d.wait_idle().await?;
                 d.assert_text("order", "order a").await?;
-                d.assert_missing("doc-b").await?;
+                d.assert_missing("doc:b").await?;
                 windows(&d, "after closing b", base, base + 1).await?;
-                d.tap("open-c").await?;
+                d.tap("document_open:c").await?;
                 d.wait_idle().await?;
                 d.assert_text("selected", "selected c").await?;
                 windows(&d, "after opening c", base, base + 2).await?;
-                d.toggle("native-pref", false).await?;
+                d.toggle("native_pref", false).await?;
                 d.wait_idle().await?;
                 windows(&d, "after returning to the composed strip", base, base).await?;
-                d.assert_text("doc-a", "Document a").await?;
-                d.assert_text("doc-c", "Document c").await?;
-                d.assert_text("docs-tab-c", "Doc c").await?;
-                d.assert_on("docs-tab-c", true).await
+                d.assert_text("doc:a", "Document a").await?;
+                d.assert_text("doc:c", "Document c").await?;
+                d.assert_text("document_tab:docs%3Ac", "Doc c").await?;
+                d.assert_on("document_tab:docs%3Ac", true).await
             })
     }
 
@@ -1456,7 +1468,9 @@ pub(crate) mod conformance {
                     "New",
                     "Close",
                     |key: &String| format!("Doc {key}"),
-                    |key: &String| label(format!("Document {key}")).id(format!("doc-{key}")),
+                    |key: &String| {
+                        label(format!("Document {key}")).id(day_core::id!(doc, key.to_owned()))
+                    },
                 )
                 .native(|| false)
                 .on_new(move || {
@@ -1483,44 +1497,44 @@ pub(crate) mod conformance {
                                         .action(move || {
                                             tabs.select(&select_key);
                                         })
-                                        .id(format!("custom-tab-{key}")),
+                                        .id(day_core::id!(custom_tab, key.to_owned())),
                                     button("x")
                                         .action(move || closer.close(close_key.clone()))
-                                        .id(format!("custom-close-{key}")),
+                                        .id(day_core::id!(custom_close, key.to_owned())),
                                 ))
                             },
                         ),
                         button("+")
                             .action(move || actions.new_tab())
-                            .id("custom-new"),
+                            .id(day_core::id!(custom_new)),
                     ))
-                    .id("custom-bar")
+                    .id(day_core::id!(custom_bar))
                 })
                 .layout(|bar, content| column((content.grow(), bar)));
                 column((
                     label(move || format!("selected {}", tabs.selected().unwrap_or("none".into())))
-                        .id("selected"),
+                        .id(day_core::id!(selected)),
                     host.grow(),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.assert_missing("docs-strip").await?;
-                d.tap("custom-new").await?;
-                d.tap("custom-new").await?;
+                d.assert_missing("docs").await?;
+                d.tap("custom_new").await?;
+                d.tap("custom_new").await?;
                 d.assert_text("selected", "selected n2").await?;
-                d.assert_text("doc-n1", "Document n1").await?;
-                d.assert_on("custom-tab-n2", true).await?;
-                d.assert_on("custom-tab-n1", false).await?;
-                d.tap("custom-tab-n1").await?;
+                d.assert_text("doc:n1", "Document n1").await?;
+                d.assert_on("custom_tab:n2", true).await?;
+                d.assert_on("custom_tab:n1", false).await?;
+                d.tap("custom_tab:n1").await?;
                 d.assert_text("selected", "selected n1").await?;
-                d.assert_on("custom-tab-n1", true).await?;
-                d.tap("custom-close-n1").await?;
+                d.assert_on("custom_tab:n1", true).await?;
+                d.tap("custom_close:n1").await?;
                 d.assert_text("selected", "selected n2").await?;
-                d.assert_missing("doc-n1").await?;
+                d.assert_missing("doc:n1").await?;
                 d.wait_idle().await?;
                 // The bar sits below the content (`.layout`), at the host's trailing edge.
                 d.assert_frame(
-                    "doc-n2",
+                    "doc:n2",
                     FrameExpect {
                         y: Some(0.0),
                         relative_to: Some("selected".into()),

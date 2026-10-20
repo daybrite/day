@@ -23,13 +23,13 @@ pub(crate) fn editor_pane(scene: Scene) -> impl Piece {
                         text_field(item.name())
                             .placeholder(res::str::field_name_hint())
                             .a11y(|a| a.label(res::str::field_name()))
-                            .id("field-name"),
+                            .id(day::id!(field_name)),
                     ),
                     labeled(
                         res::str::field_done(),
                         toggle(item.done())
                             .a11y(|a| a.label(res::str::field_done()))
-                            .id("field-done"),
+                            .id(day::id!(field_done)),
                     ),
                 )),))
                 .padding(Space::L)

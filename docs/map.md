@@ -31,7 +31,7 @@ map()
     .span(0.05)                   // ~5 km across (smaller = more zoomed in)
     .marker(37.7749, -122.4194)   // drop a pin
     .frame(320.0, 240.0)          // a map is a growing leaf, so constrain it
-    .id("map")
+    .id(id!(map))
 ```
 
 `map()` starts at `(0, 0)` with the default span (a few city blocks). Set a fixed region at build

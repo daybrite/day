@@ -195,7 +195,8 @@ pub mod conformance {
                 let busy = Signal::new(false);
                 let committed = Signal::new(String::from("none"));
                 column((
-                    label(move || format!("slot {}", committed.get())).id("pager-state"),
+                    label(move || format!("slot {}", committed.get()))
+                        .id(day_core::id!(pager_state)),
                     button("Reverse")
                         .action(move || {
                             state.update(|s| {
@@ -203,7 +204,7 @@ pub mod conformance {
                                 s.epoch += 1;
                             })
                         })
-                        .id("pager-reverse"),
+                        .id(day_core::id!(pager_reverse)),
                     pager(
                         state,
                         busy,
@@ -217,7 +218,7 @@ pub mod conformance {
                             state.update(|s| s.selected = slot);
                         },
                     )
-                    .id("pager")
+                    .id(day_core::id!(pager))
                     .height(200.0),
                 ))
             })

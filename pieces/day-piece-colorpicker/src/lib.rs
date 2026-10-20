@@ -145,7 +145,7 @@ pub struct ColorPicker<C: Binding<Color>> {
     idiom: PickerIdiom,
     title: Option<TextSource>,
     presets: Option<Vec<Color>>,
-    key: String,
+    key: day_core::ElementId,
 }
 
 /// `color_picker(color)` is a swatch showing `color` that opens a color chooser. `color` is a
@@ -161,7 +161,7 @@ pub fn color_picker<C: Binding<Color>>(color: C) -> ColorPicker<C> {
         idiom: PickerIdiom::Automatic,
         title: None,
         presets: None,
-        key: "color-picker".to_string(),
+        key: day_core::id!(color_picker),
     }
 }
 
@@ -212,8 +212,8 @@ impl<C: Binding<Color>> ColorPicker<C> {
     /// The panel's own parts carry fixed ids (`color-picker-panel`, `-shade`, `-hue`,
     /// `-opacity`, `-presets`, `-value`, `-cancel`, `-done`); only one panel is ever open, so
     /// they need no disambiguation.
-    pub fn id(mut self, id: impl Into<String>) -> Self {
-        self.key = id.into();
+    pub fn id(mut self, id: day_core::ElementId) -> Self {
+        self.key = id;
         self
     }
 }
@@ -255,7 +255,7 @@ fn build_native<C: Binding<Color>>(
     color: C,
     alpha: bool,
     title: String,
-    key: String,
+    key: day_core::ElementId,
 ) -> RNode {
     let initial = color.peek();
     let node = cx.leaf(
@@ -269,7 +269,7 @@ fn build_native<C: Binding<Color>>(
     );
     // The leaf's dayscript id: one `.key` serves both idioms (the day-piece-stepper rule:
     // `Decorate::id` on the piece would tag a wrapper no toolkit realizes).
-    with_tree(|t| t.set_id(node, key));
+    with_tree(|t| t.set_id(node, key.as_str().to_owned()));
     // App writes → the native well. Every arm no-ops on an unchanged value, so a pick echoing
     // back through the signal never loops.
     let c2 = color.clone();
@@ -356,10 +356,10 @@ fn composed_well<C: Binding<Color>>(
     alpha: bool,
     title: String,
     presets: Vec<Color>,
-    key: String,
+    key: day_core::ElementId,
 ) -> AnyPiece {
     let open: Signal<Option<String>> = Signal::new(None);
-    let open_key = key.clone();
+    let open_key = key.as_str().to_owned();
     // The id goes on the canvas, here, rather than being left to the app: what the app can reach
     // is the `zstack` this returns, and an id on that tags a layout wrapper the toolkit never
     // realizes; a dayscript `tap:` against it would resolve to nothing while every step still
@@ -482,11 +482,11 @@ fn panel<C: Binding<Color>>(
         row((
             button(day_l10n::t("day-cancel"))
                 .action(cancel)
-                .id("color-picker-cancel"),
+                .id(day_core::id!(color_picker_cancel)),
             spacer(),
             button(day_l10n::t("day-done"))
                 .action(close)
-                .id("color-picker-done"),
+                .id(day_core::id!(color_picker_done)),
         ))
         .grow_w()
         .any(),
@@ -499,7 +499,7 @@ fn panel<C: Binding<Color>>(
         .background(PANEL_SURFACE)
         .corner_radius(16.0)
         .width(CARD_W)
-        .id("color-picker-panel");
+        .id(day_core::id!(color_picker_panel));
 
     // Centered both ways: spacers above and below push it to the middle vertically, and the
     // column's own cross-axis alignment centers it horizontally.
@@ -550,7 +550,7 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-shade")))
     // The id before the frame, so it names the canvas the gestures live on.
-    .id("color-picker-shade")
+    .id(day_core::id!(color_picker_shade))
     .frame(FIELD_W, FIELD_H)
     .any()
 }
@@ -573,7 +573,7 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-hue")))
     // The id before the frame, so it names the canvas the gestures live on.
-    .id("color-picker-hue")
+    .id(day_core::id!(color_picker_hue))
     .frame(FIELD_W, STRIP_H)
     .any()
 }
@@ -601,7 +601,7 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
     .on_tap_at(pick)
     .a11y(|a| a.label(day_l10n::t("day-color-opacity")))
     // The id before the frame, so it names the canvas the gestures live on.
-    .id("color-picker-opacity")
+    .id(day_core::id!(color_picker_opacity))
     .frame(FIELD_W, STRIP_H)
     .any()
 }
@@ -648,7 +648,7 @@ fn preset_row(
         .spacing(6.0)
         .fit(RowFit::Wrap { run_spacing: 6.0 })
         .grow_w()
-        .id("color-picker-presets")
+        .id(day_core::id!(color_picker_presets))
         .any()
 }
 
@@ -666,7 +666,7 @@ fn readout(current: impl Fn() -> Color + Copy + 'static) -> AnyPiece {
         label(move || current().to_hex_string())
             .monospace()
             .color(PANEL_TEXT)
-            .id("color-picker-value"),
+            .id(day_core::id!(color_picker_value)),
     ))
     .spacing(10.0)
     .align(VAlign::Center)
@@ -777,8 +777,9 @@ pub mod conformance {
             .page(|| {
                 let tint = Signal::new(Color::rgb(232.0 / 255.0, 106.0 / 255.0, 60.0 / 255.0));
                 column((
-                    label(move || format!("tint {}", hex(tint.get()))).id("tint-value"),
-                    color_picker(tint).composed().id("tint"),
+                    label(move || format!("tint {}", hex(tint.get())))
+                        .id(day_core::id!(tint_value)),
+                    color_picker(tint).composed().id(day_core::id!(tint)),
                 ))
             })
             .drive(|d: Drive| async move {

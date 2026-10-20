@@ -1,0 +1,19 @@
+[package]
+name = "day-id-registry-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+day-core = { path = "../../.." }
+widgets = { path = "widgets" }
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true

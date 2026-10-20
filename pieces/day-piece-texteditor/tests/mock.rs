@@ -642,7 +642,10 @@ fn an_editor_built_over_text_answers_for_it_before_any_edit() {
     };
     let (_probe, text, _node) = boot_text(|text| {
         text.set("{\"ok\": true}".into());
-        text_editor_text(text).editable(false).id("ed").any()
+        text_editor_text(text)
+            .editable(false)
+            .id(day_core::id!(ed))
+            .any()
     });
     flush_sync();
     assert_eq!(probe_text(), "{\"ok\": true}");

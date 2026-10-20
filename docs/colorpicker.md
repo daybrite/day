@@ -38,7 +38,7 @@ row((
     color_picker(tint)
         .title(tr("pick_a_tint"))                // the chooser's heading
         .presets(vec![BRAND, ACCENT, INK])       // the composed panel's swatch row
-        .id("brand-color"),                      // the well's dayscript id, both idioms
+        .id(id!(brand_color)),                      // the well's dayscript id, both idioms
 ))
 ```
 
@@ -155,18 +155,18 @@ The native leaf accepts `Event::TextChanged` carrying any form `Color::parse` re
 `input:` step drives it on every backend:
 
 ```yaml
-- input: { id: brand-well, text: "#2f6fde" }
-- assert_text: { id: brand-value, text: "#2f6fde" }
+- input: { id: brand_well, text: "#2f6fde" }
+- assert_text: { id: brand_value, text: "#2f6fde" }
 ```
 
 The composed panel is ordinary pieces, so it is driven by ordinary steps. The well's id is its
 route key; the panel's own parts carry fixed ids:
 
 ```yaml
-- tap: { id: brand-color }              # `.id("brand-color")` — the well
-- assert_visible: { id: color-picker-panel }
-- assert_text: { id: color-picker-value, text: "#e86a3c" }
-- tap: { id: color-picker-cancel }      # or color-picker-done
+- tap: { id: brand_color }              # `.id(id!(brand_color))` — the well
+- assert_visible: { id: color_picker_panel }
+- assert_text: { id: color_picker_value, text: "#e86a3c" }
+- tap: { id: color_picker_cancel }      # or color-picker-done
 ```
 
 `color-picker-shade`, `color-picker-hue`, `color-picker-opacity` and `color-picker-presets` name

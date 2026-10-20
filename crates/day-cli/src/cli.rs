@@ -176,6 +176,14 @@ pub(crate) struct Cli {
     command: Cmd,
 }
 
+#[derive(Debug, Subcommand)]
+enum CoverageCommand {
+    Check {
+        #[arg(long)]
+        manifest: PathBuf,
+    },
+}
+
 #[derive(Subcommand)]
 #[allow(clippy::large_enum_variant)] // one Cmd per process, parsed once and matched once; `launch` is simply the command with the most flags
 enum Cmd {
@@ -431,6 +439,11 @@ enum Cmd {
         /// Also push the commit and the tag to the branch's remote; implies --git-tag
         #[arg(long)]
         git_push: bool,
+    },
+    /// Validate and enforce coverage from an explicit complete suite of reports
+    Coverage {
+        #[command(subcommand)]
+        command: CoverageCommand,
     },
     /// Check project files, translations, and element IDs
     #[command(after_help = "Docs: https://daybrite.dev/docs/cli/#linting")]
@@ -1209,7 +1222,7 @@ const HELP_GROUPS: &[(&str, &[&str])] = &[
         "Project",
         &["project", "prepare", "patch", "metadata", "clean"],
     ),
-    ("Check", &["doctor", "lint", "test", "rebuild"]),
+    ("Check", &["doctor", "lint", "test", "coverage", "rebuild"]),
     ("Resources", &["icon", "localize"]),
     ("Distribute", &["pack", "sign", "store"]),
     ("Devices", &["devices"]),
@@ -1530,6 +1543,11 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                 crate::metadata::run(project, json).map(|()| 0)
             })
         }
+        Cmd::Coverage {
+            command: CoverageCommand::Check { manifest },
+        } => crate::id_coverage::check_manifest(&manifest)
+            .map_err(CliError::script)
+            .map(|()| 0),
         Cmd::Lint {
             strict,
             allow,

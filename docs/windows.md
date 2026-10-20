@@ -373,7 +373,7 @@ before tagging; an app that sets only `title` still shows "Day News" in its App 
 
 ```yaml
 - menu: { key: day-preferences }                       # invoke a menu action (menus.md)
-- wait_for: { id: prefs-title }                        # global lookup; focused window wins duplicates
+- wait_for: { id: prefs_title }                        # global lookup; focused window wins duplicates
 - screenshot: { name: prefs, window: day.preferences } # capture a window by its open key
 - close_window: { window: day.preferences }            # async confirm → teardown, like the title bar
 - close_window: {}                                     # the initial window: the app ends (close policy above; GTK today)

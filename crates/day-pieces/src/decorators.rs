@@ -160,9 +160,9 @@ type Build = Box<dyn FnOnce(&mut BuildCx) -> RNode>;
 /// Modifiers fall into three classes (docs/api-style.md "Modifier classes"), and only one of
 /// them is ordered:
 ///
-/// - **Identity** (`id`, `id_of`, `id_keyed`) names the piece's own node, the one its build
-///   returns, wherever it sits in the chain: `label(t).padding(8.0).id("x")` and
-///   `label(t).id("x").padding(8.0)` are the same tree.
+/// - **Identity** (`id`, `id_of`) names the piece's own node, the one its build
+///   returns, wherever it sits in the chain: `label(t).padding(8.0).id(day_core::id!(x))` and
+///   `label(t).id(day_core::id!(x)).padding(8.0)` are the same tree.
 /// - **Wrapping** modifiers (`padding`, `frame`, `background`, `grow`, …) each add a node around
 ///   what came before, so they compose outward in call order, as they read.
 /// - **Outer-layout facts** (`grid_span`, `grid_align`) describe the piece to the container it
@@ -294,25 +294,25 @@ impl<P: Piece> Piece for Decorated<P> {
 
 // --- The modifier bodies, written once and shared by the trait and the inherent impl ---
 
-fn op_id(id: String) -> impl FnOnce(RNode) {
-    move |n| with_tree(|t| t.set_id(n, id))
+fn op_id(id: day_core::ElementId) -> impl FnOnce(RNode) {
+    move |n| with_tree(|t| t.set_id(n, id.as_str().to_owned()))
 }
 
-fn op_id_of(id: impl Fn() -> String + 'static) -> impl FnOnce(RNode) {
+fn op_id_of(id: impl Fn() -> day_core::ElementId + 'static) -> impl FnOnce(RNode) {
     move |n| {
-        day_reactive::bind(id, move |s: &String| {
-            let s = s.clone();
+        day_reactive::bind(id, move |s: &day_core::ElementId| {
+            let s = s.as_str().to_owned();
             with_tree(|t| t.set_id(n, s));
         });
     }
 }
 
 /// Name whatever node is outermost at this point in the chain (see [`Decorated::wrapper_id`]).
-fn op_wrapper_id(id: String) -> impl FnOnce(Build) -> Build {
+fn op_wrapper_id(id: day_core::ElementId) -> impl FnOnce(Build) -> Build {
     move |inner| {
         Box::new(move |cx| {
             let n = inner(cx);
-            with_tree(|t| t.set_id(n, id));
+            with_tree(|t| t.set_id(n, id.as_str().to_owned()));
             n
         })
     }
@@ -1091,17 +1091,14 @@ fn op_interactive_dismiss_disabled() -> impl FnOnce(Build) -> Build {
 // `Decorated`. Each is the same one-liner the trait method is; the bodies live in the `op_*`
 // functions above. Documentation stays on the trait, which is the surface every piece has.
 impl<P: Piece> Decorated<P> {
-    pub fn id(self, id: impl Into<String>) -> Self {
-        self.push_node(op_id(id.into()))
+    pub fn id(self, id: day_core::ElementId) -> Self {
+        self.push_node(op_id(id))
     }
-    pub fn id_of(self, id: impl Fn() -> String + 'static) -> Self {
+    pub fn id_of(self, id: impl Fn() -> day_core::ElementId + 'static) -> Self {
         self.push_node(op_id_of(id))
     }
-    pub fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> Self {
-        self.id(format!("{prefix}:{key}"))
-    }
-    pub fn wrapper_id(self, id: impl Into<String>) -> Self {
-        self.push(op_wrapper_id(id.into()))
+    pub fn wrapper_id(self, id: day_core::ElementId) -> Self {
+        self.push(op_wrapper_id(id))
     }
     pub fn tweak(self, f: impl FnOnce(day_core::RNode) + 'static) -> Self {
         self.push(op_tweak(f))
@@ -1380,16 +1377,16 @@ pub trait Decorate: Piece + Sized {
     /// Stable element identifier: a11y identifier + dayscript locator + lint uniqueness (§5.5).
     ///
     /// Names the piece's own node wherever it sits in the chain (docs/api-style.md "Modifier
-    /// classes"): `.padding(8.0).id("x")` and `.id("x").padding(8.0)` tag the same node. To name
+    /// classes"): `.padding(8.0).id(day_core::id!(x))` and `.id(day_core::id!(x)).padding(8.0)` tag the same node. To name
     /// a wrapper instead, use [`wrapper_id`](Self::wrapper_id).
-    fn id(self, id: impl Into<String>) -> Decorated<Self> {
+    fn id(self, id: day_core::ElementId) -> Decorated<Self> {
         Decorated::new(self).id(id)
     }
 
     /// Name the node that is outermost at this point in the chain: the padding box, the frame,
     /// the background, whichever wrapper the modifiers before it built. For a dayscript frame
     /// assertion on the wrapper rather than on the piece. Ordered, unlike [`id`](Self::id).
-    fn wrapper_id(self, id: impl Into<String>) -> Decorated<Self> {
+    fn wrapper_id(self, id: day_core::ElementId) -> Decorated<Self> {
         Decorated::new(self).wrapper_id(id)
     }
 
@@ -1420,14 +1417,9 @@ pub trait Decorate: Piece + Sized {
     /// items over its life (and drag-to-reorder rebinds eagerly), so a static item-derived id
     /// keeps naming the first-bound item. This variant re-registers whenever the closure's
     /// value changes; read your `ItemSlot` inside it:
-    /// `.id_of(move || format!("row-remove-{}", slot.key()))`.
-    fn id_of(self, id: impl Fn() -> String + 'static) -> Decorated<Self> {
+    /// `.id_of(move || day_core::id!(row_remove, slot.key()))`.
+    fn id_of(self, id: impl Fn() -> day_core::ElementId + 'static) -> Decorated<Self> {
         Decorated::new(self).id_of(id)
-    }
-
-    /// Keyed id for collection items: rendered `prefix:key` (§5.5).
-    fn id_keyed(self, prefix: &'static str, key: impl std::fmt::Display) -> Decorated<Self> {
-        Decorated::new(self).id_keyed(prefix, key)
     }
 
     /// Apply a **tweak**: `f` runs once at mount, after the native widget exists, with the
@@ -1594,9 +1586,9 @@ pub trait Decorate: Piece + Sized {
     /// its reactive reads change:
     ///
     /// ```ignore
-    /// page.toolbar(toolbar_button("share", tr("share")).icon(Symbol::Share).action(share))
+    /// page.toolbar(toolbar_button(day_core::id!(share), tr("share")).icon(Symbol::Share).action(share))
     /// page.toolbar([reply, forward, archive])
-    /// page.toolbar(move || vec![toolbar_button("undo", tr("undo")).enabled(can_undo)])
+    /// page.toolbar(move || vec![toolbar_button(day_core::id!(undo), tr("undo")).enabled(can_undo)])
     /// ```
     ///
     /// Which chrome carries them follows from where this piece is built (a destination page's
@@ -2009,10 +2001,10 @@ pub(crate) mod conformance {
                 // it is named with `wrapper_id`, the one ordered identity modifier.
                 rectangle()
                     .fill(Color::rgb(1.0, 0.0, 0.0))
-                    .id("inner")
+                    .id(day_core::id!(inner))
                     .frame(40.0, 20.0)
                     .padding(10.0)
-                    .wrapper_id("outer")
+                    .wrapper_id(day_core::id!(outer))
             })
             .drive(|d: Drive| async move {
                 d.assert_frame("outer", size(60.0, 40.0)).await?;
@@ -2038,10 +2030,10 @@ pub(crate) mod conformance {
             .page(|| {
                 column((
                     // The widened box, not the label's own node.
-                    label("Hi").min_width(120.0).wrapper_id("min"),
+                    label("Hi").min_width(120.0).wrapper_id(day_core::id!(min)),
                     label("A label long enough that it would run past eighty points")
                         .max_width(80.0)
-                        .wrapper_id("max"),
+                        .wrapper_id(day_core::id!(max)),
                 ))
                 .align(HAlign::Leading)
             })
@@ -2074,7 +2066,7 @@ pub(crate) mod conformance {
                 rectangle()
                     .fill(Color::rgb(0.0, 0.0, 1.0))
                     .aspect_ratio(2.0)
-                    .id("shape")
+                    .id(day_core::id!(shape))
                     .width(100.0)
             })
             .drive(|d: Drive| async move { d.assert_frame("shape", size(100.0, 50.0)).await })
@@ -2094,7 +2086,7 @@ pub(crate) mod conformance {
                         .fill(Color::rgb(0.0, 0.0, 1.0))
                         .height(20.0)
                         .grow_w()
-                        .id("grower"),
+                        .id(day_core::id!(grower)),
                 ))
                 .spacing(0.0)
                 .width(200.0)
@@ -2127,7 +2119,7 @@ pub(crate) mod conformance {
                             .fill(Color::rgb(0.0, 0.0, 1.0))
                             .frame(20.0, 20.0),
                     )
-                    .id("base")
+                    .id(day_core::id!(base))
             })
             .drive(|d: Drive| async move {
                 d.sample_pixel("base", 0.95, 0.9, "#0000ff").await?;
@@ -2145,7 +2137,7 @@ pub(crate) mod conformance {
                 label("")
                     .frame(80.0, 40.0)
                     .background(Color::rgb(1.0, 0.0, 0.0))
-                    .id("filled")
+                    .id(day_core::id!(filled))
             })
             .drive(|d: Drive| async move { d.sample_pixel("filled", 0.5, 0.5, "#ff0000").await })
     }
@@ -2164,7 +2156,7 @@ pub(crate) mod conformance {
                         .background(Color::rgb(0.0, 0.0, 1.0))
                         .corner_radius(30.0),
                 ))
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(80.0, 80.0)
             })
             .drive(|d: Drive| async move {
@@ -2185,7 +2177,7 @@ pub(crate) mod conformance {
                     rectangle().fill(Color::WHITE),
                     rectangle().fill(Color::rgb(1.0, 0.0, 0.0)).opacity(0.0),
                 ))
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(80.0, 40.0)
             })
             .drive(|d: Drive| async move { d.sample_pixel("ground", 0.5, 0.5, "#ffffff").await })
@@ -2206,7 +2198,7 @@ pub(crate) mod conformance {
                         .translation(40.0, 0.0),
                 ))
                 .align(day_core::Alignment::Leading)
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(120.0, 40.0)
             })
             .drive(|d: Drive| async move {
@@ -2230,7 +2222,7 @@ pub(crate) mod conformance {
                         .translation(40.0, 0.0),
                 ))
                 .align(day_core::Alignment::Leading)
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(120.0, 40.0)
             })
             .drive(|d: Drive| async move {
@@ -2253,7 +2245,7 @@ pub(crate) mod conformance {
                         .background(Color::rgb(0.0, 0.0, 1.0))
                         .scale(2.0),
                 ))
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(120.0, 80.0)
             })
             .drive(|d: Drive| async move {
@@ -2284,7 +2276,7 @@ pub(crate) mod conformance {
                     .frame(80.0, 40.0)
                     .rotation(90.0),
                 ))
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(120.0, 120.0)
             })
             .shot("default")
@@ -2299,11 +2291,11 @@ pub(crate) mod conformance {
     // (docs/testing.md "Known gaps").
 
     /// A plain target for gestures: a filled rectangle of a known size.
-    fn pad(id: &str) -> Decorated<ShapePiece> {
+    fn pad(id: day_core::ElementId) -> Decorated<ShapePiece> {
         rectangle()
             .fill(Color::rgb(0.2, 0.4, 0.9))
             .frame(120.0, 80.0)
-            .id(id.to_string())
+            .id(id)
     }
 
     /// A tap runs `.on_tap`'s work, once per tap.
@@ -2314,11 +2306,11 @@ pub(crate) mod conformance {
             .page(|| {
                 let taps = Signal::new(0i64);
                 column((
-                    label(move || format!("taps {}", taps.get())).id("taps"),
+                    label(move || format!("taps {}", taps.get())).id(day_core::id!(taps)),
                     label("Tap me")
                         .padding(12.0)
                         .on_tap(move || taps.update(|n| *n += 1))
-                        .id("target"),
+                        .id(day_core::id!(target)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -2336,12 +2328,12 @@ pub(crate) mod conformance {
             .page(|| {
                 let at = Signal::new(String::from("none"));
                 column((
-                    label(move || format!("at {}", at.get())).id("at"),
+                    label(move || format!("at {}", at.get())).id(day_core::id!(at)),
                     rectangle()
                         .fill(Color::rgb(0.2, 0.4, 0.9))
                         .frame(120.0, 80.0)
                         .on_tap_at(move |p| at.set(format!("{:.0},{:.0}", p.x, p.y)))
-                        .id("target"),
+                        .id(day_core::id!(target)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -2359,8 +2351,8 @@ pub(crate) mod conformance {
             .page(|| {
                 let state = Signal::new(String::from("idle"));
                 column((
-                    label(move || state.get()).id("state"),
-                    pad("target").on_drag(move |d: Drag| {
+                    label(move || state.get()).id(day_core::id!(state)),
+                    pad(day_core::id!(target)).on_drag(move |d: Drag| {
                         state.set(match d.phase {
                             DragPhase::Began => "began".into(),
                             DragPhase::Changed => "moving".into(),
@@ -2385,8 +2377,8 @@ pub(crate) mod conformance {
             .page(|| {
                 let state = Signal::new(String::from("out"));
                 column((
-                    label(move || state.get()).id("state"),
-                    pad("target").on_hover(move |p| {
+                    label(move || state.get()).id(day_core::id!(state)),
+                    pad(day_core::id!(target)).on_hover(move |p| {
                         state.set(match p {
                             Some(p) => format!("over {:.0},{:.0}", p.x, p.y),
                             None => "out".into(),
@@ -2414,8 +2406,8 @@ pub(crate) mod conformance {
                         let (x, y) = total.get();
                         format!("pan {x:.0},{y:.0}")
                     })
-                    .id("total"),
-                    pad("target").on_pan(move |p: Pan| {
+                    .id(day_core::id!(total)),
+                    pad(day_core::id!(target)).on_pan(move |p: Pan| {
                         total.update(|(x, y)| {
                             *x += p.delta.x;
                             *y += p.delta.y;
@@ -2437,8 +2429,8 @@ pub(crate) mod conformance {
             .page(|| {
                 let scale = Signal::new(String::from("none"));
                 column((
-                    label(move || format!("scale {}", scale.get())).id("scale"),
-                    pad("target").on_pinch(move |p: Pinch| {
+                    label(move || format!("scale {}", scale.get())).id(day_core::id!(scale)),
+                    pad(day_core::id!(target)).on_pinch(move |p: Pinch| {
                         if p.phase == DragPhase::Ended {
                             scale.set(format!("{:.1}", p.scale));
                         }
@@ -2462,8 +2454,8 @@ pub(crate) mod conformance {
             .page(|| {
                 let last = Signal::new(String::from("none"));
                 column((
-                    label(move || format!("key {}", last.get())).id("last"),
-                    pad("target")
+                    label(move || format!("key {}", last.get())).id(day_core::id!(last)),
+                    pad(day_core::id!(target))
                         .focusable()
                         .on_key(move |k| last.set(k.key.clone())),
                 ))
@@ -2486,11 +2478,13 @@ pub(crate) mod conformance {
             .page(|| {
                 let want = Signal::new(false);
                 column((
-                    label(move || format!("focused {}", want.get())).id("state"),
-                    button("Focus").action(move || want.set(true)).id("go"),
+                    label(move || format!("focused {}", want.get())).id(day_core::id!(state)),
+                    button("Focus")
+                        .action(move || want.set(true))
+                        .id(day_core::id!(go)),
                     text_field(Signal::new(String::new()))
                         .focused(want)
-                        .id("field"),
+                        .id(day_core::id!(field)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -2512,13 +2506,15 @@ pub(crate) mod conformance {
                 column((
                     button("Toggle page")
                         .action(move || shown.set(!shown.get()))
-                        .id("toggle"),
-                    text_field(Signal::new(String::new())).id("survivor"),
+                        .id(day_core::id!(toggle)),
+                    text_field(Signal::new(String::new())).id(day_core::id!(survivor)),
                     when(
                         move || shown.get(),
                         || {
-                            column((text_field(Signal::new(String::new())).id("entry"),))
-                                .background(Color::rgb(0.5, 0.5, 0.5))
+                            column((
+                                text_field(Signal::new(String::new())).id(day_core::id!(entry)),
+                            ))
+                            .background(Color::rgb(0.5, 0.5, 0.5))
                         },
                     ),
                 ))
@@ -2551,7 +2547,7 @@ pub(crate) mod conformance {
             .page(|| {
                 column((rectangle()
                     .fill(Color::rgb(1.0, 0.0, 0.0))
-                    .id("bar")
+                    .id(day_core::id!(bar))
                     .height(37.0),))
                 .width(100.0)
             })
@@ -2577,11 +2573,11 @@ pub(crate) mod conformance {
                     column((
                         rectangle()
                             .fill(Color::rgb(1.0, 0.0, 0.0))
-                            .id("top")
+                            .id(day_core::id!(top))
                             .frame(40.0, 20.0),
                         rectangle()
                             .fill(Color::rgb(0.0, 0.0, 1.0))
-                            .id("rest")
+                            .id(day_core::id!(rest))
                             .width(40.0)
                             .grow_h(),
                     ))
@@ -2589,7 +2585,7 @@ pub(crate) mod conformance {
                     .height(120.0),
                     rectangle()
                         .fill(Color::rgb(0.0, 1.0, 0.0))
-                        .id("both")
+                        .id(day_core::id!(both))
                         .width(30.0)
                         .grow_h(),
                 ))
@@ -2624,15 +2620,15 @@ pub(crate) mod conformance {
             .proves_modifier("grid_span")
             .proves_modifier("grid_align")
             .page(|| {
-                let cell = |id: &str, w: f64| {
+                let cell = |id: day_core::ElementId, w: f64| {
                     rectangle()
                         .fill(Color::rgb(0.2, 0.4, 0.9))
-                        .id(id.to_string())
+                        .id(id)
                         .frame(w, 20.0)
                 };
                 grid((
-                    grid_row((cell("a", 40.0), cell("b", 60.0))),
-                    grid_row((cell("wide", 30.0)
+                    grid_row((cell(day_core::id!(a), 40.0), cell(day_core::id!(b), 60.0))),
+                    grid_row((cell(day_core::id!(wide), 30.0)
                         .grid_align(day_core::Alignment::TopTrailing)
                         .grid_span(2),)),
                 ))
@@ -2669,7 +2665,7 @@ pub(crate) mod conformance {
                             .fill(Color::rgb(0.0, 0.0, 1.0))
                             .frame(30.0, 30.0),
                     )
-                    .id("base")
+                    .id(day_core::id!(base))
             })
             .drive(|d: Drive| async move {
                 d.sample_pixel("base", 0.5, 0.5, "#0000ff").await?;
@@ -2697,7 +2693,7 @@ pub(crate) mod conformance {
                             ..Transform::default()
                         }),
                 ))
-                .id("ground")
+                .id(day_core::id!(ground))
                 .frame(120.0, 60.0)
             })
             .drive(|d: Drive| async move {
@@ -2717,7 +2713,9 @@ pub(crate) mod conformance {
             .page(|| {
                 let moved = Signal::new(false);
                 column((
-                    button("Move").action(move || moved.set(true)).id("move"),
+                    button("Move")
+                        .action(move || moved.set(true))
+                        .id(day_core::id!(move_button)),
                     zstack((
                         rectangle().fill(Color::WHITE),
                         label("")
@@ -2727,13 +2725,13 @@ pub(crate) mod conformance {
                             .animation(day_spec::AnimSpec::linear(150)),
                     ))
                     .align(day_core::Alignment::Leading)
-                    .id("ground")
+                    .id(day_core::id!(ground))
                     .frame(120.0, 40.0),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.sample_pixel("ground", 0.1, 0.5, "#0000ff").await?;
-                d.tap("move").await?;
+                d.tap("move_button").await?;
                 d.wait_idle().await?;
                 d.pause(0.4).await?;
                 d.sample_pixel("ground", 0.85, 0.5, "#0000ff").await?;
@@ -2747,23 +2745,24 @@ pub(crate) mod conformance {
         Case::new()
             .proves_modifier("id")
             .proves_modifier("id_of")
-            .proves_modifier("id_keyed")
             .page(|| {
                 let n = Signal::new(1i64);
                 column((
-                    label("Fixed").id("fixed"),
-                    label("Derived").id_of(move || format!("derived-{}", n.get())),
-                    label("Keyed").id_keyed("keyed", 7),
-                    button("Next").action(move || n.set(2)).id("next"),
+                    label("Fixed").id(day_core::id!(fixed)),
+                    label("Derived").id_of(move || day_core::id!(derived, n.get())),
+                    label("Keyed").id(day_core::id!(keyed, 7)),
+                    button("Next")
+                        .action(move || n.set(2))
+                        .id(day_core::id!(next)),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.assert_text("fixed", "Fixed").await?;
                 d.assert_text("keyed:7", "Keyed").await?;
-                d.assert_text("derived-1", "Derived").await?;
+                d.assert_text("derived:1", "Derived").await?;
                 d.tap("next").await?;
-                d.assert_missing("derived-1").await?;
-                d.assert_text("derived-2", "Derived").await
+                d.assert_missing("derived:1").await?;
+                d.assert_text("derived:2", "Derived").await
             })
     }
 
@@ -2778,8 +2777,9 @@ pub(crate) mod conformance {
                 let r = NativeRef::new();
                 let held = r.clone();
                 column((
-                    label(move || format!("tweaked {}", tweaked.get())).id("tweaked"),
-                    label(move || format!("held {}", held.node().is_some())).id("held"),
+                    label(move || format!("tweaked {}", tweaked.get())).id(day_core::id!(tweaked)),
+                    label(move || format!("held {}", held.node().is_some()))
+                        .id(day_core::id!(held)),
                     label("Target")
                         .tweak(move |_node| tweaked.set(true))
                         .native_ref(&r),
@@ -2798,8 +2798,11 @@ pub(crate) mod conformance {
             .proves_modifier("modifier")
             .page(|| {
                 let padded = |content: AnyPiece| content.padding(10.0).any();
-                column((label("Inner").id("inner").modifier(padded).id("outer"),))
-                    .align(HAlign::Leading)
+                column((label("Inner")
+                    .id(day_core::id!(inner))
+                    .modifier(padded)
+                    .id(day_core::id!(outer)),))
+                .align(HAlign::Leading)
             })
             .drive(|d: Drive| async move {
                 d.assert_frame(
@@ -2824,7 +2827,7 @@ pub(crate) mod conformance {
             .page(|| {
                 button("Save")
                     .action(|| day_core::announce("Saved"))
-                    .id("save")
+                    .id(day_core::id!(save))
             })
             .drive(|d: Drive| async move {
                 d.tap("save").await?;

@@ -154,7 +154,7 @@ struct RowParts {
     accessory: Accessory,
     value: Option<TextSource>,
     gate: Option<Rc<dyn Fn() -> bool>>,
-    row_id: Option<String>,
+    row_id: Option<day_core::ElementId>,
 }
 
 impl RowParts {
@@ -232,7 +232,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
                     // The value label carries `<id>-value`, as the composed row's does.
                     let value_label = label(move || f(v.get())).tabular().secondary();
                     let value_label = match &id {
-                        Some(i) => value_label.id(format!("{i}-value")).any(),
+                        Some(i) => value_label.id(day_core::id!(pref_value, i.as_str())).any(),
                         None => value_label.any(),
                     };
                     row((ctl, value_label))
@@ -248,7 +248,7 @@ fn row_parts(inst: Rc<Installed>, r: &Row) -> RowParts {
         RowKind::Stepper { value, range, step } => {
             let v = *value;
             let (dec, inc) = stepper_buttons(v, range, *step, enabled_fn);
-            let ctl = stepper_control(v, dec, inc, id.as_deref());
+            let ctl = stepper_control(v, dec, inc, id.as_ref());
             parts.control(ctl, Host::Accessory)
         }
         RowKind::Text {
@@ -1068,7 +1068,7 @@ struct GroupedCell {
     host: Host,
     tap: Option<Rc<dyn Fn()>>,
     clear: bool,
-    id: Option<String>,
+    id: Option<day_core::ElementId>,
     /// Set by the table when it builds its cells.
     section: usize,
     row: usize,
@@ -1127,8 +1127,8 @@ impl GroupedCell {
         });
         self
     }
-    fn with_id(mut self, id: impl Into<String>) -> Self {
-        self.id = Some(id.into());
+    fn with_id(mut self, id: day_core::ElementId) -> Self {
+        self.id = Some(id);
         self
     }
     fn tap(mut self, f: impl Fn() + 'static) -> Self {
@@ -1186,7 +1186,7 @@ impl Piece for GroupedCell {
             Boundary::No,
         );
         if let Some(id) = id {
-            with_tree(|t| t.set_id(node, id));
+            with_tree(|t| t.set_id(node, id.as_str().to_owned()));
         }
         if let Some(child) = child {
             cx.under(node, |cx| {
@@ -2128,7 +2128,7 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         let open = a.open.clone();
         let mut cell = GroupedCell::new(a.title.clone())
             .icon(a.icon.as_ref())
-            .with_id("settings-about")
+            .with_id(day_core::id!(settings_about))
             .tap(move || open());
         cell.caption = a.subtitle.clone();
         cell.image_size = ABOUT_ICON;
@@ -2150,7 +2150,7 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
                 let open = e.open.clone();
                 let mut cell = GroupedCell::new(e.title.clone())
                     .icon(e.icon.as_ref())
-                    .with_id(format!("prefs-group-{}", e.id))
+                    .with_id(day_core::id!(prefs_group, e.id.clone()))
                     .tap(move || open());
                 cell.caption = e.subtitle.clone();
                 cell.accessory = Accessory::Chevron;
@@ -2166,7 +2166,7 @@ pub(super) fn root_page(inst: Rc<Installed>) -> Option<AnyPiece> {
             sections,
             hug: false,
         }
-        .id("settings-root")
+        .id(day_core::id!(settings_root))
         .any(),
     )
 }
@@ -2189,7 +2189,7 @@ fn group_table(inst: &Rc<Installed>, g: &Group, hug: bool) -> Option<AnyPiece> {
     let sections = group_sections(inst, g);
     Some(
         Grouped { sections, hug }
-            .id(format!("prefs-group-{}", g.id))
+            .id(day_core::id!(prefs_group, g.id.clone()))
             .any(),
     )
 }
@@ -2210,17 +2210,17 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         label(about.display_name())
             .font(day_spec::Font::Title2)
             .bold()
-            .id("about-name")
+            .id(day_core::id!(about_name))
             .any(),
     );
     if let Some(v) = about.version_line() {
-        head.push(label(v).secondary().id("about-version").any());
+        head.push(label(v).secondary().id(day_core::id!(about_version)).any());
     }
     if let Some(t) = about.tagline_text() {
         head.push(
             label(t)
                 .align(day_spec::props::TextAlign::Center)
-                .id("about-tagline")
+                .id(day_core::id!(about_tagline))
                 .any(),
         );
     }
@@ -2239,7 +2239,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         .map(|(i, (t, url))| {
             let url = url.clone();
             let mut cell = GroupedCell::new(t.clone())
-                .with_id(format!("about-link-{i}"))
+                .with_id(day_core::id!(about_link, i))
                 .tap(move || day_core::open_url(&url));
             cell.tone = Tone::Tint;
             cell.accessory = Accessory::External;
@@ -2249,7 +2249,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
     if let Some(p) = about.privacy_url() {
         let url = p.to_string();
         let mut cell = GroupedCell::new(day_fluent::tr("day-about-privacy").into_text())
-            .with_id("about-privacy")
+            .with_id(day_core::id!(about_privacy))
             .tap(move || day_core::open_url(&url));
         cell.tone = Tone::Tint;
         cell.accessory = Accessory::External;
@@ -2284,7 +2284,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
                 .font(day_spec::Font::Footnote)
                 .secondary()
                 .align(day_spec::props::TextAlign::Center)
-                .id("about-copyright")
+                .id(day_core::id!(about_copyright))
                 .grow_w()
                 .any(),
         )]));
@@ -2295,7 +2295,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
             sections,
             hug: false,
         }
-        .id("about-page")
+        .id(day_core::id!(about_page))
         .any(),
     )
 }

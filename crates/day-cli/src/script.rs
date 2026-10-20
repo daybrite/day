@@ -791,6 +791,11 @@ pub fn run_scripts(
         &reports,
     );
     reports.finish(result.as_ref().err().map(|e| e.to_string()).as_deref());
+    if result.is_ok() {
+        reports
+            .coverage(&project.manifest.dayscript.coverage)
+            .map_err(ScriptError::Other)?;
+    }
     result
 }
 
@@ -914,8 +919,70 @@ fn run_scripts_inner(
     let mut index_entries: Vec<crate::screenshot::TargetEntry> = Vec::new();
     // Set by a passing `expect_exit`: nothing is left to hand over.
     let mut app_exited = false;
+    use sha2::Digest;
+    // Validate all applicable element references against the compiled app before any
+    // walkthrough step mutates it. Offline source discovery is not the denominator.
+    let catalog_line = format!(
+        "{}\n",
+        serde_json::to_string(&Request {
+            token: token.into(),
+            step: Step::IdCatalog
+        })
+        .unwrap()
+    );
+    let catalog_reply =
+        roundtrip(&mut stream, &mut reader, &catalog_line, 0.0).map_err(ScriptError::Other)?;
+    let catalog_reply: Reply =
+        serde_json::from_str(&catalog_reply).map_err(|e| ScriptError::Other(e.to_string()))?;
+    if !catalog_reply.ok {
+        return Err(ScriptError::Other(
+            catalog_reply
+                .error
+                .unwrap_or("app did not provide an element registry".into()),
+        ));
+    }
+    let catalog: day_script_proto::IdCatalog = serde_json::from_value(
+        catalog_reply
+            .data
+            .ok_or_else(|| ScriptError::Other("missing compiled element registry".into()))?,
+    )
+    .map_err(|e| ScriptError::Other(e.to_string()))?;
+    catalog.validate().map_err(ScriptError::Other)?;
+    let catalog_flavor =
+        crate::flavor::active().map_or("flavor:none".into(), |name| format!("flavor:{name}"));
+    for path in scripts {
+        let flow = parse_flow(path, &project.root).map_err(ScriptError::Other)?;
+        for (index, entry) in flow.steps.iter().enumerate() {
+            let value = entry.to_value();
+            let matches = |field: &str| {
+                value
+                    .get(field)
+                    .and_then(|v| v.as_array())
+                    .is_some_and(|xs| {
+                        xs.iter()
+                            .filter_map(|v| v.as_str())
+                            .any(|x| gate_names(x, target, &catalog_flavor))
+                    })
+            };
+            if matches("skip_on") || (value.get("only_on").is_some() && !matches("only_on")) {
+                continue;
+            }
+            for id in entry.step.element_references() {
+                catalog.resolve(&id).map_err(|e| {
+                    ScriptError::Other(format!("{} step {}: {e}", path.display(), index + 1))
+                })?;
+            }
+        }
+    }
     for (script_index, script) in scripts.iter().enumerate() {
         reports.begin(script_index);
+        reports.catalog(
+            &sha2::Sha256::digest(token.as_bytes())
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>(),
+            &catalog,
+        );
         let mut expected_exit = false;
         let mut watching = false;
         if reports.enabled() {
@@ -1382,6 +1449,7 @@ fn run_scripts_inner(
                     eprintln!("  {ERROR}✗{ERROR:#} screenshot {name} — no safe capture available");
                 }
             }
+            step_report.evidence(&reply.id_evidence);
             step_report.result(
                 if run.steps_failed > failures_before_step {
                     "failed"
@@ -1415,6 +1483,23 @@ fn run_scripts_inner(
                         .as_deref()
                         .unwrap_or("could not stop memory sampling"),
                 );
+            }
+        }
+        if !expected_exit {
+            let line = format!(
+                "{}\n",
+                serde_json::to_string(&Request {
+                    token: token.into(),
+                    step: Step::IdMounted
+                })
+                .unwrap()
+            );
+            if let Ok(answer) = roundtrip(&mut stream, &mut reader, &line, 0.0)
+                && let Ok(reply) = serde_json::from_str::<Reply>(&answer)
+                && reply.ok
+                && let Some(data) = reply.data
+            {
+                reports.mounted(&data);
             }
         }
         reports.complete();
@@ -1951,6 +2036,36 @@ fn gate_is_known(token: &str) -> bool {
 mod gate_tests {
     use super::{gate_is_known, gate_names};
 
+    /// Synthetic engine control plane: tests below focus on step transport, while still
+    /// performing the mandatory compiled-catalog handshake (no compatibility shortcut).
+    fn fixture_line(
+        reader: &mut impl std::io::BufRead,
+        stream: &mut std::net::TcpStream,
+        line: &mut String,
+    ) -> std::io::Result<usize> {
+        use std::io::Write;
+        loop {
+            line.clear();
+            let count = reader.read_line(line)?;
+            if count == 0 {
+                return Ok(0);
+            }
+            let value: serde_json::Value = serde_json::from_str(line)?;
+            let data = match value["step"]["op"].as_str() {
+                Some("id_catalog") => {
+                    let declarations: Vec<_> = ["nav", "missing", "must_not_run", "fixture"]
+                        .into_iter()
+                        .map(|family| serde_json::json!({"family":family,"keyed":false,"package":"fixture","version":"0","locations":[]}))
+                        .collect();
+                    serde_json::json!({"schema_version":1,"declarations":declarations})
+                }
+                Some("id_mounted") => serde_json::json!([]),
+                _ => return Ok(count),
+            };
+            writeln!(stream, "{}", serde_json::json!({"ok":true,"data":data}))?;
+        }
+    }
+
     #[test]
     fn established_engine_loss_does_not_replay_a_long_running_step() {
         use std::io::{BufRead, Write};
@@ -1977,7 +2092,7 @@ mod gate_tests {
                 .unwrap();
             let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
             let mut line = String::new();
-            reader.read_line(&mut line).unwrap();
+            fixture_line(&mut reader, &mut stream, &mut line).unwrap();
             assert!(matches!(
                 serde_json::from_str::<day_script_proto::Request>(&line)
                     .unwrap()
@@ -1986,7 +2101,7 @@ mod gate_tests {
             ));
             writeln!(stream, "{{\"ok\":true}}").unwrap();
             line.clear();
-            reader.read_line(&mut line).unwrap();
+            fixture_line(&mut reader, &mut stream, &mut line).unwrap();
             assert!(line.contains("run_tests"));
             drop(reader);
             drop(stream); // The established engine dies with the long step in flight.
@@ -2039,7 +2154,7 @@ mod gate_tests {
     #[test]
     fn memory_budgets_are_target_gated_and_count_as_non_retryable_failures() {
         use day_script_proto::{MemorySize, Reply, Request, Step};
-        use std::io::{BufRead, Write};
+        use std::io::Write;
 
         let root = std::env::temp_dir().join(format!("day-memory-budget-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -2061,7 +2176,7 @@ mod gate_tests {
             let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
             for limit in [None, Some(MemorySize(500_000_000))] {
                 let mut line = String::new();
-                assert!(reader.read_line(&mut line).unwrap() > 0);
+                assert!(fixture_line(&mut reader, &mut stream, &mut line).unwrap() > 0);
                 let request: Request = serde_json::from_str(&line).unwrap();
                 assert_eq!(
                     request.step,
@@ -2141,7 +2256,7 @@ mod gate_tests {
 
     #[test]
     fn runner_sends_shared_requests_without_annotations_and_reads_old_replies() {
-        use std::io::{BufRead, Write};
+        use std::io::Write;
 
         let root = std::env::temp_dir().join(format!("day-shared-protocol-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
@@ -2164,7 +2279,7 @@ mod gate_tests {
             let mut seen = Vec::new();
             for index in 0..3 {
                 let mut line = String::new();
-                assert!(reader.read_line(&mut line).unwrap() > 0);
+                assert!(fixture_line(&mut reader, &mut stream, &mut line).unwrap() > 0);
                 let request: day_script_proto::Request = serde_json::from_str(&line).unwrap();
                 assert_eq!(request.token, "fixture-token");
                 let wire: serde_json::Value = serde_json::from_str(&line).unwrap();
@@ -2229,7 +2344,7 @@ mod gate_tests {
     /// be driving an app built before the flag existed, so the error text alone must do too.
     #[test]
     fn a_stalled_main_thread_abandons_the_rest_of_the_flow() {
-        use std::io::{BufRead, Write};
+        use std::io::Write;
         for (name, reply) in [
             (
                 "flag",
@@ -2246,7 +2361,7 @@ mod gate_tests {
             let script = root.join("flow.yaml");
             std::fs::write(
                 &script,
-                "on_failure: continue\nflow:\n- wait_for: { id: nav }\n- tap: { id: must-not-run }\n- screenshot: never\n",
+                "on_failure: continue\nflow:\n- wait_for: { id: nav }\n- tap: { id: must_not_run }\n- screenshot: never\n",
             )
             .unwrap();
             let project = crate::meta::Project {
@@ -2264,7 +2379,7 @@ mod gate_tests {
                 let mut seen = Vec::new();
                 loop {
                     let mut line = String::new();
-                    match reader.read_line(&mut line) {
+                    match fixture_line(&mut reader, &mut stream, &mut line) {
                         Ok(0) => break,
                         Err(e)
                             if e.kind() == std::io::ErrorKind::ConnectionReset
@@ -2328,13 +2443,13 @@ mod gate_tests {
 
     #[test]
     fn a_failed_prerequisite_stops_only_the_opted_in_flow() {
-        use std::io::{BufRead, Write};
+        use std::io::Write;
         for policy in ["stop", "continue"] {
             let root = std::env::temp_dir()
                 .join(format!("day-flow-failure-{}-{policy}", std::process::id()));
             std::fs::create_dir_all(&root).unwrap();
             let script = root.join("flow.yaml");
-            std::fs::write(&script, format!("on_failure: {policy}\nflow:\n- wait_for: {{ id: missing }}\n- tap: {{ id: must-not-run }}\n- screenshot: stale\n")).unwrap();
+            std::fs::write(&script, format!("on_failure: {policy}\nflow:\n- wait_for: {{ id: missing }}\n- tap: {{ id: must_not_run }}\n- screenshot: stale\n")).unwrap();
             let project = crate::meta::Project {
                 root: root.clone(),
                 manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
@@ -2360,7 +2475,7 @@ mod gate_tests {
                 let mut seen = Vec::new();
                 loop {
                     let mut line = String::new();
-                    match reader.read_line(&mut line) {
+                    match fixture_line(&mut reader, &mut stream, &mut line) {
                         Ok(0) => break,
                         // Windows can report a reset when the runner drops its socket after
                         // the flow. Only accept it between complete requests; the assertions

@@ -282,7 +282,7 @@ fn readout_label_follows_picks() {
         let color = Signal::new(Color::hex(0xE86A3C));
         column((
             color_picker(color).native(),
-            label(move || color.get().to_hex_string()).id("tint-value"),
+            label(move || color.get().to_hex_string()).id(day_core::id!(tint_value)),
         ))
         .any()
     });

@@ -27,8 +27,8 @@ long it stays.** Everything else follows from that one sentence.
 use day::prelude::*;
 
 reader_page(article).toolbar([
-    toolbar_button("next-unread", tr("next-unread")).icon(Symbol::Down).action(open_next),
-    toolbar_toggle("star", tr("star"), article.is_starred).icon(Symbol::Star),
+    toolbar_button(id!(next_unread), tr("next-unread")).icon(Symbol::Down).action(open_next),
+    toolbar_toggle(id!(star), tr("star"), article.is_starred).icon(Symbol::Star),
 ])
 ```
 
@@ -138,7 +138,7 @@ IS rather than about where it happens to sit in a list, and it survives a bar th
 
 **Search is declared elsewhere.** It belongs to the navigation surface it filters
 (`Nav::searchable`, [docs/search.md](search.md)), and Day merges the resulting field into this bar under the
-reserved id `day.search`. Declaring it on the surface lets the platform move it (into the
+reserved id `day::search`. Declaring it on the surface lets the platform move it (into the
 navigation list on a window too narrow for a sidebar) without the app re-declaring anything.
 
 Modifiers: `.icon(Symbol)`, `.image(name)`, `.action(f)`, `.tooltip(t)`, `.enabled(on)` (a
@@ -150,7 +150,7 @@ chooser or a view mode. Three toggles instead say "three independent switches" t
 a screen reader, leave the app to keep them exclusive, and take three times the width:
 
 ```rust
-toolbar_segmented("theme", vec![
+toolbar_segmented(id!(theme), vec![
     segment(tr("light")).icon(Symbol::Light),
     segment(tr("system")).icon(Symbol::Auto),
     segment(tr("dark")).icon(Symbol::Dark),
@@ -421,7 +421,7 @@ a tiled Android tablet, where selecting a row changes no chrome.)
 
 The corollary for scripting: `toolbar:` can only reach what is actually ON the bar. A step that
 drives a list pane's command has to run while that list is showing. The one exception is the
-reserved `day.search`, which the step also resolves to an inline field ([search](search.md)), so a
+reserved `day::search`, which the step also resolves to an inline field ([search](search.md)), so a
 script types the same query on a phone.
 
 ## Events

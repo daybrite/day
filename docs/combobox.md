@@ -26,7 +26,7 @@ use day_piece_combobox::combo_box;
 
 let flavors = Signal::new(vec!["vanilla".into(), "chocolate".into()]);
 let flavor = Signal::new(String::new());
-combo_box(flavors, flavor).placeholder("Type or pick a flavor").id("flavor")
+combo_box(flavors, flavor).placeholder("Type or pick a flavor").id(id!(flavor))
 ```
 
 `combo_box(items, text)` binds `text` two-way: typing writes the signal per keystroke, picking a

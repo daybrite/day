@@ -35,7 +35,7 @@ labeled(
         .range(0.0..=64.0)     // typed and stepped values both clamp (default 0..=100)
         .step(1.0)             // one arrow click (default 1)
         .decimals(0)           // fraction digits shown (default 0)
-        .id("insp-stroke-w"),  // the field's dayscript id, both idioms
+        .id(id!(insp_stroke_w)),  // the field's dayscript id, both idioms
 )
 ```
 

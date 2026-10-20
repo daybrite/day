@@ -71,7 +71,7 @@ pub fn root() -> impl Piece {
                     .map(|i| i.icon(res::vectors::tab_settings)),
             ))
             .restore("app.section")
-            .id("nav")
+            .id(day::id!(nav))
     })
 }
 

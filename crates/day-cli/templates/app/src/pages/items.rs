@@ -23,7 +23,7 @@ pub(crate) fn detail_title(scene: Scene) -> String {
 pub(crate) fn items_page() -> impl Piece {
     let scene = Scene::ambient();
     editor_pane(scene).grow().toolbar(
-        toolbar_button("tb-delete", res::str::cmd_delete())
+        toolbar_button(day::id!(tb_delete), res::str::cmd_delete())
             .icon(Symbol::Delete)
             .tooltip(res::str::cmd_delete())
             .enabled(move || scene.selected.get().is_some())
@@ -50,7 +50,7 @@ pub(crate) fn item_list_pane() -> impl Piece {
                 label(res::str::items_empty())
                     .secondary()
                     .padding(Space::L)
-                    .id("items-empty")
+                    .id(day::id!(items_empty))
             },
         ),
         // Native rows are recycled: read through `slot` so bindings follow the current item.
@@ -106,12 +106,12 @@ pub(crate) fn item_list_pane() -> impl Piece {
             })
             .label(res::str::cmd_delete()),
         )
-        .id("item-list")
+        .id(day::id!(item_list))
         .grow(),
     ))
     .grow()
     .toolbar(
-        toolbar_button("tb-add", res::str::cmd_add())
+        toolbar_button(day::id!(tb_add), res::str::cmd_add())
             .icon(Symbol::Add)
             .tooltip(res::str::cmd_add())
             .placement(ToolbarPlacement::Primary)

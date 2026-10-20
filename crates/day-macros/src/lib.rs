@@ -15,6 +15,30 @@ mod svg;
 
 use proc_macro::TokenStream;
 
+/// Keep a WASM ID record's archive member in the final link, including unused helpers.
+/// The public declaration frontend remains `id!`; this attribute is its linker plumbing.
+#[doc(hidden)]
+#[proc_macro_attribute]
+pub fn retain_element_id(_: TokenStream, item: TokenStream) -> TokenStream {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    let serial = NEXT.fetch_add(1, Ordering::Relaxed);
+    let mut out = item;
+    // An export roots the archive member containing the custom section. A unique suffix
+    // also permits caller macros to repeat the same family at one source location.
+    let anchor: TokenStream = format!(
+        r#"#[doc(hidden)]
+        #[unsafe(export_name = concat!("__day_id_anchor_", env!("CARGO_PKG_NAME"), "_",
+            env!("CARGO_PKG_VERSION"), "_", module_path!(), "_", "{serial}"))]
+        extern "C" fn __day_id_link_anchor() {{}}
+        "#
+    )
+    .parse()
+    .expect("valid element ID anchor");
+    out.extend(anchor);
+    out
+}
+
 /// Turn SVG path data into a `PathBuilder` chain, at compile time.
 ///
 /// ```ignore

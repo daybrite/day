@@ -94,8 +94,8 @@ impl MenuEntry {
     /// A label cannot do that job. It is localized, so it changes with the run's language, and an
     /// item that shows its own state changes it whenever the state moves, which is exactly the
     /// case [`MenuEntry::checked`] creates. Give an id to any item a script drives.
-    pub fn id(mut self, id: impl Into<String>) -> MenuEntry {
-        self.id = Some(id.into());
+    pub fn id(mut self, id: day_core::ElementId) -> MenuEntry {
+        self.id = Some(id.as_str().to_owned());
         self
     }
 
@@ -108,7 +108,7 @@ impl MenuEntry {
     /// follows the state, the menu re-lowering when it changes.
     ///
     /// ```ignore
-    /// menu_item(tr("view-grid")).id("view-grid").checked(grid).action(move || grid.set(!grid.get()))
+    /// menu_item(tr("view_grid")).id(day_core::id!(view_grid)).checked(grid).action(move || grid.set(!grid.get()))
     /// ```
     pub fn checked<M>(mut self, on: impl IntoReactive<bool, M>) -> MenuEntry {
         self.checked = Some(on.into_reactive());
@@ -578,7 +578,9 @@ fn composed_menu_rows(
                 };
                 // The app's own name where it gave one, so a dayscript `tap` addresses the row it
                 // means; the positional fallback keeps every other row reachable.
-                let element_id = id.clone().unwrap_or_else(|| format!("day-menu-item-{n}"));
+                let element_id = id
+                    .clone()
+                    .unwrap_or_else(|| day_core::id!(day_menu_item, n).as_str().to_owned());
                 let base = crate::label(text)
                     .padding(day_spec::Insets::symmetric(12.0 + indent, 5.0))
                     .width(COMPOSED_MENU_W);
@@ -589,9 +591,13 @@ fn composed_menu_rows(
                             open.set(None);
                             day_core::dispatch_menu_action(action);
                         })
-                        .id(element_id)
+                        .tweak(move |node| {
+                            day_core::with_tree(|tree| tree.set_id(node, element_id))
+                        })
                 } else {
-                    base.opacity(0.45).id(element_id)
+                    base.opacity(0.45).tweak(move |node| {
+                        day_core::with_tree(|tree| tree.set_id(node, element_id))
+                    })
                 };
                 out.push(day_core::AnyPiece::new(row));
             }
@@ -683,14 +689,14 @@ pub(crate) mod conformance {
             .page(|| {
                 let last = Signal::new(String::from("none"));
                 column((
-                    label(move || format!("ran {}", last.get())).id("ran"),
+                    label(move || format!("ran {}", last.get())).id(day_core::id!(ran)),
                     label("Target")
                         .padding(8.0)
                         .context_menu(vec![
                             menu_item("Copy it").action(move || last.set("copy".into())),
                             menu_item("Paste it").action(move || last.set("paste".into())),
                         ])
-                        .id("target"),
+                        .id(day_core::id!(target)),
                 ))
             })
             .drive(|d: Drive| async move {
@@ -711,17 +717,17 @@ pub(crate) mod conformance {
                 let count = Signal::new(0i64);
                 let chose = Signal::new(0i64);
                 column((
-                    label(move || format!("chose {}", chose.get())).id("chose"),
+                    label(move || format!("chose {}", chose.get())).id(day_core::id!(chose)),
                     button("Add")
                         .action(move || count.update(|n| *n += 1))
-                        .id("add"),
+                        .id(day_core::id!(add)),
                     label("Target")
                         .padding(8.0)
                         .context_menu(move || {
                             let n = count.get_untracked();
                             vec![menu_item(format!("Take {n}")).action(move || chose.set(n))]
                         })
-                        .id("target"),
+                        .id(day_core::id!(target)),
                 ))
             })
             .drive(|d: Drive| async move {

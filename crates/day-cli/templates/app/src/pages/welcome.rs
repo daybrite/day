@@ -12,12 +12,12 @@ pub(crate) fn welcome_page() -> impl Piece {
             .decorative()
             .frame(132.0, 132.0)
             .corner_radius(30.0)
-            .id("welcome-mark"),
+            .id(day::id!(welcome_mark)),
         label(res::str::welcome_title())
             .font(Font::LargeTitle)
             .a11y(|a| a.role(Role::Heading(1)))
             .align(TextAlign::Center)
-            .id("welcome-title"),
+            .id(day::id!(welcome_title)),
         label(res::str::welcome_body())
             .markdown()
             .on_link(|target| {
@@ -30,7 +30,7 @@ pub(crate) fn welcome_page() -> impl Piece {
             })
             .align(TextAlign::Center)
             .max_width(440.0)
-            .id("welcome-body"),
+            .id(day::id!(welcome_body)),
         spacer(),
     ))
     .spacing(20.0)

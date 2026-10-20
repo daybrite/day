@@ -39,7 +39,7 @@ nothing diffs or rebuilds it.
    closure that reads a Signal (`label(move || …count.get()…)`), or pass a Signal to a control
    (`slider(volume)`). Do not diff, re-run, or recreate Piece trees yourself.
 3. **`Signal<T>` is `Copy`.** Clone/move it into as many closures as you need; do not wrap it in `Rc`.
-4. **Give every interactive/asserted Piece a stable `.id("…")`.** Tests, dayscript, and deep links
+4. **Give every interactive/asserted Piece a stable `.id(id!(name))`.** Tests, dayscript, and deep links
    address Pieces by id. A Piece without an id cannot be scripted.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
    per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
@@ -115,10 +115,10 @@ fn main() {
 fn root() -> impl Piece {
     let count = Signal::new(0i64);
     column((
-        label(move || format!("{} clicks", count.get())).font(Font::Title).id("counter"),
+        label(move || format!("{} clicks", count.get())).font(Font::Title).id(id!(counter)),
         row((
-            button("−").action(move || count.update(|c| *c -= 1)).id("dec"),
-            button("+").action(move || count.update(|c| *c += 1)).id("inc"),
+            button("−").action(move || count.update(|c| *c -= 1)).id(id!(dec)),
+            button("+").action(move || count.update(|c| *c += 1)).id(id!(inc)),
         ))
         .spacing(8.0),
     ))
@@ -135,9 +135,9 @@ let name = Signal::new(String::new());
 let volume = Signal::new(40.0);
 let on = Signal::new(false);
 column((
-    text_field(name).placeholder("Your name").id("name"),
-    slider(volume).range(0.0..=100.0).step(1.0).id("vol"),
-    toggle(on).id("on"),
+    text_field(name).placeholder("Your name").id(id!(name)),
+    slider(volume).range(0.0..=100.0).step(1.0).id(id!(vol)),
+    toggle(on).id(id!(on)),
     progress(move || volume.get() / 100.0),   // tracks the slider live
 ))
 ```
@@ -154,7 +154,7 @@ when(move || !name.with(|s| s.is_empty()),
 each(
     move || items.get(),
     |it| it.id.clone(),
-    |slot| label(move || slot.field(|it| it.title.clone())).id_keyed("row", slot.key()),
+    |slot| label(move || slot.field(|it| it.title.clone())).id(id!(row, slot.key())),
 )
 ```
 
@@ -168,7 +168,7 @@ nav(section)
     .title("My App")
     .item("home", "Home", home_page)
     .item("settings", "Settings", settings_page)
-    .id("nav")
+    .id(id!(nav))
 
 // push/pop stack bound to a path Signal:
 let path = Signal::new(Vec::<String>::new());
@@ -199,7 +199,7 @@ styles and scale with the OS accessibility text size.
 use day_piece_combobox::combo_box;
 let items = Signal::new(vec!["a".into(), "b".into()]);
 let text = Signal::new(String::new());
-combo_box(items, text).id("combo")
+combo_box(items, text).id(id!(combo))
 ```
 
 SwiftUI views embed via `day-piece-swiftui` on macos-appkit / ios-uikit only:
@@ -237,7 +237,7 @@ macos-qt, which have no AppKit view tree.
 | nav (one-of-N / stack) | `nav(sig)` / `nav_stack(path, root)` |
 | localize | `tr("key").arg("n", val)` |
 | accessibility | `.a11y(\|a\| a.role(Role::…).label("…"))` |
-| identify for tests | `.id("stable-id")` / `.id_keyed("row", key)` |
+| identify for tests | `.id(id!(stable_id))` / `.id(id!(row, key))` |
 
 ## CLI reference
 

@@ -35,6 +35,9 @@ day_reactive::tls_root! {
 pub use day_async::{
     Blocking, BlockingError, blocking_inline, blocking_limit, blocking_threads, spawn_blocking,
 };
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub use day_macros::retain_element_id as __retain_element_id;
 /// Re-exported so every crate above day-core can reach it without taking a direct
 /// day-reactive dependency (see day-reactive for what it does and why Android needs it).
 pub use day_reactive::tls_group;
@@ -45,7 +48,9 @@ mod ambient;
 mod anim;
 mod build;
 pub mod conformance;
+pub mod element_id;
 pub mod frame;
+pub use element_id::{ElementId, IntoElementKey};
 mod frames;
 pub mod image;
 mod layout;
@@ -1283,7 +1288,7 @@ pub fn note_text_size_changed() {
 }
 
 // The `.searchable()` hosts whose field is INLINE (docs/search.md), newest last: each has no
-// `day.search` bar item, so a caller holding that reserved id (dayscript's `toolbar:` step)
+// `day::search` bar item, so a caller holding that reserved id (dayscript's `toolbar:` step)
 // resolves it here and delivers `Event::SearchChanged` to the host, as the native field would.
 /// Record `host` as showing an inline search field. Registered by the host's builder for the
 /// life of its scope; see [`inline_search_host`].
@@ -1301,7 +1306,7 @@ pub fn unregister_search_host(host: RNode) {
     SEARCH_HOSTS.with(|h| h.borrow_mut().retain(|(_, node)| *node != host));
 }
 
-/// The inline search host the reserved `day.search` id names when no bar item carries it: the
+/// The inline search host the reserved `day::search` id names when no bar item carries it: the
 /// most recently shown one in the focused window.
 pub fn inline_search_host() -> Option<RNode> {
     let window = windows::focused_root();

@@ -378,7 +378,7 @@ and reuses `day_qt_size_hint` (already linked by `day-qt-sys`) for `measure`. Th
 ```rust
 // pieces/day-piece-searchfield/build.rs (Qt branch, abridged)
 if std::env::var("CARGO_FEATURE_QT").is_ok() {
-    let cflags = Command::new("pkg-config").args(["--cflags", "Qt6Widgets"]).output().unwrap();
+    let cflags = Command::new(id!(pkg_config)).args(["--cflags", "Qt6Widgets"]).output().unwrap();
     let mut build = cc::Build::new();
     build.cpp(true).std("c++17").file("src/lib-qt-shim.cpp");
     for tok in String::from_utf8_lossy(&cflags.stdout).split_whitespace() { build.flag(tok); }
@@ -570,7 +570,7 @@ Then use it like a built-in:
 use day_piece_searchfield::search_field;
 
 let query = Signal::new(String::new());
-search_field(query).placeholder("Search fruit…").id("fruit-search")
+search_field(query).placeholder("Search fruit…").id(id!(fruit_search))
 ```
 
 If a backend is not registered (say you enabled the piece on a toolkit you have not written yet),

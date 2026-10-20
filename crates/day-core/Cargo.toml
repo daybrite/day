@@ -32,5 +32,8 @@ slotmap = { workspace = true }
 anstyle = { workspace = true }
 anstream = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+day-macros = { workspace = true }
+
 [dev-dependencies]
 day-mock = { workspace = true }
