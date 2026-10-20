@@ -924,20 +924,23 @@ pub mod conformance {
             .page(|| {
                 let doc = Signal::new(StyledText::plain("Start"));
                 column((
-                    label(move || format!("doc {}", doc.get().text)).id(day_core::id!(doc)),
+                    label(move || format!("doc {}", doc.get().text))
+                        .id(day_core::id!(texteditor::doc)),
                     button("Replace")
                         .action(move || doc.set(StyledText::markdown("**Bold** end", Font::Body)))
-                        .id(day_core::id!(replace)),
-                    text_editor(doc).min_lines(3).id(day_core::id!(editor)),
+                        .id(day_core::id!(texteditor::replace)),
+                    text_editor(doc)
+                        .min_lines(3)
+                        .id(day_core::id!(texteditor::editor)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.input("editor", "Hello world").await?;
-                d.assert_text("doc", "doc Hello world").await?;
-                d.tap("replace").await?;
-                d.assert_text("doc", "doc Bold end").await?;
+                d.input("texteditor::editor", "Hello world").await?;
+                d.assert_text("texteditor::doc", "doc Hello world").await?;
+                d.tap("texteditor::replace").await?;
+                d.assert_text("texteditor::doc", "doc Bold end").await?;
                 d.assert_native(
-                    "editor",
+                    "texteditor::editor",
                     NativeExpect {
                         text: Some("Bold end".into()),
                         ..Default::default()
@@ -957,19 +960,20 @@ pub mod conformance {
             .page(|| {
                 let doc = Signal::new(StyledText::default());
                 column((
-                    label(move || format!("runs {}", doc.get().runs.len())).id(day_core::id!(runs)),
+                    label(move || format!("runs {}", doc.get().runs.len()))
+                        .id(day_core::id!(texteditor::runs)),
                     text_editor(doc)
                         .highlight(highlighter(Language::Json, Palette::default(), false))
                         .min_lines(3)
-                        .id(day_core::id!(editor)),
+                        .id(day_core::id!(texteditor::editor)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.input("editor", "{\"a\": 1}").await?;
+                d.input("texteditor::editor", "{\"a\": 1}").await?;
                 // `{`, the key, `: `, the number, `}`: five runs over every byte.
-                d.assert_text("runs", "runs 5").await?;
+                d.assert_text("texteditor::runs", "runs 5").await?;
                 d.assert_native(
-                    "editor",
+                    "texteditor::editor",
                     NativeExpect {
                         text: Some("{\"a\": 1}".into()),
                         ..Default::default()
@@ -989,20 +993,21 @@ pub mod conformance {
                 let text = Signal::new(String::new());
                 let submits = Signal::new(0u32);
                 column((
-                    label(move || format!("submits {}", submits.get())).id(day_core::id!(submits)),
+                    label(move || format!("submits {}", submits.get()))
+                        .id(day_core::id!(texteditor::submits)),
                     super::text_editor_text(text)
                         .single_line()
                         .on_submit(move || submits.update(|n| *n += 1))
-                        .id(day_core::id!(editor)),
+                        .id(day_core::id!(texteditor::editor)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.key(Some("editor"), "Enter").await?;
-                d.assert_text("submits", "submits 1").await?;
-                d.input("editor", "a\nb").await?;
-                d.assert_text("editor", "a b").await?;
+                d.key(Some("texteditor::editor"), "Enter").await?;
+                d.assert_text("texteditor::submits", "submits 1").await?;
+                d.input("texteditor::editor", "a\nb").await?;
+                d.assert_text("texteditor::editor", "a b").await?;
                 d.assert_native(
-                    "editor",
+                    "texteditor::editor",
                     NativeExpect {
                         text: Some("a b".into()),
                         ..Default::default()
@@ -1022,13 +1027,13 @@ pub mod conformance {
                 column((super::text_editor_text(text)
                     .code()
                     .indent(4)
-                    .id(day_core::id!(editor)),))
+                    .id(day_core::id!(texteditor::editor)),))
             })
             .drive(|d: Drive| async move {
-                d.key(Some("editor"), "Tab").await?;
-                d.assert_text("editor", "    ").await?;
+                d.key(Some("texteditor::editor"), "Tab").await?;
+                d.assert_text("texteditor::editor", "    ").await?;
                 d.assert_native(
-                    "editor",
+                    "texteditor::editor",
                     NativeExpect {
                         text: Some("    ".into()),
                         ..Default::default()
@@ -1049,20 +1054,20 @@ pub mod conformance {
                 let text = Signal::new(String::new());
                 column((super::text_editor_text(text)
                     .code()
-                    .id(day_core::id!(editor)),))
+                    .id(day_core::id!(texteditor::editor)),))
             })
             .drive(|d: Drive| async move {
                 // Each key is two round trips through the view (the character, then what the
                 // rule inserts), and on Android the view's report crosses JNI a turn later:
                 // settle before reading.
-                d.key(Some("editor"), "{").await?;
+                d.key(Some("texteditor::editor"), "{").await?;
                 d.wait_idle().await?;
-                d.assert_text("editor", "{}").await?;
-                d.key(Some("editor"), "Enter").await?;
+                d.assert_text("texteditor::editor", "{}").await?;
+                d.key(Some("texteditor::editor"), "Enter").await?;
                 d.wait_idle().await?;
-                d.assert_text("editor", "{\n  }").await?;
+                d.assert_text("texteditor::editor", "{\n  }").await?;
                 d.assert_native(
-                    "editor",
+                    "texteditor::editor",
                     NativeExpect {
                         text: Some("{\n  }".into()),
                         ..Default::default()

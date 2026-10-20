@@ -18,7 +18,7 @@ helpers = runpy.run_path(str(Path(__file__).with_name("harmony-dialogs.py")))
 
 class TextAreaTests(helpers["DialogTests"]):
     def area(self):
-        return self.find("area", "id")
+        return self.find("textarea::area", "id")
 
     def focus(self):
         self.input("click", *self.center(self.area()))
@@ -27,17 +27,17 @@ class TextAreaTests(helpers["DialogTests"]):
         self.input("keyEvent", 2072, key)
 
     def text(self, expected):
-        self.answer(expected, "area")
-        self.answer("Model: " + expected, "model")
+        self.answer(expected, "textarea::area")
+        self.answer("Model: " + expected, "textarea::model")
         assert self.area()["text"] == expected, self.area()
 
     def clipboard(self, expected):
         # Use native Paste, which carries the OS paste authorization; a direct clipboard
         # API read is not equivalent and can be denied even in a foreground app.
-        self.control("clear-clipboard")
-        self.input("click", *self.center(self.find("clipboard", "id")))
+        self.control("textarea::clear_clipboard")
+        self.input("click", *self.center(self.find("textarea::clipboard", "id")))
         self.shortcut(2038)
-        self.answer(expected, "clipboard")
+        self.answer(expected, "textarea::clipboard")
         self.input("keyEvent", "Back")
 
     def tests(self):
@@ -51,7 +51,7 @@ class TextAreaTests(helpers["DialogTests"]):
         self.text("Alpha Beta")
         self.passed_case("initial read-only blocks native typing, deletion and newline")
 
-        self.control("seed")
+        self.control("textarea::seed")
         self.focus()
         self.shortcut(2017)  # A
         self.shortcut(2019)  # C
@@ -60,41 +60,41 @@ class TextAreaTests(helpers["DialogTests"]):
         self.shortcut(2017)
         self.shortcut(2040)  # X
         self.text("Alpha Beta")
-        self.control("seed")
+        self.control("textarea::seed")
         self.focus()
         self.shortcut(2038)  # V
         self.text("Alpha Beta")
         self.passed_case("read-only allows copy but rejects cut and paste")
 
-        self.control("replace")
+        self.control("textarea::replace")
         self.text("Gamma Delta")
         self.focus()
         self.input("text", "Z")
         self.text("Gamma Delta")
         self.passed_case("programmatic writes update the read-only value held by the gate")
 
-        self.control("edit")
+        self.control("textarea::edit")
         self.focus()
         self.shortcut(2017)
         self.input("text", "Typed")
         self.text("Typed")
         self.input("keyEvent", "Back")  # Reveal the fixture's lower controls.
-        self.control("seed")
+        self.control("textarea::seed")
         self.focus()
         self.shortcut(2017)
         self.shortcut(2038)
         self.text("PasteMarker")
-        self.control("readonly")
+        self.control("textarea::readonly")
         self.focus()
         self.input("text", "Z")
         self.text("PasteMarker")
         self.passed_case("reactive editability restores typing/paste and can lock again")
 
-        self.control("reset")
-        self.control("seed")
+        self.control("textarea::reset")
+        self.control("textarea::seed")
         self.focus()
         self.shortcut(2017)  # Existing selection must also collapse on the patch.
-        self.control("noselect")
+        self.control("textarea::noselect")
         self.shortcut(2019)
         self.clipboard("PasteMarker")
         self.focus()
@@ -113,7 +113,7 @@ class TextAreaTests(helpers["DialogTests"]):
         self.text("Alpha Beta")
         self.passed_case("unselectable long press exposes no copy menu or copied text")
 
-        self.control("edit")
+        self.control("textarea::edit")
         self.focus()
         self.shortcut(2017)
         self.input("text", "Z")
@@ -128,23 +128,23 @@ class TextAreaTests(helpers["DialogTests"]):
         self.text(after)
         self.passed_case("selection-disabled editor still types, without replacing Ctrl+A/Shift+Arrow ranges")
 
-        self.control("select")
+        self.control("textarea::select")
         self.focus()
         self.shortcut(2017)
         self.input("text", "Restored")
         self.text("Restored")
         self.passed_case("re-enabling selection restores native Select All and replacement")
 
-        self.control("readonly")
-        self.control("noselect")
-        self.control("mount")
-        self.control("mount")
+        self.control("textarea::readonly")
+        self.control("textarea::noselect")
+        self.control("textarea::mount")
+        self.control("textarea::mount")
         self.text("Restored")
         self.focus()
         self.input("text", "Z")
         self.text("Restored")
-        self.control("edit")
-        self.control("select")
+        self.control("textarea::edit")
+        self.control("textarea::select")
         self.focus()
         self.shortcut(2017)
         self.input("text", "Remounted")

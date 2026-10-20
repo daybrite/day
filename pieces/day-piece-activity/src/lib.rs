@@ -133,23 +133,25 @@ pub mod conformance {
             .page(|| {
                 let on = Signal::new(true);
                 column((
-                    activity().animating(on).id(day_core::id!(spinner)),
+                    activity()
+                        .animating(on)
+                        .id(day_core::id!(activity::spinner)),
                     button("Stop")
                         .action(move || on.set(false))
-                        .id(day_core::id!(stop)),
+                        .id(day_core::id!(activity::stop)),
                 ))
             })
             .drive(|d: Drive| async move {
                 d.assert_native(
-                    "spinner",
+                    "activity::spinner",
                     NativeExpect {
                         visible: Some(true),
                         ..Default::default()
                     },
                 )
                 .await?;
-                d.tap("stop").await?;
-                d.assert_visible("spinner").await
+                d.tap("activity::stop").await?;
+                d.assert_visible("activity::spinner").await
             })
     }
 

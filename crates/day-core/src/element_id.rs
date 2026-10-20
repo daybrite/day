@@ -171,9 +171,18 @@ fn normalize(records: Vec<RegisteredId>) -> Result<Vec<RegisteredId>, String> {
             if (prior.keyed, &prior.package, &prior.version)
                 != (record.keyed, &record.package, &record.version)
             {
+                let owner = |r: &RegisteredId| {
+                    let shape = if r.keyed { "keyed" } else { "static" };
+                    match r.locations.first() {
+                        Some(at) => format!("{shape} in {} {} at {at}", r.package, r.version),
+                        None => format!("{shape} in {} {}", r.package, r.version),
+                    }
+                };
                 return Err(format!(
-                    "conflicting element ID declaration: {}",
-                    record.family
+                    "conflicting element ID declaration: {} ({}; {})",
+                    record.family,
+                    owner(prior),
+                    owner(&record)
                 ));
             }
             prior.locations.extend(record.locations);
@@ -493,6 +502,11 @@ mod tests {
         assert!(normalize(vec![record.clone(), duplicate.clone()]).is_err());
         duplicate.keyed = false;
         duplicate.package = "other_fixture".into();
-        assert!(normalize(vec![record, duplicate]).is_err());
+        // The message names both owners, so a collision between two crates is traceable.
+        assert_eq!(
+            normalize(vec![record, duplicate]).unwrap_err(),
+            "conflicting element ID declaration: save (static in fixture 1 at fixture.rs:1; \
+             static in other_fixture 1 at fixture.rs:2)"
+        );
     }
 }

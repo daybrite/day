@@ -36,7 +36,7 @@ class DialogTests:
     def control(self, name):
         self.drive({"op": "tap", "id": name})
 
-    def answer(self, text, id="answer"):
+    def answer(self, text, id="dialogs::answer"):
         self.drive({"op": "assert_text", "id": id, "text": text})
 
     def layout(self):
@@ -98,31 +98,31 @@ class DialogTests:
         self.closed()
         self.passed_case("presentation from the startup task")
 
-        self.control("confirm")
+        self.control("dialogs::confirm")
         self.find('Delete "東京"?')
         self.find("This cannot be undone.\nKeep a backup.")
         self.button(1)
         self.answer("confirm true")
         self.closed()
-        self.control("confirm")
+        self.control("dialogs::confirm")
         self.button(0)
         self.answer("confirm false")
         self.closed()
         self.passed_case("confirmation choice/cancel and lossless title/message transport")
 
-        self.control("confirm")
+        self.control("dialogs::confirm")
         self.find('Delete "東京"?')
         self.input("keyEvent", "Back")
         self.answer("confirm false")
         self.closed()
-        self.control("confirm")
+        self.control("dialogs::confirm")
         self.find('Delete "東京"?')
         self.input("click", 5, 80)  # Modal mask inside the app, outside the centered dialog.
         self.answer("confirm false")
         self.closed()
         self.passed_case("Back and outside-tap cancellation")
 
-        self.control("prompt")
+        self.control("dialogs::prompt")
         assert self.find("day.dialog.input", "id")["text"] == "Ada"
         self.edit("Grace")
         self.button(1)
@@ -130,18 +130,18 @@ class DialogTests:
         self.closed()
         self.passed_case("prompt initial value, native editing and Save")
 
-        self.control("prompt")
+        self.control("dialogs::prompt")
         self.edit("")
         self.input("keyEvent", 2054)  # Enter / IME submit, preserving Some("").
         self.answer('prompt Some("")')
         self.closed()
-        self.control("prompt")
+        self.control("dialogs::prompt")
         self.button(0)
         self.answer("prompt None")
         self.closed()
         self.passed_case("empty prompt submission is distinct from cancellation")
 
-        self.control("sheet")
+        self.control("dialogs::sheet")
         self.find("Choose an action")
         surface = self.find("day.dialog.surface", "id")
         left, top, right, bottom = map(int, re.findall(r"-?\d+", surface["bounds"]))
@@ -154,43 +154,43 @@ class DialogTests:
         self.button(2)
         self.answer("sheet Some(30)")
         self.closed()
-        self.control("sheet")
+        self.control("dialogs::sheet")
         self.button(1)
         self.answer("sheet None")
         self.closed()
         self.passed_case("four-button action sheet preserves destructive/cancel indices")
 
-        self.control("pair")
+        self.control("dialogs::pair")
         self.find("Queue A")
         self.find("Queue B", missing=True)
         self.button(1)
-        self.answer("first true", "first")
+        self.answer("first true", "dialogs::first")
         self.find("Queue B")
         self.input("keyEvent", "Back")
-        self.answer("second false", "second")
+        self.answer("second false", "dialogs::second")
         self.closed()
         self.passed_case("concurrent requests present sequentially and answer their own futures")
 
-        self.control("pair")
+        self.control("dialogs::pair")
         self.find("Queue A")
         # Day's pending request is the most recent: Queue B has not opened yet.
         self.drive({"op": "respond", "dismiss": True})
-        self.answer("second false", "second")
+        self.answer("second false", "dialogs::second")
         self.find("Queue A")
         self.button(1)
-        self.answer("first true", "first")
+        self.answer("first true", "dialogs::first")
         self.closed()
         self.passed_case("programmatic dismissal removes a queued request without closing another")
 
-        self.drive({"op": "tap", "id": "confirm"}, {"op": "respond", "button": 1},
-                   {"op": "tap", "id": "prompt"})
+        self.drive({"op": "tap", "id": "dialogs::confirm"}, {"op": "respond", "button": 1},
+                   {"op": "tap", "id": "dialogs::prompt"})
         self.find("Your name")
         self.button(1)
         self.answer('prompt Some("Ada")')
         self.closed()
         self.passed_case("close during opening does not dismiss the following dialog")
 
-        self.control("chain")
+        self.control("dialogs::chain")
         self.find("Continue?")
         self.button(1)
         self.find("Next dialog")
@@ -199,27 +199,27 @@ class DialogTests:
         self.closed()
         self.passed_case("an answered future can immediately present another dialog")
 
-        self.control("empty")
+        self.control("dialogs::empty")
         self.find("No choices")
         self.input("keyEvent", "Back")
         self.answer("empty dismissed")
         self.closed()
         self.passed_case("buttonless alert remains dismissible")
 
-        self.control("light")
-        self.control("confirm")
+        self.control("dialogs::light")
+        self.control("dialogs::confirm")
         light = self.find("day.dialog.surface", "id")["backgroundColor"]
         self.button(0)
         self.closed()
-        self.control("dark")
+        self.control("dialogs::dark")
         try:
-            self.control("confirm")
+            self.control("dialogs::confirm")
             dark = self.find("day.dialog.surface", "id")["backgroundColor"]
             assert light != dark, (light, dark)
             self.button(0)
             self.closed()
         finally:
-            self.control("system")
+            self.control("dialogs::system")
         self.passed_case("dialog surface follows the application's light/dark appearance")
 
 

@@ -572,13 +572,16 @@ pub mod conformance {
             .page(|| {
                 let date = Signal::new(DayDate::new(2026, 1, 15).unwrap_or(DayDate::today()));
                 column((
-                    label(move || format!("date {}", date.get())).id(day_core::id!(value)),
-                    date_picker(date).compact().id(day_core::id!(date)),
+                    label(move || format!("date {}", date.get()))
+                        .id(day_core::id!(datetime::value)),
+                    date_picker(date)
+                        .compact()
+                        .id(day_core::id!(datetime::date)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.input("date", "2026-11-05").await?;
-                d.assert_text("value", "date 2026-11-05").await
+                d.input("datetime::date", "2026-11-05").await?;
+                d.assert_text("datetime::value", "date 2026-11-05").await
             })
     }
 
@@ -595,13 +598,14 @@ pub mod conformance {
                     picker = picker.min(lo).max(hi);
                 }
                 column((
-                    label(move || format!("date {}", date.get())).id(day_core::id!(value)),
-                    picker.id(day_core::id!(date)),
+                    label(move || format!("date {}", date.get()))
+                        .id(day_core::id!(datetime::value)),
+                    picker.id(day_core::id!(datetime::date)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.input("date", "2027-06-15").await?;
-                d.assert_text("value", "date 2026-12-31").await
+                d.input("datetime::date", "2027-06-15").await?;
+                d.assert_text("datetime::value", "date 2026-12-31").await
             })
     }
 
@@ -613,13 +617,16 @@ pub mod conformance {
             .page(|| {
                 let time = Signal::new(DayTime::new(9, 0, 0).unwrap_or(DayTime::now()));
                 column((
-                    label(move || format!("time {}", time.get())).id(day_core::id!(value)),
-                    time_picker(time).compact().id(day_core::id!(time)),
+                    label(move || format!("time {}", time.get()))
+                        .id(day_core::id!(datetime::value)),
+                    time_picker(time)
+                        .compact()
+                        .id(day_core::id!(datetime::time)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.input("time", "14:45").await?;
-                d.assert_text("value", "time 14:45").await
+                d.input("datetime::time", "14:45").await?;
+                d.assert_text("datetime::value", "time 14:45").await
             })
     }
 

@@ -167,21 +167,22 @@ pub mod conformance {
             .page(|| {
                 let query = Signal::new(String::new());
                 column((
-                    label(move || format!("query {}", query.get())).id(day_core::id!(query)),
+                    label(move || format!("query {}", query.get()))
+                        .id(day_core::id!(searchfield::query)),
                     search_field(query)
                         .placeholder("Search")
-                        .id(day_core::id!(search)),
+                        .id(day_core::id!(searchfield::search)),
                     button("Clear")
                         .action(move || query.set(String::new()))
-                        .id(day_core::id!(clear)),
+                        .id(day_core::id!(searchfield::clear)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.input("search", "choc").await?;
-                d.assert_text("query", "query choc").await?;
-                d.tap("clear").await?;
-                d.assert_text("query", "query ").await?;
-                d.assert_text("search", "").await
+                d.input("searchfield::search", "choc").await?;
+                d.assert_text("searchfield::query", "query choc").await?;
+                d.tap("searchfield::clear").await?;
+                d.assert_text("searchfield::query", "query ").await?;
+                d.assert_text("searchfield::search", "").await
             })
     }
 

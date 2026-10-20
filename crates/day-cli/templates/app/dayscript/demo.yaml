@@ -15,7 +15,7 @@ flow:
   - wait_for: { id: item_list }
   - screenshot: list
 
-  - toolbar: { item: tb-add }
+  - toolbar: { item: tb_add }
   - wait_for: { id: field_name }
   - input: { id: field_name, text: "Written by the demo" }
   - assert_text: { id: field_name, text: "Written by the demo" }
@@ -25,7 +25,7 @@ flow:
   - screenshot: editor
 
   # Remove only the item this run created, leaving existing items alone.
-  - toolbar: { item: tb-delete }
+  - toolbar: { item: tb_delete }
   - wait_for: { id: item_list }
   - assert_missing: { id: field_name }
 

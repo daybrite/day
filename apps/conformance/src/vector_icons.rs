@@ -139,11 +139,11 @@ fn vector_native_icon_slot_preserves_strokes() -> Case {
                 .frame(96.0, 64.0)
         })
         .drive(|d: Drive| async move {
-            d.assert_size("icon-button", 96.0, 64.0).await?;
-            d.sample_pixel("icon-button", 0.5, 0.5, "#000000").await?;
+            d.assert_size("icon_button", 96.0, 64.0).await?;
+            d.sample_pixel("icon_button", 0.5, 0.5, "#000000").await?;
             // The thick stroke covers this offset at native 16–32 point icon sizes.
             // Checking paint as well as the hole also rejects a missing icon.
-            d.sample_pixel("icon-button", 53.0 / 96.0, 0.5, "#ffffff")
+            d.sample_pixel("icon_button", 53.0 / 96.0, 0.5, "#ffffff")
                 .await?;
             d.shot("native-icon-slot").await
         })

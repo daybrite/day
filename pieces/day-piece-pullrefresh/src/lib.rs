@@ -314,21 +314,23 @@ pub mod conformance {
                 let runs = Signal::new(0i64);
                 column((
                     label(move || format!("refreshing {} runs {}", refreshing.get(), runs.get()))
-                        .id(day_core::id!(state)),
+                        .id(day_core::id!(pullrefresh::state)),
                     button("Done")
                         .action(move || refreshing.set(false))
-                        .id(day_core::id!(done)),
+                        .id(day_core::id!(pullrefresh::done)),
                     pull_to_refresh(refreshing, scroll(column((label("Row 1"), label("Row 2")))))
                         .on_refresh(move || runs.update(|n| *n += 1))
-                        .id(day_core::id!(pull))
+                        .id(day_core::id!(pullrefresh::pull))
                         .height(200.0),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.toggle("pull", true).await?;
-                d.assert_text("state", "refreshing true runs 1").await?;
-                d.tap("done").await?;
-                d.assert_text("state", "refreshing false runs 1").await
+                d.toggle("pullrefresh::pull", true).await?;
+                d.assert_text("pullrefresh::state", "refreshing true runs 1")
+                    .await?;
+                d.tap("pullrefresh::done").await?;
+                d.assert_text("pullrefresh::state", "refreshing false runs 1")
+                    .await
             })
     }
 

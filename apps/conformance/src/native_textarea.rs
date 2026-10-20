@@ -15,9 +15,9 @@ pub fn submission_page() -> impl Piece {
     let clear = Signal::new(false);
     let remove = Signal::new(false);
     column((
-        label(move || format!("Submits: {}", submits.get())).id(day::id!(submits)),
-        label(move || format!("Sent: {:?}", sent.get())).id(day::id!(sent)),
-        label(move || format!("Model: {:?}", text.get())).id(day::id!(model)),
+        label(move || format!("Submits: {}", submits.get())).id(day::id!(textarea::submits)),
+        label(move || format!("Sent: {:?}", sent.get())).id(day::id!(textarea::sent)),
+        label(move || format!("Model: {:?}", text.get())).id(day::id!(textarea::model)),
         when(
             move || mounted.get(),
             move || {
@@ -38,37 +38,37 @@ pub fn submission_page() -> impl Piece {
                                     mounted.set(false);
                                 }
                             })
-                            .id(day::id!(area))
+                            .id(day::id!(textarea::area))
                     },
                 )
-                .otherwise(move || text_area(text).min_lines(3).max_lines(3).id(day::id!(area)))
+                .otherwise(move || text_area(text).min_lines(3).max_lines(3).id(day::id!(textarea::area)))
             },
         ),
         row((
             button("Editable")
-                .id(day::id!(editable))
+                .id(day::id!(textarea::editable))
                 .action(move || editable.update(|v| *v = !*v)),
             button("Plain/submit")
-                .id(day::id!(mode))
+                .id(day::id!(textarea::mode))
                 .action(move || submit_mode.update(|v| *v = !*v)),
         )),
         row((
             button("Clear on send")
-                .id(day::id!(clear))
+                .id(day::id!(textarea::clear))
                 .action(move || clear.update(|v| *v = !*v)),
             button("Remove on send")
-                .id(day::id!(remove))
+                .id(day::id!(textarea::remove))
                 .action(move || remove.update(|v| *v = !*v)),
         )),
         row((
             button("Mount")
-                .id(day::id!(mount))
+                .id(day::id!(textarea::mount))
                 .action(move || mounted.set(true)),
             button("Seed paste")
-                .id(day::id!(seed))
+                .id(day::id!(textarea::seed))
                 .action(|| assert!(day::clipboard::set_text("first\nsecond"))),
             button("Unicode")
-                .id(day::id!(unicode))
+                .id(day::id!(textarea::unicode))
                 .action(move || text.set("A😀東京B".into())),
         )),
     ))
@@ -84,10 +84,10 @@ pub fn page() -> impl Piece {
     let clipboard = Signal::new(String::new());
     column((
         label("Native text area"),
-        label(move || format!("Model: {}", text.get())).id(day::id!(model)),
+        label(move || format!("Model: {}", text.get())).id(day::id!(textarea::model)),
         text_field(clipboard)
             .placeholder("Native paste check")
-            .id(day::id!(clipboard)),
+            .id(day::id!(textarea::clipboard)),
         when(
             move || mounted.get(),
             move || {
@@ -96,41 +96,41 @@ pub fn page() -> impl Piece {
                     .selectable(selectable)
                     .min_lines(3)
                     .max_lines(3)
-                    .id(day::id!(area))
+                    .id(day::id!(textarea::area))
             },
         ),
         row((
-            button("Edit").id(day::id!(edit)).action(move || editable.set(true)),
+            button("Edit").id(day::id!(textarea::edit)).action(move || editable.set(true)),
             button("Read only")
-                .id(day::id!(readonly))
+                .id(day::id!(textarea::readonly))
                 .action(move || editable.set(false)),
         )),
         row((
             button("Select")
-                .id(day::id!(select))
+                .id(day::id!(textarea::select))
                 .action(move || selectable.set(true)),
             button("No selection")
-                .id(day::id!(noselect))
+                .id(day::id!(textarea::noselect))
                 .action(move || selectable.set(false)),
         )),
         row((
             button("Replace")
-                .id(day::id!(replace))
+                .id(day::id!(textarea::replace))
                 .action(move || text.set("Gamma Delta".into())),
             button("Reset")
-                .id(day::id!(reset))
+                .id(day::id!(textarea::reset))
                 .action(move || text.set("Alpha Beta".into())),
         )),
         row((
-            button("Seed clipboard").id(day::id!(seed)).action(|| {
+            button("Seed clipboard").id(day::id!(textarea::seed)).action(|| {
                 assert!(day::clipboard::set_text("PasteMarker"));
             }),
             button("Clear paste check")
-                .id(day::id!(clear_clipboard))
+                .id(day::id!(textarea::clear_clipboard))
                 .action(move || clipboard.set(String::new())),
         )),
         button("Mount/unmount")
-            .id(day::id!(mount))
+            .id(day::id!(textarea::mount))
             .action(move || mounted.update(|v| *v = !*v)),
     ))
     .spacing(8.0)

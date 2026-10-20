@@ -196,7 +196,7 @@ pub mod conformance {
                 let committed = Signal::new(String::from("none"));
                 column((
                     label(move || format!("slot {}", committed.get()))
-                        .id(day_core::id!(pager_state)),
+                        .id(day_core::id!(pager::pager_state)),
                     button("Reverse")
                         .action(move || {
                             state.update(|s| {
@@ -204,7 +204,7 @@ pub mod conformance {
                                 s.epoch += 1;
                             })
                         })
-                        .id(day_core::id!(pager_reverse)),
+                        .id(day_core::id!(pager::pager_reverse)),
                     pager(
                         state,
                         busy,
@@ -218,16 +218,16 @@ pub mod conformance {
                             state.update(|s| s.selected = slot);
                         },
                     )
-                    .id(day_core::id!(pager))
+                    .id(day_core::id!(pager::pager))
                     .height(200.0),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.select("pager", 1).await?;
-                d.assert_text("pager-state", "slot 1").await?;
-                d.tap("pager-reverse").await?;
-                d.select("pager", 0).await?;
-                d.assert_text("pager-state", "slot 2").await
+                d.select("pager::pager", 1).await?;
+                d.assert_text("pager::pager_state", "slot 1").await?;
+                d.tap("pager::pager_reverse").await?;
+                d.select("pager::pager", 0).await?;
+                d.assert_text("pager::pager_state", "slot 2").await
             })
     }
 

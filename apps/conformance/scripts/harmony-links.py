@@ -21,14 +21,14 @@ class LinkTests(helpers["DialogTests"]):
         self.input("click", round(left + x * (right - left)), round(top + y * (bottom - top)))
 
     def mixed(self, x):
-        self.click(self.find("mixed", "id"), x)
+        self.click(self.find("links::mixed", "id"), x)
 
     def result(self, count, target):
-        self.answer(f"Clicks: {count}", "count")
-        self.answer(target, "target")
+        self.answer(f"Clicks: {count}", "links::count")
+        self.answer(target, "links::target")
 
     def tests(self):
-        self.find("mixed", "id")  # Wait for startup before connecting to Day's driver.
+        self.find("links::mixed", "id")  # Wait for startup before connecting to Day's driver.
         self.mixed(0.25)
         self.result(1, "#alpha")
         self.mixed(0.57)
@@ -46,41 +46,41 @@ class LinkTests(helpers["DialogTests"]):
         self.result(4, "#wrapped")
         self.passed_case("first and last wrapped lines activate; trailing whitespace does not")
 
-        self.click(self.find("builder", "id"))
+        self.click(self.find("links::builder", "id"))
         self.result(5, "custom:東京?x=1&y=2")
-        self.click(self.find("selectable", "id"))
+        self.click(self.find("links::selectable", "id"))
         self.result(6, "#selectable")
         self.passed_case("TextBuilder links and selectable markdown labels activate")
 
         for cycle in range(3):
-            self.control("retarget")
+            self.control("links::retarget")
             self.mixed(0.25)
             self.result(7 + 2 * cycle, "#changed")
-            self.control("restore")
+            self.control("links::restore")
             self.mixed(0.57)
             self.result(8 + 2 * cycle, "https://example.invalid/β?x=1&y=2")
         self.passed_case("repeated rebuilds use new targets exactly once, without stale handlers")
 
-        self.control("plain")
+        self.control("links::plain")
         self.mixed(0.25)
         self.result(12, "https://example.invalid/β?x=1&y=2")
-        self.control("restore")
+        self.control("links::restore")
         self.mixed(0.25)
         self.result(13, "#alpha")
         self.passed_case("link-to-plain-to-link transitions remove and restore click handlers")
 
-        self.control("remove")
+        self.control("links::remove")
         self.mixed(0.57)
         self.result(14, "https://example.invalid/β?x=1&y=2")
-        self.find("mixed", "id", missing=True)
-        self.control("remove")
-        self.control("mount")
+        self.find("links::mixed", "id", missing=True)
+        self.control("links::remove")
+        self.control("links::mount")
         self.mixed(0.25)
         self.result(15, "#alpha")
         self.passed_case("a handler may remove its own label; remount has no stale span state")
 
-        self.click(self.find("route-link", "id"))
-        self.answer("Destination page", "destination")
+        self.click(self.find("links::route_link", "id"))
+        self.answer("Destination page", "links::destination")
         self.passed_case("standalone Link uses native span activation and default route navigation")
 
 

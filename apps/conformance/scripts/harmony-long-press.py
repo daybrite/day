@@ -42,8 +42,8 @@ class Harness:
 
     def counts(self, holds, taps=0):
         self.drive(
-            {"op": "assert_text", "id": "holds", "text": f"Holds: {holds}"},
-            {"op": "assert_text", "id": "taps", "text": f"Taps: {taps}"},
+            {"op": "assert_text", "id": "long_press::holds", "text": f"Holds: {holds}"},
+            {"op": "assert_text", "id": "long_press::taps", "text": f"Taps: {taps}"},
         )
 
     def layout(self):
@@ -75,9 +75,9 @@ class Harness:
         self.touch("-d", x, y, "-i", duration, "-u", x, y)
 
     def remount(self):
-        self.control("mount")
-        self.control("mount")
-        self.drive({"op": "wait_for", "id": "pad"})
+        self.control("long_press::mount")
+        self.control("long_press::mount")
+        self.drive({"op": "wait_for", "id": "long_press::pad"})
 
     def passed_case(self, name):
         self.passed.append(name)
@@ -116,7 +116,7 @@ class Harness:
         assert all(abs(a - b) < 2 for a, b in zip(actual, expected)), (actual, expected)
         self.passed_case("location is local to the native target, in Day points")
 
-        self.control("reset")
+        self.control("long_press::reset")
         content_before = self.bounds("Scroll content")
         self.touch("-m", x, bottom - 10, x, top - 40, "-k", 800, 200)
         self.counts(0)
@@ -131,13 +131,13 @@ class Harness:
         # native node. Always release, even if the assertion/control fails.
         self.touch("-d", x, y)
         try:
-            self.control("mount")
-            self.drive({"op": "assert_missing", "id": "pad"})
+            self.control("long_press::mount")
+            self.drive({"op": "assert_missing", "id": "long_press::pad"})
             time.sleep(0.8)
         finally:
             self.touch("-u", x, y)
         self.counts(0)
-        self.control("mount")
+        self.control("long_press::mount")
         self.press(x, y, 800)
         self.counts(1)
         self.passed_case("pending hold is cancelled on disposal; remount works")
@@ -148,35 +148,35 @@ class Harness:
             self.counts(i + 2)
         self.passed_case("repeated disposal/remount leaves one live recognizer")
 
-        self.control("reset")
-        self.control("remove-on-hold")
+        self.control("long_press::reset")
+        self.control("long_press::remove_on_hold")
         self.press(x, y, 800)
         self.counts(1)
-        self.drive({"op": "assert_missing", "id": "pad"})
-        self.control("mount")
+        self.drive({"op": "assert_missing", "id": "long_press::pad"})
+        self.control("long_press::mount")
         self.press(x, y, 800)
         self.counts(2)
         self.passed_case("handler can remove its own target during acceptance")
 
-        self.control("reset")
-        self.control("mode")
+        self.control("long_press::reset")
+        self.control("long_press::mode")
         a = self.bounds("Alpha")
         c = self.bounds("Gamma")
         x, y = round((a[0] + a[2]) / 2), round((a[1] + a[3]) / 2)
         end_y = round((c[1] + c[3]) / 2)
         self.touch("-g", x, y, x, end_y, 800, 1800)
-        self.drive({"op": "assert_text", "id": "order", "text": "Order: Alpha,Beta,Gamma,Delta"})
+        self.drive({"op": "assert_text", "id": "long_press::order", "text": "Order: Alpha,Beta,Gamma,Delta"})
         self.counts(1)
         self.passed_case("child long press takes precedence in its own hit region")
 
         # ArkUI gives a child's explicit recognizer precedence over ancestor dragging.
         # Keep that native policy: the rest of the row must still start a native drag.
         # Do not use parallel priority, which would trigger both actions for one hold.
-        self.control("reset")
+        self.control("long_press::reset")
         row = self.bounds("List", attribute="type")
         x = round((a[2] + row[2]) / 2)
         self.touch("-g", x, y, x, end_y, 800, 1800)
-        self.drive({"op": "assert_text", "id": "order", "text": "Order: Beta,Gamma,Alpha,Delta"})
+        self.drive({"op": "assert_text", "id": "long_press::order", "text": "Order: Beta,Gamma,Alpha,Delta"})
         self.counts(0)
         self.passed_case("native list reordering still works outside the child hit region")
 

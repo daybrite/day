@@ -490,9 +490,11 @@ pub mod conformance {
         let value = Signal::new(3.0f64);
         // Each idiom asked for explicitly: a toolkit with no native arm renders a placeholder
         // for `.native()`, and the native cases skip there.
-        let field = stepper(value).range(0.0..=10.0).id(day_core::id!(count));
+        let field = stepper(value)
+            .range(0.0..=10.0)
+            .id(day_core::id!(stepper::count));
         column((
-            label(move || format!("value {}", value.get())).id(day_core::id!(value)),
+            label(move || format!("value {}", value.get())).id(day_core::id!(stepper::value)),
             if composed {
                 field.composed().any()
             } else {
@@ -509,10 +511,10 @@ pub mod conformance {
             .proves(KIND)
             .page(|| page(false))
             .drive(|d: Drive| async move {
-                d.assert_text("count", "3").await?;
-                d.set_value("count", 7.0).await?;
-                d.assert_text("value", "value 7").await?;
-                d.assert_text("count", "7").await
+                d.assert_text("stepper::count", "3").await?;
+                d.set_value("stepper::count", 7.0).await?;
+                d.assert_text("stepper::value", "value 7").await?;
+                d.assert_text("stepper::count", "7").await
             })
     }
 
@@ -523,8 +525,8 @@ pub mod conformance {
             .proves(KIND)
             .page(|| page(false))
             .drive(|d: Drive| async move {
-                d.set_value("count", 42.0).await?;
-                d.assert_text("value", "value 10").await
+                d.set_value("stepper::count", 42.0).await?;
+                d.assert_text("stepper::value", "value 10").await
             })
     }
 
@@ -536,16 +538,16 @@ pub mod conformance {
             .page(|| page(true))
             .drive(|d: Drive| async move {
                 // Typed text commits on submit, as Return does.
-                d.input("count", "5").await?;
-                d.submit("count").await?;
-                d.assert_text("value", "value 5").await?;
-                d.tap("count-inc").await?;
-                d.assert_text("value", "value 6").await?;
-                d.assert_text("count", "6").await?;
+                d.input("stepper::count", "5").await?;
+                d.submit("stepper::count").await?;
+                d.assert_text("stepper::value", "value 5").await?;
+                d.tap("stepper_increment:stepper%3A%3Acount").await?;
+                d.assert_text("stepper::value", "value 6").await?;
+                d.assert_text("stepper::count", "6").await?;
                 // A scripted value lands on the field's id, as it does on the native leaf.
-                d.set_value("count", 9.0).await?;
-                d.assert_text("value", "value 9").await?;
-                d.assert_text("count", "9").await
+                d.set_value("stepper::count", 9.0).await?;
+                d.assert_text("stepper::value", "value 9").await?;
+                d.assert_text("stepper::count", "9").await
             })
     }
 

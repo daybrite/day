@@ -778,20 +778,23 @@ pub mod conformance {
                 let tint = Signal::new(Color::rgb(232.0 / 255.0, 106.0 / 255.0, 60.0 / 255.0));
                 column((
                     label(move || format!("tint {}", hex(tint.get())))
-                        .id(day_core::id!(tint_value)),
-                    color_picker(tint).composed().id(day_core::id!(tint)),
+                        .id(day_core::id!(colorpicker::tint_value)),
+                    color_picker(tint)
+                        .composed()
+                        .id(day_core::id!(colorpicker::tint)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.tap("tint").await?;
+                d.tap("colorpicker::tint").await?;
                 d.wait_idle().await?;
-                d.assert_visible("color-picker-panel").await?;
-                d.assert_text("color-picker-value", "#e86a3c").await?;
-                d.tap_at("color-picker-shade", 0.0, 0.0).await?;
-                d.assert_text("color-picker-value", "#ffffff").await?;
-                d.tap("color-picker-done").await?;
+                d.assert_visible("color_picker_panel").await?;
+                d.assert_text("color_picker_value", "#e86a3c").await?;
+                d.tap_at("color_picker_shade", 0.0, 0.0).await?;
+                d.assert_text("color_picker_value", "#ffffff").await?;
+                d.tap("color_picker_done").await?;
                 d.wait_idle().await?;
-                d.assert_text("tint-value", "tint #ffffff").await
+                d.assert_text("colorpicker::tint_value", "tint #ffffff")
+                    .await
             })
     }
 

@@ -18,8 +18,8 @@ pub fn page() -> impl Piece {
         target.set(url.into());
     };
     column((
-        label(move || format!("Clicks: {}", count.get())).id(day::id!(count)),
-        label(target).id(day::id!(target)),
+        label(move || format!("Clicks: {}", count.get())).id(day::id!(links::count)),
+        label(target).id(day::id!(links::target)),
         when(
             move || mounted.get(),
             move || {
@@ -32,7 +32,7 @@ pub fn page() -> impl Piece {
                             mounted.set(false);
                         }
                     })
-                    .id(day::id!(mixed))
+                    .id(day::id!(links::mixed))
             },
         ),
         label("[link link link link link link link link](#wrapped)")
@@ -40,25 +40,25 @@ pub fn page() -> impl Piece {
             .font(Font::System(20.0))
             .on_link(record)
             .width(130.0)
-            .id(day::id!(wrapped)),
+            .id(day::id!(links::wrapped)),
         label("")
             .runs_from(TextBuilder::new().link("Builder 東京", "custom:東京?x=1&y=2"))
             .on_link(record)
-            .id(day::id!(builder)),
+            .id(day::id!(links::builder)),
         label("[Selectable](#selectable)")
             .markdown()
             .on_link(record)
             .selectable()
-            .id(day::id!(selectable)),
-        link("Go to destination", "#destination").id(day::id!(route_link)),
+            .id(day::id!(links::selectable)),
+        link("Go to destination", "#destination").id(day::id!(links::route_link)),
         row((
             button("Retarget")
-                .id(day::id!(retarget))
+                .id(day::id!(links::retarget))
                 .action(move || source.set("😀 [Alpha](#changed) / [Beta](#other) / plain".into())),
             button("Plain")
-                .id(day::id!(plain))
+                .id(day::id!(links::plain))
                 .action(move || source.set("😀 Alpha / Beta / plain".into())),
-            button("Restore").id(day::id!(restore)).action(move || {
+            button("Restore").id(day::id!(links::restore)).action(move || {
                 source.set(
                     "😀 [Alpha](#alpha) / [Beta](https://example.invalid/β?x=1&y=2) / plain".into(),
                 )
@@ -66,16 +66,16 @@ pub fn page() -> impl Piece {
         )),
         row((
             button("Remove on click")
-                .id(day::id!(remove))
+                .id(day::id!(links::remove))
                 .action(move || remove.update(|v| *v = !*v)),
             button("Mount")
-                .id(day::id!(mount))
+                .id(day::id!(links::mount))
                 .action(move || mounted.set(true)),
         )),
         nav(route)
             .item("home", "Home", || label("Home page"))
             .item("destination", "Destination", || {
-                label("Destination page").id(day::id!(destination))
+                label("Destination page").id(day::id!(links::destination))
             })
             .height(90.0),
     ))

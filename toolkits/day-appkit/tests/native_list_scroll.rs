@@ -156,7 +156,7 @@ mod native {
                         day_core::sleep(10).await;
                     }
                     let active = day_core::with_tree(|t| {
-                        let mut node = t.find_by_id("fixture-list").unwrap();
+                        let mut node = t.find_by_id("fixture_list").unwrap();
                         while t.node_kind(node) != Some(day_spec::kinds::LIST) {
                             node = t.first_child(node).unwrap();
                         }

@@ -17,20 +17,20 @@ helpers = runpy.run_path(str(Path(__file__).with_name("harmony-dialogs.py")))
 
 class SubmitTests(helpers["DialogTests"]):
     def area(self):
-        return self.find("area", "id")
+        return self.find("textarea::area", "id")
 
     def focus(self):
         self.input("click", *self.center(self.area()))
 
     def text(self, text):
-        self.answer(text, "area")
-        self.answer("Model: " + json.dumps(text, ensure_ascii=False), "model")
+        self.answer(text, "textarea::area")
+        self.answer("Model: " + json.dumps(text, ensure_ascii=False), "textarea::model")
         native = self.area()
         assert native["text"] == text, native
 
     def submitted(self, count, text):
-        self.answer(f"Submits: {count}", "submits")
-        self.answer("Sent: " + json.dumps(text, ensure_ascii=False), "sent")
+        self.answer(f"Submits: {count}", "textarea::submits")
+        self.answer("Sent: " + json.dumps(text, ensure_ascii=False), "textarea::sent")
 
     def replace(self, text):
         self.focus()
@@ -65,7 +65,7 @@ class SubmitTests(helpers["DialogTests"]):
         self.text("Fresh\nnext")
         self.passed_case("the soft-keyboard Send action submits exactly once")
 
-        self.control("seed")
+        self.control("textarea::seed")
         self.replace("Old")
         self.input("keyEvent", 2072, 2017)
         self.input("keyEvent", 2072, 2038)  # Ctrl+V
@@ -75,7 +75,7 @@ class SubmitTests(helpers["DialogTests"]):
         self.submitted(4, "first\nsecond")
         self.passed_case("multiline paste inserts text without triggering submission")
 
-        self.control("unicode")
+        self.control("textarea::unicode")
         self.focus()
         self.input("keyEvent", 2082)  # End
         self.input("keyEvent", 2014)  # Left, before B
@@ -89,16 +89,16 @@ class SubmitTests(helpers["DialogTests"]):
         self.text("\n")
         self.passed_case("Shift+Enter respects Unicode text, retains the caret and replaces selections")
 
-        self.control("editable")  # Switch read-only on, ending the editing session.
+        self.control("textarea::editable")  # Switch read-only on, ending the editing session.
         self.focus()
         self.input("keyEvent", 2054)
         self.input("keyEvent", 2047, 2054)
         self.submitted(4, "first\nsecond")
         self.text("\n")
-        self.control("editable")
+        self.control("textarea::editable")
         self.passed_case("read-only composers reject Enter and Shift+Enter")
 
-        self.control("clear")
+        self.control("textarea::clear")
         self.replace("ClearMe")
         self.input("keyEvent", 2054)
         self.submitted(5, "ClearMe")
@@ -108,21 +108,21 @@ class SubmitTests(helpers["DialogTests"]):
         self.text("")
         self.passed_case("callbacks may clear the editor; empty submission is delivered once")
 
-        self.control("remove")
+        self.control("textarea::remove")
         self.replace("RemoveMe")
         self.input("keyEvent", 2054)
         self.submitted(7, "RemoveMe")
-        self.find("area", "id", missing=True)
-        self.control("remove")
-        self.control("clear")
-        self.control("mount")
+        self.find("textarea::area", "id", missing=True)
+        self.control("textarea::remove")
+        self.control("textarea::clear")
+        self.control("textarea::mount")
         self.replace("Again")
         self.input("keyEvent", 2054)
         self.submitted(8, "Again")
         self.text("Again")
         self.passed_case("callbacks may remove the composer; remount delivers to the new node")
 
-        self.control("mode")
+        self.control("textarea::mode")
         self.replace("Plain")
         self.input("keyEvent", 2054)
         self.text("Plain\n")

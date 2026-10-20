@@ -183,13 +183,13 @@ pub mod conformance {
                     .center((48.8566, 2.3522))
                     .span(0.2)
                     .marker(48.8566, 2.3522)
-                    .id(day_core::id!(map))
+                    .id(day_core::id!(map::map))
                     .frame(300.0, 200.0)
             })
             .drive(|d: Drive| async move {
-                d.assert_visible("map").await?;
+                d.assert_visible("map::map").await?;
                 d.assert_native(
-                    "map",
+                    "map::map",
                     NativeExpect {
                         visible: Some(true),
                         ..Default::default()

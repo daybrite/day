@@ -241,15 +241,16 @@ pub mod conformance {
             .page(|| {
                 let value = Signal::new(1usize);
                 column((
-                    label(move || format!("value {}", value.get())).id(day_core::id!(value)),
+                    label(move || format!("value {}", value.get()))
+                        .id(day_core::id!(rating::value)),
                     rating(value)
-                        .star_id(|n| day_core::id!(star, n))
-                        .id(day_core::id!(stars)),
+                        .star_id(|n| day_core::id!(rating::star, n))
+                        .id(day_core::id!(rating::stars)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.tap("stars:4").await?;
-                d.assert_text("value", "value 4").await
+                d.tap("rating::star:4").await?;
+                d.assert_text("rating::value", "value 4").await
             })
     }
 
@@ -260,16 +261,17 @@ pub mod conformance {
             .page(|| {
                 let value = Signal::new(2usize);
                 column((
-                    label(move || format!("value {}", value.get())).id(day_core::id!(value)),
+                    label(move || format!("value {}", value.get()))
+                        .id(day_core::id!(rating::value)),
                     rating(value)
-                        .star_id(|n| day_core::id!(star, n))
+                        .star_id(|n| day_core::id!(rating::star, n))
                         .editable(false)
-                        .id(day_core::id!(stars)),
+                        .id(day_core::id!(rating::stars)),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.tap("stars:5").await?;
-                d.assert_text("value", "value 2").await
+                d.tap("rating::star:5").await?;
+                d.assert_text("rating::value", "value 2").await
             })
     }
 

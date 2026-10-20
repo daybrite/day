@@ -15,10 +15,10 @@ pub fn page() -> impl Piece {
     });
     column((
         label("Native dialogs"),
-        label(move || answer.get()).id(day::id!(answer)),
-        label(move || first.get()).id(day::id!(first)),
-        label(move || second.get()).id(day::id!(second)),
-        button("Confirmation").id(day::id!(confirm)).action(move || {
+        label(move || answer.get()).id(day::id!(dialogs::answer)),
+        label(move || first.get()).id(day::id!(dialogs::first)),
+        label(move || second.get()).id(day::id!(dialogs::second)),
+        button("Confirmation").id(day::id!(dialogs::confirm)).action(move || {
             answer.set("pending".into());
             let set = answer.setter();
             day::task(async move {
@@ -32,7 +32,7 @@ pub fn page() -> impl Piece {
                 set.set(format!("confirm {yes}"));
             });
         }),
-        button("Text prompt").id(day::id!(prompt)).action(move || {
+        button("Text prompt").id(day::id!(dialogs::prompt)).action(move || {
             answer.set("pending".into());
             let set = answer.setter();
             day::task(async move {
@@ -47,7 +47,7 @@ pub fn page() -> impl Piece {
                 set.set(format!("prompt {text:?}"));
             });
         }),
-        button("Action sheet").id(day::id!(sheet)).action(move || {
+        button("Action sheet").id(day::id!(dialogs::sheet)).action(move || {
             answer.set("pending".into());
             let set = answer.setter();
             day::task(async move {
@@ -63,7 +63,7 @@ pub fn page() -> impl Piece {
                 set.set(format!("sheet {choice:?}"));
             });
         }),
-        button("No buttons").id(day::id!(empty)).action(move || {
+        button("No buttons").id(day::id!(dialogs::empty)).action(move || {
             let set = answer.setter();
             day::task(async move {
                 alert("No choices")
@@ -72,7 +72,7 @@ pub fn page() -> impl Piece {
                 set.set("empty dismissed".into());
             });
         }),
-        button("Two queued dialogs").id(day::id!(pair)).action(move || {
+        button("Two queued dialogs").id(day::id!(dialogs::pair)).action(move || {
             first.set("pending".into());
             second.set("pending".into());
             let a = first.setter();
@@ -86,7 +86,7 @@ pub fn page() -> impl Piece {
                 b.set(format!("second {yes}"));
             });
         }),
-        button("Chained dialogs").id(day::id!(chain)).action(move || {
+        button("Chained dialogs").id(day::id!(dialogs::chain)).action(move || {
             answer.set("pending".into());
             let set = answer.setter();
             day::task(async move {
@@ -100,13 +100,13 @@ pub fn page() -> impl Piece {
         }),
         row((
             button("Dark")
-                .id(day::id!(dark))
+                .id(day::id!(dialogs::dark))
                 .action(|| day::set_appearance(Some(true))),
             button("Light")
-                .id(day::id!(light))
+                .id(day::id!(dialogs::light))
                 .action(|| day::set_appearance(Some(false))),
             button("System")
-                .id(day::id!(system))
+                .id(day::id!(dialogs::system))
                 .action(|| day::set_appearance(None)),
         )),
     ))

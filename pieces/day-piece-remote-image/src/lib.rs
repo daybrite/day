@@ -296,19 +296,22 @@ pub mod conformance {
                 column((
                     button("Load")
                         .action(move || source.set(Some(Arc::new(RED_BLUE.to_vec()))))
-                        .id(day_core::id!(load)),
+                        .id(day_core::id!(remote_image::load)),
                     remote_image(source)
                         .placeholder_color(Color::rgb(0.5, 0.5, 0.5))
-                        .id(day_core::id!(image))
+                        .id(day_core::id!(remote_image::image))
                         .frame(120.0, 60.0),
                 ))
             })
             .drive(|d: Drive| async move {
                 // Gray: a saturated placeholder shifts under a wide-gamut capture (iOS).
-                d.sample_pixel("image", 0.5, 0.5, "#808080").await?;
-                d.tap("load").await?;
-                d.sample_pixel("image", 0.2, 0.5, "#ff0000").await?;
-                d.sample_pixel("image", 0.8, 0.5, "#0000ff").await
+                d.sample_pixel("remote_image::image", 0.5, 0.5, "#808080")
+                    .await?;
+                d.tap("remote_image::load").await?;
+                d.sample_pixel("remote_image::image", 0.2, 0.5, "#ff0000")
+                    .await?;
+                d.sample_pixel("remote_image::image", 0.8, 0.5, "#0000ff")
+                    .await
             })
     }
 
@@ -326,49 +329,58 @@ pub mod conformance {
                     row((
                         button("Green")
                             .action(move || source.set(Some(Arc::new(GREEN.to_vec()))))
-                            .id(day_core::id!(green)),
+                            .id(day_core::id!(remote_image::green)),
                         button("Clear")
                             .action(move || source.set(None))
-                            .id(day_core::id!(clear)),
+                            .id(day_core::id!(remote_image::clear)),
                         button("Empty")
                             .action(move || source.set(Some(Arc::new(Vec::new()))))
-                            .id(day_core::id!(empty)),
+                            .id(day_core::id!(remote_image::empty)),
                     )),
                     row((
                         button("Invalid")
                             .action(move || source.set(Some(Arc::new(vec![1, 2, 3]))))
-                            .id(day_core::id!(invalid)),
+                            .id(day_core::id!(remote_image::invalid)),
                         button("Mount")
                             .action(move || shown.set(!shown.get()))
-                            .id(day_core::id!(mount)),
+                            .id(day_core::id!(remote_image::mount)),
                     )),
                     when(
                         move || shown.get(),
                         move || {
                             remote_image(source)
                                 .placeholder_color(Color::hex(0x808080))
-                                .id(day_core::id!(image))
+                                .id(day_core::id!(remote_image::image))
                                 .frame(120.0, 60.0)
                         },
                     ),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.sample_pixel("image", 0.2, 0.5, "#ff0000").await?;
-                for action in ["clear", "empty", "invalid"] {
-                    d.tap("green").await?;
-                    d.sample_pixel("image", 0.2, 0.5, "#00ff00").await?;
+                d.sample_pixel("remote_image::image", 0.2, 0.5, "#ff0000")
+                    .await?;
+                for action in [
+                    "remote_image::clear",
+                    "remote_image::empty",
+                    "remote_image::invalid",
+                ] {
+                    d.tap("remote_image::green").await?;
+                    d.sample_pixel("remote_image::image", 0.2, 0.5, "#00ff00")
+                        .await?;
                     d.tap(action).await?;
-                    d.sample_pixel("image", 0.2, 0.5, "#808080").await?;
+                    d.sample_pixel("remote_image::image", 0.2, 0.5, "#808080")
+                        .await?;
                 }
                 for _ in 0..3 {
-                    d.tap("mount").await?;
-                    d.assert_missing("image").await?;
-                    d.tap("green").await?; // Update while disposed: no stale native callback.
-                    d.tap("mount").await?;
-                    d.sample_pixel("image", 0.8, 0.5, "#00ff00").await?;
-                    d.tap("clear").await?;
-                    d.sample_pixel("image", 0.8, 0.5, "#808080").await?;
+                    d.tap("remote_image::mount").await?;
+                    d.assert_missing("remote_image::image").await?;
+                    d.tap("remote_image::green").await?; // Update while disposed: no stale native callback.
+                    d.tap("remote_image::mount").await?;
+                    d.sample_pixel("remote_image::image", 0.8, 0.5, "#00ff00")
+                        .await?;
+                    d.tap("remote_image::clear").await?;
+                    d.sample_pixel("remote_image::image", 0.8, 0.5, "#808080")
+                        .await?;
                 }
                 Ok(())
             })
@@ -386,21 +398,26 @@ pub mod conformance {
                     remote_image(source)
                         .content_mode(ContentMode::Fit)
                         .placeholder_color(Color::hex(0x808080))
-                        .id(day_core::id!(fit))
+                        .id(day_core::id!(remote_image::fit))
                         .frame(100.0, 100.0),
                     remote_image(source)
                         .content_mode(ContentMode::Fill)
                         .placeholder_color(Color::hex(0x808080))
-                        .id(day_core::id!(fill))
+                        .id(day_core::id!(remote_image::fill))
                         .frame(100.0, 100.0),
                 ))
             })
             .drive(|d: Drive| async move {
-                d.sample_pixel("fit", 0.2, 0.1, "#808080").await?;
-                d.sample_pixel("fit", 0.2, 0.5, "#ff0000").await?;
-                d.sample_pixel("fit", 0.8, 0.5, "#0000ff").await?;
-                d.sample_pixel("fill", 0.1, 0.1, "#00ff00").await?;
-                d.sample_pixel("fill", 0.9, 0.9, "#00ff00").await?;
+                d.sample_pixel("remote_image::fit", 0.2, 0.1, "#808080")
+                    .await?;
+                d.sample_pixel("remote_image::fit", 0.2, 0.5, "#ff0000")
+                    .await?;
+                d.sample_pixel("remote_image::fit", 0.8, 0.5, "#0000ff")
+                    .await?;
+                d.sample_pixel("remote_image::fill", 0.1, 0.1, "#00ff00")
+                    .await?;
+                d.sample_pixel("remote_image::fill", 0.9, 0.9, "#00ff00")
+                    .await?;
                 // Pixel assertions wait for the native render checkpoint; capture afterwards.
                 d.shot("default").await
             })
@@ -418,41 +435,48 @@ pub mod conformance {
                 column((
                     button("Clear")
                         .action(move || source.set(None))
-                        .id(day_core::id!(clear)),
+                        .id(day_core::id!(remote_image::clear)),
                     remote_image(source)
                         .circle()
                         .placeholder_color(Color::hex(0x808080))
-                        .id(day_core::id!(wide))
+                        .id(day_core::id!(remote_image::wide))
                         .frame(120.0, 60.0),
                     remote_image(source)
                         .circle()
                         .placeholder_color(Color::hex(0x808080))
-                        .id(day_core::id!(tall))
+                        .id(day_core::id!(remote_image::tall))
                         .frame(60.0, 120.0),
                     remote_image(source)
                         .rounded(20.0)
                         .placeholder_color(Color::hex(0x808080))
-                        .id(day_core::id!(rounded))
+                        .id(day_core::id!(remote_image::rounded))
                         .frame(120.0, 60.0),
                 ))
                 .background(Color::hex(0x000000))
             })
             .drive(|d: Drive| async move {
                 for color in ["#00ff00", "#808080"] {
-                    for id in ["wide", "tall", "rounded"] {
+                    for id in [
+                        "remote_image::wide",
+                        "remote_image::tall",
+                        "remote_image::rounded",
+                    ] {
                         d.sample_pixel(id, 0.5, 0.5, color).await?;
                         d.sample_pixel(id, 0.02, 0.02, "#000000").await?;
                     }
-                    d.sample_pixel("wide", 0.1, 0.5, "#000000").await?;
-                    d.sample_pixel("tall", 0.5, 0.1, "#000000").await?;
-                    d.sample_pixel("rounded", 0.1, 0.5, color).await?;
+                    d.sample_pixel("remote_image::wide", 0.1, 0.5, "#000000")
+                        .await?;
+                    d.sample_pixel("remote_image::tall", 0.5, 0.1, "#000000")
+                        .await?;
+                    d.sample_pixel("remote_image::rounded", 0.1, 0.5, color)
+                        .await?;
                     d.shot(if color == "#00ff00" {
                         "default"
                     } else {
                         "placeholder"
                     })
                     .await?;
-                    d.tap("clear").await?;
+                    d.tap("remote_image::clear").await?;
                 }
                 Ok(())
             })
@@ -470,11 +494,13 @@ pub mod conformance {
                 // Keep the sampled view directly in the root row: sample_pixel uses the
                 // Day frame, which is relative to the nearest native parent.
                 row((
-                    remote_image(source).circle().id(day_core::id!(image)),
+                    remote_image(source)
+                        .circle()
+                        .id(day_core::id!(remote_image::image)),
                     when(move || narrow.get(), || label("").frame(60.0, 60.0)),
                     button("Resize")
                         .action(move || narrow.set(!narrow.get()))
-                        .id(day_core::id!(resize))
+                        .id(day_core::id!(remote_image::resize))
                         .frame(80.0, 60.0),
                 ))
                 .spacing(0.0)
@@ -483,12 +509,15 @@ pub mod conformance {
             })
             .drive(|d: Drive| async move {
                 for width in [180.0, 120.0, 180.0] {
-                    d.assert_size("image", width, 60.0).await?;
-                    d.sample_pixel("image", 0.5, 0.5, "#00ff00").await?;
-                    d.sample_pixel("image", 0.1, 0.5, "#000000").await?;
+                    d.assert_size("remote_image::image", width, 60.0).await?;
+                    d.sample_pixel("remote_image::image", 0.5, 0.5, "#00ff00")
+                        .await?;
+                    d.sample_pixel("remote_image::image", 0.1, 0.5, "#000000")
+                        .await?;
                     // A stale 180-wide clip would miss this point after shrinking to 120.
-                    d.sample_pixel("image", 0.4, 0.5, "#00ff00").await?;
-                    d.tap("resize").await?;
+                    d.sample_pixel("remote_image::image", 0.4, 0.5, "#00ff00")
+                        .await?;
+                    d.tap("remote_image::resize").await?;
                 }
                 Ok(())
             })

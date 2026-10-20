@@ -170,10 +170,10 @@ pub mod conformance {
         ]);
         let text = Signal::new(String::new());
         column((
-            label(move || format!("chose {}", text.get())).id(day_core::id!(chose)),
+            label(move || format!("chose {}", text.get())).id(day_core::id!(combobox::chose)),
             combo_box(items, text)
                 .placeholder("Flavor")
-                .id(day_core::id!(combo)),
+                .id(day_core::id!(combobox::combo)),
         ))
     }
 
@@ -184,8 +184,8 @@ pub mod conformance {
             .proves(KIND)
             .page(page)
             .drive(|d: Drive| async move {
-                d.select("combo", 2).await?;
-                d.assert_text("chose", "chose Pistachio").await
+                d.select("combobox::combo", 2).await?;
+                d.assert_text("combobox::chose", "chose Pistachio").await
             })
     }
 
@@ -196,8 +196,9 @@ pub mod conformance {
             .proves(KIND)
             .page(page)
             .drive(|d: Drive| async move {
-                d.input("combo", "Stracciatella").await?;
-                d.assert_text("chose", "chose Stracciatella").await
+                d.input("combobox::combo", "Stracciatella").await?;
+                d.assert_text("combobox::chose", "chose Stracciatella")
+                    .await
             })
     }
 
