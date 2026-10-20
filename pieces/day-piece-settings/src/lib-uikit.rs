@@ -2189,7 +2189,7 @@ fn group_table(inst: &Rc<Installed>, g: &Group, hug: bool) -> Option<AnyPiece> {
     let sections = group_sections(inst, g);
     Some(
         Grouped { sections, hug }
-            .id(day_core::id!(prefs_group, g.id.clone()))
+            .id(day_core::id!(prefs_group, g.id))
             .any(),
     )
 }

@@ -1572,6 +1572,6 @@ fn group_list(inst: &Rc<Installed>, g: &Group, hug: bool) -> AnyPiece {
         cards
     });
     ListPage { groups: cards, hug }
-        .id(day_core::id!(prefs_group, g.id.clone()))
+        .id(day_core::id!(prefs_group, g.id))
         .any()
 }

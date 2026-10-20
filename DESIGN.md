@@ -1286,7 +1286,9 @@ integers, text, and application-defined canonical keys; there is no blanket `Dis
 conversion. Key expressions run once. A keyed locator is `family:key`; key UTF-8 bytes
 outside ASCII unreserved characters are percent-encoded with uppercase hex. Thus a key
 beginning with `:` cannot collide with a namespace. Integer `42` and text `"42"` intentionally
-identify the same instance. `ElementId` is Clone, not Copy; helpers accept it by value.
+identify the same instance. Borrowed text keys such as a settings group's `&str` ID pass
+directly to `id!`; the resulting locator owns its encoded key. `ElementId` is Clone,
+not Copy; helpers accept it by value.
 
 `.id`, `.id_of`, `.wrapper_id`, menu/toolbar builders, command presentation identities,
 tree `.row_id`, settings rows, steppers, and color pickers accept typed IDs only. The old
@@ -5999,7 +6001,9 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    A run that deploys builds with `DAY_REQUIRE_SHOWCASE` set and fails rather than finish without
    the Showcase's gallery or a front-page carousel screenshot (2026-09-14). The 2026-09-13 deploy
    rendered both empty while the Showcase's site served no usable index; the last good deploy now
-   stays live instead.
+   stays live instead. Deployment and `DAY_REQUIRE_SHOWCASE` are enabled only for non-PR
+   runs in `daybrite/day`; forks and pull requests still build and linkcheck the site but
+   never enter the Pages deployment job.
    The lane runs on every push and pull request with the rest of `ci.yml`, and alone on the
    website-only triggers: a `gallery-published` `repository_dispatch` an app's CI
    can send, and a `workflow_dispatch` with `website-only` checked (each root framework job carries
