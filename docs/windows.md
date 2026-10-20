@@ -296,6 +296,10 @@ and the frame options in [docs/window-chrome.md](window-chrome.md).
 the backend adds the title bar, the frame and any menu bar around it. `frame()` reports the
 outer frame, chrome included.
 
+GTK reports the content wrapper's allocated size, excluding the header and client-side
+decoration borders. This keeps Day layout and content snapshots in the same coordinate
+system on X11 (including headless Xvfb), Wayland and other GTK window systems.
+
 ### Monitors
 
 `day::monitors()` lists the displays: an id, a name, the frame, the work area (the frame minus

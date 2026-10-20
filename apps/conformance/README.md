@@ -39,9 +39,13 @@ regression check, not a universal detector of rasterization at arbitrary resolut
 CI runs these cases on all twelve active platform-toolkit targets, with no platform skip list.
 They require screenshot support; the mock cannot verify pixels. GTK and Qt retain SVG
 geometry and render at the requested size. Additional cases exercise resizing an existing
-view, partial-opacity tint changes, non-square fit/fill/stretch, source replacement between
+view, partial-opacity and stroke tint changes, non-square fit/fill/stretch, source replacement between
 SVG and bitmap, and native button foreground updates. Every target uses the same assertions;
 a local pass on one target does not establish the others' results.
+
+On Linux, run the GTK cases under X11/Xvfb as CI does as well as the desktop session.
+Client-side decoration can change the allocated content size on X11; the fine-detail
+samples also catch disagreement between that allocation and Day's snapshot coordinates.
 
 The separate ArkUI long-press fixture exercises real OS touches, including gesture
 arbitration and disposal. Build the app, connect one unlocked HarmonyOS emulator/device,

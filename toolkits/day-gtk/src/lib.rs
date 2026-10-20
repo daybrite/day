@@ -6190,26 +6190,10 @@ impl Toolkit for Gtk {
                             }
                             if let Some(root) = self.window_fixed.as_ref() {
                                 root.put(&cover, 0.0, 0.0);
-                                // The window's CONTENT area — the same arithmetic the resize
-                                // path uses (`report_content_size`: the window's live default
-                                // size minus its header bar), so a cover presents at exactly
-                                // the size a resize would give it. Not an allocation read off
-                                // the widget tree: the root Fixed is allocated its children's
-                                // bounding box, and the scroll viewport around it followed the
-                                // page's natural size, which is how the Games Fair cover once
-                                // opened as a strip a third of the window wide (2026-09-11).
-                                let size = crate::toolbar::header_of(&root.clone().upcast())
-                                    .map(|(window, header)| {
-                                        let hb = header.height();
-                                        let hb = if hb > 0 { hb as f64 } else { HEADER_H };
-                                        Size::new(
-                                            window.default_width() as f64,
-                                            (window.default_height() as f64 - hb).max(0.0),
-                                        )
-                                    })
-                                    .unwrap_or_else(|| {
-                                        Size::new(root.width() as f64, root.height() as f64)
-                                    });
+                                // The filling wrapper owns the content allocation; GtkFixed's
+                                // own minimum can grow with children outside the viewport.
+                                let area = root.parent().unwrap_or_else(|| root.clone().upcast());
+                                let size = Size::new(area.width() as f64, area.height() as f64);
                                 let (y, size) = cover_frame(&cover, size);
                                 root.move_(&cover, 0.0, y);
                                 cover.set_size_request(size.width as i32, size.height as i32);
@@ -8875,15 +8859,11 @@ fn dialog_finisher(
 /// first allocated (`report_content_size` reads the real height thereafter).
 const HEADER_H: f64 = 47.0;
 
-/// Report Day's content area (the window minus its AdwHeaderBar) on every window resize.
+/// Report the content wrapper's actual allocation on every resize. Window default sizes
+/// include client-side decoration on some GTK/X11 configurations.
 /// `target`: `None` = the primary window (`WINDOW_NODE` + the cover follow-along);
 /// `Some(node)` = a secondary window's root (docs/windows.md).
-fn report_content_size(w: &adw::ApplicationWindow, target: Option<NodeId>) {
-    let hb = shell::bar_height(w.upcast_ref());
-    let size = Size::new(
-        w.default_width() as f64,
-        (w.default_height() as f64 - hb).max(0.0),
-    );
+fn report_content_size(size: Size, target: Option<NodeId>) {
     match target {
         Some(node) => emit(node, Event::WindowResized(size)),
         None => {
@@ -9016,13 +8996,15 @@ fn build_day_window(
     // into it, docs/toolbars.md), window controls over the content for `Overlay`, nothing for
     // `Frameless`; plus resizability, limits, background and shadow.
     shell::dress(&window, &toolbar, &header, options);
-    // GTK4 keeps default-width/height tracking the live size of a resizable window — the
-    // only public resize signal it offers.
-    window.connect_default_width_notify(move |w| {
-        ffi_guard::contain((), || report_content_size(w, target))
-    });
-    window.connect_default_height_notify(move |w| {
-        ffi_guard::contain((), || report_content_size(w, target))
+    // Observe the same content allocation that snapshot_window captures. Inferring it from
+    // default-width/height counts decoration borders, shifting even precise pixel samples.
+    let last = std::cell::Cell::new((0, 0));
+    wrapper.on_allocate(move |width, height| {
+        if width > 0 && height > 0 && last.replace((width, height)) != (width, height) {
+            ffi_guard::contain((), || {
+                report_content_size(Size::new(f64::from(width), f64::from(height)), target)
+            });
+        }
     });
     watch_window_state(window.upcast_ref(), target.unwrap_or(day_spec::WINDOW_NODE));
     (window, fixed, header)

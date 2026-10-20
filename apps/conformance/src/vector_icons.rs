@@ -206,20 +206,44 @@ fn vector_reactive_tint_preserves_alpha() -> Case {
                     .action(move || blue.set(!blue.get()))
                     .id("recolor"),
                 vector(res::vectors::vector_alpha)
-                    .tint(move || Color::hex(if blue.get() { 0x0000ff } else { 0xff0000 }))
+                    .tint(move || {
+                        if blue.get() {
+                            Color::hex(0x0000ff)
+                        } else {
+                            Color::rgba(1.0, 0.0, 0.0, 0.25)
+                        }
+                    })
                     .frame(96.0, 96.0)
                     .background(Color::hex(0x000000))
                     // The black box around the vector is what the corner sample reads.
                     .wrapper_id("alpha"),
+                vector(res::vectors::vector_outline)
+                    .tint(move || {
+                        if blue.get() {
+                            Color::hex(0x0000ff)
+                        } else {
+                            Color::rgba(1.0, 0.0, 0.0, 0.25)
+                        }
+                    })
+                    .frame(96.0, 96.0)
+                    .background(Color::hex(0x000000))
+                    .wrapper_id("stroke"),
             ))
         })
         .drive(|d: Drive| async move {
-            d.sample_pixel("alpha", 0.5, 0.5, "#800000").await?;
+            d.sample_pixel("alpha", 0.5, 0.5, "#200000").await?;
+            d.sample_pixel("stroke", 12.0 / 64.0, 0.5, "#400000")
+                .await?;
             d.sample_pixel("alpha", 0.05, 0.05, "#000000").await?;
             d.tap("recolor").await?;
             d.sample_pixel("alpha", 0.5, 0.5, "#000080").await?;
+            d.sample_pixel("stroke", 12.0 / 64.0, 0.5, "#0000ff")
+                .await?;
+            d.sample_pixel("stroke", 24.0 / 64.0, 24.0 / 64.0, "#000000")
+                .await?;
             d.tap("recolor").await?;
-            d.sample_pixel("alpha", 0.5, 0.5, "#800000").await
+            d.sample_pixel("alpha", 0.5, 0.5, "#200000").await?;
+            d.sample_pixel("stroke", 12.0 / 64.0, 0.5, "#400000").await
         })
 }
 

@@ -22,7 +22,7 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     // Regenerate fresh so removed resources don't linger in the packaged rawfile tree.
     let _ = fs::remove_dir_all(&dir);
     // Vector glyph SVGs (docs/vectors.md): staged beside the raster under the same stem.
-    // ArkUI's Image renders SVG natively and `NODE_IMAGE_FILL_COLOR` recolors it, so
+    // ArkUI's Image renders SVG natively and alpha-preserving SourceIn compositing tints it, so
     // day-arkui probes `day/<name>.svg` first and falls back to the png.
     let svgs: Vec<std::path::PathBuf> = super::vector_svg_dir(project)
         .read_dir()
@@ -63,7 +63,10 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
     for svg in &svgs {
         if let Some(name) = svg.file_name() {
             let dest = dir.join(name);
-            fs::copy(svg, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
+            let source =
+                fs::read_to_string(svg).map_err(|e| format!("read {}: {e}", svg.display()))?;
+            let source = sized_svg(&source)?;
+            fs::write(&dest, source).map_err(|e| format!("stage {}: {e}", dest.display()))?;
         }
     }
     // Data: the rawfile opener reads `day/<name>`; `name` is the `/`-relative tree path
@@ -76,4 +79,62 @@ pub fn stage(project: &Project, set: &ResourceSet, fonts: &[FontFile]) -> Result
         fs::copy(&d.path, &dest).map_err(|e| format!("stage {}: {e}", dest.display()))?;
     }
     Ok(())
+}
+
+/// ArkUI treats a viewBox-only SVG's intrinsic size as the Image node's destination size.
+/// Its object-fit transform then becomes the identity, leaving the SVG's internal
+/// preserveAspectRatio to contain the artwork even for Cover/Fill. Supply the intrinsic
+/// size resolved by our SVG parser without rewriting paths, paint or viewBox semantics.
+fn sized_svg(source: &str) -> Result<String, String> {
+    let doc = day_vector::roxmltree::Document::parse(source).map_err(|e| e.to_string())?;
+    let root = doc.root_element();
+    let size = day_vector::parse(source.as_bytes())?.size();
+    let mut out = source.to_string();
+    let mut edits = Vec::new();
+    let mut missing = String::new();
+    for (name, value) in [("width", size.width()), ("height", size.height())] {
+        if let Some(attr) = root.attribute_node(name) {
+            edits.push((attr.range_value(), value.to_string()));
+        } else {
+            missing.push_str(&format!(" {name}=\"{value}\""));
+        }
+    }
+    // Insert immediately after the root element's qualified name, preserving its namespace.
+    let start = root.range().start + 1;
+    let end = start
+        + source[start..]
+            .find([' ', '\t', '\r', '\n', '/', '>'])
+            .unwrap();
+    edits.push((end..end, missing));
+    edits.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+    for (range, value) in edits {
+        out.replace_range(range, &value);
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sized_svg;
+
+    #[test]
+    fn viewbox_only_svg_gets_intrinsic_dimensions_without_rewriting_art() {
+        let art = r##"<path fill="none" stroke="#00ff00" d="M10 10H60"/>"##;
+        let svg =
+            format!(r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 40">{art}</svg>"#);
+        let out = sized_svg(&svg).unwrap();
+        let doc = day_vector::roxmltree::Document::parse(&out).unwrap();
+        let root = doc.root_element();
+        assert_eq!(root.attribute("width"), Some("80"));
+        assert_eq!(root.attribute("height"), Some("40"));
+        assert_eq!(root.attribute("viewBox"), Some("0 0 80 40"));
+        assert!(out.contains(art));
+        assert_eq!(sized_svg(&out).unwrap(), out);
+    }
+
+    #[test]
+    fn authored_dimensions_and_aspect_ratio_survive_staging() {
+        let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" width="24" height="12" viewBox="0 0 80 40" preserveAspectRatio="xMinYMin slice"><rect width="80" height="40"/></svg>"#;
+        assert_eq!(sized_svg(svg).unwrap(), svg);
+    }
 }

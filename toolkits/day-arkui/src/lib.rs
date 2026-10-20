@@ -741,7 +741,7 @@ mod imp {
     /// Named is the staged-rawfile path: a vector's SVG first (docs/vectors.md), then the PNG,
     /// and `tint` recolors an SVG's paths. Bytes and Decoded need no file at all, and take no
     /// tint: there is no SVG to repaint.
-    /// Whether a named source resolves to a staged SVG — the only form a fill color recolors.
+    /// Whether a named source resolves to a staged SVG — the only form Day tints.
     fn arkui_image_is_svg(source: &day_spec::ImageSource) -> bool {
         match source {
             day_spec::ImageSource::Named(named) => {
@@ -1078,7 +1078,11 @@ mod imp {
     }
 
     fn new_node(kind: ohos_sys::arkui::native_node::ArkUI_NodeType) -> AHandle {
-        AHandle(node::create(kind))
+        AHandle(if kind == node::IMAGE {
+            node::create_image()
+        } else {
+            node::create(kind)
+        })
     }
 
     /// The ArkTS hosts for menu and segmented pickers (DaySelect.ets).
@@ -2471,10 +2475,10 @@ mod imp {
                     // normalized to PNG, so a bare `source` (no extension) maps to `day/<source>.png`.
                     // A vector name resolves to its staged SVG instead (docs/vectors.md): ArkUI
                     // renders it natively at display size, and `.tint(…)` recolors it via
-                    // NODE_IMAGE_FILL_COLOR (untinted = as authored, matching every backend). A
+                    // SourceIn compositing (untinted = as authored, matching every backend). A
                     // TEMPLATE glyph with no tint takes the mode's primary text color instead,
                     // repainted on a switch like an un-colored label (docs/vectors.md
-                    // "Template"); fill color is SVG-only, so a raster template draws as authored.
+                    // "Template"); the tint layer is SVG-only, so a raster template draws as authored.
                     // Bytes and Decoded arrive from `day::decode_image` (docs/images.md), so an
                     // `image()` piece can show a download or a pasted PNG with no staged resource
                     // behind it. Only a named source takes a tint: the recolor repaints an SVG's
@@ -3100,9 +3104,8 @@ mod imp {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
                         match p {
                             // SVG-only recolor, as at realize (docs/vectors.md). Only a tint to
-                            // apply: ArkUI keeps no "authored" fill to go back to, so a `None`
-                            // leaves the last recolor in place — a template's themed fill
-                            // included. An app color replaces the themed one for good.
+                            // apply: a missing tint patch keeps the existing default, including
+                            // a template's themed tint. An app color replaces the themed tint.
                             day_spec::props::ImagePatch::Tint(Some(c)) => {
                                 forget_paint(h.0 as usize, h.0, Paint::ImageFill);
                                 node::set_image_fill(h.0, argb(*c))

@@ -65,8 +65,10 @@ fn node_set_pixelmap(n: Handle, pm: *mut OH_PixelmapNative) {
     let dd = unsafe { OH_ArkUI_DrawableDescriptor_CreateFromPixelMap(pm) };
     if !dd.is_null() {
         let drawable = Drawable(dd.cast());
-        if crate::node::set_object(n, Attr::NODE_IMAGE_SRC, dd.cast()) == 0 {
-            NODE_DRAWABLES.with(|m| m.borrow_mut().insert(n as usize, drawable));
+        let image = crate::node::image_node(n);
+        if crate::node::set_object(image, Attr::NODE_IMAGE_SRC, dd.cast()) == 0 {
+            NODE_DRAWABLES.with(|m| m.borrow_mut().insert(image as usize, drawable));
+            crate::node::image_source_kind(n, false);
         }
     }
 }

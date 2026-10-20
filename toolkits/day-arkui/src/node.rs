@@ -78,6 +78,60 @@ thread_local! {
     /// The `NODE_ACCESSIBILITY_VALUE` object each node was last given (see `set_a11y`).
     static A11Y_VALUES: RefCell<HashMap<usize, *mut ArkUI_AccessibilityValue>> =
         RefCell::new(HashMap::new());
+    /// Current source kind and requested tint. Bitmap replacements hide the SVG tint layer;
+    /// swapping back restores it without requiring another tint patch.
+    static IMAGE_NODES: RefCell<HashMap<usize, ImageNodes>> =
+        RefCell::new(HashMap::new());
+}
+
+#[derive(Clone, Copy)]
+struct ImageNodes {
+    image: Handle,
+    overlay: Handle,
+    svg: bool,
+    tint: Option<u32>,
+}
+
+/// A native SVG Image with an optional SourceIn color layer. ArkUI's fillColor fills
+/// unpainted interiors, while its image colorFilter only affects SVG strokes. Compositing
+/// the complete native image preserves all painted alpha without a fixed-resolution cache.
+pub fn create_image() -> Handle {
+    let root = create(STACK);
+    let image = create(IMAGE);
+    image_paint_only(image);
+    set_f32(image, Attr::NODE_WIDTH_PERCENT, 1.0);
+    set_f32(image, Attr::NODE_HEIGHT_PERCENT, 1.0);
+    insert_child(root, image, 0);
+    IMAGE_NODES.with(|m| {
+        m.borrow_mut().insert(
+            root as usize,
+            ImageNodes {
+                image,
+                overlay: ptr::null_mut(),
+                svg: false,
+                tint: None,
+            },
+        )
+    });
+    root
+}
+
+/// The wrapper owns input and accessibility; its rendering nodes must not add targets.
+fn image_paint_only(n: Handle) {
+    set_i32(
+        n,
+        Attr::NODE_HIT_TEST_BEHAVIOR,
+        ArkUI_HitTestMode::ARKUI_HIT_TEST_MODE_NONE.0 as i32,
+    );
+    set_i32(
+        n,
+        Attr::NODE_ACCESSIBILITY_MODE,
+        ArkUI_AccessibilityMode::ARKUI_ACCESSIBILITY_MODE_DISABLED_FOR_DESCENDANTS.0 as i32,
+    );
+}
+
+pub(crate) fn image_node(n: Handle) -> Handle {
+    IMAGE_NODES.with(|m| m.borrow().get(&(n as usize)).map_or(n, |s| s.image))
 }
 
 /// The node API table, resolved on first use. `None` only before ArkUI's native module is
@@ -159,6 +213,15 @@ pub fn dispose(n: Handle) {
     crate::list::forget(n);
     forget_a11y(n);
     label_runs_clear(n);
+    let image = IMAGE_NODES.with(|m| m.borrow_mut().remove(&(n as usize)));
+    if let Some(image) = image {
+        for child in [image.image, image.overlay] {
+            if !child.is_null() {
+                remove_child(n, child);
+                dispose(child);
+            }
+        }
+    }
     api_call!(disposeNode(n));
     crate::images::forget_node(n);
 }
@@ -168,6 +231,10 @@ pub fn dispose(n: Handle) {
 /// freeing just the root of such a subtree left every row, label and icon in it allocated. Never
 /// for a container holding day's nodes, which day releases one by one through `release`.
 pub fn dispose_tree(n: Handle) {
+    if image_node(n) != n {
+        dispose(n);
+        return;
+    }
     if n.is_null() {
         return;
     }
@@ -965,8 +1032,10 @@ pub fn set_slider(n: Handle, v: f64) {
 
 /// An image node's source: a `resource://RAWFILE/<path>` URI, a file path, a URL or base64.
 pub fn set_image_src(n: Handle, s: &str) {
-    if set_str(n, Attr::NODE_IMAGE_SRC, s) == 0 {
-        crate::images::forget_node(n);
+    let image = image_node(n);
+    if set_str(image, Attr::NODE_IMAGE_SRC, s) == 0 {
+        crate::images::forget_node(image);
+        image_source_kind(n, s.ends_with(".svg"));
     }
 }
 
@@ -976,20 +1045,74 @@ pub fn set_image_bytes(n: Handle, bytes: &[u8]) {
     if n.is_null() {
         return;
     }
-    reset(n, Attr::NODE_IMAGE_SRC);
-    crate::images::forget_node(n);
+    reset(image_node(n), Attr::NODE_IMAGE_SRC);
+    crate::images::forget_node(image_node(n));
     crate::images::node_set_bytes(n, bytes);
 }
 
 /// Scaling (§18.3): `ArkUI_ObjectFit` CONTAIN=0 / COVER=1 / FILL=3.
 pub fn set_image_fit(n: Handle, fit: i32) {
-    set_i32(n, Attr::NODE_IMAGE_OBJECT_FIT, fit);
+    set_i32(image_node(n), Attr::NODE_IMAGE_OBJECT_FIT, fit);
 }
 
-/// SVG-only recolor: repaints every path of an SVG src (raster sources ignore it), which is
-/// how nav-row vector icons tint (docs/vectors.md).
+/// Recolor the complete SVG alpha mask, preserving fills, strokes and authored opacity.
 pub fn set_image_fill(n: Handle, argb: u32) {
-    set_u32(n, Attr::NODE_IMAGE_FILL_COLOR, argb);
+    IMAGE_NODES.with(|m| {
+        if let Some(state) = m.borrow_mut().get_mut(&(n as usize)) {
+            state.tint = Some(argb);
+        }
+    });
+    apply_image_tint(n);
+}
+
+pub(crate) fn image_source_kind(n: Handle, svg: bool) {
+    IMAGE_NODES.with(|m| {
+        if let Some(state) = m.borrow_mut().get_mut(&(n as usize)) {
+            state.svg = svg;
+        }
+    });
+    apply_image_tint(n);
+}
+
+fn apply_image_tint(n: Handle) {
+    let Some(mut state) = IMAGE_NODES.with(|m| m.borrow().get(&(n as usize)).copied()) else {
+        return;
+    };
+    let Some(tint) = state.tint.filter(|_| state.svg) else {
+        if !state.overlay.is_null() {
+            set_visibility(state.overlay, false);
+        }
+        reset(n, Attr::NODE_BLEND_MODE);
+        return;
+    };
+    // Isolate the SVG and overlay from the page behind them. Both are rendered at the
+    // current device resolution; no PixelMap or build-time raster participates.
+    set_values(
+        n,
+        Attr::NODE_BLEND_MODE,
+        &[
+            i32v(ArkUI_BlendMode::ARKUI_BLEND_MODE_SRC_OVER.0 as i32),
+            i32v(ArkUI_BlendApplyType::BLEND_APPLY_TYPE_OFFSCREEN.0 as i32),
+        ],
+    );
+    if state.overlay.is_null() {
+        state.overlay = create(STACK);
+        image_paint_only(state.overlay);
+        set_f32(state.overlay, Attr::NODE_WIDTH_PERCENT, 1.0);
+        set_f32(state.overlay, Attr::NODE_HEIGHT_PERCENT, 1.0);
+        set_values(
+            state.overlay,
+            Attr::NODE_BLEND_MODE,
+            &[
+                i32v(ArkUI_BlendMode::ARKUI_BLEND_MODE_SRC_IN.0 as i32),
+                i32v(ArkUI_BlendApplyType::BLEND_APPLY_TYPE_OFFSCREEN.0 as i32),
+            ],
+        );
+        insert_child(n, state.overlay, 1);
+        IMAGE_NODES.with(|m| m.borrow_mut().insert(n as usize, state));
+    }
+    set_bg_color(state.overlay, tint);
+    set_visibility(state.overlay, true);
 }
 
 /// One margin (vp) on all four sides; symmetric, so RTL needs no flip.

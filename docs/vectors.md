@@ -114,10 +114,16 @@ its own Regular.
 `contentTintColor` on AppKit, `alwaysTemplate` + `tintColor` on UIKit, `setImageTintList` on
 Android, pixel recolor on GTK, a `QPainter` `SourceIn` fill over the rendered glyph on Qt, a CSS mask
 painted with the tint on web (a tinted glyph is a masked element, not an `<img>`, because the
-browser cannot recolor an image's own pixels), SVG fill color (`NODE_IMAGE_FILL_COLOR`) on ArkUI,
+browser cannot recolor an image's own pixels), native SourceIn compositing on ArkUI,
 and a brush on the `Path` shapes on XAML, composed over the geometry when the glyph is realized.
 One staged glyph therefore serves every tint at every size without a second asset.
 `None` (and every raster `image(…)`) means "as authored".
+
+ArkUI applies its tint layer only to SVG sources: strokes, unfilled interiors and partial
+opacity survive tinting. Replacing the SVG with a bitmap hides the tint layer; replacing it
+with another SVG restores the requested tint. HarmonyOS packaging also writes explicit
+intrinsic SVG dimensions, resolved from the original document, so ArkUI's native Image
+honors fit/fill/stretch for viewBox-only assets without rasterizing them.
 
 > [!IMPORTANT]
 > **Author an icon glyph at ICON SIZE.** A glyph's `width`/`height` are its NATURAL size, and some
@@ -157,10 +163,10 @@ original centerlines would incorrectly fill outline icons into solid silhouettes
 Nav-menu rows have their own arm, `item(…).icon_tint(color)` ([docs/navigation.md](navigation.md)): per-row
 recolor on AppKit (`contentTintColor`), UIKit (`tintColor`), GTK (a render-node color matrix), Qt
 (`QPainter` SourceIn at the current paint resolution), Android (compound-drawable `setTint`, best-effort after
-the nav host mounts), ArkUI (SVG fill color), XAML (`Foreground` on the row's `PathIcon`), and
+the nav host mounts), ArkUI (SVG SourceIn compositing), XAML (`Foreground` on the row's `PathIcon`), and
 web (the mask painted with the tint instead of `currentColor`). Untinted rows keep each
 backend's template default (theme foreground / secondary label); ArkUI's untinted raster rows
-draw as authored (fill color is SVG-only).
+draw as authored (Day applies the tint layer only to SVG sources).
 
 ## Template
 
