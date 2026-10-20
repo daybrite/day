@@ -66,6 +66,7 @@ mod imp {
     #[allow(deprecated)]
     use objc2_ui_kit::UIApplicationMain;
     use objc2_ui_kit::UINavigationControllerDelegate;
+    use objc2_ui_kit::UISearchBarDelegate;
     use objc2_ui_kit::UISearchResultsUpdating;
     use objc2_ui_kit::UISplitViewControllerDelegate;
     use objc2_ui_kit::UITextViewDelegate;
@@ -1270,8 +1271,12 @@ mod imp {
                     return true;
                 }
             }
-            // Search never reaches the bar here (it rides the navigation surface).
-            P::Text { .. } | P::Suggestions { .. } | P::Focus { .. } => {}
+            // A search item's values are kept for the next page field built from the model,
+            // and never re-apply the bar: the field takes them itself (`patch_page_search`).
+            P::Text { .. } | P::Suggestions { .. } => {
+                patch.apply_to(items);
+            }
+            P::Focus { .. } => {}
         }
         false
     }
@@ -2015,8 +2020,19 @@ mod imp {
     }
 
     /// Re-place a window's bar on every page of every navigation controller under it — after
-    /// a model change, and after a collapse or expand.
+    /// a model change, and after a collapse or expand — and its search field on the page
+    /// showing.
     fn reapply_window_toolbar(root: usize) {
+        reapply_window_bar_items(root);
+        if let Some(root_view) =
+            WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
+        {
+            sync_page_search(root, &root_view);
+        }
+    }
+
+    /// The buttons half of [`reapply_window_toolbar`].
+    fn reapply_window_bar_items(root: usize) {
         let Some(root_view) =
             WINDOW_TOOLBARS.with(|t| t.borrow().get(&root).map(|w| w.root.clone()))
         else {
@@ -2182,6 +2198,431 @@ mod imp {
                 unsafe { vc.setToolbarItems(None) };
             }
             unsafe { nav.setToolbarHidden_animated(true, false) };
+        }
+    }
+
+    // ── A page's own search field (docs/search.md, "Page search") ─────────────────────
+    //
+    // A navigation page that declares `.searchable(…)` contributes the reserved `day.search`
+    // item to its own chrome, and Day merges a page's chrome into its window's bar only while
+    // that page is the one showing. So the item in the window's model always belongs to the
+    // page on top, and that page's `navigationItem` takes a `UISearchController`: Mail's search
+    // bar, under the title in the navigation bar. A bar button cannot be a field, so the item
+    // never rides the bar's buttons (`bar_controls`).
+    //
+    // One controller per page, made the first time the page shows its field and kept for as
+    // long as the page lives: a model re-apply never rebuilds it, so typing keeps the caret and
+    // the keyboard. A page that a push covers keeps its field too, text and all, the way Mail's
+    // list does under an open message, and the swipe back shows it in place. It comes off only
+    // when the page on top stops offering it (`Search::available`, or the contribution leaving
+    // with the page's scope), and with the page itself.
+
+    struct PageSearchIvars {
+        /// The item's dispatch id: the slot Day keeps for `day.search` on this window.
+        action: Cell<u64>,
+        /// Suppresses the echo while Day writes the field's text into it.
+        suppress: Cell<bool>,
+        /// The text last reported, so activation and a submit do not report it twice.
+        last: RefCell<String>,
+    }
+
+    define_class!(
+        #[unsafe(super(NSObject))]
+        #[thread_kind = MainThreadOnly]
+        #[name = "DayPageSearch"]
+        #[ivars = PageSearchIvars]
+        struct DayPageSearch;
+
+        unsafe impl NSObjectProtocol for DayPageSearch {}
+
+        unsafe impl UISearchResultsUpdating for DayPageSearch {
+            #[unsafe(method(updateSearchResultsForSearchController:))]
+            fn update(&self, sc: &objc2_ui_kit::UISearchController) {
+                day_spec::ffi_guard::contain((), || {
+                    if self.ivars().suppress.get() {
+                        return;
+                    }
+                    let text = unsafe { sc.searchBar().text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    self.report_text(text);
+                });
+            }
+        }
+
+        unsafe impl UIBarPositioningDelegate for DayPageSearch {}
+
+        unsafe impl UISearchBarDelegate for DayPageSearch {
+            /// The Search key: the text first if it has not gone out yet, then the submission
+            /// (docs/search.md). The keyboard goes, as in Mail, so the results are not under it.
+            #[unsafe(method(searchBarSearchButtonClicked:))]
+            fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
+                day_spec::ffi_guard::contain((), || {
+                    let text = unsafe { bar.text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    self.report_text(text.clone());
+                    self.send(day_spec::ToolbarValue::Submit(text));
+                    let _ = bar.resignFirstResponder();
+                });
+            }
+
+            /// Cancel clears the field. UISearchController reports the empty text through the
+            /// updater as well; whichever arrives first goes out, the other is the same text.
+            #[unsafe(method(searchBarCancelButtonClicked:))]
+            fn cancel_clicked(&self, _bar: &objc2_ui_kit::UISearchBar) {
+                day_spec::ffi_guard::contain((), || self.report_text(String::new()));
+            }
+        }
+    );
+
+    impl DayPageSearch {
+        fn new(mtm: MainThreadMarker, action: u64, text: &str) -> Retained<Self> {
+            let this = Self::alloc(mtm).set_ivars(PageSearchIvars {
+                action: Cell::new(action),
+                suppress: Cell::new(false),
+                last: RefCell::new(text.to_string()),
+            });
+            unsafe { msg_send![super(this), init] }
+        }
+
+        /// Send `text` as the field's new value, unless it is the value already sent.
+        fn report_text(&self, text: String) {
+            if *self.ivars().last.borrow() == text {
+                return;
+            }
+            *self.ivars().last.borrow_mut() = text.clone();
+            self.send(day_spec::ToolbarValue::Text(text));
+        }
+
+        /// Through the item's action, the rail every toolbar value takes.
+        fn send(&self, value: day_spec::ToolbarValue) {
+            let action = self.ivars().action.get();
+            if action != 0 {
+                emit(WINDOW_NODE, Event::ToolbarChanged { action, value });
+            }
+        }
+
+        /// Show `text` without reporting it back: the app's own write (`ToolbarPatch::Text`).
+        fn show_text(&self, sc: &objc2_ui_kit::UISearchController, text: &str) {
+            *self.ivars().last.borrow_mut() = text.to_string();
+            let bar = unsafe { sc.searchBar() };
+            if unsafe { bar.text() }.is_some_and(|t| t.to_string() == text) {
+                return;
+            }
+            self.ivars().suppress.set(true);
+            unsafe { bar.setText(Some(&NSString::from_str(text))) };
+            self.ivars().suppress.set(false);
+        }
+    }
+
+    /// One page's field: the controller on its navigation item and the object answering it.
+    struct PageSearch {
+        /// The window root (`WINDOW_TOOLBARS` key) whose bar carried the item.
+        root: usize,
+        vc: Retained<UIViewController>,
+        sc: Retained<objc2_ui_kit::UISearchController>,
+        handler: Retained<DayPageSearch>,
+    }
+
+    thread_local! {
+        /// Keyed by the page's view controller (`vc_key`). Retained here because the search
+        /// controller does not own its updater or its bar's delegate.
+        static PAGE_SEARCH: RefCell<HashMap<usize, PageSearch>> = RefCell::new(HashMap::new());
+    }
+
+    /// The window's `day.search` item, if its bar has one.
+    fn page_search_item(root: usize) -> Option<day_spec::ToolbarItem> {
+        WINDOW_TOOLBARS.with(|t| {
+            t.borrow().get(&root).and_then(|w| {
+                w.items
+                    .iter()
+                    .find(|i| {
+                        i.id == day_spec::SEARCH_ITEM_ID
+                            && matches!(i.kind, day_spec::ToolbarItemKind::Search { .. })
+                    })
+                    .cloned()
+            })
+        })
+    }
+
+    /// The page a page item of `column` belongs on right now: the top of the stack that carries
+    /// the window's bar (the same choice `reapply_window_toolbar` makes for the buttons), as Day
+    /// has asked for it — a push still queued or animating already counts, since the item
+    /// arrives in the same turn as its page.
+    fn page_search_target(
+        root_view: &UIView,
+        column: day_spec::ToolbarColumn,
+    ) -> Option<Retained<UIViewController>> {
+        // The top of `nav` as Day sees it, through its host's queue where it has one.
+        let top_of = |nav: &objc2_ui_kit::UINavigationController| {
+            let host = NAV_STATE.with(|m| {
+                m.borrow()
+                    .iter()
+                    .find(|(_, s)| same_nav(&s.active_nav(), nav))
+                    .map(|(k, s)| (*k, s.active_nav()))
+            });
+            match host {
+                Some((host, active)) => current_top(host, &active),
+                None => top_page(nav),
+            }
+        };
+        if let Some(tabbar) = tabs_host_under(root_view) {
+            let shown = unsafe { tabbar.selectedViewController() }?;
+            let inner = shown
+                .downcast_ref::<objc2_ui_kit::UINavigationController>()
+                .map(|n| n.retain())
+                .or_else(|| {
+                    unsafe { shown.childViewControllers() }
+                        .iter()
+                        .find_map(|c| c.downcast::<objc2_ui_kit::UINavigationController>().ok())
+                })?;
+            return top_of(&inner);
+        }
+        // Each host's stack that is showing pages: the merged one while collapsed, otherwise the
+        // column the item was declared in.
+        let navs: Vec<Retained<objc2_ui_kit::UINavigationController>> = NAV_STATE.with(|m| {
+            m.borrow()
+                .values()
+                .filter(|s| {
+                    let view = match &s.split {
+                        Some(parts) => parts.split_vc.view(),
+                        None => s.nav.view(),
+                    };
+                    view.is_some_and(|v| unsafe { v.isDescendantOfView(root_view) })
+                })
+                .map(|s| {
+                    let nav: Retained<DayNavController> = match &s.split {
+                        Some(parts) if !s.is_collapsed() => match column {
+                            day_spec::ToolbarColumn::Sidebar => parts.primary_nav.clone(),
+                            day_spec::ToolbarColumn::List => parts
+                                .supplementary_nav
+                                .clone()
+                                .unwrap_or_else(|| s.nav.clone()),
+                            _ => s.nav.clone(),
+                        },
+                        _ => s.active_nav(),
+                    };
+                    Retained::into_super(nav)
+                })
+                .collect()
+        });
+        navs.into_iter()
+            .find(|nav| bar_placement(nav) != BarPlacement::Nested)
+            .and_then(|nav| top_of(&nav))
+    }
+
+    /// Take a page's field off its navigation item, if it is still the one there.
+    fn detach_page_search(entry: &PageSearch) {
+        unsafe {
+            if entry.sc.isActive() {
+                entry.sc.setActive(false);
+            }
+            let item = entry.vc.navigationItem();
+            if item
+                .searchController()
+                .is_some_and(|sc| std::ptr::eq(&*sc, &*entry.sc))
+            {
+                item.setSearchController(None);
+            }
+        }
+    }
+
+    /// Put the window's `day.search` item on the page it belongs to, and take it off the page
+    /// on top when that page stopped offering one. Run after every change to the bar's model,
+    /// after a page shows, and before a value patch, so the field is in place to take it.
+    /// Answers the page's controller and its handler, when the item is on one.
+    fn sync_page_search(
+        root: usize,
+        root_view: &UIView,
+    ) -> Option<(
+        Retained<objc2_ui_kit::UISearchController>,
+        Retained<DayPageSearch>,
+    )> {
+        let mtm = MainThreadMarker::new()?;
+        let item = page_search_item(root);
+        let column = item
+            .as_ref()
+            .map_or(day_spec::ToolbarColumn::Detail, |i| i.column);
+        let target = page_search_target(root_view, column);
+        if item.is_none() {
+            // Only the page on top loses its field: a covered page keeps its own for when it
+            // shows again, and a page that left the stack takes its field with it.
+            let gone = target.and_then(|vc| {
+                PAGE_SEARCH.with(|m| {
+                    let mut m = m.borrow_mut();
+                    m.get(&vc_key(&vc))
+                        .is_some_and(|e| e.root == root)
+                        .then(|| m.remove(&vc_key(&vc)))
+                        .flatten()
+                })
+            });
+            if let Some(entry) = gone {
+                detach_page_search(&entry);
+            }
+            return None;
+        }
+        let (item, vc) = (item?, target?);
+        let day_spec::ToolbarItemKind::Search {
+            text, placeholder, ..
+        } = &item.kind
+        else {
+            return None;
+        };
+        let nav_item = unsafe { vc.navigationItem() };
+        let existing = PAGE_SEARCH.with(|m| {
+            m.borrow()
+                .get(&vc_key(&vc))
+                .map(|e| (e.sc.clone(), e.handler.clone()))
+        });
+        let (sc, handler) = match existing {
+            Some(found) => found,
+            None => {
+                // A sidebar root carries its navigation surface's own search; that one stays.
+                if unsafe { nav_item.searchController() }.is_some() {
+                    return None;
+                }
+                let handler = DayPageSearch::new(mtm, item.action, text);
+                let sc = unsafe {
+                    objc2_ui_kit::UISearchController::initWithSearchResultsController(
+                        objc2_ui_kit::UISearchController::alloc(mtm),
+                        None,
+                    )
+                };
+                unsafe {
+                    sc.setSearchResultsUpdater(Some(ProtocolObject::from_ref(&*handler)));
+                    // The results replace the page's own content, so nothing is dimmed.
+                    sc.setObscuresBackgroundDuringPresentation(false);
+                    let bar = sc.searchBar();
+                    bar.setDelegate(Some(ProtocolObject::from_ref(&*handler)));
+                    // Already UISearchBar's default; said here because Return means "search".
+                    if let Some(field) = search_text_field(&bar) {
+                        send_input_trait(
+                            &field,
+                            sel!(setReturnKeyType:),
+                            UIReturnKeyType::Search.0,
+                        );
+                    }
+                    if !text.is_empty() {
+                        bar.setText(Some(&NSString::from_str(text)));
+                    }
+                    // Mail's: the bar slides away with the content and comes back on a pull.
+                    // Pinned for the turn it arrives in, though: a field that joins a page
+                    // already on screen (a feed that had to load first) would otherwise start
+                    // collapsed, behind a pull nobody knows to make. Showing first and turning
+                    // the hiding on once it has drawn is UIKit's own recipe for that.
+                    nav_item.setHidesSearchBarWhenScrolling(false);
+                    hide_page_search_when_drawn(vc.clone(), 0);
+                    // Under the title, at every width: an iPad would otherwise fold it into the
+                    // bar's trailing end, away from the page title it searches under.
+                    if os_at_least(16) {
+                        nav_item.setPreferredSearchBarPlacement(
+                            objc2_ui_kit::UINavigationItemSearchBarPlacement::Stacked,
+                        );
+                    }
+                    // A push while the field is active must cover it, not run under it.
+                    vc.setDefinesPresentationContext(true);
+                }
+                PAGE_SEARCH.with(|m| {
+                    m.borrow_mut().insert(
+                        vc_key(&vc),
+                        PageSearch {
+                            root,
+                            vc: vc.clone(),
+                            sc: sc.clone(),
+                            handler: handler.clone(),
+                        },
+                    )
+                });
+                (sc, handler)
+            }
+        };
+        handler.ivars().action.set(item.action);
+        unsafe {
+            if nav_item.searchController().is_none() {
+                nav_item.setSearchController(Some(&sc));
+            }
+            let bar = sc.searchBar();
+            let prompt = if placeholder.is_empty() {
+                &item.label
+            } else {
+                placeholder
+            };
+            if bar.placeholder().is_none_or(|p| p.to_string() != *prompt) {
+                bar.setPlaceholder(Some(&NSString::from_str(prompt)));
+            }
+            bar.setUserInteractionEnabled(item.enabled);
+        }
+        Some((sc, handler))
+    }
+
+    /// Turn on a new page field's hide-on-scroll once its bar has drawn it open: before then
+    /// the flag starts it collapsed. A page still on its way in (a queued push) is waited for,
+    /// a turn at a time and boundedly, and one that never arrives keeps its field pinned.
+    fn hide_page_search_when_drawn(vc: Retained<UIViewController>, attempt: u32) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        let vc = dispatch2::MainThreadBound::new(vc, mtm);
+        let when = dispatch2::DispatchTime::try_from(std::time::Duration::from_millis(50))
+            .unwrap_or(dispatch2::DispatchTime::NOW);
+        let _ = dispatch2::DispatchQueue::main().after(when, move || {
+            day_spec::ffi_guard::contain((), || {
+                let Some(mtm) = MainThreadMarker::new() else {
+                    return;
+                };
+                let vc = vc.get(mtm);
+                let nav = unsafe { vc.navigationController() };
+                let shown = vc.viewIfLoaded().is_some_and(|v| v.window().is_some());
+                match nav.and_then(|n| n.viewIfLoaded()) {
+                    Some(nav_view) if shown => {
+                        // The open bar is laid out first; the flag only governs what scrolling
+                        // does from there.
+                        nav_view.layoutIfNeeded();
+                        unsafe { vc.navigationItem().setHidesSearchBarWhenScrolling(true) };
+                    }
+                    _ if attempt < 100 => hide_page_search_when_drawn(vc.retain(), attempt + 1),
+                    _ => {}
+                }
+            });
+        });
+    }
+
+    /// `UISearchBar.searchTextField` (iOS 13), typed as the `UITextField` it is.
+    fn search_text_field(bar: &objc2_ui_kit::UISearchBar) -> Option<Retained<UITextField>> {
+        unsafe { msg_send![bar, searchTextField] }
+    }
+
+    /// [`sync_page_search`] for the window `nav` is in.
+    fn sync_page_search_near(nav: &objc2_ui_kit::UINavigationController) {
+        let Some(nav_view) = nav.view() else {
+            return;
+        };
+        let found = WINDOW_TOOLBARS.with(|t| {
+            t.borrow()
+                .iter()
+                .find(|(_, w)| unsafe { nav_view.isDescendantOfView(&w.root) })
+                .map(|(root, w)| (*root, w.root.clone()))
+        });
+        if let Some((root, root_view)) = found {
+            sync_page_search(root, &root_view);
+        }
+    }
+
+    /// A search item's value patch on a phone (docs/toolbars.md): the field on the page showing
+    /// takes it without a rebuild, and without reporting it back.
+    fn patch_page_search(root: usize, root_view: &UIView, patch: &day_spec::ToolbarPatch) {
+        let Some((sc, handler)) = sync_page_search(root, root_view) else {
+            return;
+        };
+        match patch {
+            day_spec::ToolbarPatch::Text { text, .. } => handler.show_text(&sc, text),
+            day_spec::ToolbarPatch::Focus { .. } => unsafe {
+                sc.setActive(true);
+                sc.searchBar().becomeFirstResponder();
+            },
+            // UIKit's completion surface is not wired yet (as for a surface's own search).
+            _ => {}
         }
     }
 
@@ -3376,6 +3817,27 @@ mod imp {
                         .map(|t| t.to_string())
                         .unwrap_or_default();
                     emit(NodeId(self.ivars().node.get()), Event::SearchChanged(text));
+                });
+            }
+        }
+
+        unsafe impl UIBarPositioningDelegate for DaySearchUpdater {}
+
+        unsafe impl UISearchBarDelegate for DaySearchUpdater {
+            /// The Search key (docs/search.md): every edit has already been reported by
+            /// `updateSearchResultsForSearchController:`, so this only says "run it now". The
+            /// keyboard goes, as in Settings and Mail, so the results are not under it.
+            #[unsafe(method(searchBarSearchButtonClicked:))]
+            fn search_clicked(&self, bar: &objc2_ui_kit::UISearchBar) {
+                day_spec::ffi_guard::contain((), || {
+                    let text = unsafe { bar.text() }
+                        .map(|t| t.to_string())
+                        .unwrap_or_default();
+                    emit(
+                        NodeId(self.ivars().node.get()),
+                        Event::SearchSubmitted(text),
+                    );
+                    let _ = bar.resignFirstResponder();
                 });
             }
         }
@@ -4609,6 +5071,7 @@ mod imp {
                 day_spec::ffi_guard::contain((), || {
                     if let Some(vc) = vc {
                         apply_window_toolbar_to(nav, vc);
+                        sync_page_search_near(nav);
                     }
                     if *DIAG_NAV {
                         let host = self.ivars().host.get();
@@ -5516,6 +5979,41 @@ mod imp {
     /// size, so a tab icon is a matter of AUTHORING the glyph at icon size (docs/vectors.md), not
     /// of resizing it here — thumbnailing downsamples the catalog's bitmap rendition and throws
     /// away the vector representation that put it there.
+    /// Give a tab back its page alone once the page turns out to bring a navigation host of its
+    /// own (a `nav_stack` at its root).
+    ///
+    /// `insert` wraps a tab's page in a navigation controller on a wide window, because that is
+    /// the only thing that gives a tab a bar for its page's commands. A page that composes its
+    /// own stack already has one, and the wrapper stacked a second bar over it with the same
+    /// title and the same commands (Stanza's tabs on an iPad). The stack is inserted after its
+    /// page, so the wrapper is undone here, when it arrives, which leaves the tab as a compact
+    /// window has it: the page, whose stack owns the bar.
+    fn unwrap_tab_page(page_vc: &Retained<UIViewController>) {
+        let found =
+            NAV_TABS.with(|m| {
+                let mut m = m.borrow_mut();
+                m.iter_mut().find_map(|(host, t)| {
+                    let at =
+                        t.vcs.iter().position(|vc| {
+                            vc.downcast_ref::<objc2_ui_kit::UINavigationController>()
+                                .is_some_and(|n| {
+                                    unsafe { n.viewControllers() }.iter().next().is_some_and(
+                                        |root| Retained::as_ptr(&root) == Retained::as_ptr(page_vc),
+                                    )
+                                })
+                        })?;
+                    Some((*host, std::mem::replace(&mut t.vcs[at], page_vc.clone())))
+                })
+            });
+        let Some((host, wrapper)) = found else { return };
+        // The page leaves the wrapper before it becomes the tab's own controller: UIKit takes a
+        // controller with a parent as a tab only after asserting.
+        if let Some(n) = wrapper.downcast_ref::<objc2_ui_kit::UINavigationController>() {
+            unsafe { n.setViewControllers(&objc2_foundation::NSArray::new()) };
+        }
+        nav_tabs_sync(host);
+    }
+
     fn nav_tabs_sync(host: usize) {
         let Some(mtm) = MainThreadMarker::new() else {
             return;
@@ -9199,6 +9697,8 @@ mod imp {
                     t.borrow_mut().remove(&root);
                 });
                 clear_window_toolbar(h);
+                // A page search field was the last item, and leaves with the bar.
+                sync_page_search(root, h);
                 return true;
             }
             reapply_window_toolbar(root);
@@ -9214,6 +9714,16 @@ mod imp {
             });
             if changed {
                 reapply_window_toolbar(root);
+            }
+            // A search item's values go to the live field on the page showing, never through
+            // a re-apply (docs/search.md, "Page search").
+            if patch.item() == day_spec::SEARCH_ITEM_ID
+                && matches!(
+                    patch,
+                    day_spec::ToolbarPatch::Text { .. } | day_spec::ToolbarPatch::Focus { .. }
+                )
+            {
+                patch_page_search(root, h, patch);
             }
         }
 
@@ -9601,6 +10111,9 @@ mod imp {
                                 // being filtered.
                                 sc.setObscuresBackgroundDuringPresentation(false);
                                 let bar = sc.searchBar();
+                                // The Search key reports a submission (`Event::SearchSubmitted`);
+                                // UISearchController leaves its bar's delegate to the app.
+                                bar.setDelegate(Some(ProtocolObject::from_ref(&*updater)));
                                 bar.setPlaceholder(Some(&NSString::from_str(&sp.prompt)));
                                 if !sp.text.is_empty() {
                                     bar.setText(Some(&NSString::from_str(&sp.text)));
@@ -11031,6 +11544,11 @@ mod imp {
                 PAGE_TOOLBARS.with(|m| {
                     m.borrow_mut().remove(&vc_key(&vc));
                 });
+                // The page's search field goes with it. Left on the navigation item, which the
+                // page releases: deactivating it here would start a dismissal under a pop that
+                // may still be animating.
+                let search = PAGE_SEARCH.with(|m| m.borrow_mut().remove(&vc_key(&vc)));
+                drop(search);
             }
             COVER_STATE.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
@@ -11267,16 +11785,24 @@ mod imp {
                         .with(|m| m.borrow().get(&ptr_of(parent)).cloned())
                         .or_else(|| enclosing_view_controller(parent));
                     match (host_vc, page_vc) {
-                        (Some(host_vc), Some(page_vc)) => unsafe {
-                            // Order is UIKit's: leave the old parent, join the new one, THEN the
-                            // view move, then confirm. `didMove` last is what the containment
-                            // contract asks for.
-                            host_vc.willMoveToParentViewController(None);
-                            host_vc.removeFromParentViewController();
-                            page_vc.addChildViewController(&host_vc);
-                            parent.addSubview(child);
-                            host_vc.didMoveToParentViewController(Some(&page_vc));
-                        },
+                        (Some(host_vc), Some(page_vc)) => {
+                            unsafe {
+                                // Order is UIKit's: leave the old parent, join the new one, THEN
+                                // the view move, then confirm. `didMove` last is what the
+                                // containment contract asks for.
+                                host_vc.willMoveToParentViewController(None);
+                                host_vc.removeFromParentViewController();
+                                page_vc.addChildViewController(&host_vc);
+                                parent.addSubview(child);
+                                host_vc.didMoveToParentViewController(Some(&page_vc));
+                            }
+                            // A navigation host brings its own bar; a tab bar does not.
+                            let tab_bar =
+                                NAV_TABS.with(|m| m.borrow().contains_key(&ptr_of(child)));
+                            if !tab_bar {
+                                unwrap_tab_page(&page_vc);
+                            }
+                        }
                         _ => unsafe { parent.addSubview(child) },
                     }
                 }

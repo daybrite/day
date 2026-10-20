@@ -88,3 +88,7 @@ harness = false
 [[test]]
 name = "native_document_layout"
 harness = false
+
+[[test]]
+name = "native_toolbar_search"
+harness = false

@@ -533,6 +533,24 @@ public class DayNavHost extends LinearLayout {
                 }
             }
         });
+        // The keyboard's Search key (or a hardware Enter) submits the text (docs/search.md):
+        // num 1 = submitted. Every change already went out from the watcher above, so this
+        // follows the last of them. The keyboard goes away, as after any search.
+        edit.setOnEditorActionListener((v, actionId, event) -> {
+            boolean enter = event != null && event.getKeyCode() == android.view.KeyEvent.KEYCODE_ENTER;
+            if (actionId != android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH && !enter) {
+                return false;
+            }
+            if (event != null && event.getAction() != android.view.KeyEvent.ACTION_DOWN) {
+                return true; // the Enter key's release, after its press already submitted
+            }
+            DayBridge.nativeOnEvent(id, DayBridge.K_SEARCH_CHANGED, 1.0, v.getText().toString());
+            android.view.inputmethod.InputMethodManager keyboard =
+                    (android.view.inputmethod.InputMethodManager) getContext().getSystemService(
+                            android.content.Context.INPUT_METHOD_SERVICE);
+            if (keyboard != null) keyboard.hideSoftInputFromWindow(v.getWindowToken(), 0);
+            return true;
+        });
         box.addView(edit, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -660,9 +678,15 @@ public class DayNavHost extends LinearLayout {
         syncBarActions();
     }
 
-    /** A targeted change to one live item: op 0 = enabled, 1 = toggle on, 2 = segment index. */
+    /** A targeted change to one live item: op 0 = enabled, 1 = toggle on, 2 = segment index,
+     *  3 = focus the search field. */
     void updateWindowToolbar(String id, int op, double num) {
         windowBar.update(id, op, num);
+    }
+
+    /** The app wrote a page search field's text (docs/search.md). */
+    void updateWindowToolbarText(String id, String text) {
+        windowBar.updateText(id, text);
     }
 
     /** The window toolbar (docs/toolbars.md) painted onto one Material bar: the spec day-android
@@ -698,6 +722,35 @@ public class DayNavHost extends LinearLayout {
          *  and vanishes on a dark bar. */
         final HashMap<MenuItem, android.graphics.drawable.Drawable> glyphs = new HashMap<>();
 
+        // ── The page's search field (docs/search.md, "Page search") ─────────────────────
+        //
+        // A collapsible `SearchView` action: the magnifier in the bar, which expands into a
+        // field across the whole app bar, with the toolbar's own collapse arrow and the system
+        // back to close it. Collapsing clears the query, as a mail app's search does, so a
+        // collapsed field never hides a filter still in force.
+        //
+        // The one item on this bar with state of its own (the user's typing, the caret, the
+        // keyboard), so it is the one item a repaint does not rebuild: the MenuItem and its
+        // SearchView stay while the spec carries a search record, and leave with it.
+
+        /** Menu item id of the search action, the only item on the bar with one (the others
+         *  are `Menu.NONE`), so a repaint can remove everything else around it. */
+        private static final int SEARCH_ITEM = 0x5EA4C4;
+        private MenuItem searchItem;
+        private androidx.appcompat.widget.SearchView searchView;
+        /** The search item's dispatch action, current as of the last paint. */
+        private long searchAction;
+        /** The text Day holds for the field: what the spec or a patch last said, or what the
+         *  field last reported. A change equal to it is not sent again. */
+        private String searchText = "";
+        /** Day is writing the field (or collapsing it as its item leaves): its listeners stay
+         *  quiet. */
+        private boolean searchSyncing;
+        /** Closes the expanded field on the system back, ahead of the navigation's own back,
+         *  while the field is open. A toolbar that is not the activity's action bar does not
+         *  collapse its action view on back by itself. */
+        private androidx.activity.OnBackPressedCallback searchBack;
+
         WindowBar(MaterialToolbar toolbar) {
             this.toolbar = toolbar;
         }
@@ -714,14 +767,25 @@ public class DayNavHost extends LinearLayout {
          *  and separators are the bar's own business and are skipped. */
         void paint() {
             Menu menu = toolbar.getMenu();
-            menu.clear();
+            if (searchItem == null) {
+                menu.clear();
+            } else {
+                // Everything but the search action, which keeps its field (see above).
+                for (int i = menu.size() - 1; i >= 0; i--) {
+                    MenuItem it = menu.getItem(i);
+                    if (it != searchItem) menu.removeItem(it.getItemId());
+                }
+            }
+            boolean searched = false;
             items.clear();
             segmentItems.clear();
             segmentLabels.clear();
             segmentGlyphMap.clear();
             glyphs.clear();
             Context ctx = toolbar.getContext();
-            int order = 0;
+            // Order 0 is the search action's: the first action after the title, where Android
+            // apps keep it.
+            int order = 1;
             int groupSeq = 1;
             for (String rec : spec.split("\u001e", -1)) {
                 if (rec.isEmpty()) continue;
@@ -831,9 +895,156 @@ public class DayNavHost extends LinearLayout {
                     it.setEnabled(false);
                     it.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
                     items.put(id, it);
+                } else if (kind.equals("search") && !searched) {
+                    searched = true;
+                    int cut = extra.indexOf('\u001d');
+                    String text = cut >= 0 ? extra.substring(0, cut) : extra;
+                    String hint = cut >= 0 ? extra.substring(cut + 1) : label;
+                    paintSearch(menu, ctx, label, hint, text, glyph, enabled, action);
+                    items.put(id, searchItem);
                 }
                 // "sep", "space", "flex": the app bar spaces its own actions.
             }
+            if (!searched) dropSearch(menu);
+        }
+
+        /** Put the page's search action on the bar, or bring the one already there up to date. */
+        private void paintSearch(Menu menu, Context ctx, String label, String hint, String text,
+                android.graphics.drawable.Drawable glyph, boolean enabled, long action) {
+            searchAction = action;
+            if (searchItem == null) {
+                final androidx.appcompat.widget.SearchView sv =
+                        new androidx.appcompat.widget.SearchView(ctx);
+                sv.setIconifiedByDefault(true);
+                sv.setMaxWidth(Integer.MAX_VALUE);
+                sv.setImeOptions(android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+                        | android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+                sv.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+                sv.setOnQueryTextListener(
+                        new androidx.appcompat.widget.SearchView.OnQueryTextListener() {
+                    @Override public boolean onQueryTextChange(String q) {
+                        if (!searchSyncing) sendSearchText(q);
+                        return true;
+                    }
+                    @Override public boolean onQueryTextSubmit(String q) {
+                        // The text first, if the field has not reported it, then the
+                        // submission (docs/search.md); the keyboard then goes away, as after
+                        // any search, and the field stays open with the query that ran.
+                        sendSearchText(q);
+                        DayBridge.nativeOnEvent(searchAction, DayBridge.K_TOOLBAR_CHANGED, 0.0,
+                                "submit:" + q);
+                        sv.clearFocus();
+                        return true;
+                    }
+                });
+                MenuItem it = menu.add(Menu.NONE, SEARCH_ITEM, 0, label);
+                it.setActionView(sv);
+                it.setShowAsAction(MenuItem.SHOW_AS_ACTION_IF_ROOM
+                        | MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW);
+                it.setOnActionExpandListener(new MenuItem.OnActionExpandListener() {
+                    @Override public boolean onMenuItemActionExpand(MenuItem mi) {
+                        armSearchBack(true);
+                        return true;
+                    }
+                    @Override public boolean onMenuItemActionCollapse(MenuItem mi) {
+                        // The SearchView empties itself as it collapses, and that change goes
+                        // out like any other: closing the field clears the search.
+                        armSearchBack(false);
+                        return true;
+                    }
+                });
+                searchItem = it;
+                searchView = sv;
+                // A field arriving on the bar shows whatever Day already holds for it.
+                searchText = "";
+            }
+            searchItem.setTitle(label);
+            searchItem.setEnabled(enabled);
+            searchView.setQueryHint(hint);
+            if (glyph != null) {
+                glyphs.put(searchItem, glyph);
+                searchItem.setIcon(glyph);
+            }
+            showSearchText(text);
+        }
+
+        /** The field reported `q`: send it, unless Day holds that text already. */
+        private void sendSearchText(String q) {
+            if (q.equals(searchText)) return;
+            searchText = q;
+            DayBridge.nativeOnEvent(searchAction, DayBridge.K_TOOLBAR_CHANGED, 0.0, "text:" + q);
+        }
+
+        /** Show Day's text in the field without the field reporting it back. A non-empty query
+         *  opens the field, so the query in force is always on screen (a page coming back with
+         *  its search still applied, or the app setting one); an empty one closes a field the
+         *  user is not typing in. Opening it this way does not raise the keyboard. */
+        private void showSearchText(String text) {
+            if (searchItem == null) return;
+            String next = text == null ? "" : text;
+            searchText = next;
+            searchSyncing = true;
+            try {
+                if (!next.isEmpty() && !searchItem.isActionViewExpanded()) {
+                    searchItem.expandActionView();
+                    searchView.setQuery(next, false);
+                    searchView.clearFocus();
+                } else if (next.isEmpty() && searchItem.isActionViewExpanded()
+                        && !searchView.hasFocus()) {
+                    searchItem.collapseActionView();
+                } else if (!next.contentEquals(searchView.getQuery())) {
+                    searchView.setQuery(next, false);
+                }
+            } finally {
+                searchSyncing = false;
+            }
+        }
+
+        /** The spec no longer has a search record (its page left, or withdrew the field): take
+         *  the action off the bar. Closing it here is not the user clearing the search, so it is
+         *  not reported; the page's query stays the app's, and comes back with the page. */
+        private void dropSearch(Menu menu) {
+            if (searchItem == null) return;
+            searchSyncing = true;
+            try {
+                searchItem.collapseActionView();
+            } finally {
+                searchSyncing = false;
+            }
+            armSearchBack(false);
+            menu.removeItem(SEARCH_ITEM);
+            glyphs.remove(searchItem);
+            searchItem = null;
+            searchView = null;
+            searchText = "";
+        }
+
+        /** Hold the system back for the open field (true) or hand it back (false). Added at each
+         *  opening, so it sits above every navigation callback registered before it. */
+        private void armSearchBack(boolean on) {
+            if (searchBack != null) {
+                searchBack.remove();
+                searchBack = null;
+            }
+            if (!on) return;
+            Context c = toolbar.getContext();
+            while (c instanceof android.content.ContextWrapper
+                    && !(c instanceof androidx.activity.ComponentActivity)) {
+                c = ((android.content.ContextWrapper) c).getBaseContext();
+            }
+            if (!(c instanceof androidx.activity.ComponentActivity)) return;
+            searchBack = new androidx.activity.OnBackPressedCallback(true) {
+                @Override public void handleOnBackPressed() {
+                    if (searchItem != null) searchItem.collapseActionView();
+                }
+            };
+            ((androidx.activity.ComponentActivity) c).getOnBackPressedDispatcher()
+                    .addCallback(searchBack);
+        }
+
+        /** The app wrote the search field's text (ToolbarPatch::Text). */
+        void updateText(String id, String text) {
+            if (items.get(id) != null && items.get(id) == searchItem) showSearchText(text);
         }
 
         /** A targeted change to one live item: op 0 = enabled, 1 = toggle on, 2 = segment index. */
@@ -842,6 +1053,29 @@ public class DayNavHost extends LinearLayout {
             if (it == null) return;
             if (op == 0) {
                 it.setEnabled(num != 0.0);
+            } else if (op == 3) {
+                // Find (docs/search.md): open the field, keep its query, select it and raise
+                // the keyboard.
+                if (it != searchItem) return;
+                searchSyncing = true;
+                try {
+                    if (!it.isActionViewExpanded()) {
+                        it.expandActionView();
+                        searchView.setQuery(searchText, false);
+                    }
+                } finally {
+                    searchSyncing = false;
+                }
+                View field = searchView.findViewById(androidx.appcompat.R.id.search_src_text);
+                if (field instanceof EditText) {
+                    field.requestFocus();
+                    ((EditText) field).selectAll();
+                    android.view.inputmethod.InputMethodManager keyboard =
+                            (android.view.inputmethod.InputMethodManager) field.getContext()
+                                    .getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (keyboard != null) keyboard.showSoftInput(field,
+                            android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT);
+                }
             } else if (op == 1) {
                 it.setChecked(num != 0.0);
                 paintToggle(it);
@@ -1025,6 +1259,12 @@ public class DayNavHost extends LinearLayout {
         static void updateDocked(View root, String id, int op, double num) {
             WindowBar bar = DOCKED.get(root);
             if (bar != null) bar.update(id, op, num);
+        }
+
+        /** A search field's text, for a window that has no navigation host. */
+        static void updateDockedText(View root, String id, String text) {
+            WindowBar bar = DOCKED.get(root);
+            if (bar != null) bar.updateText(id, text);
         }
 
         /** Place the docked bar inside the current safe area and answer the height the day root

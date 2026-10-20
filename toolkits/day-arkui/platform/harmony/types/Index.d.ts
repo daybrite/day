@@ -101,7 +101,11 @@ export const registerNav: (
   setMenu: (icons: string, labels: string, actions: string, scopes: string, enabled: string) => void,
   // The navigation surface's search field (docs/search.md): `shown` 1/0 shows or hides it, -1
   // keeps it (and its prompt) and sets only the text.
-  setSearch: (owner: number, shown: number, prompt: string, text: string) => void
+  setSearch: (owner: number, shown: number, prompt: string, text: string) => void,
+  // A page's own search field (docs/search.md, "Page search"): drawn at the top of host
+  // `owner`'s page `page` (a destination's key, -1 the root page), or taken down (0). `focus`
+  // asks for focus once it shows.
+  setPageSearch: (owner: number, page: number, prompt: string, text: string, focus: boolean) => void
 ) => void;
 export const navPopped: (owner: number, key: number) => void;
 // A guarded NavDestination's back was pressed: defer to Rust's guard (docs/navigation.md).
@@ -115,6 +119,11 @@ export const navModeChanged: (owner: number, split: number) => void;
 export const navMenuAction: (action: number, selection?: number) => void;
 // The user edited the navigation surface's search field (docs/search.md).
 export const navSearchChanged: (owner: number, text: string) => void;
+// The user pressed the navigation surface's search key, after the last `navSearchChanged`.
+export const navSearchSubmitted: (owner: number, text: string) => void;
+// The user edited a page's search field (`submit` false), or pressed its search key (true)
+// after reporting the text it submits.
+export const navPageSearch: (owner: number, text: string, submit: boolean) => void;
 
 // Secondary day windows (docs/windows.md). The registered `open` launches a multiton
 // DayWindowAbility (the day node id + title as want parameters); `close` terminates one.

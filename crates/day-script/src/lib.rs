@@ -1244,6 +1244,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 args,
                 on,
                 index,
+                submit,
             } => {
                 // `key` resolves through the run's locale, like `input`'s does; `text` stays a
                 // literal. Resolved before the item lookup so a bad key fails as a bad key.
@@ -1270,7 +1271,10 @@ fn exec(step: Step, revision: u32) -> Reply {
                                 false,
                             ));
                         };
-                        day_core::enqueue_event(rnode_to_id(host), Event::SearchChanged(t));
+                        day_core::enqueue_event(rnode_to_id(host), Event::SearchChanged(t.clone()));
+                        if submit {
+                            day_core::enqueue_event(rnode_to_id(host), Event::SearchSubmitted(t));
+                        }
                         day_reactive::flush_sync();
                         return Ok(Reply::ok());
                     }
@@ -1327,11 +1331,26 @@ fn exec(step: Step, revision: u32) -> Reply {
                         false,
                     ));
                 }
+                if submit && text.is_none() {
+                    return Err(Reply::fail(
+                        format!("toolbar: submitting {item:?} needs `text:` (or `key:`)"),
+                        false,
+                    ));
+                }
                 match (text, on) {
-                    (Some(t), _) => day_core::toolbar::dispatch_toolbar_value(
-                        found.action,
-                        &day_spec::ToolbarValue::Text(t),
-                    ),
+                    (Some(t), _) => {
+                        day_core::toolbar::synthesize_toolbar_value(
+                            found.action,
+                            &day_spec::ToolbarValue::Text(t.clone()),
+                        );
+                        if submit {
+                            day_reactive::flush_sync();
+                            day_core::toolbar::dispatch_toolbar_value(
+                                found.action,
+                                &day_spec::ToolbarValue::Submit(t),
+                            );
+                        }
+                    }
                     (None, Some(v)) => day_core::toolbar::dispatch_toolbar_value(
                         found.action,
                         &day_spec::ToolbarValue::On(v),

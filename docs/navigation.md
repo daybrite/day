@@ -437,7 +437,7 @@ sidebar become two renderings of ONE list of tabs, which is Day's model exactly,
 `.tabSidebar` is built to consume. The array still works, but the controller has to infer
 everything from view controllers, and the sidebar-side affordances have no tab to hang on.
 
-Five things this backend learned the hard way:
+Six things this backend learned the hard way:
 
 - **A `UITab` is a model object with an identity, not a per-render descriptor.** Its provider hands
   UIKit a view controller and UIKit then owns that controller as the tab's. This host re-syncs on
@@ -460,6 +460,12 @@ Five things this backend learned the hard way:
   and every later screenshot reports the UI still settling (Day-Trader's back-then-switch on
   iOS 27, one walkthrough variant in eight). The selection moves in Day's tree at once; the
   native switch is deferred a few runloop turns until no on-screen stack is transitioning.
+- **A tab's page is wrapped in a navigation controller on a wide window, unless the page brings
+  its own.** The wrapper is what gives a tab a bar for its page's commands. A page whose root is a
+  `nav_stack` (or another stack or split host) already has one, and the wrapper stacked a second
+  bar over it with the same title and commands (Stanza's tabs on an iPad, 2026-10). The host
+  arrives after its page, so the backend undoes the wrapper when it does, leaving the tab as a
+  compact window has it: the page, whose own stack owns the bar.
 - **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
   `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
   every other two-way control here — without it, installing the tabs reported a selection the user

@@ -1586,7 +1586,14 @@ pub struct Search {
     scope: Option<AnyBinding<usize>>,
     /// Completions for the current text, re-derived whenever its reactive reads change.
     suggestions: Option<SuggestFn>,
+    /// Runs with the field's text when the user presses its Return or Search key.
+    submit: Option<SubmitFn>,
+    /// Whether a page's field is offered right now; `None` = always.
+    available: Option<crate::Reactive<bool>>,
 }
+
+/// What [`Search::on_submit`] runs.
+type SubmitFn = Rc<dyn Fn(&str)>;
 
 /// How a navigation surface's search field comes and goes on a phone (docs/search.md). The
 /// desktop toolbar field is always there whatever this says.
@@ -1613,6 +1620,8 @@ impl Search {
             scopes: Vec::new(),
             scope: None,
             suggestions: None,
+            submit: None,
+            available: None,
         }
     }
     /// The field's empty-state prompt.
@@ -1654,6 +1663,153 @@ impl Search {
     pub fn suggestions(mut self, f: impl Fn(&str) -> Vec<String> + 'static) -> Search {
         self.suggestions = Some(Rc::new(f));
         self
+    }
+    /// Run `f` with the field's text when the user presses its Return or Search key: the
+    /// trigger for a search that runs on demand (a server query) instead of narrowing as the
+    /// text changes. `query` already holds the text when `f` runs.
+    pub fn on_submit(mut self, f: impl Fn(&str) + 'static) -> Search {
+        self.submit = Some(Rc::new(f));
+        self
+    }
+    /// Offer a page's field only while `v` is true (default: always), for a page that learns
+    /// whether it can be searched after it shows: a feed that has to load first. The field
+    /// keeps its text while it is withdrawn. A navigation surface's search ignores this.
+    pub fn available<M>(mut self, v: impl crate::IntoReactive<bool, M>) -> Search {
+        self.available = Some(v.into_reactive());
+        self
+    }
+}
+
+/// Install a navigation page's own search field (docs/search.md, "Page search"): the reserved
+/// `day.search` item on the page's chrome, which each toolkit draws where its platform puts a
+/// page's search (the window toolbar on a desktop, the page's navigation bar on iOS, its app bar
+/// on Android). The field shows while its page does and leaves with it.
+///
+/// The same one-model rule as a surface's search: the item is a rendering of the app's
+/// `query`, inbound edits write the signal, and one outbound binding patches the item.
+pub(crate) fn install_page_search(search: Search) {
+    let chrome = day_core::current_chrome();
+    let active = day_core::current_page_gate();
+    let column = day_core::current_page_column();
+    let query = search.query;
+    let text = query.get_untracked();
+    let prompt = search
+        .prompt
+        .as_ref()
+        .map(TextSource::initial)
+        .unwrap_or_default();
+    let suggestions = search
+        .suggestions
+        .as_ref()
+        .map(|f| day_reactive::untrack(|| f(&text)))
+        .unwrap_or_default();
+    // What the field shows, by value (see `SearchSpec::install`).
+    let shown: Rc<RefCell<String>> = Rc::new(RefCell::new(text.clone()));
+    let action = {
+        let shown = shown.clone();
+        let submit = search.submit.clone();
+        day_core::register_toolbar_value(Rc::new(move |v: &day_spec::ToolbarValue| match v {
+            day_spec::ToolbarValue::Text(t) => {
+                *shown.borrow_mut() = t.clone();
+                query.set(t.clone());
+            }
+            day_spec::ToolbarValue::Submit(t) => {
+                if let Some(f) = &submit {
+                    f(t);
+                }
+            }
+            _ => {}
+        }))
+    };
+    let item = move |text: String, suggestions: Vec<String>| day_spec::ToolbarItem {
+        id: SEARCH_ITEM_ID.to_string(),
+        kind: day_spec::ToolbarItemKind::Search {
+            text,
+            placeholder: prompt.clone(),
+            suggestions,
+        },
+        label: prompt.clone(),
+        tooltip: None,
+        icon: None,
+        enabled: true,
+        action,
+        placement: day_spec::ToolbarPlacement::Secondary,
+        label_style: day_spec::LabelStyle::Automatic,
+        prominent: false,
+        column,
+    };
+    let available = search.available.clone();
+    let offered = available.as_ref().is_none_or(|v| v.get_untracked());
+    let token = day_core::register_contribution_gated(
+        chrome,
+        if offered {
+            vec![item(text.clone(), suggestions.clone())]
+        } else {
+            Vec::new()
+        },
+        active.clone(),
+    );
+    // Offered and withdrawn as the page learns whether it can be searched, seeded with what the
+    // field showed so a field that comes back holds its text.
+    if let Some(crate::Reactive::Dyn(f)) = available {
+        let (shown, suggest, query) = (shown.clone(), search.suggestions.clone(), query);
+        bind_seeded(
+            offered,
+            move || f(),
+            move |on: &bool| {
+                let items = if *on {
+                    let text = shown.borrow().clone();
+                    let list = suggest
+                        .as_ref()
+                        .map(|f| day_reactive::untrack(|| f(&query.get_untracked())))
+                        .unwrap_or_default();
+                    vec![item(text, list)]
+                } else {
+                    Vec::new()
+                };
+                day_core::update_contribution(token, items);
+            },
+        );
+    }
+    // Recompose as the page comes and goes, as `.toolbar(…)` does.
+    if let Some(gate) = active {
+        day_reactive::Effect::new(move || {
+            let _ = gate();
+            day_core::chrome_changed();
+        });
+    }
+    Scope::current().on_cleanup(move || day_core::unregister_contribution(token));
+    bind_seeded(
+        text,
+        move || query.get(),
+        move |t: &String| {
+            if *shown.borrow() == *t {
+                return;
+            }
+            *shown.borrow_mut() = t.clone();
+            day_core::patch_chrome(
+                chrome,
+                day_spec::ToolbarPatch::Text {
+                    item: SEARCH_ITEM_ID.to_string(),
+                    text: t.clone(),
+                },
+            );
+        },
+    );
+    if let Some(f) = search.suggestions {
+        bind_seeded(
+            suggestions,
+            move || f(&query.get()),
+            move |list| {
+                day_core::patch_chrome(
+                    chrome,
+                    day_spec::ToolbarPatch::Suggestions {
+                        item: SEARCH_ITEM_ID.to_string(),
+                        list: list.clone(),
+                    },
+                )
+            },
+        );
     }
 }
 
@@ -1788,6 +1944,7 @@ struct SearchSpec {
     scopes: Vec<TextSource>,
     scope: Option<AnyBinding<usize>>,
     suggestions: Option<SuggestFn>,
+    submit: Option<SubmitFn>,
 }
 
 impl SearchSpec {
@@ -1877,13 +2034,21 @@ impl SearchSpec {
 
         if placement == P::Toolbar {
             let g = shown.clone();
-            let action =
-                day_core::register_toolbar_value(Rc::new(move |v: &day_spec::ToolbarValue| {
-                    if let day_spec::ToolbarValue::Text(t) = v {
+            let submit = self.submit.clone();
+            let action = day_core::register_toolbar_value(Rc::new(
+                move |v: &day_spec::ToolbarValue| match v {
+                    day_spec::ToolbarValue::Text(t) => {
                         *g.borrow_mut() = t.clone();
                         query.set(t.clone());
                     }
-                }));
+                    day_spec::ToolbarValue::Submit(t) => {
+                        if let Some(f) = &submit {
+                            f(t);
+                        }
+                    }
+                    _ => {}
+                },
+            ));
             // An ordinary contribution on this host's chrome, placed last (where every
             // desktop puts search) and withdrawn with the surface it filters.
             let token = day_core::register_contribution(
@@ -2318,6 +2483,7 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
             scopes: search.scopes,
             scope: search.scope,
             suggestions: search.suggestions,
+            submit: search.submit,
         });
         self
     }
@@ -3045,8 +3211,14 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         spec.install(host, day_core::Chrome::Page(root_page), seed);
         let query = spec.query;
         let scope_sig = spec.scope;
+        let submit = spec.submit.clone();
         cx.on(host, move |ev| match ev {
             Event::SearchChanged(text) => query.set(text.clone()),
+            Event::SearchSubmitted(text) => {
+                if let Some(f) = &submit {
+                    f(text);
+                }
+            }
             Event::SearchScopeChanged(i) => {
                 if let Some(s) = scope_sig {
                     s.set(*i);
@@ -4478,6 +4650,17 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             toolbar,
         } = self;
         let title_s = title.initial();
+        // Only the top page shows (docs/toolbars.md): a desktop's one bar carries its items and
+        // its search field, not those of the pages under it. The enclosing page's own gate still
+        // applies, so a stack in a tab that is not selected shows nothing.
+        let outer_gate = day_core::current_page_gate();
+        let shown_depth = Signal::new(0usize);
+        let gate = move |at: usize| -> Option<Rc<dyn Fn() -> bool>> {
+            let outer = outer_gate.clone();
+            Some(Rc::new(move || {
+                outer.as_ref().is_none_or(|g| g()) && shown_depth.get() == at
+            }))
+        };
 
         // Restore the saved path before the reconcile binding runs, so its pages build on first
         // pass. A launch deep link wins (skip). The path is decoded from the same percent-encoded
@@ -4580,10 +4763,15 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
             );
             let hc = host_cx.clone();
             with_nav_host(Some(hc), || {
-                day_core::with_page(root_page, || {
-                    let mut pcx = BuildCx::new(root_page);
-                    let _ = root.build(&mut pcx);
-                });
+                day_core::with_page_gated(
+                    root_page,
+                    gate(0),
+                    day_spec::ToolbarColumn::Detail,
+                    || {
+                        let mut pcx = BuildCx::new(root_page);
+                        let _ = root.build(&mut pcx);
+                    },
+                );
             });
             // A standalone stack's items ride its root page's chrome: the commands that act
             // on what the root shows, and that a pushed page covers along with it.
@@ -4690,7 +4878,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                     with_tree(|t| t.remove_subtree(e.page));
                     owners.borrow_mut().pop();
                 }
-                for key in want.iter().skip(common) {
+                for (at, key) in want.iter().enumerate().skip(common) {
                     let title = key.title();
                     let page = nav_page(
                         host,
@@ -4706,10 +4894,15 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                         // Inside the page's scope; see the pushed-detail site above.
                         let content = (dest)(key);
                         with_nav_host(Some(hc), || {
-                            day_core::with_page(page, || {
-                                let mut c = BuildCx::new(page);
-                                let _ = content.build(&mut c);
-                            });
+                            day_core::with_page_gated(
+                                page,
+                                gate(at + 1),
+                                day_spec::ToolbarColumn::Detail,
+                                || {
+                                    let mut c = BuildCx::new(page);
+                                    let _ = content.build(&mut c);
+                                },
+                            );
                         });
                     });
                     with_tree(|t| {
@@ -4731,6 +4924,7 @@ impl<K: Route, S: Binding<Vec<K>>> Piece for NavStack<S, K> {
                         page,
                     });
                 }
+                shown_depth.set(want.len());
                 // Arm/disarm native gesture handling when the guarded-above-root state changes
                 // (docs/navigation.md). The host is our own container, or the enclosing one when
                 // merged; either way the native nav that owns the back gesture.

@@ -38,6 +38,7 @@ reader_page(article).toolbar([
 | a nav host (`Nav::toolbar`) | its sidebar column, and the root list when collapsed |
 | a content-list pane | the list column, and the middle layer when collapsed |
 | a destination page | the detail column, and every page pushed onto it |
+| a page pushed onto a `nav_stack` (or a standalone stack's root) | that page while it is on top; a page pushed over it takes its place |
 | any piece inside a page | that page's chrome |
 
 Nothing declares which bar it belongs to, and nothing declares when to hide: a command leaves the

@@ -43,6 +43,16 @@ final class DayKeyboard implements ViewTreeObserver.OnGlobalFocusChangeListener,
     private static void hide(View root) {
         WindowInsetsControllerCompat controller = ViewCompat.getWindowInsetsController(root);
         if (controller != null) controller.hide(WindowInsetsCompat.Type.ime());
+        // Before API 30 the compat controller's hide is best-effort and leaves the keyboard up
+        // on API 24 (seen on the showcase walkthrough: the next page's list and canvas then
+        // measure to nothing under it). The input-method manager is the request those
+        // systems honor, and it is harmless where the controller already succeeded.
+        if (android.os.Build.VERSION.SDK_INT < 30) {
+            android.view.inputmethod.InputMethodManager imm =
+                    (android.view.inputmethod.InputMethodManager) root.getContext()
+                            .getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            if (imm != null) imm.hideSoftInputFromWindow(root.getWindowToken(), 0);
+        }
     }
 
     /** Only resign an editor inside this outgoing subtree, never a sibling/new destination. */

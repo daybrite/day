@@ -40,6 +40,8 @@ type FilePickerArgs = FnArgs<(f64, i32, String, String, String)>;
 type MenuArgs = FnArgs<(String, String, String, String, String)>;
 /// `setSearch(host, mode, placeholder, text)` (docs/search.md).
 type SearchArgs = FnArgs<(f64, i32, String, String)>;
+/// `setPageSearch(host, page, placeholder, text, focus)` (docs/search.md, "Page search").
+type PageSearchArgs = FnArgs<(f64, f64, String, String, bool)>;
 
 thread_local! {
     static TEXTAREA_KEY: Callback<FnArgs<(i32,)>> = const { RefCell::new(None) };
@@ -82,6 +84,7 @@ thread_local! {
     static NAV_GUARD: Callback<FnArgs<(f64, bool)>> = const { RefCell::new(None) };
     static NAV_MENU: Callback<MenuArgs> = const { RefCell::new(None) };
     static NAV_SEARCH: Callback<SearchArgs> = const { RefCell::new(None) };
+    static NAV_PAGE_SEARCH: Callback<PageSearchArgs> = const { RefCell::new(None) };
     /// A pushed page's slot: the NodeContent handle plus a strong reference on the JS object.
     /// The ArkTS side drops its own reference when the NavDestination disappears, so without
     /// the ref the content is GC'd while Rust may still detach the page from it; the
@@ -513,7 +516,8 @@ pub fn register_resource_manager(env: Env, resource_manager: Unknown) {
     unsafe { crate::resources::register(env.raw(), resource_manager.raw()) };
 }
 
-/// `registerNav(push, pop, setTitle, setGuard, setMenu, setSearch)` (docs/navigation.md).
+/// `registerNav(push, pop, setTitle, setGuard, setMenu, setSearch, setPageSearch)`
+/// (docs/navigation.md).
 #[napi(js_name = "registerNav")]
 #[allow(clippy::too_many_arguments)]
 pub fn register_nav(
@@ -524,6 +528,7 @@ pub fn register_nav(
     set_guard: Option<Registered<FnArgs<(f64, bool)>>>,
     set_menu: Option<Registered<MenuArgs>>,
     set_search: Option<Registered<SearchArgs>>,
+    set_page_search: Option<Registered<PageSearchArgs>>,
 ) {
     remember(&env);
     store(&NAV_PUSH, push);
@@ -537,6 +542,9 @@ pub fn register_nav(
     }
     if let Some(f) = set_search {
         store(&NAV_SEARCH, f);
+    }
+    if let Some(f) = set_page_search {
+        store(&NAV_PAGE_SEARCH, f);
     }
 }
 
@@ -569,6 +577,19 @@ pub fn nav_menu_action(action: f64, selection: Option<i32>) {
 #[napi(js_name = "navSearchChanged")]
 pub fn nav_search_changed(owner: f64, text: String) {
     crate::nav_search_changed(owner as u64, &text);
+}
+
+/// `navSearchSubmitted(owner, text)`: the navigation surface's search key (docs/search.md).
+#[napi(js_name = "navSearchSubmitted")]
+pub fn nav_search_submitted(owner: f64, text: String) {
+    crate::nav_search_submitted(owner as u64, &text);
+}
+
+/// `navPageSearch(owner, text, submit)`: a page search field's edit, or with `submit` its
+/// search key (docs/search.md, "Page search").
+#[napi(js_name = "navPageSearch")]
+pub fn nav_page_search(owner: f64, text: String, submit: bool) {
+    crate::nav_page_search(owner as u64, &text, submit);
 }
 
 /// `navPageArea(key, w, h)`: a destination's content area, in vp.
@@ -830,6 +851,22 @@ pub fn nav_set_search(owner: u64, shown: i32, prompt: &str, text: &str) {
     call(
         &NAV_SEARCH,
         FnArgs::from((owner as f64, shown, prompt.to_owned(), text.to_owned())),
+        |_, _| (),
+    );
+}
+
+/// Draw host `owner`'s page search field on its page `page` (a destination's key, -1 for the
+/// root page) or take it down (0), with `focus` asking for focus once it shows.
+pub fn nav_set_page_search(owner: u64, page: i64, prompt: &str, text: &str, focus: bool) {
+    call(
+        &NAV_PAGE_SEARCH,
+        FnArgs::from((
+            owner as f64,
+            page as f64,
+            prompt.to_owned(),
+            text.to_owned(),
+            focus,
+        )),
         |_, _| (),
     );
 }

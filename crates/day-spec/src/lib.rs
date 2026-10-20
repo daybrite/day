@@ -562,7 +562,8 @@ pub mod bridge {
         /// that cannot tell a settled value from a moving one sends only `ValueChanged`.
         ValueCommitted = 22,
         /// Inline search on a `.searchable()` navigation surface (docs/search.md): the field's
-        /// new text, against the nav host's node.
+        /// new text, against the nav host's node. `num` = 1 ⇒ the text was submitted (Return or
+        /// the keyboard's Search key), decoding to [`crate::Event::SearchSubmitted`].
         SearchChanged = 23,
         /// The toolkit's own adaptive nav container changed presentation and is reporting it
         /// (docs/size-classes.md). `num` = 1.0 for split, 0.0 for stacked.
@@ -582,7 +583,8 @@ pub mod bridge {
         UndoInvoked = 28,
         /// A toolbar item produced a value (docs/toolbars.md): the node id is the item's
         /// dispatch action; `text` = `"on"` with `num` != 0 ⇒ a toggle turned on, `"on"` with
-        /// 0 ⇒ off, `"sel"` with `num` = the chosen segment. Decodes to
+        /// 0 ⇒ off, `"sel"` with `num` = the chosen segment, `"text:<query>"` ⇒ a search
+        /// item's new text, `"submit:<query>"` ⇒ that text submitted. Decodes to
         /// [`crate::Event::ToolbarChanged`]. A plain toolbar button sends `MenuAction`.
         ToolbarChanged = 30,
         /// An activated list row; `num` is its current index.
@@ -866,6 +868,10 @@ pub enum Event {
     /// that completion in the field and emitted [`Event::SearchChanged`] for it; this says which
     /// one, for an app that wants to act on the choice itself.
     SearchSuggestionChosen(usize),
+    /// The user submitted the inline field's text with its Return or Search key. Emitted
+    /// after the last [`Event::SearchChanged`], with the text as submitted, for a search that
+    /// runs on demand (a server query) rather than narrowing as the text changes.
+    SearchSubmitted(String),
     /// The app moved through a lifecycle phase (docs/lifecycle.md). Backends emit this from the
     /// native app/activity delegate; day-core routes it to the app's `on_lifecycle` handlers.
     Lifecycle(Lifecycle),
@@ -1593,6 +1599,9 @@ pub enum LabelStyle {
 pub enum ToolbarValue {
     /// A search item's full new text.
     Text(String),
+    /// A search item's text, submitted with the field's Return or Search key. Sent after the
+    /// last [`ToolbarValue::Text`]; it changes no state of its own.
+    Submit(String),
     /// A toggle item's new state.
     On(bool),
     /// A segmented item's newly chosen index.

@@ -1171,6 +1171,16 @@ impl<P: Piece> Decorated<P> {
     pub fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Self {
         self.push(op_toolbar(content.into_source()))
     }
+    /// See [`Decorate::searchable`].
+    pub fn searchable(self, search: crate::Search) -> Self {
+        self.push(move |inner| {
+            Box::new(move |cx| {
+                let n = inner(cx);
+                crate::nav::install_page_search(search);
+                n
+            })
+        })
+    }
     /// Offer data through the platform's native drag session.
     pub fn drag_source(
         self,
@@ -1595,6 +1605,17 @@ pub trait Decorate: Piece + Sized {
     /// [`ToolbarEntry::placement`](crate::ToolbarEntry::placement).
     fn toolbar<M>(self, content: impl crate::ToolbarContent<M>) -> Decorated<Self> {
         Decorated::new(self).toolbar(content)
+    }
+
+    /// A search field for this navigation page (docs/search.md, "Page search"), drawn where the
+    /// platform puts a page's search: the window toolbar on a desktop, the page's navigation bar
+    /// on iOS (a `UISearchController`), its app bar on Android. It shows while this page does, and
+    /// its text is the app's `query` both ways. For a search the server runs, act on
+    /// [`crate::Search::on_submit`]; for a local filter, read the query. Declare it on a
+    /// `nav_stack` destination, as `.toolbar(…)` is declared; a whole navigation surface takes
+    /// [`crate::Nav::searchable`] instead.
+    fn searchable(self, search: crate::Search) -> Decorated<Self> {
+        Decorated::new(self).searchable(search)
     }
 
     /// Opt this piece into the platform's focus system (docs/focus.md): the canvas contract

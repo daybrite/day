@@ -121,6 +121,10 @@ mod imp {
         static NAV_STACK: RefCell<HashMap<usize, Vec<u64>>> = RefCell::new(HashMap::new());
         /// NAV_PAGE node ptr → day NodeId (recorded at realize; consumed by insert/push).
         static NAV_PAGE_IDS: RefCell<HashMap<usize, u64>> = RefCell::new(HashMap::new());
+        /// The page search field (docs/search.md) as each navigation host last drew it, by the
+        /// host's day id: `(page, prompt, text)`, `page` the destination key it rides, -1 for the
+        /// host's root page. A host without an entry shows none.
+        static PAGE_SEARCH: RefCell<HashMap<u64, (i64, String, String)>> = RefCell::new(HashMap::new());
         static SINK: RefCell<Option<Sink>> = const { RefCell::new(None) };
         /// The window root Stack + content size, set by [`init`] before `run`.
         static ROOT: RefCell<Option<(AHandle, Size)>> = const { RefCell::new(None) };
@@ -1930,6 +1934,8 @@ mod imp {
                 stack.retain(|k| *k != key);
             }
         });
+        // The page under it shows now: a page search field follows (docs/search.md).
+        paint_page_search(false);
         let expected = NAV_EXPECT_POP.with(|e| e.borrow_mut().remove(&key));
         if expected {
             // The acknowledgment of a Day-initiated pop (`ui_idle`'s pending-pop signal).
@@ -2040,6 +2046,166 @@ mod imp {
                 emit(NodeId(owner), Event::SearchChanged(text.to_owned()));
             }
         });
+    }
+
+    /// The user pressed the navigation surface's search key (docs/search.md). The host reported
+    /// the text through [`nav_search_changed`] first, so this follows the last edit.
+    pub fn nav_search_submitted(owner: u64, text: &str) {
+        day_spec::ffi_guard::contain((), || {
+            if NAV_HOSTS.with(|m| m.borrow().values().any(|id| *id == owner)) {
+                emit(NodeId(owner), Event::SearchSubmitted(text.to_owned()));
+            }
+        });
+    }
+
+    /// The user edited (or, with `submit`, submitted) a page's search field (docs/search.md):
+    /// the window bar's `day.search` item, drawn on host `owner`'s page by
+    /// [`paint_page_search`]. Reported as that item's value: the text when it differs from what
+    /// Day last had, then the submission, so a submit always follows the text it carries.
+    pub fn nav_page_search(owner: u64, text: &str, submit: bool) {
+        day_spec::ffi_guard::contain((), || {
+            use day_spec::{ToolbarItemKind as K, ToolbarValue as V};
+            if !PAGE_SEARCH.with(|m| m.borrow().get(&owner).is_some_and(|(page, ..)| *page != 0)) {
+                return;
+            }
+            let Some((action, had)) = WINDOW_BAR.with(|b| {
+                b.borrow()
+                    .get(day_spec::SEARCH_ITEM_ID)
+                    .and_then(|i| match &i.kind {
+                        K::Search { text, .. } => Some((i.action, text.clone())),
+                        _ => None,
+                    })
+            }) else {
+                return;
+            };
+            if had != text {
+                // Day does not echo the user's own edit back, so the mirror takes it here: a
+                // later repaint must not put the old text back in the field.
+                WINDOW_BAR.with(|b| {
+                    b.borrow_mut().patch(&day_spec::ToolbarPatch::Text {
+                        item: day_spec::SEARCH_ITEM_ID.to_owned(),
+                        text: text.to_owned(),
+                    })
+                });
+                emit(
+                    day_spec::WINDOW_NODE,
+                    Event::ToolbarChanged {
+                        action,
+                        value: V::Text(text.to_owned()),
+                    },
+                );
+                // Every other host drawing the field (a hidden tab's) takes the text too.
+                paint_page_search(false);
+            }
+            if submit {
+                emit(
+                    day_spec::WINDOW_NODE,
+                    Event::ToolbarChanged {
+                        action,
+                        value: V::Submit(text.to_owned()),
+                    },
+                );
+            }
+        });
+    }
+
+    /// The navigation host `host` sits inside, and the key of the page it sits in: a nested
+    /// `nav_stack`'s Navigation is mounted in a page of the one around it. Walks the C-API
+    /// parents up to the first page an enclosing host owns.
+    fn nav_enclosing(host: usize) -> Option<(usize, u64)> {
+        let mut n = node::parent(host as Handle);
+        // Bounded: a tree is never this deep, and a cycle must not hang the UI thread.
+        for _ in 0..1024 {
+            if n.is_null() {
+                return None;
+            }
+            let outer = NAV_PAGE_IDS
+                .with(|m| m.borrow().get(&(n as usize)).copied())
+                .and_then(|key| {
+                    NAV_OWNERS
+                        .with(|m| m.borrow().get(&key).copied())
+                        .filter(|o| *o != host)
+                        .map(|o| (o, key))
+                });
+            if outer.is_some() {
+                return outer;
+            }
+            n = node::parent(n);
+        }
+        None
+    }
+
+    /// The page host `host` shows on top: its last pushed destination's key, else -1 for its
+    /// root page.
+    fn nav_top(host: usize) -> i64 {
+        NAV_STACK
+            .with(|s| s.borrow().get(&host).and_then(|s| s.last().copied()))
+            .map_or(-1, |k| k as i64)
+    }
+
+    /// Draw the window bar's `day.search` item (docs/search.md, "Page search") as an ArkUI
+    /// `Search` at the top of the page that declared it, under its title bar, the place the
+    /// navigation surface's inline field takes on the root page.
+    ///
+    /// The bar is one merged model and says nothing of which page contributed the item; Day
+    /// merges only the showing pages, so the field goes on the page each host shows. A sidebar
+    /// column's item rides the outermost hosts' root pages; any other the innermost showing
+    /// hosts' top pages, so a `nav_stack` nested in a detail page carries the field rather than
+    /// the destination around it as well. Each host is told only what changed; `focus` asks the
+    /// drawn fields for focus.
+    fn paint_page_search(focus: bool) {
+        use day_spec::ToolbarItemKind as K;
+        let item = WINDOW_BAR.with(|b| b.borrow().get(day_spec::SEARCH_ITEM_ID).cloned());
+        let mut wanted: HashMap<u64, (i64, String, String)> = HashMap::new();
+        if let Some(day_spec::ToolbarItem {
+            kind: K::Search {
+                text, placeholder, ..
+            },
+            column,
+            ..
+        }) = item
+        {
+            let hosts: Vec<(usize, u64)> =
+                NAV_HOSTS.with(|m| m.borrow().iter().map(|(h, o)| (*h, *o)).collect());
+            let enclosing: Vec<Option<(usize, u64)>> =
+                hosts.iter().map(|(h, _)| nav_enclosing(*h)).collect();
+            for (at, (host, owner)) in hosts.iter().enumerate() {
+                let page = if column == day_spec::ToolbarColumn::Sidebar {
+                    enclosing[at].is_none().then_some(-1)
+                } else {
+                    // A host whose showing page holds another host leaves the field to it.
+                    let top = nav_top(*host);
+                    let covered = enclosing
+                        .iter()
+                        .flatten()
+                        .any(|(outer, key)| outer == host && (top == -1 || top == *key as i64));
+                    (!covered).then_some(top)
+                };
+                if let Some(page) = page {
+                    wanted.insert(*owner, (page, placeholder.clone(), text.clone()));
+                }
+            }
+        }
+        // Decided under the borrow, drawn after it: the host may call back in synchronously.
+        let calls: Vec<(u64, i64, String, String)> = PAGE_SEARCH.with(|m| {
+            let mut drawn = m.borrow_mut();
+            let mut calls: Vec<_> = drawn
+                .keys()
+                .filter(|o| !wanted.contains_key(o))
+                .map(|o| (*o, 0, String::new(), String::new()))
+                .collect();
+            calls.extend(
+                wanted
+                    .iter()
+                    .filter(|(o, w)| focus || drawn.get(o) != Some(w))
+                    .map(|(o, (page, prompt, text))| (*o, *page, prompt.clone(), text.clone())),
+            );
+            *drawn = wanted;
+            calls
+        });
+        for (owner, page, prompt, text) in calls {
+            crate::host_api::nav_set_page_search(owner, page, &prompt, &text, focus && page != 0);
+        }
     }
 
     /// Paint the window toolbar onto the Navigation's title bars (docs/toolbars.md): one
@@ -2978,6 +3144,10 @@ mod imp {
                             // (docs/navigation.md).
                             NavPatch::ListVisible(_) | NavPatch::ListInStack(_) => {}
                         }
+                        // A page search field rides whichever page now shows (docs/search.md).
+                        if matches!(p, NavPatch::Pushed { .. } | NavPatch::Popped) {
+                            paint_page_search(false);
+                        }
                     }
                 }
                 kinds::CONTAINER => {
@@ -3376,7 +3546,8 @@ mod imp {
                     pages.retain(|(p, _)| *p != key);
                 }
             });
-            if NAV_HOSTS.with(|m| m.borrow_mut().remove(&key)).is_some() {
+            if let Some(owner) = NAV_HOSTS.with(|m| m.borrow_mut().remove(&key)) {
+                PAGE_SEARCH.with(|m| m.borrow_mut().remove(&owner));
                 NAV_ATTACHED.with(|m| m.borrow_mut().remove(&key));
                 NAV_STACK.with(|m| m.borrow_mut().remove(&key));
                 let pages: Vec<u64> = NAV_OWNERS.with(|m| {
@@ -4138,6 +4309,7 @@ mod imp {
                 }
             });
             paint_window_bar();
+            paint_page_search(false);
             true
         }
 
@@ -4147,7 +4319,16 @@ mod imp {
                 return;
             }
             match patch {
-                // Search is never on this bar (`Cap::ToolbarSearch`, docs/search.md).
+                // A page's search field (docs/search.md, "Page search"): the app writing its
+                // query re-texts the drawn field; the host compares, so an echo of the user's
+                // own edit changes nothing.
+                P::Text { item, .. } if item == day_spec::SEARCH_ITEM_ID => {
+                    WINDOW_BAR.with(|b| b.borrow_mut().patch(patch));
+                    paint_page_search(false);
+                }
+                P::Focus { item } if item == day_spec::SEARCH_ITEM_ID => paint_page_search(true),
+                // No other search is on this bar (`Cap::ToolbarSearch`, docs/search.md), and
+                // ArkUI's `Search` has no completion list to show suggestions in.
                 P::Text { .. } | P::Suggestions { .. } | P::Focus { .. } => {}
                 _ => {
                     if WINDOW_BAR.with(|b| b.borrow_mut().patch(patch)) {

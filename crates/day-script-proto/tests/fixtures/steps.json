@@ -23,7 +23,7 @@
   {"op":"web_eval","id":"fixture","script":"document.title","contains":"Fixture","text":"Fixture","timeout_secs":11.0},
   {"op":"context_menu","id":"fixture","item_id":"copy","item":"Fixture","key":"fixture-action","path":["Edit"]},
   {"op":"menu","id":"copy","item":"Fixture","key":"fixture-action","path":["Edit"]},
-  {"op":"toolbar","item":"fixture","text":"Ada","key":"fixture-name","args":{"count":3},"on":true,"index":1},
+  {"op":"toolbar","item":"fixture","text":"Ada","key":"fixture-name","args":{"count":3},"on":true,"index":1,"submit":true},
   {"op":"assert_visible","id":"fixture"},
   {"op":"assert_missing","id":"fixture"},
   {"op":"assert_hidden","id":"fixture"},

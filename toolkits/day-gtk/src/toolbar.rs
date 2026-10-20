@@ -527,6 +527,21 @@ fn build_item(item: &ToolbarItem, suppress: &std::rc::Rc<std::cell::Cell<bool>>)
                     );
                 });
             });
+            // Enter submits (docs/search.md). `changed` above has already reported every edit,
+            // synchronously, so the submit follows the last text and carries the same string.
+            if action != 0 {
+                e.connect_activate(move |entry| {
+                    ffi_guard::contain((), || {
+                        emit(
+                            day_spec::WINDOW_NODE,
+                            Event::ToolbarChanged {
+                                action,
+                                value: ToolbarValue::Submit(entry.text().to_string()),
+                            },
+                        );
+                    });
+                });
+            }
             e.upcast()
         }
         ToolbarItemKind::Label => {

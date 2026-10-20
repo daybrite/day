@@ -114,6 +114,9 @@ const KIND_SEGMENTED: u8 = 3;
 struct ItemIvars {
     action: u64,
     kind: u8,
+    /// A search item's text as Day last knew it: what this target last reported, or what the
+    /// model last set. Return dispatches `Text` first only when the field holds something else.
+    text: std::cell::RefCell<String>,
 }
 
 define_class!(
@@ -131,11 +134,13 @@ define_class!(
                 let ivars = self.ivars();
                 match ivars.kind {
                     KIND_SEARCH => {
+                        // NSSearchField sends its action from the run loop after the edit, so
+                        // a Return in between has already reported this text.
                         if let Some(field) = sender.downcast_ref::<NSTextField>() {
-                            emit(day_spec::WINDOW_NODE, Event::ToolbarChanged {
-                                action: ivars.action,
-                                value: ToolbarValue::Text(field.stringValue().to_string()),
-                            });
+                            let text = field.stringValue().to_string();
+                            if *ivars.text.borrow() != text {
+                                self.send_text(text);
+                            }
                         }
                     }
                     KIND_TOGGLE => {
@@ -176,8 +181,84 @@ define_class!(
 );
 
 impl ItemTarget {
-    fn new(mtm: MainThreadMarker, action: u64, kind: u8) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(ItemIvars { action, kind });
+    fn new(mtm: MainThreadMarker, action: u64, kind: u8, text: &str) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(ItemIvars {
+            action,
+            kind,
+            text: std::cell::RefCell::new(text.to_owned()),
+        });
+        unsafe { msg_send![super(this), init] }
+    }
+
+    /// Report a search item's full new text.
+    fn send_text(&self, text: String) {
+        self.ivars().text.replace(text.clone());
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged {
+                action: self.ivars().action,
+                value: ToolbarValue::Text(text),
+            },
+        );
+    }
+
+    /// Submit a search item's text (Return in its field): the text first, when the field's
+    /// deferred action has not reported it yet, then the submission (docs/search.md).
+    fn submit(&self, text: String) {
+        if *self.ivars().text.borrow() != text {
+            self.send_text(text.clone());
+        }
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged {
+                action: self.ivars().action,
+                value: ToolbarValue::Submit(text),
+            },
+        );
+    }
+}
+
+// --- the search field --------------------------------------------------------------------
+
+define_class!(
+    /// The field inside a search item: an `NSSearchField` that claims Return as a submission.
+    ///
+    /// The field editor asks the field being edited about each command it is about to perform,
+    /// before the delegate hears of it, so this hook holds whoever turns out to own the
+    /// delegate. Claiming `insertNewline:` (Return, and the keypad's Enter) keeps editing going
+    /// in the field, the way Safari's and Mail's search fields stay put on Return, and keeps the
+    /// key from ending the edit, which would send the action a second time, offer the key to a
+    /// default button, or beep. Every other command (Escape clearing the field, the arrows) is
+    /// AppKit's.
+    #[unsafe(super(objc2_app_kit::NSSearchField))]
+    #[thread_kind = MainThreadOnly]
+    #[name = "DayToolbarSearchField"]
+    struct SearchField;
+
+    impl SearchField {
+        #[unsafe(method(textView:doCommandBySelector:))]
+        fn do_command(
+            &self,
+            tv: &objc2_app_kit::NSTextView,
+            command: objc2::runtime::Sel,
+        ) -> objc2::runtime::Bool {
+            ffi_guard::contain(objc2::runtime::Bool::NO, || {
+                if command == sel!(insertNewline:)
+                    && let Some(target) = unsafe { self.target() }
+                    && let Some(target) = target.downcast_ref::<ItemTarget>()
+                {
+                    target.submit(self.stringValue().to_string());
+                    return objc2::runtime::Bool::YES;
+                }
+                unsafe { msg_send![super(self), textView: tv, doCommandBySelector: command] }
+            })
+        }
+    }
+);
+
+impl SearchField {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(());
         unsafe { msg_send![super(this), init] }
     }
 }
@@ -439,14 +520,18 @@ fn make_item(mtm: MainThreadMarker, key: usize, ident: &str) -> Option<Retained<
         } => {
             let search =
                 NSSearchToolbarItem::initWithItemIdentifier(NSSearchToolbarItem::alloc(mtm), &id);
-            let field = search.searchField();
+            // Day's field in place of the stock one, so Return submits (see `SearchField`).
+            let field = SearchField::new(mtm);
+            search.setSearchField(&field);
             field.setStringValue(&NSString::from_str(text));
             if !placeholder.is_empty() {
                 field.setPlaceholderString(Some(&NSString::from_str(placeholder)));
             }
             if let Some(t) = &target {
-                // NSSearchToolbarItem owns its search field's delegate. Use the field's
+                // NSSearchToolbarItem may claim its search field's delegate. Use the field's
                 // target/action contract so installing the item cannot replace our listener.
+                // The action reports each edit's full text; even "immediately", AppKit sends it
+                // from the run loop after the keystroke, later for a short string.
                 field.setSendsSearchStringImmediately(true);
                 field.setSendsWholeSearchString(false);
                 unsafe {
@@ -666,7 +751,11 @@ impl AppKit {
                                         ToolbarItemKind::Search { .. } => KIND_SEARCH,
                                         _ => KIND_BUTTON,
                                     };
-                                    let target = ItemTarget::new(mtm, item.action, kind);
+                                    let text = match &item.kind {
+                                        ToolbarItemKind::Search { text, .. } => text.as_str(),
+                                        _ => "",
+                                    };
+                                    let target = ItemTarget::new(mtm, item.action, kind, text);
                                     retired.extend(w.targets.insert(item.id.clone(), target));
                                 }
                                 w.mirror.insert(*index, item.clone());
@@ -723,7 +812,15 @@ impl AppKit {
         // Keep the model in step, so an item rebuilt later (the overflow menu asks for fresh
         // items) carries the current value rather than the one it was installed with.
         BARS.with(|b| {
-            b.with(key, |w| w.mirror.patch(patch));
+            b.with(key, |w| {
+                w.mirror.patch(patch);
+                // The model's text is now Day's: a Return on it has no edit left to report.
+                if let ToolbarPatch::Text { item, text } = patch
+                    && let Some(target) = w.targets.get(item)
+                {
+                    target.ivars().text.replace(text.clone());
+                }
+            });
         });
         let Some(toolbar) = BARS.with(|b| b.with(key, |w| w.toolbar.clone())) else {
             return;

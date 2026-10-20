@@ -4271,7 +4271,8 @@ void *day_qt_menubar_add_menu(void *bar, const char *label) {
 // Buttons ride the same g_menu_cb rail as menu items; values (toggle, search) go through
 // g_toolbar_cb.
 
-// kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`).
+// kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`),
+// kind 3 = search submitted with Return (`text`).
 static void (*g_toolbar_cb)(uint64_t, int, int, const char *) = nullptr;
 void day_qt_set_toolbar_cb(void (*cb)(uint64_t, int, int, const char *)) { g_toolbar_cb = cb; }
 
@@ -4722,6 +4723,13 @@ void day_qt_toolbar_add_search(void *bar, const char *id, const char *text,
         QObject::connect(edit, &QLineEdit::textChanged, [aid](const QString &s) {
             QByteArray ba = s.toUtf8();
             if (g_toolbar_cb) g_toolbar_cb(aid, 1, 0, ba.constData());
+        });
+        // Return submits (docs/search.md). Every edit has already reported through
+        // `textChanged` — synchronously, including a completion the popup's Return just
+        // applied — so the submit comes after the last text, carrying the same string.
+        QObject::connect(edit, &QLineEdit::returnPressed, [aid, edit]() {
+            QByteArray ba = edit->text().toUtf8();
+            if (g_toolbar_cb) g_toolbar_cb(aid, 3, 0, ba.constData());
         });
     }
     day_qt_toolbar_place(tb, edit);

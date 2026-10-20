@@ -136,7 +136,8 @@ pub fn icon_args(icon: Option<&Icon>) -> (String, c_int) {
     }
 }
 
-/// Values from the shim: kind 0 = a toggle's new state, kind 1 = a search field's text.
+/// Values from the shim: kind 0 = a toggle's new state, kind 1 = a search field's text, kind 2 =
+/// a segment index, kind 3 = a search field's text submitted with Return.
 pub(crate) extern "C" fn on_toolbar_value(
     action: u64,
     kind: c_int,
@@ -150,10 +151,16 @@ pub(crate) extern "C" fn on_toolbar_value(
         } else if kind == 0 {
             ToolbarValue::On(on != 0)
         } else {
+            // SAFETY: the shim passes a NUL-terminated UTF-8 buffer (a QByteArray's `constData`)
+            // that outlives this call.
             let text = unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned();
-            ToolbarValue::Text(text)
+            if kind == 3 {
+                ToolbarValue::Submit(text)
+            } else {
+                ToolbarValue::Text(text)
+            }
         };
         emit(
             day_spec::WINDOW_NODE,

@@ -246,9 +246,28 @@ function buildToolbarItem(strip, it) {
     el.__datalist = dl;
     setSuggestions(dl, it.suggestions || []);
     strip.bar.append(dl);
-    if (it.action) el.addEventListener('input', () => {
+    // The virtual keyboard's action key reads "Search", as it does on a search form.
+    el.setAttribute('enterkeyhint', 'search');
+    // The text Day's model holds, so a submission sends `Text` first only when it differs.
+    el.__sent = el.value;
+    const sendText = () => {
+      el.__sent = el.value;
       const [ptr, len] = intoWasm(el.value);
       wasm.day_dom_toolbar_text(it.action, ptr, len);
+    };
+    if (it.action) el.addEventListener('input', sendText);
+    // Return submits (docs/search.md). The field sits in no <form>, so the key never navigates
+    // the page. Composition (an IME confirming a word) and auto-repeat are not submissions. The
+    // submission waits a task so a completion the same Return accepted from the <datalist>
+    // lands (as `input`) before it, and the app searches what the field shows.
+    if (it.action) el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' || e.isComposing || e.keyCode === 229 || e.repeat) return;
+      setTimeout(() => {
+        if (!el.isConnected) return;
+        if (el.value !== el.__sent) sendText();
+        const [ptr, len] = intoWasm(el.value);
+        wasm.day_dom_toolbar_submit(it.action, ptr, len);
+      }, 0);
     });
   } else {
     // B, T, S and M are all buttons; only their click behavior differs.
@@ -1470,6 +1489,7 @@ const env = {
     const el = stripFor(host).items[p.item];
     if (!el) return;
     if (p.text !== undefined && el.value !== p.text) el.value = p.text;
+    if (p.text !== undefined && '__sent' in el) el.__sent = p.text;
     if (p.on !== undefined) el.setAttribute('aria-pressed', p.on ? 'true' : 'false');
     // A segmented item: move the selection without firing its click handler (see the toggle
     // echo the native backends guard against).

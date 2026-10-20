@@ -6658,6 +6658,135 @@ fn toolbar_search_text_survives_a_page_change() {
     assert_eq!(text(), "");
 }
 
+/// A `nav_stack` page's own search field (docs/search.md, "Page search"): the `day.search`
+/// item on that page's chrome, there while the page shows, bound both ways to the app's query,
+/// and submitted with the field's Return key.
+#[test]
+fn page_search_rides_its_page_and_submits() {
+    use day_spec::ToolbarValue;
+    let path = Signal::new(Vec::<String>::new());
+    let query = Signal::new(String::new());
+    let submitted = Signal::new(Vec::<String>::new());
+    let _probe = boot(move || {
+        nav_stack(
+            path,
+            label("results").searchable(
+                Search::new(query)
+                    .prompt("Find books")
+                    .on_submit(move |text| submitted.update(|s| s.push(text.to_string()))),
+            ),
+        )
+        .destination(|key: &String| label(key.clone()))
+    });
+    let search = || {
+        day_core::toolbar::toolbar_model()
+            .into_iter()
+            .find(|i| i.id == "day.search")
+    };
+    let text = || match search().map(|i| i.kind) {
+        Some(day_spec::ToolbarItemKind::Search { text, .. }) => text,
+        _ => panic!("no search field"),
+    };
+    let field = search().expect("the root page shows its search field");
+    assert_eq!(field.label, "Find books");
+
+    day_core::toolbar::dispatch_toolbar_value(field.action, &ToolbarValue::Text("ali".into()));
+    flush_sync();
+    assert_eq!(
+        query.get_untracked(),
+        "ali",
+        "typing writes the app's query"
+    );
+    assert!(
+        submitted.get_untracked().is_empty(),
+        "typing submits nothing"
+    );
+    day_core::toolbar::dispatch_toolbar_value(field.action, &ToolbarValue::Submit("ali".into()));
+    flush_sync();
+    assert_eq!(submitted.get_untracked(), vec!["ali".to_string()]);
+    assert_eq!(text(), "ali", "a submission leaves the field as typed");
+
+    batch(|| query.set("alice".into()));
+    flush_sync();
+    assert_eq!(text(), "alice", "the app's writes reach the field");
+
+    // A page pushed above it has no search of its own, so the field leaves with its page …
+    batch(|| path.set(vec!["detail".into()]));
+    flush_sync();
+    assert!(search().is_none(), "the pushed page shows no search field");
+    // … and comes back, still holding the query, when that page shows again.
+    batch(|| path.set(Vec::new()));
+    flush_sync();
+    assert_eq!(text(), "alice");
+}
+
+/// `Search::available`: a page that learns it can be searched after it shows (a feed that has to
+/// load) offers its field then, and a field withdrawn and offered again holds its text.
+#[test]
+fn page_search_is_offered_when_available() {
+    use day_spec::ToolbarValue;
+    let path = Signal::new(Vec::<String>::new());
+    let query = Signal::new(String::new());
+    let can = Signal::new(false);
+    let _probe = boot(move || {
+        nav_stack(
+            path,
+            label("results").searchable(Search::new(query).available(move || can.get())),
+        )
+        .destination(|key: &String| label(key.clone()))
+    });
+    let search = || {
+        day_core::toolbar::toolbar_model()
+            .into_iter()
+            .find(|i| i.id == "day.search")
+    };
+    assert!(search().is_none(), "nothing to search yet");
+    batch(|| can.set(true));
+    flush_sync();
+    let field = search().expect("offered once the page can be searched");
+    day_core::toolbar::dispatch_toolbar_value(field.action, &ToolbarValue::Text("ali".into()));
+    flush_sync();
+    batch(|| can.set(false));
+    flush_sync();
+    assert!(search().is_none(), "withdrawn");
+    batch(|| can.set(true));
+    flush_sync();
+    match search().map(|i| i.kind) {
+        Some(day_spec::ToolbarItemKind::Search { text, .. }) => assert_eq!(text, "ali"),
+        other => panic!("no field: {other:?}"),
+    }
+}
+
+/// An inline surface field submits through `Event::SearchSubmitted`, as the toolbar one does
+/// through `ToolbarValue::Submit`.
+#[test]
+fn inline_search_submits() {
+    let section = Signal::new(Option::<String>::None);
+    let query = Signal::new(String::new());
+    let submitted = Signal::new(String::new());
+    let probe = boot(move || {
+        nav(section)
+            .style(NavStyle::Sidebar)
+            .searchable(
+                Search::new(query)
+                    .placement(day_spec::props::SearchPlacement::Inline)
+                    .on_submit(move |t| submitted.set(t.to_string())),
+            )
+            .items(nav_items(
+                || vec!["alpha".to_string()],
+                |r: &String| item(r.clone(), r.clone()),
+            ))
+            .destination(|_: &Option<String>| label("detail"))
+            .any()
+    });
+    let host = node_id(&probe, "day.nav", 0);
+    probe.emit(host, Event::SearchChanged("al".into()));
+    probe.emit(host, Event::SearchSubmitted("al".into()));
+    flush_sync();
+    assert_eq!(query.get_untracked(), "al");
+    assert_eq!(submitted.get_untracked(), "al");
+}
+
 /// `.searchable()` is declared on the surface, and the query stays an app-owned signal
 /// (docs/search.md). That is what will let the field move between the toolbar and the navigation
 /// list without the state moving with it, so the binding has to run in both directions against

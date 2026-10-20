@@ -56,7 +56,8 @@ Bind an application's localized Find command to `day::focus_search()` (usually C
 macOS and Ctrl-F elsewhere). It resolves the focused window's searchable navigation surface,
 reveals/focuses the native field, and keeps its existing query. Desktop toolbars place search
 at the trailing edge in the Detail column. On AppKit the native search field sends its
-immediate action for user edits; application text synchronization remains echo-guarded.
+action for user edits from the run loop, just after the keystroke; application text
+synchronization remains echo-guarded.
 Focus requests use transient toolbar/inline patches, without rebuilding the field. A synthetic
 `toolbar: { item: day.search, text: ... }` verifies model wiring, but native keyboard/input
 validation is also needed to verify actual AppKit event delivery.
@@ -217,9 +218,61 @@ for an app that wants to act on the choice itself.
 
 ## What is searchable
 
-`Nav` today. A `nav_stack` gains the same surface when the placement resolver lands, since it is the
-same lowering. Search on arbitrary page content is out of scope, because every backend
-would need a placement answer for content that is not navigation chrome.
+A navigation surface (`Nav::searchable`), and a `nav_stack` page (`Decorate::searchable`, below).
+Search on arbitrary content is out of scope, because every backend would need a placement answer for
+content that is not navigation chrome.
+
+## Page search
+
+A page that lists something the user searches, such as a catalog or a mailbox, declares the field
+on itself, as it declares its `.toolbar(…)`:
+
+```rust
+results_page(feed)
+    .searchable(
+        Search::new(query)
+            .prompt(res::str::search())
+            .on_submit(move |text| run_search(text))
+            .available(move || feed_loaded.get() && feed_can_search.get()),
+    )
+```
+
+The field is the reserved `day.search` item on the page's own chrome, so it follows the page:
+it shows while the page is on top of its stack and leaves when another page is pushed over it or
+the page is popped. Each toolkit draws it where its platform puts a page's search:
+
+| backend | page search | submit |
+|---|---|---|
+| ios-uikit | the page's own `UISearchController` on its `navigationItem`, stacked under the title as Mail's mailbox does: shown when the field arrives, then hidden on scroll and back on a pull; Cancel clears the query. One controller per page for the page's life, so a page covered by a push keeps its field and text | the keyboard's Search key |
+| android-mdc | a collapsible `androidx.appcompat.widget.SearchView` action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
+| harmony-arkui | an ArkUI `Search` at the top of the showing page, under its title bar | `Search.onSubmit` |
+| macos-appkit | the `NSSearchToolbarItem` at the trailing edge of the window toolbar | Return or keypad Enter, taken by the field (`insertNewline:`), so no default button fires and editing continues |
+| linux-gtk | a `GtkSearchEntry` in the window's `AdwHeaderBar` | Enter (`activate`) |
+| linux-qt | a `QLineEdit` on the window's `QToolBar`, with a clear button and a `QCompleter` popup | Return (`returnPressed`); Return on a completion applies it first |
+| windows-winui | an `AutoSuggestBox` in the window toolbar | `QuerySubmitted`: Return, the query glyph, or a picked suggestion |
+| web-dom | an `<input type=search enterkeyhint=search>` in the docked toolbar strip, outside any form | Return, outside IME composition, after any `<datalist>` completion it accepted |
+
+The desktops and the web draw one bar per window, so the field rides it while its page is on top
+of its stack; Android keeps an open field through repaints of its bar and brings it back open when
+its page returns with a query in force.
+
+`Search::available` offers the field only while it holds, for a page that learns whether it can be
+searched after it shows (a feed that loads first). A field withdrawn and offered again keeps its
+text. Scopes, reveal and placement belong to a surface's search and do not apply to a page's.
+
+## Submitting
+
+`Search::on_submit` runs when the user presses the field's Return or Search key, with the text as
+submitted; the query already holds it. It is the trigger for a search the server runs: a filter
+reads the query as it changes, but a catalog query should not run on every keystroke. A field on
+the bar carries it as `ToolbarValue::Submit` after the last `ToolbarValue::Text`; an inline surface
+field emits `Event::SearchSubmitted` (the inline fields of ios-uikit, android-mdc and
+harmony-arkui, on the keyboard's Search key). A field sends any text the app has not heard yet
+before it submits, so the query is current when `on_submit` runs.
+
+dayscript submits with `toolbar: { item: day.search, text: "…", submit: true }`. The step paints
+the field with the text first, as `input:` does for a text field, so a screenshot shows what the
+app is searching for.
 
 ## Two-way, through the signal
 

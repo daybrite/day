@@ -97,7 +97,8 @@ pub(super) fn glyph(s: Symbol) -> &'static str {
     }
 }
 
-/// Values from the shim: kind 0 = a toggle's new state, kind 1 = a search field's text.
+/// Values from the shim: kind 0 = a toggle's new state, kind 1 = a search field's text, kind 2
+/// = a segmented item's index, kind 3 = a search field's text submitted (docs/search.md).
 pub(crate) extern "C" fn on_toolbar_value(
     action: u64,
     kind: c_int,
@@ -114,7 +115,11 @@ pub(crate) extern "C" fn on_toolbar_value(
             let text = unsafe { CStr::from_ptr(text) }
                 .to_string_lossy()
                 .into_owned();
-            ToolbarValue::Text(text)
+            if kind == 3 {
+                ToolbarValue::Submit(text)
+            } else {
+                ToolbarValue::Text(text)
+            }
         };
         emit(
             day_spec::WINDOW_NODE,

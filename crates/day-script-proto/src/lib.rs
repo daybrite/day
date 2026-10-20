@@ -338,7 +338,8 @@ pub enum Step {
     /// Drive a window-toolbar item by its id (docs/toolbars.md). With neither `text:` nor
     /// `on:` this runs a button's command; `text:` types into a search item; `on:` sets a
     /// toggle. Each goes through the same dispatch the native control fires, so it exercises
-    /// the app's wiring; it does not prove the native widget drew (a screenshot does).
+    /// the app's wiring; it does not prove the native widget drew (a screenshot does). With
+    /// `submit: true` a search item's text is then submitted, as its Return or Search key does.
     Toolbar {
         item: String,
         #[serde(default)]
@@ -357,6 +358,9 @@ pub enum Step {
         /// guessing if the item is not segmented or the index is out of range.
         #[serde(default)]
         index: Option<usize>,
+        /// Submit a search item's `text` (or `key`) after typing it (docs/search.md).
+        #[serde(default)]
+        submit: bool,
     },
     AssertVisible {
         id: String,

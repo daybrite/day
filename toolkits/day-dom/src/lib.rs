@@ -5141,6 +5141,22 @@ pub extern "C" fn day_dom_toolbar_text(action: f64, ptr: *mut u8, len: usize) {
     });
 }
 
+/// A toolbar search field was submitted with Return (docs/search.md). The shim has already sent
+/// the field's latest text through [`day_dom_toolbar_text`] when it differed from the last one.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_toolbar_submit(action: f64, ptr: *mut u8, len: usize) {
+    let text = take_string(ptr, len);
+    day_spec::ffi_guard::contain((), move || {
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::ToolbarChanged {
+                action: action as u64,
+                value: day_spec::ToolbarValue::Submit(text),
+            },
+        );
+    });
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn day_dom_posted() {
     let q: Vec<_> = POSTED.with(|q| q.borrow_mut().drain(..).collect());

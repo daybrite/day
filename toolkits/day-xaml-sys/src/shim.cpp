@@ -7664,7 +7664,8 @@ extern "C" void day_xaml_window_set_menu2(void* win, const char* spec) try {
 // Buttons ride the same g_menu_cb rail as menu items; a toggle's state and a search field's text
 // go through g_toolbar_cb.
 
-// kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`).
+// kind 0 = toggle (`on`), kind 1 = search text (`text`), kind 2 = segment index (`on`),
+// kind 3 = search submitted (`text`).
 static void (*g_toolbar_cb)(unsigned long long, int, int, const char*) = nullptr;
 
 /// One window's live toolbar item, or null. `win` is the window token the install used — the
@@ -7971,13 +7972,31 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             box.Margin(WUX::Thickness{ 4, 0, 4, 0 });
             box.VerticalAlignment(WUX::VerticalAlignment::Center);
             if (action) {
-                box.TextChanged([action](WUXC::AutoSuggestBox const& s,
-                                         WUXC::AutoSuggestBoxTextChangedEventArgs const& a) {
+                // The text last reported, so a submission reports `Text` first only when the
+                // field holds something day has not been told.
+                auto sent = std::make_shared<std::string>(text);
+                box.TextChanged([action, sent](WUXC::AutoSuggestBox const& s,
+                                               WUXC::AutoSuggestBoxTextChangedEventArgs const& a) {
                     // day writing the bound signal back raises this too; reporting that would
                     // echo the app's own value straight back at it.
                     if (a.Reason() != WUXC::AutoSuggestionBoxTextChangeReason::UserInput) return;
-                    std::string str = u8(s.Text());
-                    if (g_toolbar_cb) g_toolbar_cb(action, 1, 0, str.c_str());
+                    *sent = u8(s.Text());
+                    if (g_toolbar_cb) g_toolbar_cb(action, 1, 0, sent->c_str());
+                });
+                // Return, the query glyph, or a suggestion picked from the list
+                // (docs/search.md). A picked suggestion fills the box with reason
+                // SuggestionChosen, which the handler above does not report, and TextChanged
+                // is raised asynchronously, so the last keystroke may not have been reported
+                // yet either: report the query's text first whenever it is new.
+                box.QuerySubmitted([action, sent](WUXC::AutoSuggestBox const&,
+                                                  WUXC::AutoSuggestBoxQuerySubmittedEventArgs const& a) {
+                    if (!g_toolbar_cb) return;
+                    std::string str = u8(a.QueryText());
+                    if (str != *sent) {
+                        *sent = str;
+                        g_toolbar_cb(action, 1, 0, str.c_str());
+                    }
+                    g_toolbar_cb(action, 3, 0, str.c_str());
                 });
             }
             if (!trailing) {

@@ -701,12 +701,15 @@ body.day-has-toolbar #day-root {
   overflow: hidden;
 }
 .day-toolbar-detail { flex: 1; }
-.day-toolbar-track > .trailing:first-of-type { margin-left: auto; }
+/* Class-aware "first trailing": `:first-of-type` matches by TAG, so a search <input> and the
+   first trailing <button> after it both took the auto margin and split the free space,
+   leaving the field mid-bar. */
+.day-toolbar-track > .trailing:not(.trailing ~ .trailing) { margin-left: auto; }
 .day-toolbar-track > .principal { margin: 0 auto; }
 /* The app menu button (docs/menus.md) ends the detail track at the window's right edge; where
    a trailing item already pushed itself there, the button just follows it. */
 .day-toolbar-detail > .day-app-menu { margin-left: auto; }
-.day-toolbar-detail > .trailing:first-of-type ~ .day-app-menu { margin-left: 0; }
+.day-toolbar-detail > .trailing ~ .day-app-menu { margin-left: 0; }
 .day-app-menu > .day-toolbar-icon { width: 18px; height: 18px; }
 .day-toolbar-gap { width: 12px; flex: none; }
 .day-toolbar-sep {

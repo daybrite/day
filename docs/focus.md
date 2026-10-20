@@ -166,7 +166,8 @@ sheet closes; the request lapses and the signal snaps back, which is rule 2.
 Android observes editor focus per activity window, including text areas and native search
 fields. A deferred check keeps the IME open during editor-to-editor focus transfers, but hides
 it through `WindowInsetsControllerCompat.hide(Type.ime())` when no visible enabled editor
-remains. The dismissal intent survives late IME-show completion and is checked again after
+remains; before API 30 that compat call can leave the keyboard up, so those systems also get
+`InputMethodManager.hideSoftInputFromWindow`. The dismissal intent survives late IME-show completion and is checked again after
 keyboard-inset layout; a newly focused editor clears it. A layout check covers hidden/disabled
 editors; subtree removal ends editing while the
 window token is still attached. Navigation fragments, departing tabs and dismissed covers end

@@ -927,6 +927,7 @@ mod imp {
         static fn uiIdle() -> jboolean,
         static fn updateNavMenu(v: android.view.View, joined_items: JString, joined_icons: JString, joined_sections: JString),
         static fn updateWindowToolbar(root: android.view.View, id: JString, op: jint, num: jdouble),
+        static fn updateWindowToolbarText(root: android.view.View, id: JString, text: JString),
         static fn windowImage(chrome: jboolean) -> jbyte[],
             // Read by pieces outside the toolkit (day-piece-break's crash store root).
             static fn filesDirPath() -> JString,
@@ -1998,8 +1999,17 @@ mod imp {
             K_TOGGLE_CHANGED => Event::ToggleChanged(num != 0.0),
             K_VALUE_CHANGED => Event::ValueChanged(num),
             K_VALUE_COMMITTED => Event::ValueCommitted(num),
-            // Inline search on the nav list (docs/search.md): the field's new text.
-            K_SEARCH_CHANGED => Event::SearchChanged(string_of(env, jstr).ok().unwrap_or_default()),
+            // Inline search on the nav list (docs/search.md): the field's new text, or with
+            // `num` 1 the text the keyboard's Search key submitted (DayNavHost sends that after
+            // the last change).
+            K_SEARCH_CHANGED => {
+                let text = string_of(env, jstr).ok().unwrap_or_default();
+                if num == 1.0 {
+                    Event::SearchSubmitted(text)
+                } else {
+                    Event::SearchChanged(text)
+                }
+            }
             // SlidingPaneLayout settled on a presentation; Day reconciles rather than drives.
             K_NAV_PRESENTATION => Event::NavPresentationChanged(if num >= 0.5 {
                 day_spec::props::NavPresentation::Split
@@ -2132,17 +2142,24 @@ mod imp {
                 key: string_of(env, jstr).ok().unwrap_or_default(),
                 modifiers: num as u8,
             }),
-            // A toolbar item's value (docs/toolbars.md): "sel" carries a segment index, anything
-            // else a toggle's new state. Plain buttons arrive as MENU_ACTION, like the menus.
+            // A toolbar item's value (docs/toolbars.md): "sel" carries a segment index, a page
+            // search field's "text:" / "submit:" its text after the prefix, anything else a
+            // toggle's new state. Plain buttons arrive as MENU_ACTION, like the menus.
             K_TOOLBAR_CHANGED => {
                 let text: String = string_of(env, jstr).ok().unwrap_or_default();
+                let value = if text == "sel" {
+                    day_spec::ToolbarValue::Selected(num.max(0.0) as usize)
+                } else if let Some(t) = text.strip_prefix("text:") {
+                    note_search_text(id as u64, t);
+                    day_spec::ToolbarValue::Text(t.to_string())
+                } else if let Some(t) = text.strip_prefix("submit:") {
+                    day_spec::ToolbarValue::Submit(t.to_string())
+                } else {
+                    day_spec::ToolbarValue::On(num != 0.0)
+                };
                 Event::ToolbarChanged {
                     action: id as u64,
-                    value: if text == "sel" {
-                        day_spec::ToolbarValue::Selected(num.max(0.0) as usize)
-                    } else {
-                        day_spec::ToolbarValue::On(num != 0.0)
-                    },
+                    value,
                 }
             }
             // Menu selection (docs/menus.md): `id` == the chosen action's dispatch id (0 for a
@@ -2371,9 +2388,12 @@ mod imp {
     /// fields: id, kind, label, icon, enabled, action, extra. A menu item's extra is the app-menu
     /// spec `serialize_menu` writes (its own `\t`/`\n` never collide with these separators); a
     /// segmented item's is the selected index and the segment titles, `\u{1d}`-separated, each
-    /// title followed by its glyph after a `\u{1c}`. Search and the sidebar toggle never reach
-    /// a phone's bar and are left out: search rides the navigation list, and this backend has
-    /// no pane the toggle could move (`toggle_sidebar` answers false).
+    /// title followed by its glyph after a `\u{1c}`. A page's search field (`day.search`,
+    /// docs/search.md) is a `search` record whose extra is its text and its placeholder,
+    /// `\u{1d}`-separated: the bar draws it as a collapsible search action. The sidebar toggle
+    /// never reaches a phone's bar and is left out: this backend has no pane the toggle could
+    /// move (`toggle_sidebar` answers false). A navigation surface's own search never arrives
+    /// here either: it rides the navigation list (`Cap::ToolbarSearch` is unsupported).
     ///
     /// The showing page's own commands are written first, ahead of the window's chrome. A
     /// Material app bar shows icon actions in order and folds the rest into its overflow, and
@@ -2421,9 +2441,19 @@ mod imp {
                 }
                 K::Label => ("label", String::new()),
                 K::Separator => ("sep", String::new()),
-                K::Search { .. } => continue,
+                K::Search {
+                    text, placeholder, ..
+                } => (
+                    "search",
+                    format!("{}\u{1d}{}", clean(text), clean(placeholder)),
+                ),
             };
-            let icon = icon_name(item.icon.as_ref());
+            // A search action without an icon of its own shows the magnifier, the glyph every
+            // Android app bar uses for it.
+            let icon = match (&item.kind, &item.icon) {
+                (K::Search { .. }, None) => symbol_drawable(day_spec::Symbol::Search),
+                (_, icon) => icon_name(icon.as_ref()),
+            };
             if !out.is_empty() {
                 out.push('\u{1e}');
             }
@@ -2453,6 +2483,28 @@ mod imp {
             );
         }
         out
+    }
+
+    /// Record text the user typed into a page's search action in the bar's model, so the next
+    /// repaint carries what the field shows. day-core's own copy follows the same event
+    /// (`mirror_value`), but this backend repaints from its mirror, and a repaint carrying
+    /// the text from before the typing would put it back into the field.
+    fn note_search_text(action: u64, text: &str) {
+        WINDOW_BARS.with(|m| {
+            for bar in m.borrow_mut().values_mut() {
+                let Some(item) = bar
+                    .by_action(action)
+                    .filter(|i| matches!(i.kind, day_spec::ToolbarItemKind::Search { .. }))
+                    .map(|i| i.id.clone())
+                else {
+                    continue;
+                };
+                bar.patch(&day_spec::ToolbarPatch::Text {
+                    item,
+                    text: text.to_string(),
+                });
+            }
+        });
     }
 
     /// The drawable name an item's icon resolves to on the Java side. A bundled image is named
@@ -4312,9 +4364,9 @@ mod imp {
         fn edit_toolbar(&mut self, h: &AHandle, ops: &[day_spec::ToolbarOp]) -> bool {
             // The window toolbar (docs/toolbars.md) is the nav host's app-bar menu: actions the
             // platform lays out and folds into its overflow itself, built on the Java side from
-            // a record-per-item spec. A menu item holds no state of its own (search rides the
-            // navigation list, never the bar), so an edit is applied to the model and the menu
-            // repainted from it. Best-effort like every other nav decoration: a throw must never
+            // a record-per-item spec. A menu item holds no state of its own, so an edit is
+            // applied to the model and the menu repainted from it. The one exception, a page's
+            // search action, keeps its SearchView across the repaint (DayNavHost.WindowBar). Best-effort like every other nav decoration: a throw must never
             // reach the tree build.
             let key = h.0.as_obj().as_raw() as usize;
             let spec = WINDOW_BARS.with(|m| {
@@ -4350,9 +4402,25 @@ mod imp {
                 P::Enabled { item, on } => (item, 0, f64::from(u8::from(*on))),
                 P::On { item, on } => (item, 1, f64::from(u8::from(*on))),
                 P::Selected { item, index } => (item, 2, *index as f64),
-                // Search is never on this bar (`Cap::ToolbarSearch`, docs/search.md).
-                P::Text { .. } => return,
-                P::Suggestions { .. } | P::Focus { .. } => return,
+                // A page's search action (docs/search.md): reveal the field and give it focus.
+                P::Focus { item } => (item, 3, 0.0),
+                // The app wrote the page's query: into the live field, without its listeners
+                // echoing it back, and without rebuilding the field under the user's typing.
+                P::Text { item, text } => {
+                    with_env(|env| {
+                        let jid = jstr(env, item);
+                        let jtext = jstr(env, text);
+                        let _ = java_in(env, |env| {
+                            DayBridge::updateWindowToolbarText(env, h.0.as_obj(), &jid, &jtext)
+                        });
+                        if env.exception_check() {
+                            env.exception_clear();
+                        }
+                    });
+                    return;
+                }
+                // The app bar's SearchView offers no completions (docs/search.md).
+                P::Suggestions { .. } => return,
             };
             with_env(|env| {
                 let jid = jstr(env, item);

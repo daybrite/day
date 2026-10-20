@@ -2020,7 +2020,24 @@ public final class DayBridge {
         }
     }
 
-    /** A targeted change to one live toolbar item: op 0 = enabled, 1 = toggle on, 2 = segment. */
+    /** A page search field's text, written by the app (docs/search.md): into the live field,
+     *  without it reporting the text back. */
+    public static void updateWindowToolbarText(View root, String id, String text) {
+        try {
+            DayNavHost h = toolbarHostOf(root);
+            if (h == null) h = findNavHost(root);
+            if (h != null) {
+                h.updateWindowToolbarText(id, text);
+            } else {
+                DayNavHost.WindowBar.updateDockedText(root, id, text);
+            }
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "window toolbar text update failed; continuing", t);
+        }
+    }
+
+    /** A targeted change to one live toolbar item: op 0 = enabled, 1 = toggle on, 2 = segment,
+     *  3 = focus the search field. */
     public static void updateWindowToolbar(View root, String id, int op, double num) {
         try {
             DayNavHost h = toolbarHostOf(root);

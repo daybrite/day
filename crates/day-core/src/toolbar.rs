@@ -258,6 +258,35 @@ pub fn dispatch_toolbar_value(action: u64, value: &ToolbarValue) {
     }
 }
 
+/// Synthetic input to a bar item (dayscript's `toolbar:` step): paint the widget the way an app
+/// write would, then dispatch the value as the native control would. Both halves are needed, as
+/// for a text field (`crate::synthesize_text`): a real keystroke reaches Day with the field
+/// already showing it, so the dispatch alone records the text without touching the widget, and a
+/// synthesized one left the field empty while the app acted on the query.
+pub fn synthesize_toolbar_value(action: u64, value: &ToolbarValue) {
+    if let ToolbarValue::Text(text) = value {
+        let target = MODELS.with(|m| {
+            m.borrow().iter().find_map(|(c, items)| match c {
+                Chrome::Window(root) => items
+                    .iter()
+                    .find(|i| i.action == action)
+                    .map(|i| (*root, i.id.clone())),
+                Chrome::Page(_) => None,
+            })
+        });
+        if let Some((root, item)) = target {
+            let patch = ToolbarPatch::Text {
+                item,
+                text: text.clone(),
+            };
+            if with_tree(|t| t.patch_window_toolbar(root, patch.clone())) {
+                deliver_value(root, &patch);
+            }
+        }
+    }
+    dispatch_toolbar_value(action, value);
+}
+
 /// The closure id a toolkit-held slot id dispatches to now; any other id is returned as is.
 /// The menu rail resolves through here too, since toolbar buttons ride it.
 pub(crate) fn resolve_slot(id: u64) -> u64 {
@@ -396,14 +425,20 @@ fn placement_rank(p: day_spec::ToolbarPlacement) -> u8 {
 /// the list still filtered by the text it had lost, and how clearing it afterwards reported
 /// nothing new (the field held the stale seed already).
 fn mirror_value(action: u64, value: &ToolbarValue) {
-    let Some((root, id)) = MODELS.with(|m| {
-        m.borrow().iter().find_map(|(c, items)| match c {
-            Chrome::Window(root) => items
-                .iter()
-                .find(|i| i.action == action)
-                .map(|i| (*root, i.id.clone())),
-            Chrome::Page(_) => None,
-        })
+    // A page's own bar (a phone's navigation item) is a model of its own; the desktops merge
+    // the showing page into the window's. Either way the item's chrome is where Day's copy lives.
+    // A window's bar first: where a page merges into it, that is the bar the toolkit drew.
+    let Some((chrome, id)) = MODELS.with(|m| {
+        let m = m.borrow();
+        let found = |window: bool| {
+            m.iter().find_map(|(c, items)| {
+                (matches!(c, Chrome::Window(_)) == window)
+                    .then(|| items.iter().find(|i| i.action == action))
+                    .flatten()
+                    .map(|i| (*c, i.id.clone()))
+            })
+        };
+        found(true).or_else(|| found(false))
     }) else {
         return;
     };
@@ -417,22 +452,25 @@ fn mirror_value(action: u64, value: &ToolbarValue) {
             item: id,
             index: *index,
         },
+        // A submission leaves the field's text as the last `Text` set it.
+        ToolbarValue::Submit(_) => return,
     };
     CONTRIBUTIONS.with(|m| {
-        for c in m.borrow_mut().values_mut().filter(|c| c.window() == root) {
+        for c in m.borrow_mut().values_mut().filter(|c| match chrome {
+            Chrome::Window(root) => c.window() == root,
+            Chrome::Page(_) => c.chrome == chrome,
+        }) {
             apply_to_model(&mut c.items, &patch);
         }
     });
     MODELS.with(|m| {
-        if let Some((_, items)) = m
-            .borrow_mut()
-            .iter_mut()
-            .find(|(c, _)| *c == Chrome::Window(root))
-        {
+        if let Some((_, items)) = m.borrow_mut().iter_mut().find(|(c, _)| *c == chrome) {
             apply_to_model(items, &patch);
         }
     });
-    deliver_value(root, &patch);
+    if let Chrome::Window(root) = chrome {
+        deliver_value(root, &patch);
+    }
 }
 
 /// Owe the windows a recompose, paid once when the current turn settles.

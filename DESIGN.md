@@ -76,7 +76,7 @@ the architecture-level view and the rationale.
 | menus — app menu, context menus, roles, shortcuts | [docs/menus.md](docs/menus.md) | [§8.1](#81-the-toolkit-trait) |
 | deep links — scheme registration, cold/warm delivery, per-platform intake, desktop single-instance forwarding, `[[shortcuts]]` and run-time launcher shortcuts (iOS, Android, HarmonyOS, web, macOS Dock menu, Windows jump list, Linux `.desktop` actions) | [docs/deep-links.md](docs/deep-links.md) | [§10.5](#105-navigation-and-presentation) |
 | toolbars — `Decorate::toolbar`, placement and column, the item vocabulary, `Symbol` icons, per-backend realization | [docs/toolbars.md](docs/toolbars.md) | [§8.1](#81-the-toolkit-trait) |
-| search — `.searchable(Search)` on a navigation surface, placement as a preference, scopes and completions | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
+| search — `.searchable(Search)` on a navigation surface or a `nav_stack` page, placement as a preference, scopes, completions and submission | [docs/search.md](docs/search.md) | [§8.1](#81-the-toolkit-trait) |
 | cursor — `.cursor()`, the CSS vocabulary as `Cursor`, per-toolkit realization and `Cap::Cursor`, the `day::cursor::<toolkit>` extras | [docs/cursor.md](docs/cursor.md) | [§5.3](#53-built-in-pieces-mvp-set), [§8.1](#81-the-toolkit-trait) |
 | size classes — window width/height buckets, per-window signal, re-presenting a nav host on a breakpoint; resizable windows on ios-uikit and android-mdc and what each platform requires; the `RowFit` row fit policies and the debug overflow diagnostic | [docs/size-classes.md](docs/size-classes.md) | [§5.3](#53-built-in-pieces-mvp-set), [§10.5](#105-navigation-and-presentation) |
 | app icons — `day prepare`, the layered master, the generated `build/day/host` tree the host projects reference, `--check` gate | [docs/icons.md](docs/icons.md) | [§16.5](#165-subcommands) |
@@ -980,6 +980,9 @@ nav(section)                       // sidebar / tabs / segmented, per NavStyle
                                    //   the detail layer's bar, live
     .no_sidebar_toggle()           //   drop the platform's show/hide-sidebar affordance
 nav_stack(path, root)              // push/pop navigation bound to a Vec<Route> signal
+page.searchable(Search::new(q).on_submit(f).available(v))   // a nav_stack page's own field:
+                                   //   day.search on the page's chrome, drawn where the platform
+                                   //   puts a page's search (docs/search.md "Page search")
 cover(open, build)                 // fullscreen modal surface bound to a Signal<Option<Route>>
 inspector(visible, content, panel) // trailing properties pane bound to a Binding<bool>; native
                                    //   split where Cap::Inspector is Native, composed pane +
@@ -7417,7 +7420,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
 | `menu` | `id` \| `item` \| `key`, `path?` | invoke an app-menu action. `id` names the item the app named with `MenuEntry::id` — the address that survives a locale change or a moving check mark, and the one to prefer; `item` matches a literal label, `key` a Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
 | `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
-| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?` | drive a toolbar item by its id (`day.search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one), `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
+| `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day.search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |
 | `focus` | `id`, `focused?` | drives the REAL `Toolkit::focus` duty (keyboards engage); `focused: false` resigns ([docs/focus.md](docs/focus.md)) |
 | `scroll_to` | `id`, `edge?` \| `x?`+`y?` | `edge: top\|bottom\|leading\|trailing` or an offset drives a `scroll` piece; bare `id` reveals that element in its nearest scroll ([docs/scroll.md](docs/scroll.md)); unanimated |
@@ -7883,11 +7886,20 @@ OPFS protocol remains synchronous and needs a separate transferable-message desi
 
 `day::focus_search()` routes to the focused window's declared searchable surface, through
 `ToolbarPatch::Focus` or `SearchPatch::Focus`. Focus is transient and does not mutate the query.
-Desktop search contributes to the trailing Detail column. AppKit uses an immediate target/action
-on `NSSearchField`, the native path for toolbar search edits, and begins search interaction on
-Find. UIKit releases navigation-state borrows before activating its controller, since activation
+Desktop search contributes to the trailing Detail column. AppKit uses the target/action of
+`NSSearchField`, the native path for toolbar search edits (the field sends it from the run loop
+just after the keystroke), and begins search interaction on Find. UIKit releases navigation-state borrows before activating its controller, since activation
 can synchronously reenter delegates. Other backends focus their existing native search control;
 see [docs/search.md](docs/search.md).
+
+A `nav_stack` page declares its own field with `.searchable(Search)` (2026-10): the reserved
+`day.search` item on that page's chrome, which the desktops merge into the window bar while the
+page is on top, UIKit installs as the page's `UISearchController`, and Android as its app bar's
+search action. `Search::on_submit` runs on the field's Return or Search key, carried as
+`ToolbarValue::Submit` from a bar item and `Event::SearchSubmitted` from an inline surface field,
+for a search the server runs rather than a filter. `Search::available` offers a page's field only
+once the page can be searched. `nav_stack` pages are gated so only the top page counts as showing,
+so a desktop bar carries that page's items alone.
 
 ### Opt-in list viewport observation
 

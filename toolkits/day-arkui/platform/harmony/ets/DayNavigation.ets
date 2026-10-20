@@ -23,6 +23,11 @@ class NavigationModel {
   searchShown: boolean = false;
   searchPrompt: string = '';
   searchText: string = '';
+  // A page's own search field (docs/search.md, "Page search"): the destination key of the page
+  // it rides, -1 for the root page, 0 for none. Day picks the page; this draws it.
+  pageSearchKey: number = 0;
+  pageSearchPrompt: string = '';
+  pageSearchText: string = '';
   // An adaptive host (`NavStyle::Sidebar` left to follow the window) runs NavigationMode.Auto:
   // ArkUI tiles the nav bar beside the content where both fit and stacks them where they do
   // not, and reports which through onNavigationModeChange (docs/size-classes.md). A literal
@@ -50,14 +55,39 @@ struct DayNavigation {
   private pageToolbar() { DayToolbar({ items: this.model.menus }) }
   @Builder
   private rootToolbar() { DayToolbar({ items: this.model.rootMenus }) }
+  // The page search field, at the top of the page under its title bar. Every edit is reported;
+  // the search key reports the text first if it has not been (it always has, unless a changed
+  // event was dropped), then the submission.
+  @Builder
+  private pageSearch() {
+    Search({ value: this.model.pageSearchText, placeholder: this.model.pageSearchPrompt })
+      .id('day.page.search.' + this.model.id)
+      .margin({ left: 16, right: 16, top: 8, bottom: 8 })
+      .onChange((value: string) => {
+        if (value !== this.model.pageSearchText) {
+          this.model.pageSearchText = value;
+          nativeEntry.navPageSearch(this.model.id, value, false);
+        }
+      })
+      .onSubmit((value: string) => {
+        if (value !== this.model.pageSearchText) {
+          this.model.pageSearchText = value;
+          nativeEntry.navPageSearch(this.model.id, value, false);
+        }
+        nativeEntry.navPageSearch(this.model.id, value, true);
+      })
+  }
   @Builder
   private destination(name: string, param: object) {
     NavDestination() {
-      Stack() { ContentSlot(this.model.contents.get(Number(param))) }
-        .width('100%').height('100%').clip(true)
-        .onAreaChange((_old: Area, area: Area) => {
-          if (this.model.alive) nativeEntry.navPageArea(Number(param), Number(area.width), Number(area.height));
-        })
+      Column() {
+        if (this.model.pageSearchKey === Number(param)) { this.pageSearch() }
+        Stack() { ContentSlot(this.model.contents.get(Number(param))) }
+          .width('100%').layoutWeight(1).clip(true)
+          .onAreaChange((_old: Area, area: Area) => {
+            if (this.model.alive) nativeEntry.navPageArea(Number(param), Number(area.width), Number(area.height));
+          })
+      }.width('100%').height('100%')
     }
     .title(this.model.titles.get(Number(param)) ?? '')
     // Tiled, the first destination sits beside the rows that opened it: a back button there
@@ -98,7 +128,16 @@ struct DayNavigation {
                 nativeEntry.navSearchChanged(this.model.id, value);
               }
             })
+            // The search key (docs/search.md): after the last edit, the text as submitted.
+            .onSubmit((value: string) => {
+              if (value !== this.model.searchText) {
+                this.model.searchText = value;
+                nativeEntry.navSearchChanged(this.model.id, value);
+              }
+              nativeEntry.navSearchSubmitted(this.model.id, value);
+            })
         }
+        if (this.model.pageSearchKey === -1) { this.pageSearch() }
         Stack() { ContentSlot(this.model.rootContent) }
           .width('100%').layoutWeight(1).clip(true)
           .onAreaChange((_old: Area, area: Area) => {
@@ -195,6 +234,12 @@ export function registerDayNavigation(ui: UIContext, toolbar: (items: DayToolbar
       }
       if (shown >= 0) { model.searchShown = shown === 1; model.searchPrompt = prompt; }
       model.searchText = text;
+    },
+    (owner: number, page: number, prompt: string, text: string, focus: boolean): void => {
+      const model = models.get(owner);
+      if (model === undefined) return;
+      model.pageSearchKey = page; model.pageSearchPrompt = prompt; model.pageSearchText = text;
+      if (focus && page !== 0) ui.getFocusController().requestFocus('day.page.search.' + owner);
     }
   );
 }
