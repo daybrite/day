@@ -2501,6 +2501,46 @@ pub(crate) mod conformance {
             })
     }
 
+    /// Destroy a focused input and its containing page without first moving focus to a
+    /// button. Win32 GTK must detach the IME filter before the input loses its native root.
+    #[day_macros::test(day_core)]
+    fn focused_inputs_survive_page_removal() -> Case {
+        Case::new()
+            .proves_duty("focus")
+            .page(|| {
+                let shown = Signal::new(true);
+                column((
+                    button("Toggle page")
+                        .action(move || shown.set(!shown.get()))
+                        .id("toggle"),
+                    text_field(Signal::new(String::new())).id("survivor"),
+                    when(
+                        move || shown.get(),
+                        || {
+                            column((text_field(Signal::new(String::new())).id("entry"),))
+                                .background(Color::rgb(0.5, 0.5, 0.5))
+                        },
+                    ),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                for _ in 0..4 {
+                    d.focus("entry").await?;
+                    d.assert_focused("entry", true).await?;
+                    // Scripted activation doesn't move native focus to the button first.
+                    d.tap("toggle").await?;
+                    d.assert_missing("entry").await?;
+                    d.wait_idle().await?;
+                    d.tap("toggle").await?;
+                }
+                d.focus("survivor").await?;
+                d.tap("toggle").await?;
+                d.assert_focused("survivor", true).await?;
+                d.input("survivor", "still editable").await?;
+                d.assert_text("survivor", "still editable").await
+            })
+    }
+
     // ---- layout and the remaining modifiers -------------------------------------------------
 
     /// `.height` fixes the height and leaves the width to the layout.
@@ -2802,6 +2842,7 @@ pub(crate) mod conformance {
         on_pinch_reports_scale,
         on_key_reaches_focused,
         focused_binding_moves_focus,
+        focused_inputs_survive_page_removal,
         height_fixes_height,
         grow_vertical_fills_column,
         grid_span_and_align,

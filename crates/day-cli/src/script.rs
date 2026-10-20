@@ -828,7 +828,9 @@ fn run_scripts_inner(
     .map_err(|e| ScriptError::Other(e.to_string()))?;
 
     // adb-forwarded ports accept host connections before the device listener exists; a
-    // request/reply that hits EOF reconnects and retries within a bounded window.
+    // request/reply that hits EOF during startup reconnects within a bounded window. Once
+    // the engine has answered, a broken connection is terminal: replaying a live command can
+    // duplicate actions, and retrying for a run_tests budget hides a crash for many minutes.
     //
     // `budget` is the step's own implicit-wait budget (§14.3). The engine polls a retryable step
     // on the main thread for that long before answering, so the runner must out-wait it: sizing
@@ -867,7 +869,7 @@ fn run_scripts_inner(
                     answered.set(true);
                     return Ok(r);
                 }
-                Err(e) if std::time::Instant::now() < deadline => {
+                Err(e) if !answered.get() && std::time::Instant::now() < deadline => {
                     let _ = e;
                     std::thread::sleep(Duration::from_millis(500));
                     if let Ok(s) = TcpStream::connect(("127.0.0.1", port)) {
@@ -1948,6 +1950,91 @@ fn gate_is_known(token: &str) -> bool {
 #[cfg(test)]
 mod gate_tests {
     use super::{gate_is_known, gate_names};
+
+    #[test]
+    fn established_engine_loss_does_not_replay_a_long_running_step() {
+        use std::io::{BufRead, Write};
+        use std::time::{Duration, Instant};
+
+        let root = std::env::temp_dir().join(format!("day-engine-loss-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("flow.yaml");
+        std::fs::write(
+            &script,
+            "flow:\n- wait_idle: {}\n- run_tests: {timeout_secs: 1800}\n",
+        )
+        .unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+        };
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert!(matches!(
+                serde_json::from_str::<day_script_proto::Request>(&line)
+                    .unwrap()
+                    .step,
+                day_script_proto::Step::WaitIdle
+            ));
+            writeln!(stream, "{{\"ok\":true}}").unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.contains("run_tests"));
+            drop(reader);
+            drop(stream); // The established engine dies with the long step in flight.
+
+            // Answer an erroneous replay so the regression fails promptly instead of hanging
+            // for the very 30-minute budget this test is intended to guard.
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + Duration::from_secs(3);
+            while Instant::now() < deadline {
+                if let Ok((mut retry, _)) = listener.accept() {
+                    retry
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    let mut line = String::new();
+                    std::io::BufReader::new(retry.try_clone().unwrap())
+                        .read_line(&mut line)
+                        .unwrap();
+                    writeln!(retry, "{{\"ok\":false,\"error\":\"unexpected replay\"}}").unwrap();
+                    return true;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            false
+        });
+        let started = Instant::now();
+        let result = super::run_scripts(
+            &project,
+            crate::targets::find("windows-gtk").unwrap(),
+            port,
+            "fixture-token",
+            &[script],
+            None,
+            None,
+            None,
+            true,
+            false,
+            true,
+            false,
+            false,
+        );
+        assert!(matches!(result, Err(super::ScriptError::EngineLost { .. })));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        assert!(
+            !server.join().unwrap(),
+            "a command must not be replayed after engine loss"
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn memory_budgets_are_target_gated_and_count_as_non_retryable_failures() {

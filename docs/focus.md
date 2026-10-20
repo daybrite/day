@@ -122,6 +122,12 @@ join the key loop only with Full Keyboard Access on, and AppKit v1 doesn't obser
 button focus policy is style-dependent). On touch mobile, non-text controls generally are not
 focusable, and the bindings stay quiet there.
 
+**Removing focused controls on Windows GTK.** Day resigns focus before detaching a focused
+control or its containing subtree. GTK 4.24 can defer focus cleanup until after the widget
+has lost its native surface, leaving the Windows IME message filter registered against a
+disposed input. Clearing focus while the subtree is attached lets GTK unregister that filter;
+removing an unrelated subtree preserves the current focus.
+
 **An element is its wrappers too.** An id, `.focusable()` or `.on_key` often sits on a layout
 wrapper (`.frame(..)`, `.padding(..)`) above the native view. Focusing it descends to the view,
 a focus change or key the toolkit reports on the view reaches the wrapper's handlers and probe,
@@ -185,6 +191,12 @@ When a submit action leaves its form visible, the app can clear its focus bindin
 When it replaces the form or navigates away, the framework dismisses automatically.
 
 ## 5. Testing it
+
+`focused-inputs-survive-page-removal` repeatedly removes and remounts a focused field's page,
+then checks that an unrelated surviving field keeps focus and accepts input. GTK's
+`native_focus_removal` test also covers entries, spin buttons and text views through the
+backend's remove/release paths. Run it on a Windows desktop with `G_DEBUG=fatal-criticals`
+to catch stale IME callbacks as well as incorrect focus state.
 
 - **Native IME regression:** Day-News `scripts/test-android-keyboard.py` runs on a chosen
   emulator with an isolated synthetic account, checking Android's actual `mInputShown`

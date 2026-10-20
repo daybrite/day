@@ -1122,6 +1122,24 @@ fn wire_focus(w: &impl IsA<gtk4::Widget>, id: NodeId) {
     w.add_controller(focus);
 }
 
+/// GTK 4.24 defers focus removal until after paint when a widget is unparented. On Win32,
+/// GtkIMContextIME then cannot find the detached widget's native surface to unregister its
+/// display message filter. Disposing the input leaves that filter pointing at freed memory.
+/// Resign while the focused descendant is still attached; leave another subtree's focus alone.
+fn resign_focus_before_detach(widget: &gtk4::Widget) {
+    if !cfg!(target_os = "windows") {
+        return;
+    }
+    let Some(root) = widget.root() else {
+        return;
+    };
+    if let Some(focus) = root.focus()
+        && (focus == *widget || focus.is_ancestor(widget))
+    {
+        root.set_focus(None::<&gtk4::Widget>);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Menus (§ menus): render day's MenuItem model as a GMenu (GtkPopoverMenu for context menus,
 // GtkPopoverMenuBar for the app menu). Custom items → SimpleActions under the "daymenu" prefix that
@@ -3007,6 +3025,7 @@ mod day_cell {
                 .borrow_mut()
                 .remove(&(child.as_ptr() as usize));
             if child.parent().as_ref() == Some(self.upcast_ref()) {
+                super::resign_focus_before_detach(child);
                 child.unparent();
             }
         }
@@ -6694,6 +6713,7 @@ impl Toolkit for Gtk {
         }
     }
     fn release(&mut self, h: Handle) {
+        resign_focus_before_detach(&h);
         // A released window content = that window is gone (docs/windows.md teardown):
         // drop the record, destroying a straggler window (a programmatic-close's window is
         // already closed; destroy on it is a no-op).
@@ -6999,6 +7019,7 @@ impl Toolkit for Gtk {
     }
 
     fn remove(&mut self, parent: &Handle, child: &Handle) {
+        resign_focus_before_detach(child);
         let handled = NAV_STATE.with(|m| {
             let mut m = m.borrow_mut();
             let Some(state) = m.get_mut(&widget_key(parent)) else {
