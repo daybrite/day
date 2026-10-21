@@ -59,11 +59,15 @@ cd "$WORK"
     --locales id-ID,tr-TR,vi-VN,th-TH,pl-PL,nl-NL,zh-Hant-TW,uk-UA,cs-CZ,ms-MY
 cd ci-sample
 
-# 20 requested + the template's own en. Counted rather than trusted: `day new` reports each
-# `localize add` as it goes, and a tag that silently no-ops would still print a green summary.
+# 20 requested + the catalogs the template ships itself (en, and fr since the starter took a
+# second language), none of which the list above repeats. Counted rather than trusted: `day new`
+# reports each `localize add` as it goes, and a tag that silently no-ops would still print a
+# green summary.
+shipped=$(find "$ROOT/crates/day-cli/templates/app/resource/locales" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+want=$((20 + shipped))
 n=$(find resource/locales -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
-[ "$n" = 21 ] || {
-    echo "expected 21 locale catalogs, found $n" >&2
+[ "$n" = "$want" ] || {
+    echo "expected $want locale catalogs (20 requested + $shipped shipped), found $n" >&2
     exit 1
 }
 # A starter key, and translated rather than copied: `day localize add` writes the table in
@@ -112,7 +116,7 @@ cargo fmt --all -- --check || {
 cargo clippy --workspace --all-targets --features mock -- -D warnings || {
     echo "the scaffold's Rust is not clippy-clean — fix the TEMPLATE:" >&2
     echo "  day/crates/day-cli/templates/app/src/…" >&2
-    echo "  (every app `day new` emits runs this exact command in its own preflight)" >&2
+    echo '  (every app `day new` emits runs this exact command in its own preflight)' >&2
     exit 1
 }
 
