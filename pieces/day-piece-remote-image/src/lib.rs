@@ -522,14 +522,6 @@ pub mod conformance {
                 Ok(())
             })
     }
-
-    day_core::tests! {
-        remote_image_shows_bytes,
-        remote_image_replaces_clears_and_remounts,
-        remote_image_fit_and_fill,
-        remote_image_clips_image_and_placeholder,
-        remote_image_circle_follows_layout,
-    }
 }
 
 #[cfg(test)]

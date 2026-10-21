@@ -568,11 +568,6 @@ pub(crate) mod conformance {
                 d.assert_missing("panel").await
             })
     }
-
-    day_core::tests! {
-        inspector_shows_panel,
-        inspector_half_sheet_on_compact,
-    }
 }
 
 #[cfg(test)]

@@ -230,8 +230,6 @@ pub mod conformance {
                 d.assert_text("pager::pager_state", "slot 2").await
             })
     }
-
-    day_core::tests! { pager_selection_commits_the_slot_in_reading_order }
 }
 
 #[cfg(test)]

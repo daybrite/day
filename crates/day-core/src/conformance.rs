@@ -596,8 +596,7 @@ impl Case {
 }
 
 /// A registered test: the function that builds its [`Case`], and that function's identifier,
-/// which is where the test's name comes from. What `#[day::test]` and the [`tests!`] roster
-/// both register.
+/// which is where the test's name comes from. Declared by `#[day::test]`.
 #[derive(Clone, Copy)]
 pub struct TestFn {
     ident: &'static str,
@@ -614,10 +613,6 @@ impl TestFn {
         let last = self.ident.rsplit("::").next().unwrap_or(self.ident);
         last.trim().replace('_', "-")
     }
-    /// The function that builds the case.
-    pub fn build_fn(&self) -> fn() -> Case {
-        self.build
-    }
     /// A fresh case, named.
     pub fn case(&self) -> Case {
         let mut case = (self.build)();
@@ -626,9 +621,12 @@ impl TestFn {
     }
 }
 
-/// Every `#[day::test]` in the binary, collected at link time. Not on wasm: `linkme` has no
-/// `wasm32-unknown-unknown` support (the renderer registry has the same gap), so there a
-/// crate registers its tests at run time with [`register`] through the [`tests!`] roster.
+mod registry;
+pub use registry::validate_registry;
+#[cfg(target_arch = "wasm32")]
+pub use registry::{Registration, install_web_registry};
+
+/// Every native `#[day::test]`, collected without runtime constructors.
 #[cfg(not(target_arch = "wasm32"))]
 #[linkme::distributed_slice]
 pub static TESTS: [TestFn];
@@ -692,8 +690,7 @@ pub fn opened_urls() -> Vec<String> {
     OPENED.with(|o| o.borrow().clone().unwrap_or_default())
 }
 
-/// Register a test at run time: what the [`tests!`] roster expands to on wasm, where the
-/// link-time slice does not exist. Also how a harness adds a case of its own.
+/// Add a synthetic case in a test harness. Application tests use `#[day::test]`.
 pub fn register(test: TestFn) {
     RUNTIME.with(|r| {
         let mut r = r.borrow_mut();
@@ -706,8 +703,7 @@ pub fn register(test: TestFn) {
 /// Every registered test, link-time and run-time ones together.
 pub fn tests() -> Vec<TestFn> {
     let mut all: Vec<TestFn> = Vec::new();
-    #[cfg(not(target_arch = "wasm32"))]
-    all.extend(TESTS.iter().copied());
+    all.extend(registry::compiled_tests());
     RUNTIME.with(|r| {
         for t in r.borrow().iter() {
             if !all.iter().any(|a| std::ptr::fn_addr_eq(a.build, t.build)) {
@@ -789,26 +785,4 @@ pub fn case_named(name: &str) -> Option<Case> {
         .into_iter()
         .find(|t| t.name() == name)
         .map(|t| t.case())
-}
-
-/// The roster of a crate's tests, for the targets with no link-time registry (wasm): expands
-/// to a `register_tests()` function the app calls at launch. On every other target the slice
-/// already holds them, and the function is a no-op, so an app calls it unconditionally.
-#[macro_export]
-macro_rules! tests {
-    ($($test:path),* $(,)?) => {
-        /// Register this crate's `#[day::test]` functions where no link-time registry exists.
-        pub fn register_tests() {
-            #[cfg(target_arch = "wasm32")]
-            {
-                $( $crate::conformance::register(
-                    $crate::conformance::TestFn::new(stringify!($test), $test),
-                ); )*
-            }
-        }
-        /// The roster as written, for the lint that holds it equal to the link-time slice.
-        pub fn roster() -> Vec<$crate::conformance::TestFn> {
-            vec![$( $crate::conformance::TestFn::new(stringify!($test), $test) ),*]
-        }
-    };
 }

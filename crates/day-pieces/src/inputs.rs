@@ -861,19 +861,4 @@ pub(crate) mod conformance {
                 d.assert_text("model", "Back to editing").await
             })
     }
-
-    day_core::tests! {
-        picker_select,
-        picker_segmented,
-        picker_inline,
-        picker_follows_signal,
-        picker_options_reactive,
-        picker_disabled,
-        text_area_binding,
-        text_area_multiline,
-        text_area_submit,
-        text_area_read_only,
-        text_area_unselectable,
-        text_area_attributes_reactive,
-    }
 }

@@ -2940,6 +2940,4 @@ pub mod conformance {
                 d.assert_text(count.as_str(), &initial.to_string()).await
             })
     }
-
-    day_core::tests! { settings_theme_applies_and_persists, settings_rows_persist, settings_row_enabled_gates_stepper }
 }

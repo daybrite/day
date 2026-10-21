@@ -1076,14 +1076,6 @@ pub mod conformance {
                 .await
             })
     }
-
-    day_core::tests! {
-        texteditor_text_two_way,
-        texteditor_highlight_restyles_in_place,
-        texteditor_single_line_submits,
-        texteditor_code_tab_indents,
-        texteditor_code_closes_and_indents,
-    }
 }
 
 #[cfg(test)]

@@ -5845,16 +5845,4 @@ pub(crate) mod conformance {
                 d.assert_text("state", "open ").await
             })
     }
-
-    day_core::tests! {
-        nav_stack_push_pop,
-        nav_stack_follows_path,
-        nav_sidebar_selects,
-        nav_tabs_switch,
-        cover_presents_and_dismisses,
-        cover_sheet_back_dismisses,
-        cover_half_sheet_presents_over_content,
-        cover_half_sheet_back_dismisses,
-        cover_sheet_composes_a_card_on_wide,
-    }
 }

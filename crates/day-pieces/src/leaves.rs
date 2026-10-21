@@ -2094,38 +2094,4 @@ pub(crate) mod conformance {
                 d.assert_opened_url("https://daybrite.dev/").await
             })
     }
-
-    day_core::tests! {
-        button_press,
-        button_disabled,
-        button_title,
-        button_a11y,
-        button_a11y_survives_title_change,
-        toggle_binding,
-        toggle_disabled,
-        toggle_disabled_constant,
-        toggle_a11y,
-        text_field_binding,
-        text_field_secure,
-        text_field_max_length,
-        text_field_disabled,
-        text_field_read_only,
-        text_field_submit,
-        slider_range,
-        slider_disabled,
-        slider_follows_signal,
-        slider_a11y,
-        label_heading,
-        label_text,
-        label_reactive,
-        label_runs,
-        label_link_runs_reactive,
-        label_selectable,
-        progress_value,
-        spinner_renders,
-        divider_renders,
-        vertical_divider_fills_height,
-        spacer_fills,
-        link_opens_url,
-    }
 }

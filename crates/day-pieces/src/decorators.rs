@@ -2834,40 +2834,6 @@ pub(crate) mod conformance {
                 d.assert_announced("Saved").await
             })
     }
-
-    day_core::tests! {
-        padding_insets,
-        on_tap_runs,
-        on_tap_at_reports_point,
-        on_drag_reports_translation,
-        on_hover_enters_and_leaves,
-        on_pan_adds_deltas,
-        on_pinch_reports_scale,
-        on_key_reaches_focused,
-        focused_binding_moves_focus,
-        focused_inputs_survive_page_removal,
-        height_fixes_height,
-        grow_vertical_fills_column,
-        grid_span_and_align,
-        overlay_centers,
-        transform_applies_whole,
-        animation_lands_on_final,
-        ids_name_elements,
-        tweak_and_native_ref_see_node,
-        modifier_applies,
-        announce_reaches_reader,
-        rotation_turns_clockwise,
-        scale_grows_drawing,
-        translation_moves_view,
-        min_max_width,
-        aspect_ratio_height,
-        grow_width,
-        overlay_aligned_corner,
-        background_fill,
-        corner_radius_cuts,
-        opacity_hides,
-        translation_moves_drawing,
-    }
 }
 
 #[cfg(test)]

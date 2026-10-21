@@ -41,7 +41,12 @@ pub fn submission_page() -> impl Piece {
                             .id(day::id!(textarea::area))
                     },
                 )
-                .otherwise(move || text_area(text).min_lines(3).max_lines(3).id(day::id!(textarea::area)))
+                .otherwise(move || {
+                    text_area(text)
+                        .min_lines(3)
+                        .max_lines(3)
+                        .id(day::id!(textarea::area))
+                })
             },
         ),
         row((
@@ -100,7 +105,9 @@ pub fn page() -> impl Piece {
             },
         ),
         row((
-            button("Edit").id(day::id!(textarea::edit)).action(move || editable.set(true)),
+            button("Edit")
+                .id(day::id!(textarea::edit))
+                .action(move || editable.set(true)),
             button("Read only")
                 .id(day::id!(textarea::readonly))
                 .action(move || editable.set(false)),
@@ -122,9 +129,11 @@ pub fn page() -> impl Piece {
                 .action(move || text.set("Alpha Beta".into())),
         )),
         row((
-            button("Seed clipboard").id(day::id!(textarea::seed)).action(|| {
-                assert!(day::clipboard::set_text("PasteMarker"));
-            }),
+            button("Seed clipboard")
+                .id(day::id!(textarea::seed))
+                .action(|| {
+                    assert!(day::clipboard::set_text("PasteMarker"));
+                }),
             button("Clear paste check")
                 .id(day::id!(textarea::clear_clipboard))
                 .action(move || clipboard.set(String::new())),

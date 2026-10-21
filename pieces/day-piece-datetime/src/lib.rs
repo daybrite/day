@@ -629,8 +629,6 @@ pub mod conformance {
                 d.assert_text("datetime::value", "time 14:45").await
             })
     }
-
-    day_core::tests! { date_picker_sets_date, date_picker_clamps, time_picker_sets_time }
 }
 
 #[cfg(test)]

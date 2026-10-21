@@ -96,6 +96,7 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
       - run: cargo fmt --manifest-path crates/day-core/tests/fixtures/element-ids/Cargo.toml --all -- --check
+      - run: cargo fmt --manifest-path crates/day-core/tests/fixtures/conformance/Cargo.toml --all -- --check
 
   clippy:
     if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
@@ -124,6 +125,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Unused helpers, repeated expansions, cfg, and stripped LTO artifacts
         run: python3 scripts/ci/element-ids.py
+
+  conformance-registry:
+    name: conformance discovery retention
+    if: ${{ !inputs.website-only && github.event_name != 'repository_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: Swatinem/rust-cache@v2
+      - name: Debug, release, LTO, cfg, unused dependencies, and deliberate registration loss
+        run: python3 scripts/ci/conformance-registry.py
 
   # Spelling + the American-English rule (STYLE_GUIDE.md), enforced by `typos` over the whole
   # tree: prose, doc comments, and code comments alike. It is a spelling gate and a dialect gate

@@ -33,6 +33,7 @@ anstyle = { workspace = true }
 anstream = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+inventory = { workspace = true }
 day-macros = { workspace = true }
 
 [dev-dependencies]

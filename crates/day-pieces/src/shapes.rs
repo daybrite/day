@@ -590,6 +590,4 @@ pub(crate) mod conformance {
                 d.sample_pixel("group", 0.75, 0.5, "#0000ff").await
             })
     }
-
-    day_core::tests! { shape_fill, shape_circle, shape_rounded, shape_group_places }
 }

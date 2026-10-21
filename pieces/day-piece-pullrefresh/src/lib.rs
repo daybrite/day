@@ -333,6 +333,4 @@ pub mod conformance {
                     .await
             })
     }
-
-    day_core::tests! { pullrefresh_begins_and_ends }
 }

@@ -2106,7 +2106,7 @@ fn exec(step: Step, revision: u32) -> Reply {
                 Ok(Reply::ok())
             }
             Step::Tests => Ok(Reply {
-                data: Some(conformance::listing()),
+                data: Some(conformance::listing().map_err(|e| Reply::fail(e, false))?),
                 ..Reply::ok()
             }),
             Step::RunTests {

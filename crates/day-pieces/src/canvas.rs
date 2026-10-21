@@ -620,12 +620,6 @@ pub(crate) mod conformance {
                     .await
             })
     }
-
-    day_core::tests! {
-        canvas_a11y_value,
-        canvas_focus_after_layout,
-        canvas_image_transform_and_opacity,
-    }
 }
 
 #[cfg(test)]

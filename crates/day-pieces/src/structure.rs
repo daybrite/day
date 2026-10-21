@@ -4184,23 +4184,4 @@ pub(crate) mod conformance {
                 d.assert_text("conformance_row:Pear", "Pear").await
             })
     }
-
-    day_core::tests! {
-        tree_rows_disclose,
-        tree_expanded_signal,
-        tree_section_expansion_contract,
-        tree_move_reparents,
-        list_rows_realize,
-        list_follows_source,
-        list_append_then_scroll,
-        list_rows_size_to_content,
-        list_select_and_activate,
-        list_reorder_moves_row,
-        list_delete_row,
-        list_swipe_action,
-        list_scroll_to_row,
-        list_recycles_distant_rows,
-        list_releases_discarded_rows,
-        list_shrink_and_regrow,
-    }
 }

@@ -399,6 +399,4 @@ pub(crate) mod conformance {
             })
             .drive(|d: Drive| async move { d.a11y_audit(Some("image")).await })
     }
-
-    day_core::tests! { image_bytes, image_fit, image_a11y }
 }

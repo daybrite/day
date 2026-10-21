@@ -326,8 +326,8 @@ pub fn observable_impls(input: TokenStream) -> TokenStream {
 /// ```
 ///
 /// The registry lives in day-core; a crate below `day` names it: `#[day_macros::test(day_core)]`.
-/// On wasm there is no link-time registry, so a crate also lists its tests in a
-/// `day::tests! { .. }` roster, which the app registers at launch.
+/// Native targets use linkme; WASM uses inventory and a compiler-exported descriptor.
+/// `day build` records these exports before linking and validates discovery before tests run.
 #[proc_macro_attribute]
 pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let krate = attr.to_string();
@@ -353,16 +353,51 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
             .parse()
             .unwrap_or_default();
     };
+    // Preserve conditional compilation even when #[cfg] follows #[day::test].
+    let cfg: String = item
+        .clone()
+        .into_iter()
+        .filter_map(|token| {
+            if let proc_macro::TokenTree::Group(group) = token
+                && group.delimiter() == proc_macro::Delimiter::Bracket
+            {
+                let text = group.stream().to_string();
+                if text.starts_with("cfg ")
+                    || text.starts_with("cfg(")
+                    || text.starts_with("cfg_attr ")
+                    || text.starts_with("cfg_attr(")
+                {
+                    return Some(format!("#[{text}]\n"));
+                }
+            }
+            None
+        })
+        .collect();
     let entry = format!(
-        "#[cfg(not(target_arch = \"wasm32\"))]\n\
-         #[::{krate}::linkme::distributed_slice(::{krate}::conformance::TESTS)]\n\
-         #[linkme(crate = ::{krate}::linkme)]\n\
-         #[allow(non_upper_case_globals)]\n\
-         static __day_test_{name}: ::{krate}::conformance::TestFn =\n\
-             ::{krate}::conformance::TestFn::new(\"{name}\", {name});\n"
+        r#"{cfg}
+        const _: () = {{
+            #[cfg_attr(not(target_arch = "wasm32"), ::{krate}::linkme::distributed_slice(::{krate}::conformance::TESTS))]
+            #[cfg_attr(not(target_arch = "wasm32"), linkme(crate = ::{krate}::linkme))]
+            static TEST: ::{krate}::conformance::TestFn = ::{krate}::conformance::TestFn::new(
+                concat!(env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"), "::", module_path!(), "::{name}"), {name});
+
+            #[cfg(target_arch = "wasm32")]
+            #[unsafe(export_name = concat!("__day_test_v1__", env!("CARGO_PKG_NAME"), "@", env!("CARGO_PKG_VERSION"), "::", module_path!(), "::{name}"))]
+            extern "C" fn descriptor() -> *const ::{krate}::conformance::TestFn {{
+                // The export roots the descriptor's object. The separately recorded export
+                // expectation detects a missing constructor even if codegen splits it away.
+                ::{krate}::inventory::submit! {{ ::{krate}::conformance::Registration(&TEST) }}
+                &TEST
+            }}
+        }};
+"#
     );
     let mut out: TokenStream = item;
-    out.extend(entry.parse::<TokenStream>().unwrap_or_default());
+    out.extend(
+        entry
+            .parse::<TokenStream>()
+            .expect("valid conformance declaration expansion"),
+    );
     out
 }
 

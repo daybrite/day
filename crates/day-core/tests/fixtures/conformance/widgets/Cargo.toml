@@ -1,0 +1,9 @@
+[package]
+name = "registry-widgets"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+day-core = { path = "../../../.." }
+day-macros = { path = "../../../../../day-macros" }

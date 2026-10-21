@@ -531,12 +531,6 @@ pub(crate) mod conformance {
                 .await
             })
     }
-
-    day_core::tests! {
-        split_panes_follow_the_share,
-        split_axis_stacks_the_panes,
-        split_min_pane_holds_the_share,
-    }
 }
 
 #[cfg(test)]

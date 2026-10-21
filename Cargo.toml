@@ -226,6 +226,7 @@ napi-derive-ohos = "1.2"
 libc = "0.2"
 slotmap = "1.1"
 linkme = "0.3"
+inventory = "0.3.25"
 # The logging facade every day crate emits through (docs/logging.md). It is a facade only, with
 # no backend and no dependencies, and it is `no_std`-capable, so taking it costs a crate name and
 # nothing else; it is also what lets an app install `env_logger`/`tracing`/its own `log::Log`

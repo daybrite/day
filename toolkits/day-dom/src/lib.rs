@@ -4740,6 +4740,18 @@ pub extern "C" fn day_dom_install_ids(ptr: *mut u8, len: usize) {
     }
 }
 
+/// Install expectations captured before linking and run registration constructors once.
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // allocated by the trusted shim
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_install_tests(ptr: *mut u8, len: usize) {
+    // SAFETY: the shim initialized exactly len bytes from day_dom_alloc.
+    let bytes = unsafe { Vec::from_raw_parts(ptr, len, len) };
+    if let Err(error) = day_core::conformance::install_web_registry(&bytes) {
+        // Keep the host alive to report a nonretryable dayscript infrastructure error.
+        log::error!("{error}");
+    }
+}
+
 fn take_string(ptr: *mut u8, len: usize) -> String {
     // SAFETY: the shim wrote exactly `len` bytes into a `day_dom_alloc(len)` allocation.
     let v = unsafe { Vec::from_raw_parts(ptr, len, len) };

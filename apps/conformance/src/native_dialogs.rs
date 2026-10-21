@@ -18,86 +18,98 @@ pub fn page() -> impl Piece {
         label(move || answer.get()).id(day::id!(dialogs::answer)),
         label(move || first.get()).id(day::id!(dialogs::first)),
         label(move || second.get()).id(day::id!(dialogs::second)),
-        button("Confirmation").id(day::id!(dialogs::confirm)).action(move || {
-            answer.set("pending".into());
-            let set = answer.setter();
-            day::task(async move {
-                let yes = confirm("Delete \"東京\"?")
-                    .message("This cannot be undone.\nKeep a backup.")
-                    .confirm_label("Remove")
-                    .cancel_label("Keep")
-                    .destructive()
-                    .present()
-                    .await;
-                set.set(format!("confirm {yes}"));
-            });
-        }),
-        button("Text prompt").id(day::id!(dialogs::prompt)).action(move || {
-            answer.set("pending".into());
-            let set = answer.setter();
-            day::task(async move {
-                let text = prompt("Your name")
-                    .message("Choose a display name")
-                    .placeholder("Name")
-                    .initial("Ada")
-                    .ok_label("Save")
-                    .cancel_label("Cancel")
-                    .present()
-                    .await;
-                set.set(format!("prompt {text:?}"));
-            });
-        }),
-        button("Action sheet").id(day::id!(dialogs::sheet)).action(move || {
-            answer.set("pending".into());
-            let set = answer.setter();
-            day::task(async move {
-                let choice = Alert::new("Choose an action")
-                    .sheet()
-                    .message("Four choices")
-                    .button("First", 10)
-                    .cancel("Cancel")
-                    .destructive("Delete", 30)
-                    .button("Last", 40)
-                    .present()
-                    .await;
-                set.set(format!("sheet {choice:?}"));
-            });
-        }),
-        button("No buttons").id(day::id!(dialogs::empty)).action(move || {
-            let set = answer.setter();
-            day::task(async move {
-                alert("No choices")
-                    .message("Dismiss with Back or outside the dialog")
-                    .await;
-                set.set("empty dismissed".into());
-            });
-        }),
-        button("Two queued dialogs").id(day::id!(dialogs::pair)).action(move || {
-            first.set("pending".into());
-            second.set("pending".into());
-            let a = first.setter();
-            let b = second.setter();
-            day::task(async move {
-                let yes = confirm("Queue A").present().await;
-                a.set(format!("first {yes}"));
-            });
-            day::task(async move {
-                let yes = confirm("Queue B").present().await;
-                b.set(format!("second {yes}"));
-            });
-        }),
-        button("Chained dialogs").id(day::id!(dialogs::chain)).action(move || {
-            answer.set("pending".into());
-            let set = answer.setter();
-            day::task(async move {
-                if confirm("Continue?").present().await {
-                    let text = prompt("Next dialog").initial("ready").present().await;
-                    set.set(format!("chain {text:?}"));
-                } else {
-                    set.set("chain cancelled".into());
-                }
-            });
-        }),
+        button("Confirmation")
+            .id(day::id!(dialogs::confirm))
+            .action(move || {
+                answer.set("pending".into());
+                let set = answer.setter();
+                day::task(async move {
+                    let yes = confirm("Delete \"東京\"?")
+                        .message("This cannot be undone.\nKeep a backup.")
+                        .confirm_label("Remove")
+                        .cancel_label("Keep")
+                        .destructive()
+                        .present()
+                        .await;
+                    set.set(format!("confirm {yes}"));
+                });
+            }),
+        button("Text prompt")
+            .id(day::id!(dialogs::prompt))
+            .action(move || {
+                answer.set("pending".into());
+                let set = answer.setter();
+                day::task(async move {
+                    let text = prompt("Your name")
+                        .message("Choose a display name")
+                        .placeholder("Name")
+                        .initial("Ada")
+                        .ok_label("Save")
+                        .cancel_label("Cancel")
+                        .present()
+                        .await;
+                    set.set(format!("prompt {text:?}"));
+                });
+            }),
+        button("Action sheet")
+            .id(day::id!(dialogs::sheet))
+            .action(move || {
+                answer.set("pending".into());
+                let set = answer.setter();
+                day::task(async move {
+                    let choice = Alert::new("Choose an action")
+                        .sheet()
+                        .message("Four choices")
+                        .button("First", 10)
+                        .cancel("Cancel")
+                        .destructive("Delete", 30)
+                        .button("Last", 40)
+                        .present()
+                        .await;
+                    set.set(format!("sheet {choice:?}"));
+                });
+            }),
+        button("No buttons")
+            .id(day::id!(dialogs::empty))
+            .action(move || {
+                let set = answer.setter();
+                day::task(async move {
+                    alert("No choices")
+                        .message("Dismiss with Back or outside the dialog")
+                        .await;
+                    set.set("empty dismissed".into());
+                });
+            }),
+        button("Two queued dialogs")
+            .id(day::id!(dialogs::pair))
+            .action(move || {
+                first.set("pending".into());
+                second.set("pending".into());
+                let a = first.setter();
+                let b = second.setter();
+                day::task(async move {
+                    let yes = confirm("Queue A").present().await;
+                    a.set(format!("first {yes}"));
+                });
+                day::task(async move {
+                    let yes = confirm("Queue B").present().await;
+                    b.set(format!("second {yes}"));
+                });
+            }),
+        button("Chained dialogs")
+            .id(day::id!(dialogs::chain))
+            .action(move || {
+                answer.set("pending".into());
+                let set = answer.setter();
+                day::task(async move {
+                    if confirm("Continue?").present().await {
+                        let text = prompt("Next dialog").initial("ready").present().await;
+                        set.set(format!("chain {text:?}"));
+                    } else {
+                        set.set("chain cancelled".into());
+                    }
+                });
+            }),
         row((
             button("Dark")
                 .id(day::id!(dialogs::dark))

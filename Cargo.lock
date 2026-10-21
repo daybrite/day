@@ -565,6 +565,7 @@ dependencies = [
  "serde_json",
  "serde_norway",
  "sha2",
+ "shlex",
  "toml",
  "toml_edit",
  "ureq",
@@ -584,6 +585,7 @@ dependencies = [
  "day-mock",
  "day-reactive",
  "day-spec",
+ "inventory",
  "linkme",
  "log",
  "slotmap",
@@ -2622,6 +2624,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "078ea7b7c29a2b4df841a7f6ac8775ff6074020c6776d48491ce2268e068f972"
 dependencies = [
  "unic-langid",
+]
+
+[[package]]
+name = "inventory"
+version = "0.3.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6928282826c822ad91bf1c9a1cb90a30ba1c26770749929b4656cd6be829cd7c"
+dependencies = [
+ "rustversion",
 ]
 
 [[package]]

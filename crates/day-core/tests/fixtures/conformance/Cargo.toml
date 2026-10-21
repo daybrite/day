@@ -1,0 +1,22 @@
+[package]
+name = "day-conformance-registry-fixture"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+members = ["widgets"]
+
+[dependencies]
+day-core = { path = "../../.." }
+day-macros = { path = "../../../../day-macros" }
+day-script = { path = "../../../../day-script" }
+registry-widgets = { path = "widgets", optional = true }
+
+[features]
+default = ["provider"]
+provider = ["dep:registry-widgets"]
+missing-registration = []
+
+[lib]
+crate-type = ["cdylib", "rlib"]

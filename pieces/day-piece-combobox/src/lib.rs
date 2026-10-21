@@ -201,6 +201,4 @@ pub mod conformance {
                     .await
             })
     }
-
-    day_core::tests! { combobox_menu_selects, combobox_free_text }
 }

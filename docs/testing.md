@@ -169,7 +169,6 @@ pub(crate) mod conformance {
     #[day_macros::test(day_core)]
     fn button_press() -> Case { /* … */ }
 
-    day_core::tests! { button_press }
 }
 ```
 
@@ -178,9 +177,9 @@ pub(crate) mod conformance {
   (`padding_insets`).
 - **One aspect per case**, named for it, so a failure reads as a sentence.
 - **Ids** only need to be unique within the case: the test host shows one case at a time.
-- **Each module ends with its roster** (`day_core::tests!`); `crates/day-pieces/src/conformance.rs`
-  calls every module's `register_tests()` and concatenates their `roster()`s, and holds the cases
-  that belong to no piece and the conformance app's browsing page.
+- **Declare each test once**, with the attribute. There is no per-module roster or startup
+  registration call. `crates/day-pieces/src/conformance.rs` holds the cases that belong to no
+  piece and the conformance app's browsing page.
 - **What a case proves** is declared with `.proves(kinds::X)`, `.proves_modifier("padding")`,
   `.proves_cap(Cap::X)` and `.proves_duty("x")`. `scripts/ci/conformance-coverage.py` reads
   those and reports, per family, what is proven and what is not. Its `lint.sh` leg gates the
@@ -190,8 +189,8 @@ pub(crate) mod conformance {
 
 **The pieces in this repository** (`pieces/*`) carry their cases the same way, in a
 `pub mod conformance` behind each crate's own `conformance` feature. The conformance app depends
-on every one of them with that feature on, and its root calls each crate's `register_tests()`
-for the web. A piece from another repository is that repository's to test; the conformance app
+on every one of them with that feature on. A dependency used only for its tests must enter
+rustc's dependency graph with `use provider_crate as _;` on every target. A piece from another repository is that repository's to test; the conformance app
 takes none. The coverage script counts a piece crate as proven when it has cases, and `lint.sh`
 gates that family with the kinds (`--require kinds,pieces`).
 
@@ -200,13 +199,52 @@ its test build turns on.
 
 ### Registration
 
-`#[day::test]` adds the function, with its identifier, to a link-time registry (a `linkme`
-slice, the mechanism the renderer registry uses). Two test functions with one name, in two
-modules or two crates, both fail with that said. `linkme` does not compile for `wasm32-unknown-unknown`, so a crate
-also lists its tests once in a `day::tests! { .. }` roster, which expands to
-`register_tests()`: a no-op where the slice exists, the registration where it does not. A unit
-test in day-pieces holds the roster equal to the slice, so the two cannot drift. A crate below
-`day` names the registry's crate: `#[day_macros::test(day_core)]`.
+`#[day::test]` is the only test declaration. Native targets retain their static `linkme`
+slice; WASM uses `inventory` constructors. A crate below `day` uses
+`#[day_macros::test(day_core)]`. Public case names still replace underscores with hyphens;
+discovery identities also include the package, version and module path. Duplicate compiled
+case names fail before filtering. The runtime `register` API is for synthetic harness cases.
+
+On WASM the attribute emits a descriptor export. Its address references the descriptor, so
+rustc requires the object's inclusion. The Day CLI acts as the final linker driver, records
+these required exports **before** invoking rust-lld, then appends a versioned
+`day_test_expectations` custom section to the output. This handles target cfg and LTO without
+source scanners, archive parsing, a second compilation, or handwritten test names. Rustc's
+export contract and runtime inventory are independent: a retained descriptor does not hide
+an omitted registration constructor.
+
+The DOM host installs the manifest and invokes constructors once before app startup. `tests`
+and `run_tests` compare exact compiled identities before any filter or capability skip. Missing,
+unexpected or duplicate entries fail nonretryably, with the missing names and no executed tests.
+Absent/malformed expectations fail closed, including when a packaging tool strips the custom
+section. Custom WASM hosts must install the section with
+`day_core::conformance::install_web_registry`. Bare Cargo builds lack the audited manifest and
+cannot run WASM conformance tests; use `day build`. Ordinary app functionality is unaffected.
+
+An entire crate removed from the compiler graph cannot contribute an export. Test-suite apps
+can require providers in Cargo.toml; `apps/conformance` does this for every contributing crate:
+
+```toml
+[package.metadata.day.conformance]
+required-providers = ["my-test-app", "my-widget-crate"]
+```
+
+A required provider with no test exports fails the web build, including an accidentally disabled
+feature or missing `use crate as _`. This is a suite-level dependency contract, not a catalog of
+individual tests. Tests intentionally disabled by cfg are absent from expectations. Removing a
+provider from both Cargo and this contract is an explicit source change to review.
+
+No whole-archive linking, forced LTO or codegen-unit restriction is needed. Inventory adds static
+nodes and constructor code, performs registration once, and traverses its list for discovery;
+it does not allocate per-entry nodes or add work to the rendering loop. Tests behind a disabled
+conformance feature contribute neither descriptors nor constructors. Other Day registries keep
+their existing implementations.
+
+`scripts/ci/conformance-registry.py` exercises real WASM artifacts in debug, one-codegen-unit
+debug, ordinary release and stripped full-LTO release. It covers unused dependency modules,
+registration inside an uncalled generic helper, cfg on both sides of the attribute, repeated
+initialization, missing/corrupt expectations, and deliberate loss of a constructor and of an
+entire provider. The loss cases must fail; a green run of the surviving tests is insufficient.
 
 ## Running tests
 

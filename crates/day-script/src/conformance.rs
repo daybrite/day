@@ -74,9 +74,10 @@ thread_local! {
 }
 
 /// What `tests` answers: every registered test, before any runs.
-pub fn listing() -> serde_json::Value {
+pub fn listing() -> Result<serde_json::Value, String> {
+    day_core::conformance::validate_registry()?;
     let cases = day_core::conformance::cases();
-    serde_json::Value::Array(
+    Ok(serde_json::Value::Array(
         cases
             .iter()
             .map(|c| {
@@ -88,7 +89,7 @@ pub fn listing() -> serde_json::Value {
                 })
             })
             .collect(),
-    )
+    ))
 }
 
 /// Answer a `run_tests` step: start the run on its first call, then report "running" until
@@ -99,6 +100,7 @@ pub fn run_tests(
     shots: ShotPolicy,
     case_timeout_secs: Option<f64>,
 ) -> Result<Reply, Reply> {
+    day_core::conformance::validate_registry().map_err(|e| Reply::fail(e, false))?;
     let run = RUN.with(|r| r.borrow().clone());
     match run {
         None => {

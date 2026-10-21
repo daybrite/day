@@ -62,3 +62,24 @@ day-core = { path = "../../crates/day-core" }
 # Its own workspace: a package nested inside the framework's workspace without being a member
 # fails every cargo command, and the root excludes `apps/*` for the same reason.
 [workspace]
+
+# Suite-level guard against accidentally unlinking an entire provider. Individual tests
+# are discovered from compiler exports, never listed here.
+[package.metadata.day.conformance]
+required-providers = [
+    "conformance",
+    "day-pieces",
+    "day-piece-activity",
+    "day-piece-colorpicker",
+    "day-piece-combobox",
+    "day-piece-datetime",
+    "day-piece-map",
+    "day-piece-pager",
+    "day-piece-pullrefresh",
+    "day-piece-rating",
+    "day-piece-remote-image",
+    "day-piece-searchfield",
+    "day-piece-settings",
+    "day-piece-texteditor",
+    "day-piece-stepper",
+]

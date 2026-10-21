@@ -185,6 +185,4 @@ pub mod conformance {
                 d.assert_text("searchfield::search", "").await
             })
     }
-
-    day_core::tests! { searchfield_query_two_way }
 }

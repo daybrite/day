@@ -797,6 +797,4 @@ pub mod conformance {
                     .await
             })
     }
-
-    day_core::tests! { colorpicker_composed_picks }
 }

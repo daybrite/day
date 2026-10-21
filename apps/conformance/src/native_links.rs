@@ -58,11 +58,14 @@ pub fn page() -> impl Piece {
             button("Plain")
                 .id(day::id!(links::plain))
                 .action(move || source.set("😀 Alpha / Beta / plain".into())),
-            button("Restore").id(day::id!(links::restore)).action(move || {
-                source.set(
-                    "😀 [Alpha](#alpha) / [Beta](https://example.invalid/β?x=1&y=2) / plain".into(),
-                )
-            }),
+            button("Restore")
+                .id(day::id!(links::restore))
+                .action(move || {
+                    source.set(
+                        "😀 [Alpha](#alpha) / [Beta](https://example.invalid/β?x=1&y=2) / plain"
+                            .into(),
+                    )
+                }),
         )),
         row((
             button("Remove on click")

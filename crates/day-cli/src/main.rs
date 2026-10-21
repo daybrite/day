@@ -57,10 +57,14 @@ mod term;
 mod update;
 mod url_handlers;
 mod web;
+mod web_tests;
 mod xcconfig;
 mod xcode;
 
 fn main() {
+    if let Some(code) = web_tests::linker_entry() {
+        std::process::exit(code);
+    }
     // Before anything else, and while this is the only thread: undo a snap-packaged host's
     // library overrides so every build and launch below inherits the system's (ops.rs).
     let scrubbed = ops::scrub_snap_env();

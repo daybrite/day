@@ -737,11 +737,6 @@ pub(crate) mod conformance {
                 d.assert_text("chose", "chose 2").await
             })
     }
-
-    day_core::tests! {
-        context_menu_runs_action,
-        context_menu_fn_builds_on_summon,
-    }
 }
 
 #[cfg(test)]

@@ -3,11 +3,11 @@
 
 //! The built-in pieces' conformance cases, gathered (docs/testing.md). Each piece's cases live
 //! in a `mod conformance` at the end of the file that defines it, next to the constructors they
-//! prove; this module lists those modules for the targets with no link-time registry (wasm),
-//! holds the cases that belong to no piece, and builds the conformance app's browsing page.
+//! prove; the attribute discovers them automatically. This module holds cases that belong
+//! to no piece and builds the conformance app's browsing page.
 //! Compiled only under the `conformance` feature, so a shipping app links none of it.
 
-use day_core::conformance::{Case, Drive, TestFn};
+use day_core::conformance::{Case, Drive};
 use day_core::*;
 use day_reactive::Signal;
 
@@ -270,64 +270,6 @@ mod general {
             t.check_eq(sum, (0..n).sum::<usize>())
         })
     }
-
-    day_core::tests! {
-        headless_sanity,
-        sleep_resolves_after_its_delay,
-        sleep_zero_yields_the_turn,
-        sleeps_resolve_in_delay_order,
-        an_aborted_task_never_wakes_from_its_sleep,
-        a_blocking_job_runs_off_the_ui_thread_and_resolves_on_it,
-        a_panicking_blocking_job_is_an_error,
-        a_blocking_job_dropped_before_it_starts_never_runs,
-        blocking_jobs_beyond_the_limit_all_complete,
-    }
-}
-
-/// Register every module's cases where there is no link-time registry (wasm); a no-op
-/// elsewhere. A new piece module's `conformance` joins both lists below.
-pub fn register_tests() {
-    general::register_tests();
-    crate::leaves::conformance::register_tests();
-    crate::inputs::conformance::register_tests();
-    crate::image::conformance::register_tests();
-    crate::forms::conformance::register_tests();
-    crate::canvas::conformance::register_tests();
-    crate::containers::conformance::register_tests();
-    crate::shapes::conformance::register_tests();
-    crate::decorators::conformance::register_tests();
-    crate::structure::conformance::register_tests();
-    crate::nav::conformance::register_tests();
-    crate::inspector::conformance::register_tests();
-    crate::split::conformance::register_tests();
-    crate::dialogs::conformance::register_tests();
-    crate::toolbar::conformance::register_tests();
-    crate::menus::conformance::register_tests();
-    crate::tabs::conformance::register_tests();
-}
-
-/// Every module's roster as written, for the lint that holds it equal to the link-time slice.
-pub fn roster() -> Vec<TestFn> {
-    [
-        general::roster(),
-        crate::leaves::conformance::roster(),
-        crate::inputs::conformance::roster(),
-        crate::image::conformance::roster(),
-        crate::forms::conformance::roster(),
-        crate::canvas::conformance::roster(),
-        crate::containers::conformance::roster(),
-        crate::shapes::conformance::roster(),
-        crate::decorators::conformance::roster(),
-        crate::structure::conformance::roster(),
-        crate::nav::conformance::roster(),
-        crate::inspector::conformance::roster(),
-        crate::split::conformance::roster(),
-        crate::dialogs::conformance::roster(),
-        crate::toolbar::conformance::roster(),
-        crate::menus::conformance::roster(),
-        crate::tabs::conformance::roster(),
-    ]
-    .concat()
 }
 
 /// The conformance app's content: a nav over every registered GUI case, one route per case,
@@ -359,26 +301,4 @@ pub fn test_pages() -> impl Piece {
                 None => label(format!("no test {key:?}")).any(),
             },
         )
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-mod tests {
-    /// The roster (what wasm registers) names exactly the functions the link-time slice holds,
-    /// under the same names.
-    #[test]
-    fn roster_matches_the_link_time_registry() {
-        let entries = |tests: Vec<day_core::conformance::TestFn>| {
-            let mut v: Vec<(String, usize)> = tests
-                .iter()
-                .map(|t| (t.name(), t.build_fn() as usize))
-                .collect();
-            v.sort();
-            v
-        };
-        assert_eq!(
-            entries(day_core::conformance::TESTS.to_vec()),
-            entries(super::roster()),
-            "every #[day::test] here must also be in `day_core::tests!`"
-        );
-    }
 }

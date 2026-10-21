@@ -107,6 +107,7 @@ pub fn build_web(
         // Scripted WebKit runs should build `--profile release`, as CI does.
         cmd.args(["--", "-Cstrip=debuginfo"]);
     }
+    crate::web_tests::configure(&mut cmd, &project.root)?;
     status("Building", &format!("{} ({profile})", target.name));
     let out = cmd.status().map_err(|e| format!("cargo: {e}"))?;
     if !out.success() {

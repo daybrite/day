@@ -1585,20 +1585,4 @@ pub(crate) mod conformance {
             result
         })
     }
-
-    day_core::tests! {
-        document_tabs_strip_selects_and_stays_enabled,
-        document_tabs_close_selects_neighbor,
-        document_tabs_close_request_can_be_vetoed,
-        document_tabs_reorder_keeps_resident_content,
-        document_tabs_background_open_keeps_selection,
-        document_tabs_select_next_wraps,
-        document_tabs_new_button_delegates_to_app,
-        document_tabs_empty_host_shows_nothing,
-        document_tabs_titles_follow_model,
-        document_tabs_presentation_switch_keeps_content,
-        document_tabs_window_groups_follow_model,
-        document_tabs_custom_chrome_uses_actions,
-        document_tabs_model_contract,
-    }
 }

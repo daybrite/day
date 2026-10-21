@@ -41,6 +41,9 @@ pub use day_macros::retain_element_id as __retain_element_id;
 /// Re-exported so every crate above day-core can reach it without taking a direct
 /// day-reactive dependency (see day-reactive for what it does and why Android needs it).
 pub use day_reactive::tls_group;
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub use inventory;
 /// The link-time registry crate `#[day::test]` expands through (docs/testing.md).
 pub use linkme;
 

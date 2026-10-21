@@ -3033,6 +3033,15 @@ async function boot(wasmUrl) {
   }
   wasm.day_dom_install_ids(idPtr, idLength);
 
+  // Independent expectations recorded from rustc's exports BEFORE the linker ran.
+  // Missing/duplicate sections fail closed in Rust; never derive this from inventory.
+  const testSections = WebAssembly.Module.customSections(module, 'day_test_expectations');
+  const testBytes = testSections.length === 1 ? new Uint8Array(testSections[0]) : new Uint8Array();
+  if (testBytes.length > 16 * 1024 * 1024) throw new Error('Day test manifest exceeds 16 MiB');
+  const testPtr = wasm.day_dom_alloc(testBytes.length);
+  new Uint8Array(wasm.memory.buffer, testPtr, testBytes.length).set(testBytes);
+  wasm.day_dom_install_tests(testPtr, testBytes.length);
+
 
   // Installed PWA file handling (Chromium). Other browsers retain the ordinary picker.
   if ('launchQueue' in window) window.launchQueue.setConsumer(async launch => {

@@ -357,16 +357,3 @@ fn vector_native_icon_follows_button_tint() -> Case {
             d.sample_pixel("button", 0.5, 0.5, "#ffffff").await
         })
 }
-
-day::tests! {
-    vector_resize_retains_fine_detail,
-    vector_reactive_tint_preserves_alpha,
-    vector_non_square_content_modes,
-    vector_source_swaps_with_bitmap,
-    vector_native_icon_follows_button_tint,
-    vector_tint_preserves_strokes,
-    vector_tint_preserves_fill_rules,
-    vector_tint_at_multiple_sizes,
-    vector_fine_detail_exceeds_raster_cache,
-    vector_native_icon_slot_preserves_strokes,
-}

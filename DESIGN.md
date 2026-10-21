@@ -5930,6 +5930,19 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    job) and writing `verified-matrix.md` beside it (`scripts/ci/conformance-claims.py`). `dayapp.yml` prefixes its
    screenshot artifacts with the caller's `artifact-prefix` since 2026-10, which is what lets
    two calls of it share one run.
+   Conformance discovery is declared once with `#[day::test]`: native targets keep `linkme`,
+   while WASM uses `inventory` and exported descriptors. The web build's final linker driver
+   captures rustc's required test exports before archive extraction/LTO and appends those
+   independent expectations to the finished module. The DOM host installs that versioned
+   manifest and runs constructors once before application startup. Both listing and execution
+   fail closed on incomplete discovery, before filters or capability skips; stripped/missing
+   metadata is an error. Test-suite apps can require provider packages in
+   `[package.metadata.day.conformance].required-providers`, so dropping an entire dependency
+   from rustc's graph also fails the web build. No per-test or per-module rosters remain.
+   Other registries are unchanged. Bare Cargo WASM hosts must supply the audited manifest;
+   `day build` and the bundled DOM shim do this automatically. Lifecycle, costs and limitations
+   are in [testing.md](docs/testing.md#registration), with intentional-loss regression coverage
+   in [conformance-registry.py](scripts/ci/conformance-registry.py).
 4. **Per-combo jobs** (macOS: appkit/gtk/qt; Linux: gtk/qt headless; Windows: winui and the
    deprecated xaml; plus `ios-uikit`, `android-mdc`, `harmony-arkui` and `web-dom`): each installs that
    host's toolkit dependencies and runs the checks that need it — above all

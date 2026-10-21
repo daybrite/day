@@ -154,8 +154,6 @@ pub mod conformance {
                 d.assert_visible("activity::spinner").await
             })
     }
-
-    day_core::tests! { activity_shows_and_toggles }
 }
 
 #[cfg(test)]

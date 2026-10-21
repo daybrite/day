@@ -680,7 +680,4 @@ pub(crate) mod conformance {
                 })
             })
     }
-
-    day_core::tests! { form_sections, labeled_aligns_controls,
-    labeled_nontext_controls_center, row_nontext_controls_center, wrapped_controls_stay_inside_row }
 }

@@ -551,10 +551,4 @@ pub mod conformance {
                 d.assert_text("stepper::count", "9").await
             })
     }
-
-    day_core::tests! {
-        stepper_sets_value,
-        stepper_clamps_to_range,
-        stepper_composed_sets_value,
-    }
 }

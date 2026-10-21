@@ -431,14 +431,16 @@ pub use day_pieces::NativeRef;
 /// Tests that run inside the built app (docs/testing.md): `#[day::test]`, [`Case`], [`Drive`].
 pub use day_core::conformance;
 pub use day_core::conformance::{Case, Drive, Fail, TestResult};
+/// WASM registration implementation used by `#[day::test]`.
+#[cfg(target_arch = "wasm32")]
+#[doc(hidden)]
+pub use day_core::inventory;
 pub use day_core::linkme;
 /// The link-time registry `day-build`'s generated code adds the app's `[[shortcuts]]` to
 /// (docs/deep-links.md "Launcher shortcuts"); not for app code.
 #[doc(hidden)]
 #[cfg(not(target_arch = "wasm32"))]
 pub use day_core::shortcuts::LAUNCHER_SHORTCUTS;
-/// The roster of an app's tests for the targets with no link-time registry (docs/testing.md).
-pub use day_core::tests;
 /// `#[day::builder(FooBuilder)]`: a piece's builder trait, generated from its inherent impl
 /// (docs/api-style.md "Typed builders and erasure").
 pub use day_macros::builder;

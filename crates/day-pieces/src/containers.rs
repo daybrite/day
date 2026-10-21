@@ -626,6 +626,4 @@ pub(crate) mod conformance {
                 d.sample_pixel("scroll", 0.5, 0.5, "#0000ff").await
             })
     }
-
-    day_core::tests! { column_spacing, row_alignment, grid_columns, zstack_layers, scroll_to_target }
 }

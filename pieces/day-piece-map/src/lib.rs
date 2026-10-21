@@ -198,8 +198,6 @@ pub mod conformance {
                 .await
             })
     }
-
-    day_core::tests! { map_realizes }
 }
 
 #[cfg(test)]

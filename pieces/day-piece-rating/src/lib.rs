@@ -274,6 +274,4 @@ pub mod conformance {
                 d.assert_text("rating::value", "value 2").await
             })
     }
-
-    day_core::tests! { rating_tap_sets_value, rating_read_only_ignores_taps }
 }

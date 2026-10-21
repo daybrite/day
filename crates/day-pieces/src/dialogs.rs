@@ -806,12 +806,4 @@ pub(crate) mod conformance {
                 d.assert_text("answer", "None").await
             })
     }
-
-    day_core::tests! {
-        confirm_native_answer,
-        confirm_native_dismiss,
-        prompt_native_answer,
-        prompt_native_dismiss,
-        alert_sheet_preserves_button_indices,
-    }
 }

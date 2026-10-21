@@ -623,9 +623,4 @@ pub(crate) mod conformance {
                 d.assert_text("star", "star false").await
             })
     }
-
-    day_core::tests! {
-        toolbar_button_runs_action,
-        toolbar_toggle_writes_signal,
-    }
 }
