@@ -125,4 +125,7 @@ tokio = { version = "1", optional = true, features = ["rt-multi-thread", "net", 
 futures-util = { version = "0.3", optional = true, features = ["sink"] }
 rustls = { version = "0.23.46", optional = true, default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = { version = "1", optional = true }
-tokio-tungstenite = { version = "0.30", optional = true, features = ["rustls-tls-webpki-roots"] }
+# Rustls support without bundled roots: the websocket connect always passes its own connector
+# built from webpki-roots 1.x above, and the `rustls-tls-webpki-roots` feature would pull in the
+# webpki-roots 0.26 compatibility crate, which cargo-deny flags under RUSTSEC-2026-0381.
+tokio-tungstenite = { version = "0.30", optional = true, features = ["__rustls-tls"] }
