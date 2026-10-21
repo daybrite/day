@@ -73,3 +73,15 @@ pub fn root() -> impl Piece {
     day_piece_stepper::conformance::register_tests();
     day::test_host(day::builtin_tests::test_pages).any()
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn all_fixture_ids_can_share_one_app() {
+        let ids = day_core::element_id::registry()
+            .expect("conformance fixtures must not prevent the app's script handshake");
+        assert!(ids.iter().any(|id| id.family == "canvas_image::painted"));
+        assert!(ids.iter().any(|id| id.family == "remote_image::fit"));
+        assert!(ids.iter().any(|id| id.family == "vector_test::fit"));
+    }
+}

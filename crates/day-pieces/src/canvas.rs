@@ -562,7 +562,70 @@ pub(crate) mod conformance {
             })
     }
 
-    day_core::tests! { canvas_a11y_value, canvas_focus_after_layout }
+    /// Bitmap origins participate in the whole canvas transform, just like shape coordinates.
+    /// Reading the recorded rectangle alone cannot detect a native replay placing it elsewhere.
+    #[day_macros::test(day_core)]
+    fn canvas_image_transform_and_opacity() -> Case {
+        Case::new()
+            .proves(kinds::CANVAS)
+            .proves_cap(Cap::ImageDecode)
+            .requires(Cap::ImageDecode)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let bitmap = Signal::new(None::<day_core::Bitmap>);
+                day_core::decode_image_async(
+                    std::sync::Arc::new(crate::image::conformance::RED_BLUE.to_vec()),
+                    move |result| bitmap.set(Some(result.expect("decode the fixture PNG"))),
+                );
+                column((
+                    canvas(move |d, size| {
+                        d.fill(Shape::Rect(day_spec::Rect::from_size(size)), Color::WHITE);
+                        if let Some(image) = bitmap.get() {
+                            d.transformed(
+                                day_spec::Affine::scale(2.0, 2.0)
+                                    .then(day_spec::Affine::rotate(std::f64::consts::FRAC_PI_2))
+                                    .then(day_spec::Affine::translate(160.0, 20.0)),
+                                |d| {
+                                    d.image_with_opacity(
+                                        &image,
+                                        day_spec::Rect::new(20.0, 10.0, 40.0, 20.0),
+                                        0.5,
+                                    );
+                                },
+                            );
+                        }
+                    })
+                    .frame(200.0, 200.0)
+                    .id(day_core::id!(canvas_image::painted)),
+                    label(move || {
+                        if bitmap.get().is_some() {
+                            "ready"
+                        } else {
+                            "loading"
+                        }
+                    })
+                    .id(day_core::id!(canvas_image::state)),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("canvas_image::state", "ready").await?;
+                // Rotated and doubled: x=100..140, red y=60..100, blue y=100..140.
+                d.sample_pixel("canvas_image::painted", 0.6, 0.4, "#ff8080")
+                    .await?;
+                d.sample_pixel("canvas_image::painted", 0.6, 0.6, "#8080ff")
+                    .await?;
+                d.sample_pixel("canvas_image::painted", 0.4, 0.5, "#ffffff")
+                    .await?;
+                d.sample_pixel("canvas_image::painted", 0.6, 0.2, "#ffffff")
+                    .await
+            })
+    }
+
+    day_core::tests! {
+        canvas_a11y_value,
+        canvas_focus_after_layout,
+        canvas_image_transform_and_opacity,
+    }
 }
 
 #[cfg(test)]

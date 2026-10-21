@@ -3523,13 +3523,16 @@ void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* tex
             img.Opacity(f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f));
             // This canvas is RETAINED: an element is positioned by matrix rather than drawn, so
             // the op's origin rides the transform the same way every shape's does.
-            WUXM::Matrix m = cur;
-            m.OffsetX += a;
-            m.OffsetY += b;
+            // Translate the bitmap's local rectangle before the canvas transform, as text
+            // does above. Adding its origin to the final offsets leaves that origin unscaled
+            // and unrotated, moving images away from the shape/selection drawn over them.
+            WUXM::Matrix local = mat_identity();
+            local.OffsetX = a;
+            local.OffsetY = b;
             WUXC::Canvas::SetLeft(img, 0);
             WUXC::Canvas::SetTop(img, 0);
             WUXM::MatrixTransform mt;
-            mt.Matrix(m);
+            mt.Matrix(mat_mul(local, cur));
             img.RenderTransform(mt);
             canvas.Children().Append(img);
             break;

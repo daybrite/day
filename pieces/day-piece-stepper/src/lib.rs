@@ -541,7 +541,8 @@ pub mod conformance {
                 d.input("stepper::count", "5").await?;
                 d.submit("stepper::count").await?;
                 d.assert_text("stepper::value", "value 5").await?;
-                d.tap("stepper_increment:stepper%3A%3Acount").await?;
+                d.tap(day_core::id!(stepper_increment, "stepper::count").as_str())
+                    .await?;
                 d.assert_text("stepper::value", "value 6").await?;
                 d.assert_text("stepper::count", "6").await?;
                 // A scripted value lands on the field's id, as it does on the native leaf.

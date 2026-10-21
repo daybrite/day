@@ -175,20 +175,20 @@ fn vector_resize_retains_fine_detail() -> Case {
                 .background(Color::hex(0x000000)),
                 button("Resize")
                     .action(move || compact.set(!compact.get()))
-                    .id(day::id!(resize)),
+                    .id(day::id!(vector_test::resize)),
             ))
         })
         .drive(|d: Drive| async move {
             d.assert_size("detail", 256.0, 128.0).await?;
             d.shot("small-before-resize").await?;
             for _ in 0..2 {
-                d.tap("resize").await?;
+                d.tap("vector_test::resize").await?;
                 d.assert_size("detail", 1024.0, 128.0).await?;
                 d.sample_pixel("detail", 131.0 / 1024.0, 0.5, "#ff0000")
                     .await?;
                 d.sample_pixel("detail", 139.0 / 1024.0, 0.5, "#000000")
                     .await?;
-                d.tap("resize").await?;
+                d.tap("vector_test::resize").await?;
                 d.assert_size("detail", 256.0, 128.0).await?;
             }
             Ok(())
@@ -255,11 +255,11 @@ fn vector_non_square_content_modes() -> Case {
             row((
                 image(res::vectors::vector_aspect)
                     .fit()
-                    .id(day::id!(fit))
+                    .id(day::id!(vector_test::fit))
                     .frame(80.0, 80.0),
                 image(res::vectors::vector_aspect)
                     .fill()
-                    .id(day::id!(fill))
+                    .id(day::id!(vector_test::fill))
                     .frame(40.0, 80.0),
                 image(res::vectors::vector_aspect)
                     .stretch()
@@ -269,10 +269,13 @@ fn vector_non_square_content_modes() -> Case {
             .background(Color::hex(0x000000))
         })
         .drive(|d: Drive| async move {
-            d.sample_pixel("fit", 0.25, 0.1, "#000000").await?;
-            d.sample_pixel("fit", 0.25, 0.5, "#ff0000").await?;
-            d.sample_pixel("fit", 0.75, 0.5, "#0000ff").await?;
-            for id in ["fill", "stretch"] {
+            d.sample_pixel("vector_test::fit", 0.25, 0.1, "#000000")
+                .await?;
+            d.sample_pixel("vector_test::fit", 0.25, 0.5, "#ff0000")
+                .await?;
+            d.sample_pixel("vector_test::fit", 0.75, 0.5, "#0000ff")
+                .await?;
+            for id in ["vector_test::fill", "stretch"] {
                 d.sample_pixel(id, 0.25, 0.1, "#ff0000").await?;
                 d.sample_pixel(id, 0.75, 0.9, "#0000ff").await?;
             }

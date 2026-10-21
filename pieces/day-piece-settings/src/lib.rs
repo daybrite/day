@@ -2834,13 +2834,13 @@ pub mod conformance {
                 column((group_page(inst, &g, true),))
             })
             .drive(|d: Drive| async move {
-                d.select("theme_picker", 1).await?;
+                d.select(day_core::id!(theme_picker).as_str(), 1).await?;
                 d.wait_idle().await?;
                 d.check(
                     with_store(|s| s.get("day.appearance")).as_deref() == Some("dark"),
                     "dark not saved",
                 )?;
-                d.select("theme_picker", 2).await?;
+                d.select(day_core::id!(theme_picker).as_str(), 2).await?;
                 d.wait_idle().await?;
                 d.check(
                     with_store(|s| s.get("day.appearance")).is_none(),
@@ -2870,14 +2870,16 @@ pub mod conformance {
                 column((group_page(inst, &g, true),))
             })
             .drive(|d: Drive| async move {
-                d.toggle("pref:conformance.sound", false).await?;
+                d.toggle(day_core::id!(pref, "conformance.sound").as_str(), false)
+                    .await?;
                 d.wait_idle().await?;
                 d.check(!SOUND.get_untracked(), "toggle did not write the pref")?;
                 d.check(
                     with_store(|s| s.get("conformance.sound")).as_deref() == Some("false"),
                     "toggle did not persist",
                 )?;
-                d.set_value("pref:conformance.scale", 150.0).await?;
+                d.set_value(day_core::id!(pref, "conformance.scale").as_str(), 150.0)
+                    .await?;
                 d.wait_idle().await?;
                 d.check(
                     (SCALE.get_untracked() - 150.0).abs() < 0.5,
@@ -2920,25 +2922,22 @@ pub mod conformance {
                 ))
             })
             .drive(|d: Drive| async move {
-                d.assert_enabled("pref_increment:pref%3Aconformance.count", false)
-                    .await?;
-                d.assert_enabled("pref_decrement:pref%3Aconformance.count", false)
-                    .await?;
+                let count = day_core::id!(pref, "conformance.count");
+                let increment = day_core::id!(pref_increment, count.as_str());
+                let decrement = day_core::id!(pref_decrement, count.as_str());
+                d.assert_enabled(increment.as_str(), false).await?;
+                d.assert_enabled(decrement.as_str(), false).await?;
                 d.tap("settings::enable").await?;
                 d.wait_idle().await?;
-                d.assert_enabled("pref_increment:pref%3Aconformance.count", true)
-                    .await?;
-                d.assert_enabled("pref_decrement:pref%3Aconformance.count", true)
-                    .await?;
+                d.assert_enabled(increment.as_str(), true).await?;
+                d.assert_enabled(decrement.as_str(), true).await?;
                 let initial = COUNT.get_untracked();
-                d.assert_text("pref:conformance.count", &initial.to_string())
+                d.assert_text(count.as_str(), &initial.to_string()).await?;
+                d.tap(increment.as_str()).await?;
+                d.assert_text(count.as_str(), &(initial + 1).to_string())
                     .await?;
-                d.tap("pref_increment:pref%3Aconformance.count").await?;
-                d.assert_text("pref:conformance.count", &(initial + 1).to_string())
-                    .await?;
-                d.tap("pref_decrement:pref%3Aconformance.count").await?;
-                d.assert_text("pref:conformance.count", &initial.to_string())
-                    .await
+                d.tap(decrement.as_str()).await?;
+                d.assert_text(count.as_str(), &initial.to_string()).await
             })
     }
 

@@ -56,6 +56,9 @@ day-spec = { path = "../../crates/day-spec" }
 [build-dependencies]
 day-build = { path = "../../crates/day-build" }
 
+[dev-dependencies]
+day-core = { path = "../../crates/day-core" }
+
 # Its own workspace: a package nested inside the framework's workspace without being a member
 # fails every cargo command, and the root excludes `apps/*` for the same reason.
 [workspace]

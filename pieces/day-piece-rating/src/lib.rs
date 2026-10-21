@@ -249,7 +249,7 @@ pub mod conformance {
                 ))
             })
             .drive(|d: Drive| async move {
-                d.tap("rating::star:4").await?;
+                d.tap(day_core::id!(rating::star, 4usize).as_str()).await?;
                 d.assert_text("rating::value", "value 4").await
             })
     }
@@ -270,7 +270,7 @@ pub mod conformance {
                 ))
             })
             .drive(|d: Drive| async move {
-                d.tap("rating::star:5").await?;
+                d.tap(day_core::id!(rating::star, 5usize).as_str()).await?;
                 d.assert_text("rating::value", "value 2").await
             })
     }
