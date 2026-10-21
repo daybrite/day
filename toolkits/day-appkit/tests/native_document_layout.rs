@@ -28,7 +28,8 @@ fn main() {
         );
     }
     std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_secs(15));
+        // Foundation may scan a large cached Cargo deps directory during native startup.
+        std::thread::sleep(std::time::Duration::from_secs(60));
         eprintln!("native document layout timed out");
         std::process::exit(2);
     });

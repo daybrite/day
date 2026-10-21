@@ -17,3 +17,7 @@ width = 960
 height = 640
 min_width = 320
 min_height = 400
+
+# Report compiled ID coverage while establishing per-target baselines.
+[dayscript.coverage]
+enabled = true

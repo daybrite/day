@@ -79,11 +79,11 @@ dependencies = [
 
 [[package]]
 name = "day-async"
-version = "0.5.1"
+version = "0.6.0"
 
 [[package]]
 name = "day-core"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anstream",
  "anstyle",
@@ -100,11 +100,11 @@ dependencies = [
 
 [[package]]
 name = "day-fonts"
-version = "0.5.1"
+version = "0.6.0"
 
 [[package]]
 name = "day-geometry"
-version = "0.5.1"
+version = "0.6.0"
 
 [[package]]
 name = "day-id-registry-fixture"
@@ -116,7 +116,7 @@ dependencies = [
 
 [[package]]
 name = "day-l10n"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "day-reactive",
  "fluent-bundle",
@@ -135,11 +135,11 @@ dependencies = [
 
 [[package]]
 name = "day-macros"
-version = "0.5.1"
+version = "0.6.0"
 
 [[package]]
 name = "day-reactive"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "log",
  "slotmap",
@@ -147,7 +147,7 @@ dependencies = [
 
 [[package]]
 name = "day-spec"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "day-fonts",
  "day-geometry",

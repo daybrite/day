@@ -2035,6 +2035,8 @@ through window creation.
 > These transitions cannot depend on a subsequent `windowDidResize` notification: otherwise
 > live document controls remain focusable but draw underneath the native chrome.
 > `native_document_layout` checks the client origin before and after native grouping.
+> Its 60-second watchdog allows for Foundation's main-bundle discovery scanning Cargo's
+> cached `deps` directory during startup; CI runs the test directly through Cargo.
 > See [navigation](docs/navigation.md#document-tabs)
 > and [document-window lifecycle](docs/windows.md#document-window-tabs).
 

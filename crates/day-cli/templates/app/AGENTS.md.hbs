@@ -44,7 +44,7 @@ Use examples with the API supported by this project's Day dependency version. Ch
   labels for controls and meaningful images, heading roles for headings, and hints when an
   action needs explanation. Mark purely decorative images with `.decorative()`. Preserve native
   control roles and values; a scripting ID does not replace an accessible label.
-- Give interactive pieces stable `.id("kebab-case-id")` names for scripting and accessibility.
+- Give interactive pieces stable `.id(id!(snake_case_id))` names for scripting and accessibility.
 - Keep shared state in `Scene`, accessed through `Scene::ambient()`. Use reactive bindings for
   controls and untracked reads in action callbacks when no subscription is intended.
 - Prefer semantic pieces such as `form`, `section`, and `labeled` over custom layout.
