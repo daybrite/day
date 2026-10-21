@@ -2602,30 +2602,31 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                     );
                                     break;
                                 }
-                                // The iOS simulator's known app-death flake: the engine died with
-                                // zero failed steps. Retry the (idempotent) run once, the logic
-                                // both CI workflows used to grep logs for, now typed. A loss after
-                                // a failed step is a failing run that then died: report it.
-                                Err(crate::script::ScriptError::EngineLost {
-                                    steps_failed: 0,
-                                    ..
-                                }) if target.kind == crate::targets::TargetKind::IosSim
-                                    && attempt == 0 =>
-                                {
-                                    eprintln!(
-                                        "warning: engine connection lost (flaky simulator \
-                                     app-death) — retrying the script once"
+                                // A startup-only Android loss can safely get one fresh launch;
+                                // no walkthrough action has been sent. Keep the existing iOS
+                                // simulator clean-run retry as well, and diagnose before either.
+                                Err(ref error) if error.retry_engine_loss(target.kind, attempt) => {
+                                    let crashed = crate::diagnose::after_app_death(
+                                        project,
+                                        target,
+                                        launched_at,
                                     );
-                                    // Keep the annotation CI used to emit from its own retry wrapper.
+                                    if crashed && target.kind == crate::targets::TargetKind::Android
+                                    {
+                                        crate::signals::kill_all();
+                                        return Err(CliError::script(format!(
+                                            "{error} — app crashed before the walkthrough started"
+                                        )));
+                                    }
+                                    eprintln!(
+                                        "warning: {error} — relaunching and retrying the script once"
+                                    );
                                     if std::env::var_os("GITHUB_ACTIONS").is_some() {
                                         println!(
-                                            "::warning::engine connection lost (flaky simulator \
-                                         app-death) — retrying the script once"
+                                            "::warning::{} — relaunching and retrying the script once",
+                                            ops::gha_escape(&error.to_string()),
                                         );
                                     }
-                                    // Say why it died before retrying: the retry usually passes, and
-                                    // then the only record of the flake is this one line.
-                                    crate::diagnose::after_app_death(project, target, launched_at);
                                     attempt += 1;
                                 }
                                 // An engine loss that survived the retry policy: count it and
@@ -2635,6 +2636,7 @@ fn dispatch(cli: Cli) -> Result<i32, CliError> {
                                 Err(crate::script::ScriptError::EngineLost {
                                     steps_failed,
                                     ref detail,
+                                    ..
                                 }) => {
                                     eprintln!(
                                         "error: engine connection lost ({detail}) — abandoning this variant"

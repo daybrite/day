@@ -103,6 +103,12 @@ scripted runs.
 
 ## When the app dies mid-script
 
+Startup transport failures, including a lost compiled element-registry handshake, use the
+same engine-loss diagnostics as a connection lost during a walkthrough. On Android the runner
+relaunches once if the failure occurs before any walkthrough action is sent and no crash artifact
+is found. A second startup failure remains a failure. Invalid registry responses and losses after
+an action has been sent are not retried this way; an action may already have changed app state.
+
 A scripted run whose app crashes ends in `engine connection lost`, which says only that the app is
 gone. The runner then prints a post-mortem (`crates/day-cli/src/diagnose.rs`) from whatever this
 host can produce:

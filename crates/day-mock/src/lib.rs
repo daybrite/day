@@ -370,6 +370,8 @@ pub struct MockState {
     pub windows: Vec<MockWindow>,
     /// `open_window` answers `Unsupported` (the cover-fallback test harness).
     pub no_multi_window: bool,
+    /// Delay native close confirmation until `MockProbe::close_window_natively` is called.
+    pub defer_window_close: bool,
     /// Enable the OS window-tab contract for lifecycle tests.
     pub native_window_tabs: bool,
     /// Native tab groups in display order; tests can simulate an OS reorder or detach.
@@ -996,6 +998,12 @@ impl MockProbe {
             }
         }
         self.emit(node, Event::WindowResized(size));
+    }
+
+    /// Model a native dismissal animation: retain the window until the test confirms it
+    /// with [`Self::close_window_natively`].
+    pub fn set_defer_window_close(&self, defer: bool) {
+        self.state.borrow_mut().defer_window_close = defer;
     }
 
     /// Close a secondary window from the native side (the title-bar path): marks it closed
@@ -2290,9 +2298,12 @@ impl Toolkit for MockToolkit {
         let Some(w) = s.windows.iter_mut().find(|w| w.handle == host.0 && w.open) else {
             return;
         };
-        w.open = false;
         let node = w.node;
         s.log(format!("close_window #{}", host.0));
+        if s.defer_window_close {
+            return;
+        }
+        s.windows.iter_mut().find(|w| w.node == node).unwrap().open = false;
         let sink = s.sink.clone();
         drop(s);
         if let Some(sink) = sink {

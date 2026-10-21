@@ -28,7 +28,7 @@ use crate::tree::{RNode, WindowRootReply, id_to_rnode, rnode_to_id, with_tree};
 /// How a window record is realized.
 enum Tier {
     /// A live native OS window; the root's handle is its content container.
-    Native,
+    Native { closing: Cell<bool> },
     /// The toolkit answered `Pending`: native creation is in flight; the content builds
     /// when the backend calls [`finish_window_open`].
     PendingNative {
@@ -70,9 +70,13 @@ struct WindowRecord {
 }
 
 impl WindowRecord {
-    /// Whether this is a cover whose dismissal has been requested and not yet confirmed.
+    /// Whether dismissal has been requested and not yet confirmed by the platform.
     fn closing(&self) -> bool {
-        matches!(&self.tier, Tier::Cover { closing, .. } if closing.get())
+        match &self.tier {
+            Tier::Native { closing } => closing.get(),
+            Tier::Cover { closing, .. } => closing.get(),
+            Tier::PendingNative { .. } => false,
+        }
     }
 }
 
@@ -168,7 +172,8 @@ impl WindowHandle {
     }
 
     /// Close the window. Asynchronous: the platform (or the cover's hide transition)
-    /// confirms, then the content is disposed and `on_close` callbacks run. Idempotent.
+    /// confirms, then the content is disposed and `on_close` callbacks run. Focused-window
+    /// lookup stops targeting this window as soon as close is requested. Idempotent.
     pub fn close(&self) {
         let root = self.root;
         let action = WINDOWS.with(|w| {
@@ -176,7 +181,13 @@ impl WindowHandle {
                 .iter()
                 .find(|r| r.root == root)
                 .map(|r| match &r.tier {
-                    Tier::Native => CloseAction::Native,
+                    Tier::Native { closing } => {
+                        if closing.replace(true) {
+                            CloseAction::None
+                        } else {
+                            CloseAction::Native
+                        }
+                    }
                     Tier::PendingNative { .. } => CloseAction::Immediate,
                     Tier::Cover { cover, closing } => {
                         if closing.get() {
@@ -207,7 +218,7 @@ impl WindowHandle {
         if WINDOWS.with(|w| {
             w.borrow()
                 .iter()
-                .any(|r| r.root == root && matches!(r.tier, Tier::Native))
+                .any(|r| r.root == root && matches!(r.tier, Tier::Native { .. }))
         }) {
             with_tree(|t| t.focus_native_window(root));
         }
@@ -222,7 +233,7 @@ impl WindowHandle {
             let mut windows = w.borrow_mut();
             match windows.iter_mut().find(|r| r.root == root) {
                 Some(r) => match &mut r.tier {
-                    Tier::Native => true,
+                    Tier::Native { .. } => true,
                     Tier::PendingNative { title: t, .. } => {
                         *t = title.to_string();
                         false
@@ -390,7 +401,7 @@ impl WindowHandle {
         WINDOWS.with(|w| {
             w.borrow()
                 .iter()
-                .any(|r| r.root == root && matches!(r.tier, Tier::Native))
+                .any(|r| r.root == root && matches!(r.tier, Tier::Native { .. }))
         })
     }
 }
@@ -433,7 +444,15 @@ pub fn open_window<P: Piece>(
 
     match with_tree(|t| t.open_window_root(&options, kind)) {
         WindowRootReply::Open(root) => {
-            register(root, key, kind, scope, Tier::Native);
+            register(
+                root,
+                key,
+                kind,
+                scope,
+                Tier::Native {
+                    closing: Cell::new(false),
+                },
+            );
             wire_window_events(root);
             if let Some(k) = &options.remember_frame {
                 remember_frame(root, k);
@@ -513,7 +532,7 @@ pub fn focused_window() -> Option<WindowHandle> {
     WINDOWS.with(|w| {
         w.borrow()
             .iter()
-            // The same rule as `focused_scope`: a dismissing cover is already behind us.
+            // The same rule as `focused_scope`: a dismissing window is already behind us.
             .find(|r| r.focused && !r.closing())
             .map(|r| WindowHandle { root: r.root })
     })
@@ -536,10 +555,9 @@ pub(crate) fn focused_root() -> RNode {
 pub fn focused_scope() -> Option<Scope> {
     WINDOWS.with(|w| {
         let windows = w.borrow();
-        // A cover on its way out (dismiss requested, `CoverHidden` not yet back because the
-        // phone animates it) is no longer the front window: the one behind it is. Its record stays
-        // registered until the hide confirms, so without this a command issued during the
-        // animation resolves to a sheet that is gone and acts on nothing.
+        // A dismissing window is no longer the command target, even while its content stays
+        // registered until native confirmation. GTK dialogs animate their close just as
+        // cover sheets do; resolving through Settings during that gap loses document state.
         let focused = windows.iter().find(|r| r.focused && !r.closing());
         let initial = INITIAL_WINDOW.with(|c| c.get());
         focused
@@ -606,7 +624,9 @@ pub fn finish_window_open(id: NodeId, raw: day_spec::RawHandle, size: Size) -> b
             Tier::PendingNative { build, title } => {
                 let b = build.take();
                 let title = title.clone();
-                r.tier = Tier::Native;
+                r.tier = Tier::Native {
+                    closing: Cell::new(false),
+                };
                 Some((b, title, r.scope))
             }
             _ => None,
@@ -720,7 +740,7 @@ pub(crate) fn save_remembered_frames() {
         .try_with(|w| {
             w.borrow()
                 .iter()
-                .filter(|r| matches!(r.tier, Tier::Native))
+                .filter(|r| matches!(r.tier, Tier::Native { .. }))
                 .filter_map(|r| r.remember.clone().map(|k| (r.root, k)))
                 .collect()
         })
@@ -927,7 +947,7 @@ fn teardown(root: RNode) {
     // dispose below and would otherwise re-compose a bar through gates whose signals the same
     // dispose has already dropped (a contained panic that left the next New Window blank).
     // The frame, while the native window still answers for it.
-    if let (Some(key), Tier::Native) = (&record.remember, &record.tier) {
+    if let (Some(key), Tier::Native { .. }) = (&record.remember, &record.tier) {
         save_frame_of_record(root, key, record.state.get_untracked());
     }
     crate::frame::forget_window(root);
@@ -935,7 +955,7 @@ fn teardown(root: RNode) {
     record.scope.dispose();
     crate::ambient::forget_window(root);
     match record.tier {
-        Tier::Native | Tier::PendingNative { .. } => {
+        Tier::Native { .. } | Tier::PendingNative { .. } => {
             while let Some(c) = with_tree(|t| t.first_child(root)) {
                 with_tree(|t| t.remove_subtree(c));
             }
@@ -1480,7 +1500,15 @@ pub fn reset_windows() {
 /// scope itself. State an app wants to outlive its windows still does: `Signal::global` lives
 /// on the root scope, above this one.
 pub fn adopt_initial_window(root: RNode, scope: Scope) {
-    register(root, None, WindowKind::Normal, scope, Tier::Native);
+    register(
+        root,
+        None,
+        WindowKind::Normal,
+        scope,
+        Tier::Native {
+            closing: Cell::new(false),
+        },
+    );
     wire_window_events(root);
     INITIAL_WINDOW.with(|c| c.set(Some(root)));
     let key = LAUNCH_OPTIONS.with(|o| o.borrow().as_ref().and_then(|o| o.remember_frame.clone()));

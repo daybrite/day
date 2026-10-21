@@ -8306,6 +8306,60 @@ fn duplicate_form_ids_resolve_in_the_focused_window_or_cover() {
 }
 
 #[test]
+fn closing_native_settings_restores_document_state_before_confirmation() {
+    let probe = boot(scene_shell);
+    let primary_scope = day_core::focused_scope().unwrap();
+    probe.set_defer_window_close(true);
+    let settings = day_core::open_window(
+        win_options("Settings", 300.0, 200.0).kind(day_spec::WindowKind::Preferences),
+        || label("settings without a Scene").any(),
+    );
+    let node = day_core::windows::window_node_id(&settings);
+    let closed = Rc::new(std::cell::Cell::new(false));
+    settings.on_close({
+        let closed = closed.clone();
+        move || closed.set(true)
+    });
+    flush_sync();
+    assert!(Scene::focused().is_none());
+
+    settings.close();
+    flush_sync();
+    assert!(
+        settings.is_open(),
+        "retain content until native confirmation"
+    );
+    assert!(!closed.get(), "on_close must wait for native confirmation");
+    assert!(day_core::focused_scope() == Some(primary_scope));
+    assert!(day_core::focused_window().is_none());
+    Scene::focused()
+        .expect("document state must be available during the dismissal animation")
+        .label
+        .set("after settings".into());
+    flush_sync();
+    assert_eq!(
+        probe
+            .find_by_kind("day.label")
+            .iter()
+            .filter(|(_, w)| w.text == "after settings")
+            .count(),
+        2,
+    );
+    // A late focus notification must not reactivate a dismissing window.
+    probe.emit(node, Event::WindowFocused(true));
+    assert!(day_core::focused_scope() == Some(primary_scope));
+    let mark = probe.log_len();
+    settings.close();
+    assert_eq!(probe.log_since(mark), Vec::<String>::new());
+
+    probe.close_window_natively(node);
+    flush_sync();
+    assert!(!settings.is_open());
+    assert!(closed.get());
+    assert!(day_core::focused_scope() == Some(primary_scope));
+}
+
+#[test]
 fn focused_ambient_follows_the_key_window_and_falls_back_to_the_primary() {
     let probe = boot(scene_shell);
     day_core::open_window(win_options("second", 300.0, 200.0), scene_shell);

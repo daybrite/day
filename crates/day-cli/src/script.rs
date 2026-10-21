@@ -42,6 +42,8 @@ pub enum ScriptError {
     /// (`grep "engine connection lost" && ! grep ✗`); typing it here replaced those greps.
     EngineLost {
         steps_failed: usize,
+        /// No walkthrough action has been sent; a fresh launch cannot replay an action.
+        before_steps: bool,
         detail: String,
     },
     Other(String),
@@ -371,6 +373,45 @@ pub(crate) fn connect(port: u16, window_secs: u64) -> Result<TcpStream, String> 
     Err(format!(
         "could not connect to the dayscript engine on 127.0.0.1:{port}"
     ))
+}
+
+/// A failed catalog exchange is a startup transport failure, just like a failed connect.
+/// Keep protocol/catalog errors separate: relaunching cannot repair an invalid registry.
+fn startup_catalog(
+    reply: Result<String, String>,
+) -> Result<day_script_proto::IdCatalog, ScriptError> {
+    let reply = reply.map_err(|detail| ScriptError::EngineLost {
+        steps_failed: 0,
+        before_steps: true,
+        detail: format!("compiled element registry handshake: {detail}"),
+    })?;
+    let reply: Reply =
+        serde_json::from_str(&reply).map_err(|e| ScriptError::Other(e.to_string()))?;
+    if !reply.ok {
+        return Err(ScriptError::Other(
+            reply
+                .error
+                .unwrap_or("app did not provide an element registry".into()),
+        ));
+    }
+    let catalog: day_script_proto::IdCatalog = serde_json::from_value(
+        reply
+            .data
+            .ok_or_else(|| ScriptError::Other("missing compiled element registry".into()))?,
+    )
+    .map_err(|e| ScriptError::Other(e.to_string()))?;
+    catalog.validate().map_err(ScriptError::Other)?;
+    Ok(catalog)
+}
+
+impl ScriptError {
+    /// Android gets one fresh launch only when no walkthrough action could have run.
+    /// Preserve the existing iOS simulator retry policy for an otherwise clean run.
+    pub(crate) fn retry_engine_loss(&self, kind: TargetKind, attempt: u32) -> bool {
+        matches!(self, Self::EngineLost { steps_failed: 0, before_steps, .. }
+            if attempt == 0 && (kind == TargetKind::IosSim
+                || (kind == TargetKind::Android && *before_steps)))
+    }
 }
 
 /// Where a run's screenshots land: `build/day/screenshots/<target>[/<device>]/<subdir>/`. The
@@ -822,6 +863,7 @@ fn run_scripts_inner(
     // same condition the mid-run loss reports, and the same one the CI retry used to catch.
     let mut stream = connect(port, window_secs).map_err(|detail| ScriptError::EngineLost {
         steps_failed: 0,
+        before_steps: true,
         detail,
     })?;
     let mut reader = crate::script_report::Reader::new(
@@ -930,24 +972,7 @@ fn run_scripts_inner(
         })
         .unwrap()
     );
-    let catalog_reply =
-        roundtrip(&mut stream, &mut reader, &catalog_line, 0.0).map_err(ScriptError::Other)?;
-    let catalog_reply: Reply =
-        serde_json::from_str(&catalog_reply).map_err(|e| ScriptError::Other(e.to_string()))?;
-    if !catalog_reply.ok {
-        return Err(ScriptError::Other(
-            catalog_reply
-                .error
-                .unwrap_or("app did not provide an element registry".into()),
-        ));
-    }
-    let catalog: day_script_proto::IdCatalog = serde_json::from_value(
-        catalog_reply
-            .data
-            .ok_or_else(|| ScriptError::Other("missing compiled element registry".into()))?,
-    )
-    .map_err(|e| ScriptError::Other(e.to_string()))?;
-    catalog.validate().map_err(ScriptError::Other)?;
+    let catalog = startup_catalog(roundtrip(&mut stream, &mut reader, &catalog_line, 0.0))?;
     let catalog_flavor =
         crate::flavor::active().map_or("flavor:none".into(), |name| format!("flavor:{name}"));
     for path in scripts {
@@ -999,6 +1024,7 @@ fn run_scripts_inner(
             let reply = roundtrip(&mut stream, &mut reader, &line, 0.0).map_err(|detail| {
                 ScriptError::EngineLost {
                     steps_failed: run.steps_failed,
+                    before_steps: false,
                     detail,
                 }
             })?;
@@ -1174,6 +1200,7 @@ fn run_scripts_inner(
                     eprintln!("  {ERROR}✗{ERROR:#} pause {secs}s — {detail}");
                     return Err(ScriptError::EngineLost {
                         steps_failed: run.steps_failed,
+                        before_steps: false,
                         detail,
                     });
                 }
@@ -1286,6 +1313,7 @@ fn run_scripts_inner(
                 roundtrip(&mut stream, &mut reader, &line, budget).map_err(|detail| {
                     ScriptError::EngineLost {
                         steps_failed: failed_before,
+                        before_steps: false,
                         detail,
                     }
                 })?;
@@ -1471,6 +1499,7 @@ fn run_scripts_inner(
             let reply = roundtrip(&mut stream, &mut reader, &line, 0.0).map_err(|detail| {
                 ScriptError::EngineLost {
                     steps_failed: run.steps_failed,
+                    before_steps: false,
                     detail,
                 }
             })?;
@@ -2036,6 +2065,55 @@ fn gate_is_known(token: &str) -> bool {
 mod gate_tests {
     use super::{gate_is_known, gate_names};
 
+    #[test]
+    fn catalog_transport_loss_is_a_retryable_startup_loss() {
+        use super::{ScriptError, startup_catalog};
+        use crate::targets::TargetKind;
+        for detail in ["EOF", "Broken pipe (os error 32)", "connection reset"] {
+            let error = startup_catalog(Err(detail.into())).unwrap_err();
+            assert!(matches!(&error, ScriptError::EngineLost {
+                steps_failed: 0, before_steps: true, detail: message,
+            } if message.contains(detail)));
+            assert!(error.retry_engine_loss(TargetKind::Android, 0));
+            assert!(!error.retry_engine_loss(TargetKind::Android, 1));
+            assert!(!error.retry_engine_loss(TargetKind::Desktop, 0));
+        }
+    }
+
+    #[test]
+    fn invalid_catalogs_are_not_retried_as_device_startup_failures() {
+        use super::{ScriptError, startup_catalog};
+        use crate::targets::TargetKind;
+        for reply in [
+            "not JSON",
+            r#"{"ok":false,"error":"bad token"}"#,
+            r#"{"ok":true}"#,
+            r#"{"ok":true,"data":{"schema_version":999,"declarations":[]}}"#,
+        ] {
+            let error = startup_catalog(Ok(reply.into())).unwrap_err();
+            assert!(matches!(error, ScriptError::Other(_)));
+            assert!(!error.retry_engine_loss(TargetKind::Android, 0));
+        }
+        let valid = r#"{"ok":true,"data":{"schema_version":1,"declarations":[]}}"#;
+        assert!(startup_catalog(Ok(valid.into())).is_ok());
+    }
+
+    #[test]
+    fn android_never_relaunches_after_a_walkthrough_action_was_sent() {
+        use super::ScriptError;
+        use crate::targets::TargetKind;
+        let loss = |steps_failed, before_steps| ScriptError::EngineLost {
+            steps_failed,
+            before_steps,
+            detail: "connection reset".into(),
+        };
+        assert!(!loss(0, false).retry_engine_loss(TargetKind::Android, 0));
+        assert!(!loss(1, true).retry_engine_loss(TargetKind::Android, 0));
+        assert!(loss(0, false).retry_engine_loss(TargetKind::IosSim, 0));
+        assert!(!loss(1, false).retry_engine_loss(TargetKind::IosSim, 0));
+        assert!(!loss(0, false).retry_engine_loss(TargetKind::IosSim, 1));
+    }
+
     /// Synthetic engine control plane: tests below focus on step transport, while still
     /// performing the mandatory compiled-catalog handshake (no compatibility shortcut).
     fn fixture_line(
@@ -2064,6 +2142,73 @@ mod gate_tests {
             };
             writeln!(stream, "{}", serde_json::json!({"ok":true,"data":data}))?;
         }
+    }
+
+    #[test]
+    fn catalog_reconnects_when_the_forward_accepts_before_the_engine_is_ready() {
+        use std::io::{BufRead, Write};
+        use std::time::Duration;
+
+        let root =
+            std::env::temp_dir().join(format!("day-startup-reconnect-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("flow.yaml");
+        std::fs::write(&script, "flow:\n- wait_idle: {}\n").unwrap();
+        let project = crate::meta::Project {
+            root: root.clone(),
+            manifest: toml::from_str("schema = 1\n[app]\nid = 'test.fixture'").unwrap(),
+        };
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            // adb accepts on the host even when the device listener is not ready yet.
+            let (first, _) = listener.accept().unwrap();
+            first
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut first = std::io::BufReader::new(first);
+            let mut line = String::new();
+            first.read_line(&mut line).unwrap();
+            assert!(line.contains("id_catalog"));
+            drop(first);
+
+            let (mut ready, _) = listener.accept().unwrap();
+            ready
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = std::io::BufReader::new(ready.try_clone().unwrap());
+            let mut actions = 0;
+            while fixture_line(&mut reader, &mut ready, &mut line).unwrap() > 0 {
+                assert!(line.contains("wait_idle"));
+                actions += 1;
+                writeln!(ready, "{{\"ok\":true}}").unwrap();
+            }
+            actions
+        });
+        let result = super::run_scripts(
+            &project,
+            crate::targets::find("windows-gtk").unwrap(),
+            port,
+            "fixture-token",
+            &[script],
+            None,
+            None,
+            None,
+            true,
+            false,
+            true,
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(result.steps_failed, 0);
+        assert_eq!(result.steps_total, 1);
+        assert_eq!(
+            server.join().unwrap(),
+            1,
+            "the action must run exactly once"
+        );
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -118,6 +118,8 @@ locale catalog, the localized `app_title`, the version from Cargo.toml) or
   `WindowHandle::close()` all route through the platform's confirm
   (`Event::WindowClosed` on the window's root), and day-core tears the subtree down on a
   deferred hop, never inside the native close callback. `on_close` runs after disposal.
+  A programmatic close immediately excludes the window from focused-window state and command
+  lookup, even while a native dialog or cover is still animating its dismissal.
 - Closing the last primary window quits the app, taking secondary windows with it; a settings
   panel does not keep an app alive, however long it has been up. **macOS is the exception**:
   `applicationShouldTerminateAfterLastWindowClosed` defaults to false there, an app
