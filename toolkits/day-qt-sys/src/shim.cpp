@@ -3139,9 +3139,10 @@ void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts
 // Aspect-aware image widget (§18.3): paints the pixmap scaled per content mode
 // (0 = fit / KeepAspectRatio, 1 = fill / KeepAspectRatioByExpanding + crop, 2 = stretch).
 //
-// A glyph's tint rides the "dayGlyphTint" property: "#rrggbb" recolors it, "currentColor" marks
-// a TEMPLATE glyph painted in the palette's text color (docs/vectors.md "Template") — re-rendered
-// when the palette changes, so a theme switch recolors it — and "" keeps the authored art. A
+// A glyph's tint rides the "dayGlyphTint" property: "#aarrggbb" recolors it (the tint's alpha
+// scales the glyph's own, as on every other toolkit), "currentColor" marks a TEMPLATE glyph
+// painted in the palette's text color (docs/vectors.md "Template") — re-rendered when the
+// palette changes, so a theme switch recolors it — and "" keeps the authored art. A
 // template stays one across tint patches: the realize-time flag is kept in "dayGlyphTemplate",
 // and an empty patch lands back on the palette color rather than on the authored art.
 class DayImageLabel : public QLabel {

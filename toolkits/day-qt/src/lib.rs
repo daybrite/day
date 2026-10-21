@@ -1841,21 +1841,23 @@ fn nav_sections_joined(sections: &[Option<String>]) -> (String, usize) {
 /// Per-row nav icon tints as a U+001F-joined list of "#rrggbb" entries (empty entry = no
 /// row tint, the shim falls back to the palette text color), parallel to the icon list
 /// (docs/vectors.md).
-/// A color as the `"#rrggbb"` the shim's `QColor` parses.
-fn hex_rgb(c: day_spec::Color) -> String {
+/// A color as the `"#aarrggbb"` the shim's `QColor` parses. The alpha is kept: the shim's
+/// SourceIn fill multiplies it into the glyph's own coverage, as every other toolkit's tint does.
+fn hex_argb(c: day_spec::Color) -> String {
     format!(
-        "#{:02x}{:02x}{:02x}",
+        "#{:02x}{:02x}{:02x}{:02x}",
+        (c.a * 255.0).round() as u8,
         (c.r * 255.0) as u8,
         (c.g * 255.0) as u8,
         (c.b * 255.0) as u8
     )
 }
 
-/// The image shim's tint channel (docs/vectors.md): a `#rrggbb`, `currentColor` for a template
-/// glyph that follows the palette, or empty for the authored colors.
+/// The image shim's tint channel (docs/vectors.md): a `#aarrggbb`, `currentColor` for a
+/// template glyph that follows the palette, or empty for the authored colors.
 fn image_tint(tint: Option<day_spec::Color>, template: bool) -> String {
     match tint {
-        Some(c) => hex_rgb(c),
+        Some(c) => hex_argb(c),
         None if template => "currentColor".to_owned(),
         None => String::new(),
     }
