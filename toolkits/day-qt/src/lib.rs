@@ -1863,6 +1863,15 @@ fn image_tint(tint: Option<day_spec::Color>, template: bool) -> String {
     }
 }
 
+/// Per-row counts for the shim, unit-separator joined (empty = no count).
+fn nav_counts_joined(badges: &[Option<String>]) -> String {
+    badges
+        .iter()
+        .map(|b| b.as_deref().unwrap_or(""))
+        .collect::<Vec<_>>()
+        .join("\u{1f}")
+}
+
 fn nav_tints_joined(tints: &[Option<day_spec::Color>]) -> String {
     tints
         .iter()
@@ -2514,6 +2523,7 @@ impl Toolkit for Qt {
                         .collect::<Vec<_>>()
                         .join("\u{1f}");
                     let badge_tints_joined = nav_tints_joined(&p.badge_tints);
+                    let counts_joined = nav_counts_joined(&p.badges);
                     let (sections_joined, headings) = nav_sections_joined(&p.sections);
                     ffi::day_qt_navlist_set_items(
                         w,
@@ -2522,6 +2532,7 @@ impl Toolkit for Qt {
                         cstr(&tints_joined).as_ptr(),
                         cstr(&badge_icons_joined).as_ptr(),
                         cstr(&badge_tints_joined).as_ptr(),
+                        cstr(&counts_joined).as_ptr(),
                         cstr(&sections_joined).as_ptr(),
                     );
                     navlist_apply_row_menus(w, &p.menus);
@@ -2685,9 +2696,17 @@ impl Toolkit for Qt {
                         }
                         // Bytes the app already holds — a download, a picked file, a paste — with
                         // no staged resource behind them (docs/images.md).
-                        day_spec::ImageSource::Bytes(bytes) => QtHandle(
-                            ffi::day_qt_image_new_bytes(bytes.as_ptr(), bytes.len() as c_int, mode),
-                        ),
+                        // An SVG among them takes the tint a staged glyph would (a template
+                        // follows the palette); a raster draws as authored.
+                        day_spec::ImageSource::Bytes(bytes) => {
+                            let tint = image_tint(p.tint, p.template);
+                            QtHandle(ffi::day_qt_image_new_bytes(
+                                bytes.as_ptr(),
+                                bytes.len() as c_int,
+                                mode,
+                                cstr(&tint).as_ptr(),
+                            ))
+                        }
                         // Already decoded: share the shim's one QImage rather than parsing twice.
                         day_spec::ImageSource::Decoded(id) => {
                             QtHandle(ffi::day_qt_image_new_bitmap(id.0, mode))
@@ -2764,7 +2783,7 @@ impl Toolkit for Qt {
                 }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
-                Some(Builtin::ListCell) | None => {
+                Some(Builtin::ListCell) | Some(Builtin::ListItem) | None => {
                     if let Some(make) = self.registry.get(kind).map(|r| r.make) {
                         return make(self, props, id);
                     }
@@ -2850,11 +2869,12 @@ impl Toolkit for Qt {
                         icons,
                         tints,
                         menus,
+                        badges,
                         badge_icons,
                         badge_tints,
                         sections,
                         selected,
-                        ..
+                        rows_changed,
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
                         NAV_SUITE_ROWS.with(|m| {
@@ -2890,6 +2910,26 @@ impl Toolkit for Qt {
                             .collect::<Vec<_>>()
                             .join("\u{1f}");
                         let badge_tints_joined = nav_tints_joined(badge_tints);
+                        let counts_joined = nav_counts_joined(badges);
+                        // The same rows with new words or counts: update those rows in place.
+                        if let Some(rows) = rows_changed {
+                            let rows_joined = rows
+                                .iter()
+                                .map(|i| i.to_string())
+                                .collect::<Vec<_>>()
+                                .join(",");
+                            ffi::day_qt_navlist_update_rows(
+                                h.0,
+                                cstr(&rows_joined).as_ptr(),
+                                cstr(&joined).as_ptr(),
+                                cstr(&icons_joined).as_ptr(),
+                                cstr(&tints_joined).as_ptr(),
+                                cstr(&badge_icons_joined).as_ptr(),
+                                cstr(&badge_tints_joined).as_ptr(),
+                                cstr(&counts_joined).as_ptr(),
+                            );
+                            return;
+                        }
                         let (sections_joined, headings) = nav_sections_joined(sections);
                         ffi::day_qt_navlist_set_items(
                             h.0,
@@ -2898,6 +2938,7 @@ impl Toolkit for Qt {
                             cstr(&tints_joined).as_ptr(),
                             cstr(&badge_icons_joined).as_ptr(),
                             cstr(&badge_tints_joined).as_ptr(),
+                            cstr(&counts_joined).as_ptr(),
                             cstr(&sections_joined).as_ptr(),
                         );
                         navlist_apply_row_menus(h.0, menus);
@@ -3728,6 +3769,19 @@ impl Toolkit for Qt {
                 content.height.round() as c_int,
             )
         };
+    }
+
+    /// A Qt item view row: compact, 8px sides and 28px tall.
+    fn list_row_metrics(&mut self, _h: &QtHandle) -> day_spec::RowMetrics {
+        day_spec::RowMetrics {
+            insets: day_spec::Insets {
+                top: 4.0,
+                leading: 8.0,
+                bottom: 4.0,
+                trailing: 8.0,
+            },
+            min_height: 28.0,
+        }
     }
 
     fn scroll_to(&mut self, h: &QtHandle, target: Rect, _animated: bool) {

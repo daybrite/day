@@ -380,3 +380,30 @@ fn an_empty_group_does_not_label_the_next_edit() {
     day_reactive::flush_sync();
     assert_ne!(stack.undo_label().get_untracked(), "Duplicate");
 }
+
+#[test]
+fn a_move_and_a_delete_undo_to_their_original_rows() {
+    let store = store();
+    store.push(Item {
+        id: 3,
+        name: "three".into(),
+        count: 30,
+    });
+    let stack = stack_over(store);
+
+    assert!(store.move_row(2, 0));
+    day_reactive::flush_sync();
+    assert_eq!(store.keys(), vec![3, 1, 2]);
+    assert!(stack.undo());
+    assert_eq!(store.keys(), vec![1, 2, 3]);
+    assert!(stack.redo());
+    assert_eq!(store.keys(), vec![3, 1, 2]);
+
+    // A deleted row comes back where it was, not at the end.
+    assert!(store.remove(1));
+    day_reactive::flush_sync();
+    assert_eq!(store.keys(), vec![3, 2]);
+    assert!(stack.undo());
+    assert_eq!(store.keys(), vec![3, 1, 2]);
+    assert_eq!(store.elem(1).name().peek(), "one");
+}

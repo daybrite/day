@@ -327,9 +327,9 @@ pub fn has_launch_deeplink() -> bool {
 }
 
 /// A key/value sink a nav surface's `.restore` persists its state through, so navigation
-/// survives a relaunch or an Android process death (docs/navigation.md). The framework never
-/// installs one; an app opts in by installing a store (e.g. `day_part_prefs::install_nav_store`)
-/// and marking the surfaces it wants remembered with `.restore(key)`. With no store installed,
+/// survives a relaunch or an Android process death (docs/navigation.md). `day::launch` installs
+/// the preferences store (`day_part_prefs::install_nav_store`) unless the app installed one
+/// first; an app marks the surfaces it wants remembered with `.restore(key)`. With no store installed,
 /// `.restore` is a silent no-op, so a surface's `.restore` call never fails to build.
 ///
 /// Keys are opaque to day-core and namespaced by the surface's `.restore(key)` argument; the
@@ -346,6 +346,12 @@ pub trait NavStore {
 /// the store.
 pub fn set_nav_store(store: Rc<dyn NavStore>) {
     NAV_STORE.with(|s| *s.borrow_mut() = Some(store));
+}
+
+/// Whether a [`NavStore`] is installed. `day::launch` installs the preferences store when the
+/// app has not installed one of its own.
+pub fn has_nav_store() -> bool {
+    NAV_STORE.with(|s| s.borrow().is_some())
 }
 
 /// Read a `.restore` key through the installed [`NavStore`] (`None` if none is installed or the
@@ -378,8 +384,9 @@ fn warn_no_nav_store(key: &str) {
         if !w.replace(true) {
             log::warn!(
                 ".restore({key:?}) has no NavStore installed — navigation state will not \
-                 persist. Call `day::prefs::install_nav_store()` before the UI mounts \
-                 (docs/navigation.md)."
+                 persist. `day::launch` installs the preferences store unless the `day` \
+                 crate's `prefs` feature is off; otherwise call `day_core::set_nav_store` \
+                 before the UI mounts (docs/navigation.md)."
             );
         }
     });

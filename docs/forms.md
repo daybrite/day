@@ -52,6 +52,8 @@ form((
   the whole row (the settings-list idiom), rather than clipping at the row's edge. A
   stretching control shrinks rather than overflows, so give one that needs room a
   `.min_width(pt)`: a slider beside a color well then stacks instead of vanishing.
+  The label also becomes the control's accessible name (a live text follows its source), unless
+  the control names itself with `.a11y(|a| a.label(..))`, so a form needs no repeated label.
 
 ## The section-card surface
 

@@ -661,6 +661,16 @@ pub fn set_text(n: Handle, s: &str) {
     set_str(n, Attr::NODE_TEXT_CONTENT, s);
 }
 
+/// A label's `TextAlign`: START follows the layout direction, so an RTL locale aligns right.
+pub fn label_align(n: Handle, align: day_spec::props::TextAlign) {
+    let a = match align {
+        day_spec::props::TextAlign::Leading => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_START,
+        day_spec::props::TextAlign::Center => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_CENTER,
+        day_spec::props::TextAlign::Trailing => ArkUI_TextAlignment::ARKUI_TEXT_ALIGNMENT_END,
+    };
+    set_i32(n, Attr::NODE_TEXT_ALIGN, a.0 as i32);
+}
+
 pub fn label_single_line(n: Handle) {
     set_i32(n, Attr::NODE_TEXT_MAX_LINES, 1);
     set_i32(

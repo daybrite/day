@@ -12,7 +12,6 @@ gtk = ["day/gtk"]
 qt = ["day/qt"]
 uikit = ["day/uikit"]
 mdc = ["day/mdc"]
-xaml = ["day/xaml"]
 winui = ["day/winui"]
 arkui = ["day/arkui"]
 dom = ["day/dom"]
@@ -26,9 +25,8 @@ name = "dayapp"
 [dependencies]
 {{day_dep}}
 {{day_piece_deps}}
-# The item list persists as one JSON blob in `day::prefs` (src/model.rs).
+# The items are saved as JSON in the preferences (src/model.rs).
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 
 [build-dependencies]
 {{day_build_dep}}

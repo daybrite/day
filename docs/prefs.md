@@ -37,11 +37,17 @@ day::prefs::remove("greeting");                      // delete it
 | `remove(key) -> bool` | Delete the value; `true` only if it existed and was removed. |
 | `contains(key) -> bool` | Whether a value is currently stored under `key`. |
 | `bind(key, signal)` | Two-way-bind a `Signal<T>` to a stored value: seed from the store now, persist every later change. `T` round-trips through `FromStr`/`ToString`. Call it right after creating the signal; the write-back stops with the creating scope. |
-| `install_nav_store()` | Install this store as day-core's navigation-persistence sink, so a `nav`/`nav_stack` marked `.restore(key)` remembers its state across launches (and an Android process death). Call once in `main`, before the UI mounts. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
+| `bind_json(key, store)` | (`day::prefs`, with the `model` feature.) Keep a keyed day-model store (`Store<Keyed<T>>`, `T: Serialize + DeserializeOwned`) under `key` as one JSON array: seed it from the saved rows now, then save every later change, a field edit as well as an insert, removal or move. An unreadable value leaves the store as it is and logs a warning. Suits a small list; larger documents belong in [day-persistence](persistence.md). |
+| `install_nav_store()` | Install this store as day-core's navigation-persistence sink, so a `nav`/`nav_stack` marked `.restore(key)` remembers its state across launches (and an Android process death). `day::launch` calls it when the app has installed no store of its own, so an app calls it only when it boots without the facade. Nav keys are namespaced under `day.nav.`. See [navigation](navigation.md). |
 
-Values persist across launches. The crate has no cargo features: platform
-selection is purely `#[cfg(target_os)]` (plus `#[cfg(target_arch = "wasm32")]` for the web),
-since persistence depends on the OS, not on which widget toolkit is in use. `parts/day-part-prefs/examples/prefs.rs` is a plain `main` that uses it with no
+Values persist across launches. Platform selection is purely `#[cfg(target_os)]` (plus
+`#[cfg(target_arch = "wasm32")]` for the web), since persistence depends on the OS, not on which
+widget toolkit is in use. The one cargo feature, `memory`, swaps every platform store for an
+in-process map per thread; `day`'s headless `mock` backend turns it on, so an app's `cargo test`
+starts with empty preferences and never touches the user's real ones. A test that restarts its
+own process to check persistence gives the children `DAY_PREFS_DIR=<dir>`: the file store in that
+directory then serves in place of the map, private to that test. The file store (Linux, Windows,
+HarmonyOS) honors `DAY_PREFS_DIR` in every build. `parts/day-part-prefs/examples/prefs.rs` is a plain `main` that uses it with no
 Day framework at all (run it twice to watch a value survive the process).
 
 This is a small string store for user settings and lightweight app state, not a database. Keep

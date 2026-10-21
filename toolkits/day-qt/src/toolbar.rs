@@ -369,6 +369,17 @@ impl Qt {
             ToolbarPatch::Enabled { on, .. } => unsafe {
                 ffi::day_qt_toolbar_set_enabled(win, id.as_ptr(), *on as c_int)
             },
+            ToolbarPatch::Label { label, tooltip, .. } => {
+                let tip = cstr(tooltip.as_deref().unwrap_or(label));
+                let label = cstr(label);
+                unsafe {
+                    ffi::day_qt_toolbar_set_words(win, id.as_ptr(), label.as_ptr(), tip.as_ptr())
+                };
+            }
+            ToolbarPatch::Placeholder { text, .. } => {
+                let text = cstr(text);
+                unsafe { ffi::day_qt_toolbar_set_placeholder(win, id.as_ptr(), text.as_ptr()) };
+            }
         }
     }
 

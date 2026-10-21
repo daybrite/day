@@ -168,6 +168,13 @@ builtin_kinds! {
     /// One pane's container inside a `SPLIT` host: native-owned frame (the splitter sizes it),
     /// reported via `Event::FrameChanged` on this node, like an `INSPECTOR_PANE`.
     SplitPane = SPLIT_PANE => "day.split_pane",
+    /// A list row's standard content (docs/list.md "List items"): a leading icon, a title, an
+    /// optional subtitle and trailing detail, and a check mark, drawn the way the platform
+    /// draws its own list rows: a `UIListContentView` with the cell's default content
+    /// configuration, a Material list item, an `NSTableCellView`'s image and text, a GTK row
+    /// box. Only realized where `Cap::ListItem` answers `Native`; everywhere else the
+    /// `list_item` piece composes the same content and this kind never reaches the backend.
+    ListItem = LIST_ITEM => "day.list_item",
 }
 
 /// Whether a kind is worth asking [`Toolkit::first_baseline`] about (docs/baseline.md).
@@ -1626,6 +1633,16 @@ pub enum ToolbarPatch {
     /// because these change on every keystroke and rebuilding the bar would take the field's
     /// focus with it.
     Suggestions { item: String, list: Vec<String> },
+    /// Replace an item's words (a language change): its label, which an icon-only item still
+    /// carries for the overflow menu and assistive technology, and its tooltip. The item keeps
+    /// its native widget, its action and its place.
+    Label {
+        item: String,
+        label: String,
+        tooltip: Option<String>,
+    },
+    /// Replace a search item's empty-state prompt (docs/search.md), in the live field.
+    Placeholder { item: String, text: String },
 }
 
 impl ToolbarPatch {
@@ -1637,7 +1654,9 @@ impl ToolbarPatch {
             | ToolbarPatch::On { item, .. }
             | ToolbarPatch::Selected { item, .. }
             | ToolbarPatch::Enabled { item, .. }
-            | ToolbarPatch::Suggestions { item, .. } => item,
+            | ToolbarPatch::Suggestions { item, .. }
+            | ToolbarPatch::Label { item, .. }
+            | ToolbarPatch::Placeholder { item, .. } => item,
         }
     }
 
@@ -1662,6 +1681,14 @@ impl ToolbarPatch {
                 ToolbarItemKind::Segmented { segments, selected },
             ) if *index < segments.len() => *selected = *index,
             (ToolbarPatch::Enabled { on, .. }, _) => it.enabled = *on,
+            (ToolbarPatch::Label { label, tooltip, .. }, _) => {
+                it.label = label.clone();
+                it.tooltip = tooltip.clone();
+            }
+            (
+                ToolbarPatch::Placeholder { text, .. },
+                ToolbarItemKind::Search { placeholder, .. },
+            ) => *placeholder = text.clone(),
             _ => return false,
         }
         true
@@ -2244,6 +2271,13 @@ pub enum Cap {
     /// list has no separate editing mode: its rows already drag, swipe and open menus as they
     /// are, and the list renders as if `editing` were off.
     ListEditing,
+    /// The toolkit realizes `kinds::LIST_ITEM` as its own list row content (docs/list.md "List
+    /// items"): `Native` where the platform has a standard row it draws itself (UIKit's
+    /// `UIListContentConfiguration`, a Material list item, AppKit's image-and-text table cell,
+    /// a GTK row box), so the row takes the platform's fonts, icon size, spacing, secondary
+    /// colors and check mark. `Unsupported` ⇒ the `list_item` piece composes the same content
+    /// from plain pieces. Apps have no reason to probe this; the piece does.
+    ListItem,
     /// The toolkit realizes `kinds::TREE` as a hierarchical tree view (docs/tree.md):
     /// `Native` where a platform tree widget hosts Day-built rows (NSOutlineView, the UIKit
     /// sidebar list, GtkListView+TreeListModel, WinUI TreeView, ArkTS TreeView), `Emulated`
@@ -2585,7 +2619,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 77] = [
+    pub const ALL: [Cap; 78] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2663,6 +2697,7 @@ impl Cap {
         Cap::TreeSections,
         Cap::CoverSheet,
         Cap::ListEditing,
+        Cap::ListItem,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2746,6 +2781,7 @@ impl Cap {
             Cap::TreeSections => 74,
             Cap::CoverSheet => 75,
             Cap::ListEditing => 76,
+            Cap::ListItem => 77,
         }
     }
 }
@@ -5697,6 +5733,36 @@ pub mod props {
         pub template: bool,
     }
 
+    /// A list row's standard content (`kinds::LIST_ITEM`, docs/list.md "List items"). Empty
+    /// text means the part is absent.
+    #[derive(Clone, Debug, Default, PartialEq)]
+    pub struct ListItemProps {
+        pub title: String,
+        /// A second line under the title, in the platform's secondary style.
+        pub subtitle: String,
+        /// Trailing text (a count, a value), in the platform's secondary style.
+        pub detail: String,
+        /// The leading glyph: a symbol or a bundled image.
+        pub icon: Option<crate::Icon>,
+        /// The glyph's color; `None` takes the platform's own (template glyphs follow the
+        /// foreground, the tint color on UIKit).
+        pub icon_tint: Option<Color>,
+        /// A trailing check mark: the platform's selected-option mark (UIKit's checkmark
+        /// accessory, a Material check icon), announced as checked.
+        pub checked: bool,
+    }
+
+    /// A live change to a realized list item; every part changes in place.
+    #[derive(Clone, Debug, PartialEq)]
+    pub enum ListItemPatch {
+        Title(String),
+        Subtitle(String),
+        Detail(String),
+        Icon(Option<crate::Icon>),
+        IconTint(Option<Color>),
+        Checked(bool),
+    }
+
     /// A live change to a realized image or vector glyph.
     ///
     /// `content_mode` and the rest still describe which art this is and how it fills its frame,
@@ -6158,6 +6224,9 @@ pub mod props {
         pub selected: Option<usize>,
     }
     #[derive(Clone, Debug, PartialEq)]
+    // `Items` carries every row array; a patch travels boxed (`Box<dyn Any>`) and lives for one
+    // update, so the variants' size difference costs nothing worth an indirection.
+    #[allow(clippy::large_enum_variant)]
     pub enum NavMenuPatch {
         /// Active icon overlays by row index: None spins, Some(0..=1) fills a circle.
         /// Rows absent from this complete snapshot have no overlay. Does not relayout rows.
@@ -6169,7 +6238,14 @@ pub mod props {
         /// The item set changed (data-driven `nav().items(signal, …)`): rebuild the rows
         /// from these labels/icons, then apply `selected` (docs/navigation.md). Applied without
         /// re-emitting SelectionChanged.
+        ///
+        /// `rows_changed` is `Some` when the rows themselves are the ones already shown (same
+        /// keys, sections and row menus) and only these rows' title, icon, tint or badge moved:
+        /// a count ticking, a language change. A backend updates those rows in place (a tab's
+        /// badge, a menu item's title) rather than rebuilding, which on most platforms re-lays
+        /// the bar and replays its selection animation; one that cannot rebuilds as for `None`.
         Items {
+            rows_changed: Option<Box<[usize]>>,
             document_keys: Box<[String]>,
             items: Vec<String>,
             icons: Vec<Option<String>>,
@@ -6614,6 +6690,17 @@ pub type FrameCallback = Box<dyn FnOnce(FrameStamp)>;
 /// in effect, and safe during/after delivery. Dropping without calling is allowed after delivery.
 pub type CancelFrame = Box<dyn FnOnce()>;
 
+/// The margins and minimum height a native list gives each row ([`Toolkit::list_row_metrics`],
+/// docs/list.md "Row metrics"): a `UITableView` cell's layout margins, a Material list item's
+/// 16dp sides and 56dp height.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct RowMetrics {
+    /// Space between the row's edges and its content.
+    pub insets: Insets,
+    /// The least height a row takes, margins included; content centers vertically in it.
+    pub min_height: f64,
+}
+
 pub trait Toolkit: Sized + 'static {
     // `'static` so a handle clone can cross the object-safe TreeOps boundary boxed as `Any`
     // (`node_handle_any`, the tweaks door, docs/tweaks.md).
@@ -6735,6 +6822,13 @@ pub trait Toolkit: Sized + 'static {
     // every backend whose bars overlay the content (AppKit, GTK, UIKit, Android, XAML, DOM).
     fn scroll_bar_inset(&mut self, _h: &Self::Handle, _vertical: bool) -> f64 {
         0.0
+    }
+    // The margins and minimum height the platform's own list gives a row (docs/list.md "Row
+    // metrics"), asked of list `h` each time day-core lays a row. Day insets the row's content by
+    // the margins and keeps it at least that tall, so a row reads at the platform's size without
+    // the app padding it per platform. Zero — the default — leaves the row to its content.
+    fn list_row_metrics(&mut self, _h: &Self::Handle) -> RowMetrics {
+        RowMetrics::default()
     }
     fn scroll_to(&mut self, _h: &Self::Handle, _target: Rect, _animated: bool) {}
     fn scroll_offset(&mut self, _h: &Self::Handle) -> Point {
@@ -9471,7 +9565,7 @@ mod builtin_kind_tests {
         // 19 after `Tabs`/`TabsPage` retired (the tab bar is a NAV presentation, not a kind),
         // +2 for the inspector split and its panes (docs/inspector.md), +1 for the tree
         // (docs/tree.md).
-        assert_eq!(Builtin::ALL.len(), 24);
+        assert_eq!(Builtin::ALL.len(), 25);
     }
 
     /// An extension piece's kind is not a built-in.

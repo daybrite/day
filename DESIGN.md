@@ -67,7 +67,7 @@ the architecture-level view and the rationale.
 | subsystem | normative doc | overview here |
 |---|---|---|
 | navigation — `routes!`, `nav`, `nav_stack`, deep links, predictive back | [docs/navigation.md](docs/navigation.md) | [§10.5](#105-navigation-and-presentation) |
-| native recycling lists | [docs/list.md](docs/list.md) | [§10](#10-native-list-integration) |
+| native recycling lists — platform row metrics, and `list_item`, the platform's own row content (`Cap::ListItem`) | [docs/list.md](docs/list.md) | [§10](#10-native-list-integration), [§5.3](#53-built-in-pieces-mvp-set) |
 | scrolling — the scroll piece, programmatic `ScrollTarget`, dayscript `scroll_to` | [docs/scroll.md](docs/scroll.md) | [§7.6](#76-scroll) |
 | baseline alignment — form rows and `VAlign::FirstBaseline` sitting text on one line | [docs/baseline.md](docs/baseline.md) | [§7.10](#710-baseline-alignment) |
 | Toolkit duty conformance — which backend implements which duty (generated, CI-gated) | [docs/duty-matrix.md](docs/duty-matrix.md) | [§8.1](#81-the-toolkit-trait) |
@@ -956,6 +956,12 @@ list(items_fn, key_fn, row_fn)     // NATIVE recycling list (§10, docs/list.md)
     .reorderable(Reorder::new(f).guard(g).enabled(e))  // a list reorders exactly when it carries one
     .deletable(Delete::new(f).label(t).guard(g))       // ReorderVerdict::{Allow,Deny,Retarget(i)}
     .multi_select().separators()/.no_separators().stick_to_bottom()
+    .selection(binding)            // a store list's selected key, two-way; reveals app writes
+list_item(title)                   // a row's standard content, the platform's own row: NATIVE where
+    .subtitle(t).detail(t)         //   Cap::ListItem says so (UIListContentView, a Material list
+    .icon(vector).icon_tint(c)     //   item, an image-and-text table cell, a GTK row box), COMPOSED
+    .checked(on)                   //   elsewhere; each part reactive, patched in place
+                                   //   (docs/list.md "List items")
 tree(source, row_fn)               // hierarchical tree (docs/tree.md): token-addressed rows,
     .movable(Move::new(f).guard(g))//   app-owned expansion, drag-to-reparent; sources are
                                    //   branches(items, key, parent) or store.tree(children_of);
@@ -976,8 +982,9 @@ nav(section)                       // sidebar / tabs / segmented, per NavStyle
         .only_for(pred)            //   on appkit, the uikit triple-column supplementary column,
         .detail_visible(sig)       //   composed beside the detail elsewhere (Cap::NavContentList);
         .detail_title(text))       //   only_for collapses it per destination, detail_visible
-                                   //   gates the compact push flow two-way, detail_title names
-                                   //   the detail layer's bar, live
+                                   //   gates the compact push flow two-way (detail_for(sel) gates
+                                   //   it on an Option selection), detail_title names the detail
+                                   //   layer's bar, live
     .no_sidebar_toggle()           //   drop the platform's show/hide-sidebar affordance
 nav_stack(path, root)              // push/pop navigation bound to a Vec<Route> signal
 page.searchable(Search::new(q).on_submit(f).available(v))   // a nav_stack page's own field:
@@ -1227,9 +1234,7 @@ column((
             label(move || item.title().read()),        // wakes only for THIS row's `title`
             spacer(),
             button(icon("close"))
-                .action(move || todos.restructure("remove", Op::Delete, item.key(), |v| {
-                    v.remove(item.key());
-                }))
+                .action(move || { todos.remove(item.key()); })
                 .a11y(|a| a.label(tr("todo-remove")))
                 .id(id!(todo_remove, item.key())),  // stable per-item id (§5.5)
         )).spacing(6.0)
@@ -1797,6 +1802,9 @@ pub trait Toolkit: Sized + 'static {
 
     // native recycling lists (§10, docs/list.md)
     fn attach_list(&mut self, host, source: ListSource) {}
+    fn list_row_metrics(&mut self, list) -> RowMetrics { zero } // the platform's row margins
+                                   // and minimum height; day-core lays each row inside them
+                                   // (docs/list.md "Row metrics", 2026-10)
 
     // native hierarchical trees (docs/tree.md): the same row-pull seam, token-addressed
     fn attach_tree(&mut self, host, source: TreeSource) {}
@@ -1863,7 +1871,8 @@ pub trait Toolkit: Sized + 'static {
     // predecessor in the same group. Each item carries a `ToolbarPlacement` (its role on the
     // bar) and a `ToolbarColumn` (which pane of a split it came from); a backend honors what it
     // can express and DROPS the rest, never the item. `update_toolbar` is the targeted path a
-    // value takes. Defaulted no-ops.
+    // value takes — a toggle, a search's text, and since 2026-10 an item's words and a search's
+    // prompt (`ToolbarPatch::Label`/`Placeholder`, a language change). Defaulted no-ops.
     fn edit_toolbar(&mut self, h, ops: &[ToolbarOp]) {}
     fn update_toolbar(&mut self, h, patch: &ToolbarPatch) {}
     // Show/hide the window's `nav(Sidebar)` pane — what the reserved
@@ -2643,6 +2652,15 @@ walkthrough support, native drawing, focus, dialogs, rawfile resources, `.hap` p
 > Dynamic Type notification and trait changes; Android recreates the activity on
 > `fontScale`). The `list-rows-size-to-content` conformance case guards it
 > ([docs/list.md](docs/list.md#row-heights)).
+> **Platform rows** (2026-10): a row reads at the platform's size without the app padding
+> it. `Toolkit::list_row_metrics` answers the margins and minimum height the platform's own
+> list gives a row (UIKit measures a stock cell; Material, AppKit, GTK, Qt, web, ArkUI and WinUI
+> answer their list-item values), and day-core lays every row inside them; a fixed-height row
+> too short for them centers instead. The `list_item` piece (`kinds::LIST_ITEM`,
+> `Cap::ListItem`) is the platform's row content itself — `UIListContentView`, a Material list
+> item, an image-and-text table cell, a GTK row box, composed elsewhere — and marks itself the
+> whole row (`Flex::whole_row`), so it keeps the list's side margins and sizes its own height
+> ([docs/list.md](docs/list.md#row-metrics)).
 
 The requirement: Day's `list` must use the platform's recycling list (`UICollectionView`,
 `RecyclerView`, `NSTableView`, `GtkListView`, `QListView`) so large collections get native
@@ -4481,7 +4499,7 @@ headless runtime path is exercised in HarmonyOS CI, never by a local emulator te
 | `day drive` | execute dayscript steps against a RUNNING app, step-at-a-time ([docs/agent.md](docs/agent.md) — the agent inner loop) |
 | `day test -t <target>… [FILTER…] [--list] [--shots never\|on-failure\|always] [--skip-build] [--case-timeout SECS] [--locale …] [--env K=V]… [device flags]` | run the app's `#[day::test]` cases inside the built app on each target ([docs/testing.md](docs/testing.md)): a launch with one generated script whose `run_tests` step runs the registered cases in process, one line per test, `conformance.json` and the captures beside the run's screenshots; `--list` names the registry without running; a failed test exits 5 like a failed step |
 | `day mcp-server` | serve Day tools to coding agents over the Model Context Protocol (stdio) |
-| `day devices list [-t <target>] [--format json]` | what each mobile target can be launched onto right now: booted simulators and attached iPhones, adb devices and emulators, reachable hdc targets — plus shut-down simulators and defined AVDs under `bootable`. Every device names the FLAG that selects it (`--ios-simulator` and `--ios-device` differ per device), so an editor fills a picker without hard-coding that mapping; a target whose toolchain is missing reports `available: false` with a `note` rather than an empty list, so one absent SDK never blanks out the other two. Needs no project; the JSON envelope is schema-versioned and grow-only like `day metadata`. `day devices boot -t <target> <id>` starts one of the `bootable` entries — `simctl boot` plus the simulator's UI app, which is `Simulator.app` up to Xcode 26 and **Device Hub** from Xcode 27, opened on the device through its URL scheme (`devices://manage/select?id=<udid>`) because it shows nothing without one and does not correct itself once the route is handled, which is why a boot that will open a window waits for the device first; a detached `emulator -avd`, or the Oniro emulator — which is what makes a picker's "nothing running" one action from a device rather than a dead end (iOS cannot install onto a shut-down simulator). Booting an AVD also turns its hardware keyboard on (`hw.keyboard=yes`, announced when it changes anything): `avdmanager` creates AVDs with it off, the emulator has no flag that overrides it, and an emulator with it off silently ignores every key typed on the host — which reads as the app under development swallowing input. `boot` takes `--device`/`--os` (resolved the same way for a simulator: name PREFIX, OS major version), `--wait` (blocks on `sys.boot_completed` for Android, `simctl bootstatus` for iOS — adbd answering is minutes too early), `--headless` (no window: Android gets swiftshader, iOS leaves the simulator's UI app closed, which is what a CI runner with no display wants), and `--orientation portrait\|landscape`. Booting is IDEMPOTENT for Android: an emulator already running that AVD is reused rather than a second one started beside it, and the serial is printed on stdout (status lines go to stderr) so a workflow can capture it. Turning the display asks the WINDOW MANAGER (`cmd window fixed-to-user-rotation` + `user-rotation lock`), not `settings put system user_rotation`, which is only a request the foreground app may refuse — a portrait-locked launcher was measured reverting it while the write reported success; the target rotation is derived from the device's NATURAL orientation, which is landscape on a tablet and portrait on a phone, so the same request means different quarter-turns per device. `day devices shutdown -t <target> <id>` is the other direction, so an editor that can start a device can also give the machine back the gigabytes one holds. iOS hands the id to `simctl shutdown`, which resolves a name as readily as a UDID; Android accepts EITHER spelling of an emulator (the adb serial a listing reports, or the AVD name `boot` takes) because a serial is a console port rather than an identity — it slides when one is taken, and names nothing once the emulator stops — then `adb -s <serial> emu kill` and waits for it to leave `adb devices`, so the next listing describes the machine rather than one on its way out. Stopping something already stopped succeeds, the way booting something already booted does. A physical phone is refused rather than acted on: `emu kill` reaches only an emulator console, and the plausible alternative for real hardware (`adb reboot -p`) powers off a device someone is holding. The OpenHarmony emulator has no stop — it is a detached `qemu-system-x86_64` this command line never recorded, and a by-name match could only kill every QEMU on the machine. A running emulator's listing entry also carries the `avd` it is running (from `adb emu avd name`) and drops out of `bootable`, which is what lets an editor tie a stopped row back to something startable |
+| `day devices list [-t <target>] [--format json]` | what each mobile target can be launched onto right now: booted simulators and attached iPhones, adb devices and emulators, reachable hdc targets — plus shut-down simulators and defined AVDs under `bootable`. Every device names the FLAG that selects it (`--ios-simulator` and `--ios-device` differ per device), so an editor fills a picker without hard-coding that mapping; a target whose toolchain is missing reports `available: false` with a `note` rather than an empty list, so one absent SDK never blanks out the other two. Needs no project; the JSON envelope is schema-versioned and grow-only like `day metadata`. `day devices boot -t <target> <id>` starts one of the `bootable` entries — `simctl boot` plus the simulator's UI app, which is `Simulator.app` up to Xcode 26 and **Device Hub** from Xcode 27, opened on the device through its URL scheme (`devices://manage/select?id=<udid>`) because it shows nothing without one and does not correct itself once the route is handled, which is why a boot that will open a window waits for the device first; Device Hub also cannot send input to a simulator on iOS 17 or older (that runtime lacks the HID service it drives, and it drops every click without a word on screen), so opening one prints a warning naming iOS 18 as the floor for interactive use; a detached `emulator -avd`, or the Oniro emulator — which is what makes a picker's "nothing running" one action from a device rather than a dead end (iOS cannot install onto a shut-down simulator). Booting an AVD also turns its hardware keyboard on (`hw.keyboard=yes`, announced when it changes anything): `avdmanager` creates AVDs with it off, the emulator has no flag that overrides it, and an emulator with it off silently ignores every key typed on the host — which reads as the app under development swallowing input. `boot` takes `--device`/`--os` (resolved the same way for a simulator: name PREFIX, OS major version), `--wait` (blocks on `sys.boot_completed` for Android, `simctl bootstatus` for iOS — adbd answering is minutes too early), `--headless` (no window: Android gets swiftshader, iOS leaves the simulator's UI app closed, which is what a CI runner with no display wants), and `--orientation portrait\|landscape\|auto` (`auto`, Android only, undoes a pin an earlier boot or capture run left in the AVD's data, so turning the emulator turns the app again). Booting is IDEMPOTENT for Android: an emulator already running that AVD is reused rather than a second one started beside it, and the serial is printed on stdout (status lines go to stderr) so a workflow can capture it. Turning the display asks the WINDOW MANAGER (`cmd window fixed-to-user-rotation` + `user-rotation lock`), not `settings put system user_rotation`, which is only a request the foreground app may refuse — a portrait-locked launcher was measured reverting it while the write reported success; the target rotation is derived from the device's NATURAL orientation, which is landscape on a tablet and portrait on a phone, so the same request means different quarter-turns per device. `day devices shutdown -t <target> <id>` is the other direction, so an editor that can start a device can also give the machine back the gigabytes one holds. iOS hands the id to `simctl shutdown`, which resolves a name as readily as a UDID; Android accepts EITHER spelling of an emulator (the adb serial a listing reports, or the AVD name `boot` takes) because a serial is a console port rather than an identity — it slides when one is taken, and names nothing once the emulator stops — then `adb -s <serial> emu kill` and waits for it to leave `adb devices`, so the next listing describes the machine rather than one on its way out. Stopping something already stopped succeeds, the way booting something already booted does. A physical phone is refused rather than acted on: `emu kill` reaches only an emulator console, and the plausible alternative for real hardware (`adb reboot -p`) powers off a device someone is holding. The OpenHarmony emulator has no stop — it is a detached `qemu-system-x86_64` this command line never recorded, and a by-name match could only kill every QEMU on the machine. A running emulator's listing entry also carries the `avd` it is running (from `adb emu avd name`) and drops out of `bootable`, which is what lets an editor tie a stopped row back to something startable |
 | `day devices setup -t android-mdc --device <profile> --os <api> [--arch] [--tag] [--name] [--orientation] [--ram <MB>]` | create (or refresh) one AVD from a device profile, so CI and a developer stand a device up with the same command instead of the workflow carrying Android SDK trivia. Installs the system image when it is absent (`sdkmanager`), creates the AVD (`avdmanager create avd -d <profile>`), then writes the config that makes it usable — `hw.keyboard=yes`, and `hw.initialOrientation` when an orientation is named. Idempotent: an existing AVD of that name is left alone and only its config is brought up to date, which is what lets CI cache the system image (the slow part, hundreds of megabytes) and rebuild the AVD from it in about a second. `--os` accepts `36`, `API 36` or `android-36`; `--arch` defaults to the host's ABI, since an emulator only runs an image its CPU can execute. Prints the AVD name on stdout, and ONLY that: the SDK tools write progress to stdout, so their output is forwarded to stderr — a CI run captured three minutes of download bars along with the name and passed the whole blob to `--device`. The SDK root is pinned too (`sdkmanager --sdk_root`), and the SDK's own `cmdline-tools` are installed when absent: `avdmanager` takes its root from where the TOOL lives (`-Dcom.android.sdkmanager.toolsdir`) with no flag to override it, so a copy on PATH outside the SDK creates AVDs referencing images the emulator cannot resolve. `ANDROID_AVD_HOME` is pinned for every AVD tool for the same class of reason: `avdmanager` and the `emulator` resolve that directory INDEPENDENTLY from an overlapping set of variables (`ANDROID_USER_HOME`, the older `ANDROID_SDK_HOME`, `$HOME`) and need not agree — a CI runner created an AVD successfully and then reported having none. Listing AVDs unions `avdmanager list avd -c` (authoritative: the tool that created them), `emulator -list-avds` and a scan of every candidate directory, and an EMPTY union is read as "could not be asked" rather than "there are none", so a boot proceeds and lets the emulator give its own diagnosis. `--wait` NARRATES: a line whenever adb\'s view or the boot properties change, a heartbeat every 15s, and every poll under `--verbose`. The emulator\'s own output goes to a log file rather than `/dev/null` (its path printed), the child handle is watched so an emulator that EXITS fails in seconds instead of sitting out the timeout, and both that failure and a timeout quote the log\'s tail — the silent version printed "Waiting …" and then nothing for ten minutes, which is what a hung CI boot looked like. `adb` itself is resolved from `$ANDROID_HOME/platform-tools` before PATH, and the wait refuses to start when it cannot be run at all: a GitHub Linux runner sets `ANDROID_HOME` but does NOT put platform-tools on PATH, so every `adb` call answered "not found" — indistinguishable, to code reading `adb devices`, from a device that has not booted, and a CI boot polled the full ten minutes reporting "adb sees it: no" against an emulator whose own log said `Boot completed in 51826 ms` |
 | `day devices boot -t <target> [<id>] [--device <name>] [--os <version>] [--orientation <o>] [--wait] [--headless]` | start a simulator, AVD or the Oniro emulator so a launch has somewhere to go. iOS/Android resolve `--device` against the machine's catalog (a name pattern, newest match wins); harmony-arkui has one image whose screen is whatever QEMU is told, so there `--device` names a PANEL (`phone` 360×720, `tablet` 1280×800, or `WxH`) and `--orientation` turns it, which is what the shared workflow's `harmony-devices` rows pass ([docs/harmonyos.md](docs/harmonyos.md)) |
 | `day xcode-backend build` / `day gradle-backend build` | hidden plumbing the scaffolds call back into ([§17.4](#174-the-build-callback-flutters-pattern-exactly--including-the-details-flutter-learned-the-slow-way)); the Xcode scaffolds also call `stage-resources` (macOS bundle resources) and `stage-strings` (iOS `[[shortcuts]]` label localizations) |
@@ -5163,17 +5181,17 @@ fieldnotes/
   .vscode/extensions.json    # recommends the Day VS Code extension (docs/vscode.md)
   .github/workflows/ci.yml   # the shared dayapp.yml workflow on the scaffolded targets (§20)
   src/
-    lib.rs                   # routes! + root() (the app)
-    main.rs                  # desktop entry: day::launch
-    model.rs                 # the domain object + its prefs-backed store
-    pages/mod.rs             # declares welcome, items, and detail pages (Settings and About are
-                             #   declared in lib.rs through day-piece-settings, docs/settings.md)
+    lib.rs                   # routes! + root(): navigation, menus, Settings and About
+                             #   (day-piece-settings, docs/settings.md)
+    main.rs                  # desktop entry: day::launch(res::window_options(), root)
+    model.rs                 # the item model + Scene state, kept by day::prefs::bind_json; tests
+    pages.rs                 # the Welcome page, the item list, and the item editor
   resource/
     locales/en/app.ftl       # + one dir per locale
     vectors/                 # tab + row glyphs, and app_mark.svg (a copy of the generated icon);
                              #   images/, assets/ and fonts/ (§18.3) join as an app needs them
   dayscript/
-    demo.yaml                # portable create/edit/delete smoke test, with screenshots
+    demo.yaml                # portable create/edit/delete walkthrough, with screenshots
   platform/                  # only for toolkits with a native host project:
     ios/                     #   Runner + DayApp.xcconfig (optional DayApp.xcodeproj) (day root in a view controller),
                              #   Run-Script phase calling `day xcode-backend build` (§17.4);
@@ -5192,13 +5210,24 @@ fieldnotes/
 ```
 
 The starter uses one main window: Welcome, Items, and Settings (in the desktop app menu or
-mobile navigation). Items have an ID, name, and done flag; the list starts empty and persists
-as JSON in preferences, including native drag-reordering where supported. Moves preserve item
-IDs and editor bindings. Persistence failures warn; creation/deletion/moves log IDs at info level
-and successful saves log at debug level without logging item contents. Explicit localized
-accessibility labels name the list, editor controls, and completion glyph; the welcome title
-has a heading role and its illustration is decorative. `Scene` owns selection and editor state,
-and the navigation preference store restores the last section. Tests live in an inline module at the bottom of `model.rs`.
+mobile navigation), sized by Day.toml `[window]` through `res::window_options()`. Items have an
+ID, name, and done flag; the first launch seeds one untitled item (an emptied list stays empty) and the list persists as JSON in preferences
+(`day::prefs::bind_json`), including native drag-reordering where supported, through the keyed
+store's `push`/`remove`/`move_row`. Persistence failures warn; creation and deletion log IDs at
+info level and successful saves log at debug level without logging item contents. Localized
+accessibility labels name the list and the completion glyph, and `labeled` names the editor's
+controls; the welcome title has a heading role and its illustration is decorative. `Scene`
+holds the items, the section, one `selected: Signal<Option<u64>>` that the list binds with
+`.selection` and the navigation with `ContentList::detail_for`, and the search `query`;
+`day::launch`'s preferences navigation store restores the last section. An item has a `Kind`
+(Note/Idea/Todo, a segmented picker and a reactive `vector` icon per row) and a `Tint` (a menu
+picker over four colors that tint the icon). The list page is `.searchable`; the list shows
+`Scene::visible_keys()` (the search, and the app's own `SHOW_DONE` setting from a Settings group);
+rows carry a context menu and a leading swipe that toggle Done; the Items tab badges the open
+count; an `UndoStack` with localized labels backs the Edit menu's Undo/Redo, and its Find (Cmd/Ctrl-F) calls `day::focus_search`. The Welcome column sits in a `scroll`, centered while it fits and scrolling in a short window (a phone turned sideways). Spacing uses the
+`Space` scale. Four tests (the first-launch seed, deletion and selection, a relaunch, the search and the setting
+filtering the list) live in an inline module at the bottom of `model.rs`; under the `mock`
+backend `day::prefs` is an in-process map, so they need no cleanup.
 The only external piece dependency is `day-piece-settings`, whose `Preferences::new().about(..)
 .group(general_group(..)).install()` in `root()` supplies the Settings and About windows and
 menu items on desktop and the Settings navigation section (About at its top) elsewhere
@@ -5206,9 +5235,9 @@ menu items on desktop and the Settings navigation section (About at its top) els
 `.template()` so their color follows the native theme. `dayscript/demo.yaml` creates, edits,
 and deletes its own item without platform-specific conditions or disturbing saved items. It
 also audits native accessibility metadata on the welcome and editor screens. Short source comments
-explain scope ownership, recycled rows, deselection, keyed editors, and Settings placement, with
-links to the corresponding published guides and detailed references.
-The recorder's template regression parses and round-trips this smoke test, including its
+explain recycled rows, keyed editors, and Settings placement, with links to the published
+guides.
+The recorder's template regression parses and round-trips this walkthrough, including its
 Items route and scalar screenshot syntax. Size-class serialization is covered by a separate
 recorder fixture, so the starter does not need adaptive-layout test steps.
 
@@ -5871,7 +5900,8 @@ api-tour, reactivity, layout, dayscript, packaging, …) plus the internal refer
    dialect is not something anyone decides one comment at a time. Exceptions live in `typos.toml`,
    each with its reason: `cancelled` (pinned by `HttpError::Cancelled` and by GitHub Actions'
    own `cancelled()`), the deliberate misspellings that ARE test fixtures (`--profile relaese`,
-   the `stlye:` Fluent lint case), and the starter-app translations, which are not English.
+   the `stlye:` Fluent lint case), and every Fluent catalog (`*.ftl`, since 2026-10), because
+   most are translations and typos has no per-language mode.
    Native `.inc` fragments are excluded because platform identifiers trigger false positives.
    Platform names used in checked sources get exact identifier exceptions, including Apple's
    `ITMS` error prefix and `kMDItemWhereFroms` metadata attribute; ordinary prose remains checked.
@@ -8144,8 +8174,14 @@ traffic through this part is observable. Details and examples live in [docs/http
 index-aligned text on mobile and desktop. UIKit uses `UICellAccessoryLabel` (iOS 14+)
 beside optional status glyphs and the disclosure arrow; Android NavigationView uses
 an action-view label beside any glyph; ArkUI inserts a themed trailing text node.
-Empty badges draw nothing. Counts are supplied/formatted by the app and do not alter
-route keys, row indices or selection. See [docs/navigation.md](docs/navigation.md).
+Empty badges draw nothing: the nav sends an empty text as `None`, so no platform shows a bare
+dot. Counts are supplied/formatted by the app and do not alter route keys, row indices or
+selection. A change that leaves the rows themselves as they were (a count ticking, a language
+change) arrives with `NavMenuPatch::Items::rows_changed`, and a backend updates just those rows
+in place (a `UITab`'s badge, a Material bar item's `BadgeDrawable`, an outline row reload)
+rather than rebuilding the menu, which re-laid tab bars and replayed their selection animation.
+The bottom bar and rail of Android's navigation suite draw counts as Material badges. See
+[docs/navigation.md](docs/navigation.md).
 
 Collapsed content-list navigation treats an empty selection after Back as the sidebar root.
 Re-deriving rows (filtering, counts, locale changes) preserves that root instead of applying

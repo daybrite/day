@@ -183,6 +183,7 @@ unsafe extern "C" {
     fn day_dom_nav_add_page(nav: u32, page: u32, chrome: u32);
     fn day_dom_nav_back_bar(nav: u32, visible: u32, t: *const u8, tl: usize);
     fn day_dom_navmenu(el: u32, json: *const u8, len: usize);
+    fn day_dom_navmenu_rows(el: u32, json: *const u8, len: usize);
     // Window toolbar (docs/toolbars.md): each edit crosses as one JSON list of ops, and targeted
     // patches address an item by id. `day_dom_toolbar_sidebar` returns 0 when the page has no
     // split nav to toggle.
@@ -1092,10 +1093,12 @@ fn apply_font(el: u32, f: &FontSpec) {
 /// Build the nav-menu JSON (`{items:[{title, section?, icon?, tint?}], selected}`) the shim's
 /// `day_dom_navmenu` consumes. Shared by NAV_MENU realize and the data-driven
 /// `NavMenuPatch::Items` rebuild.
+#[allow(clippy::too_many_arguments)]
 fn navmenu_json(
     items: &[String],
     icons: &[Option<String>],
     tints: &[Option<day_spec::Color>],
+    badges: &[Option<String>],
     badge_icons: &[Option<String>],
     badge_tints: &[Option<day_spec::Color>],
     sections: &[Option<String>],
@@ -1132,6 +1135,11 @@ fn navmenu_json(
                     ),
                 );
             }
+        }
+        // The row's count (docs/navigation.md `badge`), drawn dim at the trailing edge.
+        if let Some(Some(count)) = badges.get(i) {
+            json.push_str(",\"count\":");
+            json_str(&mut json, count);
         }
         // The trailing status glyph (docs/navigation.md), in the same shape as `icon`/`tint` so
         // the shim paints it with one code path at the other end of the row.
@@ -2244,6 +2252,7 @@ impl Toolkit for Dom {
                     &p.items,
                     &p.icons,
                     &p.tints,
+                    &p.badges,
                     &p.badge_icons,
                     &p.badge_tints,
                     &p.sections,
@@ -2304,6 +2313,7 @@ impl Toolkit for Dom {
             // here, so the piece composes its pane instead — docs/inspector.md); anything
             // else is an extension piece.
             Some(Builtin::ListCell)
+            | Some(Builtin::ListItem)
             | Some(Builtin::Tree)
             | Some(Builtin::Inspector)
             | Some(Builtin::InspectorPane)
@@ -2614,23 +2624,41 @@ impl Toolkit for Dom {
                     items,
                     icons,
                     tints,
+                    badges,
                     badge_icons,
                     badge_tints,
                     sections,
                     selected,
+                    rows_changed,
                     ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
-                    let json = navmenu_json(
+                    let mut json = navmenu_json(
                         items,
                         icons,
                         tints,
+                        badges,
                         badge_icons,
                         badge_tints,
                         sections,
                         *selected,
                     );
-                    unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) };
+                    match rows_changed {
+                        // The same rows with new words or counts: refill those rows in place.
+                        Some(rows) => {
+                            json.pop();
+                            json.push_str(",\"rows\":[");
+                            for (n, r) in rows.iter().enumerate() {
+                                if n > 0 {
+                                    json.push(',');
+                                }
+                                json.push_str(&r.to_string());
+                            }
+                            json.push_str("]}");
+                            unsafe { day_dom_navmenu_rows(el, json.as_ptr(), json.len()) };
+                        }
+                        None => unsafe { day_dom_navmenu(el, json.as_ptr(), json.len()) },
+                    }
                 } else if let Some(NavMenuPatch::Selected(sel)) =
                     patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -2967,6 +2995,19 @@ impl Toolkit for Dom {
         unsafe { day_dom_scroll_content(h.0, content.width, content.height) };
     }
 
+    /// A web list row sized for touch: 16px sides, 44px tall.
+    fn list_row_metrics(&mut self, _h: &DomHandle) -> day_spec::RowMetrics {
+        day_spec::RowMetrics {
+            insets: day_spec::Insets {
+                top: 10.0,
+                leading: 16.0,
+                bottom: 10.0,
+                trailing: 16.0,
+            },
+            min_height: 44.0,
+        }
+    }
+
     fn scroll_to(&mut self, h: &DomHandle, target: Rect, animated: bool) {
         unsafe { day_dom_scroll_to(h.0, target.origin.x, target.origin.y, animated as u32) };
     }
@@ -3076,6 +3117,24 @@ impl Toolkit for Dom {
                     json_str(&mut json, sug);
                 }
                 json.push(']');
+            }
+            P::Label {
+                item,
+                label,
+                tooltip,
+            } => {
+                json_str(&mut json, item);
+                json.push_str(",\"label\":");
+                json_str(&mut json, label);
+                if let Some(tip) = tooltip {
+                    json.push_str(",\"tip\":");
+                    json_str(&mut json, tip);
+                }
+            }
+            P::Placeholder { item, text } => {
+                json_str(&mut json, item);
+                json.push_str(",\"placeholder\":");
+                json_str(&mut json, text);
             }
         }
         json.push('}');

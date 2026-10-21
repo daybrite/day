@@ -393,3 +393,145 @@ fn a_field_torn_down_mid_edit_seals_through_a_slot_that_still_stands() {
         "the teardown sealed the session into one record"
     );
 }
+
+#[test]
+fn selection_binds_the_selected_key_both_ways() {
+    let store = Store::new(Keyed::new(
+        (1..=3)
+            .map(|id| Row {
+                id,
+                ..Default::default()
+            })
+            .collect(),
+    ));
+    let selected: Signal<Option<u64>> = Signal::new(Some(2));
+    let probe = boot(move || {
+        list(store, |slot: ModelSlot<Row>| {
+            label(move || slot.name().read())
+        })
+        .selection(selected)
+        .any()
+    });
+    let host = NodeId(probe.find_by_kind("day.list")[0].0.0);
+    // The initial key selects its row without scrolling.
+    assert_eq!(count(&probe, "list selected [1]"), 1);
+    assert_eq!(count(&probe, "list scroll"), 0);
+
+    // The user picks a row: its key is written back, and the pick is recorded on the native
+    // list (one that keeps no selection of its own paints from it) without scrolling.
+    probe.emit(host, Event::SelectionChanged(2));
+    flush_sync();
+    assert_eq!(selected.get(), Some(3));
+    assert_eq!(count(&probe, "list selected [2]"), 1);
+    assert_eq!(count(&probe, "list scroll"), 0);
+
+    // A row the app adds and selects is selected and revealed once it is in the snapshot.
+    store.push(Row {
+        id: 4,
+        ..Default::default()
+    });
+    selected.set(Some(4));
+    flush_sync();
+    assert!(count(&probe, "list selected [3]") >= 1);
+    assert_eq!(count(&probe, "list scroll"), 1);
+
+    // A move keeps the selected row selected at its new index.
+    store.move_row(3, 0);
+    flush_sync();
+    assert!(count(&probe, "list selected [0]") >= 1);
+
+    // Clearing the selection natively writes `None`.
+    probe.emit(host, Event::SelectionSet(vec![]));
+    flush_sync();
+    assert_eq!(selected.get(), None);
+}
+
+/// Boot with `kinds::LIST_ITEM` realized natively (`Cap::ListItem` = `Native`).
+fn boot_native_items(root: impl FnOnce() -> AnyPiece + 'static) -> MockProbe {
+    day_core::uninstall_tree();
+    let (mock, probe) = MockToolkit::new();
+    probe.set_native_list_items(true);
+    day_core::launch_with(
+        mock,
+        WindowOptions {
+            title: "t".into(),
+            size: Size::new(400.0, 600.0),
+            ..Default::default()
+        },
+        root,
+    );
+    flush_sync();
+    probe
+}
+
+/// A list item realizes as the platform's row content where there is one, and each part of a
+/// recycled row's item changes in place: a rename, a check mark, never a rebuild.
+#[test]
+fn list_items_patch_their_parts_in_place() {
+    let store = Store::new(Keyed::new(vec![
+        Row {
+            id: 1,
+            name: "Milk".into(),
+            done: false,
+        },
+        Row {
+            id: 2,
+            name: "Bread".into(),
+            done: false,
+        },
+    ]));
+    let probe = boot_native_items(move || {
+        list(store, |slot: ModelSlot<Row>| {
+            list_item(move || slot.name().read())
+                .subtitle("aisle 4")
+                .checked(move || slot.done().read())
+        })
+        .any()
+    });
+    let host = probe.find_by_kind("day.list")[0].0;
+    for i in 0..2 {
+        probe.list_bind(host, i, MockHandle(9000 + i as u64));
+    }
+    flush_sync();
+    assert_eq!(
+        count(&probe, "realize day.list_item"),
+        2,
+        "{:#?}",
+        probe.log()
+    );
+    assert_eq!(count(&probe, "title=\"Milk\" subtitle=\"aisle 4\""), 1);
+    store.elem(1).done().write(true);
+    store.elem(2).name().write("Rye".into());
+    flush_sync();
+    assert_eq!(
+        count(&probe, "list_item Checked(true)"),
+        1,
+        "{:#?}",
+        probe.log()
+    );
+    assert_eq!(count(&probe, "list_item Title(\"Rye\")"), 1);
+    assert_eq!(count(&probe, "realize day.list_item"), 2, "nothing rebuilt");
+}
+
+/// Without native row content the same item composes from plain pieces: its title and its
+/// subtitle as labels, the check mark following the row.
+#[test]
+fn list_items_compose_where_the_toolkit_has_no_row_content() {
+    let done = Signal::new(false);
+    let probe = boot(move || {
+        list_item("Milk")
+            .subtitle("aisle 4")
+            .detail("2")
+            .checked(done)
+            .any()
+    });
+    assert_eq!(count(&probe, "realize day.list_item"), 0);
+    assert_eq!(count(&probe, "text=\"Milk\""), 1, "{:#?}", probe.log());
+    assert_eq!(count(&probe, "text=\"aisle 4\""), 1);
+    assert_eq!(count(&probe, "text=\"2\""), 1);
+    let images = || count(&probe, "realize day.image");
+    let before = images();
+    done.set(true);
+    flush_sync();
+    assert_eq!(images(), before + 1, "the check mark appears");
+}

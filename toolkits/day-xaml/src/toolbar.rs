@@ -320,6 +320,10 @@ impl Xaml {
                 let id = cstr(item);
                 unsafe { ffi::day_xaml_toolbar_set_enabled(win, id.as_ptr(), *on as c_int) };
             }
+            // Not applied yet: the shim has no setter for a command's label, tooltip or a search
+            // box's prompt, so a language change leaves the old words until the bar is next
+            // edited (docs/toolbars.md "Follow-ups").
+            ToolbarPatch::Label { .. } | ToolbarPatch::Placeholder { .. } => {}
         }
     }
 }

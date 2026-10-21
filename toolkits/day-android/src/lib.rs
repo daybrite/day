@@ -243,6 +243,8 @@ pub use ext::*;
 mod imp {
     pub use jni;
 
+    use framework::DayListItem;
+
     use std::any::Any;
     use std::cell::{Cell, RefCell};
     use std::os::raw::{c_char, c_int, c_void};
@@ -348,14 +350,20 @@ mod imp {
             std::cell::RefCell::new(std::collections::HashMap::new());
         static LIST_NODE: std::cell::RefCell<std::collections::HashMap<usize, i64>> =
             std::cell::RefCell::new(std::collections::HashMap::new());
-        /// A realized NAV_MENU's rows, by its own view ptr: `(node, joined titles, joined icons)`.
+        /// A realized NAV_MENU's rows, by its own view ptr: `(node, joined titles, joined icons,
+        /// joined document keys, joined badge texts)`.
         ///
         /// Recorded at realize, which is where the props are, and handed to the navigation suite
         /// at insert, the first moment the menu is in a hierarchy whose ancestors reach the
         /// suite. Where there is no suite above it (every presentation but `Tabs`) the handover
         /// finds nothing and the rows stay a list. Entries drop in `release`.
+        /// Each realized list item's props, by its view ptr: a patch changes one part, and the
+        /// Java view takes its three texts together (docs/list.md "List items").
+        static LIST_ITEM_PROPS: std::cell::RefCell<
+            std::collections::HashMap<usize, day_spec::props::ListItemProps>,
+        > = std::cell::RefCell::new(std::collections::HashMap::new());
         static NAV_MENU_ROWS: std::cell::RefCell<
-            std::collections::HashMap<usize, (i64, String, String, String)>,
+            std::collections::HashMap<usize, (i64, String, String, String, String)>,
         > = std::cell::RefCell::new(std::collections::HashMap::new());
         /// Each window's toolbar model (docs/toolbars.md), by its root view ptr: what the app-bar
         /// menu is repainted from.
@@ -885,6 +893,7 @@ mod imp {
         static fn setImageTint(v: android.view.View, tint: jint),
         static fn setInputTraits(v: android.view.View, secure: jboolean, read_only: jboolean, purpose: jint, submit_label: jint),
         static fn setLabel(v: android.view.View, text: JString),
+        static fn setLabelAlignment(view: android.view.View, align: jint),
         static fn setLabelColor(v: android.view.View, argb: jint, on: jboolean),
         static fn setLabelFont(v: android.view.View, sp: jfloat, weight: jint, italic: jboolean, family: JString, tabular: jboolean),
         static fn setLabelRuns(v: android.view.View, node: jlong, text: JString, starts: jint[], ends: jint[], flags: jint[], colors: jint[], backgrounds: jint[], scales: jint[], links_joined: JString),
@@ -899,7 +908,8 @@ mod imp {
         static fn setNavRowMenus(nav_menu: android.view.View, joined_specs: JString),
         static fn setNavSearch(nav_host: android.view.View, id: jlong, prompt: JString, text: JString, hides_on_scroll: jboolean),
         static fn setNavSearchText(nav_host: android.view.View, text: JString),
-        static fn setNavSuiteRows(menu: android.view.View, titles: JString, icons: JString, menu_node: jlong),
+        static fn setNavSuiteRows(menu: android.view.View, titles: JString, icons: JString, badges: JString, menu_node: jlong),
+        static fn updateNavMenuRows(v: android.view.View, joined_rows: JString, joined_items: JString, joined_icons: JString),
         static fn setNavSuiteSelected(suite: android.view.View, index: jint),
         static fn setOpacity(v: android.view.View, alpha: jfloat, dur_ms: jint, curve: jint),
         static fn setPlaceholder(v: android.view.View, value: JString),
@@ -959,6 +969,19 @@ mod imp {
     /// method is declared. Platform classes are never shrunk by R8, so their keep rules change
     /// nothing; the bindings give the calls types and the startup check a say.
     pub(crate) mod framework {
+        // A list row's standard content (docs/list.md "List items"): DayListItem.java.
+        crate::java_class! {
+            pub DayListItem => dev.daybrite.day.bridge.DayListItem,
+            methods {
+                static fn make(title: JString, subtitle: JString, detail: JString, icon: JString,
+                    tint: jint, checked: jboolean) -> android.view.View,
+                static fn setTexts(v: android.view.View, title: JString, subtitle: JString,
+                    detail: JString),
+                static fn setIcon(v: android.view.View, name: JString, tint: jint),
+                static fn setChecked(v: android.view.View, on: jboolean),
+            },
+        }
+
         crate::java_class! {
             pub System => java.lang.System,
             methods {
@@ -2687,6 +2710,65 @@ mod imp {
 
     /// The bridge's image-tint channel: a packed ARGB, `0` for the authored colors, or
     /// [`TEMPLATE_TINT`] for a template glyph that takes the theme's text color.
+    /// A list item's glyph as a drawable name: a staged image by its own name, a standard
+    /// symbol by the `day_symbol_*` drawable it ships as.
+    fn list_item_icon(icon: Option<&day_spec::Icon>) -> String {
+        match icon {
+            Some(day_spec::Icon::Image(name)) => name.clone(),
+            Some(day_spec::Icon::Symbol(sym)) => symbol_drawable(*sym),
+            None => String::new(),
+        }
+    }
+
+    /// Apply one change to a realized list item (docs/list.md "List items"). The Java view
+    /// sets its texts together, so the props are kept here to hand it the other two.
+    fn list_item_patch(h: &AHandle, patch: &day_spec::props::ListItemPatch) {
+        use day_spec::props::ListItemPatch as P;
+        let key = h.0.as_obj().as_raw() as usize;
+        let Some(p) = LIST_ITEM_PROPS.with(|m| {
+            let mut m = m.borrow_mut();
+            let p = m.get_mut(&key)?;
+            match patch {
+                P::Title(t) => p.title = t.clone(),
+                P::Subtitle(t) => p.subtitle = t.clone(),
+                P::Detail(t) => p.detail = t.clone(),
+                P::Icon(i) => p.icon = i.clone(),
+                P::IconTint(c) => p.icon_tint = *c,
+                P::Checked(on) => p.checked = *on,
+            }
+            Some(p.clone())
+        }) else {
+            return;
+        };
+        with_env(|env| {
+            let _ = match patch {
+                P::Title(_) | P::Subtitle(_) | P::Detail(_) => {
+                    let (t, s, d) = (
+                        jstr(env, &p.title),
+                        jstr(env, &p.subtitle),
+                        jstr(env, &p.detail),
+                    );
+                    java_in(env, |env| {
+                        DayListItem::setTexts(env, h.0.as_obj(), &t, &s, &d)
+                    })
+                }
+                P::Icon(_) | P::IconTint(_) => {
+                    let name = jstr(env, &list_item_icon(p.icon.as_ref()));
+                    let tint = p.icon_tint.map(argb_i32).unwrap_or(0);
+                    java_in(env, |env| {
+                        DayListItem::setIcon(env, h.0.as_obj(), &name, tint)
+                    })
+                }
+                P::Checked(on) => {
+                    java_in(env, |env| DayListItem::setChecked(env, h.0.as_obj(), *on))
+                }
+            };
+            if env.exception_check() {
+                env.exception_clear();
+            }
+        });
+    }
+
     fn image_tint(tint: Option<day_spec::Color>, template: bool) -> i32 {
         match tint {
             Some(c) => argb_i32(c),
@@ -2799,6 +2881,8 @@ mod imp {
                 // The families `fonts.xml` names, the ones `Typeface.create` resolves
                 // (docs/fonts.md).
                 Cap::FontList => Support::Native,
+                // DayListItem: a Material 3 list item (docs/list.md "List items").
+                Cap::ListItem => Support::Native,
                 // `BitmapFactory` decodes every container Android reads, and `Bitmap.compress`
                 // writes back PNG and JPEG (docs/images.md). WebP decodes here but is not
                 // offered for encode: the modern `WEBP_LOSSY`/`WEBP_LOSSLESS` constants are
@@ -3265,6 +3349,12 @@ mod imp {
                         }));
                         // Keep the rows for `insert`, which is where a navigation suite above
                         // this menu can finally be found and handed them.
+                        let texts = p
+                            .badges
+                            .iter()
+                            .map(|s| s.as_deref().unwrap_or(""))
+                            .collect::<Vec<_>>()
+                            .join("\u{1f}");
                         NAV_MENU_ROWS.with(|m| {
                             m.borrow_mut().insert(
                                 handle.0.as_obj().as_raw() as usize,
@@ -3273,6 +3363,7 @@ mod imp {
                                     joined.clone(),
                                     joined_icons.clone(),
                                     p.document_keys.join("\u{1f}"),
+                                    texts.clone(),
                                 ),
                             )
                         });
@@ -3284,12 +3375,6 @@ mod imp {
                             DayBridge::setNavMenuTints(env, handle.0.as_obj(), &st)
                         });
                         // The trailing status glyph (docs/navigation.md), same best-effort rule.
-                        let texts = p
-                            .badges
-                            .iter()
-                            .map(|s| s.as_deref().unwrap_or(""))
-                            .collect::<Vec<_>>()
-                            .join("\u{1f}");
                         let counts = jstr(env, &texts);
                         let sb = jstr(env, &joined_badge_icons);
                         let sbt = jstr(env, &joined_badge_tints);
@@ -3361,6 +3446,16 @@ mod imp {
                             .with(|m| m.borrow_mut().insert(view.as_obj().as_raw() as usize, idj));
                         if !p.runs.is_empty() {
                             set_label_runs(env, idj, &view, &p.text, &p.runs);
+                        }
+                        let align = match p.align {
+                            day_spec::props::TextAlign::Leading => 0,
+                            day_spec::props::TextAlign::Center => 1,
+                            day_spec::props::TextAlign::Trailing => 2,
+                        };
+                        if align != 0 {
+                            let _ = java_in(env, |env| {
+                                DayBridge::setLabelAlignment(env, view.as_obj(), align)
+                            });
                         }
                         AHandle(view)
                     })
@@ -3493,6 +3588,30 @@ mod imp {
                         }
                     })
                 }
+                Some(Builtin::ListItem) => {
+                    let Some(p) = day_spec::props_of::<day_spec::props::ListItemProps>(
+                        kind, "android", props,
+                    ) else {
+                        return realize_placeholder(kind);
+                    };
+                    let handle = with_env(|env| {
+                        let (t, s, d) = (
+                            jstr(env, &p.title),
+                            jstr(env, &p.subtitle),
+                            jstr(env, &p.detail),
+                        );
+                        let icon = jstr(env, &list_item_icon(p.icon.as_ref()));
+                        let tint = p.icon_tint.map(argb_i32).unwrap_or(0);
+                        AHandle(bridge_view(env, "makeListItem", |env| {
+                            DayListItem::make(env, &t, &s, &d, &icon, tint, p.checked)
+                        }))
+                    });
+                    LIST_ITEM_PROPS.with(|m| {
+                        m.borrow_mut()
+                            .insert(handle.0.as_obj().as_raw() as usize, p.clone())
+                    });
+                    handle
+                }
                 // A recycled list cell is adopted from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
@@ -3527,6 +3646,11 @@ mod imp {
                 return;
             }
             match kind {
+                kinds::LIST_ITEM => {
+                    if let Some(p) = patch.downcast_ref::<day_spec::props::ListItemPatch>() {
+                        list_item_patch(h, p);
+                    }
+                }
                 kinds::IMAGE => {
                     if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
                         match p {
@@ -3605,7 +3729,7 @@ mod imp {
                             sections,
                             selected,
                             document_keys,
-                            ..
+                            rows_changed,
                         }) => {
                             let joined = items.join("\u{1f}");
                             let joined_icons = icons
@@ -3630,9 +3754,32 @@ mod imp {
                                 let s = jstr(env, &joined);
                                 let si = jstr(env, &joined_icons);
                                 let ss = jstr(env, &joined_sections);
-                                let _ = java_in(env, |env| {
-                                    DayBridge::updateNavMenu(env, h.0.as_obj(), &s, &si, &ss)
-                                });
+                                // The same rows with new words or counts: update those rows
+                                // where they stand. A new row set is rebuilt.
+                                let _ = match rows_changed {
+                                    Some(rows) => {
+                                        let r = jstr(
+                                            env,
+                                            &rows
+                                                .iter()
+                                                .map(|i| i.to_string())
+                                                .collect::<Vec<_>>()
+                                                .join(","),
+                                        );
+                                        java_in(env, |env| {
+                                            DayBridge::updateNavMenuRows(
+                                                env,
+                                                h.0.as_obj(),
+                                                &r,
+                                                &s,
+                                                &si,
+                                            )
+                                        })
+                                    }
+                                    None => java_in(env, |env| {
+                                        DayBridge::updateNavMenu(env, h.0.as_obj(), &s, &si, &ss)
+                                    }),
+                                };
                                 let keys = jstr(env, &document_keys.join("\u{1f}"));
                                 let _ = java_in(env, |env| {
                                     DayBridge::setDocumentTabKeys(env, h.0.as_obj(), &keys)
@@ -4025,6 +4172,7 @@ mod imp {
             day_spec::sidetable::sweep(key);
             LABEL_NODE.with(|m| m.borrow_mut().remove(&key));
             NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&key));
+            LIST_ITEM_PROPS.with(|m| m.borrow_mut().remove(&key));
             if let Some(nid) = LIST_NODE.with(|m| m.borrow_mut().remove(&key)) {
                 TREE_SOURCES.with(|m| m.borrow_mut().remove(&nid));
                 LIST_SOURCES.with(|m| {
@@ -4054,12 +4202,13 @@ mod imp {
                     .get(&(child.0.as_obj().as_raw() as usize))
                     .cloned()
             });
-            if let Some((node, titles, icons, keys)) = rows {
+            if let Some((node, titles, icons, keys, badges)) = rows {
                 with_env(|env| {
                     let t = jstr(env, &titles);
                     let i = jstr(env, &icons);
+                    let b = jstr(env, &badges);
                     let _ = java_in(env, |env| {
-                        DayBridge::setNavSuiteRows(env, child.0.as_obj(), &t, &i, node)
+                        DayBridge::setNavSuiteRows(env, child.0.as_obj(), &t, &i, &b, node)
                     });
                     let keys = jstr(env, &keys);
                     let _ = java_in(env, |env| {
@@ -4106,6 +4255,17 @@ mod imp {
                         measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d
                     }),
                 ),
+                // The Material list item measures itself: its height at the row's width.
+                kinds::LIST_ITEM => {
+                    let w = p.width.unwrap_or_else(|| {
+                        measure_call(h, |env, v| DayBridge::measureWidth(env, v)) / d
+                    });
+                    let wpx = (w * d).round() as i32;
+                    let hh = with_env(|env| {
+                        DayBridge::measureHeightForWidth(env, h.0.as_obj(), wpx).unwrap_or(0) as f64
+                    });
+                    Size::new(w, hh / d)
+                }
                 kinds::SLIDER => Size::new(
                     p.width.unwrap_or(180.0),
                     (measure_call(h, |env, v| DayBridge::measureHeight(env, v)) / d).max(24.0),
@@ -4298,6 +4458,19 @@ mod imp {
             });
         }
 
+        /// Material's one-line list item: 16dp sides, 56dp tall (8dp keeps taller content off the edges).
+        fn list_row_metrics(&mut self, _h: &AHandle) -> day_spec::RowMetrics {
+            day_spec::RowMetrics {
+                insets: day_spec::Insets {
+                    top: 8.0,
+                    leading: 16.0,
+                    bottom: 8.0,
+                    trailing: 16.0,
+                },
+                min_height: 56.0,
+            }
+        }
+
         fn scroll_to(&mut self, h: &AHandle, target: Rect, animated: bool) {
             let d = density();
             bridge(|env| {
@@ -4421,6 +4594,27 @@ mod imp {
                 }
                 // The app bar's SearchView offers no completions (docs/search.md).
                 P::Suggestions { .. } => return,
+                // New words or a new prompt: the menu is repainted from the model, which is how
+                // an Android app bar takes a changed item (its SearchView survives the repaint).
+                P::Label { .. } | P::Placeholder { .. } => {
+                    let spec = WINDOW_BARS.with(|m| {
+                        m.borrow()
+                            .get(&key)
+                            .map(|bar| serialize_toolbar(bar.items()))
+                    });
+                    if let Some(spec) = spec {
+                        with_env(|env| {
+                            let jspec = jstr(env, &spec);
+                            let _ = java_in(env, |env| {
+                                DayBridge::setWindowToolbar(env, h.0.as_obj(), &jspec)
+                            });
+                            if env.exception_check() {
+                                env.exception_clear();
+                            }
+                        });
+                    }
+                    return;
+                }
             };
             with_env(|env| {
                 let jid = jstr(env, item);

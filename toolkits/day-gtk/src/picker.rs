@@ -160,12 +160,50 @@ fn make(_backend: &mut Gtk, p: &PickerProps, id: NodeId) -> gtk4::Widget {
     root
 }
 
+thread_local! {
+    /// Dropdown model swaps waiting for their idle turn (see `update`).
+    static SWAPS_PENDING: Cell<u32> = const { Cell::new(0) };
+}
+
 fn update(_backend: &mut Gtk, h: &gtk4::Widget, patch: &PickerPatch) {
-    let i = match patch {
-        PickerPatch::Selected(i) => *i,
-        PickerPatch::Options(opts) => return set_options(h, opts),
-        PickerPatch::Enabled(on) => return h.set_sensitive(*on),
-    };
+    let is_dropdown = || STATE.with(|m| m.with(key(h), |st| st.dropdown.is_some())) == Some(true);
+    match patch {
+        // Behind a pending swap, a selection waits its turn too (idle callbacks run in order),
+        // or an index the new options add would land on the old, shorter model.
+        PickerPatch::Selected(i) if SWAPS_PENDING.get() > 0 && is_dropdown() => {
+            let (weak, i) = (h.downgrade(), *i);
+            gtk4::glib::idle_add_local_once(move || {
+                if let Some(h) = weak.upgrade() {
+                    select(&h, i);
+                }
+            });
+        }
+        PickerPatch::Selected(i) => select(h, *i),
+        PickerPatch::Options(opts) => {
+            // A dropdown's model is swapped on the next idle, never inside the current
+            // emission: a choice in its own popup (the language picker) re-localizes the app
+            // synchronously, and replacing the model while GtkDropDown is still activating the
+            // row frees what the rest of that activation uses (a crash on choosing a language).
+            if is_dropdown() {
+                let weak = h.downgrade();
+                let opts = opts.clone();
+                SWAPS_PENDING.set(SWAPS_PENDING.get() + 1);
+                gtk4::glib::idle_add_local_once(move || {
+                    SWAPS_PENDING.set(SWAPS_PENDING.get() - 1);
+                    if let Some(h) = weak.upgrade() {
+                        set_options(&h, &opts);
+                    }
+                });
+            } else {
+                set_options(h, opts);
+            }
+        }
+        PickerPatch::Enabled(on) => h.set_sensitive(*on),
+    }
+}
+
+/// Show option `i` as selected, without reporting it back as a user choice.
+fn select(h: &gtk4::Widget, i: usize) {
     STATE.with(|m| {
         m.with(key(h), |st| {
             st.suppress.set(true);

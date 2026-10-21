@@ -1031,7 +1031,8 @@ fn open_as_cover(
 ) -> WindowHandle {
     let size: Rc<RefCell<Option<Size>>> = Rc::default();
     let primary = with_tree(|t| t.root_node());
-    let sheet = kind == WindowKind::Preferences
+    // A settings or About panel is a sheet where there is room for one; content windows cover.
+    let sheet = matches!(kind, WindowKind::Preferences | WindowKind::About)
         && crate::window_size_class_untracked(primary)
             .is_some_and(|size| size.width != day_spec::WidthClass::Compact);
     let composed_sheet =

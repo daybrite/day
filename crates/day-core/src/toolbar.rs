@@ -365,6 +365,21 @@ pub fn update_contribution(token: u64, items: Vec<ToolbarItem>) {
     }
 }
 
+/// Give a contribution's items new labels and tooltips, one `(label, tooltip)` per item in
+/// order, keeping everything else as it now stands (actions, a search field's typed text): a
+/// language change relabeling a fixed toolbar (docs/toolbars.md).
+pub fn relabel_contribution(token: u64, texts: &[(String, Option<String>)]) {
+    let Some(mut items) = CONTRIBUTIONS.with(|m| m.borrow().get(&token).map(|c| c.items.clone()))
+    else {
+        return;
+    };
+    for (item, (label, tooltip)) in items.iter_mut().zip(texts) {
+        item.label = label.clone();
+        item.tooltip = tooltip.clone();
+    }
+    update_contribution(token, items);
+}
+
 /// Withdraw a contribution. Its items leave the chrome, and the closures only it owned go with
 /// them.
 pub fn unregister_contribution(token: u64) {
@@ -630,7 +645,7 @@ fn unique_ids(items: Vec<ToolbarItem>) -> Vec<ToolbarItem> {
 /// (docs/toolbars.md).
 ///
 /// Items are matched by id. One the toolkit already draws is kept when it is drawn the same way
-/// (everything but its values: search text and completions, toggle state, selection,
+/// (everything but its values: words, search text, prompt and completions, toggle state, selection,
 /// enablement) and when keeping it does not reorder it past another kept item; the kept set is
 /// the longest run of matched items already in order, so a reshuffle costs the fewest items.
 /// Everything else is removed and inserted. A kept item whose values moved gets the patches that
@@ -708,12 +723,12 @@ fn value_patches(was: &ToolbarItem, now: &ToolbarItem) -> Vec<ToolbarPatch> {
             K::Search {
                 text: t0,
                 suggestions: s0,
-                ..
+                placeholder: p0,
             },
             K::Search {
                 text: t1,
                 suggestions: s1,
-                ..
+                placeholder: p1,
             },
         ) => {
             if t0 != t1 {
@@ -728,6 +743,12 @@ fn value_patches(was: &ToolbarItem, now: &ToolbarItem) -> Vec<ToolbarPatch> {
                     list: s1.clone(),
                 });
             }
+            if p0 != p1 {
+                out.push(ToolbarPatch::Placeholder {
+                    item: item.clone(),
+                    text: p1.clone(),
+                });
+            }
         }
         (K::Toggle { on: a }, K::Toggle { on: b }) if a != b => out.push(ToolbarPatch::On {
             item: item.clone(),
@@ -740,6 +761,13 @@ fn value_patches(was: &ToolbarItem, now: &ToolbarItem) -> Vec<ToolbarPatch> {
             })
         }
         _ => {}
+    }
+    if was.label != now.label || was.tooltip != now.tooltip {
+        out.push(ToolbarPatch::Label {
+            item: item.clone(),
+            label: now.label.clone(),
+            tooltip: now.tooltip.clone(),
+        });
     }
     if was.enabled != now.enabled {
         out.push(ToolbarPatch::Enabled {
@@ -877,12 +905,18 @@ fn shape_of(item: &ToolbarItem) -> ToolbarItem {
     use day_spec::ToolbarItemKind as K;
     let mut i = item.clone();
     i.enabled = true;
+    // Words are values too: a language change patches them on the live item.
+    i.label.clear();
+    i.tooltip = None;
     match &mut i.kind {
         K::Search {
-            text, suggestions, ..
+            text,
+            suggestions,
+            placeholder,
         } => {
             text.clear();
             suggestions.clear();
+            placeholder.clear();
         }
         K::Toggle { on } => *on = false,
         K::Segmented { selected, .. } => *selected = 0,

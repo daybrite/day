@@ -220,7 +220,7 @@ impl Piece for Image {
 /// the backend can (template rendering on Apple, drawable tint on Android, pixel recolor on
 /// GTK; backends without a tint path draw the authored colors).
 pub struct Vector {
-    source: String,
+    source: crate::Reactive<day_spec::VectorName>,
     tint: Option<crate::Reactive<day_spec::Color>>,
     weight: VectorWeight,
     decorative: bool,
@@ -238,9 +238,9 @@ pub enum VectorWeight {
     Bold,
 }
 
-pub fn vector(name: impl Into<day_spec::VectorName>) -> Vector {
+pub fn vector<M>(name: impl crate::IntoReactive<day_spec::VectorName, M>) -> Vector {
     Vector {
-        source: name.into().as_str().to_owned(),
+        source: name.into_reactive(),
         tint: None,
         weight: VectorWeight::Regular,
         decorative: false,
@@ -282,15 +282,21 @@ impl Vector {
 impl Piece for Vector {
     fn build(self, cx: &mut BuildCx) -> day_core::RNode {
         // Weight variants stage under suffixed resolution names (docs/vectors.md).
-        let source = match self.weight {
-            VectorWeight::Regular => self.source,
-            VectorWeight::Light => format!("{}__light", self.source),
-            VectorWeight::Bold => format!("{}__bold", self.source),
+        let weight = self.weight;
+        let resolved = move |name: day_spec::VectorName| {
+            let name = name.as_str();
+            day_spec::ImageSource::Named(match weight {
+                VectorWeight::Regular => name.to_owned(),
+                VectorWeight::Light => format!("{name}__light"),
+                VectorWeight::Bold => format!("{name}__bold"),
+            })
         };
+        let source = self.source;
+        let source_seed = resolved(source.get_untracked());
         let tint = self.tint;
         let seed = tint.as_ref().map(|t| t.get_untracked());
         let props = ImageProps {
-            source: day_spec::ImageSource::Named(source),
+            source: source_seed.clone(),
             decorative: self.decorative,
             content_mode: ContentMode::Fit,
             aspect_ratio: None,
@@ -298,6 +304,19 @@ impl Piece for Vector {
             template: self.template,
         };
         let node = cx.leaf(kinds::IMAGE, &props, Flex::default());
+        // A reactive name swaps the glyph in the view already on screen, keeping its template
+        // and tint (a recycled row's icon following its row), as `image` does.
+        if let crate::Reactive::Dyn(_) = source {
+            day_reactive::bind_seeded(
+                source_seed,
+                move || resolved(source.get()),
+                move |s: &day_spec::ImageSource| {
+                    day_core::with_tree(|t| {
+                        t.patch(node, Box::new(ImagePatch::Source(s.clone())), true)
+                    });
+                },
+            );
+        }
         // A constant tint reads the same value forever, so this seeds once and never patches; a
         // signal or closure re-runs and repaints the realized glyph.
         if let Some(tint) = tint

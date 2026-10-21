@@ -934,10 +934,19 @@ impl About {
         self.icon = Some(icon.into());
         self
     }
-    /// A titled link (Website, Source Code, …).
+    /// A titled link. The two links most apps carry have their own methods with localized
+    /// titles: [`website`](Self::website) and [`source`](Self::source).
     pub fn link<M>(mut self, title: impl IntoText<M>, url: impl Into<String>) -> Self {
         self.links.push((title.into_text(), url.into()));
         self
+    }
+    /// The app's website, titled from Day's catalog (`day-about-website`).
+    pub fn website(self, url: impl Into<String>) -> Self {
+        self.link(day_fluent::tr("day-about-website"), url)
+    }
+    /// The app's source code, titled from Day's catalog (`day-about-source`).
+    pub fn source(self, url: impl Into<String>) -> Self {
+        self.link(day_fluent::tr("day-about-source"), url)
     }
     /// The privacy policy URL: a known slot (the stores ask for it, GTK has a field).
     pub fn privacy(mut self, url: impl Into<String>) -> Self {
@@ -1547,15 +1556,40 @@ fn install_about(inst: Rc<Installed>) {
         .as_ref()
         .map(About::display_name)
         .unwrap_or_default();
-    let title = day_fluent::tr("day-about-app").arg("app", name).format();
+    let title = day_fluent::tr("day-about-app").arg("app", name);
+    // Where windows open as covers (the web, a phone), About is a sheet with a title bar and a
+    // Done button, as Settings is there: a bare page had no way out.
+    let cover = day_core::capability(day_spec::Cap::MultiWindow) == day_spec::Support::Unsupported;
     day_core::register_about_window(
         day_spec::WindowOptions {
-            title,
+            title: title.format(),
             size: day_spec::Size::new(320.0, 480.0),
             size_to_fit: true,
             ..day_spec::WindowOptions::default()
         },
-        move || about_page(inst.clone()),
+        move || match cover {
+            false => about_page(inst.clone()),
+            true => {
+                let title = title.clone();
+                nav_stack(
+                    Signal::new(Vec::<SettingsRoute>::new()),
+                    about_page(inst.clone()),
+                )
+                .title(move || title.format())
+                .toolbar(
+                    toolbar_button(
+                        day_core::id!(about_done),
+                        day_fluent::tr("day-settings-done"),
+                    )
+                    .action(|| {
+                        if let Some(w) = day_core::window_by_key(day_core::windows::ABOUT_KEY) {
+                            w.close();
+                        }
+                    }),
+                )
+                .any()
+            }
+        },
     );
 }
 
@@ -1722,11 +1756,12 @@ impl Route for SettingsRoute {
             g => SettingsRoute::Group(g.to_string()),
         })
     }
+    /// Tracked, so a shown page's bar follows a language change (`nav_stack` re-reads it).
     fn title(&self) -> String {
         match self {
             SettingsRoute::About => day_l10n::t("day-about"),
             SettingsRoute::Group(g) => installed()
-                .and_then(|i| i.group(g).map(|g| g.title.initial()))
+                .and_then(|i| i.group(g).map(|g| resolve_text(&g.title)))
                 .unwrap_or_else(|| g.clone()),
         }
     }

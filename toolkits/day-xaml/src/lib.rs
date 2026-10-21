@@ -1793,6 +1793,7 @@ impl Toolkit for Xaml {
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
+                | Some(Builtin::ListItem)
                 | Some(Builtin::Split)
                 | Some(Builtin::SplitPane)
                 | None => {
@@ -2659,6 +2660,19 @@ impl Toolkit for Xaml {
                     content.height.round() as c_int,
                 )
             };
+        }
+    }
+
+    /// A WinUI ListViewItem: 12px horizontal padding and a 40px minimum height.
+    fn list_row_metrics(&mut self, _h: &WinHandle) -> day_spec::RowMetrics {
+        day_spec::RowMetrics {
+            insets: day_spec::Insets {
+                top: 0.0,
+                leading: 12.0,
+                bottom: 0.0,
+                trailing: 12.0,
+            },
+            min_height: 40.0,
         }
     }
 

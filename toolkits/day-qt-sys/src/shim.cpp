@@ -2295,6 +2295,9 @@ static QIcon day_qt_fit_glyph(const QPixmap &big, const QColor &color, int px, q
 // paints it at the trailing edge after the stock item. Painting it rather than embedding a widget
 // keeps the list's native row rendering, selection highlight and keyboard handling untouched.
 static constexpr int DAY_NAV_BADGE_ROLE = Qt::UserRole + 17;
+// A row's count (an unread number, docs/navigation.md `badge`), painted dim at the trailing edge
+// ahead of the status glyph: what AppKit's source list and GTK's list box show.
+static constexpr int DAY_NAV_COUNT_ROLE = Qt::UserRole + 19;
 
 class DayNavBadgeDelegate : public QStyledItemDelegate {
 public:
@@ -2302,23 +2305,96 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override {
         QStyledItemDelegate::paint(painter, option, index);
-        const QVariant v = index.data(DAY_NAV_BADGE_ROLE);
-        if (!v.canConvert<QIcon>()) return;
-        const QIcon badge = v.value<QIcon>();
-        if (badge.isNull()) return;
-        const int sz = qMin(16, option.rect.height() - 6);
-        if (sz <= 0) return;
         // Trailing edge, mirrored under RTL like every other trailing affordance.
         const bool rtl = option.direction == Qt::RightToLeft;
-        const int x = rtl ? option.rect.left() + 6 : option.rect.right() - sz - 6;
-        const int y = option.rect.top() + (option.rect.height() - sz) / 2;
-        badge.paint(painter, QRect(x, y, sz, sz));
+        int edge = 6;  // distance of the next trailing thing from the row's trailing side
+        const QVariant v = index.data(DAY_NAV_BADGE_ROLE);
+        if (v.canConvert<QIcon>()) {
+            const QIcon badge = v.value<QIcon>();
+            const int sz = qMin(16, option.rect.height() - 6);
+            if (!badge.isNull() && sz > 0) {
+                const int x = rtl ? option.rect.left() + edge : option.rect.right() - sz - edge;
+                const int y = option.rect.top() + (option.rect.height() - sz) / 2;
+                badge.paint(painter, QRect(x, y, sz, sz));
+                edge += sz + 6;
+            }
+        }
+        const QString count = index.data(DAY_NAV_COUNT_ROLE).toString();
+        if (!count.isEmpty()) {
+            painter->save();
+            const bool selected = option.state & QStyle::State_Selected;
+            painter->setPen(option.palette.color(
+                selected ? QPalette::HighlightedText : QPalette::PlaceholderText));
+            QRect r = option.rect.adjusted(rtl ? edge : 0, 0, rtl ? 0 : -edge, 0);
+            painter->drawText(r, Qt::AlignVCenter | (rtl ? Qt::AlignLeft : Qt::AlignRight), count);
+            painter->restore();
+        }
     }
 };
 
+// One row's title and decorations: shared by the full fill and an in-place update of the same
+// rows (`day_qt_navlist_update_rows`), so both draw a row the same way.
+static void day_qt_navlist_dress(QListWidget *l, QListWidgetItem *item, const QStringList &titles,
+                                 const QStringList &iconPaths, const QStringList &tintStrs,
+                                 const QStringList &badgePaths, const QStringList &badgeTintStrs,
+                                 const QStringList &counts, int i) {
+    const QColor textColor = l->palette().color(QPalette::Text);
+    if (i < titles.size()) item->setText(titles.at(i));
+    QIcon icon;
+    if (i < iconPaths.size() && !iconPaths.at(i).isEmpty()) {
+        // A row's own "#rrggbb" tint (docs/vectors.md) wins over the palette default.
+        QColor rowColor = textColor;
+        if (i < tintStrs.size() && !tintStrs.at(i).isEmpty()) {
+            QColor c(tintStrs.at(i));
+            if (c.isValid()) rowColor = c;
+        }
+        icon = day_qt_tinted_icon(iconPaths.at(i), rowColor);
+    }
+    item->setIcon(icon);
+    QVariant badgeData;
+    if (i < badgePaths.size() && !badgePaths.at(i).isEmpty()) {
+        QColor badgeColor = textColor;
+        if (i < badgeTintStrs.size() && !badgeTintStrs.at(i).isEmpty()) {
+            QColor c(badgeTintStrs.at(i));
+            if (c.isValid()) badgeColor = c;
+        }
+        QIcon badge = day_qt_tinted_icon(badgePaths.at(i), badgeColor);
+        if (!badge.isNull()) badgeData = QVariant::fromValue(badge);
+    }
+    item->setData(DAY_NAV_BADGE_ROLE, badgeData);
+    item->setData(DAY_NAV_COUNT_ROLE, i < counts.size() ? counts.at(i) : QString());
+}
+
+// New words or decorations for the listed rows of the same row set (NavMenuPatch::Items
+// `rows_changed`): set on the items already shown, which keeps the selection and the scroll
+// position that clearing and refilling the list would reset.
+void day_qt_navlist_update_rows(void *w, const char *rows, const char *joined, const char *icons,
+                                const char *tints, const char *badge_icons,
+                                const char *badge_tints, const char *badges) {
+    auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
+    if (!l) return;
+    const auto split = [](const char *s) {
+        return QString::fromUtf8(s).split(QChar(0x1f), Qt::KeepEmptyParts);
+    };
+    const QStringList titles = split(joined), iconPaths = split(icons), tintStrs = split(tints),
+                      badgePaths = split(badge_icons), badgeTintStrs = split(badge_tints),
+                      counts = split(badges);
+    const QStringList wanted = QString::fromUtf8(rows).split(QLatin1Char(','), Qt::SkipEmptyParts);
+    for (const QString &r : wanted) {
+        const int i = r.toInt();
+        for (int row = 0; row < l->count(); ++row) {
+            if (day_qt_navlist_day_index(l, row) != i) continue;
+            day_qt_navlist_dress(l, l->item(row), titles, iconPaths, tintStrs, badgePaths,
+                                 badgeTintStrs, counts, i);
+            break;
+        }
+    }
+}
+
 void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
                               const char *tints, const char *badge_icons,
-                              const char *badge_tints, const char *sections) {
+                              const char *badge_tints, const char *badges,
+                              const char *sections) {
     auto *l = qobject_cast<QListWidget *>(static_cast<QWidget *>(w));
     if (!l) return;
     // Split titles without SkipEmptyParts so the icon list stays row-aligned; the icon
@@ -2336,7 +2412,7 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
     // A heading title per row (empty entry = the row continues the current group).
     const QStringList sectionTitles =
         QString::fromUtf8(sections).split(QChar(0x1f), Qt::KeepEmptyParts);
-    const QColor textColor = l->palette().color(QPalette::Text);
+    const QStringList counts = QString::fromUtf8(badges).split(QChar(0x1f), Qt::KeepEmptyParts);
     // Installed once, tracked by a dynamic property: `qobject_cast` would need Q_OBJECT and
     // therefore moc, which this shim is deliberately built without (plain cc-rs, no code
     // generation step). The delegate is inert on rows carrying no badge data.
@@ -2368,25 +2444,8 @@ void day_qt_navlist_set_items(void *w, const char *joined, const char *icons,
         }
         auto *item = new QListWidgetItem(titles.at(i), l);
         item->setData(DAY_NAV_INDEX_ROLE, i);
-        if (i < iconPaths.size() && !iconPaths.at(i).isEmpty()) {
-            // A row's own "#rrggbb" tint (docs/vectors.md) wins over the palette default.
-            QColor rowColor = textColor;
-            if (i < tintStrs.size() && !tintStrs.at(i).isEmpty()) {
-                QColor c(tintStrs.at(i));
-                if (c.isValid()) rowColor = c;
-            }
-            QIcon icon = day_qt_tinted_icon(iconPaths.at(i), rowColor);
-            if (!icon.isNull()) item->setIcon(icon);
-        }
-        if (i < badgePaths.size() && !badgePaths.at(i).isEmpty()) {
-            QColor badgeColor = textColor;
-            if (i < badgeTintStrs.size() && !badgeTintStrs.at(i).isEmpty()) {
-                QColor c(badgeTintStrs.at(i));
-                if (c.isValid()) badgeColor = c;
-            }
-            QIcon badge = day_qt_tinted_icon(badgePaths.at(i), badgeColor);
-            if (!badge.isNull()) item->setData(DAY_NAV_BADGE_ROLE, QVariant::fromValue(badge));
-        }
+        day_qt_navlist_dress(l, item, titles, iconPaths, tintStrs, badgePaths, badgeTintStrs,
+                             counts, i);
     }
     l->blockSignals(false);
 }
@@ -3157,10 +3216,22 @@ public:
         setProperty("dayGlyphPath", QString());
         orig = p; update();
     }
+    // An SVG handed over as bytes (a standard symbol's outline, an app's own document): kept
+    // as a renderer and painted like a staged glyph, so a template follows the palette.
+    void setSvgBytes(const QByteArray &data) {
+        setProperty("dayGlyphPath", QString());
+        svg = std::make_unique<QSvgRenderer>(data);
+        svgPath = QStringLiteral("<bytes>");
+        orig = QPixmap();
+        update();
+    }
     // Re-render the glyph from its recorded source, through whatever tint it carries.
     void repaintGlyph() {
         const QString file = property("dayGlyphPath").toString();
-        if (file.isEmpty()) return;
+        if (file.isEmpty()) {
+            if (svg) update();
+            return;
+        }
         if (file.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive)) {
             if (svgPath != file) {
                 svg = std::make_unique<QSvgRenderer>(file);
@@ -3311,11 +3382,25 @@ void *day_qt_image_new_bitmap(unsigned long long id, int mode) {
 }
 
 /// An image widget showing raw encoded bytes the app already holds.
-void *day_qt_image_new_bytes(const unsigned char *bytes, int len, int mode) {
+// Whether encoded bytes are an SVG document (checked on the first bytes, where the root is).
+static bool day_qt_is_svg(const QByteArray &data) {
+    return data.left(512).contains("<svg");
+}
+
+void *day_qt_image_new_bytes(const unsigned char *bytes, int len, int mode, const char *tint) {
     DayImageLabel *l = new DayImageLabel(mode);
+    const QByteArray data(reinterpret_cast<const char *>(bytes), len);
+    if (day_qt_is_svg(data)) {
+        // A vector from bytes takes the tint a staged glyph would: `currentColor` for a
+        // template, which then follows the palette like any other.
+        const QString tintSpec = tint ? QString::fromUtf8(tint) : QString();
+        l->setProperty("dayGlyphTint", tintSpec);
+        l->setProperty("dayGlyphTemplate", tintSpec == QLatin1String("currentColor"));
+        l->setSvgBytes(data);
+        return l;
+    }
     QImage img;
-    if (img.loadFromData(QByteArray::fromRawData(reinterpret_cast<const char *>(bytes), len)))
-        l->setImage(QPixmap::fromImage(img));
+    if (img.loadFromData(data)) l->setImage(QPixmap::fromImage(img));
     return l;
 }
 
@@ -3331,9 +3416,13 @@ void day_qt_image_set_bitmap(void *w, unsigned long long id) {
 void day_qt_image_set_bytes(void *w, const unsigned char *bytes, int len) {
     auto *l = dynamic_cast<DayImageLabel *>(static_cast<QWidget *>(w));
     if (!l) return;
+    const QByteArray data(reinterpret_cast<const char *>(bytes), len);
+    if (day_qt_is_svg(data)) {
+        l->setSvgBytes(data);
+        return;
+    }
     QImage img;
-    if (img.loadFromData(QByteArray::fromRawData(reinterpret_cast<const char *>(bytes), len)))
-        l->setImage(QPixmap::fromImage(img));
+    if (img.loadFromData(data)) l->setImage(QPixmap::fromImage(img));
 }
 
 // App icon (§18.2): the window icon doubles as the Dock icon on macOS and the taskbar icon on
@@ -4912,6 +5001,27 @@ void day_qt_toolbar_set_selected(void *win, const char *id, int index) {
 void day_qt_toolbar_set_enabled(void *win, const char *id, int on) {
     if (QAction *a = day_qt_toolbar_action(win, id)) a->setEnabled(on != 0);
     if (QWidget *w = day_qt_toolbar_widget(win, id)) w->setEnabled(on != 0);
+}
+
+// An item's words (a language change): the action's text, which the overflow menu and assistive
+// technology read even when the button shows only its icon, and its tooltip.
+void day_qt_toolbar_set_words(void *win, const char *id, const char *label, const char *tooltip) {
+    const QString text = QString::fromUtf8(label);
+    const QString tip = QString::fromUtf8(tooltip);
+    if (QAction *a = day_qt_toolbar_action(win, id)) {
+        a->setText(text);
+        a->setToolTip(tip);
+    }
+    if (QWidget *w = day_qt_toolbar_widget(win, id)) {
+        w->setToolTip(tip);
+        w->setAccessibleName(text);
+        if (auto *b = qobject_cast<QAbstractButton *>(w); b && !b->text().isEmpty()) b->setText(text);
+    }
+}
+
+void day_qt_toolbar_set_placeholder(void *win, const char *id, const char *text) {
+    if (auto *edit = qobject_cast<QLineEdit *>(day_qt_toolbar_widget(win, id)))
+        edit->setPlaceholderText(QString::fromUtf8(text));
 }
 
 void *day_qt_menu_new() { return new QMenu(); }

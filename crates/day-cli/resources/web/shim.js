@@ -199,6 +199,38 @@ function applyNavBar(n) {
 }
 
 // The element for one toolbar item.
+// A nav row's content: the leading icon, the title, the count and the trailing status glyph.
+// Shared by the full build and the in-place refresh (day_dom_navmenu_rows).
+function fillNavRow(row, item) {
+  if (item.icon) {
+    // Template rendering, the iOS model: the icon is a mask painted with currentColor, so it
+    // follows the row's text color (light in dark mode, white when selected). A row's tint
+    // (docs/vectors.md) paints the mask with that color instead.
+    const icon = div('day-navmenu-icon');
+    icon.style.maskImage = `url("${item.icon}")`;
+    icon.style.webkitMaskImage = `url("${item.icon}")`;
+    if (item.tint) icon.style.backgroundColor = item.tint;
+    row.append(icon);
+  }
+  const t = document.createElement('span'); t.textContent = item.title; row.append(t);
+  // The row's count (docs/navigation.md `badge`), dim at the trailing edge.
+  if (item.count) {
+    const c = document.createElement('span');
+    c.className = 'day-navmenu-count';
+    c.textContent = item.count;
+    row.append(c);
+  }
+  // The trailing status glyph (docs/navigation.md), masked like the leading icon so it follows
+  // the row's text color unless the app named a color that means something.
+  if (item.badgeIcon) {
+    const badge = div('day-navmenu-badge');
+    badge.style.maskImage = `url("${item.badgeIcon}")`;
+    badge.style.webkitMaskImage = `url("${item.badgeIcon}")`;
+    if (item.badgeTint) badge.style.backgroundColor = item.badgeTint;
+    row.append(badge);
+  }
+}
+
 function buildToolbarItem(strip, it) {
   let el = null;
   if (it.kind === '-') el = div('day-toolbar-sep');
@@ -1373,30 +1405,24 @@ const env = {
       const row = div('day-navmenu-row');
       row.setAttribute('role', 'option');
       row.setAttribute('aria-selected', i === spec.selected ? 'true' : 'false');
-      if (item.icon) {
-        // Template rendering, the iOS model: the icon is a mask painted with currentColor,
-        // so it follows the row's text color (light in dark mode, white when selected).
-        // A row's tint (docs/vectors.md) paints the mask with that color instead.
-        const icon = div('day-navmenu-icon');
-        icon.style.maskImage = `url("${item.icon}")`;
-        icon.style.webkitMaskImage = `url("${item.icon}")`;
-        if (item.tint) icon.style.backgroundColor = item.tint;
-        row.append(icon);
-      }
-      const t = document.createElement('span'); t.textContent = item.title; row.append(t);
-      // The trailing status glyph (docs/navigation.md), masked like the leading icon so it
-      // follows the row's text color unless the app named a color that means something.
-      if (item.badgeIcon) {
-        const badge = div('day-navmenu-badge');
-        badge.style.maskImage = `url("${item.badgeIcon}")`;
-        badge.style.webkitMaskImage = `url("${item.badgeIcon}")`;
-        if (item.badgeTint) badge.style.backgroundColor = item.badgeTint;
-        row.append(badge);
-      }
+      fillNavRow(row, item);
       if (i === spec.selected) row.classList.add('selected');
       row.addEventListener('click', () => wasm.day_dom_event(id, 6, i, 0, 0, 0));
       el.append(row);
     });
+  },
+  // New words or decorations for the listed rows of the same row set (NavMenuPatch::Items
+  // `rows_changed`): refilled in place, so the row elements, the selection and the keyboard focus
+  // all stay where they are.
+  day_dom_navmenu_rows(id, json, len) {
+    const spec = JSON.parse(str(json, len));
+    const rows = [...E(id).querySelectorAll(':scope > .day-navmenu-row')];
+    for (const i of spec.rows) {
+      const row = rows[i];
+      if (!row || !spec.items[i]) continue;
+      row.textContent = '';
+      fillNavRow(row, spec.items[i]);
+    }
   },
   // --- window toolbar (docs/toolbars.md) -----------------------------------
   // The web has no window chrome, so the bar is a strip docked above the app root. It is edited
@@ -1500,6 +1526,15 @@ const env = {
     if (p.enabled !== undefined) el.disabled = !p.enabled;
     if (p.focus) { el.focus(); el.select?.(); }
     if (p.suggestions !== undefined && el.__datalist) setSuggestions(el.__datalist, p.suggestions);
+    // New words (a language change): an icon button names itself by aria-label, a text button
+    // by its span, a label by its text; the tooltip follows either way.
+    if (p.label !== undefined) {
+      el.title = p.tip || p.label;
+      if (el.classList.contains('day-toolbar-label')) el.textContent = p.label;
+      else if (el.hasAttribute('aria-label')) el.setAttribute('aria-label', p.label);
+      else { const t = el.querySelector(':scope > span'); if (t) t.textContent = p.label; }
+    }
+    if (p.placeholder !== undefined) el.placeholder = p.placeholder;
   },
   // Show/hide the split nav's sidebar. 0 when this page has no split nav, which is how the
   // caller (and the dayscript duty) knows to report the item disabled.

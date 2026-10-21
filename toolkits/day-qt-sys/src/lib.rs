@@ -387,7 +387,12 @@ unsafe extern "C" {
     /// An image widget showing a decoded bitmap rather than a staged file.
     pub fn day_qt_image_new_bitmap(id: u64, mode: c_int) -> *mut c_void;
     /// An image widget showing raw encoded bytes.
-    pub fn day_qt_image_new_bytes(bytes: *const u8, len: c_int, mode: c_int) -> *mut c_void;
+    pub fn day_qt_image_new_bytes(
+        bytes: *const u8,
+        len: c_int,
+        mode: c_int,
+        tint: *const c_char,
+    ) -> *mut c_void;
     /// Point a realized image widget at a decoded bitmap (the `Source` patch).
     pub fn day_qt_image_set_bitmap(w: *mut c_void, id: u64);
     /// Point a realized image widget at raw encoded bytes (the `Source` patch).
@@ -482,7 +487,19 @@ unsafe extern "C" {
         tints: *const c_char,
         badge_icons: *const c_char,
         badge_tints: *const c_char,
+        badges: *const c_char,
         sections: *const c_char,
+    );
+    /// New words or decorations for the comma-joined Day `rows` of the same row set, in place.
+    pub fn day_qt_navlist_update_rows(
+        w: *mut c_void,
+        rows: *const c_char,
+        joined: *const c_char,
+        icons: *const c_char,
+        tints: *const c_char,
+        badge_icons: *const c_char,
+        badge_tints: *const c_char,
+        badges: *const c_char,
     );
     pub fn day_qt_navlist_set_selected(w: *mut c_void, idx: c_int);
     /// The navigation splitter: sidebar, content list, detail. `list_width` <= 0 hides the
@@ -616,6 +633,13 @@ unsafe extern "C" {
     );
     pub fn day_qt_toolbar_set_selected(win: *mut c_void, id: *const c_char, index: c_int);
     pub fn day_qt_toolbar_set_enabled(win: *mut c_void, id: *const c_char, on: c_int);
+    pub fn day_qt_toolbar_set_words(
+        win: *mut c_void,
+        id: *const c_char,
+        label: *const c_char,
+        tooltip: *const c_char,
+    );
+    pub fn day_qt_toolbar_set_placeholder(win: *mut c_void, id: *const c_char, text: *const c_char);
     pub fn day_qt_menu_new() -> *mut c_void;
     pub fn day_qt_menu_add_submenu(menu: *mut c_void, label: *const c_char) -> *mut c_void;
     pub fn day_qt_menu_add_separator(menu: *mut c_void);

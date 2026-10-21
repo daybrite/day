@@ -112,7 +112,14 @@ fn save(map: &BTreeMap<String, String>) -> bool {
     true
 }
 
+/// The store file: under `DAY_PREFS_DIR` when it is set (a private store, which is how a test
+/// keeps a store across the processes it starts), else under `<config-dir>/day/`.
 fn store_path() -> Option<PathBuf> {
+    if let Some(dir) = std::env::var_os("DAY_PREFS_DIR")
+        && !dir.is_empty()
+    {
+        return Some(PathBuf::from(dir).join(store_file()));
+    }
     Some(config_dir()?.join("day").join(store_file()))
 }
 
@@ -187,6 +194,12 @@ fn config_dir() -> Option<PathBuf> {
         }
     }
     Some(PathBuf::from("/data/storage/el2/base/haps/entry/files"))
+}
+
+// Elsewhere this file serves only the `memory` feature's `DAY_PREFS_DIR` store.
+#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+fn config_dir() -> Option<PathBuf> {
+    None
 }
 
 #[cfg(test)]

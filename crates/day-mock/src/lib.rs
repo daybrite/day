@@ -374,6 +374,9 @@ pub struct MockState {
     pub defer_window_close: bool,
     /// Enable the OS window-tab contract for lifecycle tests.
     pub native_window_tabs: bool,
+    /// Realize `kinds::LIST_ITEM` natively (`Cap::ListItem` answers `Native`), so a test sees
+    /// the item's props and patches; off, the `list_item` piece composes.
+    pub native_list_items: bool,
     /// Native tab groups in display order; tests can simulate an OS reorder or detach.
     pub window_tab_groups: Vec<Vec<NodeId>>,
     /// Every `announce` in order, as `(text, urgent)` (docs/accessibility.md), probe-visible.
@@ -844,6 +847,11 @@ impl MockProbe {
         self.state.borrow_mut().no_toolbar_search = v;
     }
 
+    /// Realize list items natively (see `MockState::native_list_items`).
+    pub fn set_native_list_items(&self, v: bool) {
+        self.state.borrow_mut().native_list_items = v;
+    }
+
     /// Make the toolkit decline (or accept again) toolbar edits.
     pub fn set_decline_toolbar_edits(&self, v: bool) {
         self.state.borrow_mut().decline_toolbar_edits = v;
@@ -1149,6 +1157,13 @@ impl Toolkit for MockToolkit {
             // menu lowering are testable headless.
             // OS window tabs follow the test's own switch (`MockState::native_window_tabs`),
             // so a case that `requires` them is skipped unless a test turned them on.
+            Cap::ListItem => {
+                if self.state.borrow().native_list_items {
+                    Support::Native
+                } else {
+                    Support::Unsupported
+                }
+            }
             Cap::WindowTabbing => {
                 if self.state.borrow().native_window_tabs {
                     Support::Native
@@ -1264,6 +1279,13 @@ impl Toolkit for MockToolkit {
         if let Some(p) = props.downcast_ref::<CoverProps>() {
             w.half = p.half;
             detail = format!(" sheet={} half={}", p.sheet, p.half);
+        } else if let Some(p) = props.downcast_ref::<ListItemProps>() {
+            w.text = p.title.clone();
+            w.flag = p.checked;
+            detail = format!(
+                " title={:?} subtitle={:?} detail={:?} icon={:?} checked={}",
+                p.title, p.subtitle, p.detail, p.icon, p.checked
+            );
         } else if let Some(p) = props.downcast_ref::<LabelProps>() {
             w.text = p.text.clone();
             w.flag = p.wraps;
@@ -1497,6 +1519,13 @@ impl Toolkit for MockToolkit {
                     }
                 }
                 format!("textarea.patch {tp:?}")
+            } else if let Some(p) = patch.downcast_ref::<ListItemPatch>() {
+                match p {
+                    ListItemPatch::Title(t) => w.text = t.clone(),
+                    ListItemPatch::Checked(on) => w.flag = *on,
+                    _ => {}
+                }
+                format!("list_item {p:?}")
             } else if let Some(p) = patch.downcast_ref::<NavMenuPatch>() {
                 match p {
                     NavMenuPatch::IconProgress(values) => format!("menu icon_progress={values:?}"),
@@ -1506,11 +1535,18 @@ impl Toolkit for MockToolkit {
                     }
                     // Data-driven rows: `text` mirrors the joined labels for tests to assert.
                     NavMenuPatch::Items {
-                        items, selected, ..
+                        items,
+                        selected,
+                        badges,
+                        rows_changed,
+                        ..
                     } => {
                         w.text = items.join("|");
                         w.value = selected.map(|i| i as f64).unwrap_or(-1.0);
-                        format!("menu items={items:?} selected={selected:?}")
+                        format!(
+                            "menu items={items:?} selected={selected:?} badges={badges:?} \
+                             rows_changed={rows_changed:?}"
+                        )
                     }
                 }
             } else if let Some(p) = patch.downcast_ref::<NavPatch>() {
@@ -1721,6 +1757,7 @@ impl Toolkit for MockToolkit {
             kinds::TEXT_FIELD => Size::new(p.width.unwrap_or(200.0), 24.0),
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
             kinds::IMAGE => Size::new(32.0, 32.0),
+            kinds::LIST_ITEM => Size::new(p.width.unwrap_or(200.0), 24.0),
             // Indeterminate spinner is a fixed square; determinate bar fills width.
             kinds::PROGRESS if w.flag => Size::new(20.0, 20.0),
             kinds::PROGRESS => Size::new(p.width.unwrap_or(200.0), 4.0),

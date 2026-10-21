@@ -522,9 +522,11 @@ pub enum Op {
 /// One announced change, in the form a store outside the UI can consume.
 ///
 /// `prior` and `value` are the slot's value before and after the write, captured only while a
-/// consumer that wants them is active ([`record_values`]; later, an undo manager). A write with
-/// no such consumer clones nothing. They are type-erased; downcast with [`Change::prior_as`] /
-/// [`Change::value_as`].
+/// consumer that wants them is active ([`record_values`], an [`UndoStack`]). A write with no such
+/// consumer clones nothing. They are type-erased; downcast with [`Change::prior_as`] /
+/// [`Change::value_as`]. A structural change carries positions as well: a `Delete` has the
+/// removed row in `prior` and its index (`usize`) in `value`, an `Insert` the added row in
+/// `value` and its index in `prior`, and a `Move` its index before and after.
 #[derive(Clone)]
 pub struct Change {
     /// The path's components, outermost first: store, key, field, …
@@ -1398,6 +1400,30 @@ impl<T: Identified> Keyed<T> {
         self.items.is_empty()
     }
 
+    /// The next free integer key: one past the largest in use (1 for an empty collection), or
+    /// the lowest unused key from 1 once that would reach the top bit integer keys reserve
+    /// (see [`AsKey`]). Interned keys (`Uuid`, `Str`, `Pair`) are not counted.
+    pub fn next_key(&self) -> u64 {
+        let used = || {
+            self.items
+                .iter()
+                .map(|t| t.handle())
+                .filter(|h| (1..WIDE_BASE).contains(h))
+        };
+        match used().max() {
+            None => 1,
+            Some(max) if max + 1 < WIDE_BASE => max + 1,
+            Some(_) => {
+                let mut keys: Vec<u64> = used().collect();
+                keys.sort_unstable();
+                // A sorted run of distinct keys from 1 first skips a value where
+                // `keys[i] != i + 1`.
+                let gap = keys.iter().zip(1u64..).find(|(k, want)| **k != *want);
+                gap.map_or(keys.len() as u64 + 1, |(_, want)| want)
+            }
+        }
+    }
+
     // --- structural operations: each leaves the index correct ---------------------------------
 
     pub fn push(&mut self, item: T) {
@@ -1499,19 +1525,32 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
     {
         let key = key.into().handle();
         // When a values consumer stands by (an undo stack), a Delete carries the row it
-        // removed and an Insert the row it added: the whole of what inversion needs.
+        // removed and an Insert the row it added, each with its index, and a Move its index
+        // before and after: the whole of what inversion needs (see `Change`).
         let capture = values_wanted();
         let mut prior: Option<Rc<dyn Any>> = None;
         let mut value: Option<Rc<dyn Any>> = None;
         {
             let mut g = self.inner.data.write().expect("store poisoned");
+            let index = |k: &Keyed<T>| k.items().iter().position(|t| t.handle() == key);
+            let before = if capture { index(&g) } else { None };
             if capture && op == Op::Delete {
                 prior = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
             }
             f(&mut g);
             g.reindex_if_stale();
-            if capture && op == Op::Insert {
-                value = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
+            if capture {
+                let after = index(&g);
+                let at = |i: Option<usize>| i.map(|i| Rc::new(i) as Rc<dyn Any>);
+                match op {
+                    Op::Insert => {
+                        value = g.get(key).cloned().map(|r| Rc::new(r) as Rc<dyn Any>);
+                        prior = at(after);
+                    }
+                    Op::Delete => value = at(before),
+                    Op::Move => (prior, value) = (at(before), at(after)),
+                    Op::Set => {}
+                }
             }
         }
         self.inner.version.fetch_add(1, Ordering::Relaxed);
@@ -1532,6 +1571,58 @@ impl<T: Identified + 'static> Store<Keyed<T>> {
             None,
             None,
         );
+    }
+
+    /// Append `item`: the [`Store::restructure`] insert, announced under its own key.
+    pub fn push(self, item: T)
+    where
+        T: Clone,
+    {
+        let key = item.handle();
+        self.restructure("push", Op::Insert, ModelId::from_handle(key), |k| {
+            k.push(item)
+        });
+    }
+
+    /// Remove the row with `key`: the [`Store::restructure`] delete. Returns false, announcing
+    /// nothing, when no such row exists.
+    pub fn remove(self, key: impl Into<ModelId<T>>) -> bool
+    where
+        T: Clone,
+    {
+        let key = key.into().handle();
+        if self.with_untracked(|k| k.get(key).is_none()) {
+            return false;
+        }
+        self.restructure("remove", Op::Delete, ModelId::from_handle(key), |k| {
+            k.remove(key);
+        });
+        true
+    }
+
+    /// Move the row at index `from` to index `to`, the shape a native list's reorder gesture
+    /// reports. Returns false, announcing nothing, when the move is out of range or in place.
+    pub fn move_row(self, from: usize, to: usize) -> bool
+    where
+        T: Clone,
+    {
+        let key = self.with_untracked(|k| {
+            if from == to || to >= k.len() {
+                return None;
+            }
+            k.items().get(from).map(|item| item.handle())
+        });
+        let Some(key) = key else { return false };
+        self.restructure("move", Op::Move, ModelId::from_handle(key), |k| {
+            k.move_item(from, to)
+        });
+        true
+    }
+
+    /// The next free integer key: one past the largest in use, for a model keyed by a `u64`
+    /// field. Untracked. See [`Keyed::next_key`].
+    pub fn next_key(self) -> u64 {
+        self.with_untracked(|k| k.next_key())
     }
 
     /// Feed one row's new value from outside the app's own editing (another connection's
@@ -2226,12 +2317,13 @@ pub trait ApplyField {
 }
 
 type SetFieldFn = Rc<dyn Fn(u64, &'static str, &Rc<dyn Any>) -> bool>;
-type InsertRowFn = Rc<dyn Fn(u64, &Rc<dyn Any>) -> bool>;
+type InsertRowFn = Rc<dyn Fn(u64, &Rc<dyn Any>, Option<usize>) -> bool>;
 
 struct StoreOps {
     set_field: SetFieldFn,
     insert_row: InsertRowFn,
     remove_row: Rc<dyn Fn(u64) -> bool>,
+    move_row: Rc<dyn Fn(u64, usize) -> bool>,
 }
 
 #[derive(Clone)]
@@ -2389,13 +2481,14 @@ impl UndoStack {
                 })
             },
             insert_row: {
-                Rc::new(move |key: u64, row: &Rc<dyn Any>| {
+                Rc::new(move |key: u64, row: &Rc<dyn Any>, at: Option<usize>| {
                     let Some(row) = row.downcast_ref::<T>() else {
                         return false;
                     };
                     let row = row.clone();
-                    store.restructure("undo", Op::Insert, key, move |k| {
-                        k.push(row);
+                    store.restructure("undo", Op::Insert, key, move |k| match at {
+                        Some(at) if at < k.len() => k.items_mut().insert(at, row),
+                        _ => k.push(row),
                     });
                     true
                 })
@@ -2406,6 +2499,13 @@ impl UndoStack {
                         k.remove(key);
                     });
                     true
+                })
+            },
+            move_row: {
+                Rc::new(move |key: u64, to: usize| {
+                    let from =
+                        store.with_untracked(|k| k.items().iter().position(|t| t.handle() == key));
+                    from.is_some_and(|from| store.move_row(from, to))
                 })
             },
         };
@@ -2653,10 +2753,14 @@ impl UndoStack {
                 Op::Set => Op::Set,
                 Op::Insert => Op::Delete,
                 Op::Delete => Op::Insert,
-                Op::Move => return,
+                Op::Move => Op::Move,
             }
         } else {
             ch.op
+        };
+        let index = |v: &Option<Rc<dyn Any>>| {
+            v.as_deref()
+                .and_then(|v| v.downcast_ref::<usize>().copied())
         };
         match effective {
             Op::Set => {
@@ -2666,15 +2770,25 @@ impl UndoStack {
                 }
             }
             Op::Insert => {
-                let row = if invert { &ch.prior } else { &ch.value };
+                // Undoing a Delete puts the row back where it was; redoing an Insert, where it went.
+                let (row, at) = if invert {
+                    (&ch.prior, index(&ch.value))
+                } else {
+                    (&ch.value, index(&ch.prior))
+                };
                 if let Some(row) = row {
-                    (ops.insert_row)(key, row);
+                    (ops.insert_row)(key, row, at);
                 }
             }
             Op::Delete => {
                 (ops.remove_row)(key);
             }
-            Op::Move => {}
+            Op::Move => {
+                let to = if invert { &ch.prior } else { &ch.value };
+                if let Some(to) = index(to) {
+                    (ops.move_row)(key, to);
+                }
+            }
         }
     }
 

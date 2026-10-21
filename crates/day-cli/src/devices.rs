@@ -635,6 +635,15 @@ pub(crate) fn show_simulator(udid: &str) {
         }
         // Device Hub opens windowless without a route, so the device is named in the URL.
         Some(SimulatorUi::DeviceHub(app)) => {
+            if let Some(runtime) = device_hub_touchless(udid) {
+                crate::ops::status(
+                    "Warning",
+                    &format!(
+                        "Device Hub shows this {runtime} simulator but cannot send it touches or \
+                     keys; to interact with the app, use a simulator on iOS 18 or newer"
+                    ),
+                );
+            }
             let _ = Command::new("open")
                 .arg("-a")
                 .arg(&app)
@@ -647,6 +656,22 @@ pub(crate) fn show_simulator(udid: &str) {
              without a window. Builds, launches and dayscript captures are unaffected",
         ),
     }
+}
+
+/// The runtime of `udid` when Device Hub cannot drive it. Its input channel needs a runtime's
+/// HID service that iOS 17 and older lack: Xcode 27's Device Hub shows such a simulator, logs
+/// "No synthetic touch processor found … touch event dropped" for every click, and says
+/// nothing on screen, so the app looks frozen.
+fn device_hub_touchless(udid: &str) -> Option<String> {
+    let sims = simulators().ok()?;
+    let (_, _, runtime) = sims.iter().find(|(_, u, _)| u == udid)?;
+    let major: u32 = runtime
+        .strip_prefix("iOS ")?
+        .split('.')
+        .next()?
+        .parse()
+        .ok()?;
+    (major < 18).then(|| runtime.clone())
 }
 
 pub fn boot(target: &str, spec: &BootSpec<'_>) -> Result<i32, CliError> {
@@ -2195,9 +2220,24 @@ fn rotate_android(serial: &str, orientation: &str) -> Result<(), CliError> {
     let want_landscape = match orientation.trim().to_ascii_lowercase().as_str() {
         "portrait" | "portrait-upside-down" => false,
         "landscape" | "landscape-left" | "landscape-right" => true,
+        // Hand rotation back to the sensor: undo a pin a capture run left behind (it lives in
+        // the AVD's data and survives a reboot), so turning the emulator turns the app.
+        "auto" => {
+            crate::ops::status("Orienting", &format!("{serial} to follow the device"));
+            adb_shell(
+                serial,
+                &["cmd", "window", "fixed-to-user-rotation", "default"],
+            );
+            adb_shell(serial, &["cmd", "window", "user-rotation", "free"]);
+            adb_shell(
+                serial,
+                &["settings", "put", "system", "accelerometer_rotation", "1"],
+            );
+            return Ok(());
+        }
         other => {
             return Err(CliError::usage(format!(
-                "unknown orientation {other:?} — portrait or landscape"
+                "unknown orientation {other:?} — portrait, landscape or auto"
             )));
         }
     };

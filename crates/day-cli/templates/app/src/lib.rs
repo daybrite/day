@@ -1,4 +1,4 @@
-//! A small Day app: shared state, adaptive navigation, and native controls.
+//! Day Rise: a welcome page, a list of items with an editor, and settings.
 
 use day::prelude::*;
 use day_piece_settings::prelude::*;
@@ -6,16 +6,15 @@ use day_piece_settings::prelude::*;
 mod model;
 mod pages;
 
-use model::Scene;
+use model::{SHOW_DONE, Scene};
 
-// Desktop enters through main.rs; mobile hosts use this entry point.
-// Build pipeline: https://daybrite.dev/docs/project-structure/
-day::day_start!(options: window(), root);
-// Generate typed accessors for resource/: https://daybrite.dev/docs/resources/
+// Typed constants for everything under resource/: https://daybrite.dev/docs/resources
 day::resources!();
+// The mobile and web entry point; desktop enters through src/main.rs.
+day::day_start!(options: res::window_options(), root);
 
 day::routes! {
-    /// Typed navigation keys also supply the routes used by links and dayscript.
+    /// The app's sections, which are also the routes links and dayscript navigate to.
     pub(crate) enum Section {
         Welcome => "welcome",
         Items => "items",
@@ -23,49 +22,42 @@ day::routes! {
     }
 }
 
-/// The window: the generated options carry the locale catalog, the localized title and the
-/// version; the size is for desktop (phones fill the screen).
-pub fn window() -> day::WindowOptions {
-    res::window_options().size(960.0, 640.0)
-}
-
-/// Provide one window's shared state and compose its pages: https://daybrite.dev/docs/internal/state/
+/// The window's content: shared state, then adaptive navigation over the pages.
+/// https://daybrite.dev/docs/navigation
 pub fn root() -> impl Piece {
-    // Connect `.restore` below to preferences so the last section survives a relaunch.
-    day::prefs::install_nav_store();
-    // Settings and About: appearance and language from Day's catalog, the app's name and
-    // version from Day.toml. On desktop this adds the app menu's Settings… and About items and
-    // their windows; on a phone it is the page behind the Settings section below.
-    // https://daybrite.dev/docs/settings/
+    // Settings and About open from the app menu on desktop and as a section on a phone. The
+    // app's own settings are a group of rows over `Pref`s.
     let prefs = Preferences::new()
-        .about(About::from_manifest().link(day::tr("day-about-website"), "https://daybrite.dev"))
+        .about(About::from_manifest().website("https://daybrite.dev"))
         .group(general_group(res::locales::ALL))
+        .group(
+            Group::new("items", res::str::nav_items())
+                .icon(res::vectors::tab_items)
+                .row(rows::toggle(&SHOW_DONE, res::str::show_done())),
+        )
         .install();
 
     Scene::scoped(move |scene| {
-        scene.persist();
         app_menu(menus(scene));
-
+        undo_history(scene);
         nav(scene.section)
             .title(res::str::app_title())
-            // The list and editor sit side by side on desktop and stack on a phone.
-            // Navigation adapts the same pieces: https://daybrite.dev/docs/navigation/
+            // The list and the editor sit side by side on desktop and stack on a phone.
             .content_list(
-                ContentList::new(pages::items::item_list_pane)
-                    .width(320.0)
-                    .only_for(|s: &Section| matches!(s, Section::Items))
-                    .detail_visible(scene.detail_open)
-                    .detail_title(move || pages::items::detail_title(scene)),
+                ContentList::new(pages::item_list)
+                    .only_for(|s: &Section| *s == Section::Items)
+                    .detail_for(scene.selected)
+                    .detail_title(move || scene.selected_title()),
             )
             .items((
                 item(Section::Welcome, res::str::nav_welcome())
                     .icon(res::vectors::tab_welcome)
-                    .page(pages::welcome::welcome_page),
+                    .page(pages::welcome),
                 item(Section::Items, res::str::nav_items())
                     .icon(res::vectors::tab_items)
-                    .page(pages::items::items_page),
-                // The desktop's conventional Settings menu/window; without a menu bar, Settings
-                // stays reachable as a navigation section (`None` where the menu has it).
+                    .badge(move || scene.open_count())
+                    .page(pages::editor),
+                // `None` where the desktop app menu holds Settings instead.
                 prefs
                     .nav_item(Section::Settings)
                     .map(|i| i.icon(res::vectors::tab_settings)),
@@ -75,8 +67,8 @@ pub fn root() -> impl Piece {
     })
 }
 
-/// Share model actions with toolbars; menu roles provide native editing commands.
-/// Menus and preferences: https://daybrite.dev/docs/guide-desktop/
+/// The menu bar; menu roles supply the native editing commands.
+/// https://daybrite.dev/docs/guide-desktop
 fn menus(scene: Scene) -> Vec<MenuEntry> {
     vec![
         sub_menu(
@@ -91,9 +83,16 @@ fn menus(scene: Scene) -> Vec<MenuEntry> {
         sub_menu(
             res::str::menu_edit(),
             vec![
+                menu_role(MenuRole::Undo),
+                menu_role(MenuRole::Redo),
+                menu_separator(),
                 menu_item(res::str::cmd_delete())
                     .shortcut(Shortcut::primary("Delete"))
                     .action(move || scene.delete_selected()),
+                menu_separator(),
+                menu_item(res::str::cmd_find())
+                    .shortcut(Shortcut::primary("f"))
+                    .action(day::focus_search),
                 menu_separator(),
                 menu_role(MenuRole::Cut),
                 menu_role(MenuRole::Copy),
@@ -102,4 +101,26 @@ fn menus(scene: Scene) -> Vec<MenuEntry> {
             ],
         ),
     ]
+}
+
+/// Undo and Redo for every change to the items, through the Edit menu and the platform's own
+/// gestures. Each change is named in the menu by its field or command.
+/// https://daybrite.dev/docs/reactivity
+fn undo_history(scene: Scene) {
+    let history = day::model::UndoStack::new(100);
+    history.watch(scene.items);
+    history.set_label_resolver(|label| {
+        match label {
+            "push" => res::str::cmd_add(),
+            "remove" => res::str::cmd_delete(),
+            "move" => res::str::undo_move(),
+            "name" => res::str::field_name(),
+            "done" => res::str::field_done(),
+            "kind" => res::str::field_kind(),
+            "tint" => res::str::field_tint(),
+            other => return other.to_owned(),
+        }
+        .format()
+    });
+    day::install_undo(&history);
 }

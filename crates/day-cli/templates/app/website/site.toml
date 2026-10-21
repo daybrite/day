@@ -1,81 +1,11 @@
-# {{title}}'s website — built from this file plus data the project already maintains, by the
-# daysite template (https://github.com/daybrite/daysite).
-#
-# When this repository's CI uses the daybrite/actions dayapp workflow, the presence of
-# this file makes it build and deploy the site to the repo's GitHub Pages on pushes to the
-# default branch and on every release tag: a localized landing page from store/'s listings, a
-# screenshot gallery from the dayscript captures, downloads, and the web-dom build hosted under
-# /webapp/. One-time repo setup: Settings → Pages → Source = "GitHub Actions", and the workflow
-# permissions shown in the actions README.
-#
-# The site publishes the app twice, and a version picker above the platform picker switches
-# between them: the newest release at /<locale>/, built from that release's own assets, and the
-# newest build of the default branch at /<locale>/main/, built from the last CI run and marked
-# as a development build. Before the first release, main is what /<locale>/ shows.
-# https://github.com/daybrite/daysite#build-channels
-# Setup, customization, GitHub Pages, and custom domains:
-# https://daybrite.dev/docs/websites
-#
-# Preview locally:
-#   cd website
-#   git clone https://github.com/daybrite/daysite .daysite   # gitignored
-#   npm --prefix .daysite ci
-#   node .daysite/scripts/install-customization.mjs # optional theme/project dependencies
-#   node .daysite/scripts/preview.mjs           # this checkout, one channel
-#   node .daysite/scripts/preview.mjs --ci      # both channels, from GitHub (needs `gh`)
+# {{title}}'s website, built by the daybrite/actions workflow from this file, the store listing,
+# and the dayscript screenshots: https://daybrite.dev/docs/websites
 
-# Required — the site's canonical URL. For GitHub Pages this is
-# https://<owner>.github.io/<repository> — the REPOSITORY's name, case included: a Pages URL
-# is case-sensitive there, so this is the one place an app spells its name the way GitHub
-# does rather than the way Cargo does. A custom domain works too. A path component becomes
-# the site's base path automatically.
+# The site's address. For GitHub Pages: https://<owner>.github.io/<repository>, with the
+# repository's name spelled exactly as GitHub spells it.
 host = "https://{{org}}.github.io/{{repo}}"
 
-# Everything below is optional — these are the defaults, spelled out to edit.
-#
-# The app's localized store/ name titles the site; set `title` only to differ from it.
-# title = "{{title}}"
-# tagline = ""
-
-# A Markdown file for the About section, relative to this project's root, shown instead of the
-# store description. Without it, a listing with no description shows README.md.
-# about = "README.md"
-
-# Brand accent (any CSS color) and starting theme: light | dark | system.
+# Optional settings, for example:
 # accent-color = "#3B82F6"
-# default-theme = "system"
-
-# Which platform the picker preselects (ios, android, macos, windows, linux-gtk, linux-qt,
-# harmony, web) — defaults to the first one the app builds. A visitor's own OS outranks it, and
-# a bookmarked #<target> fragment (/en/#macos-appkit) outranks both.
-# default-platform = "web"
-
-# What the app mark does when a visitor hovers or taps it, by moving the layers the SVG master
-# marks (day:background, day:foreground, day:monochrome): raise, tilt, bloom, emboss, iris,
-# spin, or none. https://github.com/daybrite/daysite#icon-effect
-# icon-effect = "raise"
-
-# Locale tags the site is kept in sync with — maintained by `day localize add/remove`, not by hand.
-# locales = ["en"]
-
-# The subdirectory hosting the web-dom build ("Open the web app" points there).
-# webapp = "webapp"
-
-# Section toggles.
-# show-gallery = true
-# show-permissions = true
-# show-store-badges = true
-# show-source-link = true
-
-# Footer line, printed under the Day attribution; {year} interpolates. Absent by default: a
-# copyright notice is yours to write, not the scaffold's to guess.
+# default-theme = "system"   # light | dark | system
 # footer = "© {year} {{title}}"
-
-# Reusable theme (optional; keep this table after the top-level site settings).
-# The repository must be published and the actions/daysite revisions must support customization.
-# [theme]
-# repository = "appfair/appsite"
-# ref = "main" # A tested tag or commit can pin the theme independently of the renderer.
-# Or use path = "./theme" for a theme committed under website/theme/.
-# Project component overrides live in website/daysite.config.mjs; custom Astro pages can
-# use their own source tree and configuration. See the guide linked above.

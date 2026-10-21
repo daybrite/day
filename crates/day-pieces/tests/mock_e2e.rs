@@ -507,6 +507,25 @@ fn text_field_controlled_echo_is_origin_tagged() {
 }
 
 #[test]
+fn labeled_names_its_control_unless_the_control_names_itself() {
+    let name = Signal::new(String::new());
+    let caption = Signal::new("Name".to_string());
+    let on = Signal::new(false);
+    let probe = boot(move || {
+        form((section((
+            labeled(move || caption.get(), text_field(name)),
+            labeled("Done", toggle(on).a11y(|a| a.label("Finished"))),
+        )),))
+        .any()
+    });
+    let label_of = |kind: &str| probe.find_by_kind(kind)[0].1.a11y.label.clone();
+    assert_eq!(label_of("day.text_field").as_deref(), Some("Name"));
+    assert_eq!(label_of("day.toggle").as_deref(), Some("Finished"));
+    batch(|| caption.set("Title".into()));
+    assert_eq!(label_of("day.text_field").as_deref(), Some("Title"));
+}
+
+#[test]
 fn reactive_a11y_strings_follow_their_signals() {
     let level = Signal::new(40.0f64);
     let probe = boot(move || {
@@ -2103,6 +2122,142 @@ fn content_list_emulated_gates_detail_on_visibility() {
             .iter()
             .any(|l| l.contains("nav list in-stack=false"))
     );
+}
+
+/// A compact content list's commands ride its section only: another tab showing takes them off
+/// the bar, as a pushed detail does.
+#[test]
+fn content_list_commands_leave_with_their_section_when_compact() {
+    let sel = Signal::new("items".to_string());
+    let picked: Signal<Option<u64>> = Signal::new(None);
+    let has_add = || {
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .any(|i| i.id == "list_add")
+    };
+    let _probe = boot_content_list(day_spec::Support::Emulated, Size::new(400.0, 600.0), {
+        move || {
+            nav(sel)
+                .style(NavStyle::Tabs)
+                .content_list(
+                    ContentList::new(|| {
+                        label("the-list").toolbar(toolbar_button(id!(list_add), "Add"))
+                    })
+                    .only_for(|k: &String| k == "items")
+                    .detail_for(picked),
+                )
+                .item("items", "Items", || label("items-detail"))
+                .item("settings", "Settings", || label("settings-page"))
+                .any()
+        }
+    });
+    flush_sync();
+    assert!(
+        has_add(),
+        "the list's command is on the bar while its section shows"
+    );
+    batch(|| sel.set("settings".into()));
+    flush_sync();
+    assert!(
+        !has_add(),
+        "another section showing takes the list's command off the bar"
+    );
+    batch(|| sel.set("items".into()));
+    flush_sync();
+    assert!(has_add());
+    batch(|| picked.set(Some(1)));
+    flush_sync();
+    assert!(
+        !has_add(),
+        "a pushed detail covers the list and its command"
+    );
+}
+
+/// The same after a wide window narrows into the compact shape (an Android tablet's freeform
+/// window dragged to phone width): the rebuilt list still rides only its own section.
+#[test]
+fn content_list_commands_leave_with_their_section_after_narrowing() {
+    let sel = Signal::new("items".to_string());
+    let picked: Signal<Option<u64>> = Signal::new(None);
+    let has_add = || {
+        day_core::toolbar::toolbar_model()
+            .iter()
+            .any(|i| i.id == "list_add")
+    };
+    let probe = boot_content_list(day_spec::Support::Unsupported, Size::new(1200.0, 800.0), {
+        move || {
+            nav(sel)
+                .content_list(
+                    ContentList::new(|| {
+                        label("the-list").toolbar(toolbar_button(id!(list_add), "Add"))
+                    })
+                    .only_for(|k: &String| k == "items")
+                    .detail_for(picked),
+                )
+                .item("welcome", "Welcome", || label("welcome-page"))
+                .item("items", "Items", || label("items-detail"))
+                .item("settings", "Settings", || label("settings-page"))
+                .any()
+        }
+    });
+    flush_sync();
+    assert!(has_add(), "wide: the list's command is on the bar");
+    probe.emit(
+        day_spec::WINDOW_NODE,
+        day_spec::Event::WindowResized(Size::new(390.0, 844.0)),
+    );
+    flush_sync();
+    assert!(has_add(), "narrow: still on the bar while Items shows");
+    for other in ["settings", "welcome"] {
+        batch(|| sel.set(other.into()));
+        flush_sync();
+        assert!(
+            !has_add(),
+            "narrow: {other} showing takes the list's command off the bar"
+        );
+    }
+    batch(|| sel.set("items".into()));
+    flush_sync();
+    assert!(has_add());
+}
+
+/// `detail_for`: the detail shows while the selection holds a value, and native back clears it.
+#[test]
+fn content_list_detail_for_gates_on_the_selection() {
+    let sel = Signal::new(String::new());
+    let picked: Signal<Option<u64>> = Signal::new(None);
+    let probe = boot_content_list(day_spec::Support::Emulated, Size::new(400.0, 600.0), {
+        move || {
+            nav(sel)
+                .style(NavStyle::Sidebar)
+                .title("Home")
+                .content_list(ContentList::new(|| label("the-list")).detail_for(picked))
+                .item("about", "About", || label("about-content"))
+                .any()
+        }
+    });
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        2,
+        "list, no detail"
+    );
+    batch(|| picked.set(Some(7)));
+    flush_sync();
+    assert_eq!(
+        probe.find_by_kind("day.nav_page").len(),
+        3,
+        "a value opens it"
+    );
+    let host = probe.find_by_kind("day.nav")[0].1.node;
+    probe.emit(
+        NodeId(host),
+        Event::NavBack {
+            already_popped: false,
+        },
+    );
+    flush_sync();
+    assert_eq!(picked.get_untracked(), None, "back clears the selection");
+    assert_eq!(probe.find_by_kind("day.nav_page").len(), 2);
 }
 
 /// Filtering a collapsed sidebar after Back updates rows without opening a destination.
@@ -6499,8 +6654,7 @@ fn toolbar_edit_the_toolkit_declined_is_sent_again() {
     );
 }
 
-/// An item whose presentation changes is replaced alone, and one whose value changes is
-/// patched, never replaced (docs/toolbars.md).
+/// An item whose value or words change is patched, never replaced (docs/toolbars.md).
 #[test]
 fn toolbar_edit_replaces_only_what_changed() {
     let title = Signal::new("Share".to_string());
@@ -6533,17 +6687,24 @@ fn toolbar_edit_replaces_only_what_changed() {
             })
     );
 
+    // New words are a value too: patched on the live item, which keeps its widget.
     batch(|| title.set("Send".into()));
     flush_sync();
-    let last = probe.toolbar_edits().last().cloned().unwrap();
     assert_eq!(
-        last.len(),
-        2,
-        "a relabel removes and inserts that one item: {last:?}"
+        probe.toolbar_edits().len(),
+        edits,
+        "a relabel is a patch, not an edit"
     );
-    assert!(matches!(&last[0], day_spec::ToolbarOp::Remove { id } if id == "share"));
     assert!(
-        matches!(&last[1], day_spec::ToolbarOp::Insert { index: 0, item } if item.label == "Send")
+        probe
+            .toolbar_patches()
+            .contains(&day_spec::ToolbarPatch::Label {
+                item: "share".into(),
+                label: "Send".into(),
+                tooltip: None,
+            }),
+        "{:?}",
+        probe.toolbar_patches()
     );
     assert_eq!(probe.toolbar_items(), day_core::toolbar::toolbar_model());
 }
@@ -6791,6 +6952,124 @@ fn page_search_is_offered_when_available() {
         Some(day_spec::ToolbarItemKind::Search { text, .. }) => assert_eq!(text, "ali"),
         other => panic!("no field: {other:?}"),
     }
+}
+
+/// A page field's prompt follows its source (a localized text after a language switch).
+#[test]
+fn page_search_prompt_follows_its_source() {
+    let path = Signal::new(Vec::<String>::new());
+    let query = Signal::new(String::new());
+    let prompt = Signal::new("Search items".to_string());
+    let _probe = boot(move || {
+        nav_stack(
+            path,
+            label("results").searchable(Search::new(query).prompt(move || prompt.get())),
+        )
+        .destination(|key: &String| label(key.clone()))
+    });
+    let placeholder = || {
+        day_core::toolbar::toolbar_model()
+            .into_iter()
+            .find_map(|i| match i.kind {
+                day_spec::ToolbarItemKind::Search { placeholder, .. } => Some(placeholder),
+                _ => None,
+            })
+    };
+    assert_eq!(placeholder().as_deref(), Some("Search items"));
+    batch(|| prompt.set("Rechercher des éléments".into()));
+    flush_sync();
+    assert_eq!(placeholder().as_deref(), Some("Rechercher des éléments"));
+}
+
+/// A badge or a title changing on rows that are otherwise the same says which rows moved, so a
+/// backend updates them in place instead of rebuilding its bar; a new row set says nothing.
+#[test]
+fn nav_row_value_changes_name_the_rows() {
+    let sel = Signal::new("inbox".to_string());
+    let unread = Signal::new(3);
+    let extra = Signal::new(false);
+    let probe = boot(move || {
+        nav(sel)
+            .items((
+                item("inbox", "Inbox")
+                    .badge(move || match unread.get() {
+                        0 => String::new(),
+                        n => n.to_string(),
+                    })
+                    .page(|| label("inbox-page")),
+                item("sent", "Sent").page(|| label("sent-page")),
+            ))
+            .items(nav_items(
+                move || {
+                    extra
+                        .get()
+                        .then(|| "drafts".to_string())
+                        .into_iter()
+                        .collect::<Vec<_>>()
+                },
+                |k: &String| item(k.clone(), k.clone()).page(|| label("drafts-page")),
+            ))
+            .any()
+    });
+    let menu = || {
+        probe
+            .log()
+            .into_iter()
+            .rfind(|l| l.contains("menu items="))
+            .unwrap_or_default()
+    };
+    batch(|| unread.set(4));
+    flush_sync();
+    assert!(menu().contains("rows_changed=Some([0])"), "{}", menu());
+    assert!(menu().contains("Some(\"4\")"), "{}", menu());
+    batch(|| unread.set(0));
+    flush_sync();
+    assert!(menu().contains("rows_changed=Some([0])"), "{}", menu());
+    assert!(
+        menu().contains("badges=[None, None]"),
+        "an empty badge is none: {}",
+        menu()
+    );
+    batch(|| extra.set(true));
+    flush_sync();
+    assert!(
+        menu().contains("rows_changed=None"),
+        "a new row set rebuilds: {}",
+        menu()
+    );
+}
+
+/// A fixed toolbar's localized label and tooltip follow their source (a language change) while
+/// the button keeps its action.
+#[test]
+fn fixed_toolbar_labels_follow_their_source() {
+    let word = Signal::new("New Item".to_string());
+    let pressed = Signal::new(0);
+    let _probe = boot(move || {
+        label("page").toolbar(
+            toolbar_button(id!(tb_add), move || word.get())
+                .tooltip(move || word.get())
+                .action(move || pressed.update(|n| *n += 1)),
+        )
+    });
+    let item = || {
+        day_core::toolbar::toolbar_model()
+            .into_iter()
+            .find(|i| i.id == "tb_add")
+            .expect("the button")
+    };
+    assert_eq!(item().label, "New Item");
+    batch(|| word.set("Nouvel élément".into()));
+    flush_sync();
+    assert_eq!(item().label, "Nouvel élément");
+    assert_eq!(item().tooltip.as_deref(), Some("Nouvel élément"));
+    day_core::dispatch_menu_action(item().action);
+    flush_sync();
+    assert_eq!(
+        pressed.get_untracked(),
+        1,
+        "the relabeled button still runs its action"
+    );
 }
 
 /// An inline surface field submits through `Event::SearchSubmitted`, as the toolbar one does

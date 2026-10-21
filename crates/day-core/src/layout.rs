@@ -414,6 +414,81 @@ impl Layout for CellCenter {
     }
 }
 
+/// A list cell's anchor layout (docs/list.md "Row metrics"): the row sits inside the platform's
+/// row margins and the cell is at least the platform's row height, content centered in it.
+/// With zero metrics it is [`PassThrough`].
+pub struct CellMetrics(pub day_spec::RowMetrics);
+
+impl CellMetrics {
+    /// The metrics for `child`. The platform's own whole row keeps the list's side margins
+    /// (they line up with the separators) and sizes its height itself.
+    fn for_child(&self, cx: &dyn LayoutOps, child: RNode) -> day_spec::RowMetrics {
+        // Through the single-child wrappers a row's decorators and builder add around it.
+        let mut node = child;
+        for _ in 0..8 {
+            if cx.flex_of(node).whole_row {
+                let i = self.0.insets;
+                return day_spec::RowMetrics {
+                    insets: day_spec::Insets {
+                        top: 0.0,
+                        leading: i.leading,
+                        bottom: 0.0,
+                        trailing: i.trailing,
+                    },
+                    min_height: 0.0,
+                };
+            }
+            match cx.children_of(node)[..] {
+                [only] => node = only,
+                _ => break,
+            }
+        }
+        self.0
+    }
+}
+
+impl Layout for CellMetrics {
+    fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
+        let Some(&c) = children.first() else {
+            return Size::ZERO;
+        };
+        let m = self.for_child(cx, c);
+        let i = m.insets;
+        let (dx, dy) = (i.leading + i.trailing, i.top + i.bottom);
+        let s = cx.measure_child(
+            c,
+            Proposal::new(
+                p.width.map(|w| (w - dx).max(0.0)),
+                p.height.map(|h| (h - dy).max(0.0)),
+            ),
+        );
+        Size::new(s.width + dx, (s.height + dy).max(m.min_height))
+    }
+    fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
+        let Some(&c) = children.first() else {
+            return;
+        };
+        let i = self.for_child(cx, c).insets;
+        let inner = Size::new(
+            (bounds.size.width - i.leading - i.trailing).max(0.0),
+            (bounds.size.height - i.top - i.bottom).max(0.0),
+        );
+        let s = cx.measure_child(c, Proposal::new(Some(inner.width), None));
+        // Inside the margins where the row has room for them; a fixed-height row too short for
+        // them (`RowHeight::Uniform`) centers its content in the whole row instead of clipping.
+        let (y, h) = if s.height <= inner.height {
+            (i.top + (inner.height - s.height) / 2.0, s.height)
+        } else {
+            let h = s.height.min(bounds.size.height);
+            (((bounds.size.height - h) / 2.0).max(0.0), h)
+        };
+        cx.place_child(c, Rect::new(i.leading, y, inner.width, h));
+    }
+    fn baseline(&self, cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {
+        PassThrough::forward(cx, children, size)
+    }
+}
+
 impl PassThrough {
     /// Shared by every wrapper whose child measures at the wrapper's own size.
     fn forward(cx: &mut dyn LayoutOps, children: &[RNode], size: Size) -> Option<f64> {

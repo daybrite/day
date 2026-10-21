@@ -95,8 +95,8 @@ across the whole collection leaves no observation claims behind
 
 Builder options: `.row_height(RowHeight)`, `.on_select(Fn(Ref))` (the key for a plain source,
 the row's `Elem` for a store source), `.multi_select()`, `.on_selection(Fn(Vec<Ref>))`,
-`.selected_rows(Fn() -> Vec<usize>)`, and (reserved, unshipped) `.row_kind` mapping to native
-reuse pools.
+`.selected_rows(Fn() -> Vec<usize>)`, `.selection(binding)` (store sources, below), and
+(reserved, unshipped) `.row_kind` mapping to native reuse pools.
 
 ### Asynchronous row images
 
@@ -241,6 +241,59 @@ following its rows. A plain items closure has no such events and reloads.
 | WinUI   | `ItemsRepeater` + `StackLayout`; each cell an `ItemContainer` holding a `Canvas` for the row | native | the repeater's realization callbacks post `bind_row`/`recycle` (calling the source inside XAML layout would re-enter Day) |
 | web     | a DOM scroller with a slot per row | emulated | rows in view plus an overscan are built; a row scrolled far away keeps its element |
 
+## Row metrics
+
+A row reads at the platform's size without the app padding it. day-core lays each row inside
+the margins the backend's own list gives a row and keeps it at least that list's row height,
+content centered (`Toolkit::list_row_metrics`, asked of the list when a cell is first used), so
+a row piece holds only its content: `row((icon, label))`, not `row(..).padding(..)`.
+
+| Backend | Margins (top, sides) | Minimum height | Source |
+|---|---|---|---|
+| UIKit | a stock cell's top margin; the table's layout margins at the sides (16 or 20pt) | the height UIKit fits a stock cell with one line of its default content configuration | measured from UIKit at runtime |
+| Android | 8dp, 16dp | 56dp | Material one-line list item |
+| AppKit | 4pt, 8pt | 28pt | macOS table row |
+| GTK | 8px, 12px | 44px | Adwaita rich-list row |
+| Qt | 4px, 8px | 28px | item view row |
+| web | 10px, 16px | 44px | a touch-sized web row |
+| ArkUI | 8vp, 12vp | 48vp | HarmonyOS list item |
+| WinUI | 0, 12px | 40px | `ListViewItem` padding and `MinHeight` |
+
+A `Uniform` row height still wins: the row is that tall and its content sits inside the margins,
+or, where the row is too short for them, centered in the whole row.
+
+## List items
+
+`list_item(title)` is a row's standard content drawn as the platform draws its own list rows:
+a leading icon, the title, an optional subtitle and trailing detail, and a check mark. Every part
+takes a constant, a signal or a closure, and changes in place, so a recycled row follows its item.
+
+```rust
+list(scene.items.rows(keys), move |slot| {
+    list_item(move || slot.name().read())
+        .icon(move || slot.kind().read().icon())     // a resource/vectors glyph, as a template
+        .icon_tint(move || slot.tint().read().color())
+        .subtitle(move || slot.note().read())
+        .detail(move || slot.count().read().to_string())
+        .checked(move || slot.done().read())         // the platform's check mark, announced as selected
+})
+```
+
+Where `Cap::ListItem` answers `Native` the toolkit realizes `kinds::LIST_ITEM` itself, and the
+row takes the platform's fonts, icon size, spacing, secondary colors and check mark:
+
+| Backend | Realized as |
+|---|---|
+| UIKit | `UIListContentView` with the cell's default content configuration; the checkmark accessory's glyph and a secondary value beside it |
+| Android | a Material 3 list item (`DayListItem`): 24dp leading icon, body-large headline, body-medium supporting text, label-small trailing text, a primary-colored check; 56dp, 72dp with a supporting line |
+| AppKit | an image-and-text table cell's parts: a 16pt template image, the system font, a smaller secondary subtitle, the accent checkmark; at least 28pt |
+| GTK | a row box: a 16px icon, the title over a dim caption, a dim value, `object-select-symbolic` in the accent color; at least 44px |
+| Qt, web, ArkUI, WinUI | composed from `vector`, `label` and `image` with the same parts |
+
+A native list item is the platform's whole row (`Flex::whole_row`): the list gives it the side
+margins from the table above, which line up with the separators, and the item sizes its own
+height. A composed item, like any custom row, takes the full row metrics.
+
 ## Row heights
 
 `RowHeight::Uniform(h)` makes every row `h` points tall. Each platform has a fixed-pitch fast
@@ -311,6 +364,16 @@ the same signal `on_selection` writes to get a two-way binding and a "clear sele
 The binding also applies its initial value after mounting, deferred until row-source updates
 settle. AppKit preserves the selected tokens across content reloads and reorders; deleting a
 selected token clears it instead of selecting whichever item inherits its index.
+
+A list of day-model store rows can bind single selection by key instead:
+`.selection(binding)` takes any `Binding<Option<u64>>` holding the selected row's key. A row the
+user picks writes its key (clearing writes `None`) without an echo back to the native list; a
+key the app writes selects that row through the same `ListPatch::Selected` sync and scrolls it
+into view (`list_scroll_to_row`) once the row is in the snapshot, so an app that inserts a row
+and selects it in one turn sees it revealed after the reload that brings it. The selection
+follows its row through inserts, moves and reloads, and the initial key selects without
+scrolling. The `day new` starter binds its list this way (`.selection(scene.selected)`),
+with the same signal driving `ContentList::detail_for` ([navigation](navigation.md)).
 
 Support matrix: **AppKit** (native `NSTableView` multi-selection), **Qt**, **XAML** and
 **web-dom** (the emulated lists: a per-cell press hook, a highlight treatment on the cell's

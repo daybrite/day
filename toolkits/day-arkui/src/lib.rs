@@ -2684,6 +2684,9 @@ mod imp {
                     if !p.runs.is_empty() {
                         set_label_runs(n.0, &p.text, &p.runs);
                     }
+                    if p.align != day_spec::props::TextAlign::Leading {
+                        node::label_align(n.0, p.align);
+                    }
                     n
                 }
                 Some(Builtin::Button) => {
@@ -3012,6 +3015,7 @@ mod imp {
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
+                | Some(Builtin::ListItem)
                 | Some(Builtin::Tree)
                 | Some(Builtin::Inspector)
                 | Some(Builtin::InspectorPane)
@@ -3972,6 +3976,19 @@ mod imp {
             // from layout flow, and the Scroll's measure ignores positioned children.
             if let Some(stack) = SCROLL_CONTENT.with(|m| m.borrow().get(&(h.0 as usize)).copied()) {
                 node::set_size(stack as Handle, content.width, content.height);
+            }
+        }
+
+        /// A HarmonyOS list item: 12vp sides, 48vp tall for a single line.
+        fn list_row_metrics(&mut self, _h: &AHandle) -> day_spec::RowMetrics {
+            day_spec::RowMetrics {
+                insets: day_spec::Insets {
+                    top: 8.0,
+                    leading: 12.0,
+                    bottom: 8.0,
+                    trailing: 12.0,
+                },
+                min_height: 48.0,
             }
         }
 

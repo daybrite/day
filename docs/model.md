@@ -104,14 +104,16 @@ pub struct Card {
 }
 
 let id = Uuid::now_v7();
-store.restructure("add", Op::Insert, id, |k| k.push(Card { id, ..Default::default() }));
+store.push(Card { id, ..Default::default() });
 store.elem(id).title().write("Draft".into());   // by key
 let ids: Vec<ModelId<Card>> = store.ids();      // typed, tracked
 assert_eq!(ids[0].key().as_uuid(), Some(id));
 ```
 
 Integer keys reserve the top bit (`1 << 63` and up is the interned-handle space); a debug build
-refuses a key at or above it rather than letting it alias a wide handle. Two rows sharing a key
+refuses a key at or above it rather than letting it alias a wide handle. `next_key()` hands out
+the next free integer key (one past the largest in use, starting at 1), filling the lowest gap
+once counting up would reach the reserved bit. Two rows sharing a key
 is an app bug the index cannot represent; the documented behavior is that the index resolves to
 the last one, and under persistence the fold's upsert coalesces them to one stored row.
 
@@ -131,9 +133,14 @@ collection case:
 - `elem(key)` — one element, O(1) by key; a handle whose fields bind controls.
 - `keys()` — a **tracked read of the collection's shape** (which keys, in what order). A field
   write does not wake it; an insert, removal or reorder does.
-- `restructure(label, op, key, f)` — the structural write. The `Op` (`Insert`/`Delete`/`Move`)
-  and the key ride the change log so a persistence layer can tell an insert from a delete; the
-  UI, which only re-reads `keys()`, does not care.
+- `push(item)`, `remove(key) -> bool`, `move_row(from, to) -> bool` — the common structural
+  writes: an append, a removal by key, and the index move a native reorder gesture reports. A
+  removal of a missing key, or a move that is out of range or in place, returns `false` and
+  announces nothing.
+- `restructure(label, op, key, f)` — the structural write those three are built on, for any
+  other edit. The `Op` (`Insert`/`Delete`/`Move`) and the key ride the change log so a
+  persistence layer can tell an insert from a delete; the UI, which only re-reads `keys()`, does
+  not care.
 - `update(label, f)` — mutate the whole value; every reader wakes. It is the coarse option, right for
   wholesale loads.
 
@@ -258,7 +265,9 @@ database. **Sessions** are the write-side of `ValueChanged`/`ValueCommitted`:
 `field.session()` adds `cancel()` (Escape restores, zero records). Bound controls drive the
 pair automatically. **`UndoStack::new(levels)`** + `stack.watch(store)` turns the same log into
 history: units are turns, inversion comes from the captured prior values (a `Delete` carries
-its row), replay is tagged `author: "undo"` so consumers can tell it from the user, and
+its row and index, so undo puts it back where it was; a `Move` its two indexes, so a reorder
+undoes too), the menu names each unit through `set_label_resolver` (the starter maps labels to
+its own localized strings), replay is tagged `author: "undo"` so consumers can tell it from the user, and
 `can_undo`/`undo_label` are signals. `#[derive(Observable)]` emits the `ApplyField` impl replay
 writes back through. `day::install_undo(&stack)` fronts the stack natively where the platform
 has an undo system ([docs/persistence.md](persistence.md) has the platform table).
@@ -288,9 +297,9 @@ restore would fork history from inside a replay.
 - Building a field handle costs no interner lookup; interning is paid once per element handle
   and once per nested struct, not per read.
 
-The scaffold's own editor (`day new`, `src/pages/detail.rs`) is the worked example: each form
-control binds a field accessor directly, and the model file's one coarse `watch` handles all of
-its persistence. When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
+The scaffold's own editor (`day new`, `src/pages.rs`) is the worked example: each form control
+binds a field accessor directly, and one `day::prefs::bind_json` call in `src/model.rs` handles
+all of its persistence ([docs/prefs.md](prefs.md)). When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
 is the next step: the same store, loaded from and autosaved to SQLite.
 
 ### Undo groups spanning input events

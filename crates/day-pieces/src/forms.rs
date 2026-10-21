@@ -196,6 +196,9 @@ impl day_core::Layout for SectionCardLayout {
 /// A form row: `label` sits in the form-wide aligned label column (right-aligned, vertically
 /// centered), `control` beside it. Outside a [`form`] the label column is just this row's own
 /// label width. A control with `.grow()` stretches to the row's remaining width.
+///
+/// The label also names the control for assistive technology, unless the control carries an
+/// `.a11y(|a| a.label(..))` of its own.
 pub fn labeled<M, P: Piece>(text: impl IntoText<M>, control: P) -> Labeled<P> {
     Labeled {
         text: text.into_text(),
@@ -212,6 +215,7 @@ pub struct Labeled<P: Piece> {
 impl<P: Piece> Piece for Labeled<P> {
     fn build(self, cx: &mut BuildCx) -> RNode {
         let Labeled { text, control } = self;
+        let a11y_text = text.clone();
         // Read the enclosing form's shared column at build time (environment is scoped).
         let col = environment::<FormLabelColumn>();
         let node = cx.layout_only(
@@ -241,9 +245,36 @@ impl<P: Piece> Piece for Labeled<P> {
                 role: Default::default(),
             };
             let _ = row_label.build(cx);
-            let _ = control.build(cx);
+            let ctl = control.build(cx);
+            name_control(ctl, &a11y_text);
         });
         node
+    }
+}
+
+/// Give a [`labeled`] row's control its label's text as its accessible name, when the control
+/// has none of its own. A live text follows its source, as an `.a11y` label does.
+fn name_control(ctl: RNode, text: &TextSource) {
+    let named = with_tree(|t| t.node_a11y(ctl)).is_some_and(|a| a.label.is_some());
+    if named {
+        return;
+    }
+    let label = |s: String| day_spec::A11yProps {
+        label: Some(s),
+        ..Default::default()
+    };
+    match text {
+        TextSource::Static(s) => with_tree(|t| t.set_a11y(ctl, label(s.clone()))),
+        TextSource::Dyn(read) => {
+            let read = read.clone();
+            let seed = day_reactive::untrack(|| read());
+            with_tree(|t| t.set_a11y(ctl, label(seed.clone())));
+            day_reactive::bind_seeded(
+                seed,
+                move || read(),
+                move |s: &String| with_tree(|t| t.set_a11y(ctl, label(s.clone()))),
+            );
+        }
     }
 }
 

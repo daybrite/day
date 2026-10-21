@@ -373,6 +373,14 @@ should supply their own bundled fallback until the download is ready.
 and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
 form above.
 
+`.badge(text)` is the row's count or status word, drawn in the platform's own badge slot: the
+source-list count on AppKit, a dim count in the GTK row and on Qt and the web, a `UITab`'s badge
+on iPadOS and in the tab bar, a Material badge on Android's bottom bar and rail and a trailing
+count in its drawer. Empty text is no badge, so a count can return `""` at zero rather than
+switching the badge off. A badge that ticks (or a title that changes language) updates that row in
+place on every backend that can (`NavMenuPatch::Items::rows_changed`), without rebuilding the
+bar or replaying its selection animation.
+
 `.badge_icon(name)` puts a glyph at the row's trailing edge, with `.badge_tint(color)` for a
 color that carries meaning (a starred page's yellow star). It shares the trailing slot with the
 text `.badge(…)` and is drawn after it, so a row can show a count and a status at once:
@@ -789,15 +797,9 @@ hint) routes one turn after mount, so `.restore` steps aside and the link decide
 opens. A saved value that no longer fits (a nav host key whose item is gone, a stack segment that
 no longer parses) is ignored rather than restoring a broken state.
 
-`.restore` reads and writes through a store the app installs once at startup; nothing persists
-until you install one:
-
-```rust
-fn main() {
-    day::prefs::install_nav_store();   // before the UI mounts
-    // …
-}
-```
+`.restore` reads and writes through the app's preferences: `day::launch` installs
+`day::prefs::install_nav_store()` before the UI mounts unless the app installed a store of its
+own with `day_core::set_nav_store` first (or turned off the `day` crate's `prefs` feature).
 
 The prefs store is disk-backed, so restore also survives an **Android process death**: the OS
 reclaims a backgrounded app and rebuilds it on return, and the value is still on disk. With no
@@ -1015,6 +1017,11 @@ nav(section).style(NavStyle::Sidebar)
   and a native back, and the nav host's bar actions ride that bar (a tabs chrome otherwise
   draws none). Without `detail_visible` a stacked host behaves classically (the detail pushes
   on selection).
+- **`ContentList::detail_for(selection)`** is `detail_visible` for a list whose selection is the
+  detail's subject: it takes a `Binding<Option<T>>` and reads `true` while it holds a value.
+  Writing `Some` opens the detail; the back's `false` writes `None`, which clears the selection
+  too, so one signal serves the list (`List::selection`, [docs/list.md](list.md)), the detail
+  and the gate. The `day new` starter uses it this way.
 - **`ContentList::detail_title`** names the detail layer's navigation bar: the pushed editor on a phone,
   the detail page's bar wherever the toolkit titles one. Reactive like every title: a closure
   reading your own state retitles the live bar (`NavPatch::Title`) as that state changes, so

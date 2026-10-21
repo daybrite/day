@@ -877,6 +877,20 @@ impl AppKit {
                 }
                 // No completion affordance on NSSearchField (see the realize above).
                 ToolbarPatch::Suggestions { .. } => {}
+                ToolbarPatch::Label { label, tooltip, .. } => {
+                    let words = NSString::from_str(label);
+                    bar_item.setLabel(&words);
+                    bar_item.setPaletteLabel(&words);
+                    let tip = NSString::from_str(tooltip.as_deref().unwrap_or(label));
+                    bar_item.setToolTip(Some(&tip));
+                }
+                ToolbarPatch::Placeholder { text, .. } => {
+                    if let Some(search) = bar_item.downcast_ref::<NSSearchToolbarItem>() {
+                        search
+                            .searchField()
+                            .setPlaceholderString(Some(&NSString::from_str(text)));
+                    }
+                }
             }
         }
     }

@@ -1010,7 +1010,8 @@ pub enum DevicesCmd {
         /// Wait for boot completion (always enabled on OpenHarmony)
         #[arg(long)]
         wait: bool,
-        /// Orientation: portrait or landscape (OpenHarmony: turns the panel)
+        /// Orientation: portrait or landscape (OpenHarmony: turns the panel); on Android, auto
+        /// releases a pinned orientation so the display follows the device's own rotation
         #[arg(long, value_name = "ORIENTATION")]
         orientation: Option<String>,
         /// Start the emulator without a window

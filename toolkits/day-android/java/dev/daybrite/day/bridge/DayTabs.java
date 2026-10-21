@@ -50,6 +50,8 @@ public class DayTabs extends LinearLayout {
     private final ArrayList<View> pageViews = new ArrayList<>();
     private final ArrayList<String> titles = new ArrayList<>();
     private final ArrayList<String> iconNames = new ArrayList<>();
+    /** Each row's badge text ("" for none), index aligned with {@link #titles}. */
+    private final ArrayList<String> badges = new ArrayList<>();
     // Material assigns each menu item's ID to its native row view. Row indices collide with
     // generateViewId() IDs used by FragmentManager containers (especially the leading drawer,
     // which findViewById visits first). Allocate from the same namespace as those containers.
@@ -118,7 +120,7 @@ public class DayTabs extends LinearLayout {
      * aligned, plus the node a tap reports against. This is the host's nav menu handing its rows
      * to the chrome that will draw them.
      */
-    void setRows(String joinedTitles, String joinedIcons, long menuNode) {
+    void setRows(String joinedTitles, String joinedIcons, String joinedBadges, long menuNode) {
         titles.clear();
         iconNames.clear();
         for (String t : split(joinedTitles)) {
@@ -132,7 +134,75 @@ public class DayTabs extends LinearLayout {
         if (menuNode != 0) {
             this.menuNode = menuNode;
         }
+        // Null keeps the counts already held: a rebuilt row set is followed by its badges.
+        if (joinedBadges != null) {
+            badges.clear();
+            for (String b : split(joinedBadges)) badges.add(b);
+        }
         fillChrome();
+    }
+
+    /**
+     * New titles for the listed rows of the same row set (NavMenuPatch::Items `rows_changed`):
+     * set on the items the chrome already shows. Rebuilding the bar instead re-lays its items
+     * and replays the selection indicator's animation, which a ticking badge must not do.
+     */
+    void updateRows(int[] rows, String joinedTitles) {
+        String[] next = joinedTitles.isEmpty() ? new String[0] : joinedTitles.split("\u001f", -1);
+        Menu menu = chrome instanceof NavigationBarView ? ((NavigationBarView) chrome).getMenu()
+                : chrome instanceof NavigationView ? ((NavigationView) chrome).getMenu()
+                : null;
+        for (int i : rows) {
+            if (i < 0 || i >= titles.size() || i >= next.length) continue;
+            titles.set(i, next[i]);
+            MenuItem item = menu == null ? null : menu.findItem(itemIds.get(i));
+            if (item != null) item.setTitle(next[i]);
+        }
+        // The document tab strip is not menu-backed: its tabs carry their titles as views.
+        if (menu == null) fillChrome();
+    }
+
+    /** Whether `v` is the chrome this suite draws its rows in. */
+    boolean isChrome(View v) {
+        return v == chrome;
+    }
+
+    /** The rows' badge texts (an unread count), unit-separator joined like the titles. */
+    void setBadges(String joinedTexts) {
+        badges.clear();
+        for (String t : split(joinedTexts)) {
+            badges.add(t);
+        }
+        applyBadges();
+    }
+
+    /**
+     * Put the badges on whichever chrome is showing: a Material badge on a bar or rail item, the
+     * drawer's trailing count otherwise. A count that reads as a number uses the badge's number
+     * form, which Material abbreviates past its maximum.
+     */
+    private void applyBadges() {
+        if (chrome instanceof NavigationBarView) {
+            NavigationBarView bar = (NavigationBarView) chrome;
+            for (int i = 0; i < itemIds.size(); i++) {
+                int id = itemIds.get(i);
+                if (bar.getMenu().findItem(id) == null) continue;
+                String text = i < badges.size() ? badges.get(i) : "";
+                if (text.isEmpty()) {
+                    bar.removeBadge(id);
+                    continue;
+                }
+                com.google.android.material.badge.BadgeDrawable badge = bar.getOrCreateBadge(id);
+                try {
+                    badge.setNumber(Integer.parseInt(text.trim()));
+                } catch (NumberFormatException e) {
+                    badge.setText(text);
+                }
+                badge.setContentDescriptionForText(text);
+            }
+        } else if (chrome instanceof NavigationView) {
+            DayBridge.setNavMenuBadges(chrome, "", "", String.join("\u001f", badges));
+        }
     }
 
     void removePage(View page) {
@@ -376,6 +446,7 @@ public class DayTabs extends LinearLayout {
             android.util.Log.w("Day", "nav suite: " + (titles.size() - max) + " destination(s) "
                     + "past the bottom bar's max of " + max + "; resident but with no bar item");
         }
+        applyBadges();
         if (!titles.isEmpty()) select(Math.min(selected, titles.size() - 1));
     }
 

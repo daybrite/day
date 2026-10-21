@@ -20,6 +20,10 @@ title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
 [example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/localization).
+A localized label, tooltip or search prompt follows a language change in place: a fixed list
+relabels its registered items (`relabel_contribution`) and a derived list re-runs on the locale,
+and either way the words reach the bar as `ToolbarPatch::Label` and `ToolbarPatch::Placeholder`
+on the live item, which keeps its widget, its action, its focus and its typed text.
 
 ## The rule
 
@@ -269,7 +273,10 @@ placements land on that bar exactly as on a page's: a `Primary` item rides a fix
 iPhone never folds, so an app's one way to a panel (Day Sketch's Inspector) stays a tap away
 rather than two. On Android the bar belongs to the window root it was set for: a cover presented
 over the window (the settings surface) carries its own items on its own stack's bar, and the
-window's bar is untouched underneath.
+window's bar is untouched underneath. The same goes for one section of a wide Android window: a tablet's sidebar
+shows each section's page beside it, and a section whose page has no navigation host of its own
+(a list and its detail composed side by side) gets the window's bar docked across the top while it
+shows. A host on a hidden section's page never takes the bar.
 
 On iOS the items ride the NAVIGATION BAR of the page that is showing, as item groups (one per
 item) so what the bar cannot fit folds into its overflow, trailing items first. A leading item
@@ -486,6 +493,9 @@ also checked by capturing the real window.
 
 ## Follow-ups
 
+- WinUI does not apply `ToolbarPatch::Label`/`Placeholder` yet (its shim has no setter for a
+  command's label, tooltip or a search box's prompt, and it cannot be built off Windows), so a
+  language change leaves the old words until the bar is next edited.
 - macOS toolbar customization, which needs the model and an autosaved arrangement to be
   reconciled rather than in conflict.
 - Qt dock-area dragging, which needs `DayWindow` to become a `QMainWindow`.

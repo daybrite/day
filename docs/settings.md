@@ -23,7 +23,7 @@ use day_piece_settings::prelude::*;
 
 // root(), after the locale catalog installs and before app_menu:
 let prefs = Preferences::new()
-    .about(About::from_manifest().link(day::tr("day-about-website"), "https://daybrite.dev"))
+    .about(About::from_manifest().website("https://daybrite.dev"))
     .group(general_group(res::locales::ALL)) // Appearance + Language
     .group(
         Group::new("weather", res::str::settings_weather())
@@ -196,8 +196,9 @@ About::from_manifest() // name, version and build from Day.toml via `day build`
     .tagline(res::str::about_tagline())
     .copyright("© The Daybrite Project")
     .icon(res::images::icon)
-    .link(day::tr("day-about-website"), "https://…")
-    .link(day::tr("day-about-source"), "https://github.com/…")
+    .website("https://…")                       // titled "Website" from Day's catalog
+    .source("https://github.com/…")             // titled "Source Code"
+    .link(res::str::about_forum(), "https://…") // any other link, with the app's own title
     .privacy("https://…")
     .credits(res::str::about_credits())
     .licenses(|| {
@@ -206,6 +207,10 @@ About::from_manifest() // name, version and build from Day.toml via `day build`
     })
     .custom(build) // replaces the composed body
 ```
+
+Where windows open as covers (`Cap::MultiWindow` unsupported: the web, phones), About is a sheet
+on a wide screen and a cover on a narrow one, with its title and a Done button (`about_done`),
+like Settings there.
 
 `from_manifest()` reads the identity `day build`/`day launch` export (`DAY_APP_ID`,
 `DAY_APP_VERSION`, `DAY_APP_BUILD`, `DAY_APP_TITLE`), falling back to the launch window's app

@@ -415,6 +415,54 @@ fn list_layer_gate(
     })
 }
 
+/// The navigation page being built, captured so a piece built later (a `when` arm a morph
+/// re-runs) can build inside it again: its commands then land on that page's chrome, under
+/// its gate (docs/toolbars.md).
+#[derive(Clone)]
+struct PageContext {
+    chrome: day_core::Chrome,
+    gate: Option<Rc<dyn Fn() -> bool>>,
+    column: day_spec::ToolbarColumn,
+    window: RNode,
+}
+
+impl PageContext {
+    fn current() -> PageContext {
+        PageContext {
+            chrome: day_core::current_chrome(),
+            gate: day_core::current_page_gate(),
+            column: day_core::current_page_column(),
+            window: day_core::current_page_window(),
+        }
+    }
+
+    /// `piece`, built inside the captured page (as is, before one was captured).
+    fn enter(at: &Rc<RefCell<Option<PageContext>>>, piece: impl Piece + 'static) -> AnyPiece {
+        let at = at.clone();
+        AnyPiece::new(piece_fn(move |cx| {
+            let ctx = at.borrow().clone();
+            match ctx {
+                Some(PageContext {
+                    chrome: day_core::Chrome::Page(page),
+                    gate,
+                    column,
+                    window,
+                }) => day_core::with_page_in(page, gate, column, window, || piece.build(cx)),
+                _ => piece.build(cx),
+            }
+        }))
+    }
+}
+
+/// `gate`, and the gate of the page being built (a tab's "selected"), when it has one: a list
+/// registered inline in a page shows its commands only while that page does too.
+fn within_page_gate(gate: Rc<dyn Fn() -> bool>) -> Rc<dyn Fn() -> bool> {
+    match day_core::current_page_gate() {
+        Some(outer) => Rc::new(move || outer() && gate()),
+        None => gate,
+    }
+}
+
 /// Whether a destination page is the one showing: the selection is on it (docs/toolbars.md).
 fn destination_gate<K: Route, S: Binding<K> + 'static>(
     selection: S,
@@ -600,6 +648,36 @@ type DerivedRows<K> = (
     Vec<Option<day_spec::Color>>,
 );
 
+/// The rows the native menu last received, to tell a value change (`rows_changed`) from a new
+/// row set.
+struct ShownRows {
+    keys: Vec<String>,
+    titles: Vec<String>,
+    icons: Vec<Option<String>>,
+    badges: Vec<Option<String>>,
+    badge_icons: Vec<Option<String>>,
+    badge_tints: Vec<Option<day_spec::Color>>,
+    sections: Vec<Option<String>>,
+    tints: Vec<Option<day_spec::Color>>,
+    menus: Vec<Vec<day_spec::MenuItem>>,
+}
+
+impl<K: Route> NavRows<K> {
+    fn shown(&self) -> ShownRows {
+        ShownRows {
+            keys: self.keys.iter().map(|k| k.key()).collect(),
+            titles: self.titles.clone(),
+            icons: self.icons.clone(),
+            badges: self.badges.clone(),
+            badge_icons: self.badge_icons.clone(),
+            badge_tints: self.badge_tints.clone(),
+            sections: self.sections.clone(),
+            tints: self.tints.clone(),
+            menus: self.menus.clone(),
+        }
+    }
+}
+
 #[derive(Clone)]
 #[doc(hidden)]
 pub struct SectionHeader {
@@ -715,7 +793,8 @@ impl<K> NavItem<K> {
     }
     /// A trailing accessory for this row (an unread count, a status). Rendered right-aligned
     /// and de-emphasized where the toolkit has an affordance for it, and dropped where it does
-    /// not (see docs/coverage-matrix.md).
+    /// not (see docs/coverage-matrix.md). Empty text shows no badge, so a count can return `""`
+    /// at zero.
     pub fn badge<M>(mut self, badge: impl IntoText<M>) -> Self {
         self.badge = Some(badge.into_text());
         self
@@ -1423,7 +1502,13 @@ impl<K: Route> SelItems<K> {
             r.keys.push(k);
             r.titles.push(title);
             r.icons.push(m.icon.clone());
-            r.badges.push(m.badge.as_ref().map(|b| b.resolve()));
+            // Empty text is no badge: a toolkit given `Some("")` draws a bare dot (UIKit does).
+            r.badges.push(
+                m.badge
+                    .as_ref()
+                    .map(|b| b.resolve())
+                    .filter(|b| !b.is_empty()),
+            );
             r.badge_icons.push(m.badge_icon.clone());
             r.badge_tints.push(m.badge_tint);
             r.sections
@@ -1693,11 +1778,15 @@ pub(crate) fn install_page_search(search: Search) {
     let column = day_core::current_page_column();
     let query = search.query;
     let text = query.get_untracked();
-    let prompt = search
-        .prompt
-        .as_ref()
-        .map(TextSource::initial)
-        .unwrap_or_default();
+    // The prompt follows the locale (a `res::str` text re-resolves): the item is re-registered
+    // below when it changes, so the field's placeholder is never left in the old language.
+    let prompt_source = search.prompt.clone();
+    let prompt: Rc<RefCell<String>> = Rc::new(RefCell::new(
+        prompt_source
+            .as_ref()
+            .map(TextSource::initial)
+            .unwrap_or_default(),
+    ));
     let suggestions = search
         .suggestions
         .as_ref()
@@ -1721,14 +1810,15 @@ pub(crate) fn install_page_search(search: Search) {
             _ => {}
         }))
     };
+    let item_prompt = prompt.clone();
     let item = move |text: String, suggestions: Vec<String>| day_spec::ToolbarItem {
         id: day_core::id!(day::search).as_str().to_owned(),
         kind: day_spec::ToolbarItemKind::Search {
             text,
-            placeholder: prompt.clone(),
+            placeholder: item_prompt.borrow().clone(),
             suggestions,
         },
-        label: prompt.clone(),
+        label: item_prompt.borrow().clone(),
         tooltip: None,
         icon: None,
         enabled: true,
@@ -1740,6 +1830,8 @@ pub(crate) fn install_page_search(search: Search) {
     };
     let available = search.available.clone();
     let offered = available.as_ref().is_none_or(|v| v.get_untracked());
+    let offered_now = Rc::new(Cell::new(offered));
+    let item = Rc::new(item);
     let token = day_core::register_contribution_gated(
         chrome,
         if offered {
@@ -1753,10 +1845,12 @@ pub(crate) fn install_page_search(search: Search) {
     // field showed so a field that comes back holds its text.
     if let Some(crate::Reactive::Dyn(f)) = available {
         let (shown, suggest, query) = (shown.clone(), search.suggestions.clone(), query);
+        let (item, offered_now) = (item.clone(), offered_now.clone());
         bind_seeded(
             offered,
             move || f(),
             move |on: &bool| {
+                offered_now.set(*on);
                 let items = if *on {
                     let text = shown.borrow().clone();
                     let list = suggest
@@ -1768,6 +1862,25 @@ pub(crate) fn install_page_search(search: Search) {
                     Vec::new()
                 };
                 day_core::update_contribution(token, items);
+            },
+        );
+    }
+    if let Some(TextSource::Dyn(read)) = prompt_source {
+        let (shown, suggest, item) = (shown.clone(), search.suggestions.clone(), item.clone());
+        let seed = prompt.borrow().clone();
+        bind_seeded(
+            seed,
+            move || read(),
+            move |p: &String| {
+                *prompt.borrow_mut() = p.clone();
+                if offered_now.get() {
+                    let text = shown.borrow().clone();
+                    let list = suggest
+                        .as_ref()
+                        .map(|f| day_reactive::untrack(|| f(&query.get_untracked())))
+                        .unwrap_or_default();
+                    day_core::update_contribution(token, vec![item(text, list)]);
+                }
             },
         );
     }
@@ -1866,6 +1979,19 @@ impl<K> ContentList<K> {
         self.detail_visible = Some(AnyBinding::new(visible));
         self
     }
+    /// The detail shows while `selected` holds a value: [`detail_visible`](Self::detail_visible)
+    /// for a list whose selection is the detail's subject. Writing `Some` opens the detail on a
+    /// stacked presentation; the platform's back writes `None`, which clears the selection.
+    ///
+    /// ```ignore
+    /// ContentList::new(item_list).detail_for(scene.selected)
+    /// ```
+    pub fn detail_for<T: Clone + 'static>(
+        self,
+        selected: impl Binding<Option<T>>,
+    ) -> ContentList<K> {
+        self.detail_visible(Presence(AnyBinding::new(selected)))
+    }
     /// The navigation-bar title of the detail layer the list opens: the editor a phone pushes
     /// over the list, the detail column's bar where the toolkit titles one. Reactive like every
     /// title: pass a closure reading your own state to title the page after the item it shows.
@@ -1874,6 +2000,26 @@ impl<K> ContentList<K> {
         self.detail_title = Some(t.into_text());
         self
     }
+}
+
+/// [`ContentList::detail_for`]'s gate: `true` while the binding holds a value. Writing `false`
+/// clears it; `true` comes only from the app writing a value.
+#[derive(Clone)]
+struct Presence<T: 'static>(AnyBinding<Option<T>>);
+
+impl<T: Clone + 'static> Binding<bool> for Presence<T> {
+    fn read(&self) -> bool {
+        self.0.get().is_some()
+    }
+    fn peek(&self) -> bool {
+        self.0.get_untracked().is_some()
+    }
+    fn write(&self, open: bool) {
+        if !open && self.peek() {
+            self.0.set(None);
+        }
+    }
+    fn write_teardown(&self, _open: bool) {}
 }
 
 /// Collapsible sidebar sections (docs/navigation.md), declared with [`Nav::sections`]. The
@@ -2051,27 +2197,41 @@ impl SearchSpec {
             ));
             // An ordinary contribution on this host's chrome, placed last (where every
             // desktop puts search) and withdrawn with the surface it filters.
+            let suggestions = seed.suggestions.clone();
+            let item = move |text: String, prompt: String| day_spec::ToolbarItem {
+                id: day_core::id!(day::search).as_str().to_owned(),
+                kind: day_spec::ToolbarItemKind::Search {
+                    text,
+                    placeholder: prompt.clone(),
+                    suggestions: suggestions.clone(),
+                },
+                label: prompt,
+                tooltip: None,
+                icon: None,
+                enabled: true,
+                action,
+                placement: day_spec::ToolbarPlacement::Secondary,
+                label_style: day_spec::LabelStyle::Automatic,
+                prominent: false,
+                // Desktop search belongs at the trailing edge of the window toolbar.
+                column: day_spec::ToolbarColumn::Detail,
+            };
             let token = day_core::register_contribution(
                 chrome,
-                vec![day_spec::ToolbarItem {
-                    id: day_core::id!(day::search).as_str().to_owned(),
-                    kind: day_spec::ToolbarItemKind::Search {
-                        text: seed.text.clone(),
-                        placeholder: seed.prompt.clone(),
-                        suggestions: seed.suggestions.clone(),
-                    },
-                    label: seed.prompt.clone(),
-                    tooltip: None,
-                    icon: None,
-                    enabled: true,
-                    action,
-                    placement: day_spec::ToolbarPlacement::Secondary,
-                    label_style: day_spec::LabelStyle::Automatic,
-                    prominent: false,
-                    // Desktop search belongs at the trailing edge of the window toolbar.
-                    column: day_spec::ToolbarColumn::Detail,
-                }],
+                vec![item(seed.text.clone(), seed.prompt.clone())],
             );
+            // The prompt follows the locale: a changed text re-registers the field with it.
+            if let Some(TextSource::Dyn(read)) = self.prompt.clone() {
+                let shown = shown.clone();
+                bind_seeded(
+                    seed.prompt.clone(),
+                    move || read(),
+                    move |p: &String| {
+                        let text = shown.borrow().clone();
+                        day_core::update_contribution(token, vec![item(text, p.clone())]);
+                    },
+                );
+            }
             Scope::current().on_cleanup(move || day_core::unregister_contribution(token));
         } else {
             // Inline: no bar item exists, so the reserved id is answered by the host itself.
@@ -2423,8 +2583,8 @@ impl<K: Route, S: Binding<K>> Nav<S, K> {
     }
     /// Remember the selected item across launches (docs/navigation.md). The selected key is saved
     /// under `key` on every change and restored at build (so the app reopens on the tab/section
-    /// the user last had) unless a launch deep link is pending, which wins. Restore is a no-op
-    /// until the app installs a store (e.g. `day_part_prefs::install_nav_store`); a stale saved
+    /// the user last had) unless a launch deep link is pending, which wins. `day::launch`
+    /// installs the preferences as the store (docs/navigation.md); a stale saved
     /// key (its item no longer exists) is ignored. Works whether or not the nav is
     /// [`routed`](Self::local).
     pub fn restore(mut self, key: impl Into<String>) -> Self {
@@ -2659,8 +2819,9 @@ fn gated_detail_nested<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         // controller, and the gated detail lands on top of whatever it pushed
         // (docs/navigation.md). Only the native resident pane is a barrier.
         // This shape shows one layer at a time, so the list's commands leave once the detail is
-        // pushed over it, the same rule the native pane follows.
-        let covered = list_layer_gate(None, Some(cfg.open), None);
+        // pushed over it, the same rule the native pane follows. The enclosing page's own gate
+        // still applies: a tab that is not selected takes the list's commands with it.
+        let covered = within_page_gate(list_layer_gate(None, Some(cfg.open), None));
         with_nav_host(Some(target.clone()), || {
             day_core::with_page_gated(
                 root_page,
@@ -2709,8 +2870,9 @@ fn gated_detail_merged<K: Route>(cfg: GatedDetail<K>) -> impl Piece {
         // The list is inline in a page of the enclosing stack, so a `nav_stack()` inside it merges
         // there, as one inside any pushed page does (docs/navigation.md).
         // Same rule as the nested shape: the detail pushes over this list, so the list's own
-        // commands leave the bar while it is covered (docs/toolbars.md).
-        let covered = list_layer_gate(None, Some(cfg.open), None);
+        // commands leave the bar while it is covered (docs/toolbars.md), and while the page it is
+        // inline in is not showing.
+        let covered = within_page_gate(list_layer_gate(None, Some(cfg.open), None));
         // The page this list is inline in, whichever it is: the gate is what matters, and the
         // frame keeps the chrome it was already going to land on.
         let page = match day_core::current_chrome() {
@@ -3122,6 +3284,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
     // the derive effect updates; the initial derive is untracked (the effect below owns the
     // subscription).
     let rows0 = day_reactive::untrack(|| items.derive());
+    let shown0 = rows0.shown();
     let (typed0, titles0, icons0) = (rows0.keys, rows0.titles, rows0.icons);
     // Restore the last-selected section (before the detail's initial `show` runs).
     restore_selection(&restore, &selection, &typed0);
@@ -3521,28 +3684,41 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
             let (hc, dt) = (host_cx_g.clone(), detail_title_g.clone());
             let (tk, tt) = (typed_c.clone(), titles_c.clone());
             let ba = gated_toolbar.clone();
-            AnyPiece::new(
-                when(
-                    move || {
-                        let p = pres.get();
-                        // Side by side only where there is room for two columns.
-                        // `rows_are_chrome()` alone is not that question: under the adaptive
-                        // ladder a tab bar is the compact rung, and pairing a 320pt list with an
-                        // editor across a phone leaves neither usable, which is what a scaffold
-                        // that wanted tabs on a phone got. A pinned tab bar on a wide window
-                        // still earns the pair, so the width is asked rather than the style.
-                        p.is_split()
-                            || (p.rows_are_chrome()
-                                && day_core::window_size_class(win)
-                                    .is_some_and(|c| c.prefers_split()))
-                    },
+            // Each arm rebuilds in this destination's page: a morph re-runs the `when` long after
+            // the page was built, and an arm built outside it registers the list's commands
+            // without the page's gate (a narrowed tablet then showed Items' Add on Settings).
+            // Captured when the page builds: the destination is constructed before its page frame
+            // is entered.
+            let page: Rc<RefCell<Option<PageContext>>> = Rc::default();
+            let at_build = page.clone();
+            let arms = when(
+                move || {
+                    let p = pres.get();
+                    // Side by side only where there is room for two columns.
+                    // `rows_are_chrome()` alone is not that question: under the adaptive
+                    // ladder a tab bar is the compact rung, and pairing a 320pt list with an
+                    // editor across a phone leaves neither usable, which is what a scaffold
+                    // that wanted tabs on a phone got. A pinned tab bar on a wide window
+                    // still earns the pair, so the width is asked rather than the style.
+                    p.is_split()
+                        || (p.rows_are_chrome()
+                            && day_core::window_size_class(win).is_some_and(|c| c.prefers_split()))
+                },
+                {
+                    let page = page.clone();
                     move || {
                         let (l, i, k) = (l1.clone(), i1.clone(), k1.clone());
-                        row((l().width(width).grow_h(), i.build_page(&k).grow())).grow()
-                    },
-                )
-                .otherwise(move || {
-                    let (l, i, k) = (l2.clone(), i2.clone(), k2.clone());
+                        PageContext::enter(
+                            &page,
+                            row((l().width(width).grow_h(), i.build_page(&k).grow())).grow(),
+                        )
+                    }
+                },
+            )
+            .otherwise(move || {
+                let (l, i, k) = (l2.clone(), i2.clone(), k2.clone());
+                PageContext::enter(
+                    &page,
                     match dv {
                         // The gated two-layer flow (docs/navigation.md): a nested navigation
                         // host in a chrome presentation, a push onto the enclosing host in a
@@ -3575,9 +3751,13 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                             )
                         }
                         None => i.build_page(&k),
-                    }
-                }),
-            )
+                    },
+                )
+            });
+            AnyPiece::new(piece_fn(move |cx| {
+                at_build.replace(Some(PageContext::current()));
+                arms.build(cx)
+            }))
         }))
     } else {
         None
@@ -4191,6 +4371,8 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
         // The live presentation, not the build-time one: this effect outlives a morph, and what
         // "must never show an empty detail" means changes with it.
         let (show_e, pres_e) = (show.clone(), presentation_cell.clone());
+        // Seeded with the rows the menu was realized with.
+        let last_rows: RefCell<Option<ShownRows>> = RefCell::new(Some(shown0));
         let (resident_e, current_e, sizes_e) = (resident.clone(), current.clone(), sizes.clone());
         bind(
             move || {
@@ -4221,6 +4403,36 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                 )
             },
             move |(key_strs, keys, ts, ics, bs, scs, tns, mns, bis, bts): &DerivedRows<K>| {
+                // Same rows as the last patch, with only their words or decorations moved?
+                let rows_changed = {
+                    let mut last = last_rows.borrow_mut();
+                    let changed = last.as_ref().and_then(|l: &ShownRows| {
+                        (l.keys == *key_strs && l.sections == *scs && l.menus == *mns).then(|| {
+                            (0..key_strs.len())
+                                .filter(|&i| {
+                                    l.titles[i] != ts[i]
+                                        || l.icons[i] != ics[i]
+                                        || l.tints[i] != tns[i]
+                                        || l.badges[i] != bs[i]
+                                        || l.badge_icons[i] != bis[i]
+                                        || l.badge_tints[i] != bts[i]
+                                })
+                                .collect::<Box<[usize]>>()
+                        })
+                    });
+                    *last = Some(ShownRows {
+                        keys: key_strs.clone(),
+                        titles: ts.clone(),
+                        icons: ics.clone(),
+                        badges: bs.clone(),
+                        badge_icons: bis.clone(),
+                        badge_tints: bts.clone(),
+                        sections: scs.clone(),
+                        tints: tns.clone(),
+                        menus: mns.clone(),
+                    });
+                    changed
+                };
                 *typed_e.borrow_mut() = keys.clone();
                 *titles_e.borrow_mut() = ts.clone();
                 let selected_key = sel_e.peek();
@@ -4291,6 +4503,7 @@ fn build_selector<K: Route, S: Binding<K>>(sel: Nav<S, K>, cx: &mut BuildCx) -> 
                         t.patch(
                             m,
                             Box::new(day_spec::props::NavMenuPatch::Items {
+                                rows_changed: rows_changed.clone(),
                                 document_keys: if documents {
                                     key_strs.clone()
                                 } else {
@@ -4628,9 +4841,8 @@ impl<K: Route, S: Binding<Vec<K>>> NavStack<S, K> {
     /// keys are `/`-joined and saved under `key`; at build the saved path is parsed back (each
     /// segment via [`Route::from_key`]) and restored, so the app reopens exactly where the user
     /// left off, including after an Android process death, unless a launch deep link is pending,
-    /// which wins. Restore is a no-op until the app installs a store (e.g.
-    /// `day_part_prefs::install_nav_store`); a saved path with a segment that no longer parses is
-    /// ignored whole.
+    /// which wins. `day::launch` installs the preferences as the store (docs/navigation.md); a
+    /// saved path with a segment that no longer parses is ignored whole.
     pub fn restore(mut self, key: impl Into<String>) -> Self {
         self.restore = Some(key.into());
         self

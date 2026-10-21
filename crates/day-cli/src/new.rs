@@ -1255,10 +1255,22 @@ fn write_app(
 ) -> Result<(), CliError> {
     let rendered = render_app(app, demo).map_err(CliError::failure)?;
     write_all_bytes(dir, &rendered, label)?;
-    // The scaffold itself ships `en`; each further locale is exactly a `day localize add` on
-    // the fresh project, so the flag and the command can never disagree about what adding a
-    // locale means (fluent copies, store copies, Xcode localizations, site.toml; see localize.rs).
-    for tag in app.locales.iter().filter(|t| t.as_str() != "en") {
+    // The scaffold ships `en` and translated catalogs for a few more locales (the template's
+    // `resource/locales/<tag>/`); each of those, and each further `--locales` tag, is exactly a
+    // `day localize add` on the fresh project, so the flag and the command can never disagree
+    // about what adding a locale means (fluent copies, store copies, Xcode localizations,
+    // site.toml; see localize.rs). A catalog that is already there is kept as it is.
+    let shipped = rendered
+        .iter()
+        .filter_map(|(path, _)| path.strip_prefix("resource/locales/")?.split_once('/'))
+        .map(|(tag, _)| tag.to_string());
+    let mut tags: Vec<String> = Vec::new();
+    for tag in shipped.chain(app.locales.iter().cloned()) {
+        if !tags.contains(&tag) {
+            tags.push(tag);
+        }
+    }
+    for tag in tags.iter().filter(|t| t.as_str() != "en") {
         let lines = crate::localize::add(dir, tag)
             .map_err(|e| CliError::failure(format!("--locales {tag}: {e}")))?;
         for l in &lines {
@@ -3255,17 +3267,10 @@ const DEMO_COMPOSITE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE_
 
 use day::prelude::*;
 
-// Entry point for the mobile hosts; a desktop build enters through src/main.rs.
-day::day_start!(options: window(), root);
-
-// Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
+// Typed constants for everything under resource/: https://daybrite.dev/docs/resources
 day::resources!();
-
-/// Options for every window: the generated catalog, title and version; the size is for
-/// desktop (phones fill the screen).
-pub fn window() -> day::WindowOptions {
-    res::window_options().size(960.0, 640.0)
-}
+// The mobile and web entry point; desktop enters through src/main.rs.
+day::day_start!(options: res::window_options(), root);
 
 /// The page. Each piece has an id, so `dayscript/demo.yaml` can find it.
 pub fn root() -> impl Piece {
@@ -3276,8 +3281,8 @@ pub fn root() -> impl Piece {
             .id(id!(demo_title)),
         piece.id(id!(demo_piece)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 "#;
 
@@ -3285,17 +3290,10 @@ const DEMO_NATIVE_LIB: &str = r#"//! __TITLE__: one page that shows `__CRATE__`,
 
 use day::prelude::*;
 
-// Entry point for the mobile hosts; a desktop build enters through src/main.rs.
-day::day_start!(options: window(), root);
-
-// Typed names for everything under `resource/` (https://daybrite.dev/docs/resources).
+// Typed constants for everything under resource/: https://daybrite.dev/docs/resources
 day::resources!();
-
-/// Options for every window: the generated catalog, title and version; the size is for
-/// desktop (phones fill the screen).
-pub fn window() -> day::WindowOptions {
-    res::window_options().size(960.0, 640.0)
-}
+// The mobile and web entry point; desktop enters through src/main.rs.
+day::day_start!(options: res::window_options(), root);
 
 /// The page. Each piece has an id, so `dayscript/demo.yaml` can find it.
 pub fn root() -> impl Piece {
@@ -3312,8 +3310,8 @@ pub fn root() -> impl Piece {
             .id(id!(demo_piece)),
         label(move || text.get()).id(id!(demo_echo)),
     ))
-    .spacing(12.0)
-    .padding(16.0)
+    .spacing(Space::M)
+    .padding(Space::L)
 }
 "#;
 

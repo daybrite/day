@@ -350,6 +350,30 @@ impl Gtk {
                     }
                     // No native completion list on this toolkit's search widget (docs/search.md).
                     ToolbarPatch::Suggestions { .. } => {}
+                    ToolbarPatch::Label {
+                        item,
+                        label,
+                        tooltip,
+                    } => {
+                        if let Some(w) = bar.widgets.get(item) {
+                            // A button drawn with words shows the new ones; an icon button only
+                            // ever carried them as its tooltip and accessible name.
+                            if let Some(b) = w.downcast_ref::<gtk4::Button>()
+                                && b.label().is_some()
+                            {
+                                b.set_label(label);
+                            }
+                            w.set_tooltip_text(Some(tooltip.as_deref().unwrap_or(label)));
+                            w.update_property(&[gtk4::accessible::Property::Label(label)]);
+                        }
+                    }
+                    ToolbarPatch::Placeholder { item, text } => {
+                        if let Some(w) = bar.widgets.get(item)
+                            && let Some(e) = w.downcast_ref::<gtk4::SearchEntry>()
+                        {
+                            e.set_placeholder_text(Some(text));
+                        }
+                    }
                     ToolbarPatch::Enabled { item, on } => {
                         if let Some(w) = bar.widgets.get(item) {
                             w.set_sensitive(*on);

@@ -456,6 +456,8 @@ dependencies = [
  "day-uikit",
  "day-xaml",
  "log",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

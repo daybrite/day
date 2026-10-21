@@ -57,9 +57,17 @@ day::prefs::bind("settings.volume", volume);
 Call it right after creating the signal: the write-back is a reactive watch, and it stops when
 the creating scope is disposed.
 
-Preferences also back navigation persistence: call `day::prefs::install_nav_store()` once in
-`main` and a `nav` or `nav_stack` marked `.restore(key)` remembers its state across launches.
-See [navigation](/docs/navigation).
+A small list of day-model rows fits in the preferences too. With the `day` crate's `model`
+feature, `bind_json(key, store)` loads a `Store<Keyed<T>>` from one JSON value and saves every
+change to it, which is how the `day new` starter keeps its items:
+
+```rust
+let items = Store::new(Keyed::default());
+day::prefs::bind_json("app.items", items);
+```
+
+Preferences also back navigation persistence: a `nav` or `nav_stack` marked `.restore(key)`
+remembers its state across launches. See [navigation](/docs/navigation).
 
 ## 3. Write and read files
 

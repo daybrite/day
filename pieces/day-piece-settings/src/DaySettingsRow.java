@@ -23,6 +23,7 @@ import android.graphics.Path;
 import android.graphics.drawable.Drawable;
 import android.util.TypedValue;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.TextView;
 
@@ -71,6 +72,12 @@ public final class DaySettingsRow extends DayFixed {
 
         headline = new TextView(c);
         supporting = new TextView(c);
+        // The texts are drawn by hand and never added as children, so they get the params a parent
+        // would give them: a later setText (a language change) reads them and threw without.
+        for (TextView t : new TextView[]{headline, supporting}) {
+            t.setLayoutParams(new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        }
         switch (style) {
             case STYLE_CATEGORY:
                 // The preference category: a title-small line in the primary color.

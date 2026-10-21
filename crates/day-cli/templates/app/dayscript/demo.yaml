@@ -1,4 +1,5 @@
-# A portable round trip through the starter. No seed data or platform-specific steps.
+# A portable round trip through the starter: it adds, edits and removes its own item, leaving
+# the rest alone, and takes no platform-specific steps.
 # The typed name is synthetic test input; UI assertions use localization keys.
 # Run with: day launch -t <target> --script dayscript/demo.yaml
 flow:
@@ -21,17 +22,29 @@ flow:
   - assert_text: { id: field_name, text: "Written by the demo" }
   - toggle: { id: field_done, value: true }
   - assert_value: { id: field_done, value: true }
+  - select: { id: field_kind, index: 1 }
+  - select: { id: field_tint, index: 2 }
   - a11y_audit: {}
   - screenshot: editor
 
-  # Remove only the item this run created, leaving existing items alone.
+  # Remove only the item this run created, leaving existing items alone. The search narrows the
+  # list to it, undo brings it back, and redo removes it again.
   - toolbar: { item: tb_delete }
   - wait_for: { id: item_list }
   - assert_missing: { id: field_name }
+  - toolbar: { item: "day::search", text: "Written by the demo" }
+  - wait_for: { id: items_empty }
+  - undo: {}
+  - assert_missing: { id: items_empty }
+  - screenshot: search
+  - redo: {}
+  - wait_for: { id: items_empty }
+  - toolbar: { item: "day::search", text: "" }
 
-  # Settings: the window on desktop, the section on a phone; the language row exists everywhere.
-  # A plain screenshot captures the primary window, so the desktop panel is captured by its key.
-  - navigate: { route: settings }
+  # Settings: the window on desktop, the section on a phone, opened on its General group where
+  # the language row is. A plain screenshot captures the primary window, so the desktop panel is
+  # captured by its key.
+  - navigate: { route: settings/general }
   - wait_for: { id: language_picker }
   - screenshot: settings
   - screenshot: { name: settings-window, window: day.preferences, skip_on: [uikit, mdc, arkui, dom] }

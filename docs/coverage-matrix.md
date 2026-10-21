@@ -36,6 +36,7 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 | `day.inspector_pane` | ✓ | · | ✓ | ✓ | ✓ | · | · | · |
 | `day.split` | ✓ | · | ✓ | ✓ | · | · | · | · |
 | `day.split_pane` | ✓ | · | ✓ | ✓ | · | · | · | · |
+| `day.list_item` | ✓ | ✓ | ✓ | · | · | ✓ | · | · |
 
 ## External pieces
 
@@ -87,6 +88,7 @@ An app branches on this rather than on the target name.
 | `ListDelete` | – | N | – | – | N | N | N | – |
 | `ListSwipeActions` | N | N | – | – | N | – | – | – |
 | `ListEditing` | – | N | – | – | – | – | – | – |
+| `ListItem` | N | N | N | – | – | N | – | – |
 | `Tree` | N | N | N | N | N | E | E | E |
 | `TreeMove` | N | – | – | – | – | – | – | – |
 | `TreeSections` | N | N | N | N | N | N | E | E |

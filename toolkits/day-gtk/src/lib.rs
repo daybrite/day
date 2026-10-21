@@ -1916,6 +1916,92 @@ fn gtk_animation(
     }
 }
 
+/// A nav row's title: fills the row, ellipsized. Ellipsize, or a long feed title makes the row
+/// wider than the sidebar: the ListBox's natural width then wins over its allocation and GTK
+/// slides every row leftwards, past the window edge, leaving only the tails of the longest names
+/// visible. An ellipsizing label reports a one-ellipsis minimum instead, so the list fits the
+/// pane it is given.
+fn nav_row_label(item: &str) -> gtk4::Label {
+    let label = gtk4::Label::new(Some(item));
+    label.set_halign(gtk4::Align::Fill);
+    label.set_xalign(0.0);
+    label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    label.set_hexpand(true);
+    label
+}
+
+/// A decorated nav row's content, into `row`: the leading icon, the title, the count and the
+/// trailing status glyph. Shared by the first fill and by an in-place refresh (`rows_changed`),
+/// which empties the same box and fills it again so the row, its selection and its context menu
+/// stay.
+fn fill_nav_row(
+    row: &gtk4::Box,
+    item: &str,
+    icon: Option<&str>,
+    tint: Option<day_spec::Color>,
+    badge: Option<&str>,
+    badge_icon: Option<&str>,
+    badge_tint: Option<day_spec::Color>,
+) {
+    if let Some(image) = icon.and_then(|name| tinted_template_icon(name, tint)) {
+        image.set_margin_start(2);
+        row.append(&image);
+    }
+    row.append(&nav_row_label(item));
+    if let Some(text) = badge {
+        let b = gtk4::Label::new(Some(text));
+        // `dim-label` is the GNOME treatment for secondary text; numeric alignment keeps a
+        // column of counts from jittering as digits change.
+        b.add_css_class("dim-label");
+        b.add_css_class("numeric");
+        b.set_halign(gtk4::Align::End);
+        row.append(&b);
+    }
+    // The trailing status glyph, tinted where the app gave it a meaning-bearing color — the same
+    // `tinted_template_icon` path the leading icon takes, so a symbol resolves and recolors
+    // identically at either end of the row.
+    if let Some(g) = badge_icon.and_then(|name| tinted_template_icon(name, badge_tint)) {
+        g.set_halign(gtk4::Align::End);
+        row.append(&g);
+    }
+}
+
+/// Refresh row `i` in place with new words or decorations; `false` when its shape changed (it
+/// gained or lost its decorations), which needs the full rebuild.
+#[allow(clippy::too_many_arguments)]
+fn refresh_nav_row(
+    listbox: &gtk4::ListBox,
+    i: usize,
+    item: &str,
+    icon: Option<&str>,
+    tint: Option<day_spec::Color>,
+    badge: Option<&str>,
+    badge_icon: Option<&str>,
+    badge_tint: Option<day_spec::Color>,
+) -> bool {
+    let Some(child) = listbox.row_at_index(i as i32).and_then(|r| r.child()) else {
+        return false;
+    };
+    let decorated = icon.is_some() || badge.is_some() || badge_icon.is_some();
+    match (decorated, child.downcast::<gtk4::Box>()) {
+        (true, Ok(row)) => {
+            while let Some(c) = row.first_child() {
+                row.remove(&c);
+            }
+            fill_nav_row(&row, item, icon, tint, badge, badge_icon, badge_tint);
+            true
+        }
+        (false, Err(child)) => match child.downcast_ref::<gtk4::Label>() {
+            Some(label) => {
+                label.set_label(item);
+                true
+            }
+            None => false,
+        },
+        _ => false,
+    }
+}
+
 /// Build a nav-menu ListBox's rows (an optional template icon left of the label). Shared by the
 /// NAV_MENU realize and the data-driven `NavMenuPatch::Items` rebuild.
 // The parameters are `NavMenuProps`, minus `selected`: index-aligned per-row decoration arrays.
@@ -1938,56 +2024,26 @@ fn fill_nav_menu(
     // running it twice is a no-op.
     unparent_nav_popovers(listbox);
     for (i, item) in items.iter().enumerate() {
-        let label = gtk4::Label::new(Some(item));
-        label.set_halign(gtk4::Align::Fill);
-        label.set_xalign(0.0);
-        // Ellipsize, or a long feed title makes the row wider than the sidebar: the ListBox's
-        // natural width then wins over its allocation and GTK slides every row leftwards, past
-        // the window edge, leaving only the tails of the longest names visible. An ellipsizing
-        // label reports a one-ellipsis minimum instead, so the list fits the pane it is given.
-        label.set_ellipsize(gtk4::pango::EllipsizeMode::End);
-        label.set_hexpand(true);
-        let tint = tints.get(i).copied().flatten();
-        let icon = icons
-            .get(i)
-            .and_then(|o| o.as_deref())
-            .and_then(|name| tinted_template_icon(name, tint));
-        let badge = badges.get(i).and_then(|o| o.as_deref()).map(|text| {
-            let b = gtk4::Label::new(Some(text));
-            // `dim-label` is the GNOME treatment for secondary text; numeric alignment keeps a
-            // column of counts from jittering as digits change.
-            b.add_css_class("dim-label");
-            b.add_css_class("numeric");
-            b.set_halign(gtk4::Align::End);
-            b
-        });
-        // The trailing status glyph, tinted where the app gave it a meaning-bearing color —
-        // the same `tinted_template_icon` path the leading icon takes, so a symbol resolves and
-        // recolors identically at either end of the row.
-        let badge_icon = badge_icons
-            .get(i)
-            .and_then(|o| o.as_deref())
-            .and_then(|name| tinted_template_icon(name, badge_tints.get(i).copied().flatten()));
-        let row_widget: gtk4::Widget = if icon.is_some() || badge.is_some() || badge_icon.is_some()
-        {
+        let decorated = icons.get(i).is_some_and(|o| o.is_some())
+            || badges.get(i).is_some_and(|o| o.is_some())
+            || badge_icons.get(i).is_some_and(|o| o.is_some());
+        let row_widget: gtk4::Widget = if decorated {
             let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 8);
-            if let Some(image) = icon {
-                image.set_margin_start(2);
-                row.append(&image);
-            }
-            row.append(&label);
-            if let Some(b) = badge {
-                row.append(&b);
-            }
-            if let Some(g) = badge_icon {
-                g.set_halign(gtk4::Align::End);
-                row.append(&g);
-            }
+            fill_nav_row(
+                &row,
+                item,
+                icons.get(i).and_then(|o| o.as_deref()),
+                tints.get(i).copied().flatten(),
+                badges.get(i).and_then(|o| o.as_deref()),
+                badge_icons.get(i).and_then(|o| o.as_deref()),
+                badge_tints.get(i).copied().flatten(),
+            );
             listbox.append(&row);
             row.upcast()
         } else {
+            let label = nav_row_label(item);
             listbox.append(&label);
-            label.clone().upcast()
+            label.upcast()
         };
         // Per-row context menu (docs/menus.md): the same popover + gesture treatment as the
         // piece decorator, on this row's widget.
@@ -2374,6 +2430,98 @@ pub(crate) fn symbol_outline_icon(sym: day_spec::Symbol) -> Option<gtk4::Image> 
     let image = gtk4::Image::from_paintable(Some(&texture));
     image.set_pixel_size(ICON_PX);
     Some(image)
+}
+
+thread_local! {
+    /// Each realized list item's current props, by its widget: a patch updates one part and the
+    /// item is re-dressed from the whole (docs/list.md "List items").
+    static LIST_ITEMS: std::cell::RefCell<std::collections::HashMap<usize, day_spec::props::ListItemProps>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// A list row's standard content (docs/list.md "List items"), as a GNOME list row lays it out:
+/// a 16px icon slot, the title over a dim caption subtitle, a dim trailing value, and the
+/// selection check (`object-select-symbolic`) in the accent color, 12px apart, 8px above and
+/// below and at least 44px tall.
+fn make_list_item(p: &day_spec::props::ListItemProps) -> gtk4::Widget {
+    let row = gtk4::Box::new(gtk4::Orientation::Horizontal, 12);
+    row.set_margin_top(8);
+    row.set_margin_bottom(8);
+    let slot = gtk4::Box::new(gtk4::Orientation::Horizontal, 0);
+    slot.set_valign(gtk4::Align::Center);
+    row.append(&slot);
+    let texts = gtk4::Box::new(gtk4::Orientation::Vertical, 2);
+    texts.set_valign(gtk4::Align::Center);
+    texts.set_hexpand(true);
+    let title = gtk4::Label::new(None);
+    title.set_xalign(0.0);
+    title.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    let subtitle = gtk4::Label::new(None);
+    subtitle.set_xalign(0.0);
+    subtitle.set_ellipsize(gtk4::pango::EllipsizeMode::End);
+    subtitle.add_css_class("dim-label");
+    subtitle.add_css_class("caption");
+    texts.append(&title);
+    texts.append(&subtitle);
+    row.append(&texts);
+    let detail = gtk4::Label::new(None);
+    detail.add_css_class("dim-label");
+    detail.add_css_class("numeric");
+    row.append(&detail);
+    let check = gtk4::Image::from_icon_name("object-select-symbolic");
+    check.add_css_class("accent");
+    row.append(&check);
+    let w: gtk4::Widget = row.upcast();
+    LIST_ITEMS.with(|m| m.borrow_mut().insert(widget_key(&w), p.clone()));
+    dress_list_item(&w, p);
+    w
+}
+
+/// Show `p` on a list item's row box (see [`make_list_item`]).
+fn dress_list_item(w: &gtk4::Widget, p: &day_spec::props::ListItemProps) {
+    let Some(slot) = w.first_child().and_downcast::<gtk4::Box>() else {
+        return;
+    };
+    while let Some(c) = slot.first_child() {
+        slot.remove(&c);
+    }
+    let image = match &p.icon {
+        Some(day_spec::Icon::Image(name)) => tinted_template_icon(name, p.icon_tint),
+        Some(day_spec::Icon::Symbol(sym)) => symbol_icon_name(*sym)
+            .map(|n| gtk4::Image::from_icon_name(&n))
+            .or_else(|| symbol_outline_icon(*sym)),
+        None => None,
+    };
+    if let Some(img) = &image {
+        img.set_pixel_size(16);
+        slot.append(img);
+    }
+    slot.set_visible(image.is_some());
+    let Some(texts) = slot.next_sibling().and_downcast::<gtk4::Box>() else {
+        return;
+    };
+    if let Some(title) = texts.first_child().and_downcast::<gtk4::Label>() {
+        title.set_label(&p.title);
+        if let Some(subtitle) = title.next_sibling().and_downcast::<gtk4::Label>() {
+            subtitle.set_label(&p.subtitle);
+            subtitle.set_visible(!p.subtitle.is_empty());
+        }
+    }
+    if let Some(detail) = texts.next_sibling().and_downcast::<gtk4::Label>() {
+        detail.set_label(&p.detail);
+        detail.set_visible(!p.detail.is_empty());
+        if let Some(check) = detail.next_sibling() {
+            check.set_visible(p.checked);
+        }
+    }
+    let words = [&p.title, &p.subtitle, &p.detail]
+        .into_iter()
+        .filter(|w| !w.is_empty())
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    w.update_property(&[gtk4::accessible::Property::Label(&words)]);
+    w.update_state(&[gtk4::accessible::State::Selected(Some(p.checked))]);
 }
 
 fn tinted_template_icon(name: &str, tint: Option<day_spec::Color>) -> Option<gtk4::Image> {
@@ -3865,7 +4013,10 @@ impl DialogHost {
             })
             .unwrap_or(0.0);
         let size = self.size.get();
-        dialog.set_content_width(size.width.round() as i32);
+        // Never narrower than libadwaita's own preferences dialog (640px): the header's view
+        // switcher is laid out for that width, and narrower it truncates every page title
+        // ("Gen…") before its breakpoint moves the switcher to a bottom bar.
+        dialog.set_content_width(size.width.max(ADW_PREFERENCES_WIDTH).round() as i32);
         dialog.set_content_height((size.height + bar).round() as i32);
     }
 
@@ -3891,6 +4042,9 @@ impl DialogHost {
         }
     }
 }
+
+/// The width libadwaita gives an `AdwPreferencesDialog` (its `content-width` default).
+const ADW_PREFERENCES_WIDTH: f64 = 640.0;
 
 /// The `AdwPreferencesDialog` hosting the panel whose window root is `root`, for the settings
 /// shell to fill with its `AdwPreferencesPage`s (docs/settings.md). Made on the first call,
@@ -4516,6 +4670,8 @@ impl Toolkit for Gtk {
             Cap::ReduceMotion => Support::Native,
             // Pango's font map lists every fontconfig family and face (docs/fonts.md).
             Cap::FontList => Support::Native,
+            // A GNOME list row's content (docs/list.md "List items").
+            Cap::ListItem => Support::Native,
             // `GdkTexture::from_bytes` reads what gdk-pixbuf's loaders read, and pixbuf writes
             // back PNG/JPEG/TIFF/BMP (docs/images.md). `Cap::ImageProperties` is deliberately NOT
             // here: there is no metadata reader on this path, and answering an empty struct would
@@ -6106,6 +6262,11 @@ impl Toolkit for Gtk {
                 }
                 pic.upcast()
             }
+            Some(Builtin::ListItem) => match props.downcast_ref::<day_spec::props::ListItemProps>()
+            {
+                Some(p) => make_list_item(p),
+                None => placeholder_label(kind),
+            },
             // A recycled list cell is ADOPTED from the native list, never realized
             // through this path; anything else is an extension piece.
             Some(Builtin::ListCell) | None => {
@@ -6126,6 +6287,28 @@ impl Toolkit for Gtk {
         _anim: Option<&AnimSpec>,
     ) {
         match kind {
+            kinds::LIST_ITEM => {
+                let Some(p) = patch.downcast_ref::<day_spec::props::ListItemPatch>() else {
+                    return;
+                };
+                let props = LIST_ITEMS.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let props = m.get_mut(&widget_key(h))?;
+                    use day_spec::props::ListItemPatch as P;
+                    match p {
+                        P::Title(t) => props.title = t.clone(),
+                        P::Subtitle(t) => props.subtitle = t.clone(),
+                        P::Detail(t) => props.detail = t.clone(),
+                        P::Icon(i) => props.icon = i.clone(),
+                        P::IconTint(c) => props.icon_tint = *c,
+                        P::Checked(on) => props.checked = *on,
+                    }
+                    Some(props.clone())
+                });
+                if let Some(props) = props {
+                    dress_list_item(h, &props);
+                }
+            }
             kinds::SPLIT => {
                 if let Some(p) = patch.downcast_ref::<SplitPatch>()
                     && let Some(state) = SPLIT_STATE.with(|t| t.get(widget_key(h)))
@@ -6303,7 +6486,7 @@ impl Toolkit for Gtk {
                     tints,
                     menus,
                     selected,
-                    ..
+                    rows_changed,
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
                     DOCUMENT_MENU_KEYS.with(|m| {
@@ -6315,6 +6498,25 @@ impl Toolkit for Gtk {
                             return;
                         };
                         state.suppress.set(true);
+                        // The same rows with new words or counts: refresh those rows where they
+                        // stand, keeping the selection and every other row.
+                        if let Some(rows) = rows_changed
+                            && rows.iter().all(|&i| {
+                                refresh_nav_row(
+                                    &state.listbox,
+                                    i,
+                                    &items[i],
+                                    icons.get(i).and_then(|o| o.as_deref()),
+                                    tints.get(i).copied().flatten(),
+                                    badges.get(i).and_then(|o| o.as_deref()),
+                                    badge_icons.get(i).and_then(|o| o.as_deref()),
+                                    badge_tints.get(i).copied().flatten(),
+                                )
+                            })
+                        {
+                            state.suppress.set(false);
+                            return;
+                        }
                         // Before the rows go, not after: their labels own the popovers.
                         unparent_nav_popovers(&state.listbox);
                         while let Some(row) = state.listbox.first_child() {
@@ -6713,6 +6915,7 @@ impl Toolkit for Gtk {
         }
     }
     fn release(&mut self, h: Handle) {
+        LIST_ITEMS.with(|m| m.borrow_mut().remove(&widget_key(&h)));
         resign_focus_before_detach(&h);
         // A released window content = that window is gone (docs/windows.md teardown):
         // drop the record, destroying a straggler window (a programmatic-close's window is
@@ -7204,6 +7407,18 @@ impl Toolkit for Gtk {
                 Size::new(p.width.unwrap_or(180.0), (nat_h as f64).max(24.0))
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+            // The row box's own natural size, asked with its size request lifted: GTK never
+            // measures a widget smaller than its request, which Day set to the last frame, so a
+            // row that lost its subtitle would otherwise keep the taller height.
+            kinds::LIST_ITEM => {
+                let (rw, rh) = h.size_request();
+                h.set_size_request(-1, -1);
+                let width = p.width.map(|w| w.round() as i32).unwrap_or(-1);
+                let (_, nat_w, _, _) = h.measure(gtk4::Orientation::Horizontal, -1);
+                let (_, nat_h, _, _) = h.measure(gtk4::Orientation::Vertical, width);
+                h.set_size_request(rw, rh);
+                Size::new(p.width.unwrap_or(nat_w as f64), (nat_h as f64).max(44.0))
+            }
             // A canvas has no intrinsic size: accept the offered axes, just as the other
             // backends do. GtkDrawingArea's natural size is zero; using it here collapses
             // `.grow_w().aspect_ratio(...)` to zero height despite the square proposal.
@@ -7427,6 +7642,19 @@ impl Toolkit for Gtk {
         let inner = content_of(h);
         if inner.as_ptr() != h.as_ptr() {
             inner.set_size_request(content.width.round() as i32, content.height.round() as i32);
+        }
+    }
+
+    /// A GNOME list row: 12px sides, as Adwaita pads its rich lists, and 44px tall.
+    fn list_row_metrics(&mut self, _h: &Handle) -> day_spec::RowMetrics {
+        day_spec::RowMetrics {
+            insets: day_spec::Insets {
+                top: 8.0,
+                leading: 12.0,
+                bottom: 8.0,
+                trailing: 12.0,
+            },
+            min_height: 44.0,
         }
     }
 
@@ -9287,7 +9515,11 @@ impl Platform for Gtk {
         // local theme checks); unset ⇒ follow the system. Applied in `startup`, once libadwaita
         // is initialized (StyleManager::default() needs adw_init).
         app.connect_startup(|_| {
-            if day_core::testing::fast_animations()
+            // A dayscript driving the app (`DAY_SCRIPT`, set by `day launch --script`) gets
+            // GTK's widget transitions off too: Adwaita fades a toggle's or a switch's state
+            // over ~200 ms, and a capture taken right after a step shows the state before it.
+            let scripted = std::env::var_os("DAY_SCRIPT").is_some_and(|s| !s.is_empty());
+            if (day_core::testing::fast_animations() || scripted)
                 && let Some(settings) = gtk4::Settings::default()
             {
                 settings.set_gtk_enable_animations(false);

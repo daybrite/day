@@ -158,9 +158,8 @@ nav_stack(path, home).restore("mail.path")     // rebuilds the pushed path
 
 It saves the selected key (or the stack's path) on every change and reads it back at build. A
 launch deep link outranks it, and a saved value that no longer fits is ignored. Persistence runs
-through a store you install once (`day_part_prefs::install_nav_store()` in `main`), which is
-disk-backed, so restore also survives an Android process death. With no store installed, `.restore`
-is a no-op, so you can persist on one [target](/docs/glossary#target) and start fresh on another with the same code.
+through the app's preferences, which `day::launch` sets up, and they are disk-backed, so restore
+also survives an Android process death.
 
 [dayscript](/docs/dayscript) uses the same mechanism: `navigate: { route: controls }` in a script
 performs the write your UI would, and `assert_route` compares the full `current_route()`. A

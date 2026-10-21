@@ -254,3 +254,57 @@ fn duplicate_keys_resolve_to_the_last_row() {
 fn a_top_bit_integer_key_is_refused_in_debug() {
     let _ = day_model::AsKey::as_key(&(u64::MAX - 1));
 }
+
+#[derive(Observable, Clone, Default, PartialEq, Debug)]
+struct Task {
+    #[obs(key)]
+    id: u64,
+    name: String,
+}
+
+fn task(id: u64) -> Task {
+    Task {
+        id,
+        name: String::new(),
+    }
+}
+
+#[test]
+fn next_key_counts_up_and_fills_a_gap_below_the_top_bit() {
+    let store = Store::new(Keyed::<Task>::default());
+    assert_eq!(store.next_key(), 1);
+    store.push(task(store.next_key()));
+    store.push(task(store.next_key()));
+    assert_eq!(store.keys(), vec![1, 2]);
+    // The largest key integer keys allow: counting up would reach the reserved top bit.
+    store.push(task((1 << 63) - 1));
+    assert_eq!(store.next_key(), 3);
+}
+
+#[test]
+fn push_remove_and_move_row_announce_structure() {
+    let store = Store::new(Keyed::new(vec![task(1), task(2), task(3)]));
+    let (_, changes) = day_model::record_changes(|| {
+        assert!(store.move_row(2, 0));
+        assert!(store.remove(2));
+        store.push(task(4));
+    });
+    assert_eq!(store.keys(), vec![3, 1, 4]);
+    let ops: Vec<Op> = changes.iter().map(|c| c.op).collect();
+    assert!(ops.contains(&Op::Move) && ops.contains(&Op::Delete) && ops.contains(&Op::Insert));
+
+    // Rejected edits announce nothing.
+    let (_, changes) = day_model::record_changes(|| {
+        assert!(!store.remove(99));
+        assert!(!store.move_row(1, 1));
+        assert!(!store.move_row(0, 3));
+    });
+    assert!(changes.is_empty());
+
+    // A field binding follows its row through a move.
+    let name = store.elem(4).name();
+    store.move_row(2, 0);
+    name.write("moved".into());
+    assert_eq!(store.elem(4).name().peek(), "moved");
+    assert_eq!(store.keys(), vec![4, 3, 1]);
+}

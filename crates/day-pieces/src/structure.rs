@@ -5,7 +5,7 @@
 //! sequence), `list` (a reactive, diffed collection), and the scoped `environment` context
 //! (`with_environment` / `environment`).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -889,6 +889,7 @@ pub struct List<S: RowSource> {
     on_selection: Option<SelectionFn<S::Ref>>,
     multi_select: bool,
     selected_rows: Option<Rc<dyn Fn() -> Vec<usize>>>,
+    selection: Option<ListSelection<S::Ref>>,
     scroll_to_end: Option<day_reactive::Trigger>,
     scroll_to_row: Option<AnyBinding<Option<usize>>>,
     first_visible_row: Option<AnyBinding<usize>>,
@@ -903,6 +904,244 @@ pub struct List<S: RowSource> {
 
 /// The full-set selection callback, aliased for the field above.
 type SelectionFn<R> = Rc<dyn Fn(Vec<R>)>;
+
+/// A row reference that names its row by a key: what [`List::selection`] binds. A day-model
+/// store's rows (an `Elem`) answer their key, which is also the row's identity token.
+pub trait SelectionKey {
+    fn selection_key(&self) -> u64;
+}
+
+/// [`List::selection`]'s two directions: the key to select (a tracked read) and the write that
+/// reports the user's choice.
+struct ListSelection<R> {
+    key: Rc<dyn Fn() -> Option<u64>>,
+    write: Rc<dyn Fn(Option<u64>)>,
+    key_of: Rc<dyn Fn(&R) -> u64>,
+}
+
+// ---------------------------------------------------------------------------
+// List items (docs/list.md "List items")
+// ---------------------------------------------------------------------------
+
+/// A list item's leading glyph: an app vector, which may follow a signal, or a standard symbol.
+#[derive(Clone)]
+enum ItemIcon {
+    Vector(Reactive<day_spec::VectorName>),
+    Symbol(day_spec::Symbol),
+}
+
+impl ItemIcon {
+    /// The glyph as the spec names it; `tracked` subscribes a reactive vector.
+    fn spec(&self, tracked: bool) -> day_spec::Icon {
+        match self {
+            ItemIcon::Vector(r) => {
+                let name = if tracked { r.get() } else { r.get_untracked() };
+                day_spec::Icon::Image(name.as_str().to_owned())
+            }
+            ItemIcon::Symbol(s) => day_spec::Icon::Symbol(*s),
+        }
+    }
+}
+
+/// A list row's standard content, built by [`list_item`] (docs/list.md "List items").
+pub struct ListItem {
+    title: TextSource,
+    subtitle: Option<TextSource>,
+    detail: Option<TextSource>,
+    icon: Option<ItemIcon>,
+    icon_tint: Option<Reactive<day_spec::Color>>,
+    checked: Option<Reactive<bool>>,
+}
+
+/// A list row's standard content: a leading icon, a title, an optional subtitle and trailing
+/// detail, and a check mark, drawn the way the platform draws its own list rows (docs/list.md
+/// "List items"). UIKit shows it with the cell's default content configuration, Android as a
+/// Material list item, AppKit as a table cell's image and text, GTK as a row box; elsewhere
+/// the piece composes the same parts. Each part may follow a signal, and changes in place, so
+/// a recycled row tracks its item.
+///
+/// ```ignore
+/// list(scene.items.rows(keys), move |slot| {
+///     list_item(move || slot.name().read())
+///         .icon(move || slot.kind().read().icon())
+///         .icon_tint(move || slot.tint().read().color())
+///         .checked(move || slot.done().read())
+/// })
+/// ```
+pub fn list_item<M>(title: impl IntoText<M>) -> ListItem {
+    ListItem {
+        title: title.into_text(),
+        subtitle: None,
+        detail: None,
+        icon: None,
+        icon_tint: None,
+        checked: None,
+    }
+}
+
+#[day_macros::builder(ListItemBuilder)]
+impl ListItem {
+    /// A second line under the title, in the platform's secondary style.
+    pub fn subtitle<M>(mut self, text: impl IntoText<M>) -> Self {
+        self.subtitle = Some(text.into_text());
+        self
+    }
+    /// Trailing text, such as a count or a value, in the platform's secondary style.
+    pub fn detail<M>(mut self, text: impl IntoText<M>) -> Self {
+        self.detail = Some(text.into_text());
+        self
+    }
+    /// The leading glyph: an app vector (`res::vectors::…`), drawn as a template in the
+    /// foreground color unless [`Self::icon_tint`] names one. A signal or closure swaps it in
+    /// place.
+    pub fn icon<M>(mut self, name: impl IntoReactive<day_spec::VectorName, M>) -> Self {
+        self.icon = Some(ItemIcon::Vector(name.into_reactive()));
+        self
+    }
+    /// The leading glyph as a standard symbol.
+    pub fn symbol(mut self, symbol: day_spec::Symbol) -> Self {
+        self.icon = Some(ItemIcon::Symbol(symbol));
+        self
+    }
+    /// The leading glyph's color.
+    pub fn icon_tint<M>(mut self, color: impl IntoReactive<day_spec::Color, M>) -> Self {
+        self.icon_tint = Some(color.into_reactive());
+        self
+    }
+    /// A trailing check mark while `on` holds: the platform's mark for a chosen or completed
+    /// row, announced as selected.
+    pub fn checked<M>(mut self, on: impl IntoReactive<bool, M>) -> Self {
+        self.checked = Some(on.into_reactive());
+        self
+    }
+}
+
+impl Piece for ListItem {
+    fn build(self, cx: &mut BuildCx) -> RNode {
+        if day_core::capability(day_spec::Cap::ListItem) == day_spec::Support::Native {
+            self.build_native(cx)
+        } else {
+            self.compose().build(cx)
+        }
+    }
+}
+
+impl ListItem {
+    /// The platform's own row content (`kinds::LIST_ITEM`), each part patched in place.
+    fn build_native(self, cx: &mut BuildCx) -> RNode {
+        let text = |t: &Option<TextSource>| t.as_ref().map(TextSource::initial).unwrap_or_default();
+        let props = ListItemProps {
+            title: self.title.initial(),
+            subtitle: text(&self.subtitle),
+            detail: text(&self.detail),
+            icon: self.icon.as_ref().map(|i| i.spec(false)),
+            icon_tint: self.icon_tint.as_ref().map(Reactive::get_untracked),
+            checked: self.checked.as_ref().is_some_and(Reactive::get_untracked),
+        };
+        // The platform's whole row: it sizes its own height (docs/list.md "Row metrics").
+        let node = cx.leaf(
+            kinds::LIST_ITEM,
+            &props,
+            Flex {
+                grow_w: true,
+                whole_row: true,
+                ..Default::default()
+            },
+        );
+        let patch = move |p: ListItemPatch, size: bool| {
+            with_tree(|t| t.patch(node, Box::new(p), size));
+        };
+        let bind_text =
+            |src: Option<TextSource>, seed: String, make: fn(String) -> ListItemPatch| {
+                if let Some(src @ TextSource::Dyn(_)) = src {
+                    day_reactive::bind_seeded(
+                        seed,
+                        move || src.resolve(),
+                        move |t: &String| patch(make(t.clone()), true),
+                    );
+                }
+            };
+        bind_text(Some(self.title), props.title, ListItemPatch::Title);
+        bind_text(self.subtitle, props.subtitle, ListItemPatch::Subtitle);
+        bind_text(self.detail, props.detail, ListItemPatch::Detail);
+        if let Some(icon @ ItemIcon::Vector(Reactive::Dyn(_))) = self.icon {
+            day_reactive::bind_seeded(
+                props.icon,
+                move || Some(icon.spec(true)),
+                move |i| patch(ListItemPatch::Icon(i.clone()), false),
+            );
+        }
+        if let Some(tint @ Reactive::Dyn(_)) = self.icon_tint {
+            day_reactive::bind_seeded(
+                props.icon_tint,
+                move || Some(tint.get()),
+                move |c| patch(ListItemPatch::IconTint(*c), false),
+            );
+        }
+        if let Some(on @ Reactive::Dyn(_)) = self.checked {
+            day_reactive::bind_seeded(
+                props.checked,
+                move || on.get(),
+                move |b: &bool| patch(ListItemPatch::Checked(*b), true),
+            );
+        }
+        node
+    }
+
+    /// The same parts from plain pieces, where the toolkit has no row content of its own.
+    fn compose(self) -> impl Piece {
+        use crate::{column, image, label, row, vector, when};
+        let tint = self.icon_tint;
+        let leading = self.icon.map(move |icon| match icon {
+            ItemIcon::Vector(src) => {
+                let glyph = vector(move || src.get()).template();
+                match tint {
+                    Some(t) => glyph
+                        .tint(move || t.get())
+                        .decorative()
+                        .frame(20.0, 20.0)
+                        .any(),
+                    None => glyph.decorative().frame(20.0, 20.0).any(),
+                }
+            }
+            ItemIcon::Symbol(sym) => match sym.outline_svg() {
+                Some(svg) => image(svg.into_bytes()).template().frame(20.0, 20.0).any(),
+                None => crate::spacer().frame(20.0, 20.0).any(),
+            },
+        });
+        let titles = column((
+            label(self.title),
+            self.subtitle
+                .map(|t| label(t).font(day_spec::Font::Footnote).secondary()),
+        ))
+        .spacing(2.0)
+        .align(crate::HAlign::Leading)
+        .grow_w();
+        let detail = self.detail.map(|t| label(t).secondary());
+        let checked = self.checked.clone();
+        let mark = checked.map(|on| {
+            when(
+                move || on.get(),
+                || {
+                    let svg = day_spec::Symbol::Check.outline_svg().unwrap_or_default();
+                    image(svg.into_bytes())
+                        .template()
+                        .decorative()
+                        .frame(16.0, 16.0)
+                },
+            )
+        });
+        let selected = self.checked;
+        row((leading, titles, detail, mark))
+            .spacing(crate::Space::M)
+            .align(crate::VAlign::Center)
+            .grow_w()
+            .a11y(move |a| match selected {
+                Some(on) => a.selected(move || on.get()),
+                None => a,
+            })
+    }
+}
 
 /// A row's swipe-action offer, aliased for the fields above: called with the row index at
 /// gesture time, so the actions reflect the row's current state (docs/list.md).
@@ -1090,6 +1329,7 @@ where
         on_selection: None,
         multi_select: false,
         selected_rows: None,
+        selection: None,
         scroll_to_end: None,
         scroll_to_row: None,
         first_visible_row: None,
@@ -1142,6 +1382,26 @@ impl<S: RowSource + 'static> List<S> {
     /// re-emitting a selection event. Drive it from app state to build "Clear selection".
     pub fn selected_rows(mut self, rows: impl Fn() -> Vec<usize> + 'static) -> Self {
         self.selected_rows = Some(Rc::new(rows));
+        self
+    }
+    /// Two-way single selection by key, for a list of day-model store rows: `selected` holds
+    /// the selected row's key (`None` for no selection). A row the user picks writes its key,
+    /// clearing the selection writes `None`, and a key the app writes selects that row and
+    /// scrolls it into view, following the row through inserts and moves.
+    ///
+    /// ```ignore
+    /// list(scene.items, row_view).selection(scene.selected)
+    /// ```
+    pub fn selection(mut self, selected: impl Binding<Option<u64>>) -> Self
+    where
+        S::Ref: SelectionKey,
+    {
+        let selected = AnyBinding::new(selected);
+        self.selection = Some(ListSelection {
+            key: Rc::new(move || selected.get()),
+            write: Rc::new(move |key| selected.set_if_changed(key)),
+            key_of: Rc::new(|row: &S::Ref| row.selection_key()),
+        });
         self
     }
     /// Scroll the list so its last row is fully visible whenever `trigger` fires, e.g. a chat
@@ -1265,6 +1525,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
             row_height: self.row_height,
             selectable: self.on_select.is_some()
                 || self.on_selection.is_some()
+                || self.selection.is_some()
                 || self.on_activate.is_some(),
             multi_select: self.multi_select,
             reorderable: self.reorder.is_some(),
@@ -1335,6 +1596,46 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     }
                 }
                 _ => {}
+            });
+        }
+
+        // A `.selection` binding: the user's choice writes the key back. `user_pick` remembers
+        // it, so the apply below neither re-selects nor scrolls the row the user just chose.
+        // `apply` selects the bound key's row in the current snapshot (the rows the native list
+        // shows), and scrolls to it once after the app writes a key; a key whose row has not
+        // reached the snapshot yet stays pending until the reload that brings it.
+        let user_pick: Rc<Cell<Option<Option<u64>>>> = Rc::new(Cell::new(None));
+        let reveal = Rc::new(Cell::new(false));
+        let apply_selection: Option<Rc<dyn Fn()>> = self.selection.as_ref().map(|sel| {
+            let (key, conn, reveal) = (sel.key.clone(), conn.clone(), reveal.clone());
+            Rc::new(move || {
+                let wanted = day_reactive::untrack(|| key());
+                let row = wanted.and_then(|k| conn.tokens_now().iter().position(|t| *t == k));
+                let scroll = row.filter(|_| reveal.replace(false));
+                // Posted, like `selected_rows`: a toolkit may still be applying the reload
+                // that brought the row.
+                day_reactive::on_main(move || {
+                    day_core::list_set_selected(node, row.into_iter().collect());
+                    if let Some(row) = scroll {
+                        list_scroll_to_row(node, row);
+                    }
+                });
+            }) as Rc<dyn Fn()>
+        });
+        if let Some(sel) = &self.selection {
+            let (write, key_of) = (sel.write.clone(), sel.key_of.clone());
+            let (conn, pick) = (conn.clone(), user_pick.clone());
+            cx.on(node, move |ev| {
+                let row = match ev {
+                    Event::SelectionChanged(i) => conn.select_ref(*i as usize),
+                    Event::SelectionSet(rows) => {
+                        rows.first().and_then(|i| conn.select_ref(*i as usize))
+                    }
+                    _ => return,
+                };
+                let key = row.as_ref().map(|r| key_of(r));
+                pick.set(Some(key));
+                write(key);
             });
         }
 
@@ -1536,6 +1837,7 @@ impl<S: RowSource + 'static> Piece for List<S> {
         // costs the one control it patched, not a visible-rows rebind.
         {
             let (conn, echo, stick) = (conn.clone(), pending_echo.clone(), self.stick_to_bottom);
+            let reselect = apply_selection.clone();
             let initial = {
                 let conn = conn.clone();
                 day_reactive::untrack(move || conn.refresh())
@@ -1561,6 +1863,9 @@ impl<S: RowSource + 'static> Piece for List<S> {
                         // before the gesture, not from the rows on screen: reload instead.
                         let _ = conn.take_row_events();
                         list_reload(node);
+                        if let Some(apply) = &reselect {
+                            apply();
+                        }
                     } else if !is_echo && !unchanged {
                         match conn.take_row_events() {
                             Some(deltas) if !deltas.is_empty() => list_splice(node, deltas),
@@ -1569,6 +1874,10 @@ impl<S: RowSource + 'static> Piece for List<S> {
                         }
                         if stick {
                             list_scroll_to_end(node);
+                        }
+                        // A reload drops the native selection; put the bound row back.
+                        if let Some(apply) = &reselect {
+                            apply();
                         }
                     } else {
                         // Consume events the host must not see twice (its own echo, or a
@@ -1614,6 +1923,25 @@ impl<S: RowSource + 'static> Piece for List<S> {
                     if old.is_some() {
                         list_set_editing(node, *on);
                     }
+                },
+            );
+        }
+
+        // `.selection`: every key the app writes selects its row and scrolls it into view (once
+        // the row is in the snapshot; see `apply`). The initial key and the user's own pick
+        // select without scrolling.
+        if let (Some(sel), Some(apply)) = (self.selection.take(), apply_selection) {
+            let first = Cell::new(true);
+            day_reactive::bind(
+                move || (sel.key)(),
+                move |key: &Option<u64>| {
+                    let initial = first.replace(false);
+                    // The user's own pick is applied too, unscrolled: a list with no selection of
+                    // its own (Android's RecyclerView) paints only what Day records, and a native
+                    // list re-selecting the row it shows is a no-op.
+                    let picked = user_pick.take() == Some(*key);
+                    reveal.set(!initial && !picked && key.is_some());
+                    apply();
                 },
             );
         }
@@ -1716,6 +2044,13 @@ mod model_rows {
         }
         fn bump_version(self) {
             self.elem_now().bump_version();
+        }
+    }
+
+    /// A store row names itself by its key, so a store list binds [`List::selection`].
+    impl<T: Identified + 'static> SelectionKey for Elem<T> {
+        fn selection_key(&self) -> u64 {
+            self.key()
         }
     }
 
@@ -3370,6 +3705,40 @@ pub(crate) mod conformance {
 
     fn names(list: &[&str]) -> Signal<Vec<String>> {
         Signal::new(list.iter().map(|s| s.to_string()).collect())
+    }
+
+    /// A list item realizes as the platform's own row content (docs/list.md "List items"),
+    /// and its check mark follows its source in place.
+    #[day_macros::test(day_core)]
+    fn list_items_show_their_parts() -> Case {
+        Case::new()
+            .proves(kinds::LIST_ITEM)
+            .proves_cap(Cap::ListItem)
+            .requires(Cap::ListItem)
+            .page(|| {
+                let done = Signal::new(false);
+                let rows = names(&["Milk", "Bread"]);
+                column((
+                    button("Done")
+                        .action(move || done.update(|d| *d = !*d))
+                        .id(day_core::id!(toggle_done)),
+                    list(
+                        items(move || rows.get(), |n: &String| n.clone()),
+                        move |row: ItemSlot<String, String>| {
+                            list_item(move || row.get())
+                                .subtitle("aisle 4")
+                                .checked(move || done.get())
+                                .id_of(move || day_core::id!(conformance_item, row.get()))
+                        },
+                    )
+                    .height(200.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                d.assert_visible("conformance_item:Milk").await?;
+                d.tap("toggle_done").await?;
+                d.assert_visible("conformance_item:Bread").await
+            })
     }
 
     /// A list realizes a native cell for each row, showing the row's content.

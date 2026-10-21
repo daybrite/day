@@ -339,7 +339,36 @@ pub fn contribute(chrome: day_core::Chrome, content: ToolbarSource) {
     let column = day_core::current_page_column();
     let token = match content {
         ToolbarSource::Fixed(entries) => {
-            day_core::register_contribution_gated(chrome, lower(entries, chrome, column), active)
+            let texts: Vec<(Option<TextSource>, Option<TextSource>)> = entries
+                .iter()
+                .map(|e| (e.label.clone(), e.tooltip.clone()))
+                .collect();
+            let token = day_core::register_contribution_gated(
+                chrome,
+                lower(entries, chrome, column),
+                active,
+            );
+            // A fixed list lowers once, so a localized label or tooltip is followed here: the
+            // items keep their actions and values and only take the new words.
+            let live = |t: &Option<TextSource>| matches!(t, Some(TextSource::Dyn(_)));
+            if texts.iter().any(|(l, t)| live(l) || live(t)) {
+                let resolve = move || -> Vec<(String, Option<String>)> {
+                    texts
+                        .iter()
+                        .map(|(l, t)| {
+                            (
+                                l.as_ref().map(TextSource::resolve).unwrap_or_default(),
+                                t.as_ref().map(TextSource::resolve),
+                            )
+                        })
+                        .collect()
+                };
+                let seed = day_reactive::untrack(&resolve);
+                bind_seeded(seed, resolve, move |now: &Vec<(String, Option<String>)>| {
+                    day_core::relabel_contribution(token, now)
+                });
+            }
+            token
         }
         ToolbarSource::Derived(builder) => {
             let token = day_core::register_contribution_gated(chrome, Vec::new(), active);

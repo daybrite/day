@@ -41,6 +41,10 @@ pub struct Flex {
     pub is_group: bool,
     /// Grid facts (docs/grid.md): consulted only by `GridLayout`; inert everywhere else.
     pub grid: GridFacts,
+    /// The node is the platform's whole list row (a native `kinds::LIST_ITEM`): it sizes the
+    /// row's height itself, so a list cell gives it only the side margins (docs/list.md "Row
+    /// metrics").
+    pub whole_row: bool,
 }
 
 /// Per-node grid facts (docs/grid.md), carried on [`Flex`]: the shipped form of the §7.2
@@ -832,6 +836,9 @@ pub trait TreeOps {
     /// Merge non-default grid cell facts onto a node's [`Flex`]: what the `.grid_span`/
     /// `.grid_align` modifiers call (docs/grid.md). Called at build time, before the first layout.
     fn set_grid_facts(&mut self, node: RNode, facts: GridFacts);
+    /// Give a wrapper that takes its size from `inner` (an overlay host) the inner node's
+    /// [`Flex::whole_row`], so a decorated platform row still reads as one to its list cell.
+    fn forward_whole_row(&mut self, wrapper: RNode, inner: RNode);
     fn set_a11y(&mut self, node: RNode, a11y: A11yProps);
     /// Speak `text` through the screen reader (`Toolkit::announce`, docs/accessibility.md).
     fn announce(&mut self, text: &str, urgent: bool);
@@ -1551,6 +1558,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             if let Some(h) = n.handle.clone() {
                 self.toolkit.set_a11y(&h, &n.a11y);
             }
+        }
+    }
+
+    fn forward_whole_row(&mut self, wrapper: RNode, inner: RNode) {
+        let whole = self.nodes.get(inner).is_some_and(|n| n.flex.whole_row);
+        if let Some(n) = self.nodes.get_mut(wrapper) {
+            n.flex.whole_row = whole;
         }
     }
 
@@ -2516,9 +2530,18 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             self.restore_subtree_ids(anchor);
             return crate::list::CellStep::Rebind { rebind, anchor };
         }
-        // First use of this cell: adopt the native cell and anchor a fresh subtree under it.
+        // First use of this cell: adopt the native cell and anchor a fresh subtree under it,
+        // inside the platform's row margins (docs/list.md "Row metrics").
+        let metrics = match self.nodes.get(node).and_then(|n| n.handle.clone()) {
+            Some(list) => self.toolkit.list_row_metrics(&list),
+            None => day_spec::RowMetrics::default(),
+        };
         let handle = self.toolkit.adopt(cell);
-        let anchor = self.create_cell_anchor(handle, Scope::child(), Rc::new(PassThrough));
+        let anchor = self.create_cell_anchor(
+            handle,
+            Scope::child(),
+            Rc::new(crate::layout::CellMetrics(metrics)),
+        );
         crate::list::CellStep::Build { anchor }
     }
 

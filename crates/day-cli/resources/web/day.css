@@ -478,6 +478,14 @@ body.day-has-toolbar #day-root {
   -webkit-mask-position: center;
   -webkit-mask-size: contain;
 }
+/* A row's count (an unread number): dim and tabular at the trailing edge, ahead of the status
+   glyph; the glyph then needs no auto margin of its own. */
+.day-navmenu-count {
+  margin-left: auto;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+.day-navmenu-count + .day-navmenu-badge { margin-left: 0.4em; }
 .day-navmenu-row:hover { background: var(--day-control-bg); }
 .day-navmenu-row.selected { background: var(--day-accent); color: var(--day-accent-fg); }
 /* A section heading (docs/navigation.md): small, bold and dimmed, the group title AppKit's source

@@ -30,10 +30,13 @@ xaml = ["dep:day-xaml"]
 winui = ["xaml", "day-xaml/winui"]
 arkui = ["dep:day-arkui"]
 dom = ["dep:day-dom"]
-mock = ["dep:day-mock"]
+# Headless: also swaps `day::prefs` for an in-process map, so `cargo test` starts empty and never
+# touches the user's preferences.
+mock = ["dep:day-mock", "day-part-prefs?/memory"]
 # The per-property observable store (docs/model.md): day::model plus the Observable derive in
-# the prelude. Off by default, so an app that binds plain Signals pays nothing for it.
-model = ["dep:day-model", "day-pieces/model"]
+# the prelude. Off by default, so an app that binds plain Signals pays nothing for it. serde_json
+# backs `day::prefs::bind_json`, which keeps a small keyed store in the preferences.
+model = ["dep:day-model", "day-pieces/model", "dep:serde", "dep:serde_json"]
 # SQLite persistence builds on `model` but is not a facade feature: an app depends on
 # day-persistence directly and picks the engine through that crate's own features
 # (docs/persistence.md).
@@ -49,6 +52,8 @@ day-fluent = { workspace = true }
 log = { workspace = true }
 day-script = { workspace = true }
 day-model = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 # Persistent settings, promoted into the facade (docs/prefs.md): 5 of 6 sibling apps depend on it
 # and it is the only part that lives in the reactive layer. Optional so it can be declined.
 day-part-prefs = { workspace = true, optional = true }

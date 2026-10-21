@@ -656,6 +656,8 @@ fn op_context_menu(items: Vec<MenuEntry>) -> impl FnOnce(Build) -> Build {
                 let model = std::rc::Rc::new(model);
                 crate::menus::mount_composed_menu(cx, n, Rc::new(move |_p| (*model).clone()));
             });
+            // Sized by its content, so a platform row stays one through the menu's wrapper.
+            with_tree(|t| t.forward_whole_row(w, n));
             // Later ops decorate the content node: ids, gestures and menus belong to it,
             // while the wrapper only exists to keep the mount in the layout pass.
             n
@@ -710,6 +712,8 @@ fn op_context_menu_fn(
             cx.under(w, |cx| {
                 out = op_context_menu_fn_body(inner, f, cx);
             });
+            // Sized by its content, so a platform row stays one through the menu's wrapper.
+            with_tree(|t| t.forward_whole_row(w, out));
             out
         })
     }

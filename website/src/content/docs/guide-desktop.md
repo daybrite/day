@@ -198,7 +198,7 @@ items on every desktop and the navigation presentation on the phones:
 use day_piece_settings::prelude::*;
 
 let prefs = Preferences::new()
-    .about(About::from_manifest().link(day::tr("day-about-website"), "https://example.org"))
+    .about(About::from_manifest().website("https://example.org"))
     .group(general_group(res::locales::ALL))         // Appearance + Language
     .group(Group::new("editing", res::str::settings_editing())
         .icon(res::vectors::prefs_editing)

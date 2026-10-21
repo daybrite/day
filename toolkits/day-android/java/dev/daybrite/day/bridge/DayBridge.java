@@ -784,22 +784,16 @@ public final class DayBridge {
             }
         }
     }
-    private static Integer selectionColor;
-    /** A selected row's fill: the theme's accent at 20% alpha, resolved once (colorPrimary
-     *  is a plain color int on Material themes; colorControlHighlight is usually a state-list
-     *  reference, which TypedValue.data cannot carry as a color). As the background: day's
-     *  row content paints above it, and the ripple foreground stays free for touch feedback. */
+    /** A selected row's fill: Material's secondary container, the color the navigation rail and
+     *  drawer give their selected item. Resolved from the cell's own themed context on every
+     *  paint, so it follows a light/dark change. As the background: day's row content paints
+     *  above it, and the ripple foreground stays free for touch feedback. */
     static void paintSelected(View cell, boolean on) {
-        if (selectionColor == null) {
-            selectionColor = 0x1F888888;
-            android.util.TypedValue tv = new android.util.TypedValue();
-            if (ctx.getTheme().resolveAttribute(androidx.appcompat.R.attr.colorPrimary, tv, true)
-                    && tv.type >= android.util.TypedValue.TYPE_FIRST_COLOR_INT
-                    && tv.type <= android.util.TypedValue.TYPE_LAST_COLOR_INT) {
-                selectionColor = (tv.data & 0x00FFFFFF) | 0x33000000;
-            }
-        }
-        cell.setBackgroundColor(on ? selectionColor : 0x00000000);
+        cell.setActivated(on);
+        cell.setBackgroundColor(on
+                ? MaterialColors.getColor(cell,
+                        com.google.android.material.R.attr.colorSecondaryContainer, 0x33888888)
+                : 0x00000000);
     }
 
     public static void listReload(View v) {
@@ -927,6 +921,11 @@ public final class DayBridge {
     public static void setScrollContent(View v, int w, int h) {
         View content = contentOf(v);
         if (content instanceof DayFixed) ((DayFixed) content).setContentSize(w, h);
+    }
+
+    /** A label's `TextAlign`: 1 = center, 2 = trailing. Leading keeps the default, which follows the layout direction. */
+    public static void setLabelAlignment(View view, int align) {
+        ((TextView) view).setTextAlignment(align == 1 ? View.TEXT_ALIGNMENT_CENTER : View.TEXT_ALIGNMENT_VIEW_END);
     }
 
     public static void setLabelSingleLine(View view) {
@@ -1847,6 +1846,11 @@ public final class DayBridge {
             View root = windowRootOf(host);
             if (root == null) return;
             DayNavHost owner = toolbarHostOf(root);
+            // A host on a hidden tab page never takes the bar from the window's own docked bar:
+            // the page showing has no host of its own, and its commands ride that bar.
+            if (owner == null && !host.isShown() && DayNavHost.WindowBar.DOCKED.containsKey(root)) {
+                return;
+            }
             if (owner != null && owner != host) {
                 // A tab page the window opens on can attach after the first tab's host, which
                 // claimed the bar from inside a hidden page: the shown host takes it over.
@@ -1870,18 +1874,33 @@ public final class DayBridge {
      *  navigation host on that page. Every tab's page stays attached, hidden while another tab
      *  shows, so the host that claimed the bar first is usually on a page nobody can see: a
      *  second tab showed no commands at all, on its root or on any page pushed over it, while
-     *  its items sat on the first tab's hidden app bar. A page with no navigation host leaves
-     *  the bar where it is. */
+     *  its items sat on the first tab's hidden app bar. A page with no navigation host (a
+     *  section a wide window composes into panes beside the sidebar) carries the window's bar
+     *  itself, docked across the top, for the same reason. */
     static void windowToolbarFollow(View page) {
         try {
+            // Only the window's own navigation suite moves the bar. A tab set inside a page of a
+            // navigation host (a section's Basics / Sizing tabs) leaves it on that host's app
+            // bar: docking a bar for its host-less tab page stacked a second bar above the page.
+            for (android.view.ViewParent p = page.getParent(); p != null; p = p.getParent()) {
+                if (p instanceof DayNavHost) return;
+            }
             View root = windowRootOf(page);
             if (root == null) return;
             DayNavHost next = findNavHost(page);
             DayNavHost owner = toolbarHostOf(root);
-            if (next == null || next == owner) return;
+            if (next != null && next == owner) return;
             if (owner != null) {
                 owner.setWindowToolbar("");
                 owner.toolbarRoot = null;
+                toolbarHosts.remove(root);
+            }
+            String docked = windowToolbarSpecs.get(root);
+            if (next == null) {
+                if (docked != null && !docked.isEmpty() && !(root instanceof DayCover)) {
+                    DayNavHost.WindowBar.dock(root, docked);
+                }
+                return;
             }
             toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(next));
             next.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
@@ -1972,6 +1991,17 @@ public final class DayBridge {
     static final java.util.WeakHashMap<View, java.lang.ref.WeakReference<DayNavHost>> toolbarHosts =
             new java.util.WeakHashMap<>();
 
+    /** The host that carries `root`'s bar: the one that claimed it, else a shown host under
+     *  `root`. Null while the window docks a bar of its own (the page showing has no host), and
+     *  while the only hosts sit on hidden tab pages. */
+    static DayNavHost barHostOf(View root) {
+        DayNavHost h = toolbarHostOf(root);
+        if (h != null) return h;
+        if (DayNavHost.WindowBar.DOCKED.containsKey(root)) return null;
+        h = findNavHost(root);
+        return h != null && h.isShown() ? h : null;
+    }
+
     /** The nav host under `root`, if one has been built. */
     static DayNavHost findNavHost(View root) {
         if (root instanceof DayNavHost) return (DayNavHost) root;
@@ -1998,8 +2028,7 @@ public final class DayBridge {
             // built later for a destination's own layers, and never another window's: the
             // settings cover's stack must not carry the editor's items (and the editor's bar
             // must not come down for it), so the lookup never leaves `root`'s subtree.
-            DayNavHost h = toolbarHostOf(root);
-            if (h == null) h = findNavHost(root);
+            DayNavHost h = barHostOf(root);
             if (h != null && toolbarHostOf(root) == null) {
                 toolbarHosts.put(root, new java.lang.ref.WeakReference<DayNavHost>(h));
                 h.toolbarRoot = new java.lang.ref.WeakReference<View>(root);
@@ -2024,8 +2053,7 @@ public final class DayBridge {
      *  without it reporting the text back. */
     public static void updateWindowToolbarText(View root, String id, String text) {
         try {
-            DayNavHost h = toolbarHostOf(root);
-            if (h == null) h = findNavHost(root);
+            DayNavHost h = barHostOf(root);
             if (h != null) {
                 h.updateWindowToolbarText(id, text);
             } else {
@@ -2040,8 +2068,7 @@ public final class DayBridge {
      *  3 = focus the search field. */
     public static void updateWindowToolbar(View root, String id, int op, double num) {
         try {
-            DayNavHost h = toolbarHostOf(root);
-            if (h == null) h = findNavHost(root);
+            DayNavHost h = barHostOf(root);
             if (h != null) {
                 h.updateWindowToolbar(id, op, num);
             } else {
@@ -2758,12 +2785,51 @@ public final class DayBridge {
      * its ancestors reach the suite, so the walk up is what connects the two. A menu outside a
      * suite (every non-tabs presentation) finds nothing and this is a no-op.
      */
-    public static void setNavSuiteRows(View menu, String titles, String icons, long menuNode) {
+    public static void setNavSuiteRows(View menu, String titles, String icons, String badges,
+            long menuNode) {
+        DayTabs suite = suiteOf(menu);
+        if (suite != null) suite.setRows(titles, icons, badges, menuNode);
+    }
+
+    /** The navigation suite a nav menu's rows are drawn by, when it sits in one. */
+    private static DayTabs suiteOf(View menu) {
         for (android.view.ViewParent p = menu.getParent(); p != null; p = p.getParent()) {
-            if (p instanceof DayTabs) {
-                ((DayTabs) p).setRows(titles, icons, menuNode);
-                return;
+            if (p instanceof DayTabs) return (DayTabs) p;
+        }
+        return null;
+    }
+
+    /**
+     * New titles and icons for the listed rows of the same row set (NavMenuPatch::Items
+     * `rows_changed`), on the menu items already shown and on the suite drawing them: a count or
+     * a language change updates rows in place, the way every Material component expects to be
+     * told, instead of clearing and refilling the menu. Tints and badges follow through their
+     * own calls, which already work in place.
+     */
+    public static void updateNavMenuRows(View v, String joinedRows, String joinedItems,
+            String joinedIcons) {
+        try {
+            if (!(v instanceof NavigationView)) return;
+            String[] rowStrs = joinedRows.isEmpty() ? new String[0] : joinedRows.split(",");
+            int[] rows = new int[rowStrs.length];
+            for (int i = 0; i < rows.length; i++) rows[i] = Integer.parseInt(rowStrs[i]);
+            String[] items = joinedItems.isEmpty() ? new String[0] : joinedItems.split("\u001f", -1);
+            String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
+            java.util.List<MenuItem> menu = navItems((NavigationView) v);
+            for (int i : rows) {
+                if (i < 0 || i >= menu.size()) continue;
+                MenuItem row = menu.get(i);
+                if (i < items.length) row.setTitle(items[i]);
+                if (i < icons.length) {
+                    android.graphics.drawable.Drawable icon = icons[i].isEmpty() ? null
+                            : drawableByName(ctx, icons[i]);
+                    row.setIcon(icon);
+                }
             }
+            DayTabs suite = suiteOf(v);
+            if (suite != null) suite.updateRows(rows, joinedItems);
+        } catch (Throwable t) {
+            android.util.Log.e("Day", "nav menu row update skipped", t);
         }
     }
 
@@ -2978,7 +3044,7 @@ public final class DayBridge {
             String joinedSections) {
         if (!(v instanceof NavigationView)) return;
         fillNavMenu((NavigationView) v, joinedItems, joinedIcons, joinedSections);
-        setNavSuiteRows(v, joinedItems, joinedIcons, 0);
+        setNavSuiteRows(v, joinedItems, joinedIcons, null, 0);
     }
 
     /** Where a sidebar row's menu-item id starts.
@@ -3116,6 +3182,15 @@ public final class DayBridge {
      *  is never worth that. */
     public static void setNavMenuBadges(View navMenu, String joinedIcons, String joinedTints, String joinedTexts) {
         try {
+            // A tabs host draws this menu's rows as its own chrome (DayTabs), so the counts go
+            // there too: without it the bottom bar and the rail never showed a badge.
+            for (android.view.ViewParent p = navMenu.getParent(); p != null; p = p.getParent()) {
+                if (p instanceof DayTabs) {
+                    // Not when this IS the suite's drawer: the suite applying its own counts.
+                    if (!((DayTabs) p).isChrome(navMenu)) ((DayTabs) p).setBadges(joinedTexts);
+                    break;
+                }
+            }
             if (!(navMenu instanceof NavigationView)) return;
             java.util.List<MenuItem> rows = navItems((NavigationView) navMenu);
             String[] icons = joinedIcons.isEmpty() ? new String[0] : joinedIcons.split("\u001f", -1);
@@ -3134,7 +3209,10 @@ public final class DayBridge {
                 count.setLayoutParams(new android.widget.FrameLayout.LayoutParams(
                         -2, -2, android.view.Gravity.CENTER_VERTICAL | android.view.Gravity.END));
                 if (badge == null) {
-                    row.setActionView(text.isEmpty() ? null : count);
+                    // Never null: NavigationMenuItemView only REPLACES an action view, so
+                    // clearing with null left the last count drawn (a "1" after the last item
+                    // was done). An empty count draws nothing.
+                    row.setActionView(count);
                     continue;
                 }
                 // The end slot is a menu item's action view here, which NavigationView lays out

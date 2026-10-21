@@ -77,14 +77,10 @@ where
 /// Install this prefs store as the app's navigation-persistence store (docs/navigation.md), so a
 /// [`selector`](day_pieces::selector) or [`stack`](day_pieces::stack) marked `.restore(key)`
 /// remembers its state across launches (and across an Android process death, since the store is
-/// disk-backed). Call once at startup, before the UI mounts. Nav keys are namespaced under a
+/// disk-backed). `day::launch` calls it when the app has installed no store of its own, so an
+/// app reaches for it only when it boots without the facade. Nav keys are namespaced under a
 /// `day.nav.` prefix, so `.restore("mail")` never collides with the app's own [`set`]/[`get`]
 /// keys.
-///
-/// ```no_run
-/// day_part_prefs::install_nav_store();
-/// // … day::launch(app) …
-/// ```
 pub fn install_nav_store() {
     day_core::set_nav_store(std::rc::Rc::new(PrefsNavStore));
 }
@@ -115,29 +111,44 @@ fn nav_key(key: &str) -> String {
 //   fn contains(&str) -> bool
 // ---------------------------------------------------------------------------
 
+// The `memory` feature (what `day`'s headless `mock` backend turns on) replaces every platform
+// store with an in-process map, so tests start empty and never touch the user's preferences.
+#[cfg(feature = "memory")]
+#[path = "memory.rs"]
+mod imp;
+
+// The file store, which the `memory` store hands off to when `DAY_PREFS_DIR` names a directory.
+#[cfg(feature = "memory")]
+#[path = "file.rs"]
+mod file;
+
 // macOS + iOS share one NSUserDefaults impl.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(all(not(feature = "memory"), any(target_os = "macos", target_os = "ios")))]
 #[path = "apple.rs"]
 mod imp;
 
 // Android rides day-android's JVM/Context to reach SharedPreferences via a bundled Java shim.
-#[cfg(target_os = "android")]
+#[cfg(all(not(feature = "memory"), target_os = "android"))]
 #[path = "android.rs"]
 mod imp;
 
 // Linux, Windows, and HarmonyOS (also `target_os = "linux"`, with `target_env = "ohos"`) all use the
 // same file-backed store; file.rs resolves the per-OS config directory internally.
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(all(
+    not(feature = "memory"),
+    any(target_os = "linux", target_os = "windows")
+))]
 #[path = "file.rs"]
 mod imp;
 
 // The web (web-dom, docs/web.md): localStorage through the day-dom shim's imports.
-#[cfg(target_arch = "wasm32")]
+#[cfg(all(not(feature = "memory"), target_arch = "wasm32"))]
 #[path = "web.rs"]
 mod imp;
 
 // Any other platform: no persistent store.
 #[cfg(not(any(
+    feature = "memory",
     target_os = "macos",
     target_os = "ios",
     target_os = "android",
@@ -167,6 +178,7 @@ mod tests {
     // they are excluded here. The values contain `=` and a newline to exercise the file store's
     // escaping.
     #[cfg(any(
+        feature = "memory",
         target_os = "macos",
         all(target_os = "linux", not(target_env = "ohos")),
         target_os = "windows"

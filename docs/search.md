@@ -47,7 +47,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 | spelling | what it does |
 |---|---|
 | `.searchable(Search::new(query))` | makes the surface searchable, bound two-way to `query` (a `Signal<String>` or any binding) |
-| `Search::prompt(text)` | the empty-state prompt |
+| `Search::prompt(text)` | the empty-state prompt; a localized string or closure follows the language and its signals |
 | `Search::placement(p)` | a placement **preference** (see below) |
 | `Search::reveal(SearchReveal)` | how the field comes and goes on a phone (see below) |
 | `Search::scopes(scope, titles)` | a one-of-N scope bar, bound to `scope` |

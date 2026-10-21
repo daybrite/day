@@ -100,8 +100,8 @@ pub mod reactive {
 /// Persistent settings (docs/prefs.md): a small key/value string store backed by each platform's
 /// native facility: `NSUserDefaults` on Apple, `SharedPreferences` on Android, a file store
 /// elsewhere. `day::prefs::{get, set, remove, contains}`, plus `bind` to persist a `Signal` and
-/// `install_nav_store` to make `.restore(key)` navigation survive a relaunch
-/// (docs/navigation.md).
+/// (with `model`) `bind_json` to persist a keyed store. `day::launch` installs it as the store
+/// `.restore(key)` navigation survives a relaunch through (docs/navigation.md).
 ///
 /// Promoted into the facade rather than left a satellite because it is what nearly every app
 /// reaches for first, and because it is the one part that lives in the reactive layer. It stays
@@ -227,6 +227,44 @@ pub fn modifiers() -> day_spec::Modifiers {
 #[cfg(feature = "prefs")]
 pub mod prefs {
     pub use day_part_prefs::*;
+
+    /// Keep a keyed store in the preferences as one JSON array (docs/prefs.md): seed `store`
+    /// from the rows saved under `key` now, then save every later change, an edited field as
+    /// well as an insert, removal or move. A missing or unreadable value leaves the store as it
+    /// is, and a failed read or write is logged. Call it once, right after creating the store;
+    /// the saving reaction lives in the current reactive scope.
+    ///
+    /// Preferences suit a small list. A larger or relational document belongs in
+    /// `day-persistence`.
+    ///
+    /// ```ignore
+    /// let items = Store::new(Keyed::default());
+    /// day::prefs::bind_json("app.items", items);
+    /// ```
+    #[cfg(feature = "model")]
+    pub fn bind_json<T>(key: &str, store: day_model::Store<day_model::Keyed<T>>)
+    where
+        T: day_model::Identified + Clone + serde::Serialize + serde::de::DeserializeOwned,
+    {
+        use day_model::Source;
+
+        if let Some(json) = get(key) {
+            match serde_json::from_str::<Vec<T>>(&json) {
+                Ok(rows) => store.update("load", |k| *k = day_model::Keyed::new(rows)),
+                Err(error) => log::warn!("could not read `{key}` from preferences: {error}"),
+            }
+        }
+        let key = key.to_owned();
+        // Track the whole store, then serialize untracked in the reaction.
+        day_reactive::watch(
+            move || store.with(|_| ()),
+            move |_, _| match store.with_untracked(|k| serde_json::to_string(k.items())) {
+                Ok(json) if set(&key, &json) => log::debug!("saved `{key}` to preferences"),
+                Ok(_) => log::warn!("could not save `{key}` to preferences"),
+                Err(error) => log::warn!("could not encode `{key}`: {error}"),
+            },
+        );
+    }
 }
 // Localization text source + arg trait (§12) at the crate root so generated `res::str::<key>(…)`
 // functions can name `day::LocalizedText` / `day::tr` / `day::IntoFArg` (also in the prelude).
@@ -679,6 +717,12 @@ fn start<P: day_spec::Platform, R: Piece>(
     root: impl FnOnce() -> R + 'static,
 ) {
     day_fluent::add_launch_locales(&backend.locale_hints());
+    // `.restore(key)` surfaces persist through the preferences unless the app installed a
+    // store of its own (docs/navigation.md).
+    #[cfg(feature = "prefs")]
+    if !day_core::has_nav_store() {
+        day_part_prefs::install_nav_store();
+    }
     // The app's catalog, now that the hints are in: registering it here rather than inside the
     // root builder is what lets a title, drawn before any piece exists, come out of the
     // catalog too (docs/localization.md).

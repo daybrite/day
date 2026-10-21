@@ -192,6 +192,10 @@ mod imp {
 
         /// Each link-carrying text view's delegate, kept alive for the view's lifetime (a
         /// `UITextView` holds its delegate weakly). Swept on release.
+        /// The link a tap just reported, and when (`DayTextLink::tapped`), so the text view's own
+        /// delegate call for the same tap, which arrives later, is not reported twice.
+        static LAST_LINK_TAP: RefCell<Option<(String, std::time::Instant)>> =
+            const { RefCell::new(None) };
         static TEXT_LINKS: day_spec::sidetable::SideTable<Retained<DayTextLink>> =
             day_spec::sidetable::SideTable::new();
 
@@ -265,7 +269,7 @@ mod imp {
         static TABS_PAGE_HOST: RefCell<HashMap<usize, usize>> = RefCell::new(HashMap::new());
         /// Icon NAMES, not resolved images: a tab resolves its own through the named-image path,
         /// so it gets the glyph's vector at the size the ASSET presents itself at.
-        static NAV_MENU_ROWS: RefCell<HashMap<usize, (i64, Vec<String>, Vec<Option<String>>)>> =
+        static NAV_MENU_ROWS: RefCell<HashMap<usize, (i64, NavTabRows)>> =
             RefCell::new(HashMap::new());
 
         /// NAV_MENU table ptr → (data source, row count).
@@ -1273,8 +1277,23 @@ mod imp {
             }
             // A search item's values are kept for the next page field built from the model,
             // and never re-apply the bar: the field takes them itself (`patch_page_search`).
-            P::Text { .. } | P::Suggestions { .. } => {
+            P::Text { .. } | P::Suggestions { .. } | P::Placeholder { .. } => {
                 patch.apply_to(items);
+            }
+            // New words for a button: its title and accessibility label come from the model,
+            // so the page bars take them on the re-apply.
+            P::Label {
+                item,
+                label,
+                tooltip,
+            } => {
+                if let Some(it) = items.iter_mut().find(|i| i.id == *item)
+                    && (it.label != *label || it.tooltip != *tooltip)
+                {
+                    it.label = label.clone();
+                    it.tooltip = tooltip.clone();
+                    return true;
+                }
             }
             P::Focus { .. } => {}
         }
@@ -2621,6 +2640,10 @@ mod imp {
                 sc.setActive(true);
                 sc.searchBar().becomeFirstResponder();
             },
+            day_spec::ToolbarPatch::Placeholder { text, .. } => unsafe {
+                sc.searchBar()
+                    .setPlaceholder(Some(&NSString::from_str(text)));
+            },
             // UIKit's completion surface is not wired yet (as for a surface's own search).
             _ => {}
         }
@@ -2698,13 +2721,113 @@ mod imp {
             ) -> bool {
                 day_spec::ffi_guard::contain((), || {
                     if let Some(s) = unsafe { url.absoluteString() } {
-                        emit(*self.ivars(), Event::LinkActivated(s.to_string()));
+                        let s = s.to_string();
+                        // Already reported by the tap recognizer, a beat earlier.
+                        let echo = LAST_LINK_TAP.with(|l| {
+                            l.borrow_mut().take_if(|(u, at)| {
+                                *u == s && at.elapsed() < std::time::Duration::from_secs(2)
+                            })
+                        });
+                        if echo.is_none() {
+                            emit(*self.ivars(), Event::LinkActivated(s));
+                        }
                     }
                 });
                 false
             }
         }
+
+        // The tap recognizer shares the touch with the text view's own recognizers.
+        unsafe impl UIGestureRecognizerDelegate for DayTextLink {
+            #[unsafe(method(gestureRecognizer:shouldRecognizeSimultaneouslyWithGestureRecognizer:))]
+            fn simultaneous(&self, _a: &UIGestureRecognizer, _b: &UIGestureRecognizer) -> bool {
+                true
+            }
+        }
+
+        impl DayTextLink {
+            /// A tap on a link, reported on touch-up. A selectable `UITextView` calls its
+            /// delegate for a link only once its selection gestures (double tap, the long-press
+            /// preview) have given up, which reads as a lag before every in-app link; the
+            /// character under the finger answers at once. The delegate path stays for what only
+            /// it sees (VoiceOver activation, the preview's open).
+            #[unsafe(method(tapped:))]
+            fn tapped(&self, recognizer: &UIGestureRecognizer) {
+                day_spec::ffi_guard::contain((), || {
+                    let Some(view) = (unsafe { recognizer.view() }) else {
+                        return;
+                    };
+                    let point = unsafe { recognizer.locationInView(Some(&view)) };
+                    let Some(url) = link_at(&view, point) else {
+                        return;
+                    };
+                    LAST_LINK_TAP.with(|l| {
+                        *l.borrow_mut() = Some((url.clone(), std::time::Instant::now()))
+                    });
+                    emit(*self.ivars(), Event::LinkActivated(url));
+                });
+            }
+        }
     );
+
+    thread_local! {
+        /// A stock cell's (vertical margin, one-line height), measured once (`native_row`).
+        static NATIVE_ROW: std::cell::OnceCell<(f64, f64)> = const { std::cell::OnceCell::new() };
+    }
+
+    /// A stock `UITableViewCell` with one line of its default content configuration: its top
+    /// margin and the height UIKit fits it to, which is the row a native list shows.
+    fn native_row() -> (f64, f64) {
+        let Some(mtm) = MainThreadMarker::new() else {
+            return (11.0, 44.0);
+        };
+        unsafe {
+            let cell = objc2_ui_kit::UITableViewCell::initWithStyle_reuseIdentifier(
+                objc2_ui_kit::UITableViewCell::alloc(mtm),
+                objc2_ui_kit::UITableViewCellStyle::Default,
+                None,
+            );
+            let config: Retained<AnyObject> = msg_send![&*cell, defaultContentConfiguration];
+            let text = NSString::from_str("Hg");
+            let _: () = msg_send![&*config, setText: &*text];
+            let _: () = msg_send![&*cell, setContentConfiguration: &*config];
+            let margins: objc2_ui_kit::NSDirectionalEdgeInsets =
+                msg_send![&*config, directionalLayoutMargins];
+            let size = cell
+                .systemLayoutSizeFittingSize_withHorizontalFittingPriority_verticalFittingPriority(
+                    CGSize::new(375.0, 0.0),
+                    1000.0,
+                    50.0,
+                );
+            (margins.top, size.height)
+        }
+    }
+
+    /// The link target of the character at `point` in text view `view`, if it carries one.
+    fn link_at(view: &UIView, point: objc2_core_foundation::CGPoint) -> Option<String> {
+        unsafe {
+            let range: Option<Retained<AnyObject>> = msg_send![view, characterRangeAtPoint: point];
+            let range = range?;
+            let start: Retained<AnyObject> = msg_send![&*range, start];
+            let begin: Retained<AnyObject> = msg_send![view, beginningOfDocument];
+            let index: isize = msg_send![view, offsetFromPosition: &*begin, toPosition: &*start];
+            let text: Option<Retained<objc2_foundation::NSAttributedString>> =
+                msg_send![view, attributedText];
+            let text = text?;
+            if index < 0 || index as usize >= text.length() {
+                return None;
+            }
+            let value = text.attribute_atIndex_effectiveRange(
+                objc2_ui_kit::NSLinkAttributeName,
+                index as usize,
+                std::ptr::null_mut(),
+            )?;
+            if let Some(url) = value.downcast_ref::<objc2_foundation::NSURL>() {
+                return url.absoluteString().map(|s| s.to_string());
+            }
+            value.downcast_ref::<NSString>().map(|s| s.to_string())
+        }
+    }
 
     impl DayTextLink {
         /// Make `tv` report its link taps against `node`, and keep the delegate alive with it.
@@ -2712,6 +2835,19 @@ mod imp {
             let this = Self::alloc(mtm).set_ivars(node);
             let delegate: Retained<Self> = unsafe { msg_send![super(this), init] };
             unsafe { tv.setDelegate(Some(ProtocolObject::from_ref(&*delegate))) };
+            let tap = unsafe {
+                UITapGestureRecognizer::initWithTarget_action(
+                    UITapGestureRecognizer::alloc(mtm),
+                    Some(&delegate),
+                    Some(sel!(tapped:)),
+                )
+            };
+            unsafe {
+                // The text view keeps the touch: its long-press preview and VoiceOver still work.
+                tap.setCancelsTouchesInView(false);
+                tap.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+                tv.addGestureRecognizer(&tap);
+            }
             TEXT_LINKS.with(|t| t.insert(ptr_of_view(tv), delegate));
         }
     }
@@ -2724,6 +2860,30 @@ mod imp {
 
     /// A label backing that can activate links: a read-only, non-scrolling `UITextView` laid out
     /// to measure like the `UILabel` it stands in for (zero inset, no line-fragment padding).
+    /// `TextAlign` → `NSTextAlignment` on a `UILabel` or `UITextView`, set after any attributed
+    /// text: on both, the setter re-styles the whole string, which a Markdown label's runs would
+    /// otherwise leave leading-aligned. Leading stays the view's own natural default, so an RTL
+    /// locale aligns right without the app asking (docs/localization.md).
+    fn set_text_alignment(view: &AnyObject, align: day_spec::props::TextAlign) {
+        // NSTextAlignment on iOS: Left 0, Center 1, Right 2, Natural 4.
+        let value: isize = match align {
+            day_spec::props::TextAlign::Leading => return,
+            day_spec::props::TextAlign::Center => 1,
+            day_spec::props::TextAlign::Trailing => 2,
+        };
+        unsafe {
+            let _: () = msg_send![view, setTextAlignment: value];
+        }
+    }
+
+    /// Re-apply a view's alignment after new attributed text replaced the whole string.
+    fn reapply_text_alignment(view: &AnyObject) {
+        unsafe {
+            let value: isize = msg_send![view, textAlignment];
+            let _: () = msg_send![view, setTextAlignment: value];
+        }
+    }
+
     fn link_text_view(p: &LabelProps, id: NodeId, mtm: MainThreadMarker) -> Retained<UITextView> {
         let tv = UITextView::new(mtm);
         let font = resolve_font(p.font);
@@ -2747,6 +2907,7 @@ mod imp {
             let container: *mut AnyObject = msg_send![&*tv, textContainer];
             let _: () = msg_send![container, setLineFragmentPadding: 0.0f64];
         }
+        set_text_alignment(&tv, p.align);
         DayTextLink::attach(&tv, id, mtm);
         tv
     }
@@ -3008,6 +3169,153 @@ mod imp {
             Delete => sel!(delete:),
             _ => return None,
         })
+    }
+
+    thread_local! {
+        /// Each realized list item's current props, by its view: a patch updates one part and
+        /// the item is re-dressed from the whole (docs/list.md "List items").
+        static LIST_ITEMS: RefCell<HashMap<usize, day_spec::props::ListItemProps>> =
+            RefCell::new(HashMap::new());
+    }
+
+    /// A list row's standard content (docs/list.md "List items"), the way UIKit draws its own
+    /// rows: a `UIListContentView` showing the cell's default content configuration (its fonts,
+    /// image size and spacing, the secondary color for the subtitle) beside a trailing value
+    /// and the system checkmark, in a horizontal stack. The configuration keeps no margins of
+    /// its own: the list gives the row the table's side margins, and the content view's own
+    /// sizing gives it the cell's height (docs/list.md "Row metrics").
+    fn make_list_item(
+        p: &day_spec::props::ListItemProps,
+        mtm: MainThreadMarker,
+    ) -> Retained<UIView> {
+        unsafe {
+            let stack = objc2_ui_kit::UIStackView::new(mtm);
+            stack.setAxis(objc2_ui_kit::UILayoutConstraintAxis::Horizontal);
+            stack.setAlignment(objc2_ui_kit::UIStackViewAlignment::Center);
+            stack.setSpacing(8.0);
+            let config: Retained<AnyObject> =
+                msg_send![objc2::class!(UIListContentConfiguration), cellConfiguration];
+            let content: Retained<UIView> = msg_send![
+                msg_send![objc2::class!(UIListContentView), alloc],
+                initWithConfiguration: &*config
+            ];
+            // The content takes the width; the trailing parts keep their own.
+            content.setContentHuggingPriority_forAxis(
+                1.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            content.setContentCompressionResistancePriority_forAxis(
+                250.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            stack.addArrangedSubview(&content);
+            let detail = UILabel::new(mtm);
+            detail.setFont(Some(&objc2_ui_kit::UIFont::preferredFontForTextStyle(
+                objc2_ui_kit::UIFontTextStyleBody,
+            )));
+            let _: () = msg_send![&*detail, setAdjustsFontForContentSizeCategory: true];
+            detail.setTextColor(Some(&objc2_ui_kit::UIColor::secondaryLabelColor()));
+            detail.setContentHuggingPriority_forAxis(
+                751.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            stack.addArrangedSubview(&detail);
+            // The checkmark accessory's glyph: body size, semibold, in the tint color.
+            let symbol: Retained<AnyObject> = msg_send![
+                objc2::class!(UIImageSymbolConfiguration),
+                configurationWithTextStyle: objc2_ui_kit::UIFontTextStyleBody,
+                scale: 2isize
+            ];
+            let weight: Retained<AnyObject> = msg_send![
+                objc2::class!(UIImageSymbolConfiguration),
+                configurationWithWeight: 6isize
+            ];
+            let symbol: Retained<AnyObject> =
+                msg_send![&*symbol, configurationByApplyingConfiguration: &*weight];
+            let check: Option<Retained<objc2_ui_kit::UIImage>> = msg_send![
+                objc2::class!(UIImage),
+                systemImageNamed: &*NSString::from_str("checkmark"),
+                withConfiguration: &*symbol
+            ];
+            let mark = objc2_ui_kit::UIImageView::initWithImage(
+                objc2_ui_kit::UIImageView::alloc(mtm),
+                check.as_deref(),
+            );
+            mark.setContentHuggingPriority_forAxis(
+                751.0,
+                objc2_ui_kit::UILayoutConstraintAxis::Horizontal,
+            );
+            stack.addArrangedSubview(&mark);
+            let view: Retained<UIView> = Retained::into_super(stack);
+            LIST_ITEMS.with(|m| m.borrow_mut().insert(ptr_of(&view), p.clone()));
+            dress_list_item(&view, p);
+            view
+        }
+    }
+
+    /// Show `p` on a list item's stack: its content configuration, value and check mark, and
+    /// one accessibility element naming them all.
+    fn dress_list_item(view: &UIView, p: &day_spec::props::ListItemProps) {
+        let Some(stack) = view.downcast_ref::<objc2_ui_kit::UIStackView>() else {
+            return;
+        };
+        let parts = unsafe { stack.arrangedSubviews() };
+        if parts.len() < 3 {
+            return;
+        }
+        let Some(mtm) = MainThreadMarker::new() else {
+            return;
+        };
+        unsafe {
+            let content = &parts.objectAtIndex(0);
+            let config: Retained<AnyObject> =
+                msg_send![objc2::class!(UIListContentConfiguration), cellConfiguration];
+            let _: () = msg_send![&*config, setText: &*NSString::from_str(&p.title)];
+            let subtitle = (!p.subtitle.is_empty()).then(|| NSString::from_str(&p.subtitle));
+            let _: () = msg_send![&*config, setSecondaryText: subtitle.as_deref()];
+            let image = menu_image(p.icon.as_ref()).map(|img| {
+                img.imageWithRenderingMode(objc2_ui_kit::UIImageRenderingMode::AlwaysTemplate)
+            });
+            let _: () = msg_send![&*config, setImage: image.as_deref()];
+            let props: Retained<AnyObject> = msg_send![&*config, imageProperties];
+            let tint = p.icon_tint.map(uicolor);
+            let _: () = msg_send![&*props, setTintColor: tint.as_deref()];
+            let zero = objc2_ui_kit::NSDirectionalEdgeInsets {
+                top: 0.0,
+                leading: 0.0,
+                bottom: 0.0,
+                trailing: 0.0,
+            };
+            let _: () = msg_send![&*config, setDirectionalLayoutMargins: zero];
+            // And none inherited: by default the content keeps its superview's margins too,
+            // which would add the cell's margins a second time (`UIAxis` none).
+            let _: () = msg_send![&*config, setAxesPreservingSuperviewLayoutMargins: 0usize];
+            let _: () = msg_send![&**content, setConfiguration: &*config];
+            let detail = &parts.objectAtIndex(1);
+            if let Some(label) = detail.downcast_ref::<UILabel>() {
+                label.setText(Some(&NSString::from_str(&p.detail)));
+            }
+            detail.setHidden(p.detail.is_empty());
+            parts.objectAtIndex(2).setHidden(!p.checked);
+            // One element for the row, as a standard cell is: its words, and selected while
+            // the check mark shows.
+            view.setIsAccessibilityElement(true, mtm);
+            let words = [&p.title, &p.subtitle, &p.detail]
+                .into_iter()
+                .filter(|w| !w.is_empty())
+                .map(String::as_str)
+                .collect::<Vec<_>>()
+                .join(", ");
+            view.setAccessibilityLabel(Some(&NSString::from_str(&words)), mtm);
+            view.setAccessibilityTraits(
+                if p.checked {
+                    objc2_ui_kit::UIAccessibilityTraitSelected
+                } else {
+                    0
+                },
+                mtm,
+            );
+        }
     }
 
     /// Build a single UIAction; `handler` runs on the main thread when chosen.
@@ -5813,6 +6121,14 @@ mod imp {
         }
     }
 
+    /// A nav host's rows as a `.tabSidebar` host's tabs wear them: label, glyph and badge.
+    #[derive(Clone, Default)]
+    struct NavTabRows {
+        titles: Vec<String>,
+        icons: Vec<Option<String>>,
+        badges: Vec<Option<String>>,
+    }
+
     struct NavTabsState {
         tabbar: Retained<UITabBarController>,
         /// Detail pages in insertion order — index i IS the `Select(i)` index.
@@ -5820,9 +6136,12 @@ mod imp {
         /// The `UITab` per page, parallel to `vcs`. Each carries its index as its IDENTIFIER,
         /// which is what turns a delegate callback back into a Day row and what `Select` looks up.
         tabs: Vec<Retained<objc2_ui_kit::UITab>>,
-        /// Row labels and glyphs from the host's NAV_MENU, which is where a nav host's rows live.
-        titles: Vec<String>,
-        icons: Vec<Option<String>>,
+        /// Row labels, glyphs and badges from the host's NAV_MENU, which is where a nav host's
+        /// rows live. Kept current by the menu's `NavMenuPatch::Items` (a language change, a
+        /// badge count), which re-syncs the tabs.
+        rows: NavTabRows,
+        /// The NAV_MENU's view, which is how that patch finds the host it feeds.
+        menu_view: std::cell::Cell<usize>,
         /// The NAV_MENU's node — a tab tap emits against it, exactly as a sidebar row click does,
         /// so the two are one event to everything above this backend.
         menu_node: std::cell::Cell<i64>,
@@ -6048,8 +6367,14 @@ mod imp {
                 .iter()
                 .enumerate()
                 .map(|(i, vc)| {
-                    let title = t.titles.get(i).cloned().unwrap_or_default();
+                    let title = t.rows.titles.get(i).cloned().unwrap_or_default();
+                    let badge = t.rows.badges.get(i).cloned().flatten();
+                    let badge = badge
+                        .as_deref()
+                        .filter(|b| !b.is_empty())
+                        .map(NSString::from_str);
                     let image = t
+                        .rows
                         .icons
                         .get(i)
                         .and_then(|o| o.as_deref())
@@ -6072,6 +6397,7 @@ mod imp {
                         unsafe {
                             existing.setTitle(&NSString::from_str(&title));
                             existing.setImage(image.as_deref());
+                            existing.setBadgeValue(badge.as_deref());
                         }
                         return existing.clone();
                     }
@@ -6081,7 +6407,7 @@ mod imp {
                             NonNull::from(&*page)
                         },
                     );
-                    unsafe {
+                    let tab = unsafe {
                         objc2_ui_kit::UITab::initWithTitle_image_identifier_viewControllerProvider(
                             objc2_ui_kit::UITab::alloc(mtm),
                             &NSString::from_str(&title),
@@ -6092,7 +6418,9 @@ mod imp {
                             &NSString::from_str(&key.to_string()),
                             Some(&provider),
                         )
-                    }
+                    };
+                    unsafe { tab.setBadgeValue(badge.as_deref()) };
+                    tab
                 })
                 .collect();
             Some((t.tabbar.clone(), tabs))
@@ -6112,6 +6440,49 @@ mod imp {
         });
     }
 
+    /// New words or counts on the same tabs: set on the `UITab`s (or, before iOS 18, the
+    /// controllers' tab bar items) already installed, without handing UIKit the tab array again.
+    fn nav_tabs_refresh(host: usize) {
+        let modern = NAV_TABS.with(|m| {
+            m.borrow()
+                .get(&host)
+                .map(|t| t.tabbar.respondsToSelector(objc2::sel!(setTabs:)))
+        });
+        if modern != Some(true) {
+            // The classic sync already re-sets nothing when the controllers are unchanged.
+            nav_tabs_sync_classic(host);
+            return;
+        }
+        NAV_TABS.with(|m| {
+            let m = m.borrow();
+            let Some(t) = m.get(&host) else { return };
+            for (i, tab) in t.tabs.iter().enumerate() {
+                let title = t.rows.titles.get(i).cloned().unwrap_or_default();
+                let badge = t
+                    .rows
+                    .badges
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .filter(|b| !b.is_empty());
+                let image = t
+                    .rows
+                    .icons
+                    .get(i)
+                    .and_then(|o| o.as_deref())
+                    .and_then(load_bundled_uiimage);
+                unsafe {
+                    tab.setTitle(&NSString::from_str(&title));
+                    tab.setImage(image.as_deref());
+                    tab.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
+                    if let Some(vc) = t.vcs.get(i) {
+                        vc.setTitle(Some(&NSString::from_str(&title)));
+                    }
+                }
+            }
+        });
+    }
+
     /// The same sync on a runtime without `UITab` (iOS 17 and older): the controller's own
     /// `viewControllers`, each page carrying its title and glyph on the `UITabBarItem` UIKit
     /// makes for it. `NavTabsState::tabs` stays empty there, which is what tells `Select` and
@@ -6127,8 +6498,16 @@ mod imp {
             let m = m.borrow();
             let t = m.get(&host)?;
             for (i, vc) in t.vcs.iter().enumerate() {
-                let title = t.titles.get(i).cloned().unwrap_or_default();
+                let title = t.rows.titles.get(i).cloned().unwrap_or_default();
+                let badge = t
+                    .rows
+                    .badges
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .filter(|b| !b.is_empty());
                 let image = t
+                    .rows
                     .icons
                     .get(i)
                     .and_then(|o| o.as_deref())
@@ -6140,6 +6519,7 @@ mod imp {
                     if let Some(item) = vc.tabBarItem() {
                         item.setTitle(Some(&NSString::from_str(&title)));
                         item.setImage(image.as_deref());
+                        item.setBadgeValue(badge.as_deref().map(NSString::from_str).as_deref());
                     }
                 }
             }
@@ -9720,7 +10100,9 @@ mod imp {
             if patch.item() == day_spec::SEARCH_ITEM_ID
                 && matches!(
                     patch,
-                    day_spec::ToolbarPatch::Text { .. } | day_spec::ToolbarPatch::Focus { .. }
+                    day_spec::ToolbarPatch::Text { .. }
+                        | day_spec::ToolbarPatch::Focus { .. }
+                        | day_spec::ToolbarPatch::Placeholder { .. }
                 )
             {
                 patch_page_search(root, h, patch);
@@ -9741,6 +10123,9 @@ mod imp {
                 Cap::Cursor => Support::Emulated,
                 // `UIFont.familyNames` + `fontNamesForFamilyName:` (docs/fonts.md).
                 Cap::FontList => Support::Native,
+                // `UIListContentView` with the cell's default content configuration
+                // (docs/list.md "List items").
+                Cap::ListItem => Support::Native,
                 // `UIImage(data:)` reads every container ImageIO knows, and UIKit writes back
                 // PNG and JPEG (docs/images.md). `Cap::ImageProperties` is deliberately NOT here:
                 // reading EXIF would mean linking ImageIO and going through `CGImageSource`, and
@@ -9975,8 +10360,8 @@ mod imp {
                                     tabbar,
                                     vcs: Vec::new(),
                                     tabs: Vec::new(),
-                                    titles: Vec::new(),
-                                    icons: Vec::new(),
+                                    rows: NavTabRows::default(),
+                                    menu_view: std::cell::Cell::new(0),
                                     menu_node: std::cell::Cell::new(0),
                                     suppress: std::cell::Cell::new(false),
                                     pending_selection: std::cell::Cell::new(None),
@@ -10260,7 +10645,14 @@ mod imp {
                     NAV_MENU_ROWS.with(|m| {
                         m.borrow_mut().insert(
                             ptr_of(&view),
-                            (id.0 as i64, p.items.clone(), p.icons.clone()),
+                            (
+                                id.0 as i64,
+                                NavTabRows {
+                                    titles: p.items.clone(),
+                                    icons: p.icons.clone(),
+                                    badges: p.badges.clone(),
+                                },
+                            ),
                         )
                     });
                     view
@@ -10549,6 +10941,7 @@ mod imp {
                         let s = attributed_label(&p.text, &resolve_font(p.font), p.color, &p.runs);
                         unsafe { label.setAttributedText(Some(&s)) };
                     }
+                    set_text_alignment(&label, p.align);
                     view_of(label)
                 }
                 Some(Builtin::Button) => {
@@ -10742,6 +11135,14 @@ mod imp {
                     });
                     view_of(iv)
                 }
+                Some(Builtin::ListItem) => {
+                    let Some(p) =
+                        day_spec::props_of::<day_spec::props::ListItemProps>(kind, "uikit", props)
+                    else {
+                        return placeholder_view(kind);
+                    };
+                    make_list_item(p, mtm)
+                }
                 // A recycled list cell is ADOPTED from the native list, never realized
                 // through this path; anything else is an extension piece.
                 Some(Builtin::ListCell)
@@ -10767,6 +11168,28 @@ mod imp {
             anim: Option<&AnimSpec>,
         ) {
             match kind {
+                kinds::LIST_ITEM => {
+                    let Some(p) = patch.downcast_ref::<day_spec::props::ListItemPatch>() else {
+                        return;
+                    };
+                    let props = LIST_ITEMS.with(|m| {
+                        let mut m = m.borrow_mut();
+                        let props = m.get_mut(&ptr_of(h))?;
+                        use day_spec::props::ListItemPatch as P;
+                        match p {
+                            P::Title(t) => props.title = t.clone(),
+                            P::Subtitle(t) => props.subtitle = t.clone(),
+                            P::Detail(t) => props.detail = t.clone(),
+                            P::Icon(i) => props.icon = i.clone(),
+                            P::IconTint(c) => props.icon_tint = *c,
+                            P::Checked(on) => props.checked = *on,
+                        }
+                        Some(props.clone())
+                    });
+                    if let Some(props) = props {
+                        dress_list_item(h, &props);
+                    }
+                }
                 kinds::IMAGE => {
                     if let (Some(p), Some(iv)) = (
                         patch.downcast_ref::<day_spec::props::ImagePatch>(),
@@ -10890,6 +11313,7 @@ mod imp {
                         badge_tints,
                         selected,
                         sections,
+                        rows_changed,
                         ..
                     }) = patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -10922,13 +11346,66 @@ mod imp {
                                             ))
                                         };
                                     }
-                                    unsafe { cv.reloadData() };
-                                    // Resolved from this data source, which the borrow above
-                                    // holds: `select_nav_row` would borrow the same map again.
-                                    select_nav_path(cv, selected.and_then(|r| data.path_of(r)));
+                                    match rows_changed {
+                                        // The same rows with new words or counts: reconfigure
+                                        // just those cells, which keeps each cell and the
+                                        // selection where they are.
+                                        Some(rows) => {
+                                            let paths: Vec<Retained<objc2_foundation::NSIndexPath>> =
+                                                rows.iter()
+                                                    .filter_map(|r| data.path_of(*r))
+                                                    .map(|(section, item)| unsafe {
+                                                        objc2_foundation::NSIndexPath::indexPathForItem_inSection(
+                                                            item as isize,
+                                                            section as isize,
+                                                        )
+                                                    })
+                                                    .collect();
+                                            if !paths.is_empty() {
+                                                unsafe {
+                                                    cv.reconfigureItemsAtIndexPaths(
+                                                        &objc2_foundation::NSArray::from_retained_slice(
+                                                            &paths,
+                                                        ),
+                                                    )
+                                                };
+                                            }
+                                        }
+                                        None => {
+                                            unsafe { cv.reloadData() };
+                                            // Resolved from this data source, which the borrow
+                                            // above holds: `select_nav_row` would borrow the same
+                                            // map again.
+                                            select_nav_path(
+                                                cv,
+                                                selected.and_then(|r| data.path_of(r)),
+                                            );
+                                        }
+                                    }
                                 }
                             }
                         });
+                        // The same rows are a `.tabSidebar` host's tabs, which UIKit draws from
+                        // its `UITab`s rather than this list: without this a language change
+                        // left the iPad's tab bar in the old language, and badges never moved.
+                        let menu = ptr_of(h);
+                        let host = NAV_TABS.with(|m| {
+                            let mut m = m.borrow_mut();
+                            let (host, t) =
+                                m.iter_mut().find(|(_, t)| t.menu_view.get() == menu)?;
+                            t.rows = NavTabRows {
+                                titles: items.clone(),
+                                icons: icons.clone(),
+                                badges: badges.clone(),
+                            };
+                            Some(*host)
+                        });
+                        if let Some(host) = host {
+                            match rows_changed {
+                                Some(_) => nav_tabs_refresh(host),
+                                None => nav_tabs_sync(host),
+                            }
+                        }
                     } else if let Some(NavMenuPatch::IconProgress(progress)) =
                         patch.downcast_ref::<NavMenuPatch>()
                     {
@@ -11170,6 +11647,7 @@ mod imp {
                                 if let Some(f) = base {
                                     let s = attributed_label(text, &f, None, runs);
                                     unsafe { label.setAttributedText(Some(&s)) };
+                                    reapply_text_alignment(label);
                                 }
                             }
                             // `None` restores the adaptive default (labelColor tracks dark mode).
@@ -11205,6 +11683,7 @@ mod imp {
                                 if let Some(f) = unsafe { tv.font() } {
                                     let s = attributed_label(text, &f, None, runs);
                                     unsafe { tv.setAttributedText(Some(&s)) };
+                                    reapply_text_alignment(tv);
                                 }
                             }
                             LabelPatch::Color(c) => unsafe {
@@ -11515,6 +11994,7 @@ mod imp {
             TARGETS.with(|m| {
                 m.borrow_mut().remove(&ptr_of(&h));
             });
+            LIST_ITEMS.with(|m| m.borrow_mut().remove(&ptr_of(&h)));
             if let Some((table, _)) = LIST_STATE.with(|m| m.borrow_mut().remove(&ptr_of(&h)))
                 && table.window().is_some()
             {
@@ -11605,15 +12085,15 @@ mod imp {
             // A NAV_MENU joining the tree: if it lands anywhere inside a `.tabSidebar` host, its
             // rows are that host's tabs. This is the first moment the menu has a superview chain
             // to find its host through.
-            if let Some((node, titles, icons)) =
+            if let Some((node, rows)) =
                 NAV_MENU_ROWS.with(|m| m.borrow_mut().remove(&ptr_of(child)))
                 && let Some(hp) = enclosing_tabs_host(parent)
             {
                 NAV_TABS.with(|m| {
                     if let Some(t) = m.borrow_mut().get_mut(&hp) {
                         t.menu_node.set(node);
-                        t.titles = titles;
-                        t.icons = icons;
+                        t.menu_view.set(ptr_of(child));
+                        t.rows = rows;
                     }
                 });
                 nav_tabs_sync(hp);
@@ -12008,6 +12488,8 @@ mod imp {
                 }
                 let adj: bool = msg_send![label, adjustsFontForContentSizeCategory];
                 let _: () = msg_send![&*tv, setAdjustsFontForContentSizeCategory: adj];
+                let align: isize = msg_send![label, textAlignment];
+                let _: () = msg_send![&*tv, setTextAlignment: align];
                 tv.setEditable(false);
                 tv.setSelectable(true);
                 tv.setScrollEnabled(false);
@@ -12081,6 +12563,18 @@ mod imp {
                     Size::new(p.width.unwrap_or(180.0), fit(1.0e6, 1.0e6).height.max(34.0))
                 }
                 kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 1.0),
+                // UIKit sizes its own row content: the stack fitted at the row's width.
+                kinds::LIST_ITEM => {
+                    let width = p.width.unwrap_or(1.0e4);
+                    let s = unsafe {
+                        h.systemLayoutSizeFittingSize_withHorizontalFittingPriority_verticalFittingPriority(
+                            CGSize::new(width, 0.0),
+                            if p.width.is_some() { 1000.0 } else { 50.0 },
+                            50.0,
+                        )
+                    };
+                    Size::new(p.width.unwrap_or(s.width.ceil()), s.height.ceil())
+                }
                 kinds::PROGRESS => {
                     if (**h).downcast_ref::<UIActivityIndicatorView>().is_some() {
                         Size::new(20.0, 20.0)
@@ -12193,6 +12687,26 @@ mod imp {
         fn set_scroll_content(&mut self, h: &Handle, content: Size) {
             if let Some(sv) = (**h).downcast_ref::<UIScrollView>() {
                 unsafe { sv.setContentSize(CGSize::new(content.width, content.height)) };
+            }
+        }
+
+        /// UIKit's own row: the table's layout margins at the sides (16 or 20pt, by width), and
+        /// the top/bottom margins and height of a stock cell showing one line of its default
+        /// content configuration, measured by UIKit itself.
+        fn list_row_metrics(&mut self, h: &Handle) -> day_spec::RowMetrics {
+            let Some(table) = (**h).downcast_ref::<objc2_ui_kit::UITableView>() else {
+                return day_spec::RowMetrics::default();
+            };
+            let sides = unsafe { table.layoutMargins() };
+            let (vertical, height) = NATIVE_ROW.with(|r| *r.get_or_init(native_row));
+            day_spec::RowMetrics {
+                insets: day_spec::Insets {
+                    top: vertical,
+                    leading: sides.left,
+                    bottom: vertical,
+                    trailing: sides.right,
+                },
+                min_height: height,
             }
         }
 

@@ -1,33 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    App-owned Android manifest overlay. Day merges this with its generated manifest
-    and dependency contributions; keep only your customizations here. You may delete
-    this file to use Day's defaults. It does not require a checked-in Gradle project.
-    Guide: https://daybrite.dev/docs/platforms/android-mdc#manifest-customization
-
-    Keep app identity, version, window sizes, and portable permissions in Day.toml:
-    https://daybrite.dev/docs/project-structure/
-    https://daybrite.dev/docs/guide-permissions/
-
-    Add Android-only uses-feature or queries elements under manifest, and components
-    or meta-data under application. Reference localized Android string resources for
-    user-facing text; do not put untranslated labels here.
-
-    Android merges matching elements by name. Conflicting attributes need explicit
-    tools:replace; tools:node="remove" removes a lower-priority declaration.
-    Avoid copying Day's activities or launcher/deep-link intent filters wholesale.
-    https://daybrite.dev/docs/navigation/
+    Android-only additions Day merges into its generated manifest; delete the file to use the
+    defaults. https://daybrite.dev/docs/platforms/android-mdc#manifest-customization
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
     <application>
-        <!-- Example: add SDK metadata here (use the SDK's documented name and value).
+        <!-- For example, an SDK's metadata:
         <meta-data android:name="com.example.sdk.OPTION" android:value="true" />
-        -->
-
-        <!-- To customize Day's main activity, match its fully qualified name.
-             Add only the attributes or intent filters your app actually needs.
-        <activity android:name="dev.daybrite.day.bridge.DayActivity" />
         -->
     </application>
 </manifest>

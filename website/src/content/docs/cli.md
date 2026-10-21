@@ -340,6 +340,10 @@ unnecessary. There is one image, and its screen is whatever size the emulator is
 (1280x800), or a literal `WxH`, and `--orientation` turns it. `ID` and `--os` are rejected for
 this target.
 
+On Android, `--orientation portrait` or `landscape` pins the display, and the pin stays in the
+virtual device's data across reboots. `day devices boot -t android-mdc --orientation auto` releases
+it, so turning the emulator turns the app again.
+
 
 Without a device flag, a launch goes to every runtime of that kind it can see: every booted iOS
 simulator, every connected Android device and emulator. That suits a capture sweep. To target one
@@ -404,6 +408,9 @@ several simulators at once (a capture sweep) opens none of them.
 Device Hub shows nothing for a device that is still booting and does not correct itself
 afterwards, so a boot that is going to open a window waits for the device first. `--headless`
 skips both the wait and the window.
+
+To tap and type in the app, use a simulator on iOS 18 or newer. Device Hub shows a simulator on
+iOS 17 or older but can't send it touches or keys, so Day prints a warning when it opens one.
 
 `day devices shutdown` is the other direction. Both spellings of an Android emulator work — the adb
 serial the listing reports, or the AVD name you booted it by — and the command waits until the
@@ -584,6 +591,11 @@ height = 640
 [app.ios]
 title = "Showcase Mobile"
 ```
+
+`[window]` sets the main window's size and minimum size in points (`width`, `height`,
+`min_width`, `min_height`). The generated `res::window_options()` carries them into the desktop
+window, and `day build` writes them into the Android manifest and the iOS Info.plist, so a
+resizable window on any platform starts and stops at the same sizes.
 
 `day metadata` prints the project's identity, targets, and per-target resolved values;
 `--json` emits a versioned, machine-readable envelope (this is what the VS Code extension

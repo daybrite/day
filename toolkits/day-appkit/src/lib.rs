@@ -371,6 +371,155 @@ fn encode_bitmap(
     Ok(data.to_vec())
 }
 
+thread_local! {
+    /// Each realized list item's current props, by its view: a patch updates one part and the
+    /// item is re-dressed from the whole (docs/list.md "List items").
+    static LIST_ITEMS: std::cell::RefCell<std::collections::HashMap<usize, day_spec::props::ListItemProps>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// A list row's standard content (docs/list.md "List items"), as an image-and-text table cell
+/// draws it: a 16pt template image, the title in the system font with a smaller secondary
+/// subtitle under it, a secondary trailing value, and the accent checkmark, in a horizontal
+/// stack at least 28pt tall. Parts that are absent are hidden, and the stack closes up around
+/// them.
+fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> Retained<NSView> {
+    use objc2_app_kit::{
+        NSImageView, NSLayoutAttribute, NSStackView, NSUserInterfaceLayoutOrientation,
+    };
+    let label = |text: &str, size: f64, secondary: bool| {
+        let tf = unsafe { NSTextField::labelWithString(&NSString::from_str(text), mtm) };
+        unsafe {
+            tf.setFont(Some(&objc2_app_kit::NSFont::systemFontOfSize(size)));
+            if secondary {
+                tf.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
+            }
+            tf.setLineBreakMode(objc2_app_kit::NSLineBreakMode::ByTruncatingTail);
+        }
+        tf
+    };
+    let size = unsafe { objc2_app_kit::NSFont::systemFontSize() };
+    let small = unsafe { objc2_app_kit::NSFont::smallSystemFontSize() };
+    let stack = NSStackView::new(mtm);
+    stack.setOrientation(NSUserInterfaceLayoutOrientation::Horizontal);
+    stack.setAlignment(NSLayoutAttribute::CenterY);
+    stack.setSpacing(6.0);
+    // A table row's breathing room above and below; the list gives the sides.
+    stack.setEdgeInsets(objc2_foundation::NSEdgeInsets {
+        top: 4.0,
+        left: 0.0,
+        bottom: 4.0,
+        right: 0.0,
+    });
+    let icon = unsafe { NSImageView::new(mtm) };
+    unsafe {
+        icon.setImageScaling(objc2_app_kit::NSImageScaling::ScaleProportionallyUpOrDown);
+        icon.widthAnchor()
+            .constraintEqualToConstant(16.0)
+            .setActive(true);
+        icon.heightAnchor()
+            .constraintEqualToConstant(16.0)
+            .setActive(true);
+    }
+    stack.addArrangedSubview(&icon);
+    let texts = NSStackView::new(mtm);
+    texts.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
+    texts.setAlignment(NSLayoutAttribute::Leading);
+    texts.setSpacing(1.0);
+    let title = label("", size, false);
+    let subtitle = label("", small, true);
+    // The words take the width and give way first, truncating, before the trailing parts.
+    unsafe {
+        title.setContentCompressionResistancePriority_forOrientation(
+            250.0,
+            objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
+        );
+        subtitle.setContentCompressionResistancePriority_forOrientation(
+            250.0,
+            objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
+        );
+    }
+    texts.addArrangedSubview(&title);
+    texts.addArrangedSubview(&subtitle);
+    texts.setContentHuggingPriority_forOrientation(
+        1.0,
+        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
+    );
+    stack.addArrangedSubview(&texts);
+    let detail = label("", size, true);
+    stack.addArrangedSubview(&detail);
+    let check = unsafe { NSImageView::new(mtm) };
+    unsafe {
+        check.setImage(
+            objc2_app_kit::NSImage::imageWithSystemSymbolName_accessibilityDescription(
+                &NSString::from_str("checkmark"),
+                None,
+            )
+            .as_deref(),
+        );
+        check.setContentTintColor(Some(&objc2_app_kit::NSColor::controlAccentColor()));
+    }
+    stack.addArrangedSubview(&check);
+    let view = Retained::from(<NSStackView as AsRef<NSView>>::as_ref(&stack));
+    LIST_ITEMS.with(|m| m.borrow_mut().insert(ptr_of(&view), p.clone()));
+    dress_list_item(&view, p, mtm);
+    view
+}
+
+/// Show `p` on a list item's stack (see [`make_list_item`]), as one accessibility element.
+fn dress_list_item(view: &NSView, p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) {
+    use objc2_app_kit::{NSImageView, NSStackView};
+    let Some(stack) = view.downcast_ref::<NSStackView>() else {
+        return;
+    };
+    let parts = stack.arrangedSubviews();
+    if parts.len() < 4 {
+        return;
+    }
+    let icon = parts.objectAtIndex(0);
+    if let Some(iv) = icon.downcast_ref::<NSImageView>() {
+        let image = p
+            .icon
+            .as_ref()
+            .and_then(|i| toolbar::image_for(i, &p.title, mtm));
+        unsafe {
+            iv.setImage(image.as_deref());
+            iv.setContentTintColor(p.icon_tint.map(nscolor).as_deref());
+        }
+    }
+    icon.setHidden(p.icon.is_none());
+    if let Some(texts) = parts.objectAtIndex(1).downcast_ref::<NSStackView>() {
+        let lines = texts.arrangedSubviews();
+        if lines.len() == 2 {
+            if let Some(tf) = lines.objectAtIndex(0).downcast_ref::<NSTextField>() {
+                tf.setStringValue(&NSString::from_str(&p.title));
+            }
+            let sub = lines.objectAtIndex(1);
+            if let Some(tf) = sub.downcast_ref::<NSTextField>() {
+                tf.setStringValue(&NSString::from_str(&p.subtitle));
+            }
+            sub.setHidden(p.subtitle.is_empty());
+        }
+    }
+    let detail = parts.objectAtIndex(2);
+    if let Some(tf) = detail.downcast_ref::<NSTextField>() {
+        tf.setStringValue(&NSString::from_str(&p.detail));
+    }
+    detail.setHidden(p.detail.is_empty());
+    parts.objectAtIndex(3).setHidden(!p.checked);
+    let words = [&p.title, &p.subtitle, &p.detail]
+        .into_iter()
+        .filter(|w| !w.is_empty())
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(", ");
+    unsafe {
+        view.setAccessibilityElement(true);
+        view.setAccessibilityLabel(Some(&NSString::from_str(&words)));
+        view.setAccessibilitySelected(p.checked);
+    }
+}
+
 /// The `NSImage` behind an [`day_spec::ImageSource`] (docs/images.md).
 ///
 /// Shared by realize and the `Source` patch: a swapped source must load exactly what a fresh
@@ -6507,6 +6656,8 @@ impl Toolkit for AppKit {
             Cap::Cursor => Support::Native,
             // `NSFontManager` enumerates every family and member (docs/fonts.md).
             Cap::FontList => Support::Native,
+            // An image-and-text table cell's content (docs/list.md "List items").
+            Cap::ListItem => Support::Native,
             // ImageIO behind `NSBitmapImageRep` reads every container macOS knows and writes
             // back PNG/JPEG/TIFF/BMP/GIF, and carries the container's own metadata dictionary
             // (docs/images.md).
@@ -7538,6 +7689,13 @@ impl Toolkit for AppKit {
                 });
                 view_of(iv)
             }
+            Some(Builtin::ListItem) => {
+                let Some(p) = props_of::<day_spec::props::ListItemProps>(kind, "appkit", props)
+                else {
+                    return placeholder_view(mtm, kind);
+                };
+                make_list_item(p, mtm)
+            }
             // A recycled list cell is ADOPTED from the native list, never realized
             // through this path; anything else is an extension piece.
             Some(Builtin::ListCell) | None => {
@@ -7555,6 +7713,28 @@ impl Toolkit for AppKit {
 
     fn update(&mut self, h: &Handle, kind: PieceKind, patch: &dyn Any, _anim: Option<&AnimSpec>) {
         match kind {
+            kinds::LIST_ITEM => {
+                let Some(p) = patch.downcast_ref::<day_spec::props::ListItemPatch>() else {
+                    return;
+                };
+                let props = LIST_ITEMS.with(|m| {
+                    let mut m = m.borrow_mut();
+                    let props = m.get_mut(&ptr_of(h))?;
+                    use day_spec::props::ListItemPatch as P;
+                    match p {
+                        P::Title(t) => props.title = t.clone(),
+                        P::Subtitle(t) => props.subtitle = t.clone(),
+                        P::Detail(t) => props.detail = t.clone(),
+                        P::Icon(i) => props.icon = i.clone(),
+                        P::IconTint(c) => props.icon_tint = *c,
+                        P::Checked(on) => props.checked = *on,
+                    }
+                    Some(props.clone())
+                });
+                if let Some(props) = props {
+                    dress_list_item(h, &props, self.mtm());
+                }
+            }
             kinds::IMAGE => {
                 if let Some(p) = patch.downcast_ref::<day_spec::props::ImagePatch>() {
                     match p {
@@ -7754,6 +7934,7 @@ impl Toolkit for AppKit {
                     tints,
                     menus,
                     selected,
+                    rows_changed,
                     ..
                 }) = patch.downcast_ref::<NavMenuPatch>()
                 {
@@ -7773,6 +7954,22 @@ impl Toolkit for AppKit {
                             menus,
                         );
                         data.ivars().suppress.set(true);
+                        // The same rows with new words or counts: reload just those rows, which
+                        // keeps the selection and every other row's view.
+                        if let Some(rows) = rows_changed {
+                            let set = objc2_foundation::NSMutableIndexSet::new();
+                            for row in rows.iter().filter_map(|i| data.row_of_item(*i)) {
+                                unsafe { set.addIndex(row) };
+                            }
+                            unsafe {
+                                outline.reloadDataForRowIndexes_columnIndexes(
+                                    &set,
+                                    &objc2_foundation::NSIndexSet::indexSetWithIndex(0),
+                                )
+                            };
+                            data.ivars().suppress.set(false);
+                            return;
+                        }
                         unsafe {
                             outline.reloadData();
                             match selected.and_then(|i| data.row_of_item(i)) {
@@ -8427,6 +8624,7 @@ impl Toolkit for AppKit {
         }
     }
     fn release(&mut self, h: Handle) {
+        LIST_ITEMS.with(|m| m.borrow_mut().remove(&ptr_of(&h)));
         // A released window content = that window is gone (docs/windows.md teardown):
         // drop the SecondaryWin (closing a straggler NSWindow) and its delegate with it.
         // (A re-fired windowWillClose emits to a torn-down node: dropped, harmless.)
@@ -8740,6 +8938,12 @@ impl Toolkit for AppKit {
                 )
             }
             kinds::DIVIDER => Size::new(p.width.unwrap_or(0.0), 5.0),
+            // The stack's own fitting size, at least a table row's 28pt; the words truncate to
+            // the row's width.
+            kinds::LIST_ITEM => {
+                let s = h.fittingSize();
+                Size::new(p.width.unwrap_or(s.width.ceil()), s.height.ceil().max(28.0))
+            }
             kinds::PROGRESS => {
                 // Indeterminate spinner is a fixed square; determinate bar fills width.
                 let indeterminate = h
@@ -9075,6 +9279,19 @@ impl Toolkit for AppKit {
             && let Some(doc) = unsafe { sv.documentView() }
         {
             unsafe { doc.setFrameSize(NSSize::new(content.width, content.height)) };
+        }
+    }
+
+    /// A macOS table row: the dense rows of a Finder or Mail list, 28pt for an icon and a line of body text.
+    fn list_row_metrics(&mut self, _h: &Handle) -> day_spec::RowMetrics {
+        day_spec::RowMetrics {
+            insets: day_spec::Insets {
+                top: 4.0,
+                leading: 8.0,
+                bottom: 4.0,
+                trailing: 8.0,
+            },
+            min_height: 28.0,
         }
     }
 
