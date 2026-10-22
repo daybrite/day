@@ -8,6 +8,7 @@ import collections
 import json
 import sys
 import xml.etree.ElementTree as ET
+from urllib.parse import urlsplit
 
 ROOT=Path(__file__).resolve().parents[2]
 WORK=ROOT/'.cache/docs'
@@ -36,10 +37,23 @@ class Page(HTMLParser):
 
 def main():
     results=[];sitemap={n.text for n in ET.parse(DIST/'sitemap.xml').findall('.//{http://www.sitemaps.org/schemas/sitemap/0.9}loc')}
+    catalog=json.loads((ROOT/'website/src/data/content-routes.json').read_text())
+    unpublished={p['route'] for p in catalog.values() if p.get('published') is False}
+    unpublished.add('/contributing/design')
+    publication_failures=[]
+    for route in sorted(unpublished):
+        if (DIST/route.lstrip('/')/'index.html').exists():
+            publication_failures.append(f'Unpublished source rendered: {route}')
+        if 'https://daybrite.dev'+route in sitemap:
+            publication_failures.append(f'Unpublished source in sitemap: {route}')
     for f in sorted(DIST.rglob('index.html')):
         if f.is_relative_to(DIST / 'api'):
             continue  # Rustdoc has its own templates and a separate bundle check.
         route='/' if f.parent==DIST else '/'+str(f.parent.relative_to(DIST));p=Page();p.feed(f.read_text());issues=[]
+        for href in p.links:
+            link=urlsplit(href or '')
+            if link.netloc in ('', 'daybrite.dev') and link.path.rstrip('/') in unpublished:
+                issues.append(f'Link to unpublished source: {href}')
         if p.h1!=1:issues.append(f'H1 count: {p.h1}')
         if p.main!=1:issues.append(f'main count: {p.main}')
         if p.lang!='en':issues.append('Missing/wrong document language')
@@ -55,8 +69,8 @@ def main():
             if level>previous+1:issues.append(f'Heading jump: {previous} to {level}')
             previous=level
         results.append({'route':route,'title':p.title_text,'issues':issues})
-    out={'pages':len(results),'failed':[r for r in results if r['issues']],'results':results}
+    out={'pages':len(results),'failed':[r for r in results if r['issues']],'publication_failures':publication_failures,'results':results}
     (WORK/'site-audit.json').write_text(json.dumps(out,indent=2)+'\n')
-    print(json.dumps({'pages':out['pages'],'failed':out['failed']},indent=2))
-    return int(bool(out['failed']))
+    print(json.dumps({'pages':out['pages'],'failed':out['failed'],'publication_failures':publication_failures},indent=2))
+    return int(bool(out['failed'] or publication_failures))
 if __name__=='__main__':sys.exit(main())

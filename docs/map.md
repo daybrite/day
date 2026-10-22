@@ -1,6 +1,6 @@
 ---
 title: "Map view"
-description: "A native map piece — MapKit and Google Maps arms — with markers and camera control."
+description: "Embed a MapKit map on macOS or iOS, set its region, and add a marker."
 ---
 
 <!--
@@ -8,16 +8,31 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Map view (external piece)
+# Map view
 
-> **Status: implemented** as `day-piece-map`, an external Day Piece (like `day-piece-media`),
-> registered link-time into each backend's renderer slice without touching day. It wraps the
-> platform's native map view (`MKMapView`) and is the reference for a piece that supports a subset
-> of backends: only AppKit and UIKit render a real map. It fills the space it's
-> offered (constrain it with `.frame(w, h)`).
+Show a place on an embedded map, set the visible region, and add a marker. `day-piece-map`
+uses MapKit on macOS and iOS; other targets currently show a placeholder.
+
+## Add to your app
+
+Defined in [`day-piece-map`](https://github.com/daybrite/day/tree/main/pieces/day-piece-map). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-map = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit | MapKit map and marker; no API key required. |
+| GTK, Qt, Android, WinUI, ArkUI, Web | No map renderer; shows a placeholder. |
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -46,35 +61,37 @@ earlier one. `Map` implements `Piece`, so `.id()` / `.a11y()` / `.frame()`
 chain via `Decorate`. It's a growing leaf (`Flex { grow_w, grow_h }` + `day_pieces::fill_measure`),
 so put it in a `.frame(w, h)` (or last in a `column`) and it fills the space it's offered.
 
-The span is a coarse zoom knob (a `MKCoordinateSpan` latitude/longitude delta). v1 keeps a single
+The span is a coarse zoom knob (a [`MKCoordinateSpan`](https://developer.apple.com/documentation/mapkit/mkcoordinatespan) latitude/longitude delta). v1 keeps a single
 marker and no delegate callbacks (tap/region-change readback); the `Event::custom` channel is
 where those would be added later.
 
-## Per-backend native realization
+## Per-toolkit native realization
+
+Platform guidance: [Apple: maps](https://developer.apple.com/design/human-interface-guidelines/maps); [Apple: MapKit](https://developer.apple.com/documentation/mapkit).
 
 | | AppKit | UIKit | GTK / Qt / Android / XAML |
 |---|---|---|---|
-| control | `MKMapView` (NSView) | `MKMapView` (UIView) | — (placeholder leaf) |
+| control | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) ([NSView](https://developer.apple.com/documentation/appkit/nsview)) | [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) ([UIView](https://developer.apple.com/documentation/uikit/uiview)) | — (placeholder leaf) |
 | native code | `objc2-map-kit` typed binding | hand-rolled `extern_class!` + `msg_send!` | none |
 | region | `setRegion(MKCoordinateRegion)` | `setRegion:animated:` | — |
-| marker | `MKPointAnnotation` + `addAnnotation` | `MKPointAnnotation` + `addAnnotation:` | — |
+| marker | [`MKPointAnnotation`](https://developer.apple.com/documentation/mapkit/mkpointannotation) + `addAnnotation` | [`MKPointAnnotation`](https://developer.apple.com/documentation/mapkit/mkpointannotation) + `addAnnotation:` | — |
 | recenter | `setCenterCoordinate:animated:` | `setCenterCoordinate:animated:` | — |
 
-**Backend notes:**
+**Toolkit notes:**
 
-- **AppKit**: `objc2-map-kit` binds `MKMapView` as an `NSView` subclass (macOS only). The region is
+- **AppKit**: `objc2-map-kit` binds [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) as an [`NSView`](https://developer.apple.com/documentation/appkit/nsview) subclass (macOS only). The region is
   an `MKCoordinateRegion { center: CLLocationCoordinate2D, span: MKCoordinateSpan }` built from the
-  props; a marker is an `MKPointAnnotation` added via the typed `addAnnotation`. MapKit renders
+  props; a marker is an [`MKPointAnnotation`](https://developer.apple.com/documentation/mapkit/mkpointannotation) added via the typed `addAnnotation`. MapKit renders
   without a key: no developer token or entitlement is needed for a plain map. The recenter patch uses
   `setCenterCoordinate:animated:` (keeps the current zoom).
-- **UIKit**: `objc2-map-kit` generates the `MKMapView` struct for macOS only (the WKWebView /
-  AVPlayerViewController situation again), so the piece hand-rolls the class via `extern_class!` +
-  `msg_send!` and reuses the crate's cross-platform `MKCoordinateRegion` / `MKPointAnnotation`. MapKit
+- **UIKit**: `objc2-map-kit` generates the [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) struct for macOS only (the [WKWebView](https://developer.apple.com/documentation/webkit/wkwebview) /
+  [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller) situation again), so the piece hand-rolls the class via `extern_class!` +
+  `msg_send!` and reuses the crate's cross-platform [`MKCoordinateRegion`](https://developer.apple.com/documentation/mapkit/mkcoordinateregion) / [`MKPointAnnotation`](https://developer.apple.com/documentation/mapkit/mkpointannotation). MapKit
   + CoreLocation must be linked for the ObjC classes to register; they're declared via
   `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` and linked by the generated
   DayPieces SwiftPM package (the framework-contribution mechanism).
 - **GTK / Qt / Android / XAML / mock**: the features exist (so an app can enable
-  `day-piece-map/<feature>` uniformly per backend) but register no renderer; the map kind falls
+  `day-piece-map/<feature>` uniformly per toolkit) but register no renderer; the map kind falls
   back to day's placeholder leaf. There is no de-facto native slippy-map widget in these toolkits
   without a heavy external dependency (a WebView + tile provider, `osm-gps-map`, `QtLocation`, Google
   Maps SDK, `MapControl`), each with different API-key and licensing requirements, which is out of scope for a
@@ -85,17 +102,8 @@ where those would be added later.
 
 `day-piece-map` is the counterpart to [day-piece-lottie](https://github.com/daybrite/day-piece-lottie): a piece whose demo page is `#[cfg]`-gated
 to the platforms it supports (`macos` + `ios`). The front-end compiles everywhere (it depends only
-on core day crates), but the `map` page and the crate's backend features are enabled only for the
-Apple backends; every other backend renders the placeholder leaf for the `day.piece.map` kind.
+on core day crates), but the `map` page and the crate's toolkit features are enabled only for the
+Apple toolkits; every other toolkit renders the placeholder leaf for the `day.piece.map` kind.
 It also exercises the iOS framework-contribution mechanism (added for the webview/media work,
-[docs/extending.md](extending.md)): `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` links the
-system frameworks the hand-rolled `MKMapView` needs, with no changes to any core Day crate.
-
-## Testing
-
-The crate's test boots the piece on the mock toolkit (which realizes unknown kinds as plain
-widgets and ignores unknown patches, just like a backend built without the feature), moves the
-bound center (a `Center` patch), and must never panic: `cargo test -p day-piece-map`.
-
-For a live check, wire the showcase map page and use the media/webview walkthrough recipe on
-appkit/macOS: navigate to the route, `pause` so the map tiles arrive, then screenshot.
+[docs/extending](extending.md)): `[package.metadata.day.ios] frameworks = ["MapKit", "CoreLocation"]` links the
+system frameworks the hand-rolled [`MKMapView`](https://developer.apple.com/documentation/mapkit/mkmapview) needs, with no changes to any core Day crate.

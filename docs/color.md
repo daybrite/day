@@ -10,8 +10,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Color and Paint
 
-The following sections describe the current color model. The [wider color proposal](design/color.md)
-is a separate contributor design and is not implemented.
+Specify colors for text, backgrounds, and drawings with RGBA values or semantic colors that
+follow the app’s theme.
 
 ## 1. What ships
 
@@ -36,9 +36,9 @@ pub enum Paint { Solid(Color), Linear(LinearGradient), Radial(RadialGradient) }
 ```
 
 Gradient geometry is in [`UnitPoint`]s — fractions of the filled shape's bounding box — so one
-paint value works at any size. Both gradients replay through each backend's own native gradient
-(`NSGradient`, `CGGradient`, a cairo pattern, `QLinearGradient`/`QRadialGradient`, a XAML brush,
-an ArkUI gradient, a CSS gradient): all eight canvas backends draw them.
+paint value works at any size. Both gradients replay through each toolkit's own native gradient
+([`NSGradient`](https://developer.apple.com/documentation/appkit/nsgradient), [`CGGradient`](https://developer.apple.com/documentation/coregraphics/cggradient), a cairo pattern, [`QLinearGradient`](https://doc.qt.io/qt-6/qlineargradient.html)/[`QRadialGradient`](https://doc.qt.io/qt-6/qradialgradient.html), a XAML brush,
+an ArkUI gradient, a CSS gradient): all eight canvas toolkits draw them.
 
 ## 2. Where each one is accepted
 
@@ -67,19 +67,18 @@ native container, its corner radius, and its clipping.
 
 Semantic colors are a separate question. There is no `theme::` token module, because default
 appearance is native by construction: text, controls, separators and window grounds take the
-platform's dynamic colors inside each backend, and a form card takes
+platform's dynamic colors inside each toolkit, and a form card takes
 `SurfaceRole::SectionCard`. Apps state only the colors they choose. An app-level light or dark
 choice is the settings surface's theme row ([settings](settings.md), "The General group"); on
 Android that choice recreates the activity through a crossfade, described there.
 
-Those grounds come in PAIRS, and a backend has to take both halves of one. iOS is the clearest
+Those grounds come in PAIRS, and a toolkit has to take both halves of one. iOS is the clearest
 case: `systemGroupedBackground` behind and `secondarySystemGroupedBackground` for the cards that
 sit on it — the pairing every Settings-shaped screen uses, and the one that makes a split's two
 columns read as one surface rather than two white sheets meeting at a seam. day-uikit paints a
 navigation page with the first and `SectionCard` with the second (2026-09). It used to pair the
 plain ground with a translucent `tertiarySystemFill` card; changing either alone leaves grey on
-grey or a card that cannot be seen. DESIGN.md
-[§6.3](../DESIGN.md#63-semantic-theme-tokens) records that decision and why it has held.
+grey or a card that cannot be seen.
 
 ## 3. What a native color picker can hand back
 
@@ -87,11 +86,11 @@ The picker prompted this document, so this section lists what each chooser produ
 
 | chooser | value type | models the user can author in | alpha | beyond sRGB |
 |---|---|---|---|---|
-| `NSColorPanel` (macOS) | `NSColor`, in **any** color space | grayscale, RGB, CMYK, HSB, color lists, image spectrum, crayons | opt-in | yes — Display P3 and any installed ICC profile; also **pattern** colors (an image) and **named catalog** colors |
-| `UIColorPickerViewController` (iOS) | `UIColor` | grid, spectrum, RGB/HSB sliders, hex | opt-in | yes — Display P3 on wide-gamut devices |
-| `GtkColorDialog` | `GdkRGBA` (f32) | the GTK editor's HSV plane + hex | opt-in | no — sRGB |
-| `QColorDialog` | `QColor` (Rgb / Hsv / Hsl / Cmyk / ExtendedRgb specs) | basic + custom palettes, HSV picker, eyedropper | opt-in | ExtendedRgb allows out-of-range components |
-| XAML `ColorPicker` | `Windows.UI.Color` (8-bit ARGB) | spectrum, channel sliders, hex | opt-in | no — sRGB |
+| [`NSColorPanel`](https://developer.apple.com/documentation/appkit/nscolorpanel) (macOS) | [`NSColor`](https://developer.apple.com/documentation/appkit/nscolor), in **any** color space | grayscale, RGB, CMYK, HSB, color lists, image spectrum, crayons | opt-in | yes — Display P3 and any installed ICC profile; also **pattern** colors (an image) and **named catalog** colors |
+| [`UIColorPickerViewController`](https://developer.apple.com/documentation/uikit/uicolorpickerviewcontroller) (iOS) | [`UIColor`](https://developer.apple.com/documentation/uikit/uicolor) | grid, spectrum, RGB/HSB sliders, hex | opt-in | yes — Display P3 on wide-gamut devices |
+| [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | [`GdkRGBA`](https://docs.gtk.org/gdk4/struct.RGBA.html) (f32) | the GTK editor's HSV plane + hex | opt-in | no — sRGB |
+| [`QColorDialog`](https://doc.qt.io/qt-6/qcolordialog.html) | [`QColor`](https://doc.qt.io/qt-6/qcolor.html) (Rgb / Hsv / Hsl / Cmyk / ExtendedRgb specs) | basic + custom palettes, HSV picker, eyedropper | opt-in | ExtendedRgb allows out-of-range components |
+| XAML [`ColorPicker`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.colorpicker) | [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color) (8-bit ARGB) | spectrum, channel sliders, hex | opt-in | no — sRGB |
 | `<input type="color">` | `#rrggbb` string | the browser's own UI | new `alpha` attribute, still shipping | new `colorspace="display-p3"` attribute, still shipping |
 
 There are four things in that table that `Color` cannot carry. Opacity is not one of them;
@@ -106,16 +105,20 @@ There are four things in that table that `Color` cannot carry. Opacity is not on
    as its own state to avoid this ([day-piece-colorpicker](colorpicker.md)'s composed panel does
    exactly that, per presentation), but the *bound value* still cannot express it, so the state
    dies when the panel closes.
-3. **Dynamic system colors.** `NSColor.controlAccentColor`, `?attr/colorPrimary`, the XAML accent
+3. **Dynamic system colors.** [`NSColor.controlAccentColor`](https://developer.apple.com/documentation/appkit/nscolor), `?attr/colorPrimary`, the XAML accent
    brushes: these are rules the OS re-evaluates on a theme change, an accent-color change, or an
    increase-contrast setting, rather than fixed values. Flattening one into four floats freezes
-   it at the moment it was read. Today an app cannot bind to one at all, which is the gap
-   DESIGN.md §6.3 leaves open.
+   it at the moment it was read. Today an app cannot bind to one at all.
 4. **Pattern and named-catalog colors** (AppKit only). An image is not a color and will never fit
    in this type. The color picker's AppKit arm drops such a pick
    rather than reporting a wrong value.
 
-Gradients come up here too. No color picker on any platform returns a gradient; the gradient gap
-is in §2, where the surfaces that take a color do not take a `Paint`.
+No color picker on any platform returns a gradient. The color-valued surfaces described above
+do not accept a `Paint`.
 
 ---
+
+## Platform guidance
+
+- [Apple: color](https://developer.apple.com/design/human-interface-guidelines/color)
+- [Windows: color picker](https://learn.microsoft.com/en-us/windows/apps/design/controls/color-picker)

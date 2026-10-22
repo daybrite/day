@@ -60,7 +60,7 @@ and `.on_key` marks the view as well, so a backend claims the key for it.
 **A `canvas` is focusable on every toolkit**, and observes both ways. It is the
 one built-in piece with no native control underneath, so nothing would otherwise make it the
 focused element, and without that, keys could never reach what an app draws.
-`Decorate::on_key` is built on this ([docs/menus.md](../menus.md)): keys follow focus, so a canvas
+`Decorate::on_key` is built on this ([docs/menus](../menus.md)): keys follow focus, so a canvas
 that has it hears the arrows and a text field that takes it gets them back.
 
 | backend | focusable | takes focus on press |
@@ -71,7 +71,7 @@ that has it hears the arrows and a text field that takes it gets them back.
 | Qt 6 | `Qt::StrongFocus` | the focus policy itself (click or tab) |
 | web-dom | a `tabindex` | a `pointerdown` listener |
 | XAML | `Control::IsTabStop` on a `ContentControl` host wrapped around the `Canvas` — in system XAML `IsTabStop` and `Focus` are Control members and a Panel is not a Control; WinUI 3 moved both up to `UIElement`, but the WinUI build keeps the same host | `PointerPressed` on the host, which the press reaches by bubbling out of the Canvas; the Panel also takes a transparent `Background`, because an unpainted one is not hit-testable |
-| ArkUI | a focusable Stack containing a custom drawing surface and a transparent focus button; the scope's focus request reaches that button ([docs/harmonyos.md](../harmonyos.md)) | ArkUI's own focus handling |
+| ArkUI | a focusable Stack containing a custom drawing surface and a transparent focus button; the scope's focus request reaches that button ([docs/harmonyos](../harmonyos.md)) | ArkUI's own focus handling |
 | Android | `setFocusableInTouchMode`, without which `requestFocus` refuses it during touch input | `dispatchTouchEvent`, before the gesture listener, and only for a canvas the app hung `.on_key` on: in touch mode a focus move can dismiss a raised soft keyboard |
 
 Each reports `FocusChanged` both ways (`becomeFirstResponder`/`resignFirstResponder`,
@@ -88,7 +88,7 @@ checks drawing and focus on painted and empty canvases after a rendered frame.
 
 **A view that is not in a window cannot hold the keyboard**, and Day does not work around
 that. On iOS a full-screen modal takes the presenting view out of the window, so a canvas
-behind a compact inspector sheet ([docs/inspector.md](../inspector.md)) refuses focus until the
+behind a compact inspector sheet ([docs/inspector](../inspector.md)) refuses focus until the
 sheet closes; the request lapses and the signal snaps back, which is rule 2.
 
 ### Automatic keyboard dismissal on mobile
@@ -159,7 +159,7 @@ visible area and the focused field is scrolled back into view:
 
 Desktop backends have no soft keyboard, so nothing engages. Avoidance needs no per-app opt-in;
 every Day app gets it. The related programmatic primitive is `TreeOps::scroll_reveal`
-([docs/scroll.md](../scroll.md)), which scrolls any element's nearest scroll ancestor into view.
+([docs/scroll](../scroll.md)), which scrolls any element's nearest scroll ancestor into view.
 
 ## Verification scope
 
@@ -168,5 +168,5 @@ and native-runtime review against the 2026-10-22 working tree. Treat those detai
 code examples as unverified for this revision. The
 [technical-review ledger](https://github.com/daybrite/day/blob/main/docs/history/documentation/coverage.csv)
 records its status. Code blocks are API excerpts or integration fragments unless explicitly
-designated in the [example catalog](https://daybrite.dev/docs/reference/examples/catalog#technical-recipes).
+designated in the [example catalog](/docs/reference/examples/catalog#technical-recipes).
 No current all-platform pass or screenshot attribution is established by this page.

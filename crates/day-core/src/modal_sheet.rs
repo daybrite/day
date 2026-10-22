@@ -37,6 +37,7 @@ impl Piece for ComposedSheet {
                 kinds::CONTAINER,
                 &day_spec::props::ContainerProps {
                     background: Some(SHEET_SCRIM),
+                    role: Some(day_spec::SurfaceRole::Scrim),
                     ..Default::default()
                 },
                 Rc::new(FillLayout),

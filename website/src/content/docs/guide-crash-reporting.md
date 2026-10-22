@@ -10,7 +10,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-`day-piece-break` saves crash reports on the device. On the next launch, the app can show the report
+[`day-piece-break`](/docs/reference/break) saves crash reports on the device. On the next launch, the app can show the report
 and offer to send it by HTTP, GitHub issue, or email. Reports are sent only through an explicit user action. The steps below show how to capture
 a crash, display the report after restarting, and let the user decide whether to send it.
 
@@ -101,7 +101,7 @@ Effect::new(move || {
 
 Three transports ship with the crate:
 
-- **`RestReporter::new(url)`** POSTs the report JSON via `day-part-http`, off the UI thread;
+- **`RestReporter::new(url)`** POSTs the report JSON via [`day-part-http`](/docs/reference/http), off the UI thread;
   `.named("our crash server")` sets the name shown to the user. It's also the shape a
   GitHub-issue proxy takes: a small server accepts the JSON and opens the issue with your repo
   token held server-side, never on the device.
@@ -131,7 +131,7 @@ a failure.
   `day::launch`.
 - Release backtraces carry symbols, not lines. The release profile ships no debug info by
   default. For `file:line` in release reports, add `[profile.release] debug =
-  "line-tables-only"` in your own workspace; day-piece-break doesn't change the global profile. For
+  "line-tables-only"` in your own workspace; [day-piece-break](/docs/reference/break) doesn't change the global profile. For
   native faults, `signal.pc - signal.slide` is the module-relative address to symbolize
   offline.
 - `Unknown` is not a crash. A leftover session with no crash artifact (an OS kill, power

@@ -8,22 +8,37 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Stepper field (external piece)
+# Stepper field
 
-> **Status: implemented** as `day-piece-stepper`. Three toolkits get a native renderer
-> registered link-time into their slice: an `NSTextField` + `NSStepper` composite on AppKit
-> (macOS has no combined control; the pair is the platform idiom), `GtkSpinButton`, and a
-> `QDoubleSpinBox` shim. Every other target gets the same composed row, built from
-> ordinary Day pieces. Verified on macos-appkit, macos-gtk, macos-qt, ios-uikit, android-mdc
-> and web-dom through Day-Sketch's inspector walkthrough.
+Let people adjust a number in steps, such as a quantity, zoom level, or dimension.
+`day-piece-stepper` binds the value to app state and uses a native numeric control where
+available, with a composed control on other targets.
+
+## Add to your app
+
+Defined in [`day-piece-stepper`](https://github.com/daybrite/day/tree/main/pieces/day-piece-stepper). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-stepper = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, GTK, Qt | Native numeric stepper. |
+| UIKit, Android, WinUI, ArkUI, Web | Composed control. Forcing `.native()` on these targets shows a placeholder. |
 
 `stepper(value)` is a numeric **stepper field**: a text field with increment/decrement arrows,
-bound two-way to any `Binding<f64>` (a `Signal<f64>`, a day-model `Field`, or an app's own
+bound two-way to any `Binding<f64>` (a `Signal<f64>`, a [day-model](/docs/explanation/model) `Field`, or an app's own
 binding over a selection). Each arrow click, and each settled edit (Return, focus loss), lands
 through `write_commit`, so under an undo stack every click is one undoable step.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -64,10 +79,15 @@ legacy bridge's empty tag), but ignores unrelated custom events, including the
 edits would create duplicate undo entries. `set_value:` still delivers one preview followed
 by one commit, so a binding can retain the value from before the gesture for undo.
 
-## Verification status
+> [!NOTE]
+> **Windows and Web / DOM: composed control.**
+> These targets use the composed stepper rather than a native numeric input.
+> It is built from ordinary Day pieces.
 
-The AppKit, GTK and Qt arms plus the composed row are exercised by Day-Sketch's walkthrough
-(the stroke-width row of its inspector). There is no XAML or web arm yet. Both platforms have
-native spin controls (a WinUI `NumberBox`, `<input type="number">`), and arms for them are
-welcome, but the composed row already behaves correctly there, so they are an upgrade rather
-than a gap.
+## Platform guidance
+
+The AppKit renderer combines [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) and [`NSStepper`](https://developer.apple.com/documentation/appkit/nsstepper); GTK uses [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html), and
+Qt uses [`QDoubleSpinBox`](https://doc.qt.io/qt-6/qdoublespinbox.html). Other targets compose the control from ordinary Day pieces.
+
+- [Apple: steppers](https://developer.apple.com/design/human-interface-guidelines/steppers)
+- [Windows: number boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/number-box)

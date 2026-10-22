@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 `linux-gtk` is a Tier 2 desktop target using GTK 4 and libadwaita. It provides a GTK interface
 for the app code you share with other systems. Install the development libraries required by
-your distribution and check the backend’s accessibility limitations before choosing it.
+your distribution and check the toolkit’s accessibility limitations before choosing it.
 
 ## Getting started
 
@@ -29,7 +29,7 @@ cd my-app
 day launch -t linux-gtk
 ```
 
-Add `libwebkitgtk-6.0-dev` if you use the web view piece. Sound effects play through libpulse,
+Add `libwebkitgtk-6.0-dev` if you use the web view piece. Sound effects play through [libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/),
 which a desktop already has ([system requirements](/docs/reference/system-requirements#optional-sound-effects)). `day doctor --toolkit gtk` probes
 GTK 4, libadwaita, librsvg, `glib-compile-resources`, and the packaging tools (`flatpak-builder`,
 `linuxdeploy`, `linuxdeploy-plugin-gtk`); it does not check WebKitGTK.
@@ -47,15 +47,15 @@ marks it executable and runs it.
 
 - libadwaita is required. The window, navigation, tabs, dialogs and animations are all
   Adwaita types; a plain-GTK build is not a supported configuration.
-- `GtkVideo` needs a GStreamer media backend in the GTK build. Distro packages ship one;
-  Homebrew's gtk4 does not, so the media piece shows GTK's own "no media backend" error on
+- [`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html) needs a GStreamer media toolkit in the GTK build. Distro packages ship one;
+  Homebrew's gtk4 does not, so the media piece shows GTK's own "no media toolkit" error on
   `macos-gtk`.
 - Lottie and map have no GTK arm; each renders its placeholder. `cover()` presents as
   a topmost window-sized child (no transition, programmatic dismissal only).
-- The combo box uses `GtkComboBoxText`, deprecated in GTK 4.10 but kept because GTK has no
+- The combo box uses [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html), deprecated in GTK 4.10 but kept because GTK has no
   editable replacement yet.
-- A `progress` node picks its widget at realize time: `progress(f)` becomes a `GtkProgressBar`
-  and `spinner()` a `GtkSpinner`. A node that starts indeterminate will not turn into a bar on a
+- A `progress` node picks its widget at realize time: `progress(f)` becomes a [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html)
+  and `spinner()` a [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html). A node that starts indeterminate will not turn into a bar on a
   later value change; use separate nodes if you need both.
 - Canvas text uses cairo's toy text API, not Pango, so complex-script shaping inside a
   `canvas` is weaker than in a `label`.
@@ -69,7 +69,7 @@ marks it executable and runs it.
 
 ## What each piece becomes
 
-The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every toolkit;
 this table adds links and notes.
 
 | Day piece | GTK widget |
@@ -102,7 +102,7 @@ this table adds links and notes.
 | file dialogs | [`GtkFileDialog`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
 | menu bar / context menus | [`GtkPopoverMenuBar`](https://docs.gtk.org/gtk4/class.PopoverMenuBar.html) / [`GtkPopoverMenu`](https://docs.gtk.org/gtk4/class.PopoverMenu.html) |
 | *external* `activity()` | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) |
-| *external* `combobox()` | `GtkComboBoxText` (with entry) |
+| *external* `combobox()` | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) (with entry) |
 | *external* `search_field()` | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) |
 | *external* `date_picker()` | [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html), in a [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) popover when compact |
 | *external* `time_picker()` | linked [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html)s |
@@ -110,5 +110,5 @@ this table adds links and notes.
 | *external* `media()` | [`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html) |
 
 **Text measurement** builds a Pango layout on the label's styled context rather than calling
-`gtk_widget_measure`, because a `GtkFixed` child's size request would otherwise ratchet upward and
+[`gtk_widget_measure`](https://docs.gtk.org/gtk4/method.Widget.measure.html), because a [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html) child's size request would otherwise ratchet upward and
 never shrink.

@@ -94,6 +94,8 @@ function closeToolbarIfEmpty(strip) {
   strip.tracks = {};
   if (strip.host) {
     strip.host.classList.remove('day-has-toolbar');
+    if (strip.card) strip.card.classList.remove('day-sheet-card');
+    strip.card = null;
     coverStrips.delete(strip.host);
     for (const nav of strip.host.querySelectorAll('.day-nav.stack')) applyNavBar(nav);
   } else {
@@ -136,6 +138,7 @@ function toolbarTrack(strip, col) {
 // element that had it; everything else stays exactly where it is.
 function layoutToolbar(strip) {
   if (!strip.bar) return;
+  if (strip.host) dockSheetStrip(strip);
   const nav = (strip.host || document).querySelector('.day-nav.split');
   const pane = (sel) => nav && nav.querySelector(sel);
   const widthOf = (el) => (el && el.offsetParent !== null ? Math.round(el.getBoundingClientRect().width) : 0);
@@ -170,6 +173,43 @@ function layoutToolbar(strip) {
   }
   if (focused && focused !== document.activeElement && focused.isConnected) focused.focus();
 }
+// A composed modal sheet's strip (docs/cover.md "Modal sheet") is the card's own header, not a
+// bar across the window: back button, title and Done sit on the panel they act on. The card
+// grows a band of the strip's height over its top edge (`.day-sheet-card`, day.css) and the
+// strip lies on that band, so the page under the sheet stays frosted edge to edge. The cover
+// leaves the same height off the bottom of the frame it reports, which keeps the card and its
+// band centered together. A compact window presents the full cover instead, and the strip goes
+// back across the top.
+function sheetCard(cover) {
+  if (!cover.classList.contains('day-sheet')) return null;
+  const scrim = cover.querySelector('.day-scrim');
+  return scrim ? scrim.nextElementSibling : null;
+}
+function dockSheetStrip(strip) {
+  const card = sheetCard(strip.host);
+  const was = strip.card;
+  if (was && was !== card) was.classList.remove('day-sheet-card');
+  strip.card = card;
+  strip.bar.classList.toggle('day-sheet-strip', !!card);
+  if (!card) {
+    strip.bar.style.left = strip.bar.style.top = strip.bar.style.width = '';
+    return;
+  }
+  card.classList.add('day-sheet-card');
+  const r = card.getBoundingClientRect();
+  strip.bar.style.left = `${r.left}px`;
+  strip.bar.style.top = `${r.top}px`;
+  strip.bar.style.width = `${r.width}px`;
+}
+// A frame Day gives a sheet's card moves its strip with it.
+function followSheetCard(el) {
+  const prev = el.previousElementSibling;
+  if (!prev || !prev.classList.contains('day-scrim')) return;
+  const cover = el.closest('.day-cover');
+  const strip = cover && coverStrips.get(cover);
+  if (strip && strip.bar) dockSheetStrip(strip);
+}
+
 // Every strip, after something that can change a split's panes (a nav re-present).
 function layoutToolbars() {
   layoutToolbar(pageStrip);
@@ -536,7 +576,23 @@ function toggleToolbarMenu(anchor, items, hints) {
 document.addEventListener('pointerdown', (e) => {
   if (toolbarMenu && !toolbarMenu.contains(e.target) && !toolbarMenu.__anchor.contains(e.target)) closeToolbarMenu();
 });
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeToolbarMenu(); });
+// Escape closes what is on top: an open toolbar menu, else the topmost modal sheet (docs/cover.md
+// "Modal sheet"), as Escape cancels a sheet on a desktop, or the topmost cover with a strip of
+// its own (a settings cover on a narrow window, whose Done is on that strip). A cover with no
+// strip, a game's full window, keeps the key for its content. The cover hears it as the back
+// request a phone's back gesture makes, so one that has turned interactive dismissal off stays
+// up. A key something else already answered (a control's own Escape, a dialog's cancel) is
+// left alone.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  if (toolbarMenu) { closeToolbarMenu(); return; }
+  if (e.defaultPrevented || e.isComposing || document.querySelector('dialog[open]')) return;
+  const covers = document.querySelectorAll('.day-cover.open');
+  const top = covers[covers.length - 1];
+  if (!top || !(top.classList.contains('day-sheet') || top.classList.contains('day-has-toolbar'))) return;
+  e.preventDefault();
+  wasm.day_dom_event(top.__id, 14, 0, 0, 0, 0);
+});
 
 // Fill a <datalist> with a search field's completions (docs/search.md).
 function setSuggestions(dl, list) {
@@ -561,11 +617,10 @@ const utf8 = new TextDecoder();
 const utf8enc = new TextEncoder();
 
 // devicemotion state (see day_dom_sensor_*). One listener, both kinds.
-const SENSOR_GRACE_MS = 2000;
 // The live geolocation watch id (0 = none).
 let geoWatch = 0;
 
-const sensorState = { started: false, startedAt: 0, saw: false, accel: null, gyro: null, timers: [0, 0, 0] };
+const sensorState = { generations: [0, 0], listener: null };
 
 const mem = () => new Uint8Array(wasm.memory.buffer);
 const f64 = (ptr, len) => new Float64Array(wasm.memory.buffer, ptr, len);
@@ -760,6 +815,10 @@ const env = {
     // on every keystroke: the caret went to <body> and only the first character landed.
     if (el === ref || (el.parentNode === target && el.nextSibling === ref)) return;
     target.insertBefore(el, ref);
+    // A cover's strip travels with it (each present re-homes the cover at the end of the root),
+    // so it stays the next sibling: painted over the cover, and hidden with it when it closes.
+    const strip = coverStrips.get(el);
+    if (strip && strip.bar) el.after(strip.bar);
   },
   day_dom_remove: (child) => { const el = E(child); dropCoverStrip(el); el?.remove(); },
   day_dom_release(id) {
@@ -777,6 +836,7 @@ const env = {
     s.position = 'absolute';
     s.left = x + 'px'; s.top = y + 'px';
     s.width = w + 'px'; s.height = h + 'px';
+    followSheetCard(E(id));
   },
   // Options and selection for a picker, a segmented control or a radio group: one verb over
   // three shapes, because each is "a list of choices with one active" and the element decides
@@ -1611,53 +1671,36 @@ const env = {
   // magnetometer has no cross-browser API at all (Chromium's Generic Sensor `Magnetometer` is
   // flag-gated and absent from Safari and Firefox), so kind 2 is always unavailable.
   //
-  // Availability can only be known in retrospect: `'DeviceMotionEvent' in window` is true on a
-  // desktop browser with no hardware, so this reports "available" until a grace period passes with
-  // no event, and "unavailable" after, which is the right answer for a laptop.
-  day_dom_sensor_start(kind) {
-    if (kind === 2 || sensorState.started) return;
-    sensorState.started = true;
-    sensorState.startedAt = Date.now();
-    addEventListener('devicemotion', (e) => {
+  // API presence is not proof of hardware or permission. Only events produce readings.
+  day_dom_sensor_start(kind, generation) {
+    if (kind > 1 || !env.day_dom_sensor_available(kind)) return;
+    sensorState.generations[kind] = generation;
+    if (sensorState.listener) return;
+    sensorState.listener = e => {
+      // Capture both epochs before invoking Rust: callbacks may stop/restart either kind.
+      const [accel, gyro] = sensorState.generations;
+      const valid = values => values.every(v => typeof v === 'number' && Number.isFinite(v));
       const a = e.accelerationIncludingGravity;
-      if (a && a.x !== null) {
-        sensorState.accel = [a.x, a.y, a.z];
-        sensorState.saw = true;
-      }
+      if (accel && a && valid([a.x, a.y, a.z]))
+        wasm.day_sensors_sample(0, accel, a.x, a.y, a.z);
       const r = e.rotationRate;
-      if (r && r.alpha !== null) {
-        // day's gyroscope contract is rad/s about the device axes; the event reports deg/s, with
-        // beta about x, gamma about y and alpha about z.
+      if (gyro && r && valid([r.beta, r.gamma, r.alpha])) {
         const d = Math.PI / 180;
-        sensorState.gyro = [r.beta * d, r.gamma * d, r.alpha * d];
-        sensorState.saw = true;
+        wasm.day_sensors_sample(1, gyro, r.beta * d, r.gamma * d, r.alpha * d);
       }
-    });
+    };
+    addEventListener('devicemotion', sensorState.listener);
   },
-  /// 1 when a sample was written to `out` as three f64s, 0 when none has arrived.
-  day_dom_sensor_read(kind, out) {
-    const v = kind === 0 ? sensorState.accel : kind === 1 ? sensorState.gyro : null;
-    if (!v) return 0;
-    f64(out, 3).set(v);
-    return 1;
-  },
-  // The feed timer. wasm32 has no threads, so the browser drives sampling: this calls the module's
-  // exported day_sensors_tick(kind), which fans the newest reading out to that sensor's watchers.
-  day_dom_sensor_feed(kind, ms) {
-    if (sensorState.timers[kind]) return;
-    sensorState.timers[kind] = setInterval(() => {
-      try { wasm.day_sensors_tick(kind); } catch (e) { console.error('day: sensor tick', e); }
-    }, ms);
-  },
-  day_dom_sensor_unfeed(kind) {
-    clearInterval(sensorState.timers[kind]);
-    sensorState.timers[kind] = 0;
+  day_dom_sensor_stop(kind, generation) {
+    if (kind > 1 || sensorState.generations[kind] !== generation) return;
+    sensorState.generations[kind] = 0;
+    if (!sensorState.generations.some(Boolean) && sensorState.listener) {
+      removeEventListener('devicemotion', sensorState.listener);
+      sensorState.listener = null;
+    }
   },
   day_dom_sensor_available(kind) {
-    if (kind === 2 || typeof DeviceMotionEvent === 'undefined') return 0;
-    if (sensorState.saw) return 1;
-    // Not started yet, or still inside the grace period.
-    return !sensorState.started || Date.now() - sensorState.startedAt < SENSOR_GRACE_MS ? 1 : 0;
+    return kind < 2 && globalThis.isSecureContext === true && typeof DeviceMotionEvent !== 'undefined' ? 1 : 0;
   },
 
   // Location (docs/location.md): the browser arm of day-part-location, over

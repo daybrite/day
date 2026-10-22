@@ -8,10 +8,9 @@ description: "Interpolation, timing and frame-driven transitions for canvas anim
 
 # Tweening
 
-Native widgets animate through `with_animation`: Day hands the toolkit an `AnimSpec` and the
-toolkit animates on its own compositor. A canvas has no compositor to hand anything to. It
-re-records a display list, so something has to decide, frame by frame, what the in-between picture
-is. `day::tween` is that something, in parts that work on their own or together.
+Animate values over time to move, resize, or recolor content drawn on a canvas. `day::tween`
+provides interpolation, timing curves, and frame-driven values that redraw as they change.
+For native widget animation, use `with_animation` instead.
 
 ```rust,ignore
 use day::tween::{Lerp, Tweened};
@@ -22,7 +21,7 @@ canvas(move |d, _| d.fill(Shape::Rect(Rect::new(0.0, 0.0, 40.0, height.get())), 
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Lerp
 
@@ -41,7 +40,7 @@ values. The endpoints are returned exactly. `mix_oklab(a, b, t)` is the same ble
 `Timing::new(spec).sample(elapsed)` turns an `AnimSpec` into progress: the delay holds the start,
 easing curves run for `duration_ms`, a spring runs its analytic step response and ends at
 `duration_ms` (which `AnimSpec::spring` sets to its response, the same duration every native
-backend gives a spring), and `repeat` and `autoreverse` cycle it. Each `Sample` says whether it is
+toolkit gives a spring), and `repeat` and `autoreverse` cycle it. Each `Sample` says whether it is
 the last one; the last one is the exact end value, so nothing is left a spring's residue away from
 its target. `total()` is the run's length, or `None` for a spec that repeats forever.
 
@@ -65,7 +64,7 @@ canvas reading it re-records on every frame of its transition and at no other ti
 motion rather than snapping it; `set(value)` jumps. `Tweened::new` animates on the current page's
 window; `Tweened::on(clock, ..)` names one.
 
-Under reduced motion ([accessibility.md](accessibility.md): the user's system setting, or a
+Under reduced motion ([accessibility](accessibility.md): the user's system setting, or a
 run that forced it with `--fast` / `DAY_REDUCE_MOTION=1`) `animate_to` sets its target at once
 and `animate` finishes a finite tween on its first frame, even one already in flight when the
 setting flipped. An endless tween (`repeat: u32::MAX`) keeps running: a spinner is the one sign

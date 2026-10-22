@@ -8,15 +8,29 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Downloads (headless capability crate)
+# Downloads
 
-> **Status: implemented** as `day-part-downloads` (in `parts/`), a headless crate over
-> [day-part-http](http.md)'s client. It queues large downloads, writes each to a partial file
-> beside a journal, resumes with validated ranges, checks length and SHA-256, and retries
-> transient failures. A download can instead be handed to the OS, which keeps transferring while
-> the app is suspended or closed. The showcase's Network & HTTP page downloads 32 MiB from its
-> local test server, pauses, resumes and verifies it, then repeats the download through the OS;
-> `dayscript/network.yaml` runs that flow on macOS, iOS and Android.
+Download large files with progress, pause, resume, retries, and integrity checks.
+`day-part-downloads` manages transfers through [HTTP](/docs/reference/http) or hands them to an
+OS download service when they need to continue while the app is suspended or closed.
+
+## Add to your app
+
+Defined in [`day-part-downloads`](https://github.com/daybrite/day/tree/main/parts/day-part-downloads). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-part-downloads = { git = "https://github.com/daybrite/day.git" }
+```
+
+The implementation is selected by the compilation target; no toolkit feature flags
+or dependency entry in `Day.toml` are needed.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | In-app downloads; OS-managed downloads are available except on Linux. |
+| Web | Unavailable; opening a download manager returns `Unsupported`. |
 
 ## Authoring
 
@@ -88,7 +102,7 @@ arrive, so the SHA-256 still covers the whole file.
 
 - **Length.** `expect_len` sets the length the finished file must have. It also lets the manager
   compare the bytes still needed with the volume's free space (`statvfs`, or
-  `GetDiskFreeSpaceExW` on Windows) before a transfer starts, failing with `NoSpace`.
+  [`GetDiskFreeSpaceExW`](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getdiskfreespaceexw) on Windows) before a transfer starts, failing with `NoSpace`.
 - **SHA-256.** `expect_sha256` sets the digest, hashed as bytes arrive. A mismatch fails with
   `Integrity` and deletes the partial file, so the next attempt downloads everything again.
 - **Retries.** A timeout, a refused or dropped connection, a DNS failure, `408`, `429` and `5xx`
@@ -98,7 +112,7 @@ arrive, so the SHA-256 still covers the whole file.
 - **Limits.** `limits(total, per_host)` caps how many downloads run at once, three and two by
   default. Downloads handed to the OS do not count against them.
 
-Backoff waits on day-async's timer, and bytes arrive on the client's transport, so the manager
+Backoff waits on [day-async](/docs/explanation/async)'s timer, and bytes arrive on the client's transport, so the manager
 owns no thread while downloads run.
 
 ## Handing a download to the OS
@@ -111,11 +125,12 @@ in the app, and `Progress::tier` says which tier ran it.
 
 | Platform | Service | Pause | Notes |
 |---|---|---|---|
-| macOS, iOS | a background `URLSession`, one per process, keyed to the bundle identifier | yes, from resume data | Each task's description names the manager directory and download, so a transfer that finishes while the app is away lands in place when the app next opens the manager. A binary with no bundle identifier has no system tier. |
-| Android | `DownloadManager` | no: `pause` returns `DownloadError::Unsupported` and the transfer keeps running | The OS shows its own notification. The file lands in the app's external files directory and moves into the manager's directory when it is whole. |
-| HarmonyOS | a background task of the request agent (`request.agent`) | yes | The file lands in the app's cache directory first. |
-| Windows | the Background Intelligent Transfer Service | yes | Each download is a BITS job owned by the user, so it continues after the app quits. |
-| Linux, the web | none | | Downloads run in the app. |
+| macOS, iOS | a background [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession), one per process, keyed to the bundle identifier | yes, from resume data | Each task's description names the manager directory and download, so a transfer that finishes while the app is away lands in place when the app next opens the manager. A binary with no bundle identifier has no system tier. |
+| Android | [`DownloadManager`](https://developer.android.com/reference/android/app/DownloadManager) | no: `pause` returns `DownloadError::Unsupported` and the transfer keeps running | The OS shows its own notification. The file lands in the app's external files directory and moves into the manager's directory when it is whole. |
+| HarmonyOS | a background task of the request agent ([`request.agent`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-basic-services-kit/js-apis-request.md)) | yes | The file lands in the app's cache directory first. |
+| Windows | the [Background Intelligent Transfer Service](https://learn.microsoft.com/en-us/windows/win32/bits/background-intelligent-transfer-service-portal) | yes | Each download is a BITS job owned by the user, so it continues after the app quits. |
+| Linux | none | | Downloads run in the app. |
+| Web | none | | Download manager operations return `Unsupported`. |
 
 The OS sends only the request's URL and headers, so the client's cookies, redirect and challenge
 handlers, and pins do not apply to a download it runs. Its transient failures retry like the
@@ -158,3 +173,8 @@ code building for the web.
 
 Put the directory under [day-part-fs](fs.md)'s `data_dir()`, which keeps it beside the app's other
 files and out of the user's documents.
+
+## Platform guidance
+
+- [Android: background downloads](https://developer.android.com/develop/background-work/background-tasks/data-transfer-options)
+- [Apple: background transfers](https://developer.apple.com/documentation/foundation/downloading-files-in-the-background)

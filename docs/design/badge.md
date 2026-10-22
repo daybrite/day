@@ -58,7 +58,7 @@ carries it without forcing nine implementations.
 The counter-argument is that on iOS the badge is part of the notification system
 (`UNUserNotificationCenter.setBadgeCount`, gated on the `.badge` authorization option), and on
 Android it is *only* reachable through notifications. That is an argument for folding it into
-`day-part-local-notify`. It loses because on macOS, Linux, and Windows the badge has no relationship
+[`day-part-local-notify`](/docs/reference/notify). It loses because on macOS, Linux, and Windows the badge has no relationship
 to notifications at all, and a desktop app wanting a Dock count should not compile alarm receivers
 and boot re-arm to get one. The platforms that plumb it through notifications are an implementation
 detail a duty can hide, which is what a duty is for.
@@ -85,7 +85,7 @@ Four findings follow from that table.
 **Android cannot set a badge at all.** There is no AOSP API. The launcher dot is derived from active
 notifications, and `Notification.setNumber` is honored only by some launchers. The OEM broadcast
 workarounds (the ShortcutBadger approach) are per-vendor and break often. The answer is
-`Unsupported` on every badge cap, with the docs pointing at `day-part-local-notify`'s
+`Unsupported` on every badge cap, with the docs pointing at [`day-part-local-notify`](/docs/reference/notify)'s
 `Notification::badge(n)`, which is the correct Android path and already ships.
 
 **Windows takes a picture, not a number.** The unpackaged Win32 XAML host can only set an overlay
@@ -162,7 +162,7 @@ differs and cannot be probed.
 
 `setBadgeCount` needs the `.badge` authorization option, which is part of the notification grant. So
 on iOS a badge is invisible until the user has allowed notifications, and the duty should declare
-`uses = ["notifications"]` through the same permission machinery `day-part-local-notify` uses
+`uses = ["notifications"]` through the same permission machinery [`day-part-local-notify`](/docs/reference/notify) uses
 ([docs/permissions.md](../permissions.md)). Two subsystems declaring the same permission is fine; the app grants once.
 
 ## A naming collision to resolve first
@@ -180,7 +180,7 @@ The recommendation is to name the new surface **`app_badge`** at every layer
 **Custom graphics.** macOS can host an arbitrary view on the Dock tile (`NSDockTile.contentView`)
 and Windows overlay icons are images by nature, so a `Badge::Image` is real on two targets. It needs
 a per-platform native image type and an encode path that Day does not have at this layer;
-`day-piece-remote-image` decodes bytes into a *widget*, which is a different thing. A `Cap::BadgeImage`
+[`day-piece-remote-image`](/docs/reference/images) decodes bytes into a *widget*, which is a different thing. A `Cap::BadgeImage`
 would join the enum with it.
 
 **Progress** shipped as its own feature, `day::set_app_progress`

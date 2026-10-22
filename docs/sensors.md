@@ -1,6 +1,6 @@
 ---
 title: "Sensors"
-description: "Accelerometer, gyroscope, and magnetometer streams via day-part-sensors, including the synthetic web arm."
+description: "Event-driven accelerometer, gyroscope, and magnetometer subscriptions."
 ---
 
 <!--
@@ -8,125 +8,162 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Sensors (headless capability crate)
+# Sensors
 
-> **Status: implemented** as `day-part-sensors` (in `parts/`, the headless counterpart of `pieces/`).
-> It's a headless day-ecosystem crate (no UI Piece): a shared cross-platform API that streams the
-> device's motion sensors (accelerometer, gyroscope, magnetometer) through each platform's native
-> API. Any Rust code can depend on it and call `day_part_sensors::watch(kind, cb)`. Host
-> build/clippy/tests, the iOS, Android, HarmonyOS and wasm32 cross-compiles, and an end-to-end
-> browser check that dispatches a synthetic `devicemotion` and asserts the converted values
-> (`scripts/ci/webdom-sensor-test.mjs`, in CI) are all verified; hardware readings need a real device
-> (simulators/emulators report unavailable).
+Use motion and magnetic-field measurements for interactive controls, measurements, and live
+charts. `day-part-sensors` delivers new readings through callbacks and releases the sensor source
+when its last subscription ends.
 
-## Authoring
+## Add to your app
 
-```rust
-use day_part_sensors::SensorKind;
+Add [`day-part-sensors`](https://github.com/daybrite/day/tree/main/parts/day-part-sensors)
+to your app's Cargo dependencies, using the same Day Git source as the rest of the app:
 
-let watch = day_part_sensors::watch(SensorKind::Accelerometer, |a| {
-    println!("{:+.2} {:+.2} {:+.2} m/s²", a.x, a.y, a.z);
-});
-// Samples arrive until `watch` is dropped.
+```toml
+[dependencies]
+day-part-sensors = { git = "https://github.com/daybrite/day.git" }
 ```
 
-`watch(kind, cb) -> Watch` subscribes; dropping the handle stops delivery, and stops the platform's
-stream once the last watcher of that sensor is gone. `is_available(kind) -> bool` reports whether
-the sensor exists at all, which is how an app tells "no such sensor" apart from "no sample yet". `SensorReading { x, y, z: f64 }` is in SI units per kind:
-m/s² (`Accelerometer`, includes gravity), rad/s (`Gyroscope`), µT (`Magnetometer`). The per-OS
-impls normalize (e.g. iOS g → m/s²). Axis signs stay the platform's convention (face-up is
-`z ≈ +9.8` on Android, `z ≈ -9.8` on iOS). `is_available(kind) -> bool` checks for the hardware.
+Platform selection follows the compilation target. There are no toolkit feature flags.
 
-The API is a poll. Sensors are push-model on Android and HarmonyOS, so the first `read` lazily
-registers a listener/subscription (kept for the process lifetime) that caches the newest event.
-That means the very first `read` may return `None` until the first event lands; poll again shortly.
-iOS behaves the same (`startUpdates` + poll the data property); Linux sysfs is a true poll.
+| Platform | Source |
+| --- | --- |
+| iOS / UIKit | CoreMotion handlers, where hardware is available. |
+| Android | SensorManager events. |
+| HarmonyOS / ArkUI | SensorServiceKit callbacks. |
+| Windows / WinUI, GTK, Qt | WinRT sensor events, where hardware is available. |
+| Web / DOM | DeviceMotionEvent; accelerometer and gyroscope only. |
+| macOS / AppKit, GTK, Qt | Unavailable. |
+| Linux / GTK, Qt | Unavailable; buffered IIO support is not implemented. |
 
-The crate has no cargo features: platform selection is purely `#[cfg(target_os)]`, since a motion
-sensor depends on the OS, not on which widget toolkit is in use.
-`parts/day-part-sensors/examples/sensors.rs` is a plain `main` that uses it with no Day framework
-at all.
+## Subscribe
 
-## Per-platform native realization
+[`watch`](/api/day_part_sensors/fn.watch.html) takes a sensor kind and a callback.
+Keep the returned [`Watch`](/api/day_part_sensors/struct.Watch.html) for as long
+as you want updates. In a Day page, bind it to the reactive scope:
 
-| OS | API | dependency |
-|---|---|---|
-| iOS | CoreMotion `CMMotionManager` (start updates, read the `…Data` properties) | `objc2-core-motion` |
-| Android | `SensorManager` + a caching `SensorEventListener` via a Java shim | `day-android` + `[package.metadata.day.android]` |
-| HarmonyOS | native `OH_Sensor_Subscribe` push API caching the latest sample (`libohsensor.so`) | raw FFI (SensorServiceKit) |
-| Linux | Industrial I/O sysfs (`/sys/bus/iio/devices`, `in_accel_x_raw` × scale …) | std only |
-| macOS | none (no public motion-sensor API) | always `None` |
-| Windows | stub for now (`Windows.Devices.Sensors` is the future impl) | always `None` |
-| Web | `DeviceMotionEvent` through the day-dom shim (accelerometer and gyroscope only) | `web.rs` (wasm32; needs the day-dom host page) |
+```rust
+use day::prelude::*;
+use day_part_sensors::{SensorKind, SensorReading};
 
-iOS keeps a single `CMMotionManager` in a static (Apple's recommendation); it is not
-`MainThreadOnly`, so reads work from any thread. Raw accelerometer/gyro/magnetometer access needs
-no `NSMotionUsageDescription` (that key gates the Motion & Fitness APIs). The Simulator has no
-sensors, so the crate reports unavailable and answers `None`.
+let reading = Signal::new(None::<SensorReading>);
+let set = reading.setter();
+let watch = day_part_sensors::watch(SensorKind::Accelerometer, move |sample| {
+    set.set(Some(sample));
+});
+Scope::current().on_cleanup(move || drop(watch));
+```
 
-Android sensors need no manifest permission at the shim's `SENSOR_DELAY_UI` rate. The shim
-(`src/DaySensors.java`) registers one listener per sensor on first
-read and caches `{x, y, z}` for Rust to poll via a `double[]` JNI round-trip.
+Format localized readouts on the UI thread. The callback should pass raw measurements through
+its setter, as described in [asynchronous work](async.md).
 
-HarmonyOS is `target_os = "linux"` but sandboxes `/sys` away, so it's gated on `target_env = "ohos"`
-and uses the native SensorServiceKit C API instead: pure FFI, no Day runtime. **Permissions**: the
-accelerometer requires `ohos.permission.ACCELEROMETER` and the gyroscope
-`ohos.permission.GYROSCOPE` in the app's `module.json5` `requestPermissions`; the magnetometer needs
-none. A failed subscribe (e.g. missing permission) is released and retried on a later read.
+[`SensorReading`](/api/day_part_sensors/struct.SensorReading.html) contains
+`x`, `y`, and `z` in SI units: acceleration including gravity in m/s², angular velocity in rad/s,
+and magnetic field in µT. Axis signs follow each platform's coordinate system.
 
-## Why a stream, and what the rate is
+[`is_available`](/api/day_part_sensors/fn.is_available.html) probes support
+without starting a sensor. Native availability does not imply that permission has been granted.
+On the web it checks API support and a secure context; it cannot establish whether hardware exists.
+An unavailable or denied source delivers no samples. Request access through
+[permissions](permissions.md) before subscribing. If a native subscription fails, drop the watch
+and create another after correcting access or service availability.
 
-Every platform's sensor API is already push (`SensorEventListener`, CoreMotion handlers,
-`OH_Sensor_Subscribe`, `devicemotion`), so the older `read()` poll inverted them: each per-OS arm
-had to cache the newest event so a caller could ask for it. `watch`
-removes that inversion, and "no sample yet" stops being a poll artifact.
+## Calibrated and uncalibrated readings
 
-Samples are delivered at a steady ~20 Hz (`day_part_sensors::SAMPLE_MS`), not at the sensor's own
-rate: enough for a readout or a chart, and it keeps a fast sensor from flooding an app's UI thread.
-Natively, one thread per watched sensor drives that cadence. **On the web there is no thread to
-sample on** (`std::thread::spawn` panics on wasm32), so the day-dom shim drives the feed with a
-timer that calls back into the module. `on_sample` therefore runs on an unspecified background
-thread natively and on the sole browser thread on the web; deliver into UI state with a
-`day_reactive::Setter` either way.
+A `SensorKind` selects the normal platform sensor. Choose a processing mode explicitly with
+`kind.with_calibration(Calibration::Uncalibrated)`; both `watch` and `is_available` accept it:
 
-## The web arm
+```rust
+use day_part_sensors::{Calibration, SensorKind};
 
-`DeviceMotionEvent` carries acceleration and rotation together, so one listener feeds both kinds:
+let sensor = SensorKind::Magnetometer.with_calibration(Calibration::Uncalibrated);
+if day_part_sensors::is_available(sensor) {
+    let watch = day_part_sensors::watch(sensor, |r| {
+        println!("{} {} {} µT", r.x, r.y, r.z);
+    });
+    // Keep `watch` for as long as the app needs this stream.
+}
+```
 
-| kind | source | conversion |
-|---|---|---|
-| `Accelerometer` | `accelerationIncludingGravity` (m/s²) | none; day's contract already says "including gravity" |
-| `Gyroscope` | `rotationRate` (deg/s) | × π/180, with beta→x, gamma→y, alpha→z |
-| `Magnetometer` | — | **no cross-browser API exists**; Chromium's Generic Sensor `Magnetometer` is flag-gated and absent from Safari and Firefox, so this reports unavailable |
+`Calibration::Calibrated` requests the normal platform source, with platform bias correction
+where provided. It does not certify accuracy or eliminate nearby magnetic interference.
+`Uncalibrated` omits runtime bias correction; factory calibration and temperature compensation
+may still apply. Acceleration includes gravity in both modes. Removing gravity is a different
+operation from calibration.
 
-Browsers add these constraints:
+| Platform | Selectable calibration modes |
+| --- | --- |
+| iOS | Gyroscope and magnetometer. No selectable accelerometer bias mode. |
+| Android | All three kinds, if the device supplies the corresponding uncalibrated sensor; uncalibrated acceleration requires API 26+. |
+| Windows, HarmonyOS, web | Normal source only. Explicit uncalibrated requests are unavailable. |
+| macOS, Linux | No sensor sources. |
 
-- **A secure context is required.** `devicemotion` fires only over HTTPS or on localhost (both
-  `day launch`'s server and the hosted showcase qualify), and `Permissions-Policy` defaults
-  `accelerometer`/`gyroscope` to `self`, so a cross-origin iframe embed needs delegation.
-- **iOS Safari needs a user gesture.** `DeviceMotionEvent.requestPermission()` must be called from a
-  live user activation; that is `Permission::Motion` in [day-part-permissions](permissions.md), and
-  it must be requested from inside a button's action, where the gesture is still live. Calling it
-  after an `.await` does not work.
-- **Availability is only knowable in retrospect.** `'DeviceMotionEvent' in window` is true on a
-  desktop browser with no hardware, so the shim reports available until a short grace period passes
-  with no event, and unavailable after. A laptop without hardware therefore ends up unavailable.
+Query both modes before offering a calibration toggle. Unsupported modes deliver no samples and
+never fall back silently. Calibrated and uncalibrated subscriptions can coexist: each has its own
+listeners, delivery generations, and lifetime. To change modes, drop the old watch and subscribe
+to the other mode. Clear the displayed history rather than joining readings with different bias
+processing, and reject already queued UI updates from the old subscription.
 
-Because headless WebKit has no motion hardware, CI cannot prove any of this from the walkthrough
-alone. `scripts/ci/webdom-sensor-test.mjs` dispatches a synthetic `devicemotion` with known values
-and asserts the converted numbers, which pins the unit conversion and the axis mapping, the two
-things most likely to be wrong in a browser sensor arm.
+## Delivery and lifetime
 
-Linux computes `(raw + offset) × scale` from the first iio device exposing the channel triple
-(magnetometer scale yields Gauss → ×100 for µT). Most desktops and CI runners have no motion
-sensors and answer `None`; real coverage is laptops/tablets with rotation accelerometers.
+Subscriptions share one native source per sensor kind and calibration mode. Supported native sources request approximately
+20 Hz, subject to the platform's minimum interval and hardware. Browsers control their event rate.
+A new event with unchanged values is still a new sample. Day never repeats cached values on a timer.
 
-## What it shows about the extension system
+Native callbacks run on one background dispatcher. Platform callbacks enqueue at most one pending
+reading per sensor; newer readings replace it if an application callback is slow. Callbacks must
+return promptly because they share the dispatcher. This API suits live state and charts, not
+lossless recording. Web callbacks run on the browser thread.
 
-Like `day-part-battery`, this is a headless external crate: it has no UI Piece and registers nothing
-in any backend's `RENDERERS` slice. It contributes its Android Java through
-`[package.metadata.day.android]` just like the UI pieces but registers no renderer. It also adapts
-push-model platform APIs (Android listeners, HarmonyOS subscriptions) behind a poll API by lazily
-subscribing on first use and caching the latest sample, which battery did not need.
-On Android the crate rides on the Day runtime (day-android's cached JVM + `DayBridge.ctx`); on every
-other platform it is fully day-independent.
+Dropping a watch cancels its queued delivery. A callback already selected for delivery may finish.
+The last watcher leaving schedules native teardown after the current callback, so a callback can
+safely drop its watch or create another. Subscription generations reject late events from an old
+source. The dispatcher waits for events and exits after all sources have stopped.
+
+## Platform requirements
+
+**UIKit:** [CMMotionManager](https://developer.apple.com/documentation/coremotion/cmmotionmanager)
+delivers samples to an operation queue. Day keeps one manager, normalizes acceleration from g to
+m/s², and calls the matching stop method on teardown. Magnetometer subscriptions use
+[CMDeviceMotion.magneticField](https://developer.apple.com/documentation/coremotion/cmdevicemotion/magneticfield)
+with `xArbitraryCorrectedZVertical` to remove device bias. The field remains in device coordinates
+and µT. Raw `CMMagnetometerData` includes that bias and is unsuitable for a compass.
+Uncalibrated samples are withheld; gently rotate the device if readings have not started.
+Day does not show a system calibration dialog. Nearby metal still affects calibrated readings.
+Calibrated gyroscope readings use `CMDeviceMotion.rotationRate`, which removes gyroscope bias.
+Both calibrated kinds share one device-motion subscription; it stops after both have unsubscribed.
+When only gyroscope readings are requested, `xArbitraryZVertical` avoids requiring a magnetometer.
+Changing that membership restarts device motion with the appropriate reference frame and rejects
+callbacks from the previous stream. Raw gyroscope and magnetic-field requests use `CMGyroData`
+and `CMMagnetometerData` independently. Sensor fusion may still use underlying hardware even
+when the app pauses a separate subscription to that sensor.
+
+Test on a physical device; simulators lack motion sensors. Declare motion access through
+[permissions](permissions.md) for apps using motion and fitness capabilities.
+
+**Android:** [SensorManager](https://developer.android.com/reference/android/hardware/SensorManager)
+registers one listener per active kind. The Java callback forwards values through JNI; application
+callbacks execute on the Rust dispatcher. Teardown unregisters the listener. The normal reporting
+rate used here does not require the high-sampling-rate permission. Uncalibrated subscriptions use
+`TYPE_ACCELEROMETER_UNCALIBRATED`, `TYPE_GYROSCOPE_UNCALIBRATED`, or
+`TYPE_MAGNETIC_FIELD_UNCALIBRATED`. Day delivers the measured vector, without subtracting the
+separate bias estimate supplied by Android.
+
+**ArkUI:** [SensorServiceKit](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/capi-oh-sensor-h.md)
+uses `OH_Sensor_Subscribe` and `OH_Sensor_Unsubscribe`. Declare
+`ohos.permission.ACCELEROMETER` and `ohos.permission.GYROSCOPE` in the application's
+`module.json5` for those kinds. The magnetometer needs neither permission.
+
+**Windows:** [ReadingChanged](https://learn.microsoft.com/en-us/uwp/api/windows.devices.sensors.accelerometer.readingchanged)
+subscriptions retain the sensor and event token until teardown. Acceleration and angular velocity
+are converted to SI units. Many desktop machines have no sensors.
+
+**DOM:** The host uses one `devicemotion` listener for both supported kinds. It forwards
+`accelerationIncludingGravity` unchanged and converts `rotationRate` from degrees/s to rad/s,
+with beta → x, gamma → y, and alpha → z. The listener is removed when both kinds are unsubscribed.
+Partial or nonfinite measurements are ignored.
+
+Web delivery requires HTTPS or localhost. Cross-origin frames need the appropriate
+`Permissions-Policy` delegation. Safari motion permission must be requested from a user gesture
+through `Permission::Motion`; the subscription does not prompt. A browser with API support but
+no sensor hardware remains waiting for its first event. There is no portable magnetometer source.

@@ -8,13 +8,32 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Haptic feedback (headless capability crate)
+# Haptic feedback
 
-> **Status: implemented** as `day-part-haptics` (in `parts/`, the headless counterpart of
-> `pieces/`). It's a **headless** day-ecosystem crate (no UI Piece): a shared cross-platform API for
-> playing haptic feedback through each platform's native API. Any Rust code can depend on it and call
-> `day_part_haptics::play(Haptic::Success)`. Verified clippy-clean on macOS (real AppKit
-> `NSHapticFeedbackManager`), the iOS Simulator target, Android (Rust side), and the HarmonyOS target.
+Haptic feedback uses brief vibrations or tactile pulses to acknowledge an action, mark a
+selection, or signal an outcome. `day-part-haptics` provides impact, selection, success, warning,
+and error effects. Calls have no effect on devices without a supported haptic engine.
+
+## Add to your app
+
+Defined in [`day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-part-haptics = { git = "https://github.com/daybrite/day.git" }
+```
+
+The implementation is selected by the compilation target; no toolkit feature flags
+or dependency entry in `Day.toml` are needed.
+
+Android and HarmonyOS vibration permissions are contributed by the crate during `day build`.
+[`is_supported()`](/api/day_part_haptics/fn.is_supported.html) reports API availability, not the presence of physical haptic hardware.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| iOS, macOS, Android, HarmonyOS | Haptic output on compatible hardware. macOS uses the Force Touch trackpad. |
+| Windows, Linux (GTK / Qt), Web | No haptic implementation; `play()` has no effect. |
 
 ## Authoring
 
@@ -26,12 +45,12 @@ if day_part_haptics::is_supported() {
 }
 ```
 
-`play(Haptic)` is **fire-and-forget**: it returns nothing, never blocks, never errors, and never
-panics. `is_supported() -> bool` reports whether the platform has a haptic engine wired here (it is
+[`play(Haptic)`](/api/day_part_haptics/fn.play.html) is **fire-and-forget**: it returns nothing, never blocks, never errors, and never
+panics. [`is_supported() -> bool`](/api/day_part_haptics/fn.is_supported.html) reports whether the platform has a haptic engine wired here (it is
 API availability, not a live hardware probe; a Simulator still reports `true`). Where support is
 `false`, `play` is a no-op.
 
-`Haptic` is modeled on iOS's three feedback-generator families so the same call maps to a native
+[`Haptic`](/api/day_part_haptics/enum.Haptic.html) is modeled on iOS's three feedback-generator families so the same call maps to a native
 pattern everywhere:
 
 | Style | Meaning |
@@ -46,32 +65,34 @@ plain `main` that uses it with no Day framework at all.
 
 ## Per-platform native realization
 
+Platform guidance: [Apple: playing haptics](https://developer.apple.com/design/human-interface-guidelines/playing-haptics); [Android: haptics design principles](https://developer.android.com/develop/ui/views/haptics/haptics-principles).
+
 | OS | API | dependency |
 |---|---|---|
-| iOS | `UIImpactFeedbackGenerator` / `UINotificationFeedbackGenerator` / `UISelectionFeedbackGenerator` | `objc2` + `objc2-ui-kit` |
-| macOS | `NSHapticFeedbackManager.defaultPerformer` (Force Touch trackpad) | `objc2-app-kit` |
-| Android | `Vibrator` / `VibrationEffect` via a Java shim | `day-android` + `[package.metadata.day.android]` |
-| HarmonyOS | `vibrator.startVibration` (Sensor Service Kit) via an ArkTS arm | `day-bridge` + `[package.metadata.day.ohos]` |
+| iOS | [`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator) / [`UINotificationFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator) / [`UISelectionFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiselectionfeedbackgenerator) | `objc2` + `objc2-ui-kit` |
+| macOS | [`NSHapticFeedbackManager.defaultPerformer`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) (Force Touch trackpad) | `objc2-app-kit` |
+| Android | [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) / [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect) via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| HarmonyOS | [`vibrator.startVibration`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-sensor-service-kit/js-apis-vibrator.md) (Sensor Service Kit) via an ArkTS arm | [`day-bridge`](/contributing/backend-contracts/bridge) + `[package.metadata.day.ohos]` |
 | Windows · desktop Linux (GTK/Qt) | — (no haptic engine wired) | none (no-op, `is_supported() == false`) |
 
 ## How each platform realizes the styles
 
 - **iOS**: a direct one-to-one mapping. Light/Medium/Heavy pick the matching
-  `UIImpactFeedbackStyle`; Success/Warning/Error pick the matching `UINotificationFeedbackType`;
+  [`UIImpactFeedbackStyle`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator/feedbackstyle); Success/Warning/Error pick the matching [`UINotificationFeedbackType`](https://developer.apple.com/documentation/uikit/uinotificationfeedbackgenerator/feedbacktype);
   Selection calls `selectionChanged()`. The generators are `MainThreadOnly` and are `prepare()`d
   before firing to minimize latency; day runs on the main thread, so a call off it is a safe no-op.
   The Simulator has no Taptic engine, so the calls are silently ignored there.
-- **macOS**: `NSHapticFeedbackManager` offers only three patterns, so the seven styles fold onto
+- **macOS**: [`NSHapticFeedbackManager`](https://developer.apple.com/documentation/appkit/nshapticfeedbackmanager) offers only three patterns, so the seven styles fold onto
   them: Light/Selection → `Alignment` (the subtlest snap), Medium/Heavy → `LevelChange` (a firmer
   detent), Success/Warning/Error → `Generic`. A Mac without a Force Touch trackpad feels
   nothing; the call is harmless.
-- **Android**: a Java shim (`DayHaptics.java`) resolves the `Vibrator` (via `VibratorManager` on
-  API 31+), and on API 29+ plays a predefined `VibrationEffect`: `EFFECT_TICK` (Light/Selection),
+- **Android**: a Java shim (`DayHaptics.java`) resolves the [`Vibrator`](https://developer.android.com/reference/android/os/Vibrator) (via [`VibratorManager`](https://developer.android.com/reference/android/os/VibratorManager) on
+  API 31+), and on API 29+ plays a predefined [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect): `EFFECT_TICK` (Light/Selection),
   `EFFECT_CLICK` (Medium), `EFFECT_HEAVY_CLICK` (Heavy/Warning), `EFFECT_DOUBLE_CLICK`
   (Success/Error). Older APIs fall back to a short one-shot buzz whose length stands in for
   intensity. Requires `android.permission.VIBRATE`, a normal install-time permission the crate
   contributes to the manifest itself (see below).
-- **HarmonyOS**: an ArkTS daybridge arm ([docs/bridge.md](bridge.md)) plays the system's own haptic presets
+- **HarmonyOS**: an ArkTS daybridge arm ([docs/bridge](bridge.md)) plays the system's own haptic presets
   through the Sensor Service Kit's `vibrator`: `haptic.effect.soft` (Light), `haptic.clock.timer`
   (Medium/Selection), `haptic.effect.hard` (Heavy/Warning/Error), `haptic.effect.sharp` (Success).
   A device without a preset gets a timed buzz whose length stands in for strength, like Android's
@@ -82,9 +103,9 @@ plain `main` that uses it with no Day framework at all.
 
 ## What it shows about the extension system
 
-Like `day-part-battery` and `day-part-network`, this is a headless external crate: it has no UI
-Piece and registers nothing into any backend's `RENDERERS` slice. It exercises the
-**manifest-permission overlay** ([docs/extending.md](extending.md)): `[package.metadata.day.android]` stages its own
+Like [`day-part-battery`](/docs/reference/battery) and [`day-part-network`](/docs/reference/network), this is a headless external crate: it has no UI
+Piece and registers nothing into any toolkit's `RENDERERS` slice. It exercises the
+**manifest-permission overlay** ([docs/extending](extending.md)): `[package.metadata.day.android]` stages its own
 Java shim and contributes `android.permission.VIBRATE`, which `day build` merges into the app
 manifest with no edits to any core day crate. On Android the crate rides on the Day runtime
 (day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

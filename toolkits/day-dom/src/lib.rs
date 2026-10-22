@@ -863,6 +863,10 @@ thread_local! {
     /// Covers presented as half sheets (`CoverProps::half`, docs/cover.md): the bottom half
     /// of the viewport, under a grabber strip the stylesheet pads for.
     static COVER_HALF: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
+    /// Covers built as modal sheets (`CoverProps::sheet`, docs/cover.md "Modal sheet"). Whether
+    /// one shows the composed card is decided at each present (a compact window keeps the full
+    /// cover), so this only says it may.
+    static COVER_SHEET: RefCell<std::collections::HashSet<u32>> = RefCell::new(Default::default());
     static NAV_STATE: RefCell<HashMap<u32, NavState>> = RefCell::new(HashMap::new());
     /// NAV_PAGE element → is-sidebar, recorded at realize for the nav `insert`.
     static PAGE_SIDEBAR: RefCell<HashMap<u32, bool>> = RefCell::new(HashMap::new());
@@ -1321,7 +1325,7 @@ fn registration_menu() -> Vec<day_spec::MenuItem> {
         id: None,
         action: prefs,
         label: String::new(),
-        shortcut: Some(day_spec::Shortcut::primary(",")),
+        shortcut: None,
         enabled: true,
         checked: None,
         role: Some(day_spec::MenuRole::Preferences),
@@ -1336,7 +1340,9 @@ fn registration_menu() -> Vec<day_spec::MenuItem> {
 /// both are left out. Every other item keeps its action id, so the popover dispatches through
 /// `day_dom_toolbar_action` exactly as a toolbar pull-down does. A role item lowered with an
 /// empty label (day-core's injected Settings…/About) takes its catalog label here, as every
-/// backend does. Submenus left empty by the pruning go, and separators never lead, trail, or
+/// backend does. Settings… loses its ⌘, / Ctrl+, shortcut: the browser answers that key with its
+/// own settings before the page sees it, so the hint would promise what the key never does.
+/// Submenus left empty by the pruning go, and separators never lead, trail, or
 /// double up.
 fn web_menu_items(items: &[day_spec::MenuItem]) -> Vec<day_spec::MenuItem> {
     use day_spec::{MenuItem, MenuRole};
@@ -1375,12 +1381,17 @@ fn web_menu_items(items: &[day_spec::MenuItem]) -> Vec<day_spec::MenuItem> {
                 let mut item = item.clone();
                 if let MenuItem::Action {
                     label,
+                    shortcut,
                     role: Some(role),
                     ..
                 } = &mut item
-                    && label.is_empty()
                 {
-                    *label = day_l10n::t(role_catalog_key(*role));
+                    if label.is_empty() {
+                        *label = day_l10n::t(role_catalog_key(*role));
+                    }
+                    if *role == MenuRole::Preferences {
+                        *shortcut = None;
+                    }
                 }
                 out.push(item);
             }
@@ -2251,10 +2262,12 @@ impl Toolkit for Dom {
                 class(el, "day-cover", true);
                 // The half sheet: a bottom-anchored half panel (`.day-half`, day.css), the
                 // page above it on show and clickable.
-                if day_spec::props_of::<CoverProps>(kind, "web-dom", props).is_some_and(|p| p.half)
-                {
+                let p = day_spec::props_of::<CoverProps>(kind, "web-dom", props);
+                if p.is_some_and(|p| p.half) {
                     class(el, "day-half", true);
                     COVER_HALF.with(|set| set.borrow_mut().insert(el));
+                } else if p.is_some_and(|p| p.sheet) {
+                    COVER_SHEET.with(|set| set.borrow_mut().insert(el));
                 }
                 CSS_FRAMED.with(|set| set.borrow_mut().insert(el));
                 unsafe { day_dom_listen(el, 32) };
@@ -2596,11 +2609,16 @@ impl Toolkit for Dom {
                     match p {
                         CoverPatch::Present { background, .. } => {
                             // Each present sets its own fill or returns to the stylesheet's: the
-                            // element outlives one presentation, and a composed sheet's is clear
-                            // (docs/cover.md "Modal sheet").
+                            // element outlives one presentation. A composed sheet's cover is
+                            // clear (docs/cover.md "Modal sheet"), and here it is `.day-sheet`:
+                            // the stylesheet frosts the page under it, and its toolbar strip
+                            // docks on the card rather than across the window (shim.js).
+                            let sheet = COVER_SHEET.with(|set| set.borrow().contains(&el))
+                                && *background == Some(day_spec::Color::CLEAR);
+                            class(el, "day-sheet", sheet);
                             match background {
-                                Some(bg) => s(el, "background-color", &color_css(*bg)),
-                                None => s(el, "background-color", ""),
+                                Some(bg) if !sheet => s(el, "background-color", &color_css(*bg)),
+                                _ => s(el, "background-color", ""),
                             }
                             unsafe { day_dom_insert(1, el, u32::MAX) };
                             class(el, "open", true);
@@ -2718,6 +2736,7 @@ impl Toolkit for Dom {
         unsafe { day_dom_image_revoke(el) };
         CSS_FRAMED.with(|s| s.borrow_mut().remove(&el));
         COVER_HALF.with(|s| s.borrow_mut().remove(&el));
+        COVER_SHEET.with(|s| s.borrow_mut().remove(&el));
         AREA_HINTS.with(|m| m.borrow_mut().remove(&el));
         PAGE_SIDEBAR.with(|m| m.borrow_mut().remove(&el));
         NAV_STATE.with(|m| m.borrow_mut().remove(&el));
@@ -3764,7 +3783,11 @@ fn apply_surface(
     clips: bool,
     role: Option<day_spec::SurfaceRole>,
 ) {
-    if let Some(c) = bg {
+    // The dimming under a composed sheet: the stylesheet frosts the page (`.day-scrim`, day.css)
+    // instead of laying the plain color over it.
+    if role == Some(day_spec::SurfaceRole::Scrim) {
+        class(el, "day-scrim", true);
+    } else if let Some(c) = bg {
         s(el, "background-color", &color_css(c));
     }
     // The window's own surface: the page background a cover paints (`.day-cover`, day.css).

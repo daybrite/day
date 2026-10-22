@@ -21,20 +21,20 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 | Crate | What it does | Reference |
 |---|---|---|
-| `day-part-battery` | charge level and charging state | [battery](/docs/reference/battery) |
-| `day-part-clipboard` | read/write the system clipboard (text) | [clipboard](/docs/reference/clipboard) |
-| `day-part-prefs` | small key-value preference storage in the platform's conventional location | [prefs](/docs/reference/prefs) |
-| `day-part-fs` | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/reference/fs) |
-| `day-part-local-notify` | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/reference/notify) |
-| `day-part-network` | connectivity status | [network](/docs/reference/network) |
-| `day-part-deviceinfo` | device model, OS version | [deviceinfo](/docs/reference/deviceinfo) |
-| `day-part-sensors` | accelerometer and friends, as a live stream | [sensors](/docs/reference/sensors) |
-| `day-part-http` | HTTP through each platform's networking stack | [http](/docs/reference/http) |
-| `day-part-permissions` | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/reference/permissions) |
-| `day-part-location` | the device's position, once or as a live stream | [location](/docs/reference/location) |
-| `day-part-haptics` | haptic feedback | [haptics](/docs/reference/haptics) |
-| `day-part-sound` | sound effects | [sound](/docs/reference/sound) |
-| `day-part-wakelock` | keeping the screen on | [wakelock](/docs/reference/wakelock) |
+| [`day-part-battery`](/docs/reference/battery) | charge level and charging state | [battery](/docs/reference/battery) |
+| [`day-part-clipboard`](/docs/reference/clipboard) | read/write the system clipboard (text) | [clipboard](/docs/reference/clipboard) |
+| [`day-part-prefs`](/docs/reference/prefs) | small key-value preference storage in the platform's conventional location | [prefs](/docs/reference/prefs) |
+| [`day-part-fs`](/docs/reference/fs) | app-local file storage: read, write, remove, list (sync and async) | [fs](/docs/reference/fs) |
+| [`day-part-local-notify`](/docs/reference/notify) | local notifications: post now or schedule, channels, tap-to-route | [notify](/docs/reference/notify) |
+| [`day-part-network`](/docs/reference/network) | connectivity status | [network](/docs/reference/network) |
+| [`day-part-deviceinfo`](/docs/reference/deviceinfo) | device model, OS version | [deviceinfo](/docs/reference/deviceinfo) |
+| [`day-part-sensors`](/docs/reference/sensors) | accelerometer and friends, as a live stream | [sensors](/docs/reference/sensors) |
+| [`day-part-http`](/docs/reference/http) | HTTP through each platform's networking stack | [http](/docs/reference/http) |
+| [`day-part-permissions`](/docs/reference/permissions) | ask the OS for the camera, location, notifications … and declare them at build time | [permissions](/docs/reference/permissions) |
+| [`day-part-location`](/docs/reference/location) | the device's position, once or as a live stream | [location](/docs/reference/location) |
+| [`day-part-haptics`](/docs/reference/haptics) | haptic feedback | [haptics](/docs/reference/haptics) |
+| [`day-part-sound`](/docs/reference/sound) | sound effects | [sound](/docs/reference/sound) |
+| [`day-part-wakelock`](/docs/reference/wakelock) | keeping the screen on | [wakelock](/docs/reference/wakelock) |
 | `day-part-speech` | text to speech through each platform's speech API; in a separate repository | [day-part-speech](https://github.com/daybrite/day-part-speech) |
 
 ## Select an API by its completion model
@@ -51,7 +51,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 A part is a crate category, not a shared `Part` trait. There is no universal error or support
 contract: check each part's `capabilities`, `is_supported`, optional value, or error result.
 OS selection often uses conditional compilation; some parts also depend on a live host bridge.
-Enabling a UI backend feature does not prove that all parts are available.
+Enabling a UI toolkit feature does not prove that all parts are available.
 
 For callbacks requiring `Send`, pass result data through a `Setter`. For futures awaited inside
 `day::task`, update signals and format generated localized messages on the UI thread. Keep task

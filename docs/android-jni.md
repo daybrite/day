@@ -14,7 +14,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 > **Status: shipped 2026-10.** Every Rust-to-Java call in day-android, the first-party pieces,
 > parts and tweaks, and the code daybridge generates goes through a `java_class!` binding. The
 > hand-typed `DayEnv` helpers (`dcall_static`, `dcall`, `dfield`, `dfind`, `try_make_view_on`) are
-> gone. DESIGN.md [§15.7](../DESIGN.md#157-typed-jni-bindings) has the overview.
+> gone.
 
 A **binding** declares one Java class to Rust once: the methods Rust calls, the fields it reads,
 and the native methods Java calls back. The declaration gives Rust typed calls with cached method
@@ -175,7 +175,7 @@ Nothing else in Day's Java is kept by name. Activities, services, providers and 
 by the rules AGP generates from the merged manifest; classes with natives keep their native methods
 by day-android's rule; everything else R8 may shrink and rename. A component that reaches Java by
 reflection ships its own rules in `[package.metadata.day.android].proguard`
-([extending.md](extending.md)).
+([extending](extending.md)).
 
 R8's optimizations (inlining, class merging) are off by default, because they act on every library
 in the APK and some libraries reflect on their own classes in ways their consumer rules miss. An app

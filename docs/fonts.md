@@ -13,7 +13,7 @@ This is that surface: `day::font_families()`, `CanvasFont` on canvas text, and
 `day::measure_text()`.
 
 Text samples use generated Fluent accessors; see the [example catalog](snippet-catalog.md)
-and [localization setup](https://daybrite.dev/docs/how-to/localization).
+and [localization setup](/docs/how-to/localization).
 
 ## The font list
 
@@ -41,15 +41,15 @@ in it, even where the platform's database does not report them.
 
 Ask `capability(Cap::FontList)` before offering a font menu:
 
-| Backend | `Cap::FontList` | Source |
+| Toolkit | `Cap::FontList` | Source |
 | --- | --- | --- |
-| macOS (AppKit) | Native | `NSFontManager.availableFontFamilies` + `availableMembersOfFontFamily:` |
-| iOS (UIKit) | Native | `UIFont.familyNames` + `fontNamesForFamilyName:`, faces described through `UIFontDescriptor` |
+| macOS (AppKit) | Native | [`NSFontManager.availableFontFamilies`](https://developer.apple.com/documentation/appkit/nsfontmanager) + `availableMembersOfFontFamily:` |
+| iOS (UIKit) | Native | [`UIFont.familyNames`](https://developer.apple.com/documentation/uikit/uifont) + `fontNamesForFamilyName:`, faces described through [`UIFontDescriptor`](https://developer.apple.com/documentation/uikit/uifontdescriptor) |
 | GTK | Native | the PangoCairo font map: `list_families()` → `list_faces()` |
-| Qt | Native | `QFontDatabase::families()` + `styles()` |
+| Qt | Native | [`QFontDatabase::families()`](https://doc.qt.io/qt-6/qfontdatabase.html) + `styles()` |
 | Android | Native | `/system/etc/fonts.xml` (the families `Typeface.create` resolves) plus the bundled `res/font/` families |
 | HarmonyOS | Native | `OH_Drawing_FontMgr` families and style sets, plus the bundled manifest (the bundled files are handed to the drawing layer as typefaces, since ArkTS `font.registerFont` reaches only the text engine labels use) |
-| Windows (XAML) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the `TextBlock`, the one form unpackaged XAML loads; the app keeps naming it by family) |
+| Windows (XAML) | Native | DirectWrite's system font collection (a bundled family is addressed as `ms-appx:///fonts/<file>#<family>` on the way to the [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock), the one form unpackaged XAML loads; the app keeps naming it by family) |
 | web-dom | **Emulated** | the CSS generic families (`system-ui`, `sans-serif`, `serif`, `monospace`, `cursive`, `fantasy`) with the four faces a browser synthesizes for any family, plus every bundled `FontFace` |
 
 The web answer is composed rather than read on purpose: a browser exposes the machine's fonts
@@ -79,7 +79,7 @@ d.text(
 `CanvasFont` is a family (`None` = the platform's UI face), a weight (`None` = Regular) and a
 slant. The family is a name as `font_families()` lists it, or a bundled family's name; an unknown
 name draws in the default face with one warning in the log. Size stays absolute — see
-[docs/canvas.md](canvas.md) for why canvas text ignores the reader's text-size setting.
+[docs/canvas](canvas.md) for why canvas text ignores the reader's text-size setting.
 
 A weight or slant the family does not ship is synthesized where the platform does that (Skia on
 Android and HarmonyOS, DirectWrite, CSS) and rounded to the nearest face elsewhere (Pango,
@@ -128,31 +128,31 @@ A toolkit that cannot measure at all answers `TextMetrics::approximate` — 0.6 
 1.2 × size tall, the baseline at 0.9 × size, caps at 0.7 × size, ink equal to the line box. There
 is no capability to probe for measurement; a caller always gets a usable box.
 
-**Where a number is exact and where it is not.** An ink box a backend cannot compute is reported as
+**Where a number is exact and where it is not.** An ink box a toolkit cannot compute is reported as
 the whole line box, which is a *superset* — an overlap test against it can only be too cautious,
 never wrong. Cap height falls back to 0.7 × size.
 
-| Backend | Line box | Cap height | Ink box |
+| Toolkit | Line box | Cap height | Ink box |
 | --- | --- | --- | --- |
-| AppKit / UIKit | `sizeWithAttributes:` + `ascender` | `NSFont`/`UIFont.capHeight` | `boundingRectWithSize:` + `usesDeviceMetrics` |
+| AppKit / UIKit | `sizeWithAttributes:` + `ascender` | [`NSFont`](https://developer.apple.com/documentation/appkit/nsfont)/[`UIFont.capHeight`](https://developer.apple.com/documentation/uikit/uifont) | `boundingRectWithSize:` + `usesDeviceMetrics` |
 | GTK | a Pango layout's logical extents and `baseline()` | the ink ascent of `H` — Pango has no cap metric | the same layout's ink extents |
-| Qt | `QFontMetricsF` | `capHeight()` | `tightBoundingRect()` |
-| Android | `Paint.measureText` + `FontMetrics` | the ink ascent of `H` — `Paint` has no cap metric | `getTextBounds` |
+| Qt | [`QFontMetricsF`](https://doc.qt.io/qt-6/qfontmetricsf.html) | `capHeight()` | `tightBoundingRect()` |
+| Android | [`Paint.measureText`](https://developer.android.com/reference/android/graphics/Paint) + `FontMetrics` | the ink ascent of `H` — [`Paint`](https://developer.android.com/reference/android/graphics/Paint) has no cap metric | `getTextBounds` |
 | HarmonyOS | `OH_Drawing_FontMeasureText` + `OH_Drawing_FontGetMetrics` | the metrics' `capHeight` | **the line box** — no tight-bounds call in the C surface |
-| Windows (XAML) | a `TextBlock`'s desired size and `BaselineOffset` | **0.7 × size** — a `TextBlock` reports neither | **the line box** — likewise |
+| Windows (XAML) | a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock)'s desired size and `BaselineOffset` | **0.7 × size** — a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) reports neither | **the line box** — likewise |
 | web-dom | `measureText` with `fontBoundingBoxAscent` / `Descent` | the ink ascent of `H` | `actualBoundingBox*` |
 
-Backends measuring `H` pay one extra measurement of a one-character string,
+Toolkits measuring `H` pay one extra measurement of a one-character string,
 [memoized](#it-is-cached) per `(size, font)`. WinUI uses the same Win2D text layout
 for measurements, screen drawing and bitmap export, including bundled families.
 
 ### It is cached
 
 A measurement is a pure function of `(text, size, font)`: canvas text takes absolute points, so
-it carries neither the reader's font-scale setting nor the window's scale factor, and no backend's
+it carries neither the reader's font-scale setting nor the window's scale factor, and no toolkit's
 measurement reads anything else. `measure_text` therefore memoizes, and a repeat costs a hash of
 the key instead of a trip into the toolkit — around **0.26 µs against 23 µs** on AppKit, which
-builds an `NSString` and an attribute dictionary for every measurement it is asked for.
+builds an [`NSString`](https://developer.apple.com/documentation/foundation/nsstring) and an attribute dictionary for every measurement it is asked for.
 
 That matters because measuring repeats constantly. A chart's axes measure the same tick labels on
 every frame they record; `day-piece-charts`' tick search measures candidate label sets, most of
@@ -177,14 +177,14 @@ One answer is deliberately **not** cached: the `TextMetrics::approximate` fallba
 could not answer" is a fact about the moment — Android's measurement returns nothing until its VM
 is up — not about the text, and caching it would pin a guess for the life of the process.
 
-## For backend authors
+## For toolkit authors
 
 Two defaulted `Toolkit` duties — `font_families()` (default: none) and `measure_text()`
 (default: `None`) — plus `Cap::FontList`. Measure with the engine `replay` draws with, and put
 a `Leading` anchor at the top-leading corner of the line box: baseline-origin APIs draw at
 `at.y + ascent`.
 
-`TextMetrics` has two constructors so a backend does not have to do the shifting itself.
+`TextMetrics` has two constructors so a toolkit does not have to do the shifting itself.
 `TextMetrics::from_baseline(width, ascent, descent, cap_height, ink)` takes ink in the
 baseline-relative, y-up-negative form Core Text, Skia and Qt all report; `TextMetrics::from_slots`
 reads the eight-f64 array the C-ABI shims fill (advance, line height, ascent, cap height, then the
@@ -199,7 +199,7 @@ applies to the next record and is then cleared; a decoder that does not know it 
 consume its texts entry. A default font emits no record, so a drawing without fonts encodes
 exactly as before.
 
-The image op ([docs/images.md](images.md)) is `OpCode::Image = 22`: a plain nine-slot record —
+The image op ([docs/images](images.md)) is `OpCode::Image = 22`: a plain nine-slot record —
 origin, size, the bitmap id and an opacity in the numeric slots, nothing on the texts channel —
 so a decoder that does not know it skips one record and consumes no text.
 
@@ -207,3 +207,8 @@ A shim that enumerates in C++, Java or JavaScript hands the list back as one tex
 `day_spec::parse_font_list` decodes: families separated by U+001E; inside a family,
 U+001F-separated fields — the family name, then one (face name, CSS weight, italic `0`/`1`)
 triple per face; an empty face name is synthesized from the weight and slant.
+
+## Platform guidance
+
+- [Apple: typography](https://developer.apple.com/design/human-interface-guidelines/typography)
+- [Windows: typography](https://learn.microsoft.com/en-us/windows/apps/design/style/typography)

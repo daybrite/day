@@ -24,8 +24,9 @@ whole explanations. Preserve useful technical depth when splitting a page.
 | Explanation | Understand a model or tradeoff | Question, mental model, mechanics, alternatives, related tasks | A long procedure |
 | Product | Evaluate a capability | User problem, specific capability, evidence, limitations, next action | Unsupported superiority claims |
 
-Product pages are outside Diátaxis. Contributor pages still need a primary type. Label design
-proposals as proposals, identify implementation status, and link to shipped contracts separately.
+Product pages are outside Diátaxis. Contributor pages still need a primary type. Keep design
+records and proposals in the repository with `published: false` in the content route catalog;
+do not publish or link to them from the website. Public reference pages describe current contracts.
 The [templates](templates/README.md) are drafting aids, not new public routes.
 
 ## Write for the reader
@@ -33,10 +34,107 @@ The [templates](templates/README.md) are drafting aids, not new public routes.
 Lead with the outcome and prerequisites. Define unfamiliar terms at first use and link to the
 canonical glossary entry. Do not use Piece, Part, widget, control, or window as synonyms.
 
-Use descriptive link labels. Identify a linked API or task instead of `click here`. Keep heading
+Start every reference page with a short explanation of what the capability helps people do.
+Keep titles focused on the capability; omit parenthetical packaging labels such as “external
+piece” or “headless capability crate.” For a crate reference, follow the introduction with
+“Add to your app”: name and link the defining crate, show the Cargo dependency (currently the
+Git source, not a published version), explain required features or Day.toml configuration, and
+summarize availability by platform/toolkit. Distinguish native, composed, placeholder, and
+unavailable behavior. A feature declaration or successful build alone does not establish runtime
+support. Use the standard target icons and tints alongside readable platform names.
+Introduce the task before signatures, toolkit machinery, or examples. Do not lead with
+“Status: implemented,” “Shipped,” dates, or test-run summaries. Put concrete limitations beside
+the affected API or platform, in plain language. Keep an early warning only when an experimental
+or unavailable feature would change whether the reader should use the page.
+Omit visible `DESIGN §…` citations and architectural section numbers in headings. Use a relevant
+public guide link when readers need context. Maintainer citations may remain in HTML comments.
+
+Use descriptive link labels. Identify a linked API or task instead of `click here`.
+For internal documentation links, omit `.md` and `.mdx` from the visible label: write
+`[docs/bridge](/contributing/backend-contracts/bridge)` or “the daybridge guide.” The file
+extension belongs only in an actual source-file reference, not in the name of a website page.
+Keep repository-relative Markdown destinations when needed for GitHub rendering; only the label
+loses its extension. Keep heading
 levels sequential. Write useful image alt text, and explain diagrams in surrounding prose.
 A decorative image needs an explicit accessibility review; the Markdown check rejects
 empty alt text. Review keyboard use, focus visibility, and contrast when changing rendered UI.
+
+## Link related documentation
+
+When prose or a table names another Day capability, crate, guide, or documented concept, link
+that reference to its relevant page. For example, write
+“Like [`day-part-battery`](/docs/reference/battery) and
+[`day-part-network`](/docs/reference/network)” rather than leaving the crate names as plain text.
+Use the guide for a capability or crate reference; use Rustdoc for an exact function, type,
+method, or variant. Keep explicit links to source files when discussing their implementation.
+
+Use root-relative site destinations such as `/docs/reference/battery` and
+`/api/day_part_haptics/fn.is_supported.html`, without the `https://daybrite.dev` prefix. Preserve
+query strings and heading fragments. External projects with no Day guide may link to their
+repository or documentation; do not invent a local destination. Do not link a page's own name
+back to itself, or insert Markdown links into code fences, commands, resource names, or filenames.
+Use links in the explanation beside a code example so the code stays copyable.
+
+Check cross-references across the whole page, including comparisons, “see also” text, and tables.
+The [crate-to-guide map](../src/data/reference-crates.json) records destinations shared with
+generated tables. Update it when adding or moving a crate's guide. Run the rendered website and
+guide-to-Rustdoc link checks after changing references; checking that a destination looks plausible
+is not enough.
+
+## Name and label toolkits
+
+Use **toolkit**, not **backend**, for Day's UI implementations: “Per-toolkit native realization”
+and “Toolkit notes.” Keep actual API identifiers, feature names, source paths, and URLs unchanged.
+“Backend” remains appropriate for a server, storage provider, or other non-UI implementation.
+
+In platform tables, headings, and notes, use the standard target names (AppKit, UIKit, GTK, Qt,
+Android, WinUI, ArkUI, or DOM). The Markdown renderer adds the site's platform icons
+and light/dark tint colors throughout headings, table cells, bold labels, and inline target IDs,
+including lowercase feature labels and names inside links or mixed Markdown. It also marks the
+first mention of each target in each paragraph of a platform-specific section (for example,
+“Per-toolkit native realization” or “Toolkit notes”). Use a bold lead such as `**UIKit:**` for a
+target-specific list item; do not add emoji or hand-picked colors. Linux and Apple family labels
+carry both relevant target marks rather than implying a single toolkit. Review the rendered
+per-toolkit sections, not just the installation/availability summary at the top of the page.
+When one OS has several toolkits, name the affected toolkit rather than implying they all behave
+alike. Keep the visible text: icons and color must never be the only way to identify a target.
+
+Omit the deprecated system XAML (`windows-xaml`) target from public reference platform notes,
+tables, and navigation. Describe current Windows behavior for WinUI; do not transfer legacy
+target limitations or verification claims to WinUI.
+
+Omit framework verification reports, test counts, and host-specific build diaries from public
+reference pages. Retain instructions that help readers test their apps. Extract relevant limits
+into standard admonitions beside the affected feature, with a bold platform/toolkit lead:
+
+```markdown
+> [!WARNING]
+> **Windows / WinUI: alpha selection.**
+> Native alpha selection is unverified. Test transparent color selection before relying on it.
+```
+
+Use `NOTE` for a behavior difference and `WARNING` for a limitation that could affect correctness
+or release readiness. Preserve uncertainty; removing a test report must not turn unverified
+behavior into a support claim.
+
+## Link platform guidance and native APIs
+
+In platform realization sections, link to the platform or toolkit maintainer's documentation.
+Include relevant design or usage guidance as well as API references: for haptics, link Apple's
+[haptics guidance](https://developer.apple.com/design/human-interface-guidelines/playing-haptics)
+and Android's [haptics principles](https://developer.android.com/develop/ui/views/haptics/haptics-principles),
+then link native types such as
+[`UIImpactFeedbackGenerator`](https://developer.apple.com/documentation/uikit/uiimpactfeedbackgenerator)
+and [`VibrationEffect`](https://developer.android.com/reference/android/os/VibrationEffect)
+where the mapping names them.
+
+Link to the exact API when possible, or its owning type when a stable member URL is unavailable.
+Check the destination, version, and namespace: GTK 4 differs from GTK 3, system XAML differs
+from WinUI, and identically named Android and HarmonyOS APIs are not interchangeable.
+Use official documentation or the maintainer's documentation repository, not third-party
+tutorials or search results. Keep links next to the relevant table entry or explanation and
+leave code fences copyable. A platform link explains native behavior; it does not establish
+that Day supports every feature of that API. Preserve Day's support limits alongside it.
 
 ## Follow the existing source conventions
 
@@ -46,9 +144,13 @@ empty alt text. Review keyboard use, focus visibility, and contrast when changin
   Public routes, audiences, and primary types live in the single
   [content route catalog](../../website/src/data/content-routes.json); source paths do not
   determine public URLs. Product and contributor guides also use this collection.
+- Assign every public reference page to one task group in
+  [reference-navigation.json](../src/data/reference-navigation.json). The sidebar and reference
+  index share this ordering; adding an uncategorized page fails the architecture check.
 - Existing internal docs remain canonical in `docs/`, with one H1 and no required front matter.
   Every Markdown page, including nested design and history records, needs a matching symlink in
-  `website/src/content/internal/`, a route catalog entry. Sidebar placement follows the route and audience.
+  `website/src/content/internal/` and a route catalog entry. `published: false` keeps a source
+  out of routes, navigation, search, and the sitemap. Sidebar placement follows audience and topic.
   The [symlink check](../../scripts/ci/docs-symlinks.sh) verifies both directions.
   Do not duplicate its prose on the website.
 - Contributor standards stay canonical in `website/authoring/`. The style guide and authoring workflow publish

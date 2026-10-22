@@ -9,6 +9,10 @@ description: Typed SQLite persistence for Day, maintained as a first-party exten
 first-party SQLite persistence extension for Day. It builds on Day's public model and reactive
 APIs; apps that do not use it do not depend on it.
 
+## Add to your app
+
+Add these entries to your app’s `Cargo.toml`:
+
 ```toml
 [dependencies]
 day = { git = "https://github.com/daybrite/day.git", features = ["model"] }
@@ -16,7 +20,7 @@ day-persistence = { git = "https://github.com/daybrite/day-persistence.git" }
 ```
 
 The default features provide bundled SQLite and the live-list adapter. Other options include
-system SQLite, SQLCipher, and date/time codecs. `day-model` remains part of Day and works without
+system SQLite, SQLCipher, and date/time codecs. [`day-model`](/docs/explanation/model) remains part of Day and works without
 persistence.
 
 - [Full persistence guide](https://github.com/daybrite/day-persistence/blob/main/docs/persistence.md)

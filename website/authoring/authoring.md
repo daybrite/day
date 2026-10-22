@@ -100,8 +100,9 @@ The build checks MDX and Astro output and generates the Pagefind search index. F
 after Markdown plugin edits. The rendered audit checks metadata, headings, IDs, image alt
 attributes, and sitemap membership. The link checker excludes external URLs and Rustdoc.
 
+The full build includes Rustdoc and validates guide-to-API links and internal API links.
 Follow [the artifact assembly procedure](maintenance.md#assemble-and-review-a-publication-artifact)
-to add the API reference after the site build. Then check the API's internal links with:
+when running the separate `build:site` and `build:api` steps. To repeat the API link check:
 
 ```sh
 python3 -B scripts/docs/check-api-links.py
@@ -110,6 +111,13 @@ python3 -B scripts/docs/check-api-links.py
 Both Python rendered checkers accept an optional path to another built site directory. They
 create their own result directory and require no prior validation session. Review responsive
 layout, search, keyboard focus, themes, and navigation when shared templates change.
+
+Link API names in prose and function tables directly to their generated item page, for example
+[`is_supported()`](/api/day_part_haptics/fn.is_supported.html). Use root-relative `/api/` links
+and link methods and variants to their specific anchors. Link references to other capabilities
+to their internal guides, following the [cross-reference rules](style-guide.md#link-related-documentation). Keep code fences
+copyable Rust, with the corresponding API links in the explanation beside the example. Verify
+the destination in the combined build rather than guessing a Rustdoc path.
 
 ## Hand off a change
 

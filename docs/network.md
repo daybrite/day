@@ -8,13 +8,29 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Network connectivity (headless capability crate)
+# Network connectivity
 
-> **Status: implemented** as `day-part-network` (in `parts/`, the headless counterpart of `pieces/`), a
-> headless day-ecosystem crate with no UI Piece: a shared cross-platform API for reading a snapshot of
-> the device's network connectivity through each platform's native API. Any Rust code can depend on it
-> and call `day_part_network::status()`. Verified on macOS (real online reading); iOS-sim/Android
-> clippy-clean and HarmonyOS cross-compiles + links against the native `libnet_connection.so`.
+Show whether the device has a network connection and what kind it is, such as Wi-Fi or cellular.
+`day-part-network` returns a connectivity snapshot. For sending requests, use
+[HTTP](/docs/reference/http).
+
+## Add to your app
+
+Defined in [`day-part-network`](https://github.com/daybrite/day/tree/main/parts/day-part-network). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-part-network = { git = "https://github.com/daybrite/day.git" }
+```
+
+The implementation is selected by the compilation target; no toolkit feature flags
+or dependency entry in `Day.toml` are needed.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Connectivity information; available detail varies by OS. |
+| Web | Unavailable; `status()` returns `None`. |
 
 ## Authoring
 
@@ -24,9 +40,9 @@ if let Some(n) = day_part_network::status() {
 }
 ```
 
-`status() -> Option<NetworkStatus>` returns `None` where there's no connectivity API (or the reading
+[`status() -> Option<NetworkStatus>`](/api/day_part_network/fn.status.html) returns `None` where there's no connectivity API (or the reading
 failed), which is distinct from a successful reading that says offline (`Some` with `online: false`).
-`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`; `NetworkKind` is
+[`NetworkStatus { online: bool, kind: NetworkKind, expensive: Option<bool> }`](/api/day_part_network/struct.NetworkStatus.html); [`NetworkKind`](/api/day_part_network/enum.NetworkKind.html) is
 `Wifi | Cellular | Ethernet | Other | None`.
 
 There are no crate features; platform selection is purely `#[cfg(target_os)]`, because connectivity is
@@ -35,14 +51,16 @@ an OS concern rather than a widget-toolkit one. `parts/day-part-network/examples
 
 ## Per-platform native realization
 
+Platform guidance: [Android: network operations](https://developer.android.com/develop/connectivity/network-ops); [Apple: URL loading system](https://developer.apple.com/documentation/foundation/url-loading-system).
+
 | OS | API | dependency |
 |---|---|---|
-| macOS | `SCNetworkReachability` (SystemConfiguration) | raw C FFI, shared `apple.rs` |
-| iOS | `SCNetworkReachability` (`IsWWAN` ⇒ cellular) | raw C FFI, shared `apple.rs` |
-| Windows | `GetNetworkConnectivityHint` (iphlpapi, resolved dynamically) | raw FFI (kernel32 + runtime lookup) |
+| macOS | [`SCNetworkReachability`](https://developer.apple.com/documentation/systemconfiguration/scnetworkreachability) (SystemConfiguration) | raw C FFI, shared `apple.rs` |
+| iOS | [`SCNetworkReachability`](https://developer.apple.com/documentation/systemconfiguration/scnetworkreachability) (`IsWWAN` ⇒ cellular) | raw C FFI, shared `apple.rs` |
+| Windows | [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (iphlpapi, resolved dynamically) | raw FFI (kernel32 + runtime lookup) |
 | Linux | `/sys/class/net` interface scan | std only |
-| HarmonyOS | `OH_NetConn_HasDefaultNet` / `GetNetCapabilities` (`libnet_connection.so`) | raw FFI (NetworkKit) |
-| Android | `ConnectivityManager` + `NetworkCapabilities` via a Java shim | `day-android` + `[package.metadata.day.android]` |
+| HarmonyOS | [`OH_NetConn_HasDefaultNet`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md) / [`GetNetCapabilities`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md) (`libnet_connection.so`) | raw FFI (NetworkKit) |
+| Android | [`ConnectivityManager`](https://developer.android.com/reference/android/net/ConnectivityManager) + [`NetworkCapabilities`](https://developer.android.com/reference/android/net/NetworkCapabilities) via a Java shim | `day-android` + `[package.metadata.day.android]` |
 
 ## What each platform can report
 
@@ -67,14 +85,14 @@ Every field is best-effort; the platforms report different amounts of detail:
   (link-level, not validated internet); `kind` from the kernel's predictable name prefixes (`wl*`
   wireless, `en*`/`eth*` wired, `ww*` wwan), preferring wired > wifi > cellular when several are up;
   `expensive` is always `None` (meteredness is a desktop-session concept).
-- **Windows**: `GetNetworkConnectivityHint` (Windows 10 2004+, blind like the rest of the xaml
-  backend) gives a connectivity level (`online` = internet or constrained-internet access) and a cost
+- **Windows**: [`GetNetworkConnectivityHint`](https://learn.microsoft.com/en-us/windows/win32/api/netioapi/nf-netioapi-getnetworkconnectivityhint) (Windows 10 2004+, blind like the rest of the xaml
+  toolkit) gives a connectivity level (`online` = internet or constrained-internet access) and a cost
   (`expensive`) but no transport, so `kind` is `Other` when online. The symbol is resolved at runtime
   via `LoadLibrary`/`GetProcAddress`, so apps still start on older Windows; `status()`
   returns `None` there.
 
-A snapshot is a point-in-time poll; a change-notification rail (`SCNetworkReachability` callbacks,
-Android `NetworkCallback`, `OH_NetConn_RegisterNetConnCallback`, `NotifyNetworkConnectivityHintChange`)
+A snapshot is a point-in-time poll; a change-notification rail ([`SCNetworkReachability`](https://developer.apple.com/documentation/systemconfiguration/scnetworkreachability) callbacks,
+Android `NetworkCallback`, [`OH_NetConn_RegisterNetConnCallback`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/capi-netconnection.md), `NotifyNetworkConnectivityHintChange`)
 is a v2 follow-up.
 
 Connectivity says whether traffic *could* flow; to actually move bytes through the platform's HTTP
@@ -82,9 +100,9 @@ stack (proxies, VPN, platform TLS), see its sibling part [`day-part-http`](http.
 
 ## What it shows about the extension system
 
-Like `day-part-battery`, this is a headless external crate: it has no UI Piece and registers nothing
-into any backend's `RENDERERS` slice. It additionally exercises the **manifest-permission overlay**
-(from the webview work, [docs/extending.md](extending.md)): `[package.metadata.day.android]` stages its own Java shim
+Like [`day-part-battery`](/docs/reference/battery), this is a headless external crate: it has no UI Piece and registers nothing
+into any toolkit's `RENDERERS` slice. It additionally exercises the **manifest-permission overlay**
+(from the webview work, [docs/extending](extending.md)): `[package.metadata.day.android]` stages its own Java shim
 and contributes `android.permission.ACCESS_NETWORK_STATE`, which `day build` merges into the app
 manifest with no changes to any core Day crate. On Android the crate rides on the Day runtime
 (day-android's cached JVM + `DayBridge.ctx`); on every other platform it is fully day-independent.

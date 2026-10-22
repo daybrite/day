@@ -10,6 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # App icon badge
 
+Show an unread count or an attention marker on the app’s icon. Badge styles and permission
+requirements vary by platform.
+
 Use `day::set_app_badge(&AppBadge)` to set or clear the app icon badge. This is separate
 from a navigation item's badge. The function delegates to the running toolkit and returns `()`.
 
@@ -21,6 +24,8 @@ choosing a payload. Unsupported payloads are ignored rather than converted to an
 Localize app-owned text before constructing `AppBadge::Text`.
 
 ## Platform behavior
+
+Platform guidance: [Apple: notifications](https://developer.apple.com/design/human-interface-guidelines/notifications); [Android: notifications](https://developer.android.com/develop/ui/views/notifications).
 
 | Target | Count | Text | Dot | Behavior |
 | --- | --- | --- | --- | --- |
@@ -47,5 +52,4 @@ GTK and Qt on Linux emit the same Unity launcher signal. Stock GNOME Shell ignor
 shells or extensions that implement the protocol can display it. This is why the capability
 reports `Emulated` rather than promising a visible badge.
 
-See [app progress](status-item.md) for progress indicators. The
-[design record](design/badge.md) retains the earlier badge proposal and implementation history.
+See [app progress](status-item.md) for progress indicators.

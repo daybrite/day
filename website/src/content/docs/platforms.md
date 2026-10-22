@@ -55,7 +55,6 @@ fail CI; the HarmonyOS job also tolerates build and packaging failures.
 | `macos-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Full | None |
 | `windows-gtk` | [Tier 4](/docs/reference/platforms#support-tiers) | Best-effort | None |
 | `windows-qt` | [Tier 4](/docs/reference/platforms#support-tiers) | Best-effort | None |
-| `windows-xaml` (deprecated) | [Tier 5](/docs/reference/platforms#support-tiers) | None | `.msix`, installer |
 
 Check the [CI run](https://github.com/daybrite/day/actions/workflows/ci.yml) for the revision you
 intend to ship. A tolerated failure does not block the remaining jobs.
@@ -119,15 +118,9 @@ pattern as Qt's. Development builds need the Windows App Runtime installed; `day
 runtime inside the `.msix` and installer, so users install nothing extra. Fewer applications have
 shipped on it than on the Apple, Linux, and Android targets.
 
-### Windows, system XAML (`windows-xaml`) — [full page](/docs/reference/platforms/windows-xaml)
-[Tier 5 · Deprecated](/docs/reference/platforms#support-tiers)
-The same XAML backend built against the system XAML that ships with Windows, hosted through XAML
-Islands. It still builds, packs and runs for existing projects, but new apps should use
-`windows-winui`; move a project with `day project add-target windows-winui`.
-
 ### HarmonyOS (`harmony-arkui`) — [full page](/docs/reference/platforms/harmony-arkui)
 [Tier 3 · Experimental](/docs/reference/platforms#support-tiers)
-The newest backend drives ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
+The newest toolkit drives ArkUI via the NDK C API, packaged as a `.hap` by hvigor with
 an ArkTS host project. The toolchain requires the OpenHarmony SDK and command-line tools, which
 take the most setup steps of the supported platforms; `day doctor --toolkit harmonyos`
 and the [HarmonyOS notes](/docs/how-to/harmonyos) cover the install. CI allows failures in the emulator checks.
@@ -137,7 +130,7 @@ and the [HarmonyOS notes](/docs/how-to/harmonyos) cover the install. CI allows f
 The same Rust compiled to WebAssembly drives DOM elements (`<button>`, `<dialog>`,
 `<input type="range">`) that the browser lays out and draws; the build runs through cargo and
 the [`day` CLI](/docs/reference/glossary#day-cli) alone. `day build -t web-dom` emits a self-contained static `dist/` you can host
-anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental. The DOM backend now reports native file-dialog support and emulated list,
+anywhere; there is no `day pack` step because `dist/` is already the artifact. It is experimental. The DOM toolkit now reports native file-dialog support and emulated list,
 tree, toolbar, and app-menu capabilities. External-piece coverage varies; inspect the
 [coverage matrix](/contributing/backend-contracts/coverage-matrix) and enable the piece's DOM feature where present.
 Browser permissions, user-activation requirements, and accessibility behavior still need runtime
@@ -149,22 +142,22 @@ checks; neither API presence nor an emulated capability proves desktop-equivalen
 Framework-level features that don't vary by platform but aren't done, kept here so there's one
 list:
 
-- **Animation**: partial. `with_animation(spec, || …)` ships, and five of the eight backends execute
+- **Animation**: partial. `with_animation(spec, || …)` ships, and five of the eight toolkits execute
   opacity, transform, and frame changes natively: AppKit, UIKit, Android, web, and ArkUI (where
   frames move instantly). On GTK, Qt, and XAML the changes apply at commit with no animation
   (`Cap::Animation` reports unsupported), because Day never ticks its own frames for native
   widgets. An animated background *color* interpolates on UIKit and ArkUI only, and the enter/exit
   `.transition` surface is not implemented.
-- **Multi-window:** [secondary windows](/docs/reference/windows) work on every backend — native
+- **Multi-window:** [secondary windows](/docs/reference/windows) work on every toolkit — native
   windows on AppKit, GTK, Qt, XAML, and Android, UIScenes on iPad, a multiton ability on
   HarmonyOS; iPhone and web present them as a fullscreen cover in the primary window. Probe
   `Cap::MultiWindow` to adapt chrome.
 - **Semantic color tokens**: custom colors have no automatic dark-mode variant
   ([styling](/docs/explanation/styling#color-backgrounds-shape)).
 - **Keyboard input:** `Decorate::on_key` exists and has a focused-event conformance case. Menu
-  accelerators remain a separate surface; delivery depends on focus and the backend.
+  accelerators remain a separate surface; delivery depends on focus and the toolkit.
 - **Gestures:** `Decorate::on_pinch` exists with a conformance case. Do not infer every gesture
-  or target from it; inspect the decorator and backend implementation for the needed gesture.
+  or target from it; inspect the decorator and toolkit implementation for the needed gesture.
 - **Forms**: no validation framework; roll your own with [signals](/docs/reference/glossary#signal) and memos.
 - **Hot reload**: not present; see [the tradeoffs page](/features#allow-for-the-development-workflow).
 

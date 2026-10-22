@@ -165,14 +165,14 @@ writes never need to know.
 
 **Observation belongs to computations.** A tracked read inside a binding, memo or watch claims
 its path for exactly that computation's current run, released when it re-tracks or dies, the
-same per-run bookkeeping day-reactive keeps for its own sources. Outside any computation (a
+same per-run bookkeeping [day-reactive](/docs/explanation/state) keeps for its own sources. Outside any computation (a
 build seeding an initial value, an event handler), a tracked read subscribes nothing and
 therefore claims nothing: no trigger is created at all, because nothing could ever wake through
 it.
 
 ## Driving a list
 
-A store is a row source ([docs/list.md](list.md)): `list(store, row)` shows the collection in its own
+A store is a row source ([docs/list](list.md)): `list(store, row)` shows the collection in its own
 order, and `list(store.rows(projection), row)` orders it through a **key projection**, a
 tracked read of key ids that reads only the fields the order depends on. The row builder
 receives a `ModelSlot`, itself a `Source`, so the derive's accessors hang off it and follow the
@@ -253,7 +253,7 @@ or a merge from the user's own edits, and decline their own echoes.
 `store.merge_row(key, value, &["field", …])` feeds one row's new value in from outside the
 app's editing (another connection's committed write, an import), replacing the stored row and
 announcing exactly the named fields, so their readers wake and nothing else does. An absent
-row announces nothing (an insert is `restructure`'s job); [persistence.md](persistence.md)'s external-changes
+row announces nothing (an insert is `restructure`'s job); [persistence](persistence.md)'s external-changes
 section describes how a persistence container uses the pair.
 
 ## Sessions and undo
@@ -270,7 +270,7 @@ undoes too), the menu names each unit through `set_label_resolver` (the starter 
 its own localized strings), replay is tagged `author: "undo"` so consumers can tell it from the user, and
 `can_undo`/`undo_label` are signals. `#[derive(Observable)]` emits the `ApplyField` impl replay
 writes back through. `day::install_undo(&stack)` fronts the stack natively where the platform
-has an undo system ([docs/persistence.md](persistence.md) has the platform table).
+has an undo system ([docs/persistence](persistence.md) has the platform table).
 
 ### Transient UI state
 
@@ -299,7 +299,7 @@ restore would fork history from inside a replay.
 
 The scaffold's own editor (`day new`, `src/pages.rs`) is the worked example: each form control
 binds a field accessor directly, and one `day::prefs::bind_json` call in `src/model.rs` handles
-all of its persistence ([docs/prefs.md](prefs.md)). When a coarse watch stops being enough, [docs/persistence.md](persistence.md)
+all of its persistence ([docs/prefs](prefs.md)). When a coarse watch stops being enough, [docs/persistence](persistence.md)
 is the next step: the same store, loaded from and autosaved to SQLite.
 
 ### Undo groups spanning input events

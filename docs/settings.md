@@ -8,15 +8,28 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Settings and About (`day-piece-settings`)
+# Settings and About
 
-> **Status: implemented (2026-10).** `Pref<T>` + `Store`, `Preferences`/`Group`/`Section`/rows,
-> `About`, providers, `Preferences::install`, the composed presentation on every backend, and
-> native rows and panels behind the per-toolkit features. The starter template and the sample
-> apps use it.
+Provide app preferences and an About screen from one declaration. `day-piece-settings`
+organizes settings into groups and rows, connects them to stored values, and installs the
+platform’s menu entries where available:
 
-Every Day app needs a settings surface, a way to reach it that matches the platform, and an
-About. `day-piece-settings` provides all three from one declaration:
+## Add to your app
+
+Defined in [`day-piece-settings`](https://github.com/daybrite/day/tree/main/pieces/day-piece-settings). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-settings = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS, Web | Composed settings UI; presentation follows the target’s window and navigation capabilities. |
 
 ```rust
 use day_piece_settings::prelude::*;
@@ -64,7 +77,7 @@ only where it should. `.map(|i| i.icon(..))` decorates it like any other item. `
 section on a phone (a welcome page's "Settings" link).
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Values: `Pref<T>`
 
@@ -106,8 +119,8 @@ pub trait Store: 'static {
 }
 ```
 
-The default is `NativeStore`, which is [day-part-prefs](prefs.md): `NSUserDefaults` on macOS
-and iOS, `SharedPreferences` on Android, a per-app file under the user's config directory on
+The default is `NativeStore`, which is [day-part-prefs](prefs.md): [`NSUserDefaults`](https://developer.apple.com/documentation/foundation/nsuserdefaults) on macOS
+and iOS, [`SharedPreferences`](https://developer.android.com/reference/android/content/SharedPreferences) on Android, a per-app file under the user's config directory on
 Linux, Windows and HarmonyOS, `localStorage` on the web. `install_store(..)` before
 `Preferences::install` replaces it (a `MemoryStore` for tests and deterministic script runs, or
 the app's own database). There is no second storage layer and no sync: the platform store
@@ -136,7 +149,7 @@ row), `.enabled(on)` and `.busy(on)` (a `bool`, a signal or a closure), and `.av
 / `.requires(Cap)`.
 A long caption wraps inside the title column rather than widening it; prose that belongs to
 the whole card goes in `Section::footer`. A color value has no row of its own yet: wrap
-`day-piece-colorpicker` in `rows::custom` over a hex `Pref<String>`. Rows never name a
+[`day-piece-colorpicker`](/docs/reference/colorpicker) in `rows::custom` over a hex `Pref<String>`. Rows never name a
 toolkit; a different control on one platform is a `rows::custom` with `PerTarget` inside.
 
 The row constructors live in the `rows` module and are used qualified, because several share a
@@ -164,7 +177,7 @@ leaves a system theme switch to it. The manifest keeps `uiMode` and `locale` in
 `configChanges` so that the recreation is Day's, taken once the new configuration is in hand.
 Two things make the recreation read as a theme change rather than a relaunch:
 
-- **A crossfade, not a flash.** The outgoing activity captures its window (`PixelCopy`, the
+- **A crossfade, not a flash.** The outgoing activity captures its window ([`PixelCopy`](https://developer.android.com/reference/android/view/PixelCopy), the
   composited frame) before `recreate()`, the next activity lays the capture over its window
   from its first frame, and once the re-mounted tree has built, restored its route and laid
   out, the capture fades over the new content in 250 ms. A user who removed animations
@@ -219,8 +232,8 @@ name and `WindowOptions::version`. The core catalog carries the labels (`day_abo
 `day_about_acknowledgements`) in seven languages.
 
 Presentation: a Day window (`WindowKind::About`, singleton key `day.about`, fixed, centered,
-out of the macOS Window menu) on macOS, Qt and Windows, a cover on the web; libadwaita's `AdwAboutDialog`
-on GTK when the About has no `custom` piece (with one, the composed page in an `AdwDialog` over
+out of the macOS Window menu) on macOS, Qt and Windows, a cover on the web; libadwaita's [`AdwAboutDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AboutDialog.html)
+on GTK when the About has no `custom` piece (with one, the composed page in an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) over
 the app window); on the phones and HarmonyOS, the header card at the top of the settings root
 page, which opens the About page. The menu item is `MenuRole::About`:
 the macOS App menu's "About <App>", Help ▸ About elsewhere, in both the default bar and an
@@ -230,12 +243,12 @@ installed `app_menu`. `day::open_about()` opens it from anywhere.
 
 | Platform | Shell | Rows | Entry |
 |---|---|---|---|
-| macOS (appkit) | A fixed-width panel with an `NSToolbar` in preference style: one selectable icon+label item per group, the window fitting each page. One group: the page alone. | Composed: title leading, control trailing, in the grouped card (`SurfaceRole::SectionCard`). | App menu Settings… ⌘, |
-| GNOME (gtk) | libadwaita's `AdwPreferencesDialog`, presented over the app window (a floating sheet in a wide window, a bottom sheet in a narrow one; Escape closes; on macOS always a window of its own, see [docs/windows.md](windows.md)): one `AdwPreferencesPage` per group with its icon and title, the dialog's own view switcher and search once there are two or more; each page a column of `AdwPreferencesGroup`s (title and description from the section's title and footer) holding `.boxed-list` rows. The dialog fits the tallest page (up to the declared height); a taller page scrolls inside its own page. A navigate row pushes its page into the dialog as an `AdwNavigationPage` with a back button. | `AdwActionRow` with the Day control mounted as its suffix; a custom row an `AdwPreferencesRow` holding the piece at the row's width; a note a caption under the group's list. About is `AdwAboutDialog`; an About with a `custom` piece is the composed page in an `AdwDialog` over the window. | Preferences Ctrl+, |
-| Windows (winui) | The composed sidebar (`NavigationView`) + page window. | A settings-card row: card fill and stroke, header and description, the control at the trailing edge. Narrow cards move the control below the text instead of squeezing the header. | File ▸ Settings Ctrl+, |
-| KDE (qt) | The preferences dialog KDE's `KConfigDialog`/`KPageDialog` are made of: a fixed-width `QListWidget` of icon+label page entries (two or more groups) beside a `QStackedWidget` of pages under a title header; each page a column of `QGroupBox`es (one per section, titled with it; an untitled section is a bare form) holding a `QFormLayout` of right-aligned labels, the footer a dim line under the rows. The window fits the tallest page (up to the declared height); a taller page scrolls inside its own page. One group: the page alone. | A form row with the Day control as the field, in a cell sized by Day; a custom row a cell spanning the form at its width; an action or navigate row a `QPushButton` (red for a destructive one, an arrow for a navigate row) with its caption under it; a link row a link label; a note a dim line. | Preferences Ctrl+, |
-| iOS, Android, HarmonyOS | The navigation presentation: a root page (About header, then the groups as chevron rows; one group: its rows inline) in a `nav_stack` that pushes one page per group. On iOS the pages are a `UITableView` in the inset grouped style: configured `UITableViewCell`s with the system disclosure chevron, header and footer text, selection highlight on touch, and the Day control as the cell's accessory (a slider under its title, a custom row as the whole cell). On Android the pages are the Material 3 preference screen: full-bleed rows with category headers and footnotes, a ripple on every tappable row, the About header a large list item. On HarmonyOS they are a `List` of `ListItemGroup` cards. | Inset-grouped / Material preference / list-item rows with the Day control trailing (a slider under its title on Android). | The app's nav item; `open()` presents a cover with a Done button where no item is mounted. |
-| Web (dom) | The navigation presentation, presented as a cover whose strip carries the stack title, the back button once a page is pushed, and the Done button, opened from the toolbar's app-menu button (web-dom emulates the app menu: `Cap::AppMenu` is `Emulated`, so Settings…, About and every app command live behind the ⋯ button, and `navigate("settings/<group>")` routes to the cover). | Composed. | The ⋯ app-menu button; no nav item (`in_nav()` is false). |
+| macOS (appkit) | A fixed-width panel with an [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar) in preference style: one selectable icon+label item per group, the window fitting each page. One group: the page alone. | Composed: title leading, control trailing, in the grouped card (`SurfaceRole::SectionCard`). | App menu Settings… ⌘, |
+| GNOME (gtk) | libadwaita's [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html), presented over the app window (a floating sheet in a wide window, a bottom sheet in a narrow one; Escape closes; on macOS always a window of its own, see [docs/windows](windows.md)): one [`AdwPreferencesPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesPage.html) per group with its icon and title, the dialog's own view switcher and search once there are two or more; each page a column of [`AdwPreferencesGroup`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesGroup.html)s (title and description from the section's title and footer) holding `.boxed-list` rows. The dialog fits the tallest page (up to the declared height); a taller page scrolls inside its own page. A navigate row pushes its page into the dialog as an [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) with a back button. | [`AdwActionRow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ActionRow.html) with the Day control mounted as its suffix; a custom row an [`AdwPreferencesRow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesRow.html) holding the piece at the row's width; a note a caption under the group's list. About is [`AdwAboutDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AboutDialog.html); an About with a `custom` piece is the composed page in an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) over the window. | Preferences Ctrl+, |
+| Windows (winui) | The composed sidebar ([`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview)) + page window. | A settings-card row: card fill and stroke, header and description, the control at the trailing edge. Narrow cards move the control below the text instead of squeezing the header. | File ▸ Settings Ctrl+, |
+| KDE (qt) | The preferences dialog KDE's `KConfigDialog`/`KPageDialog` are made of: a fixed-width [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) of icon+label page entries (two or more groups) beside a [`QStackedWidget`](https://doc.qt.io/qt-6/qstackedwidget.html) of pages under a title header; each page a column of [`QGroupBox`](https://doc.qt.io/qt-6/qgroupbox.html)es (one per section, titled with it; an untitled section is a bare form) holding a [`QFormLayout`](https://doc.qt.io/qt-6/qformlayout.html) of right-aligned labels, the footer a dim line under the rows. The window fits the tallest page (up to the declared height); a taller page scrolls inside its own page. One group: the page alone. | A form row with the Day control as the field, in a cell sized by Day; a custom row a cell spanning the form at its width; an action or navigate row a [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) (red for a destructive one, an arrow for a navigate row) with its caption under it; a link row a link label; a note a dim line. | Preferences Ctrl+, |
+| iOS, Android, HarmonyOS | The navigation presentation: a root page (About header, then the groups as chevron rows; one group: its rows inline) in a `nav_stack` that pushes one page per group. On iOS the pages are a [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) in the inset grouped style: configured [`UITableViewCell`](https://developer.apple.com/documentation/uikit/uitableviewcell)s with the system disclosure chevron, header and footer text, selection highlight on touch, and the Day control as the cell's accessory (a slider under its title, a custom row as the whole cell). On Android the pages are the Material 3 preference screen: full-bleed rows with category headers and footnotes, a ripple on every tappable row, the About header a large list item. On HarmonyOS they are a `List` of `ListItemGroup` cards. | Inset-grouped / Material preference / list-item rows with the Day control trailing (a slider under its title on Android). | The app's nav item; `open()` presents a cover with a Done button where no item is mounted. |
+| Web (dom) | The navigation presentation, presented as a modal sheet over the frosted page (a full-window cover on a narrow window) whose header carries the stack title, the back button once a page is pushed, and the Done button, with Escape closing it too, opened from the toolbar's app-menu button (web-dom emulates the app menu: `Cap::AppMenu` is `Emulated`, so Settings…, About and every app command live behind the ⋯ button, and `navigate("settings/<group>")` routes to the cover). | Composed. | The ⋯ app-menu button, with no shortcut (the browser keeps ⌘, / Ctrl+comma); no nav item (`in_nav()` is false). |
 
 HarmonyOS group pages place their native card list inside a Day `scroll`. The inner list
 measures its full content and disables its own scrolling, leaving one viewport for gestures
@@ -307,23 +320,23 @@ download automatically, last checked, Check Now) and its Check for Updates… co
 `day::register_check_for_updates` places under About in the macOS App menu and in Help
 elsewhere (`MenuRole::CheckForUpdates`).
 
-## Testing
+## Automating settings
 
-The crate's `#[day::test]` cases (`settings_theme_applies_and_persists`,
-`settings_rows_persist`) run in the conformance app on every toolkit and under `cargo test` on
-the mock. The day-pieces mock e2e suite covers the window registration, the menu injection and
-the singleton reopen. The starter's `dayscript/demo.yaml` navigates to `settings` and waits for
-`language_picker` on every target, so a broken route or id fails the template's CI. In a
-script, `screenshot: { name: s, window: day.preferences }` (or `day.about`) captures the panel
+In a script, `screenshot: { name: s, window: day.preferences }` (or `day.about`) captures the panel
 instead of the primary window, and `menu: { key: day_about }` / `menu: { key: day_check_for_updates }`
 dispatch the injected role items, which carry no id of their own.
 
-### Settings on tablet widths
+## Settings on tablet widths
 
 The standalone navigation Settings surface uses the `WindowKind::Preferences` modal fallback.
 It stays fullscreen on compact windows and requests a sheet on regular-width windows by
 default; applications need no special configuration. UIKit supplies its native form sheet,
-and backends without native sheets (including Android and HarmonyOS) center the shared
+and toolkits without native sheets (including Android and HarmonyOS) center the shared
 640-by-620 maximum card over a modal scrim. Done and native Back close
 the same keyed surface; closing and reopening resets the Settings path as before. Embedded
 settings pages and desktop Preferences windows keep their existing presentation.
+
+## Platform guidance
+
+- [Apple: settings](https://developer.apple.com/design/human-interface-guidelines/settings)
+- [Android: saving key-value data](https://developer.android.com/training/data-storage/shared-preferences)

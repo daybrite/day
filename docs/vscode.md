@@ -33,7 +33,7 @@ target, and stop/restart ride the standard task lifecycle.
   surface through the `$rustc` problem matcher.
 - **Doctor**: runs `day doctor` to check toolchains.
 - **Tests**: every `#[day::test]` function in the Test Explorer and the editor gutter, run through
-  `day test` on each ticked target, debuggable on a desktop target ([testing.md](testing.md)).
+  `day test` on each ticked target, debuggable on a desktop target ([testing](testing.md)).
 
 ## How it maps to the CLI
 

@@ -14,7 +14,7 @@ The scaffold's `build.rs` calls `day_build::prebuild_project()` and its library 
 `day::resources!();`. In a child module, import `crate::res`; a separate binary imports
 `your_app::res` from its library. Start the app with `res::window_options()` so the catalog
 and saved language are available before the UI is built.
-See [Localization](https://daybrite.dev/docs/how-to/localization) for the complete setup.
+See [Localization](/docs/how-to/localization) for the complete setup.
 
 > [!TIP]
 > **Localize the message, not its fragments.** Literal text is accepted by Day's text APIs,
@@ -343,20 +343,20 @@ pub mod tree_recipe;
 ```
 
 Create `resource/locales/en/app.ftl` with `app_title = Technical recipes`, followed by the catalog
-blocks from [HTTP](https://daybrite.dev/docs/how-to/guide-http),
-[storage](https://daybrite.dev/docs/how-to/guide-storage),
-[permissions](https://daybrite.dev/docs/how-to/guide-permissions),
-[notifications](https://daybrite.dev/docs/how-to/guide-notifications),
-[commands](https://daybrite.dev/docs/how-to/guide-commands), and
-[documents](https://daybrite.dev/docs/how-to/guide-documents). Copy each guide's marked complete
+blocks from [HTTP](/docs/how-to/guide-http),
+[storage](/docs/how-to/guide-storage),
+[permissions](/docs/how-to/guide-permissions),
+[notifications](/docs/how-to/guide-notifications),
+[commands](/docs/how-to/guide-commands), and
+[documents](/docs/how-to/guide-documents). Copy each guide's marked complete
 module into the corresponding source file. Also copy the modules and catalogs from
-[events/state](https://daybrite.dev/docs/explanation/reactivity#handle-an-event-and-update-state),
-[layout](https://daybrite.dev/docs/explanation/layout#build-a-labeled-settings-row),
-[navigation](https://daybrite.dev/docs/how-to/navigation#share-state-between-sections),
-[localization](https://daybrite.dev/docs/how-to/localization#bind-complete-messages-to-state),
-[accessibility](https://daybrite.dev/docs/how-to/accessibility#expose-a-changing-value), and
-[resources](https://daybrite.dev/docs/how-to/resources#handle-a-missing-bundled-file), and
-[trees](https://daybrite.dev/docs/reference/tree#show-hierarchical-data).
+[events/state](/docs/explanation/reactivity#handle-an-event-and-update-state),
+[layout](/docs/explanation/layout#build-a-labeled-settings-row),
+[navigation](/docs/how-to/navigation#share-state-between-sections),
+[localization](/docs/how-to/localization#bind-complete-messages-to-state),
+[accessibility](/docs/how-to/accessibility#expose-a-changing-value), and
+[resources](/docs/how-to/resources#handle-a-missing-bundled-file), and
+[trees](/docs/reference/tree#show-hierarchical-data).
 Create the resource guide's `resource/assets/recipe_data.json` fixture too. No additional helper
 types are needed.
 

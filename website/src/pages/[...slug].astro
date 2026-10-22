@@ -6,7 +6,7 @@ import DocsLayout from '../layouts/DocsLayout.astro';
 import ContentIndex from '../components/ContentIndex.astro';
 import PlatformIcon from '../components/PlatformIcon.astro';
 import { contentPages } from '../lib/content';
-import { hubs } from '../lib/content-routes.mjs';
+import { hubs, referenceNavigation } from '../lib/content-routes.mjs';
 import { platformsById, primaryPlatforms, tierOf } from '../lib/platforms.mjs';
 import { url, site } from '../lib/site';
 
@@ -35,6 +35,7 @@ const tier = platform ? tierOf(platform.tier) : undefined;
 const known = new Set(Object.keys(import.meta.glob('../icons/*.svg')).map((p) => p.split('/').pop()!.replace('.svg', '')));
 const icon = platformId && known.has(platformId) ? platformId : undefined;
 const root = page.audience === 'contributor' ? '/contributing' : page.audience === 'app developer' ? '/docs' : '/';
+const referenceSections = page.route === '/docs/reference' ? referenceNavigation(pages) : [];
 ---
 <DocsLayout title={page.title} description={page.description} route={page.route} audience={page.audience}>
   <nav aria-label="Breadcrumb" data-pagefind-ignore>
@@ -94,8 +95,19 @@ const root = page.audience === 'contributor' ? '/contributing' : page.audience =
     <p>Describe the people you’re building for and the workflow you want to support. That gives a discussion about APIs and platform differences a concrete place to start.</p>
     <p><a href={`${site.repo}/discussions`}>Open project discussions →</a></p>
   </>}
-  {isHub && !['/docs', '/contributing', '/platforms', '/community'].includes(page.route) && <>
-    {page.route === '/docs/reference' && <p><a href={url('docs/reference/api')}>Generated Rust API reference</a></p>}
+  {page.route === '/docs/reference' && <>
+    <nav class="reference-topics" aria-label="Reference topics">
+      {referenceSections.map((group) => <a href={`#${group.id}`}>{group.name}</a>)}
+    </nav>
+    {referenceSections.map((group) => <section aria-labelledby={group.id}>
+      <h2 id={group.id}>{group.name}</h2>
+      <p>{group.description}</p>
+      <ul class="reference-links">
+        {group.pages.map((item) => <li><a href={url(item.route)}>{item.navTitle ?? item.title}</a></li>)}
+      </ul>
+    </section>)}
+  </>}
+  {isHub && !['/docs', '/docs/reference', '/contributing', '/platforms', '/community'].includes(page.route) && <>
     <ContentIndex pages={children} />
   </>}
 </DocsLayout>
@@ -104,4 +116,8 @@ const root = page.audience === 'contributor' ? '/contributing' : page.audience =
   .doc-title h1 { margin: 0; }
   .doc-title :global(.doc-title-icon) { width: 40px; height: 40px; }
   .status-note { border-left: 3px solid var(--border); padding-left: 16px; }
+  .reference-topics { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-block: 24px; }
+  .reference-topics a { font-size: 0.9rem; }
+  .reference-links { columns: 2 220px; }
+  .reference-links li { break-inside: avoid; }
 </style>

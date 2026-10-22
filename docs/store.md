@@ -35,7 +35,7 @@ locale with the nearest declaration winning.
 
 `day store stage` turns that into the two layouts the stores expect, under
 `build/day/store/<target>/`, generated and never checked in, because a build must not write into a
-tracked directory ([§20.3](../DESIGN.md#203-reproducible-build-verification)). `day store export`
+tracked directory. `day store export`
 writes the whole listing, resolved, as one JSON document for the app's website and for anything
 else that publishes the app. What each store is called, which targets publish to it, its fields
 and limits, its locale spellings and its screenshot sizes are data the CLI ships
@@ -114,7 +114,7 @@ checked against 500 rather than 4000. Play's changelog is keyed by versionCode, 
 The same `metadata` table sits under a target and under a store, for wording that belongs to one
 storefront: the App Store's subtitle and promotional text, Play's short description mentioning
 Material, the web build's home-screen description (the web target's `name` and `short` are what
-the manifest carries, [docs/web.md](web.md) "Home screen and offline"). Each level carries what
+the manifest carries, [docs/web](web.md) "Home screen and offline"). Each level carries what
 differs and inherits the rest:
 
 ```toml

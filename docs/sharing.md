@@ -18,4 +18,9 @@ The WebView demo uses a button labeled Copy Link on unsupported platforms, backe
 Day's asynchronous clipboard API. It never silently labels copying as native sharing.
 Native chooser presentation is window-based; the current API does not accept a per-control
 anchor or offer a completion future. Windows and macOS keep the latest chooser/registration
-alive until replacement or backend/process teardown.
+alive until replacement or toolkit/process teardown.
+
+## Platform guidance
+
+- [Apple: activity views](https://developer.apple.com/design/human-interface-guidelines/activity-views)
+- [Android: sending simple data](https://developer.android.com/training/sharing/send)

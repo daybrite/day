@@ -8,21 +8,36 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Color picker (external piece)
+# Color picker
 
-> **Status: implemented** as `day-piece-colorpicker`. Six toolkits get a native renderer registered
-> link-time into their slice; the other two get the same picker as everyone else, because the
-> **composed** idiom is built from ordinary Day pieces and a canvas and therefore needs no arm at
-> all. Verified on macos-appkit, macos-gtk, macos-qt, ios-uikit, android-mdc and web-dom; CI builds
-> every arm. The XAML arm is written against the Windows SDK and has not been run on Windows yet;
-> see [Verification status](#verification-status).
+Let people choose a color for a drawing, highlight, or theme. `day-piece-colorpicker` binds the
+selection to app state and presents a native color control where available, with a picker built
+from Day pieces on the other targets.
+
+## Add to your app
+
+Defined in [`day-piece-colorpicker`](https://github.com/daybrite/day/tree/main/pieces/day-piece-colorpicker). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-colorpicker = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit, GTK, Qt, WinUI, Web | Native chooser; Windows alpha selection remains unverified. |
+| Android, ArkUI | Composed picker; HarmonyOS device behavior remains unverified. |
 
 `color_picker(Signal<Color>)` is a **color well**: a swatch showing the current color that opens a
 chooser when pressed. Both idioms give the app that same control and differ only in who draws the
 chooser behind it.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -68,13 +83,15 @@ banner from this answer would be wrong. Use it to say *which* picker the user ge
 
 ## Per-toolkit realization
 
+Platform guidance: [Apple: color](https://developer.apple.com/design/human-interface-guidelines/color); [Windows: color picker](https://learn.microsoft.com/en-us/windows/apps/design/controls/color-picker).
+
 | Target | Tier | Native chooser | Notes |
 |---|---|---|---|
-| macos-appkit | **Native** | `NSColorWell` → the shared `NSColorPanel` | wheel, sliders, palettes, image spectrum, crayons, screen eyedropper |
-| ios-uikit | **Native** | `UIColorWell` → `UIColorPickerViewController` | grid / spectrum / sliders, eyedropper, iPad popover anchoring — all from the well |
-| gtk | **Native** | `GtkColorDialogButton` → `GtkColorDialog` | GTK 4.10+, which day-gtk already requires |
-| qt | **Native** | swatch `QPushButton` → `QColorDialog` | Qt has no color-well widget; the shim paints the swatch |
-| windows-winui | **Native** | swatch `Button` → `ColorPicker` in a `Flyout` | `Microsoft.UI.Xaml.Controls.ColorPicker`; the deprecated windows-xaml builds the same shim against `Windows.UI.Xaml.Controls.ColorPicker` (Windows 10 1703+) |
+| macos-appkit | **Native** | [`NSColorWell`](https://developer.apple.com/documentation/appkit/nscolorwell) → the shared [`NSColorPanel`](https://developer.apple.com/documentation/appkit/nscolorpanel) | wheel, sliders, palettes, image spectrum, crayons, screen eyedropper |
+| ios-uikit | **Native** | [`UIColorWell`](https://developer.apple.com/documentation/uikit/uicolorwell) → [`UIColorPickerViewController`](https://developer.apple.com/documentation/uikit/uicolorpickerviewcontroller) | grid / spectrum / sliders, eyedropper, iPad popover anchoring — all from the well |
+| gtk | **Native** | [`GtkColorDialogButton`](https://docs.gtk.org/gtk4/class.ColorDialogButton.html) → [`GtkColorDialog`](https://docs.gtk.org/gtk4/class.ColorDialog.html) | GTK 4.10+, which day-gtk already requires |
+| qt | **Native** | swatch [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) → [`QColorDialog`](https://doc.qt.io/qt-6/qcolordialog.html) | Qt has no color-well widget; the shim paints the swatch |
+| windows-winui | **Native** | swatch [`Button`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.button) → [`ColorPicker`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.colorpicker) in a `Flyout` | `Microsoft.UI.Xaml.Controls.ColorPicker` |
 | web-dom | **Native** | `<input type="color">` | the browser's own picker, which on desktop IS the system chooser |
 | android-mdc | Composed | — | Android ships no color picker in the framework, in Material, or in AndroidX |
 | harmony-arkui | Composed | — | the ArkUI C node API has no picker node, and ArkTS has no `ColorPicker` component |
@@ -142,19 +159,19 @@ stray alpha channel cannot make an app's brand color half-transparent behind its
 
 A pick crosses back to Rust as the component form `Color`'s `Display` writes and
 [`Color::parse`](color.md) reads, four floats rather than a packed 32-bit ARGB, so the toolkits
-whose pickers are float-precision (`NSColor`, `GdkRGBA`, `QColor::getRgbF`) lose nothing on the
-way. Three arms are 8-bit at the source and quantize regardless: XAML's `Windows.UI.Color`,
+whose pickers are float-precision ([`NSColor`](https://developer.apple.com/documentation/appkit/nscolor), [`GdkRGBA`](https://docs.gtk.org/gdk4/struct.RGBA.html), [`QColor::getRgbF`](https://doc.qt.io/qt-6/qcolor.html)) lose nothing on the
+way. Three arms are 8-bit at the source and quantize regardless: XAML's [`Windows.UI.Color`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.color),
 `<input type="color">`'s `#rrggbb` value, and anything that round-trips through
-`android.graphics.Color`.
+[`android.graphics.Color`](https://developer.android.com/reference/android/graphics/Color).
 
 Everything the *chooser* knew that `Color` cannot hold (a wide-gamut pick, which authoring model
-the user was in, a dynamic system color) is covered in [color.md](color.md), which also proposes
+the user was in, a dynamic system color) is covered in [color](color.md), which also proposes
 what to do about it.
 
 ## Scripting
 
 The native leaf accepts `Event::TextChanged` carrying any form `Color::parse` reads, so dayscript's
-`input:` step drives it on every backend:
+`input:` step drives it on every toolkit:
 
 ```yaml
 - input: { id: brand_well, text: "#2f6fde" }
@@ -173,49 +190,25 @@ route key; the panel's own parts carry fixed ids:
 
 `color-picker-shade`, `color-picker-hue`, `color-picker-opacity` and `color-picker-presets` name
 the drawn controls. They take a `tap` at a point, which is how the walkthrough proves
-`Decorate::on_tap_at` reports *where* a press landed (see [canvas.md](canvas.md)).
+`Decorate::on_tap_at` reports *where* a press landed (see [canvas](canvas.md)).
 
 ## What this piece does not promise
 
 - **Identical chrome across the native idiom.** AppKit's panel is a floating inspector, iOS's a
-  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's chrome
-  (DESIGN.md [§2](../DESIGN.md)); `.composed()` is the escape hatch when an app wants one look.
+  sheet, GTK's a dialog, XAML's a flyout. That difference is the platform's chrome; `.composed()` is the escape hatch when an app wants one look.
 - **An embedded/inline style.** Three of the eight toolkits have nothing to embed, and a style that
-  silently degrades on most backends is worse than one an app can reason about. The composed panel
+  silently degrades on most toolkits is worse than one an app can reason about. The composed panel
   covers the case an inline picker was wanted for.
 - **Palettes, recent colors, or an eyedropper of Day's own.** The native choosers each bring their
   own; the composed panel offers `.presets(…)` and nothing more.
-- **Anything `Color` cannot carry**, covered in [color.md](color.md).
+- **Anything `Color` cannot carry**, covered in [color](color.md).
 
-## Verification status
+> [!WARNING]
+> **Windows / WinUI: alpha selection.**
+> Native alpha selection has not been validated. Test transparent color selection before
+> relying on `.alpha()` in a Windows app.
 
-The showcase's 572-step walkthrough passes on **macos-appkit, macos-gtk, macos-qt, ios-uikit,
-android-mdc and web-dom** with the Resources page driving both idioms. The composed panel was
-screenshot-reviewed on the first five (it draws the same field, strip, preview, palette and
-buttons on each), and on web-dom its steps pass but no screenshot was taken (that needs a
-`DAY_WEB_DRIVER` browser, [docs/web.md](web.md)). `assert_no_placeholders` checks the native
-leaf's realize traffic on every one of those targets, so the six native arms are known to
-register and realize.
-
-The mock e2e (`pieces/day-piece-colorpicker/tests/mock.rs`) covers the leaf's event decode, the
-app-write patch, the alpha guard, and the composed panel's mount / pick / cancel / done cycle on
-every host.
-
-**harmony-arkui** has not been exercised (it gets the composed panel, and its Rust is the same
-code the other eight run, but the OHOS emulator has not run it), and neither has the *interaction*
-with each native chooser, which is an OS panel a script cannot drive.
-
-**The XAML arm** (windows-winui and the deprecated windows-xaml share its shim) was written blind
-and has since been driven by hand on Windows 11, built as windows-xaml, in Day-Sketch's inspector,
-with synthetic mouse input (nothing below is in CI, because opening the flyout is the part no
-script reaches). Three of the four assumptions hold: `Button.Flyout` does carry a
-`ColorPicker`, `ColorChanged` does fire while the flyout is open and the pick reaches the app, and
-`day_xaml_measure` sizes the swatch button sanely. `IsAlphaEnabled` is still unconfirmed — the app
-the check ran in keeps its wells opaque and carries opacity on a slider of its own.
-
-The same check found a fifth thing the shim had assumed and should not have: `ColorPicker::Color`
-raises `ColorChanged`, so day writing a value in (an inspector following a new selection) came
-straight back as if the user had picked it. The app then rewrote the value it had just sent, and
-that no-op write still sealed an undo unit, which swallowed the user's next Undo (Day-Sketch's
-walkthrough failed there). The shim now brackets the write with an echo guard, the way the GTK arm
-always has; Qt never reports anything but an explicit dialog pick, so it never had the hazard.
+> [!WARNING]
+> **HarmonyOS / ArkUI: composed picker.**
+> The composed picker has not been exercised on a device. Validate selection, cancellation,
+> and the final color in your app before shipping.

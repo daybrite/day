@@ -1,436 +1,414 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-//! day-part-sensors is a headless cross-platform motion-sensor API. No UI; any Rust code can depend
-//! on this crate and [`watch`] the device's motion sensors through the platform's native API.
+//! Event-driven motion sensors. [`watch`] delivers new readings until its [`Watch`] is dropped.
+//! iOS, Android, HarmonyOS, Windows and web use native callbacks; desktop Linux and macOS report
+//! unavailable. Native delivery runs on a shared background dispatcher, web delivery on the browser
+//! thread. Pass readings to UI state through a `day_reactive::Setter`.
+//!
+//! Sources request approximately 20 Hz where supported; actual rates depend on the device.
+//! Pending native readings are coalesced to one per sensor when callbacks are slow. This API is for
+//! live state, not lossless recording. It never repeats a cached reading on a timer.
 //!
 //! ```no_run
 //! use day_part_sensors::SensorKind;
-//! let watch = day_part_sensors::watch(SensorKind::Accelerometer, |a| {
-//!     println!("acceleration: {:.2} {:.2} {:.2} m/s²", a.x, a.y, a.z);
+//! let watch = day_part_sensors::watch(SensorKind::Accelerometer, |r| {
+//!     println!("{} {} {} m/s²", r.x, r.y, r.z);
 //! });
-//! // Samples arrive until `watch` is dropped.
 //! ```
-//!
-//! Platform selection is purely `#[cfg(target_os)]`/`#[cfg(target_env)]` (a sensor is an OS concern,
-//! not a widget-toolkit one): iOS uses CoreMotion, Android `SensorManager` (via a Java shim staged by
-//! `day build`), HarmonyOS the native `libohsensor.so`, Linux the Industrial I/O sysfs tree, and the
-//! web `DeviceMotionEvent`. macOS has no public motion-sensor API and Windows is a stub for now;
-//! both report no sensors at all.
-//!
-//! # Why a stream
-//!
-//! Every platform's sensor API already pushes (`SensorEventListener`, CoreMotion handlers,
-//! `OH_Sensor_Subscribe`, `devicemotion`), so the older `read()` poll was an adapter in the wrong
-//! direction: each per-OS arm had to cache the newest event purely so a caller could ask for it.
-//! [`watch`] removes that inversion, and "no sample yet" stops being a poll artifact.
-//!
-//! Delivery rate: the arms that cache a natively-pushed event are sampled at [`SAMPLE_MS`]; the
-//! pull-only arms (Linux sysfs, Windows) are read at the same cadence. A `watch` therefore delivers
-//! at a steady ~20 Hz rather than at the sensor's rate, which is plenty for a readout or a chart
-//! and keeps a fast sensor from flooding an app's UI thread.
-//!
-//! `on_sample` runs on an unspecified background thread (never the UI thread), so deliver into UI
-//! state with a `day_reactive::Setter`, exactly as `day-part-http` documents for its completions.
 
-/// Which motion sensor to query.
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+/// Motion measurement to subscribe to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum SensorKind {
-    /// Acceleration (including gravity) along the device's x/y/z axes, in m/s².
+    /// Acceleration including gravity, in m/s².
     Accelerometer,
-    /// Rotation rate around the device's x/y/z axes, in rad/s.
+    /// Angular velocity, in rad/s.
     Gyroscope,
-    /// Ambient magnetic field along the device's x/y/z axes, in µT.
+    /// Magnetic field, in µT. iOS removes device bias through CoreMotion device motion;
+    /// in the default mode samples arrive only after calibration. Nearby magnetic interference still affects them.
     Magnetometer,
 }
+impl SensorKind {
+    /// Select the platform's bias-corrected or uncalibrated source explicitly.
+    pub const fn with_calibration(self, calibration: Calibration) -> Sensor {
+        Sensor {
+            kind: self,
+            calibration,
+        }
+    }
+    const fn index(self) -> usize {
+        match self {
+            Self::Accelerometer => 0,
+            Self::Gyroscope => 1,
+            Self::Magnetometer => 2,
+        }
+    }
+}
 
-/// One motion-sensor sample. Units are SI and depend on the [`SensorKind`]: m/s² for the
-/// accelerometer, rad/s for the gyroscope, µT for the magnetometer (iOS g's and any platform quirks
-/// are normalized by the per-OS impls). Axis sign conventions are the platform's: a device lying
-/// face-up reads `z ≈ +9.8` on Android but `z ≈ -9.8` on iOS.
+/// Sensor bias processing. Availability is queried for each mode independently.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Calibration {
+    /// The normal platform sensor, with platform bias correction where provided.
+    /// On iOS, gyroscope and magnetometer use CoreMotion's processed device motion.
+    #[default]
+    Calibrated,
+    /// Omit runtime bias correction. Factory calibration and temperature compensation
+    /// may still apply. Unsupported modes never silently fall back to another source.
+    Uncalibrated,
+}
+
+/// A sensor kind and its processing mode. Pass this to [`watch`] and [`is_available`].
+/// Passing a [`SensorKind`] alone selects [`Calibration::Calibrated`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Sensor {
+    pub kind: SensorKind,
+    pub calibration: Calibration,
+}
+impl From<SensorKind> for Sensor {
+    fn from(kind: SensorKind) -> Self {
+        kind.with_calibration(Calibration::Calibrated)
+    }
+}
+impl Sensor {
+    fn index(self) -> usize {
+        self.kind.index()
+            + if self.calibration == Calibration::Uncalibrated {
+                3
+            } else {
+                0
+            }
+    }
+    #[cfg(any(
+        test,
+        target_arch = "wasm32",
+        target_os = "android",
+        target_env = "ohos"
+    ))]
+    fn from_code(code: u32) -> Option<Self> {
+        SOURCES.get(code as usize).copied()
+    }
+}
+const SOURCES: [Sensor; 6] = [
+    SensorKind::Accelerometer.with_calibration(Calibration::Calibrated),
+    SensorKind::Gyroscope.with_calibration(Calibration::Calibrated),
+    SensorKind::Magnetometer.with_calibration(Calibration::Calibrated),
+    SensorKind::Accelerometer.with_calibration(Calibration::Uncalibrated),
+    SensorKind::Gyroscope.with_calibration(Calibration::Uncalibrated),
+    SensorKind::Magnetometer.with_calibration(Calibration::Uncalibrated),
+];
+
+/// A new measurement in SI units. Axis signs follow the platform's coordinate system.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SensorReading {
-    /// Value along the device's x axis.
+    /// Device x axis.
     pub x: f64,
-    /// Value along the device's y axis.
+    /// Device y axis.
     pub y: f64,
-    /// Value along the device's z axis.
+    /// Device z axis.
     pub z: f64,
 }
 
-/// How often a [`watch`] delivers, in milliseconds.
-pub const SAMPLE_MS: u64 = 50;
-
-/// Whether the device has the given sensor (and the platform an API for it). `false` also covers
-/// simulators/emulators without sensor passthrough and desktops without motion hardware.
-pub fn is_available(kind: SensorKind) -> bool {
-    imp::is_available(kind)
+/// Whether this platform exposes the sensor. Web checks API support, not hardware presence;
+/// permission and hardware still determine whether events arrive. This never starts a sensor.
+pub fn is_available(sensor: impl Into<Sensor>) -> bool {
+    imp::is_available(sensor.into())
 }
 
-/// Subscribe to a sensor. Samples arrive on an unspecified background thread roughly every
-/// [`SAMPLE_MS`] until the returned [`Watch`] is dropped.
+/// Watch new sensor readings. Callbacks are serialized and must return promptly. No samples are
+/// produced when the source is unavailable or permission is denied; request permission first.
+/// Recreate the watch after a native subscription failure. Native callbacks run on a background
+/// dispatcher; web callbacks run on the browser thread. A callback may create or drop watches.
 ///
-/// Nothing is delivered before the platform's first event, so a device that never reports (no such
-/// sensor, an emulator without passthrough) produces no samples; ask [`is_available`] to tell
-/// that apart from "not yet".
-///
-/// In a Day app, bind the handle to the page's scope so the subscription ends with it:
-///
-/// ```ignore
-/// let watch = day_part_sensors::watch(SensorKind::Accelerometer, move |r| latest.set(r));
-/// day_reactive::Scope::current().on_cleanup(move || drop(watch));
-/// ```
-pub fn watch(kind: SensorKind, on_sample: impl FnMut(SensorReading) + Send + 'static) -> Watch {
-    subscribe(kind, Box::new(on_sample))
+/// Bind the handle to a Day page with `Scope::current().on_cleanup(move || drop(watch))`.
+pub fn watch(
+    sensor: impl Into<Sensor>,
+    on_sample: impl FnMut(SensorReading) + Send + 'static,
+) -> Watch {
+    let kind = sensor.into();
+    let (watch, start) = hub().add(kind, Box::new(on_sample));
+    #[cfg(not(target_arch = "wasm32"))]
+    if start {
+        let hub = hub().clone();
+        std::thread::Builder::new()
+            .name("day-sensors".into())
+            .spawn(move || hub.run(imp::start))
+            .expect("start sensor dispatcher");
+    }
+    #[cfg(target_arch = "wasm32")]
+    if start {
+        imp::start(kind, watch.generation);
+    }
+    watch
 }
 
-/// An active subscription. Dropping it stops delivery, and stops the underlying platform stream once
-/// the last watcher of that sensor is gone.
+/// A subscription. Drop cancels queued delivery immediately. A callback already selected for delivery may
+/// finish. Native teardown runs on the dispatcher, after that callback, so self-unsubscription
+/// cannot deadlock. The last watcher releases the native sensor source.
 pub struct Watch {
-    kind: SensorKind,
-    id: u64,
+    hub: Arc<Hub>,
+    kind: Sensor,
+    listener: Arc<Listener>,
+    #[cfg(target_arch = "wasm32")]
+    generation: u32,
 }
-
 impl Drop for Watch {
     fn drop(&mut self) {
-        unsubscribe(self.kind, self.id);
+        self.listener.active.store(false, Ordering::Release);
+        let mut state = lock(&self.hub.state);
+        let feed = &mut state.feeds[self.kind.index()];
+        feed.listeners.retain(|l| !Arc::ptr_eq(l, &self.listener));
+        if feed.listeners.is_empty() {
+            feed.pending = None;
+        }
+        #[cfg(target_arch = "wasm32")]
+        let stop = feed.listeners.is_empty();
+        drop(state);
+        self.hub.wake();
+        #[cfg(target_arch = "wasm32")]
+        if stop {
+            imp::stop(self.kind, self.generation);
+        }
     }
 }
 
 type Handler = Box<dyn FnMut(SensorReading) + Send>;
-
-/// Per-sensor state: the live watchers, and the flag their sampling thread checks.
-/// Each handler rides its own `Arc<Mutex<…>>` so [`deliver`] can snapshot the list and run
-/// the callbacks with the feeds lock released: a callback may call [`watch`] or drop a
-/// [`Watch`], both of which re-enter [`lock_feeds`] and deadlocked when delivery held it.
-/// The per-handler mutex keeps the `FnMut` exclusive.
+struct Listener {
+    active: AtomicBool,
+    delivery: Mutex<Delivery>,
+}
+struct Delivery {
+    handler: Option<Handler>,
+    pending: Option<SensorReading>,
+}
+impl Listener {
+    fn deliver(&self, reading: SensorReading) {
+        let mut delivery = lock(&self.delivery);
+        if !self.active.load(Ordering::Acquire) {
+            return;
+        }
+        let Some(mut handler) = delivery.handler.take() else {
+            // A reentrant browser event replaces the single pending sample.
+            delivery.pending = Some(reading);
+            return;
+        };
+        drop(delivery);
+        let mut next = Some(reading);
+        while let Some(reading) = next {
+            if self.active.load(Ordering::Acquire)
+                && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handler(reading)))
+                    .is_err()
+            {
+                self.active.store(false, Ordering::Release);
+            }
+            let mut delivery = lock(&self.delivery);
+            next = delivery.pending.take();
+            if next.is_none() {
+                delivery.handler = Some(handler);
+                return;
+            }
+        }
+    }
+}
 #[derive(Default)]
 struct Feed {
-    watchers: Vec<(u64, std::sync::Arc<std::sync::Mutex<Handler>>)>,
-    running: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    generation: u32,
+    listeners: Vec<Arc<Listener>>,
+    pending: Option<SensorReading>,
 }
-
-fn feeds() -> &'static std::sync::Mutex<std::collections::HashMap<u8, Feed>> {
-    static FEEDS: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u8, Feed>>> =
-        std::sync::OnceLock::new();
-    FEEDS.get_or_init(Default::default)
+#[derive(Default)]
+struct State {
+    feeds: [Feed; 6],
+    #[cfg(not(target_arch = "wasm32"))]
+    running: bool,
 }
-
-fn lock_feeds() -> std::sync::MutexGuard<'static, std::collections::HashMap<u8, Feed>> {
-    match feeds().lock() {
-        Ok(g) => g,
-        Err(poisoned) => poisoned.into_inner(),
-    }
+#[derive(Default)]
+struct Hub {
+    state: Mutex<State>,
+    #[cfg(not(target_arch = "wasm32"))]
+    ready: std::sync::Condvar,
 }
-
-fn key(kind: SensorKind) -> u8 {
-    match kind {
-        SensorKind::Accelerometer => 0,
-        SensorKind::Gyroscope => 1,
-        SensorKind::Magnetometer => 2,
-    }
+fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
 }
-
-fn subscribe(kind: SensorKind, handler: Handler) -> Watch {
-    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
-    let id = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-    let start = {
-        let mut feeds = lock_feeds();
-        let feed = feeds.entry(key(kind)).or_default();
-        feed.watchers
-            .push((id, std::sync::Arc::new(std::sync::Mutex::new(handler))));
-        if feed.running.is_some() {
-            None
-        } else {
-            let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-            feed.running = Some(flag.clone());
-            Some(flag)
+fn hub() -> &'static Arc<Hub> {
+    static HUB: OnceLock<Arc<Hub>> = OnceLock::new();
+    HUB.get_or_init(Default::default)
+}
+impl Hub {
+    fn add(self: &Arc<Self>, kind: Sensor, handler: Handler) -> (Watch, bool) {
+        let listener = Arc::new(Listener {
+            active: AtomicBool::new(true),
+            delivery: Mutex::new(Delivery {
+                handler: Some(handler),
+                pending: None,
+            }),
+        });
+        let mut state = lock(&self.state);
+        let feed = &mut state.feeds[kind.index()];
+        let first = feed.listeners.is_empty();
+        if first {
+            feed.generation = feed
+                .generation
+                .checked_add(1)
+                .expect("sensor generation exhausted");
         }
-    };
-
-    // One feed per watched sensor, not per watcher: the platform arm keeps a single native
-    // subscription either way, so a second watcher costs nothing but a callback.
-    if let Some(flag) = start {
-        start_feed(kind, flag);
-    }
-    Watch { kind, id }
-}
-
-/// Push the platform's newest reading to everyone watching `kind`.
-///
-/// The two feed drivers (a thread natively, the browser's timer on wasm) deliver through this one
-/// path, so the fan-out logic exists once.
-pub(crate) fn deliver(kind: SensorKind) {
-    let Some(reading) = imp::sample(kind) else {
-        return;
-    };
-    fan_out(kind, reading);
-}
-
-/// Fan one reading out to every watcher of `kind` (split from [`deliver`] so hosts without
-/// sensors can still exercise the delivery locking in tests).
-fn fan_out(kind: SensorKind, reading: SensorReading) {
-    // Snapshot the handler list, then run the callbacks with the feeds lock released: a
-    // handler that calls `watch()` or drops a `Watch` re-enters `lock_feeds`, which
-    // deadlocked when delivery held it across the calls. A watcher dropped mid-delivery
-    // may still receive the sample already in flight: one final callback, nothing after.
-    let handlers: Vec<_> = {
-        let feeds = lock_feeds();
-        match feeds.get(&key(kind)) {
-            Some(feed) => feed.watchers.iter().map(|(_, h)| h.clone()).collect(),
-            None => return,
-        }
-    };
-    for h in handlers {
-        let mut h = match h.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
+        #[cfg(target_arch = "wasm32")]
+        let generation = feed.generation;
+        feed.listeners.push(listener.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        let start = {
+            let start = !state.running;
+            state.running = true;
+            start
         };
-        h(reading);
+        #[cfg(target_arch = "wasm32")]
+        let start = first;
+        drop(state);
+        self.wake();
+        (
+            Watch {
+                hub: self.clone(),
+                kind,
+                listener,
+                #[cfg(target_arch = "wasm32")]
+                generation,
+            },
+            start,
+        )
     }
-}
-
-/// Native platforms: one sampling thread per watched sensor.
-#[cfg(not(target_arch = "wasm32"))]
-fn start_feed(kind: SensorKind, running: std::sync::Arc<std::sync::atomic::AtomicBool>) {
-    std::thread::spawn(move || {
-        while running.load(std::sync::atomic::Ordering::Relaxed) {
-            deliver(kind);
-            std::thread::sleep(std::time::Duration::from_millis(SAMPLE_MS));
+    fn wake(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.ready.notify_one();
+    }
+    #[cfg(any(
+        test,
+        target_os = "ios",
+        target_os = "android",
+        target_os = "windows",
+        target_env = "ohos",
+        target_arch = "wasm32"
+    ))]
+    fn push(&self, kind: Sensor, generation: u32, reading: SensorReading) {
+        if !reading.x.is_finite() || !reading.y.is_finite() || !reading.z.is_finite() {
+            return;
         }
-    });
-}
+        let mut state = lock(&self.state);
+        let feed = &mut state.feeds[kind.index()];
+        if feed.generation != generation || feed.listeners.is_empty() {
+            return;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            feed.pending = Some(reading);
+            drop(state);
+            self.wake();
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let listeners = feed.listeners.clone();
+            drop(state);
+            for listener in listeners {
+                listener.deliver(reading);
+            }
+        }
+    }
 
-/// The browser has one thread (`std::thread::spawn` panics on wasm32), so the feed is driven by a
-/// timer inside the day-dom shim, which calls back into [`day_sensors_tick`].
-#[cfg(target_arch = "wasm32")]
-fn start_feed(kind: SensorKind, _running: std::sync::Arc<std::sync::atomic::AtomicBool>) {
-    imp::start_feed(kind, SAMPLE_MS);
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn stop_feed(_kind: SensorKind) {}
-
-#[cfg(target_arch = "wasm32")]
-fn stop_feed(kind: SensorKind) {
-    imp::stop_feed(kind);
-}
-
-/// The day-dom shim's timer tick (wasm only): deliver one sample for `kind`.
-#[cfg(target_arch = "wasm32")]
-#[unsafe(no_mangle)]
-pub extern "C" fn day_sensors_tick(kind: u32) {
-    let kind = match kind {
-        0 => SensorKind::Accelerometer,
-        1 => SensorKind::Gyroscope,
-        _ => SensorKind::Magnetometer,
-    };
-    deliver(kind);
-}
-
-fn unsubscribe(kind: SensorKind, id: u64) {
-    let mut feeds = lock_feeds();
-    let Some(feed) = feeds.get_mut(&key(kind)) else {
-        return;
-    };
-    feed.watchers.retain(|(w, _)| *w != id);
-    if feed.watchers.is_empty()
-        && let Some(flag) = feed.running.take()
-    {
-        // The thread notices on its next tick and exits; the platform arm keeps its native
-        // subscription for the process lifetime, as it always has.
-        flag.store(false, std::sync::atomic::Ordering::Relaxed);
-        stop_feed(kind);
+    // Start/stop and user callbacks share a worker. It sleeps until an event or subscription
+    // change, never polls, and exits after every source has been released.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn run<S>(&self, mut start: impl FnMut(Sensor, u32) -> Option<S>) {
+        let mut sources: [Option<(u32, Option<S>)>; 6] = std::array::from_fn(|_| None);
+        'drive: loop {
+            let mut state = lock(&self.state);
+            for (i, kind) in SOURCES.into_iter().enumerate() {
+                let feed = &mut state.feeds[i];
+                let desired = (!feed.listeners.is_empty()).then_some(feed.generation);
+                if sources[i].as_ref().map(|s| s.0) != desired {
+                    if let Some(source) = sources[i].take() {
+                        drop(state);
+                        drop(source);
+                        continue 'drive;
+                    }
+                    if let Some(generation) = desired {
+                        drop(state);
+                        sources[i] = Some((generation, start(kind, generation)));
+                        continue 'drive;
+                    }
+                }
+            }
+            // Take one sample per sensor so a busy source cannot starve the other kinds.
+            let batch: Vec<_> = state
+                .feeds
+                .iter_mut()
+                .filter_map(|feed| {
+                    feed.pending
+                        .take()
+                        .map(|reading| (feed.listeners.clone(), reading))
+                })
+                .collect();
+            if !batch.is_empty() {
+                drop(state);
+                for (listeners, reading) in batch {
+                    for listener in listeners {
+                        listener.deliver(reading);
+                    }
+                }
+                continue;
+            }
+            if state.feeds.iter().all(|feed| feed.listeners.is_empty()) {
+                state.running = false;
+                return;
+            }
+            drop(self.ready.wait(state).unwrap_or_else(|e| e.into_inner()));
+        }
     }
 }
 
-// ---------------------------------------------------------------------------
-// Per-OS implementations. Each exposes `fn is_available(SensorKind) -> bool` and
-// `fn sample(SensorKind) -> Option<SensorReading>`, the newest reading the platform has, which
-// the subscription loop above turns into a stream.
-// ---------------------------------------------------------------------------
-
-#[cfg(target_os = "macos")]
-#[path = "macos.rs"]
-mod imp;
+// Platform callbacks only enqueue bounded data. No user code runs on a native FFI stack.
+#[cfg(any(
+    target_os = "ios",
+    target_os = "android",
+    target_os = "windows",
+    target_env = "ohos",
+    target_arch = "wasm32"
+))]
+fn push(kind: Sensor, generation: u32, reading: SensorReading) {
+    hub().push(kind, generation, reading);
+}
 
 #[cfg(target_os = "ios")]
 #[path = "ios.rs"]
 mod imp;
-
-#[cfg(target_os = "windows")]
-#[path = "windows.rs"]
-mod imp;
-
-// Desktop/embedded Linux reads iio sysfs; HarmonyOS (also `target_os = "linux"`) sandboxes that
-// away, so it uses its own native sensor API instead.
-#[cfg(all(target_os = "linux", not(target_env = "ohos")))]
-#[path = "linux.rs"]
-mod imp;
-
-#[cfg(all(target_os = "linux", target_env = "ohos"))]
-#[path = "ohos.rs"]
-mod imp;
-
 #[cfg(target_os = "android")]
 #[path = "android.rs"]
 mod imp;
-
-// The browser: `DeviceMotionEvent` through the day-dom shim (docs/web.md).
+#[cfg(target_os = "windows")]
+#[path = "windows.rs"]
+mod imp;
+#[cfg(target_env = "ohos")]
+#[path = "ohos.rs"]
+mod imp;
 #[cfg(target_arch = "wasm32")]
 #[path = "web.rs"]
 mod imp;
-
-// Any other platform: no native sensor API.
 #[cfg(not(any(
-    target_os = "macos",
     target_os = "ios",
-    target_os = "windows",
-    target_os = "linux",
     target_os = "android",
+    target_os = "windows",
+    target_env = "ohos",
     target_arch = "wasm32"
 )))]
 mod imp {
-    pub fn is_available(_kind: super::SensorKind) -> bool {
+    pub fn is_available(_: super::Sensor) -> bool {
         false
     }
-    pub fn sample(_kind: super::SensorKind) -> Option<super::SensorReading> {
+    pub fn start(_: super::Sensor, _: u32) -> Option<()> {
         None
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The subscription registry is process-global, so the tests that inspect or perturb it must
-    /// not run concurrently; cargo runs them on parallel threads by default.
-    static REGISTRY: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-    fn registry_guard() -> std::sync::MutexGuard<'static, ()> {
-        match REGISTRY.lock() {
-            Ok(g) => g,
-            Err(poisoned) => poisoned.into_inner(),
-        }
-    }
-
-    const KINDS: [SensorKind; 3] = [
-        SensorKind::Accelerometer,
-        SensorKind::Gyroscope,
-        SensorKind::Magnetometer,
-    ];
-
-    // Querying must never panic, whether or not the host has sensors (dev machines and CI runners
-    // typically don't; the mac host always answers false/no samples).
-    #[test]
-    fn probing_never_panics() {
-        for kind in KINDS {
-            let _ = is_available(kind);
-            if let Some(r) = imp::sample(kind) {
-                assert!(r.x.is_finite() && r.y.is_finite() && r.z.is_finite());
-            }
-        }
-    }
-
-    /// Subscribing and dropping must work on a host with no sensors at all: the thread starts,
-    /// finds nothing to deliver, and exits when the last watcher goes. Any sample that does arrive
-    /// must be finite.
-    #[test]
-    fn watch_starts_and_stops_cleanly() {
-        let _guard = registry_guard();
-        for kind in KINDS {
-            let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-            let sink = seen.clone();
-            let watch = watch(kind, move |r| {
-                if let Ok(mut v) = sink.lock() {
-                    v.push(r);
-                }
-            });
-            std::thread::sleep(std::time::Duration::from_millis(SAMPLE_MS * 2));
-            drop(watch);
-            for r in seen.lock().expect("samples").iter() {
-                assert!(r.x.is_finite() && r.y.is_finite() && r.z.is_finite());
-            }
-        }
-    }
-
-    /// Two watchers on one sensor share a single feed, and dropping one leaves the other running.
-    #[test]
-    fn watchers_are_independent() {
-        let _guard = registry_guard();
-        let a = watch(SensorKind::Accelerometer, |_| {});
-        let b = watch(SensorKind::Accelerometer, |_| {});
-        assert_eq!(
-            lock_feeds()
-                .get(&key(SensorKind::Accelerometer))
-                .map(|f| f.watchers.len()),
-            Some(2)
-        );
-        drop(a);
-        let feeds = lock_feeds();
-        let feed = feeds.get(&key(SensorKind::Accelerometer)).expect("feed");
-        assert_eq!(feed.watchers.len(), 1);
-        assert!(
-            feed.running.is_some(),
-            "the feed must survive one watcher leaving"
-        );
-        drop(feeds);
-        drop(b);
-        assert!(
-            lock_feeds()
-                .get(&key(SensorKind::Accelerometer))
-                .is_none_or(|f| f.running.is_none()),
-            "the last watcher leaving must stop the feed"
-        );
-    }
-
-    /// A handler may re-enter the registry: subscribe a new watcher or drop its own `Watch`
-    /// mid-callback. Delivery used to hold the feeds lock across the callbacks, so either
-    /// re-entry deadlocked the sampling thread.
-    #[test]
-    fn handler_may_reenter_the_registry_during_delivery() {
-        let _guard = registry_guard();
-        let kind = SensorKind::Gyroscope;
-        let reading = SensorReading {
-            x: 1.0,
-            y: 2.0,
-            z: 3.0,
-        };
-
-        // Re-entrant subscribe: the callback registers a second watcher.
-        let extra: std::sync::Arc<std::sync::Mutex<Option<Watch>>> = Default::default();
-        let extra2 = extra.clone();
-        let w = watch(kind, move |_| {
-            if let Ok(mut slot) = extra2.lock()
-                && slot.is_none()
-            {
-                *slot = Some(watch(kind, |_| {}));
-            }
-        });
-        fan_out(kind, reading);
-        assert!(
-            extra.lock().expect("slot").is_some(),
-            "the callback's own watch() must complete"
-        );
-        drop(w);
-        *extra.lock().expect("slot") = None; // drops the inner Watch (re-enters unsubscribe)
-
-        // Re-entrant unsubscribe: the callback drops its own Watch.
-        let own: std::sync::Arc<std::sync::Mutex<Option<Watch>>> = Default::default();
-        let own2 = own.clone();
-        let w = watch(kind, move |_| {
-            if let Ok(mut slot) = own2.lock() {
-                slot.take(); // drop mid-delivery
-            }
-        });
-        *own.lock().expect("slot") = Some(w);
-        fan_out(kind, reading);
-        assert!(
-            lock_feeds()
-                .get(&key(kind))
-                .is_none_or(|f| f.watchers.is_empty()),
-            "the self-dropped watcher must be gone"
-        );
-    }
-}
+mod tests;

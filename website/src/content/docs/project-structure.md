@@ -85,7 +85,7 @@ day build -t <target>
     └── harmony   cargo + hvigor + sign  → app.hap     (bundles the cargo cdylib)
 ```
 
-One [backend](/docs/reference/glossary#backend) is compiled per binary. The AppKit build contains no GTK code, the Android build only
+One [toolkit](/docs/reference/glossary#toolkit) is compiled per binary. The AppKit build contains no GTK code, the Android build only
 its JNI bridge. Standalone [pieces](/docs/reference/glossary#piece) (say, a Lottie or map piece) contribute their own native code and
 dependencies through Cargo metadata, so the app never re-declares per-piece build wiring.
 
@@ -97,9 +97,8 @@ Desktop targets are the simplest: the artifact is the Cargo binary itself.
 src/*.rs ──► cargo build -p my-app --features appkit     (per-target CARGO_TARGET_DIR)
                  │
                  ├── GTK: links system GTK 4 / libadwaita
-                 ├── Qt / XAML: cc-compiled C++ shim (built by the toolkit crate's build.rs)
-                 ├── XAML: embeds a side-by-side manifest (`maxversiontested`, which
-                 │   XAML Islands requires; both XAML targets get it);
+                 ├── Qt / WinUI: cc-compiled C++ shim (built by the toolkit crate's build.rs)
+                 ├── WinUI: embeds a side-by-side manifest (`maxversiontested`);
                  │   day pack -t windows-winui adds the runtime's WinRT registrations
                  └── macos-appkit: swift build prepass when Swift is contributed
                      (build/day/macos/DayPieces, statically linked — docs/swiftui)
@@ -363,9 +362,9 @@ res.read_at(0, &mut header);         // random access, no allocation
 ```
 
 On Apple platforms that view is an `mmap` of the bundle file; on Android it is the NDK
-`AAssetManager` buffer of an uncompressed asset; GTK and Qt read out of resource blobs compiled
+[`AAssetManager`](https://developer.android.com/ndk/reference/group/asset) buffer of an uncompressed asset; GTK and Qt read out of resource blobs compiled
 into the binary; ArkUI maps the `rawfile` descriptor. Images resolve through each platform's
-by-name API (`UIImage(named:)`, `R.drawable`, `gtk_picture_new_for_resource`, `QPixmap(":/…")`,
+by-name API ([`UIImage(named:)`](https://developer.apple.com/documentation/uikit/uiimage), `R.drawable`, [`gtk_picture_new_for_resource`](https://docs.gtk.org/gtk4/ctor.Picture.new_for_resource.html), [`QPixmap(":/…")`](https://doc.qt.io/qt-6/qpixmap.html),
 `resource://RAWFILE/…`), so density variants like `logo@2x.png` map onto the platform's own
 scale-selection mechanism.
 

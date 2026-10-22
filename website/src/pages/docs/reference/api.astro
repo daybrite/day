@@ -8,8 +8,8 @@ import api from '../../../data/api-crates.json';
 // The bridge page into the generated Rust API reference. The crate list comes from the same
 // api-crates.json that CI's scripts/build-api-docs.sh documents, so this page and the rustdoc bundle
 // stay in lockstep. Each crate links into /api/<crate>/ (rustdoc uses underscores for '-'). The bundle
-// itself is produced by `cargo doc` in CI and dropped into dist/api; locally it only exists if you run
-// `scripts/build-api-docs.sh --out website/public/api` first.
+// itself is produced by `cargo doc` into dist/api in CI and normal local production builds.
+// `npm run api:dev` also makes it available to the development server.
 const groups = api.groups;
 const docDir = (pkg: string) => pkg.replace(/-/g, '_');
 ---
@@ -17,7 +17,9 @@ const docDir = (pkg: string) => pkg.replace(/-/g, '_');
   <h1>API reference</h1>
   <p class="lead">
     Generated <code>rustdoc</code> for the public Day crates. The guides explain the concepts;
-    rustdoc lists every public trait, struct, and function.
+    rustdoc provides signatures, methods, variants, and source links for the crates below.
+    It is built from the same Day checkout as this site, using the portable mock backend for
+    the umbrella crate. Target-specific APIs may require documentation built for that target.
   </p>
 
   {groups.map((g) => (

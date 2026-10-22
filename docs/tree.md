@@ -77,7 +77,7 @@ of the row's title so renaming or translating a title does not change its test i
 | Builder | Default and behavior |
 | --- | --- |
 | `row_height` | `RowHeight::Automatic`; `Uniform(h)` supplies fixed row sizing |
-| `indent` | Unset: backend default indentation |
+| `indent` | Unset: toolkit default indentation |
 | `section_headers()` | Off; when enabled, root branches are nonselectable headings and children must be leaves |
 | `expanded(binding)` | Optional app-owned `HashSet<Key>`; user disclosure writes it; app writes update the tree |
 | `on_expansion(f)` | Reports user/script changes, not programmatic expansion writes |
@@ -87,7 +87,7 @@ of the row's title so renaming or translating a title does not change its test i
 | `row_context_menu(f)` | Optional menu built when summoned for the current key |
 
 Multi-selection and movement are off by default. The
-[TreePiece API](https://daybrite.dev/api/day_pieces/struct.TreePiece.html) lists move guards,
+[TreePiece API](/api/day_pieces/struct.TreePiece.html) lists move guards,
 reveal, and type-ahead options.
 `tree` does not return a construction `Result`; malformed source data is not thereby validated.
 
@@ -95,11 +95,11 @@ reveal, and type-ahead options.
 
 | Toolkit | Rendering |
 | --- | --- |
-| AppKit | Native `NSOutlineView` |
+| AppKit | Native [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
 | UIKit | Native collection-view list |
 | GTK | Native tree-list model and expander rows |
-| Qt | Native `QTreeWidget` |
-| WinUI / XAML | Native `TreeView` hierarchy |
+| Qt | Native [`QTreeWidget`](https://doc.qt.io/qt-6/qtreewidget.html) |
+| WinUI / XAML | Native [`TreeView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.treeview) hierarchy |
 | Android | Composed list for arbitrary depth; native `ExpandableListView` for single-selection sections |
 | ArkUI / DOM | Composed tree built from list rows |
 
@@ -108,4 +108,7 @@ branches into list rows while retaining the same expansion and selection API. A 
 `section_headers()` tree can use `Cap::TreeSections`; multi-selection uses the full-tree path.
 
 Use [lists](list.md) for flat rows and [navigation](navigation.md) for destinations.
-[Tree design history](design/tree.md) describes the adapter decisions.
+
+## Platform guidance
+
+- [Windows: tree views](https://learn.microsoft.com/en-us/windows/apps/design/controls/tree-view)

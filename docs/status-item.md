@@ -88,10 +88,10 @@ Unchanged images are reused when only menu entries, title or tooltip change. The
 also the native button's accessibility label, so a grid needs a localized textual description.
 
 This extension currently renders on **AppKit only**. Keep an `.icon(...)`, `.vector(...)` or
-`.image(...)` fallback for other desktop backends, which ignore `raster`. Set the fallback
+`.image(...)` fallback for other desktop toolkits, which ignore `raster`. Set the fallback
 before `.raster(...)` so that the latter selects full-color rendering. `Cap::StatusItem` still
 reports ordinary status-item support; it does not promise runtime-raster support. The mock
-backend retains the raster in its probe for tests.
+toolkit retains the raster in its probe for tests.
 
 ## Keeping the app running
 
@@ -131,7 +131,7 @@ is no need to show and then close the initial host; it remains available through
 `initial_window()` and can be shown explicitly with `set_visible(true)`.
 
 `start_hidden` also applies to secondary AppKit windows. It defaults to `false`, is currently
-ignored by other backends, and does not change `KeepRunning` or the window's lifetime.
+ignored by other toolkits, and does not change `KeepRunning` or the window's lifetime.
 
 ## Progress on the Dock or taskbar icon
 
@@ -147,13 +147,15 @@ there. Progress is app-wide; on Windows it shows on the first window's taskbar b
 
 ## Platform support
 
-| Backend | Status item | Progress | Dock visibility |
+Platform guidance: [Apple: the menu bar](https://developer.apple.com/design/human-interface-guidelines/the-menu-bar); [Windows: notification area](https://learn.microsoft.com/en-us/windows/win32/shell/notification-area).
+
+| Toolkit | Status item | Progress | Dock visibility |
 |---|---|---|---|
-| AppKit | Native: `NSStatusItem` in the menu bar | Native: a bar drawn on the Dock tile | Native: the activation policy |
-| Windows XAML | Native: `Shell_NotifyIcon` (compile-checked; runtime pending) | Native: `ITaskbarList3` (compile-checked) | Unsupported |
+| AppKit | Native: [`NSStatusItem`](https://developer.apple.com/documentation/appkit/nsstatusitem) in the menu bar | Native: a bar drawn on the Dock tile | Native: the activation policy |
+| Windows XAML | Native: `Shell_NotifyIcon` (compile-checked; runtime pending) | Native: [`ITaskbarList3`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-itaskbarlist3) (compile-checked) | Unsupported |
 | GTK (Linux) | Native while a StatusNotifierItem host runs, through the `day-dbus` crate | Emulated: the Unity launcher protocol (KDE Plasma, Dash to Dock) | Unsupported |
-| Qt (Linux) | Native where `QSystemTrayIcon` finds a tray | Emulated: the Unity launcher protocol | Unsupported |
+| Qt (Linux) | Native where [`QSystemTrayIcon`](https://doc.qt.io/qt-6/qsystemtrayicon.html) finds a tray | Emulated: the Unity launcher protocol | Unsupported |
 | iOS, Android, HarmonyOS, web | Unsupported | Unsupported | Unsupported |
 
 On a phone the nearest equivalent of a tray icon is an ongoing notification, which is a
-notifications feature ([docs/notify.md](notify.md)), not a status item.
+notifications feature ([docs/notify](notify.md)), not a status item.

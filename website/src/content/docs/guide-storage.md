@@ -10,9 +10,9 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Persist small settings with `day::prefs`; store user documents and caches with `day-part-fs`.
+Persist small settings with `day::prefs`; store user documents and caches with [`day-part-fs`](/docs/reference/fs).
 Start with a working app. The facade's default `prefs` feature supplies preferences; add
-`day-part-fs` from the same revision for file operations. Neither store encrypts its contents.
+[`day-part-fs`](/docs/reference/fs) from the same revision for file operations. Neither store encrypts its contents.
 
 ## Persist a setting
 

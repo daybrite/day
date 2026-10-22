@@ -2,8 +2,8 @@
 
 # Dayscript recorder coverage
 
-Every `Event` a Day app can receive, and the dayscript step the recorder writes for it
-(DESIGN.md §14.6). Derived from `day-spec`'s `Event` enum and `day-script`'s `event_to_step`;
+Every `Event` a Day app can receive, and the dayscript step the recorder writes for it.
+Derived from `day-spec`'s `Event` enum and `day-script`'s `event_to_step`;
 CI fails if this file drifts from them.
 
 **A new `Event` variant lands here as `dropped` by default.** That is the point: the recorder

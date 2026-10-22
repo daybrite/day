@@ -20,7 +20,7 @@ image(bytes)                    // Bytes  — an encoded PNG/JPEG the app holds
 image(&bitmap)                  // Decoded — a handle from `day::decode_image`
 ```
 
-`Named` is unchanged from [docs/resources.md](resources.md). The other two are new, and the rest of
+`Named` is unchanged from [docs/resources](resources.md). The other two are new, and the rest of
 this page is about them.
 
 ## Decoding
@@ -35,11 +35,11 @@ day::task(async move {
 ```
 
 `decode_image` takes an `Arc<Vec<u8>>` and answers a `Bitmap`. It is **asynchronous** because one
-backend genuinely is: a browser decodes through `createImageBitmap`, which resolves on a later
-turn. Every other backend answers inline, and the future completes without ever yielding.
+toolkit genuinely is: a browser decodes through `createImageBitmap`, which resolves on a later
+turn. Every other toolkit answers inline, and the future completes without ever yielding.
 
-`Bitmap` is a **handle, not the pixels**. The decoded image lives in the toolkit — an `NSImage`, a
-`GdkTexture`, a `QImage`, an `android.graphics.Bitmap` — and the handle releases it when the last
+`Bitmap` is a **handle, not the pixels**. The decoded image lives in the toolkit — an [`NSImage`](https://developer.apple.com/documentation/appkit/nsimage), a
+[`GdkTexture`](https://docs.gtk.org/gdk4/class.Texture.html), a [`QImage`](https://doc.qt.io/qt-6/qimage.html), an [`android.graphics.Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap) — and the handle releases it when the last
 clone drops. Cloning is cheap; copy it into as many pieces as you like.
 
 ```rust
@@ -48,7 +48,7 @@ bitmap.id()                     // what `ImageSource::Decoded` carries
 ```
 
 Two failures are worth telling apart, and the error says which: `ImageError::Unsupported` means the
-backend has no byte decoder at all (probe [`Cap::ImageDecode`] first), while `ImageError::Decode`
+toolkit has no byte decoder at all (probe [`Cap::ImageDecode`] first), while `ImageError::Decode`
 means it has one and these bytes are not an image it reads.
 
 ## Drawing on a canvas
@@ -59,7 +59,7 @@ canvas(move |d, size| d.image(&photo, Rect::from_size(size)))
 ```
 
 `Draw::image` takes the **handle**, never bytes. A canvas re-records on every tracked read, so a
-buffer in the op would hand the backend a megabyte to compare — and re-decode — on every frame. The
+buffer in the op would hand the toolkit a megabyte to compare — and re-decode — on every frame. The
 app decodes once and draws a number. `Draw::image_with_opacity` multiplies the image's own alpha.
 Images follow the canvas's top-left origin and current affine transform, including rotation and
 zoom. AppKit respects its flipped canvas context, keeping image rows upright.
@@ -69,7 +69,7 @@ record and the replay, and a frame that flashes a grey box is worse than one tha
 
 ## Reading what it is
 
-`Bitmap::info()` answers from the decode, synchronously:
+[`Bitmap::info()`](https://developer.android.com/reference/android/graphics/Bitmap) answers from the decode, synchronously:
 
 | field | meaning |
 | --- | --- |
@@ -78,8 +78,8 @@ record and the replay, and a frame that flashes a grey box is worse than one tha
 | `format` | the container the bytes came in, by magic number |
 | `has_alpha` | whether the image carries an alpha channel |
 
-`Bitmap::properties()` goes further — EXIF orientation, DPI, capture timestamp, and whatever else
-the platform's own reader names — but only where [`Cap::ImageProperties`] says so. A backend with
+[`Bitmap::properties()`](https://developer.android.com/reference/android/graphics/Bitmap) goes further — EXIF orientation, DPI, capture timestamp, and whatever else
+the platform's own reader names — but only where [`Cap::ImageProperties`] says so. A toolkit with
 no metadata reader answers `None` to the whole call rather than an empty struct, because "this file
 records nothing" and "nobody looked" are different answers.
 
@@ -110,26 +110,28 @@ if day::image_encode_formats().contains(&ImageFormat::Jpeg) { … }
 A canvas drawing rendered offscreen is a third source of a `Bitmap`, beside staged assets and
 decoded bytes: `Drawing::record(size, draw).to_bitmap(scale)` replays the drawing through the
 toolkit's own canvas painter and returns a handle in the same table, so everything on this page
-applies to it, encoding included ([canvas.md](canvas.md#exporting)).
+applies to it, encoding included ([canvas](canvas.md#exporting)).
 
-## What each backend can and cannot do
+## What each toolkit can and cannot do
 
-Everything above works on every backend except where noted.
+Platform guidance: [Apple: images](https://developer.apple.com/design/human-interface-guidelines/images); [Android: drawables](https://developer.android.com/develop/ui/views/graphics/drawables).
 
-| Backend | Decodes | Writes | Notes |
+Everything above works on every toolkit except where noted.
+
+| Toolkit | Decodes | Writes | Notes |
 | --- | --- | --- | --- |
-| **macos-appkit** | everything ImageIO reads | PNG, JPEG, TIFF, BMP, GIF | The only backend that answers `properties()`: `NSBitmapImageRep` carries the container's own metadata dictionary |
-| **ios-uikit** | everything ImageIO reads | PNG, JPEG | `UIImage` writes nothing else. `has_alpha` is derived from the container, not measured — asking UIKit would mean reaching through `CGImage` for an alpha flag |
+| **macos-appkit** | everything ImageIO reads | PNG, JPEG, TIFF, BMP, GIF | The only toolkit that answers `properties()`: [`NSBitmapImageRep`](https://developer.apple.com/documentation/appkit/nsbitmapimagerep) carries the container's own metadata dictionary |
+| **ios-uikit** | everything ImageIO reads | PNG, JPEG | [`UIImage`](https://developer.apple.com/documentation/uikit/uiimage) writes nothing else. `has_alpha` is derived from the container, not measured — asking UIKit would mean reaching through [`CGImage`](https://developer.apple.com/documentation/coregraphics/cgimage) for an alpha flag |
 | **macos-gtk**, **linux-gtk** | whatever gdk-pixbuf's loaders read | PNG, JPEG, TIFF, BMP | PNG and TIFF come from the texture's own writers; the rest through gdk-pixbuf |
 | **macos-qt**, **linux-qt** | whatever Qt's image plugins read | PNG, JPEG, TIFF, BMP | |
-| **android-mdc** | everything `BitmapFactory` reads | PNG, JPEG | The only backend that **reads** `has_alpha` rather than inferring it. WebP decodes but is not offered for encode: `WEBP_LOSSY` is API 30 and the scaffold's `minSdk` is 24 |
-| **web-dom** | whatever the engine reads | PNG, JPEG, and WebP where the engine writes it | The one backend where decoding **and** encoding are genuinely asynchronous. `image_encode_formats()` asks the engine — Chromium writes WebP, WebKit does not — and an encode the engine would quietly turn into PNG is refused instead. `has_alpha` is derived from the container: an `ImageBitmap` exposes no way to ask |
+| **android-mdc** | everything `BitmapFactory` reads | PNG, JPEG | The only toolkit that **reads** `has_alpha` rather than inferring it. WebP decodes but is not offered for encode: `WEBP_LOSSY` is API 30 and the scaffold's `minSdk` is 24 |
+| **web-dom** | whatever the engine reads | PNG, JPEG, and WebP where the engine writes it | The one toolkit where decoding **and** encoding are genuinely asynchronous. `image_encode_formats()` asks the engine — Chromium writes WebP, WebKit does not — and an encode the engine would quietly turn into PNG is refused instead. `has_alpha` is derived from the container: an `ImageBitmap` exposes no way to ask |
 | **harmony-arkui** | whatever the image framework reads | PNG, JPEG | `EncodeSpec::fit` is ignored: `OH_PixelmapNative_Scale` rescales in place, and fitting would resize the very bitmap every later draw shares |
 | **windows-winui** | whatever WIC reads | PNG | Win2D canvas bitmaps and WIC PNG encoding, with transparency and optional fit/downscaling. Image dimensions are read from the container header |
 | **mock** | a synthetic answer per format | PNG, JPEG | Deterministic sizes a test can predict, in the spirit of its synthetic text metrics |
 
 `Cap::ImageProperties` is Native on macos-appkit alone. Everywhere else `properties()` answers
-`None` — including backends whose platform *could* report metadata (ArkUI exposes
+`None` — including toolkits whose platform *could* report metadata (ArkUI exposes
 `OH_ImageSourceNative_GetImageProperty`) but where nothing reads it yet.
 
 ## Showing one in a piece
@@ -151,21 +153,21 @@ source art — an SVG's paths on ArkUI and XAML, the file on GTK — and bytes h
 re-read.
 
 For asynchronously loaded images in recycled rows, bind the source to a bundled placeholder
-until the current item's image is ready; see [list.md](./list.md#asynchronous-row-images).
+until the current item's image is ready; see [list](./list.md#asynchronous-row-images).
 UIKit and Android also treat the default source (`ImageSource::Named(String::new())`) as an
 explicit clear when patching an existing image view. An unresolved nonempty name or a source
-the backend cannot decode retains the preceding image, so it is not a loading placeholder.
+the toolkit cannot decode retains the preceding image, so it is not a loading placeholder.
 
 ## Reactive remote-image views
 
 `day-piece-remote-image` provides `remote_image(Signal<Option<Arc<Vec<u8>>>>)` for avatars
-and downloaded image content. `remote_image_url(url)` fetches through `day-part-http` and feeds
+and downloaded image content. `remote_image_url(url)` fetches through [`day-part-http`](/docs/reference/http) and feeds
 the same view. The app does not need to decode the bytes first. Unlike the built-in `image`
 replacement behavior above, `None`, an empty buffer, or invalid image bytes restores the
 placeholder color instead of keeping the preceding image.
 
 The native renderers cover AppKit, UIKit, GTK, Qt, Android, XAML/WinUI, and ArkUI. Day enables
-the renderer through the piece's backend metadata when building the app. ArkUI uses a native
+the renderer through the piece's toolkit metadata when building the app. ArkUI uses a native
 `Image` node and the Image Kit decoder, with no ArkTS component or extra permission needed for
 the bytes-only path. Network fetching still needs the app's network permission.
 

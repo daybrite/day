@@ -18,6 +18,8 @@
   --day-divider: rgba(60, 60, 67, 0.2);
   --day-selected-row: rgba(10, 102, 255, 0.14);
   --day-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  --day-scrim: rgba(246, 246, 248, 0.4);
+  --day-sheet-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06), 0 18px 50px rgba(0, 0, 0, 0.22);
 }
 html.dark {
   --day-bg: #1e1e20;
@@ -34,6 +36,8 @@ html.dark {
   --day-divider: rgba(140, 140, 147, 0.35);
   --day-selected-row: rgba(63, 131, 255, 0.3);
   --day-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+  --day-scrim: rgba(70, 70, 76, 0.32);
+  --day-sheet-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 18px 50px rgba(0, 0, 0, 0.55);
 }
 
 html, body {
@@ -654,6 +658,34 @@ body.day-has-toolbar #day-root {
   border-radius: 2px;
   background: currentColor;
   opacity: 0.3;
+}
+/* A composed modal sheet (docs/cover.md "Modal sheet"): the page under the card is frosted, so
+   it reads as out of reach while staying recognizable. The cover itself carries the frost, edge
+   to edge; the scrim Day lays inside it stays clear (`.day-scrim`). With a toolbar strip, the
+   strip is the card's header (shim.js `dockSheetStrip`): the card grows a band of the strip's
+   height above its content, and the cover leaves that height off the bottom of the frame it
+   reports, so card and band center together. */
+.day-cover.day-sheet {
+  background: var(--day-scrim);
+  backdrop-filter: blur(1.5px);
+  -webkit-backdrop-filter: blur(1.5px);
+}
+.day-cover.day-sheet.day-has-toolbar {
+  top: 0;
+  box-sizing: border-box;
+  padding-bottom: var(--day-toolbar-h);
+}
+.day-scrim { background: transparent; }
+.day-cover.day-sheet .day-scrim + * {
+  box-shadow: var(--day-sheet-shadow);
+}
+.day-sheet-card {
+  box-sizing: content-box;
+  border-top: var(--day-toolbar-h) solid transparent;
+}
+.day-toolbar.day-cover-toolbar.day-sheet-strip {
+  right: auto;
+  border-radius: 12px 12px 0 0;
 }
 /* Two classes: `.day-toolbar` below sets the translucent bar background, and this must win. */
 .day-toolbar.day-cover-toolbar {

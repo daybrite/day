@@ -18,7 +18,7 @@ editors share one implementation; editor extensions only register it.
 
 Use `day launch -t <target> --script dayscript/walkthrough.yaml --fast` to apply
 decorative motion at its destination state. This passes `DAY_TEST_FAST=1` to the app,
-which forces Day's reduced-motion gate on ([docs/accessibility.md](accessibility.md)):
+which forces Day's reduced-motion gate on ([docs/accessibility](accessibility.md)):
 fast mode and the user's reduce-motion setting are one mechanism, so what a fast run
 shows is what a user who asked for less motion sees. It does not change the device's
 global animation settings. The equivalent `--env DAY_TEST_FAST=1` also works, as does
@@ -94,7 +94,7 @@ day drive -t macos-appkit --steps-json \
 
 Steps use the walkthrough vocabulary (single-key mapping form, or flattened `{"op": …}`);
 the step catalog lives in the dayscript reference
-([website](https://daybrite.dev/docs/how-to/dayscript); the shipped list is DESIGN.md Appendix C)
+([website](/docs/how-to/dayscript); the shipped list is DESIGN.md Appendix C)
 rather than being copied here, where it has drifted before. The output is one JSON object
 (`{target, steps: [{op, ok, error?, screenshot?}…], failed}`) on stdout; screenshots land in
 `build/day/screenshots/_drive/` and are inlined as base64 for callers that want the pixels.
@@ -116,10 +116,10 @@ host can produce:
 - **Harmony faultlogger reports**: the current app's fresh native or ArkTS crash report
   from `/data/log/faultlog/faultlogger` on the selected device, including the reason and
   faulting thread. Report age is measured using the guest clock to tolerate clock skew.
-- **day-piece-break's own artifacts** ([docs/break.md](break.md)), when the app arms it: the kind of death, the
+- **[day-piece-break](/docs/reference/break)'s own artifacts** ([docs/break](break.md)), when the app arms it: the kind of death, the
   panic message and location, the signal, how long the app lived, and the backtrace it captured.
   Reports are finalized on the app's next launch, so a fresh crash shows its raw session artifacts
-  instead; either way, only the ones whose backend and session start match the run that just
+  instead; either way, only the ones whose toolkit and session start match the run that just
   failed, because the store is keyed by app id and every target shares it.
 - **The OS crash report**: on macOS and the iOS simulator, the `.ips` from
   `~/Library/Logs/DiagnosticReports`, rendered as the exception, the termination reason, and the
@@ -187,7 +187,7 @@ project argument, so every result opens with a line naming that project. An agen
 window of several apps reads it and knows which server it is holding.
 
 A tool call shells back into the server's own executable, or into whatever `DAY_SELF_COMMAND`
-names ([docs/environment.md](environment.md)). That matters when day itself is under development:
+names ([docs/environment](environment.md)). That matters when day itself is under development:
 with `day.cliSource` set, the editor runs the CLI as `cargo run` against the open checkout, and
 the extension passes the same invocation here, so a day-cli edit is compiled into the next tool
 call instead of the agent running the binary that was on disk when the server started.
@@ -197,7 +197,7 @@ which recompiles it on the way back up.
 VS Code: the Day extension registers one server per Day project in the window, labeled
 `Day: <app title>` (`day.mcp.enabled`, default on). Agent mode then has all ten tools for each.
 Other MCP clients point at `day --project <root> mcp-server`. The
-[AI-assisted development guide](https://daybrite.dev/docs/tutorials/ai-assisted-app#2-connect-your-coding-agent) covers
+[AI-assisted development guide](/docs/tutorials/ai-assisted-app#2-connect-your-coding-agent) covers
 Codex project configuration, Claude Code registration, and shared project instructions.
 
 ## The loop agents should follow

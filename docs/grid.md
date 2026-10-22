@@ -10,15 +10,12 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Grid
 
-> **Status: implemented.** `grid()`/`grid_row()` (`day_pieces`), the `.grid_span`/`.grid_align`
-> cell modifiers, and `GridLayout` (`day_core`) ship with no backend work: a grid is the same
-> plain native panel as `column`/`row`, laid out entirely by shared Rust (§7 of DESIGN.md).
-> Demonstrated by the showcase "Grid" section (basics → sizing → spanning → composite → stress)
-> and consumed by Day Skies' 10-day forecast and detail cards. This is the SwiftUI `Grid`/
-> `GridRow` analogue for Day.
+Arrange content in rows with shared column widths, without assigning a fixed width to every
+cell. Use `grid` and `grid_row` for tables of values, forecasts, or aligned controls; cells can
+span columns and choose their alignment.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## 1. Goal
 
@@ -117,5 +114,4 @@ Semantics:
 
 ## Related contracts
 
-See the [layout contract](backend-contracts/grid.md) for measurement and placement, and
-[deferred grid design](design/grid.md) for features outside the current API.
+See the [layout contract](backend-contracts/grid.md) for measurement and placement.

@@ -34,7 +34,7 @@ Qt SVG development files (`qt6-svg-dev` on Debian/Ubuntu) are required to compil
 native vector renderer. That package also installs the Qt SVG runtime used by bundled
 vector icons and Day's shared symbol fallbacks.
 
-Sound effects play through libpulse, which a desktop already has
+Sound effects play through [libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/), which a desktop already has
 ([system requirements](/docs/reference/system-requirements#optional-sound-effects)).
 
 Two optional modules enable two pieces; without a module the build still succeeds and the piece
@@ -63,11 +63,11 @@ the built binary to decide.
 
 ## Caveats
 
-- `toggle` is a `QCheckBox`, because Qt Widgets has no native switch control, so the same Day code
+- `toggle` is a [`QCheckBox`](https://doc.qt.io/qt-6/qcheckbox.html), because Qt Widgets has no native switch control, so the same Day code
   shows a checkbox here and a switch elsewhere.
-- The list is emulated. Day drives a `QScrollArea` with its own recycling rather than
-  `QListView`, so very large lists behave differently than a model/view Qt app would.
-- Forced light/dark needs Qt 6.8+. `DAY_THEME` uses `QStyleHints::setColorScheme`; on older Qt
+- The list is emulated. Day drives a [`QScrollArea`](https://doc.qt.io/qt-6/qscrollarea.html) with its own recycling rather than
+  [`QListView`](https://doc.qt.io/qt-6/qlistview.html), so very large lists behave differently than a model/view Qt app would.
+- Forced light/dark needs Qt 6.8+. `DAY_THEME` uses [`QStyleHints::setColorScheme`](https://doc.qt.io/qt-6/qstylehints.html); on older Qt
   (Ubuntu 24.04 ships 6.4) Day falls back to the Fusion style with a hand-built dark palette.
 - No spell-check, because Qt ships none; `Cap::TextSpellCheck` reports unsupported and the
   patch is a no-op.
@@ -83,7 +83,7 @@ the built binary to decide.
 
 ## What each piece becomes
 
-The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every toolkit;
 this table adds links and notes.
 
 | Day piece | Qt class |
@@ -122,6 +122,6 @@ this table adds links and notes.
 | *external* `webview()` | [`QWebEngineView`](https://doc.qt.io/qt-6/qwebengineview.html) |
 | *external* `media()` | [`QMediaPlayer`](https://doc.qt.io/qt-6/qmediaplayer.html) + [`QVideoWidget`](https://doc.qt.io/qt-6/qvideowidget.html) |
 
-**Text measurement** asks `QLabel` for its natural width with wrapping temporarily off, then
-`heightForWidth` at the granted width; the text area uses `QTextDocument`. Everything else uses
+**Text measurement** asks [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) for its natural width with wrapping temporarily off, then
+`heightForWidth` at the granted width; the text area uses [`QTextDocument`](https://doc.qt.io/qt-6/qtextdocument.html). Everything else uses
 `sizeHint()`.

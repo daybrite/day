@@ -8,14 +8,32 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# HTTP through the platform stack (headless capability crate)
+# HTTP through the platform stack
 
-> **Status: implemented** as `day-part-http` (in `parts/`), a headless crate with no UI piece.
-> Requests run through each platform's own networking stack: URLSession on macOS and iOS, OkHttp
-> on Android, WinHTTP on Windows, the system's libcurl on Linux, the Network Kit on HarmonyOS, and
-> the browser's `fetch` and `WebSocket` on the web. The crate's tests run against its local test
-> server over URLSession and libcurl on macOS, and the showcase's Network & HTTP walkthrough
-> (`dayscript/network.yaml`) runs every client feature on macOS, iOS and Android.
+Fetch data, upload files, and open WebSocket connections through the platform’s networking
+stack. `day-part-http` provides request functions and a reusable client for policies such as
+authentication, caching, redirects, and timeouts.
+
+## Add to your app
+
+Defined in [`day-part-http`](https://github.com/daybrite/day/tree/main/parts/day-part-http). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-part-http = { git = "https://github.com/daybrite/day.git" }
+```
+
+The implementation is selected by the compilation target; no toolkit feature flags
+or dependency entry in `Day.toml` are needed.
+
+The optional `reqwest` feature selects the alternative Rust transport; it is not required
+for the native platform transports.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Platform HTTP transports; Linux requires a system libcurl. |
+| Web | Async calls through browser fetch; CORS and browser API restrictions apply. |
 
 The OS manages configuration that the platform HTTP client can use: system proxies and PAC scripts,
 per-network VPN routing, Low Data Mode, and enterprise and user-installed certificate stores.
@@ -28,7 +46,7 @@ rest of a modern HTTP API: streamed bodies, uploads, redirect and challenge call
 decisions, cookies, caching, metrics and WebSockets.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Sending a request
 
@@ -138,7 +156,7 @@ day::task(async move {
 
 A `Client` is cheap to clone, and clones share its policy, cookie store and platform session.
 Everything asynchronous has a callback form (`*_async`) and a future form (`*_future`). Callbacks
-run on the thread the platform reports on, and dropping a future, a `Body` or a `WebSocket`
+run on the thread the platform reports on, and dropping a future, a `Body` or a [`WebSocket`](https://websockets.spec.whatwg.org/)
 cancels what it stands for.
 
 | Builder option | Default |
@@ -384,7 +402,7 @@ subprotocol the server chose. `socket.sender()` returns a `WsSender` that any th
 `send_async`/`send_future`, `ping_async`/`ping_future` where `websocket_ping` is true, and
 `close(code, reason)`. Messages arrive in order through `next()` or `read_async`, with the same
 four-message backpressure window as a body. The last message is `Close`. The handshake carries the
-client's headers and cookies where `websocket_headers` is true. Dropping the `WebSocket` closes it.
+client's headers and cookies where `websocket_headers` is true. Dropping the [`WebSocket`](https://websockets.spec.whatwg.org/) closes it.
 
 ## Capabilities
 
@@ -397,11 +415,11 @@ client's headers and cookies where `websocket_headers` is true. Dropping the `We
 | `auth_questions` | yes | no | no | no | no | no |
 | `native_auth_schemes` | yes | no | no | no | no | no |
 | `server_trust` | yes | yes | no | no | no | no |
-| `client_identity` | yes | yes | libcurl 7.71.0 and later | yes | no | no |
+| `client_identity` | yes | yes | [libcurl](https://curl.se/libcurl/) 7.71.0 and later | yes | no | no |
 | `platform_cookies` | yes | no | no | no | no | yes |
 | `platform_cache` | yes | yes | no | no | yes | yes |
 | `metrics` | yes | yes | yes | yes | no | no |
-| `websockets` | yes | yes | libcurl 8.11.0 and later, built with `ws` | yes | yes | yes |
+| `websockets` | yes | yes | [libcurl](https://curl.se/libcurl/) 8.11.0 and later, built with `ws` | yes | yes | yes |
 | `websocket_ping` | yes | no | no | no | no | no |
 | `websocket_headers` | yes | yes | with `websockets` | yes | yes | no |
 | `wait_for_connectivity` | yes | no | no | no | no | no |
@@ -421,15 +439,15 @@ questions with `answer`, and stops an exchange with `cancel`.
 
 | Platform | Transport |
 |---|---|
-| macOS, iOS | one `URLSession` per client with a delegate (`src/apple.rs`): the delegate declines redirects so the client decides, raises challenges and server trust as questions, suspends a task while its body has no demand, and sends file and stream uploads from the file or a bound stream pair |
-| Android | OkHttp through a Java bridge arm (`src/bridge.rs`), with redirects and cookies left to the client; a reader pool reads each body only as far as demand allows, and an `X509ExtendedTrustManager` raises server trust questions |
-| Linux | the system's libcurl, opened with `dlopen` at run time (`libcurl.so.4`, then `libcurl-gnutls.so.4`) (`src/linux.rs`): one driver thread runs a multi handle, pauses a transfer's writes when demand runs out, and opens WebSockets in libcurl's connect-only mode |
-| Windows | WinHTTP in asynchronous mode (`src/windows.rs`): automatic proxy detection, redirects and cookies turned off in WinHTTP so the client handles them, reads issued only against demand, uploads written as the body is read, and WebSockets through `WinHttpWebSocket*` |
-| HarmonyOS | the Network Kit (`@ohos.net.http` `requestInStream`, `@ohos.net.webSocket`) through an ArkTS bridge arm |
-| Web | `fetch` with a `ReadableStream` reader that pulls under demand, an `AbortController` for cancellation and the idle bound, and the browser's `WebSocket`, through a JavaScript bridge arm |
+| macOS, iOS | one [`URLSession`](https://developer.apple.com/documentation/foundation/urlsession) per client with a delegate (`src/apple.rs`): the delegate declines redirects so the client decides, raises challenges and server trust as questions, suspends a task while its body has no demand, and sends file and stream uploads from the file or a bound stream pair |
+| Android | OkHttp through a Java bridge arm (`src/bridge.rs`), with redirects and cookies left to the client; a reader pool reads each body only as far as demand allows, and an [`X509ExtendedTrustManager`](https://developer.android.com/reference/javax/net/ssl/X509ExtendedTrustManager) raises server trust questions |
+| Linux | the system's [libcurl](https://curl.se/libcurl/), opened with `dlopen` at run time (`libcurl.so.4`, then `libcurl-gnutls.so.4`) (`src/linux.rs`): one driver thread runs a multi handle, pauses a transfer's writes when demand runs out, and opens WebSockets in [libcurl](https://curl.se/libcurl/)'s connect-only mode |
+| Windows | [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp) in asynchronous mode (`src/windows.rs`): automatic proxy detection, redirects and cookies turned off in [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp) so the client handles them, reads issued only against demand, uploads written as the body is read, and WebSockets through [`WinHttpWebSocket*`](https://learn.microsoft.com/en-us/windows/win32/api/winhttp/nf-winhttp-winhttpwebsocketcompleteupgrade) |
+| HarmonyOS | the Network Kit ([`@ohos.net.http`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/js-apis-http.md) `requestInStream`, [`@ohos.net.webSocket`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-network-kit/js-apis-webSocket.md)) through an ArkTS bridge arm |
+| Web | `fetch` with a `ReadableStream` reader that pulls under demand, an `AbortController` for cancellation and the idle bound, and the browser's [`WebSocket`](https://websockets.spec.whatwg.org/), through a JavaScript bridge arm |
 
 Android, HarmonyOS and the web share one Rust transport, `src/bridged.rs`, over the bridge's
-stream tier ([docs/bridge.md](bridge.md) "Streams"). Each exchange is one `Emit<Vec<u8>>` stream
+stream tier ([docs/bridge](bridge.md) "Streams"). Each exchange is one `Emit<Vec<u8>>` stream
 of frames, and every frame starts with a tag byte and the stream's token, big-endian:
 
 | Tag | Frame | Fields |
@@ -453,21 +471,21 @@ upload), `exchange_cancel_native`, `ws_send_native` and `ws_close_native`.
 app's own stack.
 
 `tier()` reports `NativeStack` wherever a transport is present. It reports `Unavailable` on Linux
-when no libcurl loads, on a HarmonyOS build made with bare cargo instead of `day build` (which
+when no [libcurl](https://curl.se/libcurl/) loads, on a HarmonyOS build made with bare cargo instead of `day build` (which
 stages the ArkTS arm), and on any other target; there every call fails with `Unsupported`.
 
 ## Threads and blocking calls
 
 `fetch`, `fetch_to_file`, `fetch_streamed` and `Body::next_blocking` wait on the calling thread,
 so keep them off the UI thread. Callbacks and wakeups come from the transport's own thread:
-URLSession's delegate queue, OkHttp's reader pool, the libcurl driver thread, WinHTTP's callback
+URLSession's delegate queue, OkHttp's reader pool, the [libcurl](https://curl.se/libcurl/) driver thread, [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp)'s callback
 threads, the HarmonyOS JS thread, or the browser's only thread. The one thread the crate starts
 for a request is the writer that feeds a streamed upload into URLSession's bound stream pair.
 
 Two platforms restrict the blocking calls:
 
 - **The web** has one thread, and waiting there would starve the event loop the answer needs
-  ([docs/web.md](web.md)), so the blocking calls return `Unsupported` and the `*_async` and
+  ([docs/web](web.md)), so the blocking calls return `Unsupported` and the `*_async` and
   `*_future` forms work in full. CORS governs cross-origin requests and which response headers
   are visible, and the browser controls headers such as `Host`, `Cookie` and `Origin`.
 - **HarmonyOS** runs the arm on the JS thread, which is Day's UI thread there. The blocking calls
@@ -526,7 +544,7 @@ socket.
 
 ## The Android engine
 
-The Android transport runs on OkHttp 4.12, the engine AOSP's own `HttpURLConnection` has been a
+The Android transport runs on OkHttp 4.12, the engine AOSP's own [`HttpURLConnection`](https://developer.android.com/reference/java/net/HttpURLConnection) has been a
 fork of since Android 4.4. The system `ProxySelector`, VPN routing, the network security config
 (OkHttp checks `NetworkSecurityPolicy` for cleartext), and the platform trust manager with the
 user CA store all apply. OkHttp adds HTTP/2 over TLS and per-call cancellation. The okhttp, okio
@@ -576,8 +594,8 @@ not trigger rejection. Exceeding the bound returns `HttpError::BodyTooLarge { li
 drops/cancels the exchange. Dropping the future also cancels. This limits the Rust collector,
 not every buffer inside an OS transport or an already delivered chunk.
 
-Both helpers live above the transport and work identically with URLSession, OkHttp, WinHTTP,
-libcurl, HarmonyOS Network Kit and browser fetch. Web requests remain subject to CORS:
+Both helpers live above the transport and work identically with URLSession, OkHttp, [WinHTTP](https://learn.microsoft.com/en-us/windows/win32/winhttp/about-winhttp),
+[libcurl](https://curl.se/libcurl/), HarmonyOS Network Kit and browser fetch. Web requests remain subject to CORS:
 publishers must allow conditional request headers and expose ETag/Last-Modified as needed.
 Reuse a `Client` for connection pooling; the root helpers already share one stateless client.
 See `validators::tests` and `client_tests::bounded_*` for portable regression coverage.
@@ -620,3 +638,8 @@ has speed/failure sliders and pause/offline controls; an animated chart uses sna
 Its `network.yaml` is selected by Showcase CI. Trader's deterministic CI quotes now traverse HTTP
 interception and the live JSON parser; News has conditional-refresh interception tests and an
 explicit `DAY_NEWS_HTTP_TEST=1` dayscript startup fixture.
+
+## Platform guidance
+
+- [Android: network operations](https://developer.android.com/develop/connectivity/network-ops)
+- [Apple: URL loading system](https://developer.apple.com/documentation/foundation/url-loading-system)

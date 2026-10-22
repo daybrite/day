@@ -25,7 +25,7 @@ registry, so the ownership rules are shared by all backends. The `Ambient` tests
 [`mock_e2e.rs`](../crates/day-pieces/tests/mock_e2e.rs) cover the behavior.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## The shape: a `Copy` struct of handles
 
@@ -193,6 +193,6 @@ building in*.
 
 ## See also
 
-- [docs/windows.md](windows.md) — opening windows, the New Window menu role, the cover fallback
-- [docs/model.md](model.md) — `Store` and per-property observability
-- [docs/navigation.md](navigation.md) — why a secondary window's nav is `.local()`
+- [docs/windows](windows.md) — opening windows, the New Window menu role, the cover fallback
+- [docs/model](model.md) — `Store` and per-property observability
+- [docs/navigation](navigation.md) — why a secondary window's nav is `.local()`

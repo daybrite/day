@@ -8,7 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# daybridge: foreign-language implementations of a Rust API (§15.6)
+# daybridge: foreign-language implementations of a Rust API
 
 > [!NOTE]
 > **Status: v1 shipped through phase 7 (2026-08).** The synchronous surface described here is in
@@ -29,7 +29,7 @@ day_part_speech::speak(&res::str::forecast_rain().format())?;
 
 Resolve app-owned speech from the catalog on the UI thread, just like visible text.
 User-supplied text can be passed through directly. See the
-[example catalog](snippet-catalog.md) and [localization guide](https://daybrite.dev/docs/how-to/localization).
+[example catalog](snippet-catalog.md) and [localization guide](/docs/how-to/localization).
 
 ## When to use one
 
@@ -214,7 +214,7 @@ allocated by the callee and released by the generated free function on the side 
 home.** An Android binder thread, a Swift completion on a background queue, an OkHttp dispatcher
 thread, the browser's sole thread: the closure a `Done<T>` resolves runs right there, which is
 why it is `Send`. Nothing in a bridged crate calls `day_reactive::on_main` — a part must work in
-a plain `main` and under `cargo test`, where no main loop exists ([docs/async.md](async.md)
+a plain `main` and under `cargo test`, where no main loop exists ([docs/async](async.md)
 rule 3). What brings an answer to the UI thread is the awaitable form: `<fn>_future(…).await`
 under `day::task` resumes on the UI thread, so the code after the `.await` writes signals
 directly. A callback user captures a `Setter` instead, the same idiom every part documents.
@@ -382,8 +382,8 @@ only enqueue, so a callback never runs twice at once. The callback may stop its 
 `End` or `Failed`, nothing more is delivered.
 
 **Flow control belongs to the part.** A stream carries no demand of its own. A part that needs
-backpressure declares a plain function for it: day-part-http's Android arm reads a response body
-only as far as the client's `demand_native` calls allow ([docs/http.md](http.md) "Transports").
+backpressure declares a plain function for it: [day-part-http](/docs/reference/http)'s Android arm reads a response body
+only as far as the client's `demand_native` calls allow ([docs/http](http.md) "Transports").
 
 ## Errors
 
@@ -407,8 +407,8 @@ mode (`catch`, `try`, a status code) and converts it, so an exception never unwi
 under day-mock.
 
 Each bridged function reports a `Support` per target, and a generated `docs/bridge-matrix.md` (planned) will follow from
-the declarations and CI-gated for drift, the way [`docs/duty-matrix.md`](duty-matrix.md), [`docs/coverage-matrix.md`](coverage-matrix.md),
-and [`docs/recorder-matrix.md`](recorder-matrix.md) already are.
+the declarations and CI-gated for drift, the way [`docs/duty-matrix`](duty-matrix.md), [`docs/coverage-matrix`](coverage-matrix.md),
+and [`docs/recorder-matrix`](recorder-matrix.md) already are.
 
 ```rust
 // day-part-speech/src/lib.rs — the generator emits one `<fn>_support()` per declaration.
@@ -441,10 +441,10 @@ need no such gate: cargo compiles them itself.
 
 | Arm | Adapter lands in | Existing mechanism it rides |
 |---|---|---|
-| `swift` | the generated `DayPieces` SwiftPM module | the Xcode host projects' SwiftPM reference ([docs/swiftui.md](swiftui.md)) |
+| `swift` | the generated `DayPieces` SwiftPM module | the Xcode host projects' SwiftPM reference ([docs/swiftui](swiftui.md)) |
 | `kotlin`, `java` | a Gradle `srcDirs` entry | the selected Gradle host project, JNI, `day-pieces.json` |
-| `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor ([docs/harmonyos.md](harmonyos.md)) |
-| `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it ([docs/web.md](web.md)) |
+| `arkts` | a module with a generated `Index.ets` | the ohos host project, hvigor ([docs/harmonyos](harmonyos.md)) |
+| `js` | `build/day/web/bridge/<crate>.js` | the day-dom shim, which imports it ([docs/web](web.md)) |
 | `c`, `cpp` | `OUT_DIR/daybridge/<crate>.c` \| `.cpp` | `cc` from the crate's `build.rs` |
 | `rust` | `OUT_DIR/daybridge/mod.rs` | nothing; it is ordinary Rust |
 
@@ -474,7 +474,7 @@ native methods.
 
 **A part published for other people's apps should use `java`.** It cannot know whether its
 consumers have Kotlin, and the JVM half of a bridge is a handful of static methods where the two
-languages differ little. `day-part-battery` and `day-part-speech` both do this. An app's own crate,
+languages differ little. [`day-part-battery`](/docs/reference/battery) and `day-part-speech` both do this. An app's own crate,
 which controls its Gradle build, can use either.
 
 ## Linking
@@ -594,15 +594,14 @@ except Kotlin and Java, where it is the recommendation.
 These are two separate requirements, and meeting the first does not meet the second.
 
 **Byte-stable output**, because generated sources are inputs to reproducible builds
-([docs/reproducible-builds](https://daybrite.dev/docs/explanation/reproducible-builds)): arms are emitted in declaration order, symbol lists are sorted, and
+([docs/reproducible-builds](/docs/explanation/reproducible-builds)): arms are emitted in declaration order, symbol lists are sorted, and
 no timestamp, absolute path, or hostname appears in generated output. The repro CI leg covers
 bridge output like any other artifact.
 
 **Stable mtimes**, because the native build behind each arm is incremental. Every generated file is
 written through a touch-only-when-changed helper (read the current bytes, return early when they
-match), and stale files are pruned rather than left behind, which is the rule DESIGN §17.5 already
-states for conveyance ("touch only when changed — keeps native incremental builds warm") and the
-macOS `DayPieces` generator already implements. Identical bytes rewritten unconditionally still
+match), and stale files are pruned rather than left behind. The macOS `DayPieces` generator
+uses the same approach. Identical bytes rewritten unconditionally still
 restamp the file, and `swift build` and hvigor key their incremental checks on **mtime and size**,
 so an unconditional write recompiles the whole module on every `day build`. Gradle is the
 exception: it content-hashes its inputs, so an identical rewrite costs nothing there.
@@ -615,10 +614,10 @@ restamps, and the second restamps *and* drops the source mtime.
 - The `other` arm is what makes `cargo test` and day-mock work on a development host, so it is
   mandatory.
 - Each bridged crate carries a test that calls every declared function and asserts only that it
-  does not panic, the shape `day-part-battery` already uses. A crate with a `Done<T>` also
+  does not panic, the shape [`day-part-battery`](/docs/reference/battery) already uses. A crate with a `Done<T>` also
   checks that the callback and the future both answer on the fallback (`day-part-speech`'s
   `the_completing_forms_always_answer`), with the ~20-line park/unpark `block_on` from
-  [docs/async.md](async.md).
+  [docs/async](async.md).
 - day-build's `bridge_c.rs` compiles a C arm that completes a token, and `bridge_js.rs` parses
   a module whose arm returns a promise, so the generated helpers stay valid in both languages.
 - Real behavior is checked where the arm runs: a dayscript step in the showcase walkthrough, on
@@ -637,10 +636,9 @@ Read it before writing a bridge of your own.
 
 - **Scope stays at functions over simple values.** Rich structured values, cross-language object
   graphs, and out-of-process hosts were designed once as dayffi and dropped
-  ([§15.3](../DESIGN.md)); the evidence there was that one string and one number covered every real
-  case. This design starts smaller.
+  because one string and one number covered the required cases. This design starts smaller.
 - **A bridge implements a function, never a view.** Native views enter the tree through
-  `Toolkit::adopt` and the piece mechanisms ([docs/extending.md](extending.md)), which are unaffected.
+  `Toolkit::adopt` and the piece mechanisms ([docs/extending](extending.md)), which are unaffected.
 - **Rust comes first.** Where Rust reaches the API (`objc2`, `#[link]`), use Rust.
 - **Foreign state is limited to process statics.** An arm may hold a synthesizer or a connection in
   a file-scope static; it may not hold anything Rust is expected to own or free.
@@ -652,11 +650,11 @@ can be cut without stranding the phases before them.
 
 | # | Phase | Proves it works when |
 |---|---|---|
-| 0 | **Contract** — this file, DESIGN §15.6 | reviewed |
+| 0 | **Contract** — this file | reviewed |
 | 1 | **Skeleton** — `day-bridge` (discarding macros, `Error`, `Support`), `day-build/src/bridge.rs` scanner + Rust generator, `rust`/`other` arm only | a crate with only a fallback arm passes `cargo check` and `cargo test` on the host, under day-mock, with no foreign toolchain installed |
 | 2 | **C / C++** — `cc` from the crate's `build.rs`, `#line` mapping, `link`/`pkg_config`/`encoding` attributes | a C arm builds on macOS, Linux, and Windows in CI, and an injected syntax error names the `.rs` line |
 | 3 | **Swift** — adapters into the generated `DayPieces` module | an inline Swift arm calls AVFoundation on `macos-appkit` and `ios-uikit`; a Swift type error names the `.rs` line |
-| 4 | **Kotlin / JNI** — generated object into a Gradle `srcDir`, `RegisterNatives` in `JNI_OnLoad`, thread attach, `GlobalRef` promotion | `day-part-battery` migrates: its `DayBattery.java`, its `java = [...]` table, and its packed-`i64` protocol all deleted, emulator walkthrough green |
+| 4 | **Kotlin / JNI** — generated object into a Gradle `srcDir`, `RegisterNatives` in `JNI_OnLoad`, thread attach, `GlobalRef` promotion | [`day-part-battery`](/docs/reference/battery) migrates: its `DayBattery.java`, its `java = [...]` table, and its packed-`i64` protocol all deleted, emulator walkthrough green |
 | 5 | **JavaScript** — per-crate ES module under `build/day/web/bridge/`, imported by the day-dom shim, merged into the wasm import table | headless WebKit walkthrough green; two bridge crates linked together produce no duplicate or missing import |
 | 6 | **ArkTS** — generated module with its `Index.ets`, wired through hvigor | the arm runs on the ohos leg in CI; that leg is the verification, with no local emulator run in the acceptance criteria (harmony-arkui is Tier 3, and its emulator is the least reliable part of the local loop) |
 | 7 | **`day-part-speech`** — the reference crate, six arms, plus a Day-Showcase Platform-services demo and dayscript step (cross-repo) | `speak`/`stop` work on every target that claims support, the walkthrough drives the demo on each target's CI leg, and `available()` matches the generated matrix |
@@ -665,8 +663,8 @@ can be cut without stranding the phases before them.
 
 **Review checkpoints** fall after phase 3 (skeleton plus the two backends that share the least machinery), after phase 4 (Kotlin and the battery migration, the payoff and the riskiest single phase), and after phase 9.
 
-Deferred with the callback tier, not scheduled here: `day-part-location`, `day-part-sensors`,
-`day-part-permissions`, and `day-part-local-notify`, whose Android shims push events back to Rust
+Deferred with the callback tier, not scheduled here: [`day-part-location`](/docs/reference/location), [`day-part-sensors`](/docs/reference/sensors),
+[`day-part-permissions`](/docs/reference/permissions), and [`day-part-local-notify`](/docs/reference/notify), whose Android shims push events back to Rust
 (6, 6, 1, and 1 listener respectively) and therefore need [callbacks](#callbacks) and
 [streams](#streams), both built since.
 
@@ -697,7 +695,7 @@ Settled 2026-08-10, recorded so the reasoning outlives the discussion:
 | Symbol collisions | **Fail the build**, naming both manifest paths | A path hash would make the failure silent and the symbol unreadable in a crash log; predictable names are what the derivation table is for |
 | Win32 string width | **Opt-in per arm** (`encoding = "utf16"`), UTF-8 by default | A UTF-8 C library on Windows stays natural; an arm calling a wide API asks for what it needs |
 | Kotlin `suspend` | **Deferred** past the callback tier | Bridgeable now that tokens exist; waits for an arm that needs it |
-| Where a completion runs | **The platform's thread**; the generated future is the door to the UI thread (2026-09) | Posting from generated code would make an arm behave differently under `cargo test` and in an app, and a part may never call `on_main` ([docs/async.md](async.md) rule 3) |
+| Where a completion runs | **The platform's thread**; the generated future is the door to the UI thread (2026-09) | Posting from generated code would make an arm behave differently under `cargo test` and in an app, and a part may never call `on_main` ([docs/async](async.md) rule 3) |
 | Multi-shot callbacks | **A separate tier**, built 2026-09 as `Emit<T>` ([Streams](#streams)) | Sensors and location need repeated delivery, which is a different shape from at-most-once completion; half-building either would foreclose the other |
 | Struct evolution | **No versioning.** A change breaks every arm at once, and file-form arms are signature-validated | Everything regenerates in one build, so the only drift risk is the hand-written file arm, which the validator catches |
 

@@ -158,4 +158,4 @@ See [native-project migration](native-project-migration.md).
 ## Engine
 
 [day-vector](../crates/day-vector) is resvg/usvg/tiny-skia with text shaping off, plus hand-rolled
-`.ico`/`.icns` writers. The same crate powers `resource/vectors/` staging ([docs/vectors.md](vectors.md)).
+`.ico`/`.icns` writers. The same crate powers `resource/vectors/` staging ([docs/vectors](vectors.md)).

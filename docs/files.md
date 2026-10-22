@@ -47,7 +47,7 @@ For OS file associations, Finder/Dock drops, and cold/warm document delivery, se
 for bounded reads that do not block the native UI thread.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## The path type: `FileUrl`
 
@@ -73,7 +73,7 @@ with accessors:
 | `read() / read_to_string()` | the bytes / UTF-8 text (local paths; `content://` errors) |
 
 **Opened files are always readable.** Where a platform doesn't hand back a usable path, the
-backend materializes one first: Android copies the picked document into the app cache, and iOS
+toolkit materializes one first: Android copies the picked document into the app cache, and iOS
 imports it into the app sandbox. So `open_file().await?.read_to_string()` works on every
 target.
 
@@ -81,41 +81,43 @@ target.
 
 - `open_file()` → `OpenFile`: `.title(..)`, `.filter(name, &["ext", …])`, `.await → Option<FileUrl>`.
 - `save_file(data)` → `SaveFile`: `.title(..)`, `.suggested_name(..)`, `.filter(..)`,
-  `.await → Option<FileUrl>`. The bytes are staged to an app-writable temp file that the backend
+  `.await → Option<FileUrl>`. The bytes are staged to an app-writable temp file that the toolkit
   hands to the native save UI; the pieces layer delivers them to a chosen local destination and
   cleans up.
 
 ## Per-toolkit native mapping
 
+Platform guidance: [Apple: file management](https://developer.apple.com/design/human-interface-guidelines/file-management); [Android: accessing shared documents](https://developer.android.com/training/data-storage/shared/documents-files).
+
 | Toolkit | Open | Save |
 |---|---|---|
-| appkit | `NSOpenPanel` (sheet) | `NSSavePanel` (sheet) |
-| uikit  | `UIDocumentPickerViewController` (`.import`) | `UIDocumentPickerViewController` (export) |
-| gtk    | `GtkFileDialog.open` (GTK 4.10+) | `GtkFileDialog.save` |
-| qt     | `QFileDialog` (`ExistingFile`) via the C++ shim | `QFileDialog` (`AnyFile`/`AcceptSave`) |
-| android | `ACTION_OPEN_DOCUMENT` + `ContentResolver` (copy → cache) | `ACTION_CREATE_DOCUMENT` + `ContentResolver` |
+| appkit | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) (sheet) | [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) (sheet) |
+| uikit  | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (`.import`) | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) (export) |
+| gtk    | [`GtkFileDialog.open`](https://docs.gtk.org/gtk4/class.FileDialog.html) (GTK 4.10+) | [`GtkFileDialog.save`](https://docs.gtk.org/gtk4/class.FileDialog.html) |
+| qt     | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`ExistingFile`) via the C++ shim | [`QFileDialog`](https://doc.qt.io/qt-6/qfiledialog.html) (`AnyFile`/`AcceptSave`) |
+| android | `ACTION_OPEN_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) (copy → cache) | `ACTION_CREATE_DOCUMENT` + [`ContentResolver`](https://developer.android.com/reference/android/content/ContentResolver) |
 | arkui (HarmonyOS) | ArkTS `DocumentViewPicker.select` + `@ohos.file.fs` (copy → cache) | `DocumentViewPicker.save` + `@ohos.file.fs` |
 | dom (web) | `<input type=file>` (the browser's picker) | a Blob download |
 | mock   | records the spec; resolved programmatically | same |
 | xaml  | WinRT `FileOpenPicker` | WinRT `FileSavePicker` |
 
 On HarmonyOS the picker lives in the ArkTS `@kit.CoreFileKit` layer, not the native NodeAPI, so
-the `day-arkui` backend calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
+the `day-arkui` toolkit calls up into its ArkTS host over NAPI (safe: Day's loop runs on the
 JS thread); the host drives `DocumentViewPicker` and answers via a registered `onFileResult`
 callback, wired in the framework's ArkTS host page (`toolkits/day-arkui/platform/harmony/ets/Index.ets`,
-staged into every app's hvigor project by `day build` — [docs/harmonyos.md](harmonyos.md)).
+staged into every app's hvigor project by `day build` — [docs/harmonyos](harmonyos.md)).
 
 A browser has no filesystem, so on web-dom the bytes ride a per-page store instead of paths:
 an opened file's content lands under a virtual `/day-web/<name>` path that `FileUrl::read`
 resolves, and a save's staged bytes leave as a download named by `suggested_name`. The app uses
 the same builders and the same `FileUrl` surface on web as on every other target.
 
-All backends present the picker non-blocking (sheet / `open()` / delegate / Activity result),
+All toolkits present the picker non-blocking (sheet / `open()` / delegate / Activity result),
 so the main loop keeps running and dayscript stays live while a picker is up.
 
 ## Plumbing
 
-Files go through the existing `present` path ([docs/dialogs.md](dialogs.md)) and add no `Toolkit` methods:
+Files go through the existing `present` path ([docs/dialogs](dialogs.md)) and add no `Toolkit` methods:
 
 - `day_spec::present::PresentSpec::{OpenFile, SaveFile}` + `FileFilter { name, extensions }`.
 - `PresentResult::Files(Vec<String>)`: the chosen locators, crossing the C ABI (Qt shim /
@@ -126,7 +128,7 @@ Files go through the existing `present` path ([docs/dialogs.md](dialogs.md)) and
 
 ## dayscript
 
-A file picker is a presentation, so a script answers it with a path ([docs/dialogs.md](dialogs.md)):
+A file picker is a presentation, so a script answers it with a path ([docs/dialogs](dialogs.md)):
 
 ```yaml
 - tap: { id: btn_save_file }
@@ -137,14 +139,14 @@ A file picker is a presentation, so a script answers it with a path ([docs/dialo
 - respond: { path: "notes.txt" }         # reads the file just written: a real round-trip
 ```
 
-This makes open/save flows headless-testable and screenshot-able on every backend without touching
+This makes open/save flows headless-testable and screenshot-able on every toolkit without touching
 the machine's real filesystem. See `Day-Showcase` (the **Files & storage** page's Files section) and
 `Day-Showcase/dayscript/files.yaml`.
 
 ## Windows picker behavior
 
-The XAML backend advertises `Cap::FileDialogs = Native`. It uses the system WinRT
-pickers, initialized with the host HWND through `IInitializeWithWindow` (the
+The XAML toolkit advertises `Cap::FileDialogs = Native`. It uses the system WinRT
+pickers, initialized with the host HWND through [`IInitializeWithWindow`](https://learn.microsoft.com/en-us/windows/win32/api/shobjidl_core/nn-shobjidl_core-iinitializewithwindow) (the
 [desktop picker interop contract](https://devblogs.microsoft.com/oldnewthing/20190412-00/?p=102413)).
 Open filters become `.ext` entries, with `*` when no filters are supplied; save filters
 retain their names. The WinRT API does not expose a custom dialog title.

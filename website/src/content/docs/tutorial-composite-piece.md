@@ -24,7 +24,7 @@ Day has two kinds of pieces:
 | Per-toolkit code | one renderer per backend (Obj-C, C++, Java…) | none |
 | Cargo features | `appkit` / `gtk` / `qt` / `uikit` / `mdc` / `xaml` / `winui` | none |
 | Extra build assets | `build.rs`, shims, Gradle/SwiftPM entries | none |
-| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · `day-piece-searchfield` | this tutorial · `day-piece-rating` |
+| Reference | [the native-piece tutorial](/contributing/tutorials/native-piece) · [`day-piece-searchfield`](/docs/reference/searchfield) | this tutorial · `day-piece-rating` |
 
 A native piece exists to introduce a native widget Day does not already have. A star rating is a
 row of small drawings that react to taps, and Day already gives you `row`, `canvas` (a native 2D

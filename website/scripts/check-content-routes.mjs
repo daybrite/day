@@ -4,11 +4,12 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, realpathSync, existsSync } from 'node:fs';
 import { resolve, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { routes, hubs, fixedRoutes, canonicalPath, navigation } from '../src/lib/content-routes.mjs';
+import { routes, hubs, fixedRoutes, canonicalPath, navigation, isPublished, referenceNavigation } from '../src/lib/content-routes.mjs';
 import { checkDocSiteLinks } from './doc-site-links.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const seen = new Set([...hubs.map((p) => p.route), ...fixedRoutes]);
+const catalogRoutes = new Set(seen);
 const files = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
   e.isDirectory() ? files(resolve(dir, e.name)) : [resolve(dir, e.name)]);
 let count = 0;
@@ -20,22 +21,32 @@ for (const collection of ['docs', 'internal', 'repository']) {
     assert.ok(meta, `Missing placement: ${file}`);
     assert.equal(realpathSync(file), realpathSync(resolve(root, meta.source)), `Incorrect canonical source: ${file}`);
     assert.ok(/^\/(?:docs|contributing|features)(?:\/|$)/.test(meta.route), `Invalid content route: ${meta.route}`);
-    assert.ok(!seen.has(meta.route), `Duplicate route: ${meta.route}`);
-    seen.add(meta.route);
+    assert.ok(!catalogRoutes.has(meta.route), `Duplicate route: ${meta.route}`);
+    catalogRoutes.add(meta.route);
+    if (isPublished(meta)) seen.add(meta.route);
     assert.ok(['tutorial', 'how-to', 'reference', 'explanation', 'product'].includes(meta.type), `Invalid type: ${file}`);
     assert.equal(meta.audience, meta.route.startsWith('/contributing') ? 'contributor' : meta.route.startsWith('/docs') ? 'app developer' : 'evaluator');
     if (meta.route.startsWith('/contributing/design/')) assert.ok(meta.status, `Unlabeled design: ${file}`);
     count++;
   }
 }
-assert.equal(count, Object.keys(routes).length, 'Route catalog contains an unpublished source');
+assert.equal(count, Object.keys(routes).length, 'Route catalog contains a source missing from its content collection');
+const referenceGroups = JSON.parse(readFileSync(resolve(root, 'website/src/data/reference-navigation.json')));
+for (const group of referenceGroups) {
+  for (const slug of group.pages) assert.ok(seen.has(`/docs/reference/${slug}`), `Unknown reference placement: ${slug}`);
+}
+referenceNavigation(Object.values(routes));
+const referenceCrates = JSON.parse(readFileSync(resolve(root, 'website/src/data/reference-crates.json')));
+for (const [crate, route] of Object.entries(referenceCrates)) {
+  assert.ok(seen.has(route), `Missing reference page for ${crate}: ${route}`);
+}
 const migrations = JSON.parse(readFileSync(resolve(root, 'website/src/data/route-migrations.json')));
 for (const [old, destination] of Object.entries(migrations)) {
-  assert.ok(seen.has(destination), `Missing migration destination: ${old} -> ${destination}`);
+  assert.ok(catalogRoutes.has(destination), `Missing migration destination: ${old} -> ${destination}`);
   assert.equal(canonicalPath(old), destination);
 }
 for (const meta of Object.values(routes)) {
-  if (meta.audience === 'evaluator' || meta.route === '/docs/reference') continue;
+  if (!isPublished(meta) || meta.audience === 'evaluator' || meta.route === '/docs/reference') continue;
   const page = { ...meta, title: meta.route, order: 0 };
   const placements = navigation([page], meta.audience).flatMap((g) => g.pages);
   assert.equal(placements.length, 1, `Expected one sidebar placement: ${meta.route}`);

@@ -8,13 +8,13 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Web: the web-dom backend (§9)
+# Web: the web-dom backend
 
 Day's ninth backend renders in a browser. The DOM is the toolkit: a Day `button` is a real
 `<button>`, a slider is `<input type="range">`, and a dialog is `<dialog>`, all semantic HTML
 plus ARIA. The backend is `toolkits/day-dom`, the target name is
 `web-dom`, and the feature is `dom`. Status: **experimental**
-([Tier 3](https://daybrite.dev/docs/reference/platforms#support-tiers)); the capability subset below is
+([Tier 3](/docs/reference/platforms#support-tiers)); the capability subset below is
 implemented, and the known gaps are listed at the end.
 
 ```bash
@@ -24,9 +24,9 @@ day launch -t web-dom     # build, serve dist/ on 127.0.0.1, open the default br
 day launch -t web-dom --locale ar    # locale rides as ?locale= on the URL
 ```
 
-The Rust target is the whole toolchain for a UI-only app. An app that depends on day-persistence
+The Rust target is the whole toolchain for a UI-only app. An app that depends on [day-persistence](/docs/reference/persistence)
 also needs a C compiler with a wasm32 backend: its web driver compiles the bundled
-SQLite to WebAssembly ([docs/persistence.md](persistence.md)). Open-source LLVM clang has the
+SQLite to WebAssembly ([docs/persistence](persistence.md)). Open-source LLVM clang has the
 backend; Apple's Xcode clang does not, so `day build` probes plain `clang`, then Homebrew LLVM
 (`brew install llvm` is enough; the keg is probed directly, without any PATH setup), then
 [swift.org toolchains](https://www.swift.org/install/), and exports the first wasm-capable one
@@ -60,10 +60,10 @@ index.html                        app.wasm (Rust cdylib)
   installed CLI needs no source checkout) and `include_str!` may not reach outside its own
   package. **Editing shim.js means rebuilding the CLI** before the change reaches a served page.
 - **`day::day_start_web!(root)`** — exports `day_dom_main`, which `shim.js` calls once the module is
-  instantiated. Emits nothing off wasm32, like the other entry macros (§17.4). Apps reach it
+  instantiated. Emits nothing off wasm32, like the other entry macros. Apps reach it
   through `day::day_start!("App Name", root)`, which expands to this macro and to every other
   platform's entry, one line in `lib.rs` covering all of them.
-- **Logging** ([docs/logging.md](logging.md)) — `day_dom_log(level, ptr, len)` is the console
+- **Logging** ([docs/logging](logging.md)) — `day_dom_log(level, ptr, len)` is the console
   bridge: `error!`/`warn!`/`info!`/`debug!` land on the matching `console.*` method, so devtools'
   level filter applies to Day's output. This is the only sink a page has, because std's stdout on
   `wasm32-unknown-unknown` accepts bytes and drops them, so a bare `println!` in a Day app is
@@ -77,7 +77,7 @@ The browser owns geometry in two places:
   are absolutely placed inside a sized content `<div>`, the browser scrolls it natively.
 - **Nav and tab panes** are CSS-framed (flex split view, stacked pages); each pane reports its
   size back through a ResizeObserver as `Event::FrameChanged`, the DayNavPage contract
-  ([docs/navigation.md](navigation.md)). Split-vs-stack for a `nav(Sidebar)` is decided once at launch from
+  ([docs/navigation](navigation.md)). Split-vs-stack for a `nav(Sidebar)` is decided once at launch from
   the initial viewport width (`SPLIT_MODE`, ≥ 700 px) and never re-evaluated on resize; a
   window widened past the threshold stays a stack until reload.
 
@@ -106,7 +106,7 @@ The scale differs by pointer type, because a point means different things on a d
 Before 2026-08 one scale of 1.12 served both, which put a desktop browser on the phone ramp: `Body`
 came out at 17.9px and the whole UI read about a third larger than the same app on macOS. Nothing
 may redefine `html`'s size outside that media query, because 1rem *is* the reader's preference;
-that is how web-dom delivers the accessibility text scaling [docs/text.md](text.md) promises, and page zoom applies on
+that is how web-dom delivers the accessibility text scaling [docs/text](text.md) promises, and page zoom applies on
 top of it. Chrome metrics that wrap text (the sidebar row's padding and icon) are in `em` for the
 same reason: they follow the font instead of pinning a desktop row size onto a touch device.
 
@@ -119,7 +119,7 @@ The shim implements day-dom's imports. A crate whose wasm half needs JavaScript 
 ships it as ES modules, which the page imports before it instantiates the app. Two things
 produce them:
 
-- **daybridge** generates one per bridged crate from its `js` arms ([docs/bridge.md](bridge.md)).
+- **daybridge** generates one per bridged crate from its `js` arms ([docs/bridge](bridge.md)).
 - **`[package.metadata.day.web]`** names hand-written files, for a browser half a bridge cannot
   express: a worker, a synchronous channel, imports under the crate's own names.
 
@@ -163,10 +163,10 @@ and the process environment are all absent. Three substitutions make Day code ru
 - `Platform::post_delayed(ms, f)` (new with this backend; every native toolkit now has its own
   timer behind it too) is `setTimeout` here. It backs **`day::sleep(ms)`**, the awaitable timer
   for `day::task` flows. Use it instead of `std::thread::sleep` for fake-work delays and it
-  works on every backend ([docs/async.md](async.md)).
+  works on every backend ([docs/async](async.md)).
 - `day::spawn_blocking(job)` has no thread to use, so the job runs inline at the future's first
   poll. Keep web jobs short, or branch on `cfg!(target_arch = "wasm32")` and use the platform's
-  own async API ([docs/async.md](async.md)).
+  own async API ([docs/async](async.md)).
 - The launch locale reaches localization through `set_launch_locale` (the `?locale=` query
   parameter, else the browser's language list) because there is no `DAY_LOCALE` environment
   variable to read.
@@ -179,18 +179,18 @@ areas, all three picker styles, progress and spinners, images, dividers, scrolli
 with back bar, tabs, the emulated recycling list with multi-selection, alert/confirm/prompt
 dialogs (`<dialog>`), fonts bundled via `FontFace` with a generated `fonts.json`, localization
 including RTL mirroring, dark mode, lifecycle (`DidBecomeActive`/`WillResignActive` from page
-visibility), routes in the URL (below), day-part-prefs backed by `localStorage`
-([docs/prefs.md](prefs.md), so app state bound through `day::prefs::bind` survives a reload), and
-day-part-http backed by the browser's `fetch()` ([docs/http.md](http.md)): `fetch_async` and
+visibility), routes in the URL (below), [day-part-prefs](/docs/reference/prefs) backed by `localStorage`
+([docs/prefs](prefs.md), so app state bound through `day::prefs::bind` survives a reload), and
+[day-part-http](/docs/reference/http) backed by the browser's `fetch()` ([docs/http](http.md)): `fetch_async` and
 `fetch_future` work in full, with drop-cancel through an `AbortController`; the blocking
-entry points return `Unsupported` (one thread, no blocking waits). day-persistence file
-databases work in full through the day-sql worker ([docs/persistence.md](persistence.md)),
+entry points return `Unsupported` (one thread, no blocking waits). [day-persistence](/docs/reference/persistence) file
+databases work in full through the day-sql worker ([docs/persistence](persistence.md)),
 and the open/save file pickers are the browser's own file input and download
-([docs/files.md](files.md)).
+([docs/files](files.md)).
 
 ## Routes in the URL
 
-The app's route and the URL hash stay in step, both ways ([docs/navigation.md](navigation.md)):
+The app's route and the URL hash stay in step, both ways ([docs/navigation](navigation.md)):
 
 - **Loading `…/#controls`** opens on that section: the host page hands the hash to
   `set_launch_deeplink`, the web spelling of `DAY_DEEPLINK`.
@@ -208,7 +208,7 @@ paths (`#mail/inbox/msg-42` works like `navigate("mail/inbox/msg-42")`).
 
 `day launch -t web-dom --script …` and `day drive` work like every other target. The engine
 runs inside the wasm; the page opens a WebSocket to the dev server's `/dayscript`, and the
-server bridges it to the plain TCP protocol the runner already speaks (§14.5), so one script
+server bridges it to the plain TCP protocol the runner already speaks, so one script
 runs on every platform. The differences from native are all internal:
 
 - The engine's implicit bounded wait reschedules through the delayed poster instead of
@@ -219,7 +219,7 @@ runs on every platform. The differences from native are all internal:
   `<cmd> <url> <control-port>`; the driver serves `GET /screenshot` (PNG) and `GET /quit` on
   the control port. The bundled driver opens a throwaway persistent profile
   (`launchPersistentContext`), not Playwright's default ephemeral context; WebKit gives an
-  ephemeral session no OPFS backing, and day-part-fs is OPFS-only ([docs/fs.md](fs.md)). Its engine
+  ephemeral session no OPFS backing, and [day-part-fs](/docs/reference/fs) is OPFS-only ([docs/fs](fs.md)). Its engine
   comes from `DAY_WEB_DRIVER_BROWSER` (`webkit` default, `chromium`, `firefox`): macOS WebKit
   has OPFS and is the local default, but Playwright's Linux WebKit (the WPE port) ships no
   OPFS at all, so Linux CI runs the walkthrough under Chromium. Without a driver, scripted
@@ -252,13 +252,14 @@ Known gaps, in rough order of interest:
   yet.
 - **Menus are composed** — no DOM equivalent of a native menu bar exists, so the app menu is a
   trailing `⋯` button on the toolbar strip whose popover carries the model (`Cap::AppMenu`
-  emulated; the model's accelerators are live), and a context menu is presented as day pieces
-  at the summon point ([docs/menus.md](menus.md)). Nav-row context menus are still dropped.
+  emulated; the model's accelerators are live, except Settings…'s ⌘, / Ctrl+comma, which the
+  browser keeps for its own settings and so is left off), and a context menu is presented as day pieces
+  at the summon point ([docs/menus](menus.md)). Nav-row context menus are still dropped.
 - **Native pieces** — webview, map, lottie, combobox, searchfield and activity render their
-  standard placeholder. `day-piece-media` now renders a real `<video>` ([docs/media.md](media.md)): the browser
+  standard placeholder. [`day-piece-media`](/docs/reference/media) now renders a real `<video>` ([docs/media](media.md)): the browser
   supplies the transport chrome, so a URL is required (a file path cannot load) and autoplay needs
-  `.muted(true)`. `day-piece-colorpicker` renders `<input type="color">`
-  ([docs/colorpicker.md](colorpicker.md)), the browser's own picker, which on desktop is the system
+  `.muted(true)`. [`day-piece-colorpicker`](/docs/reference/colorpicker) renders `<input type="color">`
+  ([docs/colorpicker](colorpicker.md)), the browser's own picker, which on desktop is the system
   chooser; its value is 8-bit `#rrggbb`, and the `alpha` attribute is set but honored only where the
   browser has shipped it. The registry is open for the others: day-dom exposes a runtime renderer registry
   (`day_dom::register_renderer`) rather than the `linkme` distributed slice the other eight backends
@@ -266,22 +267,22 @@ Known gaps, in rough order of interest:
   own constructor. A piece that needs to report back asks for the shim's listeners with
   `Dom::listen(&handle, listen::INPUT)`, the same wiring the built-in kinds get, exposed for
   pieces alongside `element` / `set_attr` / `call`. Parts other than prefs, http, sensors and location (battery,
-  clipboard, haptics…) answer their unavailable tier. `day-part-sensors` streams the accelerometer
-  and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; [docs/sensors.md](sensors.md)),
-  `day-part-location` rides `navigator.geolocation`, and `day-part-permissions` answers from
+  clipboard, haptics…) answer their unavailable tier. [`day-part-sensors`](/docs/reference/sensors) streams the accelerometer
+  and gyroscope from `DeviceMotionEvent` (no cross-browser magnetometer exists; [docs/sensors](sensors.md)),
+  [`day-part-location`](/docs/reference/location) rides `navigator.geolocation`, and [`day-part-permissions`](/docs/reference/permissions) answers from
   `navigator.permissions`. All three need a secure context, and iOS Safari's motion prompt must be
   requested from inside a button action while the user gesture is still live.
-- **day-piece-break** — no signal handlers on wasm; init succeeds and every API degrades to its
+- **[day-piece-break](/docs/reference/break)** — no signal handlers on wasm; init succeeds and every API degrades to its
   documented stub.
 - **Window control** — the page can set `document.title` and go fullscreen through the
-  Fullscreen API (`WindowHandle::state()`, [docs/windows.md](windows.md)), which browsers allow
+  Fullscreen API (`WindowHandle::state()`, [docs/windows](windows.md)), which browsers allow
   only from a click or key press; a request outside one settles back to `Normal`. `day::monitors()`
   reports `window.screen`, and a window's appearance override is the page's. Size, position,
   stacking, content protection and multi-window do not apply.
 - **Window chrome** — in an installed Chromium app with the window-controls overlay switched on,
   `WindowChrome::Overlay` runs the page under the title bar (the inset comes from
   `navigator.windowControlsOverlay`) and `.window_drag_region()` marks `app-region: drag`
-  ([docs/window-chrome.md](window-chrome.md)). Elsewhere both are inert.
+  ([docs/window-chrome](window-chrome.md)). Elsewhere both are inert.
 
 ## Home screen and offline
 
@@ -293,7 +294,7 @@ pieces beside `index.html`:
 - **`manifest.webmanifest`** — the name and short name, the description, the language, the
   display mode (a `standalone` app also offers `window-controls-overlay` through
   `display_override`), the theme and background colors, the icons, the `[[shortcuts]]` as the
-  `shortcuts` member ([docs/deep-links.md](deep-links.md#launcher-shortcuts)), and the
+  `shortcuts` member ([docs/deep-links](deep-links.md#launcher-shortcuts)), and the
   `[[file_types]]` as `file_handlers`. Every URL in it is relative
   (`./`, `icons/…`), so the one file serves from a Pages root, a project subpath, or a project
   site's `webapp/` directory, and its `id` is the resolved start URL wherever it lands.
@@ -312,7 +313,7 @@ pieces beside `index.html`:
   page never sees a stale worker. Same-origin GETs inside the worker's scope only.
 
 The texts come from where they already live: the name and short description from
-`store/<default locale>/` ([docs/store.md](store.md)), falling back to `[app] title`, and the
+`store/<default locale>/` ([docs/store](store.md)), falling back to `[app] title`, and the
 language from the default locale. `[web]` in Day.toml holds the few things nothing else knows,
 all optional:
 
@@ -336,11 +337,11 @@ The dist directory is self-contained static files that any host can serve as the
 reason `day launch` runs a server at all is that browsers refuse to instantiate wasm from `file:`
 URLs; any static host works, including GitHub Pages. One
 capability rides on response headers rather than files: the day-sql worker's
-SharedArrayBuffer channel ([docs/persistence.md](persistence.md)) exists only on
+SharedArrayBuffer channel ([docs/persistence](persistence.md)) exists only on
 cross-origin-isolated pages, so `day launch` sends `Cross-Origin-Opener-Policy: same-origin`
 and `Cross-Origin-Embedder-Policy: require-corp`, and a static host must send the same two
 headers for file databases to persist. A host that cannot set headers (GitHub Pages) still
-serves the app; day-persistence reports `durable: false` there and file opens refuse
+serves the app; [day-persistence](/docs/reference/persistence) reports `durable: false` there and file opens refuse
 loudly, while everything else works unchanged. The shim
 prefers `instantiateStreaming` (which requires the `application/wasm` MIME type) and falls
 back to a buffered instantiate on hosts that serve wasm as something else, so a plain

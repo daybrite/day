@@ -27,20 +27,22 @@ freshness, platform-claim updates, and publication checks.
 ## Content structure and routes
 
 [`src/data/content-routes.json`](src/data/content-routes.json) assigns every content source one
-public route, primary type, and audience. Source paths are independent of public URLs:
+route metadata, primary type, and audience. Source paths are independent of public URLs;
+`published: false` retains a source in the catalog without publishing it:
 
 - Public pages: `/`, `/features`, `/platforms`, `/gallery`, `/showcase`, `/examples`,
   and `/community`. The header is Gallery, Showcase, Docs, and Explore, followed by search and
   theme controls. Contributing and GitHub are in Explore.
 - App documentation: `/docs`, with tutorials, how-to guides, reference, and explanation.
 - Contributors: `/contributing`, with setup, architecture, backend contracts, documentation
-  standards, design records, and history.
+  standards, and history.
 
 The existing Markdown/MDX guides remain in `src/content/docs/`. Repository documents stay in
-`docs/` and publish through matching symlinks in `src/content/internal/`, including nested
-design and history records. Contributor standards publish through `src/content/repository/`.
+`docs/` and use matching symlinks in `src/content/internal/`. Design records remain unpublished;
+their source files and symlinks stay in place. Contributor standards publish through `src/content/repository/`.
 Edit the canonical source, never a copied website version. Keep titles and descriptions in
-front matter; the route catalog owns placement. The shared renderer and sidebar use this catalog.
+front matter; the route catalog owns publication. Reference topics and their order live in
+[`reference-navigation.json`](src/data/reference-navigation.json), shared by the sidebar and index.
 
 For a new repository document, add its symlink, catalog entry, and topic placement in
 [`content-routes.json`](src/data/content-routes.json). Run `npm run docs:architecture`,
@@ -64,6 +66,11 @@ scripts/website.sh preview  # build, then serve the production output
 ```
 
 Or directly with npm inside `website/`: `npm install`, then `npm run dev` / `npm run build`.
+
+`npm run build` and `npm run build:force` include the Rust API reference and validate links into
+it. They require the Rust toolchain, jq, and Python 3 in addition to Node.js. `npm run build:site`
+builds only the guide site, for a quick content check. To browse API links from the development
+server, run `npm run api:dev` before `npm run dev`; rerun it after changing Rust APIs.
 
 > Builds assemble the apps’ published gallery indexes and Day Showcase release metadata. A warm
 > checkout can reuse gallery indexes and hero images offline; unavailable release metadata produces
@@ -196,11 +203,10 @@ deploys one combined artifact. `node website/scripts/check-api-bundle.mjs` (from
 root) checks the site, API bridge, and all crate entry pages before upload. A separate Python check validates item-level Rustdoc links, and Rustdoc builds with warnings
 denied. A local validation build does not run these deployment jobs.
 
-To preview that combined artifact, build the site, run
-`bash scripts/build-api-docs.sh --out website/dist/api`, then run the completeness check and
+To preview that combined artifact, run `npm --prefix website run build`, then
 `npm --prefix website run linkcheck` from the repository root. Serve with
-`npm --prefix website run preview`; `scripts/website.sh preview` rebuilds the site and removes
-the API output. The API generator clears `target/doc` and can resolve Cargo dependencies; use
+`npm --prefix website run preview`; `scripts/website.sh preview` rebuilds the combined site
+and API reference before serving. The API generator clears `target/doc` and can resolve Cargo dependencies; use
 an isolated copy for preservation-sensitive reviews. See the
 [maintenance procedure](../website/authoring/maintenance.md#assemble-and-review-a-publication-artifact)
 for the full command sequence and evidence limits.

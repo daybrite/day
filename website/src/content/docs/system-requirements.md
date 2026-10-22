@@ -55,7 +55,6 @@ Everything else depends on which targets you build.
 | `macos-appkit` | ✅ | — | — |
 | `ios-uikit` | ✅ | — | — |
 | `windows-winui` | — | — | ✅ |
-| `windows-xaml` (deprecated) | — | — | ✅ |
 | `linux-gtk` / `windows-gtk` / `macos-gtk` | ✅ | ✅ | ✅ |
 | `linux-qt` / `windows-qt` / `macos-qt` | ✅ | ✅ | ✅ |
 | `android-mdc` | ✅ | ✅ | ✅ |
@@ -130,8 +129,7 @@ downloads them on first use (about 270 MB) into `%LOCALAPPDATA%\day\winappsdk`. 
 the cache. `day doctor --toolkit winui` checks the toolchain and the runtime.
 
 A packed app is self-contained: the runtime travels inside the `.msix` and the installer, so your
-users install nothing extra. The deprecated `windows-xaml` target needs the same Build Tools and
-toolchain but no Windows App Runtime, since it uses the XAML that ships in Windows.
+users install nothing extra.
 
 For `windows-qt` and `windows-gtk`, install [MSYS2](https://www.msys2.org) and build with a **GNU**
 Rust toolchain, because MSVC cannot link MSYS2's import libraries, and the C++ shims are built
@@ -166,8 +164,8 @@ sudo apt install qt6-base-dev qt6-svg-dev pkg-config                    # linux-
 sudo apt install qemu-system-x86 qemu-system-gui unzip       # harmony-arkui (emulator)
 ```
 
-The GTK minimums are hard requirements. Day builds stack navigation on `AdwNavigationView`, and
-its file and alert dialogs on `GtkFileDialog` and `GtkAlertDialog`; none of those exist in earlier
+The GTK minimums are hard requirements. Day builds stack navigation on [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), and
+its file and alert dialogs on [`GtkFileDialog`](https://docs.gtk.org/gtk4/class.FileDialog.html) and [`GtkAlertDialog`](https://docs.gtk.org/gtk4/class.AlertDialog.html); none of those exist in earlier
 releases. Debian 12 ships GTK 4.8 and cannot build `linux-gtk`; run `-p
 linux-qt` there, which needs only Qt 6, or build against a newer runtime. `day doctor` reports the
 installed versions against these minimums, so run it first; a version miss otherwise surfaces as a
@@ -197,7 +195,7 @@ API and has no bottle, so `macos-gtk` builds without a web view. MSYS2 ships no 
 ## Optional: media playback
 
 The [media piece](https://github.com/daybrite/day-piece-media) plays through GStreamer on the
-Linux GTK target (`GtkVideo`). The build needs nothing extra, but *playback* needs GTK's
+Linux GTK target ([`GtkVideo`](https://docs.gtk.org/gtk4/class.Video.html)). The build needs nothing extra, but *playback* needs GTK's
 GStreamer module and a decoder for each format. Without a decoder the player stays a blank black
 rectangle rather than showing an error.
 
@@ -213,7 +211,7 @@ Ubuntu's desktop install does not include it. To check a particular file or URL,
 
 ## Optional: sound effects
 
-[`day-part-sound`](/docs/reference/sound) plays through libpulse on the Linux desktop toolkits,
+[`day-part-sound`](/docs/reference/sound) plays through [libpulse](https://www.freedesktop.org/software/pulseaudio/doxygen/) on the Linux desktop toolkits,
 which reaches both PulseAudio and PipeWire. The build needs nothing extra. At run time the part
 loads `libpulse-simple.so.0`, which a desktop install already has. A minimal container or CI
 image may need it installed; without it the app runs and stays silent.
@@ -232,8 +230,8 @@ distribution](/docs/how-to/packaging) covers the formats themselves.
 |---|---|---|
 | `linux-gtk`, `linux-qt` | `flatpak-builder` | [flatpak.org](https://flatpak.org/setup/), plus the Flathub remote |
 | `linux-gtk`, `linux-qt` | `linuxdeploy` and its GTK or Qt plugin | [linuxdeploy releases](https://github.com/linuxdeploy/linuxdeploy/releases) |
-| `windows-winui`, `windows-xaml` | `makeappx`, `signtool` | the Windows 10/11 SDK (installed with the Build Tools) |
-| `windows-winui`, `windows-xaml` | `makensis` | [NSIS](https://nsis.sourceforge.io), or `choco install nsis` |
+| `windows-winui` | `makeappx`, `signtool` | the Windows 10/11 SDK (installed with the Build Tools) |
+| `windows-winui` | `makensis` | [NSIS](https://nsis.sourceforge.io), or `choco install nsis` |
 
 Without the `linuxdeploy` GTK or Qt plugin an AppImage still builds, but it will only run on a
 machine that already has the toolkit installed.
@@ -469,12 +467,11 @@ development machine needs.
 | `android-mdc` | API level 24 (Android 7.0), compiled against API 37 |
 | `harmony-arkui` | API level 18 |
 | `windows-winui` | Windows 10 version 1809 (Windows 11 recommended); packed apps carry the Windows App SDK runtime |
-| `windows-xaml` (deprecated) | Windows 10 or 11 |
 | `linux-gtk` / `linux-qt` | GTK 4.10 with libadwaita 1.5 / Qt 6 |
 | `web-dom` | a current browser, served as static files |
 
 ## Check your toolchain
 
 Run `day doctor --toolkit <toolkit>` before building. It checks the SDK and tool versions for
-that backend. The [target registry](https://github.com/daybrite/day/blob/main/crates/day-cli/src/targets.rs)
+that toolkit. The [target registry](https://github.com/daybrite/day/blob/main/crates/day-cli/src/targets.rs)
 lists which hosts can build each target.

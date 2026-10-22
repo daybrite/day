@@ -8,14 +8,31 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# SwiftUI embedding (macos-appkit + ios-uikit)
+# SwiftUI embedding
 
-> **Status: implemented** as `day-piece-swiftui` plus build support in day-cli and day-build.
-> An app (or a piece crate) ships ordinary SwiftUI code in an ordinary SwiftPM package; `day build`
-> compiles it into the app on the two Apple-native backends and wraps each exported view in a
-> hosting view, and day-build generates typed Rust constructors so the call-site is
-> `crate::swiftui::MyView(param1, param2)`. Verified end to end in Day-Showcase's Benchmark page
-> (the hosted SwiftUI twin of the Day-Bench Grids benchmark).
+Reuse a SwiftUI view inside a Day app on macOS or iOS. `day-piece-swiftui` embeds the view,
+while the build tools compile its Swift package and generate typed Rust constructors. This
+integration requires the AppKit or UIKit toolkit.
+
+## Add to your app
+
+Defined in [`day-piece-swiftui`](https://github.com/daybrite/day/tree/main/pieces/day-piece-swiftui). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-swiftui = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+Declare the SwiftPM package in Cargo metadata as shown in [The typed path](#the-typed-path).
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit | SwiftUI hosting; requires the Apple SDK and a declared SwiftPM package. |
+| GTK, Qt, Android, WinUI, ArkUI, Web | SwiftUI embedding is unavailable. |
 
 ## The typed path
 
@@ -108,10 +125,10 @@ swiftui("hello")                  // resolves @objc(DayView_hello) — dots beco
 
 `DaySwiftUIProvider` and the `DayView_<name>` lookup live in the shim `day-piece-swiftui` stages
 into the generated `DayPieces` module (`platform/apple/swift/DaySwiftUI.swift`). Resolution is one
-`NSClassFromString` call at mount, so nothing registers at startup. The same string contract lets
+[`NSClassFromString`](https://developer.apple.com/documentation/foundation/nsclassfromstring(_:)) call at mount, so nothing registers at startup. The same string contract lets
 a future Jetpack Compose leg resolve with `Class.forName`, which is why the naming carries no
 Apple-specific structure. `day_piece_swiftui::support()` reports `Native` only on macos-appkit and
-ios-uikit; gate UI on it (never on backend-feature `cfg`s: `target_os = "macos"` also covers
+ios-uikit; gate UI on it (never on toolkit-feature `cfg`s: `target_os = "macos"` also covers
 macos-gtk and macos-qt, which have no AppKit view tree).
 
 ## Params and `@State`
@@ -150,22 +167,24 @@ tabs keep their parameters across tab switches and page revisits alike.
 
 ## Per-platform realization
 
+Platform guidance: [Apple: integrating SwiftUI](https://developer.apple.com/documentation/swiftui/framework-integration).
+
 | | macOS (AppKit) | iOS (UIKit) |
 |---|---|---|
-| host | `NSHostingView<AnyView>` | `UIHostingController<AnyView>`'s view |
+| host | [`NSHostingView<AnyView>`](https://developer.apple.com/documentation/swiftui/nshostingview) | [`UIHostingController<AnyView>`](https://developer.apple.com/documentation/swiftui/uihostingcontroller)'s view |
 | retention | provider via associated object | provider + controller via associated objects |
 | ownership | shim returns +1-retained; Rust takes it as `Retained<NSView>` | same, `Retained<UIView>` |
 | build | generated SwiftPM package at `build/day/macos/DayPieces`, referenced by the `platform/macos/` scaffold and built by its xcodebuild | the existing `build/day/ios/DayPieces` package, built by the scaffold's xcodebuild |
 
 The hosting view is an ordinary native handle to Day: framed, measured (`fill_measure`: it fills
 what it is offered; constrain with `.frame`), snapshotted, and disposed like a built-in.
-`UIHostingController` is not parented to a view controller in v1, so UIKit appearance
+[`UIHostingController`](https://developer.apple.com/documentation/swiftui/uihostingcontroller) is not parented to a view controller in v1, so UIKit appearance
 callbacks do not fire inside the hosted view.
 
 ### The macOS leg
 
 macos-appkit builds through a derived `build/day/xcode/macos/DayApp.xcodeproj`
-(or a checked-in `platform/macos/DayApp.xcodeproj` override) (DESIGN §16.5),
+(or a checked-in `platform/macos/DayApp.xcodeproj` override),
 whose JSON5 `project.xcproj` (Xcode 27+) references the generated `DayPieces` package directly, the same shape as iOS.
 `day build` regenerates `build/day/macos/DayPieces` (staged shims + generated glue +
 `Package.swift`) before every xcodebuild, touching only files whose bytes changed so the Swift
@@ -189,7 +208,7 @@ inside Xcode, so for IDE work raise the value in `DayApp.xcconfig` itself.
 
 Lowering it below the scaffold's 15.0 is the app's call, and the app owns what follows: 15 is
 day-uikit's own floor. The UIKit calls it makes that arrived in iOS 16 — navigation-bar item
-groups ([docs/toolbars.md](toolbars.md)), a bar item's menu representation, a list or tree cell's default
+groups ([docs/toolbars](toolbars.md)), a bar item's menu representation, a list or tree cell's default
 background configuration — are guarded on the runtime version (2026-09, verified on an iOS 15
 iPad), so an app at 15 gets the iOS 15 shape of each; nothing below 15 has been run.
 
@@ -213,7 +232,7 @@ exports; see [the opt-in policy](extending.md#apple-build-dependency-tools). Che
 - Params flow one way (Rust → Swift). Events out of the hosted view need the escape hatch plus an
   app-defined channel for now.
 - The scan takes the first public init only, and no default arguments.
-- The hosted view has no `UIViewController` parent on iOS.
+- The hosted view has no [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) parent on iOS.
 - `.state_key` retention has no eviction: each key holds its hosting view until the app exits.
 
 ## Compose (planned, not built)

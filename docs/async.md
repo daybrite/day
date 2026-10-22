@@ -19,12 +19,12 @@ resolves back in the task, where the result goes into a signal like any other va
 thread of your own returns its results through `Setter` or `on_main`, because signals cannot
 move between threads.
 
-For app examples, see [HTTP requests](https://daybrite.dev/docs/how-to/guide-http) and
-[Local storage](https://daybrite.dev/docs/how-to/guide-storage). This reference covers task lifetimes,
+For app examples, see [HTTP requests](/docs/how-to/guide-http) and
+[Local storage](/docs/how-to/guide-storage). This reference covers task lifetimes,
 cancellation, and the rules for implementing asynchronous parts.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## `day::task` and `TaskHandle`
 
@@ -86,7 +86,7 @@ job without the value, for work whose effect is its own completion callback.
 
 Use it for a file read, a parse, a hash, a database open, or a `block_on` into a runtime some
 dependency insists on. It is not a replacement for `DatabaseWorker`, which keeps one
-connection with ordered writes and reactive reads ([docs/persistence.md](persistence.md)), nor
+connection with ordered writes and reactive reads ([docs/persistence](persistence.md)), nor
 for work that reports progress partway: that wants a channel, not polling. A part that
 exposes a future should await `spawn_blocking` rather than start a thread, so its test's
 `block_on` and an app's `day::task` get the same behavior.
@@ -142,13 +142,12 @@ and the ready arm reads it.
 - **Scope cleanup cancels the fetch.** When the owning scope is disposed, its task is
   aborted. A late write to the disposed signal has no effect.
 - The fetcher runs on the main-loop executor, so it may read and write signals after its
-  awaits, and its source value needs no `Send` bound. §4.5's `MaybeSend` bound was removed for
-  this reason. See the DESIGN status note.
-- Namespacing: the prelude's `Resource` is the asset handle ([docs/resources.md](resources.md)), which
+  awaits, and its source value needs no `Send` bound.
+- Namespacing: the prelude's `Resource` is the asset handle ([docs/resources](resources.md)), which
   predates this type; the async one lives at `day::reactive::Resource`, or depend on
-  `day-reactive` directly.
+  [`day-reactive`](/docs/explanation/state) directly.
 
-`day-part-http` pairs with it for the common case (see the showcase's Platform-services page:
+[`day-part-http`](/docs/reference/http) pairs with it for the common case (see the showcase's Platform-services page:
 the loopback `Resource` demo, the PATCH `fetch_future` demo, and the URL checker that aborts
 its previous in-flight task on re-tap).
 
@@ -168,14 +167,14 @@ particular executor:
    a `day::task` body stalls the interface for its whole duration.
 3. **Parts expose a callback and a future, never a runtime-bound API.** `fetch_async(req, cb)`
    plus `fetch_future(req)`; both must work in a plain-`main` binary and under `cargo test`
-   (so a part never calls `on_main` itself, per [docs/http.md](http.md)'s contract).
+   (so a part never calls `on_main` itself, per [docs/http](http.md)'s contract).
 4. **Keep other async runtimes in app-specific crates.** A dependency that demands tokio
    (matrix-rust-sdk) gets a headless core crate owning that runtime on background threads;
    results cross back only through `Setter`/`on_main`, and `!Send` handles never leave the
    main thread. The Day-Matrix app's `matrix-core` crate (a standalone Day app) is the
    reference; its bridge rule is documented at the top of its lib.rs. No `day-*` crate
    depends on an async runtime.
-5. **Return to the UI thread through `Setter` or `on_main`** (DESIGN §3.3). Completion
+5. **Return to the UI thread through `Setter` or `on_main`**. Completion
    callbacks that run on background threads (e.g. `fetch_async`) deliver through them;
    futures on `day::task` don't need them.
 
@@ -183,36 +182,36 @@ particular executor:
 
 - The executor (`crates/day-core/src/present.rs`) stores boxed futures in a thread-local map;
   waking posts a re-poll through `day_reactive::on_main`. It is std-only, ~100 lines.
-- day-reactive reaches the executor through an installed hook (`install_spawner`, the
-  poster/scheduler pattern) because day-core depends on day-reactive, not the reverse.
+- [day-reactive](/docs/explanation/state) reaches the executor through an installed hook (`install_spawner`, the
+  poster/scheduler pattern) because day-core depends on [day-reactive](/docs/explanation/state), not the reverse.
   `day_core::launch_with` wires it on every backend (including mock). The spawner returns an
   abort closure that must be a no-op after completion: the spawner polls eagerly, so a
   synchronously-ready fetcher finishes before `Resource` can store the abort.
-- `FetchFuture` ([docs/http.md](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
+- `FetchFuture` ([docs/http](http.md)) is oneshot plumbing over `fetch_async`'s completion callback;
   its `Drop` runs the platform cancel. It has no executor dependency; any executor can await
   it, including a test's `block_on`.
 - `day-async` (2026-09) holds that plumbing once, std-only: `oneshot()` — a `Deliver<T>` any
   thread may send from and a `Oneshot<T>` any executor can await, resolving to `Dropped` rather
   than pending forever when the sender goes away — and `TokenRegistry<T>`, the
   register-before-call, remove-by-token map behind every platform completion that crosses an
-  FFI boundary as a number. The bridge's callback tier ([docs/bridge.md](bridge.md) "Callbacks")
+  FFI boundary as a number. The bridge's callback tier ([docs/bridge](bridge.md) "Callbacks")
   is its first user; the parts' hand-rolled copies migrate onto it.
 - `day-async` also owns the process's one timer thread: `schedule(delay, job)` runs a job after a
   delay and `unschedule(id)` forgets it, so a part's time limits and backoff wait there instead of
-  parking a thread each. day-part-http's total-time limits and question timeouts, and
-  day-part-downloads' retry backoff, use it. The web has no threads, so a timer never fires there.
+  parking a thread each. [day-part-http](/docs/reference/http)'s total-time limits and question timeouts, and
+  [day-part-downloads](/docs/reference/downloads)' retry backoff, use it. The web has no threads, so a timer never fires there.
   It stays separate from `day::sleep`'s native timer because a part must work in a plain binary
   and under `cargo test`, where no backend has installed a timer door.
 - `day-async` holds the blocking pool behind `spawn_blocking` (2026-10): a `VecDeque` of jobs, a
   `Condvar`, and threads that start on demand up to `blocking_limit()` and exit after two idle
   seconds. A job is the user's closure under `catch_unwind`, delivering through a `oneshot`; a
-  cancelled flag, set by the future's `Drop`, skips a job that has not started. day-part-fs's
+  cancelled flag, set by the future's `Drop`, skips a job that has not started. [day-part-fs](/docs/reference/fs)'s
   async operations run on it, detached. `blocking_threads()` reports the live count.
 - `day::sleep` rides `Platform::post_delayed`, which every backend implements with the loop's
   own timer; the trait default (a thread that sleeps and posts) logs once when a backend without
   one falls back to it. The conformance app's headless cases `sleep-*`,
   `an-aborted-task-never-wakes-from-its-sleep` and `*-blocking-*` run on every toolkit in CI
-  ([docs/testing.md](testing.md)) and prove the timer resolves after its delay, in delay order,
+  ([docs/testing](testing.md)) and prove the timer resolves after its delay, in delay order,
   yields on zero, and that blocking jobs leave the UI thread, resolve on it, report panics and
   honor cancellation.
 
@@ -221,9 +220,9 @@ particular executor:
 - **day-core executor tests**: install an inline poster once
   (`day_reactive::install_main_poster(|f| f())`) and every wake re-polls synchronously on the
   test thread (`present.rs`'s `task_tests`).
-- **day-reactive Resource tests**: `install_spawner` a miniature executor (poll-once at spawn +
+- **[day-reactive](/docs/explanation/state) Resource tests**: `install_spawner` a miniature executor (poll-once at spawn +
   an explicit `pump()`), and resolve hand-rolled manual futures (`resource_tests`).
-- **day-part-http future tests**: a ~25-line park/unpark `block_on` (tests/http.rs). The
+- **[day-part-http](/docs/reference/http) future tests**: a ~25-line park/unpark `block_on` (tests/http.rs). The
   completion's wake from the delegate queue is exactly the cross-thread path production uses.
 - Missing installs fail loudly: `on_main` and the spawner panic with "backend not started"
   rather than dropping work.
@@ -231,7 +230,7 @@ particular executor:
 ## Reading and checking these examples
 
 The Rust blocks above are integration fragments with app-defined values and functions; they
-are not standalone apps. Use the [compiled HTTP recipe](https://daybrite.dev/docs/how-to/guide-http)
+are not standalone apps. Use the [compiled HTTP recipe](/docs/how-to/guide-http)
 for complete imports, catalog keys, and the validation harness. `request_failed` is defined in
 that recipe's catalog; other generated messages come from [the snippet catalog](snippet-catalog.md).
 

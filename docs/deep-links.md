@@ -8,15 +8,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Deep links (OS integration)
+# Deep links
 
 How a URL outside the app becomes a `navigate` inside it. This document covers the OS side:
 scheme registration, delivery into the process, per-platform capabilities, and testing. The
 route grammar, absolute/relative addressing, query params, and how a pending link interacts
-with `.restore` are specified in [docs/navigation.md](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
+with `.restore` are specified in [docs/navigation](navigation.md#routes-the-string-route-adapter-deep-links--dayscript)
 and are not repeated here.
 
-The [historical proposals](design/deep-links.md) are separate from this API entry point.
 Platform execution claims below are retained records and were not rerun during restructuring.
 
 ## The URL model — Shipped
@@ -57,13 +56,15 @@ However a link arrives, the behavior inside the app is the same:
 
 ## Where each platform stands
 
+Platform guidance: [Apple: custom URL schemes](https://developer.apple.com/documentation/xcode/defining-a-custom-url-scheme-for-your-app); [Android: deep links](https://developer.android.com/training/app-links/deep-linking).
+
 | Platform | Registration | Cold | Warm | Status |
 |---|---|---|---|---|
-| ios-uikit | `CFBundleURLTypes` (scaffold) | ✓ | ✓ `application:openURL:options:` | Shipped |
+| ios-uikit | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (scaffold) | ✓ | ✓ `application:openURL:options:` | Shipped |
 | android-mdc | `intent-filter` VIEW+BROWSABLE (scaffold), `singleTask` | ✓ | ✓ `onNewIntent` → kind 7 | Shipped |
 | web-dom | the page URL is the link | ✓ hash/`?route=` | ✓ `RouteRequested` on hash change | Shipped |
 | harmony-arkui | `uris` skill (scaffold) | ✓ `want.uri` → buffered | ✓ `onNewWant` | Shipped |
-| macos-appkit | `CFBundleURLTypes` (platform/macos scaffold) | ✓ `application:openURLs:` | ✓ the same | Shipped |
+| macos-appkit | [`CFBundleURLTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundleurltypes) (platform/macos scaffold) | ✓ `application:openURLs:` | ✓ the same | Shipped |
 | windows-winui | Day.toml `url_schemes` (MSIX, NSIS); `--day-open-url <link>` on the command line | ✓ | ✓ single-instance forwarding | Compile-checked |
 | linux-gtk / linux-qt | Day.toml `url_schemes` (`.desktop` `x-scheme-handler`); `--day-open-url <link>` | ✓ | ✓ single-instance forwarding | Shipped |
 
@@ -117,7 +118,7 @@ files, URLs) to the copy already running and exits; the running copy receives th
 link or file and brings its front window forward (`day_core::forward_launch_args`). Apps never
 see two processes.
 
-| Backend | Mechanism | Status |
+| Toolkit | Mechanism | Status |
 |---|---|---|
 | AppKit | Launch Services activates the running app and delivers URLs and files to its delegate | Shipped |
 | GTK | GApplication's own uniqueness: the second launch's files and URIs reach the first through its `open` signal | Shipped |
@@ -152,14 +153,14 @@ string with no formatter behind it) and writes the platform's native declaration
   activation goes through the shipped intent-filter intake. Verified on the emulator: the shortcut
   service parses both demo shortcuts with locale-resolved labels (`dumpsys shortcut`), and
   the declared intent cold-launches onto the right page.
-- **iOS** — `UIApplicationShortcutItems` is written into the committed `Info.plist` (the same
+- **iOS** — [`UIApplicationShortcutItems`](https://developer.apple.com/documentation/bundleresources/information-property-list/uiapplicationshortcutitems) is written into the committed `Info.plist` (the same
   managed-key editor as the permission strings), titled with the default-locale text; the
   scaffold's `Stage Day Strings` script phase (`day xcode-backend stage-strings`, injected
   into pre-existing scaffolds on first use) stages `<locale>.lproj/InfoPlist.strings` into
   the built bundle, keyed by that default text so an unlocalized device falls back to
   readable English. The default locale gets its own `.lproj` too: those dirs are the
   bundle's localization list, and iOS 15 resolves a device language outside the list to the
-  first entry, not to `CFBundleDevelopmentRegion`. A quick action's type string is the URL itself; the scene delegate feeds
+  first entry, not to [`CFBundleDevelopmentRegion`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundledevelopmentregion). A quick action's type string is the URL itself; the scene delegate feeds
   it into `day_core::request_route`, warm via `performActionForShortcutItem` and cold via the
   connection options. Conveyance is verified in the built bundle; the tap itself cannot be
   automated on a simulator (no touch injection, and `simctl openurl` sits behind a
@@ -175,7 +176,7 @@ string with no formatter behind it) and writes the platform's native declaration
   stock launcher renders no shortcut panel for any app, so the panel UI itself needs real
   hardware.
 - **macOS** — the Dock menu lists the shortcuts above the app's own `dock_menu` entries
-  ([docs/menus.md](menus.md#dock-menu)). `day-build` registers the `[[shortcuts]]` into the
+  ([docs/menus](menus.md#dock-menu)). `day-build` registers the `[[shortcuts]]` into the
   binary at link time, so the menu is built while the app runs, in its current language, and
   choosing an entry opens its route in the running app.
 - **Windows** — the jump list's Tasks: each entry runs the app with
@@ -200,7 +201,7 @@ are not conveyed yet (the platforms render their default glyph), and on OpenHarm
 
 ## Testing shipped pieces
 
-What works today: the dayscript step below on every backend; `DAY_DEEPLINK=route day
+What works today: the dayscript step below on every toolkit; `DAY_DEEPLINK=route day
 launch …` for the cold env path; `xcrun simctl openurl booted <url>`,
 `adb shell am start -a android.intent.action.VIEW -d <url>`, and
 `hdc shell aa start -U <url>` for real OS delivery on the mobile targets; on web-dom the URL
@@ -213,7 +214,7 @@ tap the simulator cannot inject; a device, or an XCUITest runner, gets past it.
 **`deep_link: { url: "scheme://route?x=1" }` — Shipped.** An in-process step: the URL maps to
 its route through the same `day_spec::route_of_url` every platform intake uses, then
 navigates: a warm delivery without the OS. It proves the app's routing, param handling, and
-back-stack seeding identically on every backend including mock (cheap enough for every
+back-stack seeding identically on every toolkit including mock (cheap enough for every
 app's walkthrough), and it does not prove OS registration. `day lint` validates the URL's
 route against the app's declared keys, the same check `navigate:` gets.
 

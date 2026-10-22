@@ -8,12 +8,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Secondary windows (§8.1)
+# Secondary windows
 
-> **Status:** the secondary-window API is implemented. The source chooses native windows where
-> supported and a fullscreen cover otherwise.
-> iPad, Android, and OpenHarmony normal-window paths differ from preferences covers; query the
-> capability at runtime and test the target you ship.
+Open another window for a document, preferences, or a separate task. Day uses a native window
+where supported and a fullscreen cover otherwise. Query the capability at runtime: normal windows
+and preferences covers have different support on iPad, Android, and OpenHarmony.
 
 ## Signature and defaults
 
@@ -63,7 +62,7 @@ list and tree rows follow their owning view's window. A dismissing cover no long
 precedence over the primary window. Keep ids unique within each window.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Titles: what the platform manages windows by
 
@@ -156,10 +155,10 @@ the main window) or
   with no windows keeps its menu bar live, and ⌘N reopens one. So on macOS the app stays up and
   its secondary windows stay with it; every other desktop treats the last primary as the app.
   A window's role comes from its `WindowKind` (`Preferences` ⇒ secondary).
-- Probe `Cap::MultiWindow` to adapt chrome: on `Unsupported` backends the surface is a
+- Probe `Cap::MultiWindow` to adapt chrome: on `Unsupported` toolkits the surface is a
   fullscreen cover with no native title bar or close button; content that needs a close
   affordance should carry its own (system back closes it on Android).
-- Dialogs ([`docs/dialogs.md`](dialogs.md)) attach to the key window at present time, falling back to the
+- Dialogs ([`docs/dialogs`](dialogs.md)) attach to the key window at present time, falling back to the
   primary.
 
 ## The preferences paradigm
@@ -185,10 +184,10 @@ Registering a preferences piece enables the following, without any menu code in 
   into the first (File) menu when the app didn't place a `menu_role(MenuRole::Preferences)`
   itself.
 - The window opens under the singleton key `day.preferences` (`WindowKind::Preferences`);
-  reopening focuses. On cover-tier backends `open_preferences` presents the same piece
+  reopening focuses. On cover-tier toolkits `open_preferences` presents the same piece
   fullscreen. The default title is the platform's word (`day_settings`).
 
-Apps rarely call these directly: `day-piece-settings` ([docs/settings.md](settings.md))
+Apps rarely call these directly: [`day-piece-settings`](/docs/reference/settings) ([docs/settings](settings.md))
 declares the settings and About once and registers both windows, the menu items and the
 mobile navigation presentation itself.
 
@@ -222,7 +221,7 @@ is the pattern). The starter uses one main window.
 
 Because the builder runs again per window, whatever state that shell reaches for decides whether
 the windows are independent; a `thread_local!` gives all of them one selection.
-[docs/state.md](state.md) covers this: `T::scoped(…)` for per-window state, `T::ambient()`
+[docs/state](state.md) covers this: `T::scoped(…)` for per-window state, `T::ambient()`
 to read it back anywhere below, and `T::focused()` for the app-wide menu bar, whose items belong
 to no window and have to resolve the front one when they run. The same shell should call
 `day::window_title` (above), so the windows it builds are distinguishable everywhere the system
@@ -235,7 +234,7 @@ lists them.
 > content yet.
 
 On macOS, day-appkit also auto-installs the standard **Window menu** (Minimize ⌘M, Zoom,
-Bring All to Front) registered as `NSApp.windowsMenu`, so AppKit appends the open-window
+Bring All to Front) registered as [`NSApp.windowsMenu`](https://developer.apple.com/documentation/appkit/nsapplication/windowsmenu), so AppKit appends the open-window
 list and, while automatic tabbing is live, the tab commands (Show Next/Previous Tab,
 Merge All Windows). `Normal` Day windows share the `day.normal` tabbing identifier and
 group as native tabs per the system "prefer tabs" setting. When no new-window builder is
@@ -295,9 +294,9 @@ app asked for, until the window is next activated.
 
 `set_content_protected(true)` keeps a window out of screenshots, screen recordings and screen
 sharing, for passwords, payment details and private messages (`Cap::ContentProtection`). macOS
-(`NSWindowSharingNone`), Windows (`WDA_EXCLUDEFROMCAPTURE`), Android (`FLAG_SECURE`) and
+([`NSWindowSharingNone`](https://developer.apple.com/documentation/appkit/nswindow/sharingtype-swift.enum/none)), Windows (`WDA_EXCLUDEFROMCAPTURE`), Android (`FLAG_SECURE`) and
 HarmonyOS (privacy mode) protect natively. HarmonyOS needs the app to opt in with
-`screen-privacy = true` in Day.toml's `[permissions]` ([docs/permissions.md](permissions.md));
+`screen-privacy = true` in Day.toml's `[permissions]` ([docs/permissions](permissions.md));
 without it `Cap::ContentProtection` answers `Unsupported` there. iOS has no switch for it: Day
 covers the window while the screen is being recorded or mirrored, and a screenshot still
 captures it. Linux and the web cannot protect a window.
@@ -319,19 +318,19 @@ captures it. Linux and the web cannot protect a window.
 | `request_attention(Attention)` | A Dock bounce, a flashing taskbar button | `RequestAttention` |
 
 `WindowOptions` sets the same things at open: `min_size`, `max_size`, `resizable`, `placement`,
-and the frame options in [docs/window-chrome.md](window-chrome.md).
+and the frame options in [docs/window-chrome](window-chrome.md).
 
-| Backend | What it supports |
+| Toolkit | What it supports |
 |---|---|
 | AppKit | Everything above. Taskbar exclusion is the Window menu's, since macOS has no taskbar. |
 | Windows XAML | Everything except showing a window on every virtual desktop. Compile-checked; the Windows runtime pass is pending. |
 | Qt | Everything except per-window appearance and every-desktop windows. Under Wayland the compositor places windows, so `set_frame`'s origin and `WindowPosition` are unsupported there. |
-| GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and `frame()` answers `None`. On Linux the Qt backend covers those. |
+| GTK | Size, minimum size, resizable, closable, visibility and the minimize/maximize controls. GTK 4 removed window positioning, stacking, the taskbar hint, the urgency hint and maximum sizes, and `frame()` answers `None`. On Linux the Qt toolkit covers those. |
 | iOS | Per-window appearance (`overrideUserInterfaceStyle`). |
 | Android, HarmonyOS, web | None: the platform sizes and places the app's window. The web follows the app-wide appearance per page. |
 
 `set_frame`'s size is the size Day lays the content out at, the size `WindowResized` reports;
-the backend adds the title bar, the frame and any menu bar around it. `frame()` reports the
+the toolkit adds the title bar, the frame and any menu bar around it. `frame()` reports the
 outer frame, chrome included.
 
 GTK reports the content wrapper's allocated size, excluding the header and client-side
@@ -378,7 +377,7 @@ platform has no system window tabs and ignores the option.
 ## Keeping the app running
 
 A status item keeps an app running after its last window closes, and `day::set_keep_running`
-chooses that for any app: see [docs/status-item.md](status-item.md#keeping-the-app-running).
+chooses that for any app: see [docs/status-item](status-item.md#keeping-the-app-running).
 
 ## The debug title tag
 
@@ -395,7 +394,7 @@ place that says which window is which. Release builds get none of it: `day_core:
 returns `None` outside `debug_assertions`, so the decoration can never ship.
 
 The version and script name arrive as `DAY_APP_VERSION` and `DAY_SCRIPT`, which `day launch` sets
-from the project manifest and the `--script` arguments ([docs/environment.md](environment.md)). Run the binary
+from the project manifest and the `--script` arguments ([docs/environment](environment.md)). Run the binary
 another way and the tag carries only what it knows: `(gtk)`. Apps do nothing: **do not** put the
 toolkit in your own title, or it will be there twice.
 
@@ -423,7 +422,7 @@ primary window, whose fullscreen cover is the content, so the same pixels come b
 special case. (XAML
 currently also answers the primary for per-window captures, a noted follow-up.)
 
-## The Toolkit duties (backends)
+## The Toolkit duties (toolkits)
 
 `Toolkit::open_window(id, options, kind) -> WindowOpenReply<Handle>` creates and shows the
 native window, wires its events to `id` (`WindowResized` in content points, `WindowClosed`
@@ -431,46 +430,46 @@ after the platform committed the close, `WindowFocused` on key changes), and ans
 content container handle, the same contract as `ready`'s root.
 
 **`WindowResized` must carry `id`, not the primary's node.** It is what re-buckets that window's
-size class ([docs/size-classes.md](size-classes.md)), so a backend that reports every window's
+size class ([docs/size-classes](size-classes.md)), so a toolkit that reports every window's
 geometry against the primary re-lays-out the wrong window, which is what day-uikit's holder view
 did, invisibly, until iPadOS made two windows at two sizes an ordinary thing. day-core relayouts
 *and* re-buckets on receipt, so a secondary window dragged from narrow to wide re-presents its
-navigation exactly as the primary does. Backends whose window
+navigation exactly as the primary does. Toolkits whose window
 creation is asynchronous (a scene, an activity, an ability) answer `Pending` and complete
 later through `day_core::finish_window_open(id, raw, size)`, the type-erased `RawHandle`
 adoption path list cells use; day-core parks the record (build deferred) and a close before
-completion cancels it (`finish_window_open` answers `false`; the backend drops its window).
+completion cancels it (`finish_window_open` answers `false`; the toolkit drops its window).
 **A window the platform opens by itself takes the same path in reverse.** iPadOS 26 offers
 Window ▸ New Window for any app that supports multiple scenes, an app icon dragged into Split
 View connects a scene, and a relaunch reconnects the sessions from the previous run — none of
 them carry the node id a `Toolkit::open_window` request does. day-uikit builds the window and
 then calls `day_core::open_new_window()`, so the content is whatever the app registered with
 [`register_new_window`](#new-window--the-macos-window-menu), the same builder behind File ▸ New Window on
-desktop; an app that registered none has nothing to put in the window, and the backend hands the
+desktop; an app that registered none has nothing to put in the window, and the toolkit hands the
 scene back. Until 2026-09 those scenes were destroyed on sight, which is what made the system's
 New Window flash a window and lose it.
 
 `apply_window(host, change)` carries every window property above, one `WindowChange` at a time,
 for any window including the first (its root container is its host). A state change the platform
-completes is reported back as `Event::WindowStateChanged`; a state the backend cannot reach is
+completes is reported back as `Event::WindowStateChanged`; a state the toolkit cannot reach is
 reported as the state the window is in, so the signal settles. `window_frame(host)` and
-`monitors()` answer queries, and `set_keep_running` tells a desktop backend to report its first
+`monitors()` answer queries, and `set_keep_running` tells a desktop toolkit to report its first
 window's close like any other instead of ending the app itself.
 
 `close_window`/`focus_window`/`set_window_title`/`snapshot_window_of` round out the duties;
-day-core releases the content handle after teardown, which is each backend's signal to
+day-core releases the content handle after teardown, which is each toolkit's signal to
 destroy the native window (Qt/XAML defer destruction to exactly this point so child-widget
 releases stay sound).
 
-| Backend | Tier | Mechanism |
+| Toolkit | Tier | Mechanism |
 |---|---|---|
-| AppKit | Native | per-window `NSWindow` + delegate (retained; windows are not released-when-closed); tabbing groups; Window menu |
-| GTK | Native | additional `AdwApplicationWindow`s on the shared `GtkApplication`; app-level active-state debounced across windows. The panel kinds are dialogs, not windows: `Preferences` presents as an `AdwPreferencesDialog` and `About` as an `AdwDialog` with a header bar, over the active app window (a floating sheet in a wide window, a bottom sheet in a narrow one, Escape closes). The record keeps the window contract — `close_window` is `adw_dialog_close` and the dialog's `closed` signal is the `WindowClosed` confirm, `focus_window` presents it again, `set_window_title` is its title, `fit_window` is its content width and height, `snapshot_window_of` renders its sheet, and `apply_window` is ignored. A panel opened before any window exists is a window as before. On macOS the panel is always a window of its own (the same `AdwPreferencesDialog`, presented without a parent): that is where a Mac keeps Preferences, and a piece's Cocoa view in the GTK window's content view (day-piece-webview's `WKWebView`) draws above everything GTK draws there, so an in-window sheet could be covered whenever such a view is up. Alert dialogs stay in their window unless such a view would cover them, in which case they too present as windows. |
+| AppKit | Native | per-window [`NSWindow`](https://developer.apple.com/documentation/appkit/nswindow) + delegate (retained; windows are not released-when-closed); tabbing groups; Window menu |
+| GTK | Native | additional [`AdwApplicationWindow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html)s on the shared [`GtkApplication`](https://docs.gtk.org/gtk4/class.Application.html); app-level active-state debounced across windows. The panel kinds are dialogs, not windows: `Preferences` presents as an [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html) and `About` as an [`AdwDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.Dialog.html) with a header bar, over the active app window (a floating sheet in a wide window, a bottom sheet in a narrow one, Escape closes). The record keeps the window contract — `close_window` is `adw_dialog_close` and the dialog's `closed` signal is the `WindowClosed` confirm, `focus_window` presents it again, `set_window_title` is its title, `fit_window` is its content width and height, `snapshot_window_of` renders its sheet, and `apply_window` is ignored. A panel opened before any window exists is a window as before. On macOS the panel is always a window of its own (the same [`AdwPreferencesDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.PreferencesDialog.html), presented without a parent): that is where a Mac keeps Preferences, and a piece's Cocoa view in the GTK window's content view (day-piece-webview's [`WKWebView`](https://developer.apple.com/documentation/webkit/wkwebview)) draws above everything GTK draws there, so an in-window sheet could be covered whenever such a view is up. Alert dialogs stay in their window unless such a view would cover them, in which case they too present as windows. |
 | Qt | Native | shim `DayWindow` carrying its node id; explicit quit policy (`quitOnLastWindowClosed(false)`) |
 | XAML | Native (CI-verified) | second Win32 host + its own `DesktopWindowXamlSource` island; accelerators in secondary islands are a noted v1 limit |
-| iOS | Native on iPad (`UIScene` request/connect; the whole backend runs the scene lifecycle, and a scene the system opens on its own is filled from `register_new_window`) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |
+| iOS | Native on iPad ([`UIScene`](https://developer.apple.com/documentation/uikit/uiscene) request/connect; the whole toolkit runs the scene lifecycle, and a scene the system opens on its own is filled from `register_new_window`) | iPhone answers Unsupported → cover; iPad runtime check pends a `day launch` device flag |
 | Android | Native | document-style `DayWindowActivity` per window (own recents entry; split-screen/freeform); `Preferences` → cover |
-| HarmonyOS | Native (when the ArkTS host registers the launchers) | multiton `DayWindowAbility` per window; `Preferences` → cover. Pre-existing backend quirk: presented covers pass asserts and receive taps but device captures show the page beneath (affects the cover piece identically — follow-up) |
+| HarmonyOS | Native (when the ArkTS host registers the launchers) | multiton `DayWindowAbility` per window; `Preferences` → cover. Pre-existing toolkit quirk: presented covers pass asserts and receive taps but device captures show the page beneath (affects the cover piece identically — follow-up) |
 | web | Unsupported → cover fallback | a second browser window cannot share the wasm instance |
 | mock | Native | recorded windows + synthesized confirms; the e2e suite that pins the window duties |
 
@@ -479,8 +478,8 @@ releases stay sound).
 `document_tabs` can move resident documents into OS window groups on AppKit and macOS Qt.
 `Toolkit::group_windows` explicitly groups and orders the supplied window handles, independently
 of the user's automatic-tabbing preference. `window_tab_order(host)` returns known root `NodeId`s
-in native group order, or an empty vector where unsupported. GTK uses AdwTabView on every platform;
-it does not rewrite GDK's NSWindow style mask or hide its title bar to create OS tabs.
+in native group order, or an empty vector where unsupported. GTK uses [AdwTabView](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html) on every platform;
+it does not rewrite GDK's [NSWindow](https://developer.apple.com/documentation/appkit/nswindow) style mask or hide its title bar to create OS tabs.
 
 Each presentation window is registered with day-core for layout, focus, size, and close events.
 `TreeOps::reparent` moves the existing content subtree without disposing its scope or handles;
@@ -525,3 +524,8 @@ an NSWindowController for the native add-tab action. day-core stays platform-ind
 This API does not change Preferences presentation: desktop Preferences use a separate singleton
 window, while mobile Preferences remain an in-app cover, including on iPad. See the
 [navigation contract](navigation.md#document-tabs) for keys, close handlers, and regression tests.
+
+## Platform guidance
+
+- [Apple: windows](https://developer.apple.com/design/human-interface-guidelines/windows)
+- [Windows: windowing](https://learn.microsoft.com/en-us/windows/apps/develop/ui-input/windowing-overview)

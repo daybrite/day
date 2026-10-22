@@ -8,7 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Build flavors (§16.6)
+# Build flavors
 
 A flavor ships one source tree as more than one app: a paid build beside a free one, a
 white-label build per customer, a demo build with a smaller target list. It is a layer over
@@ -67,7 +67,7 @@ NOTES_ACCENT = "#FF6B35"
 | `app.build` | The build number stores order releases by |
 | `app.targets` | Replaces the base list: a flavor may ship on fewer targets, or on more |
 | `[app.<platform\|toolkit\|target>]` | The same override tables `Day.toml` takes, merged field by field over the base app's |
-| `[cargo] features` | Cargo features to compile with, added to the backend feature and the union the pieces need |
+| `[cargo] features` | Cargo features to compile with, added to the toolkit feature and the union the pieces need |
 | `[env]` | Environment for every build tool the run spawns: what `build.rs` and `option_env!()` read |
 | `resources` | A `resource/`-shaped directory merged over the app's, by relative path |
 | `store` | A `store/`-shaped listing directory this flavor publishes with |
@@ -120,7 +120,7 @@ Locale files are replaced whole, since a `.ftl` file is one file: an overlay of
 
 The merged tree is what the whole build reads: the generated `res::` constants and compiled-in
 strings, the icons `day prepare` derives the platform icon sets from, the images, fonts and data
-assets each backend stages, and the files a desktop `day launch` loads at runtime.
+assets each toolkit stages, and the files a desktop `day launch` loads at runtime.
 
 ## Reading a flavor from Rust
 

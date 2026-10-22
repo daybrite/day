@@ -8,16 +8,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Forms (form / section / labeled)
+# Forms
 
-> **Status: implemented** in `day-pieces` (portable: no per-backend renderer code beyond the
-> section-card surface below). A settings-style grouped form: `form` holds `section` cards, and
-> `labeled` rows inside them share one right-aligned label column across the whole form, with
-> their controls starting on a common left edge. This is the aligned-labels look that settings
-> UIs on every platform use.
+Group related inputs into sections with aligned labels. `form`, `section`, and `labeled`
+provide a shared layout for preferences, account details, and other forms, while the controls
+keep their native behavior.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -36,13 +34,13 @@ form((
 ```
 
 - `form(sections)` — a vertical run (spacing 16) that provides the shared label column to every
-  `labeled` row underneath it, via the scoped environment ([docs/environment.md](environment.md)).
+  `labeled` row underneath it, via the scoped environment ([docs/environment](environment.md)).
 - `section(children).title(t)` — one grouped card: an optional footnote-style header above a
   rounded card (radius 10, content padded 14, spacing 10). Children are arbitrary pieces;
   `labeled` rows are just the ones that participate in alignment. A `section` also works
   standalone, outside any `form`.
 - `labeled(text, control)` — one form row: the label sits right-aligned in the form-wide column,
-  on the same text baseline as the control ([docs/baseline.md](baseline.md); centered instead when either side
+  on the same text baseline as the control ([docs/baseline](baseline.md); centered instead when either side
   has no baseline, e.g. a toggle, or on a toolkit that reports none); the control starts at the
   column edge + 12. A control marked `.grow()`
   (text fields, sliders, or a `row(( … ))` wrapper) stretches to the row's remaining width;
@@ -64,7 +62,7 @@ theming with no app code:
 
 | Toolkit | Material |
 |---|---|
-| AppKit | `NSColor.quaternarySystemFillColor`, resolved per-draw in `drawRect:` (stays live across appearance changes) |
+| AppKit | [`NSColor.quaternarySystemFillColor`](https://developer.apple.com/documentation/appkit/nscolor), resolved per-draw in `drawRect:` (stays live across appearance changes) |
 | UIKit | `tertiarySystemFillColor` + layer corner radius |
 | GTK | libadwaita's `.card` style class |
 | Qt | translucent neutral fill via a scoped stylesheet + `WA_StyledBackground` (no grouped-card palette role exists; a 12% gray adapts to any palette) |
@@ -83,22 +81,16 @@ so by place time the max is final; alignment is consistent with no invalidation 
 report the *proposed* width as their size (labels align form-wide, controls may stretch), so a
 growing column width never changes a row's measured size and can't oscillate the pass.
 
-Vertically the row asks both children for their first text baseline ([docs/baseline.md](baseline.md)) and shifts
+Vertically the row asks both children for their first text baseline ([docs/baseline](baseline.md)) and shifts
 each down to the deeper of the two, so the label meets the control's inset text instead of the
 middle of its box. The row is then as tall as that shared baseline plus the deepest descent below
 it. When either side reports no baseline the row centers both, as before.
-
-## Verification
-
-- `day-pieces` mock e2e (`form_aligns_labels_and_sections_carry_the_card_surface`): two sections
-  carry the card role + radius; label right edges align across sections; control left edges
-  align across sections.
-- The showcase uses forms on the **Controls**, **Canvas & shapes**, **Device & sensors**, and the four
-  **Platform** pages; the walkthrough drives every control inside them on all targets,
-  and the three screenshot variants (light / dark / fr) verify the card material adapts per
-  theme on every toolkit in CI.
 
 ## Follow-ups
 
 - `labeled` caption/footer affordances (secondary line under the control, iOS-settings style).
 - Optional per-`section` label column (opt out of form-wide alignment for asymmetric sections).
+
+## Platform guidance
+
+- [Windows: forms](https://learn.microsoft.com/en-us/windows/apps/design/controls/forms)

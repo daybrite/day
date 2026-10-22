@@ -1,0 +1,173 @@
+[
+  {
+    "id": "core-ui",
+    "name": "Core UI components",
+    "description": "Build forms, arrange controls, and display collections.",
+    "pages": [
+      "buttons",
+      "textfield",
+      "textarea",
+      "picker",
+      "progress",
+      "forms",
+      "grid",
+      "list",
+      "tree",
+      "scroll",
+      "split"
+    ]
+  },
+  {
+    "id": "navigation-windows",
+    "name": "Navigation and windows",
+    "description": "Connect screens and present actions, panels, and windows.",
+    "pages": [
+      "navigation",
+      "cover",
+      "inspector",
+      "menus",
+      "toolbars",
+      "dialogs",
+      "files",
+      "search",
+      "windows",
+      "window-chrome",
+      "size-classes"
+    ]
+  },
+  {
+    "id": "app-behavior",
+    "name": "App concepts and behavior",
+    "description": "Share commands, manage interaction, and make the app accessible and localizable.",
+    "pages": [
+      "commands",
+      "accessibility",
+      "focus",
+      "cursor",
+      "localization",
+      "documents",
+      "deep-links",
+      "drag-and-drop",
+      "tweaks"
+    ]
+  },
+  {
+    "id": "text-graphics",
+    "name": "Text and graphics",
+    "description": "Style text, draw custom content, animate values, and bundle assets.",
+    "pages": [
+      "text",
+      "text-runs",
+      "markdown",
+      "color",
+      "fonts",
+      "images",
+      "vectors",
+      "canvas",
+      "shapes",
+      "tween",
+      "frames",
+      "resources",
+      "window-image"
+    ]
+  },
+  {
+    "id": "ui-extensions",
+    "name": "Optional UI components",
+    "description": "Add specialized controls, media, maps, and embedded views.",
+    "pages": [
+      "activity",
+      "colorpicker",
+      "combobox",
+      "datepicker",
+      "pullrefresh",
+      "searchfield",
+      "stepper",
+      "texteditor",
+      "settings",
+      "map",
+      "media",
+      "swiftui",
+      "webview-eval"
+    ]
+  },
+  {
+    "id": "app-services",
+    "name": "App services and storage",
+    "description": "Use the clipboard, save data, connect to services, and report app activity.",
+    "pages": [
+      "clipboard",
+      "logging",
+      "prefs",
+      "fs",
+      "http",
+      "downloads",
+      "persistence",
+      "applications",
+      "sharing",
+      "notify",
+      "badge",
+      "status-item",
+      "break"
+    ]
+  },
+  {
+    "id": "device-features",
+    "name": "Optional device features",
+    "description": "Read device information and use permissions, sensors, location, sound, and haptics.",
+    "pages": [
+      "battery",
+      "deviceinfo",
+      "network",
+      "permissions",
+      "haptics",
+      "location",
+      "sensors",
+      "sound",
+      "wakelock"
+    ]
+  },
+  {
+    "id": "platforms",
+    "name": "Platforms and requirements",
+    "description": "Check support, SDK requirements, and target-specific behavior.",
+    "pages": [
+      "platforms",
+      "system-requirements",
+      "platforms/macos-appkit",
+      "platforms/ios-uikit",
+      "platforms/android-mdc",
+      "platforms/windows-winui",
+      "platforms/linux-gtk",
+      "platforms/linux-qt",
+      "platforms/harmony-arkui",
+      "platforms/web-dom"
+    ]
+  },
+  {
+    "id": "build-tools",
+    "name": "Build and developer tools",
+    "description": "Configure projects, build and package apps, and automate development.",
+    "pages": [
+      "cli",
+      "project-structure",
+      "environment",
+      "manifest",
+      "flavors",
+      "agent",
+      "for-agents",
+      "screenshot-archive"
+    ]
+  },
+  {
+    "id": "api-examples",
+    "name": "API examples and terminology",
+    "description": "Browse API examples and look up Day terminology and extension conventions.",
+    "pages": [
+      "api-tour",
+      "examples/catalog",
+      "glossary",
+      "parts"
+    ]
+  }
+]

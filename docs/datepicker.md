@@ -8,15 +8,29 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Date & time pickers (external piece)
+# Date & time pickers
 
-> **Status: implemented** as `day-piece-datetime`, an external Day Piece registered link-time into
-> each backend's renderer slice without touching day: the first external piece with renderers for
-> **all seven** toolkits (including its own ArkUI NDK shim). It has two pieces
-> (`date_picker(Signal<DayDate>)` and `time_picker(Signal<DayTime>)`) because a single combined
-> date-time control exists on only 3 of the 7 toolkits (`NSDatePicker`,
-> `UIDatePicker.dateAndTime`, `QDateTimeEdit`), while separate date and time controls realize
-> natively on all of them. Combined selection is composition: `row((date_picker(d), time_picker(t)))`.
+Let people choose dates and times using familiar platform controls. `day-piece-datetime`
+provides separate date and time pickers, each bound to app state. Place them together when a
+form needs both.
+
+## Add to your app
+
+Defined in [`day-piece-datetime`](https://github.com/daybrite/day/tree/main/pieces/day-piece-datetime). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-datetime = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit, Qt, Android, WinUI, ArkUI, Web | Platform date/time inputs; available styles differ. |
+| GTK | Composes native calendar and spin controls. |
 
 ## Authoring
 
@@ -58,23 +72,25 @@ Two intents (+ `Automatic`, which is `Compact` everywhere today):
   platform's own.
 - **`Inline`** — an embedded calendar / clock / wheels.
 
-Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity that Day keeps
-(DESIGN.md §2: each platform's idiom takes priority over identical chrome everywhere).
+The platform chooses the finer presentation details, such as wheels versus a calendar or
+a dialog versus a popover.
 
 ## Per-toolkit realization
 
+Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: date and time pickers](https://developer.android.com/develop/ui/views/components/pickers); [Windows: date and time controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/date-and-time).
+
 | Target | Tier | Date: Compact | Date: Inline | Time |
 |---|---|---|---|---|
-| macos-appkit | **Native** | `NSDatePicker` textFieldAndStepper | `NSDatePicker` clockAndCalendar | same control, hour/minute[/second] elements |
-| ios-uikit | **Native** | `UIDatePicker` .compact (popover) | `.inline` calendar | `.compact` keypad; Inline = `.wheels` (iOS has no inline clock) |
-| android-mdc | **Native** | value button → `MaterialDatePicker` dialog (via `DayActivity`'s FragmentManager) | framework `DatePicker` calendar | button → `MaterialTimePicker` clock dialog; Inline = framework `TimePicker` |
-| qt | **Native** | `QDateEdit` + calendar popup | `QCalendarWidget` | `QTimeEdit` (both styles; seconds via display format) |
-| xaml | **Native** | `CalendarDatePicker` flyout | `CalendarView` | `TimePicker` flyout (both styles; XAML has no inline clock) |
-| harmony-arkui | **Native** | `ARKUI_NODE_CALENDAR_PICKER` (entry → calendar popup) | `ARKUI_NODE_DATE_PICKER` wheels (native START/END) | `ARKUI_NODE_TIME_PICKER` wheels |
-| gtk | Emulated | `GtkMenuButton` (locale-formatted label) → `GtkCalendar` in a `GtkPopover` | `GtkCalendar` | linked `GtkSpinButton`s h/m[/s]; GTK4/libadwaita have no stock date/time picker, so this composes native primitives |
+| macos-appkit | **Native** | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) textFieldAndStepper | [`NSDatePicker`](https://developer.apple.com/documentation/appkit/nsdatepicker) clockAndCalendar | same control, hour/minute[/second] elements |
+| ios-uikit | **Native** | [`UIDatePicker`](https://developer.apple.com/documentation/uikit/uidatepicker) .compact (popover) | `.inline` calendar | `.compact` keypad; Inline = `.wheels` (iOS has no inline clock) |
+| android-mdc | **Native** | value button → [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker) dialog (via `DayActivity`'s FragmentManager) | framework [`DatePicker`](https://developer.android.com/reference/android/widget/DatePicker) calendar | button → [`MaterialTimePicker`](https://developer.android.com/reference/com/google/android/material/timepicker/MaterialTimePicker) clock dialog; Inline = framework [`TimePicker`](https://developer.android.com/reference/android/widget/TimePicker) |
+| qt | **Native** | [`QDateEdit`](https://doc.qt.io/qt-6/qdateedit.html) + calendar popup | [`QCalendarWidget`](https://doc.qt.io/qt-6/qcalendarwidget.html) | [`QTimeEdit`](https://doc.qt.io/qt-6/qtimeedit.html) (both styles; seconds via display format) |
+| xaml | **Native** | [`CalendarDatePicker`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.calendardatepicker) flyout | [`CalendarView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.calendarview) | [`TimePicker`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.timepicker) flyout (both styles; XAML has no inline clock) |
+| harmony-arkui | **Native** | [`ARKUI_NODE_CALENDAR_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) (entry → calendar popup) | [`ARKUI_NODE_DATE_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) wheels (native START/END) | [`ARKUI_NODE_TIME_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) wheels |
+| gtk | Emulated | [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) (locale-formatted label) → [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html) in a [`GtkPopover`](https://docs.gtk.org/gtk4/class.Popover.html) | [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html) | linked [`GtkSpinButton`](https://docs.gtk.org/gtk4/class.SpinButton.html)s h/m[/s]; GTK4/libadwaita have no stock date/time picker, so this composes native primitives |
 | mock | Emulated | generic widget; tests drive via events | " | " |
 
-`day_piece_datetime::support()` reports the compiled backend's tier.
+`day_piece_datetime::support()` reports the compiled toolkit's tier.
 
 ## What the unified pieces do not promise
 
@@ -83,16 +99,16 @@ Anything finer (wheels-vs-calendar, dialog-vs-popover) is platform identity that
   controls have a seconds field) and is a no-op elsewhere.
 - **A combined date+time single control** — compose the two pieces; a `date_time_picker`
   convenience that upgrades to the native combined control on AppKit/UIKit/Qt is a possible v2.
-- **Range / multi-date selection** — v2 territory (`UICalendarView`, `MaterialDatePicker` range,
-  `CalendarView` multi-select).
-- **Native min/max on every surface** — GTK's `GtkCalendar` and ArkUI's calendar picker have no
+- **Range / multi-date selection** — v2 territory ([`UICalendarView`](https://developer.apple.com/documentation/uikit/uicalendarview), [`MaterialDatePicker`](https://developer.android.com/reference/com/google/android/material/datepicker/MaterialDatePicker) range,
+  [`CalendarView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.calendarview) multi-select).
+- **Native min/max on every surface** — GTK's [`GtkCalendar`](https://docs.gtk.org/gtk4/class.Calendar.html) and ArkUI's calendar picker have no
   bounds API; there the piece's own clamp bounds the *value* (the visual grid stays free), and
   a clamped pick snaps the control back on the echo patch.
 
 ## Scripting
 
 Every picker accepts `Event::TextChanged` carrying an ISO value as a synthetic set, so dayscript's
-existing `input:` step drives any picker on any backend, and ISO readouts bound to the signals
+existing `input:` step drives any picker on any toolkit, and ISO readouts bound to the signals
 assert locale-independently:
 
 ```yaml

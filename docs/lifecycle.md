@@ -8,7 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# App lifecycle (§ lifecycle)
+# App lifecycle
 
 A Day app can hook the moments its process moves through: launching, gaining and losing focus,
 going to and from the background, running low on memory, and terminating. Each phase maps to the

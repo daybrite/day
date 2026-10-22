@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 */}
 
 `macos-appkit` is a Tier 1 target for desktop apps. Day creates AppKit controls from Rust
-through its AppKit backend. Use it when your app needs a Mac interface alongside the code
+through its AppKit toolkit. Use it when your app needs a Mac interface alongside the code
 you share with other targets.
 
 ## Getting started
@@ -54,22 +54,22 @@ contributions needs no Swift toolchain either way.
   (TCC permission prompts, some system services) only works from `day pack` output. Develop with
   `launch`, and verify permission flows against a packed build.
 - `day-piece-lottie` ships UIKit and Android arms only.
-- Pull-to-refresh is emulated: the piece observes `NSScrollView`'s elastic overscroll,
+- Pull-to-refresh is emulated: the piece observes [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview)'s elastic overscroll,
   because macOS has no native refresh control.
 - Screenshots capture offscreen (`cacheDisplayInRect:`), which cannot sample video layers or
-  `NSVisualEffectView` materials, so an `AVPlayerView` comes out black in `day pack` captures and
+  [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview) materials, so an [`AVPlayerView`](https://developer.apple.com/documentation/avkit/avplayerview) comes out black in `day pack` captures and
   in the gallery. The view itself renders correctly on screen.
 
 ## What each piece becomes
 
-The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every toolkit;
 this table adds links and notes.
 
 Pieces marked *external* live in separate crates and are only present when you depend on them.
 
 | Day piece | AppKit class |
 |---|---|
-| `column` / `row` / `nav_stack` / `section` | `NSView` (a flipped subclass, so Day's top-left origin applies directly) |
+| `column` / `row` / `nav_stack` / `section` | [`NSView`](https://developer.apple.com/documentation/appkit/nsview) (a flipped subclass, so Day's top-left origin applies directly) |
 | `label` | [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) (`labelWithString:`) |
 | `button` | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) |
 | `toggle` | [`NSSwitch`](https://developer.apple.com/documentation/appkit/nsswitch) |
@@ -89,9 +89,9 @@ Pieces marked *external* live in separate crates and are only present when you d
 | `nav_menu` | [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) |
 | `tabs` | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) |
 | `image` | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) |
-| `vector` | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG (`NSImage` draws SVG at display size on macOS 11+) |
+| `vector` | [`NSImageView`](https://developer.apple.com/documentation/appkit/nsimageview) rendering the staged SVG ([`NSImage`](https://developer.apple.com/documentation/appkit/nsimage) draws SVG at display size on macOS 11+) |
 | `cover()` | emulated: a window-sized view re-homed onto the window's content view (no transition, programmatic dismissal only) |
-| `canvas` | a custom `NSView` replaying the display list in `drawRect:` |
+| `canvas` | a custom [`NSView`](https://developer.apple.com/documentation/appkit/nsview) replaying the display list in `drawRect:` |
 | dialogs / alerts / prompts | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) (window-modal sheet) |
 | file dialogs | [`NSOpenPanel`](https://developer.apple.com/documentation/appkit/nsopenpanel) / [`NSSavePanel`](https://developer.apple.com/documentation/appkit/nssavepanel) |
 | menu bar & context menus | [`NSMenu`](https://developer.apple.com/documentation/appkit/nsmenu) |
@@ -113,5 +113,5 @@ the system's text layout.
 
 ## Reaching AppKit directly
 
-When you need something Day doesn't model, a [tweak](/docs/how-to/tweaks) hands you the realized `NSView`
+When you need something Day doesn't model, a [tweak](/docs/how-to/tweaks) hands you the realized [`NSView`](https://developer.apple.com/documentation/appkit/nsview)
 for a node, so you can set any AppKit property.

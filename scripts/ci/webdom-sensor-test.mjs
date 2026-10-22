@@ -4,7 +4,7 @@
 // webdom-sensor-test.mjs <url>: verify day-part-sensors' browser arm end to end.
 //
 // Headless WebKit has no motion hardware, so the walkthrough alone can only ever prove the
-// "unavailable" path. This dispatches a synthetic `devicemotion` with known values and asserts the
+// "no samples" path. This dispatches a synthetic `devicemotion` with known values and asserts the
 // showcase's rows show the converted numbers, which pins the two things a browser sensor arm
 // realistically gets wrong: the unit conversion (rotationRate is deg/s, day's contract is rad/s)
 // and the axis mapping (beta→x, gamma→y, alpha→z).
@@ -54,7 +54,17 @@ try {
   await page.evaluate(() => {
     location.hash = '#system';
   });
-  await page.waitForTimeout(800);
+  await page.waitForSelector('#sensor_accel');
+
+  await page.waitForSelector('#sensor_accel_live');
+  await page.waitForSelector('#sensor_gyro_live');
+  const layout = await page.evaluate(() => ({
+    magnetFirst: !!(document.getElementById('sensor_magnet').compareDocumentPosition(
+      document.getElementById('sensor_accel')) & Node.DOCUMENT_POSITION_FOLLOWING),
+    calibrationControls: document.querySelectorAll('[id^="sensor_calibrated:"]').length,
+  }));
+  if (!layout.magnetFirst) failures.push('magnetometer must precede the other sensors');
+  if (layout.calibrationControls !== 0) failures.push('web must not offer unsupported calibration modes');
 
   await page.evaluate(() => {
     const e = new Event('devicemotion');
@@ -64,14 +74,13 @@ try {
     e.rotationRate = { alpha: 180, beta: 90, gamma: -45 };
     window.dispatchEvent(e);
   });
-  // Longer than the feed's sample interval, so a tick is guaranteed to have run.
-  await page.waitForTimeout(600);
+  await page.waitForFunction(() => document.getElementById('sensor_accel')?.textContent.includes('+1.25'));
 
   const text = (id) =>
     page.evaluate((i) => document.getElementById(i)?.textContent ?? '(missing)', id);
-  const accel = await text('sensor-accel');
-  const gyro = await text('sensor-gyro');
-  const magnet = await text('sensor-magnet');
+  const accel = await text('sensor_accel');
+  const gyro = await text('sensor_gyro');
+  const magnet = await text('sensor_magnet');
 
   // The readouts carry Fluent bidi isolate marks around each value, so match on the numbers only.
   check('accelerometer x', accel, '+1.25');
@@ -83,6 +92,42 @@ try {
   check('gyroscope z (alpha, deg→rad)', gyro, '+3.14');
   // No cross-browser magnetometer API exists; reporting one would be a lie.
   check('magnetometer', magnet, 'unavailable');
+
+  // Pause one sensor while the shared browser motion listener continues feeding the other.
+  const setRunning = async (id, value) => {
+    await page.locator(`[id="sensor_running:${id}"]`).setChecked(value, { force: true });
+    await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  };
+  const emit = async (x, beta) => page.evaluate(({ x, beta }) => {
+    const event = new Event('devicemotion');
+    event.accelerationIncludingGravity = { x, y: -2.5, z: 9.81 };
+    event.rotationRate = { alpha: 180, beta, gamma: -45 };
+    window.dispatchEvent(event);
+  }, { x, beta });
+  const width = () => page.locator('#sensor_accel').evaluate((el) => el.getBoundingClientRect().width);
+  const initialWidth = await width();
+  await setRunning('sensor_accel', false);
+  await emit(-123.45, 180);
+  await page.waitForFunction(() => document.getElementById('sensor_gyro')?.textContent.includes('+3.14'));
+  check('paused acceleration stays unchanged', await text('sensor_accel'), accel);
+  await setRunning('sensor_accel', true);
+  await emit(-123.45, 270);
+  await page.waitForFunction(() => document.getElementById('sensor_accel')?.textContent.includes('-123.45'));
+  if (Math.abs(await width() - initialWidth) > 0.1) failures.push('readout width changed with digit count');
+  await setRunning('sensor_gyro', false);
+  const pausedGyro = await text('sensor_gyro');
+  await emit(12.5, 360);
+  await page.waitForFunction(() => document.getElementById('sensor_accel')?.textContent.includes('+12.50'));
+  check('paused gyro stays unchanged', await text('sensor_gyro'), pausedGyro);
+  // Drop the last listener, then resume both: starting again must produce fresh readings.
+  await setRunning('sensor_accel', false);
+  await emit(99, 90);
+  await setRunning('sensor_accel', true);
+  await setRunning('sensor_gyro', true);
+  await emit(42, 90);
+  await page.waitForFunction(() => document.getElementById('sensor_accel')?.textContent.includes('+42.00')
+    && document.getElementById('sensor_gyro')?.textContent.includes('+1.57'));
+  console.log('independent pause/resume, last-listener restart, and reserved readout width passed');
 
   console.log(`accel : ${accel}`);
   console.log(`gyro  : ${gyro}`);

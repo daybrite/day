@@ -75,7 +75,7 @@ export const glossary = [
     id: 'toolkit',
     term: 'Toolkit',
     definition:
-      "A UI system, such as AppKit, GTK, or the browser DOM, used by a backend to realize UI. In Rust, the `Toolkit` trait in `day-spec` defines the implementation contract, including node operations and capability queries; it is distinct from an OS or build target.",
+      "A UI system, such as AppKit, GTK, or the browser DOM, used by Day to realize UI. In Rust, the `Toolkit` trait in `day-spec` defines the implementation contract, including node operations and capability queries; it is distinct from an OS or build target.",
     see: { title: 'Overview', href: '/docs/explanation/overview#the-targets' },
   },
   {
@@ -94,9 +94,9 @@ export const glossary = [
   },
   {
     id: 'backend',
-    term: 'Backend',
+    term: 'Toolkit implementation',
     definition:
-      "The implementation of the `Toolkit` contract for a particular UI system, typically a crate such as `day-appkit` or `day-gtk`. A backend implements realization, updates, events, and capabilities; its presence does not establish complete feature support or a maintenance tier.",
+      "The implementation of the `Toolkit` contract for a particular UI system, typically a crate such as `day-appkit` or `day-gtk`. The toolkit implements realization, updates, events, and capabilities; its presence does not establish complete feature support or a maintenance tier.",
     see: { title: 'Architecture', href: '/contributing/architecture' },
   },
   {
@@ -153,7 +153,7 @@ export const glossary = [
     id: 'nav',
     term: 'Nav',
     definition:
-      "The navigation piece for selecting among sections with a `Binding<K>` where `K: Route`; strings and app-defined route types are supported. Its presentation depends on style, size, and backend support, and the selection value is separate from page-local state.",
+      "The navigation piece for selecting among sections with a `Binding<K>` where `K: Route`; strings and app-defined route types are supported. Its presentation depends on style, size, and toolkit support, and the selection value is separate from page-local state.",
     see: { title: 'Navigation', href: '/docs/how-to/navigation#sections-nav' },
   },
   {
@@ -188,7 +188,7 @@ export const glossary = [
     id: 'capability',
     term: 'Capability',
     definition:
-      'What a backend can do, asked at run time with `capability(Cap::…)`: `Native`, `Emulated`, or `Unsupported`. An app checks before offering a toolbar or a menu bar. A device capability, such as the battery or location, is a different thing: that is a part.',
+      'What a toolkit can do, asked at run time with `capability(Cap::…)`: `Native`, `Emulated`, or `Unsupported`. An app checks before offering a toolbar or a menu bar. A device capability, such as the battery or location, is a different thing: that is a part.',
     see: { title: 'Menus, toolbars, and windows', href: '/docs/how-to/guide-desktop' },
     also: ['Cap'],
   },
@@ -203,7 +203,7 @@ export const glossary = [
     id: 'kind',
     term: 'Kind',
     definition:
-      'The stable string that names a piece to every backend, such as `day.label` or `day.piece.lottie`. A backend dispatches a kind to its renderer; a kind it does not know draws a placeholder.',
+      'The stable string that names a piece to every toolkit, such as `day.label` or `day.piece.lottie`. A toolkit dispatches a kind to its renderer; a kind it does not know draws a placeholder.',
     see: { title: 'How rendering works', href: '/contributing/rendering#the-realized-tree' },
   },
   {

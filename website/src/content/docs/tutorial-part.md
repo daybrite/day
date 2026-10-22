@@ -243,7 +243,7 @@ pub fn status() -> Option<BatteryStatus> {
 }
 ```
 
-`day-part-network` shows the same plain-C style even more minimally: its shared `src/apple.rs`
+[`day-part-network`](/docs/reference/network) shows the same plain-C style even more minimally: its shared `src/apple.rs`
 declares SystemConfiguration's reachability API with two `extern "C"` functions and a locally-declared
 `sockaddr_in`, with no crates at all:
 
@@ -294,7 +294,7 @@ and `Context` that `day-android` already caches.
 
 > [!NOTE] The shipped crate does this with a bridge now
 > Everything in this section is the mechanism underneath, and it still works as described, but
-> `day-part-battery` itself has since moved its Android half to a
+> [`day-part-battery`](/docs/reference/battery) itself has since moved its Android half to a
 > [daybridge](/contributing/backend-contracts/bridge) arm: the Java lives inline in `src/android.rs` beside the Rust
 > declaration it implements, and the JNI call and the packed-`long` protocol below are generated,
 > so the checked-in `.java` file and the `java = [...]` table are gone. Read this section to
@@ -452,13 +452,13 @@ permissions = ["android.permission.ACCESS_NETWORK_STATE"] # → <uses-permission
 manifest-components = ["platform/android/components.xml"]          # → <receiver>/<service> overlay (if needed)
 ```
 
-`day-part-battery` needs no permission (the sticky battery broadcast is unrestricted), so it declares
-only `java = ["src/DayBattery.java"]`. `day-part-network`, whose `ConnectivityManager` call *does* require
+[`day-part-battery`](/docs/reference/battery) needs no permission (the sticky battery broadcast is unrestricted), so it declares
+only `java = ["src/DayBattery.java"]`. [`day-part-network`](/docs/reference/network), whose `ConnectivityManager` call *does* require
 `ACCESS_NETWORK_STATE`, adds the `permissions` line above.
 
 `manifest-components` is required when a part's Java half is a `BroadcastReceiver` or a `Service`:
 Android instantiates those by name from the manifest, so without the declaration the receiver never
-reaches the APK and the part silently does nothing. `day-part-local-notify` (its `AlarmManager`
+reaches the APK and the part silently does nothing. [`day-part-local-notify`](/docs/reference/notify) (its `AlarmManager`
 receiver) is the reference. The table also takes `res` (piece-shipped Android resources),
 `gradle-repositories` (extra Maven repos), and `proguard` (R8 keep rules for Java something reaches
 by reflection; what Rust calls is kept by its binding); see the
@@ -478,7 +478,7 @@ and its Java appears in the build.
 frameworks = ["SystemConfiguration"]
 ```
 
-This is what `day-part-network` declares (its `apple.rs` drives SystemConfiguration). The
+This is what [`day-part-network`](/docs/reference/network) declares (its `apple.rs` drives SystemConfiguration). The
 `#[link(name = "SystemConfiguration", kind = "framework")]` directive in the Rust source is not
 enough, because cargo honors it only when it drives the final link, i.e. on the macOS desktop build.
 On iOS, `xcodebuild` links the Rust staticlib and does not read Rust link metadata, so the app
@@ -489,11 +489,11 @@ data, and the `.xcodeproj` stays unchanged.
 
 A `[package.metadata.day.macos]` table of the same shape covers the macos-appkit leg: `day build`
 hands the contributions to the `platform/macos/` Xcode host project through the same generated
-package. `day-part-local-notify` declares `frameworks = ["UserNotifications"]` under both tables.
+package. [`day-part-local-notify`](/docs/reference/notify) declares `frameworks = ["UserNotifications"]` under both tables.
 Both also take a `platform` key (`platform = "16.0"`) to raise the minimum-OS floor when the
 native API needs it; the max across contributing crates wins.
 
-`day-part-battery` itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
+[`day-part-battery`](/docs/reference/battery) itself declares no `[package.metadata.day.ios]`: it uses `objc2-ui-kit`, and UIKit
 is auto-linked by the iOS SDK. You only need the `frameworks` key for a system framework that is not
 linked by default (SystemConfiguration, WebKit, …).
 
@@ -563,7 +563,7 @@ Android or iOS) one line of `Cargo.toml` metadata.
 ---
 
 For the full source, see [`parts/day-part-battery/`](https://github.com/daybrite/day/tree/main/parts/day-part-battery) in the Day repo, and
-[extending.md](/contributing/backend-contracts/extending) for the shared contribution mechanism that parts and pieces both use.
+[extending](/contributing/backend-contracts/extending) for the shared contribution mechanism that parts and pieces both use.
 [`parts/day-part-network`](https://github.com/daybrite/day/tree/main/parts/day-part-network) (SystemConfiguration + an iOS `frameworks` link + an Android permission) and
 [`parts/day-part-haptics`](https://github.com/daybrite/day/tree/main/parts/day-part-haptics) (objc2 feedback generators + an Android `Vibrator` shim) are two more parts
 to read as templates.

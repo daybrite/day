@@ -97,7 +97,7 @@ destinations. Neither nests, and neither can express "drag this node into that g
 tree needs its own piece: `tree(source, row)`, `kinds::TREE`.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](../snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](../snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## The driving case: Day Sketch's layer panel
 
@@ -339,7 +339,7 @@ step with the tree for free. `expanded` works the same way: the user's disclosur
 
 ### A store-backed tree
 
-A day-model store passes through a tracked *children projection* (the tree counterpart of
+A [day-model](/docs/explanation/model) store passes through a tracked *children projection* (the tree counterpart of
 `store.rows(projection)`) mapping a parent key (`None` = root) to its ordered child keys:
 
 ```rust
@@ -1097,7 +1097,7 @@ ArkTS-native form above stays open work. What the NodeAdapter list machinery had
 Verified on the local OHOS emulator: tree.yaml 89/89, real `uitest uiInput` row taps moving
 the selection tree→canvas with the painted highlight following. demo.yaml runs 315/321
 there: the six failures are all the Edit ▸ Paste chain, because this image denies
-`ohos.permission.READ_PASTEBOARD` (USER_GRANT, SYSTEM_BASIC), a day-part-clipboard platform
+`ohos.permission.READ_PASTEBOARD` (USER_GRANT, SYSTEM_BASIC), a [day-part-clipboard](/docs/reference/clipboard) platform
 matter unrelated to trees. **Known issue, open**: the disclosure chevron's label never
 renders on ArkUI (its reserved 18vp box lays out, siblings in the same cell bind and update
 correctly, and the closure computes the right glyph, but this one label's text never reaches

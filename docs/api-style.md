@@ -56,7 +56,7 @@ SwiftUI-like terseness where it doesn't. The rules, in priority order:
    feature state exactly when it carries the value, so the feature cannot be half configured.
 
 7. **Three spellings for a reactive input.** Two-way state is `impl Binding<T>` (a `Signal<T>`,
-   a day-model `Field`, a `Mapped` view; stored as `AnyBinding<T>`). A read is
+   a [day-model](/docs/explanation/model) `Field`, a `Mapped` view; stored as `AnyBinding<T>`). A read is
    `impl IntoReactive<T, M>` (a constant, a signal, or a closure, all accepted by one method:
    `.enabled(false)`, `.enabled(busy)`, `.enabled(move || !busy.get())`). An event is `impl Fn`.
    Text follows rule 8. Static configuration is a plain value, and a collection is an
@@ -89,7 +89,7 @@ Scope: the rules bind the **app-facing surface** (day-pieces, the Day umbrella, 
 changing it would ripple through every backend for internal call sites only.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Typed builders and erasure
 
@@ -169,10 +169,10 @@ A `Decorated<P>` chain is a piece plus its modifiers, and only one class of modi
 - **Wrapping** modifiers (`padding`, `frame`, `background`, `grow`, `a11y`, `on_tap`, …) each
   apply to what came before, so they compose outward in call order, as they read. This is the
   class an ordering rule may still apply to: `.a11y` annotates the node built so far, and a
-  tweak goes after a modifier that rebuilds the backing widget ([docs/tweaks.md](tweaks.md)).
+  tweak goes after a modifier that rebuilds the backing widget ([docs/tweaks](tweaks.md)).
 - **Outer-layout facts** (`grid_span`, `grid_align`) describe the piece to the container it
   sits in, so they land on the outermost node whatever wrappers follow them
-  ([docs/grid.md](grid.md)).
+  ([docs/grid](grid.md)).
 
 `wrapper_id` is the one way to name a wrapper deliberately: it tags whatever node is outermost
 at the point it is called, for a frame assertion on a padded box. A piece whose own node is not
@@ -192,6 +192,6 @@ Two value vocabularies keep configuration semantic where a literal would be a ma
 - **`TextPreset`** names a text style once: `const CAPTION: TextPreset =
   TextPreset::new(Font::Caption).secondary();` then `label(t).preset(&CAPTION)`. Every
   `TextPreset` builder is `const`, so a preset is a constant, and `.preset` applies the same
-  `LabelBuilder` steps the equivalent chain would ([docs/text.md](text.md)). `.card()` is the
+  `LabelBuilder` steps the equivalent chain would ([docs/text](text.md)). `.card()` is the
   same move for a surface: the platform's grouped-content surface with rounded corners and a
   `Space::M` inset, in place of a `padding`/`background`/`corner_radius` idiom.

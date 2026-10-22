@@ -8,15 +8,31 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Picker (built-in)
+# Picker
 
-> **Status: implemented** as a built-in piece (`kinds::PICKER`; moved in from the satellite
-> `day-piece-picker` 2026-07; typed by value since 2026-10). One API, three SwiftUI-style
-> stylings, each a distinct native control per toolkit, bound two-way to a typed selection. In
-> `day::prelude::*`, with no dependency to add.
+Let people choose one value from a defined set, using a segmented control, dropdown, or wheel.
+`picker` binds the selected value to app state and is available through `day::prelude::*`.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+
+## Add to your app
+
+Defined in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces) and
+re-exported by `day::prelude`. An app created with `day new` already has the required dependency;
+otherwise add it to `Cargo.toml`:
+
+```toml
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+```
+
+No additional piece crate or `Day.toml` dependency is needed. Build with the app’s selected
+toolkit using `day build -t <target>`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [native realization](#per-toolkit-native-realization) for presentation differences. |
 
 ## Authoring
 
@@ -35,7 +51,7 @@ picker(plan, plans).inline()                                         // vertical
 ```
 
 `picker(selected, options)` is bound two-way to a value of any `T: Clone + PartialEq` (an enum,
-a `String`, a `usize`): `selected` is a `Signal<T>`, a day-model `Field`, or any other
+a `String`, a `usize`): `selected` is a `Signal<T>`, a [day-model](/docs/explanation/model) `Field`, or any other
 `Binding<T>`, and `options` is an array or `Vec` of `(value, title)` pairs, the titles taking
 the same sources as a label. The mapping between values and the native control's indexes lives
 in the picker, once; there is no index to keep in step with an enum. Default style is `.menu()`;
@@ -60,7 +76,7 @@ value.
 The boundary consumes no selection index, and duplicate option labels remain independent
 choices (for example, recommended fonts repeated in a complete font catalog). Boundaries
 are fixed at build time, survive option patches, and are ignored when out of range or zero.
-Other backends and non-menu styles present the same options without decorative grouping.
+Other toolkits and non-menu styles present the same options without decorative grouping.
 
 ### Options that come from data
 
@@ -82,35 +98,28 @@ owns the value: write a valid one to the binding when its option disappears.
 Use it only when the options change. Rebuilding a native menu costs more than
 moving a mark, and a picker whose choices are constant should stay constant.
 
-## Per-backend native realization
+## Per-toolkit native realization
+
+Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: spinners](https://developer.android.com/develop/ui/views/components/spinner); [Windows: combo boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/combo-box).
 
 | style | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|---|
-| **Menu** | `NSPopUpButton` | `UIButton`+`UIMenu` pull-down | `GtkDropDown` | `QComboBox` | `Spinner` | `ComboBox` | ArkTS `Select` (wheel on an older host) |
-| **Segmented** | `NSSegmentedControl` | `UISegmentedControl` | `.linked` grouped `GtkToggleButton`s | checkable `QPushButton`s in a `QButtonGroup` | button-row `LinearLayout` (dim unselected) | horizontal `RadioButton` `StackPanel` | compact ArkTS button row (wheel on an older host) |
-| **Inline** | vertical `NSStackView` of radio `NSButton`s | checkmark-row `UIStackView` | grouped `GtkCheckButton`s (radio) | `QRadioButton`s in a `QButtonGroup` | `RadioGroup` | vertical `RadioButton` `StackPanel` | `TextPicker` wheel |
+| **Menu** | [`NSPopUpButton`](https://developer.apple.com/documentation/appkit/nspopupbutton) | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton)+[`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu) pull-down | [`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) | [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) | [`Spinner`](https://developer.android.com/reference/android/widget/Spinner) | [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) | ArkTS `Select` (wheel on an older host) |
+| **Segmented** | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) | [`UISegmentedControl`](https://developer.apple.com/documentation/uikit/uisegmentedcontrol) | `.linked` grouped [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html)s | checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html)s in a [`QButtonGroup`](https://doc.qt.io/qt-6/qbuttongroup.html) | button-row [`LinearLayout`](https://developer.android.com/reference/android/widget/LinearLayout) (dim unselected) | horizontal `RadioButton` [`StackPanel`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.stackpanel) | compact ArkTS button row (wheel on an older host) |
+| **Inline** | vertical [`NSStackView`](https://developer.apple.com/documentation/appkit/nsstackview) of radio [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton)s | checkmark-row [`UIStackView`](https://developer.apple.com/documentation/uikit/uistackview) | grouped [`GtkCheckButton`](https://docs.gtk.org/gtk4/class.CheckButton.html)s (radio) | [`QRadioButton`](https://doc.qt.io/qt-6/qradiobutton.html)s in a [`QButtonGroup`](https://doc.qt.io/qt-6/qbuttongroup.html) | `RadioGroup` | vertical `RadioButton` [`StackPanel`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.stackpanel) | [`TextPicker`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-textpicker.md) wheel |
 
 ArkUI renders **Menu** as HarmonyOS's own dropdown, the ArkTS `Select` component. The C node API
 has no select kind, so it is a built-in ArkTS piece the host page registers (`DaySelect.ets` in
 day-arkui's host, passed to `registerDayPieces`); it is sized once for its widest option, so a choice
 never changes its width. **Segmented** uses a compact row of native ArkTS buttons with an
 accessible selected state, sized for the widest label. **Inline**, and hosts too old to register
-the ArkTS picker, use the native `ARKUI_NODE_TEXT_PICKER` wheel. The Qt and XAML renderers each carry a C++ shim in the
+the ArkTS picker, use the native [`ARKUI_NODE_TEXT_PICKER`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) wheel. The Qt and XAML renderers each carry a C++ shim in the
 matching `-sys` crate (`toolkits/day-qt-sys/src/shim-picker.cpp`,
 `toolkits/day-xaml-sys/src/shim-picker.cpp`); the XAML shim boxes its XAML element into a Day handle
 through the `day_xaml_box`/`day_xaml_unbox` functions. Android's Java factory
 (`toolkits/day-android/java/dev/daybrite/day/piece/picker/DayPicker.java`) rides the framework shim.
-All backends report selection through `Event::SelectionChanged(i64)`; programmatic selection is
-echo-guarded per backend so it never loops.
-
-## Verification
-
-The showcase **Controls** page (`controls.rs` `pickers_section`) shows all three styles bound to one
-shared selection signal, each with a live value label. Rendering and correct initial selection are
-screenshot-verified on all 5 local targets (AppKit, GTK, Qt, iOS-sim, Android-emu); a mock-backend
-test (`crates/day-pieces/tests/mock_e2e.rs` `picker_and_text_area_are_built_in`) asserts the two-way
-binding round-trips. The walkthrough drives `select` through each styling and asserts the readouts
-follow.
+All toolkits report selection through `Event::SelectionChanged(i64)`; programmatic selection is
+echo-guarded per toolkit so it never loops.
 
 ## Follow-ups
 

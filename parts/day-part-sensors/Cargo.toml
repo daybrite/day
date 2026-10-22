@@ -8,37 +8,28 @@ description.workspace = true
 repository.workspace = true
 license.workspace = true
 
-# A headless day-ecosystem crate (no UI Piece): a shared cross-platform API for reading the device's
-# motion sensors (accelerometer / gyroscope / magnetometer) via each platform's native API. Any Rust
-# code can depend on it and call `day_part_sensors::read(kind)`. Platform selection is by
-# `#[cfg(target_os)]` (sensors are an OS concern, not a widget-toolkit one), so there are no backend
-# features; it "just works" per target:
-#   iOS:       CoreMotion CMMotionManager (poll accessors)
-#   Android:   SensorManager via a Java shim staged through [package.metadata.day.android]
-#   HarmonyOS: native libohsensor.so (SensorServiceKit), gated on target_env = "ohos"
-#   Linux:     Industrial I/O sysfs (/sys/bus/iio/devices)
-#   macOS:     no public motion-sensor API → always None
-#   Windows:   Windows.Devices.Sensors (WinRT poll) via the `windows` crate
-# See docs/sensors.md + docs/extending.md.
+# Event-driven, headless sensor subscriptions selected by the compilation target.
 
 [dependencies]
 
 [target.'cfg(target_os = "ios")'.dependencies]
 objc2 = { workspace = true }
+block2 = { workspace = true }
+objc2-foundation = { workspace = true, features = ["NSOperation", "NSError"] }
 objc2-core-motion = { workspace = true, default-features = false, features = [
     "std",
+    "block2",
     "CMMotionManager",
     "CMAccelerometer",
     "CMGyro",
     "CMMagnetometer",
+    "CMDeviceMotion",
+    "CMAttitude",
     "CMLogItem",
 ] }
 
-# Windows reads Windows.Devices.Sensors (WinRT) through the `windows` crate: GetDefault() +
-# GetCurrentReading() is a synchronous poll, no XAML/event subscription. Target-gated so it never
-# touches the Linux/macOS builds. Only the Devices_Sensors namespace feature is enabled.
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { workspace = true, features = ["Devices_Sensors"] }
+windows = { workspace = true, features = ["Devices_Sensors", "Foundation", "Win32_System_WinRT"] }
 
 # Android reads SensorManager through a Java shim + day-android's cached JVM/Context. This is the one
 # platform where the headless crate rides on the day runtime (like the pieces' Android backends).

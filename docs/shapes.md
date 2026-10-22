@@ -10,18 +10,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Shapes: design & implementation
 
-> **Status: implemented (Proposal A, the canvas-backed unified `shape` piece).** The `shape` piece
-> (`day_pieces`), reactive `ShapeKind`/`fill`/`stroke`/`inset`/`rotate`/`scale`/`offset`, canvas
-> CTM transform ops (`Save`/`Restore`/`Concat`), and `.on_tap`/`.on_drag` gestures ship on all
-> five backends (AppKit, GTK, Qt, UIKit, Android) and are demonstrated by the showcase "Shapes"
-> playground. ArkUI also delivers `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan
-> recognizer on the shared kind-11 gesture wire), plus the low-level `GestureKind::LongPress`
-> hook (native recognition; no public `.on_long_press` modifier yet). Since then:
-> `ShapeKind::Line`/`ShapeKind::Polygon` (unit-point geometry over the
-> already-replayed `Shape::Line`/`Shape::Polygon` ops, §3.1), fractional placement with
-> `.at(fx, fy, fw, fh)`, and the `shape_group`/`shape_group_fn` composites that flatten many
-> shapes into one canvas leaf (§3.6). This document is the SwiftUI
-> `Circle`/`Rectangle`/`Path`/`Shape` analogue for Day; conventions follow DESIGN.md.
+Draw shapes that respond to app state, animation, and gestures. The `shape` piece supports
+geometry, fills, strokes, and transforms; shape groups combine several shapes in one canvas.
 
 ## 1. Goal & constraints
 
@@ -32,7 +22,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 - are identified (`.id`) and accessible (`.a11y`),
 - are interactive through the gesture events, with path-precise hit testing,
 - are animatable,
-- are built atop the internal canvas API (so they work on all six backends day one),
+- are built atop the internal canvas API (so they work on all six toolkits day one),
 - read naturally for Day and Rust: a single data-oriented `shape` piece parameterized by kind
   rather than one node kind per shape.
 
@@ -40,15 +30,15 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 
 - `canvas(|d: &mut Draw, size: Size| …)`: a reactive leaf (`kinds::CANVAS`) whose closure re-runs
   on any tracked signal read (and on `FrameChanged`), records a `Vec<DrawOp>`, diffs it
-  (`DrawOp: PartialEq`), and replays only on change. Backends turn `DrawOp`s into native drawing
-  (CoreGraphics / cairo / QPainter / Canvas.draw* / DirectWrite), one FFI hop per redraw.
+  (`DrawOp: PartialEq`), and replays only on change. Toolkits turn `DrawOp`s into native drawing
+  (CoreGraphics / cairo / [QPainter](https://doc.qt.io/qt-6/qpainter.html) / Canvas.draw* / DirectWrite), one FFI hop per redraw.
 - `Shape { Rect(Rect), RoundedRect(Rect, f64), Ellipse(Rect), Arc{rect,start_deg,sweep_deg},
   Line(Point,Point), Polygon(Vec<Point>) }`: the geometry enum (`day-spec`).
 - `Draw::fill(Shape, Color)`, `Draw::stroke(Shape, Color, f64)`, `Draw::text(...)`.
 - `Color { r,g,b,a }` (rgba/hex), a `LinearGradient` via `.fill_linear(...)`, or a `RadialGradient` via `.fill_radial(...)` (angular is a later phase).
 - `Decorate` blanket impl → `.id/.id_of/.a11y/.frame/.padding/.any` for every Piece.
 - Reserved hooks: `AnimSpec { duration_ms }` threaded through `update`/`set_frame`; and
-  §8.4's "day-driven frame-clock ticker for canvas only", the exact hook shape animation needs.
+  the frame-clock ticker used for canvas animation.
 
 ### Prior art consulted
 
@@ -58,7 +48,7 @@ Give Day SwiftUI's shape ergonomics (`Circle`, `Rectangle`, `RoundedRectangle`, 
 - **floem**: shapes are drawn in the render pass; no separate node per shape (dense-draw model).
 - **hop/** (this workspace): shipped a native `ShapeSpec` pipeline with `Shape.fill(gradient)` and
   `LinearGradient/RadialGradient/AngularGradient` native on all four toolkits, and painted-path
-  transforms (rotate/scale/offset are path-only, matching SwiftCrossUI). Directly informs §7–§8.
+  transforms (rotate/scale/offset are path-only, matching SwiftCrossUI).
 - **pane/ DESIGN2.md** (this workspace): "style-as-data struct args" over the SwiftUI modifier
   tower; informs the `Paint`/`StrokeStyle` value types below.
 
@@ -77,9 +67,9 @@ Convenience free functions (`circle()`, `rounded_rectangle(12.0)`) give SwiftUI 
 unified `shape(kind)` gives the data-oriented form. Both construct the same `ShapePiece`.
 
 **D3: Render atop canvas; the renderer is an implementation detail behind a stable API.** v1
-lowers a `ShapePiece` to the existing canvas display-list (zero backend work, works everywhere,
+lowers a `ShapePiece` to the existing canvas display-list (zero toolkit work, works everywhere,
 free reactivity, free unit tests). The same API can later lower hot or native-fidelity shapes to a
-native `SHAPE` leaf (Proposal B, §9), a capability-gated choice with no API change.
+native `SHAPE` leaf (Proposal B), a capability-gated choice with no API change.
 
 **D4: Reactivity is free.** Because the canvas closure re-runs on tracked reads, every shape
 parameter and style may be a value, a `Signal`, or a closure with no per-prop binding code, a
@@ -87,12 +77,12 @@ strict simplification over native leaves. Shape params are stored as a small `Re
 
 **D5: Interaction is path-precise and day-side.** The shape knows its path, so on a `Tap(point)`
 from its canvas leaf, Day tests the point against the path in Rust before firing `.on_tap`. That
-needs no backend change and is more precise than bounding-box hit testing.
+needs no toolkit change and is more precise than bounding-box hit testing.
 
-**D6: Two animation paths; shapes use the canvas one.** Day has (i) backend-executed animation for
-native widgets (the `AnimSpec` parameter) and (ii) a day-driven canvas frame-clock (§8.4). Shapes
+**D6: Two animation paths; shapes use the canvas one.** Day has (i) toolkit-executed animation for
+native widgets (the `AnimSpec` parameter) and (ii) a day-driven canvas frame-clock. Shapes
 animate by interpolating params CPU-side and re-recording per frame, the same way SwiftUI renders
-shape animation. The shape API is animation-ready now; the frame-clock engine lands via §8.4.
+shape animation. See [frame scheduling](frames.md) for the frame-clock API.
 
 ## 3. Proposal A (recommended): the canvas-backed `shape` piece
 
@@ -111,7 +101,7 @@ pub enum ShapeKind {
     Line { from: UnitPoint, to: UnitPoint },  // stroke-only segment between unit points
     Polygon { points: Rc<[UnitPoint]> },      // point-list polygon in unit space
     // ── phase 2 (each adds one canvas op + geometry, no new node) ──
-    // Path(PathData),                                  // arbitrary (see §8)
+    // Path(PathData),                                  // arbitrary
     // Custom(Rc<dyn Fn(Rect) -> PathData>),            // the `Shape` protocol analogue
 }
 
@@ -127,7 +117,7 @@ impl ShapeKind {
 ```
 
 `resolve` maps each kind to the existing `day_spec::Shape`, so no `day-spec` change is required,
-including for `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops every backend already
+including for `Line` and `Polygon`, whose `Shape::Line`/`Shape::Polygon` ops every toolkit already
 replays. `line((fx, fy), (fx, fy))` and `polygon([(fx, fy), …])` are the tuple-friendly sugar.
 Line and Polygon semantics differ from the closed kinds:
 
@@ -135,7 +125,7 @@ Line and Polygon semantics differ from the closed kinds:
   `UnitPoint`s) and may sit outside 0..1; a glyph's flourish can extend past its box.
 - **No stroke-half inset:** closed kinds inset by `stroke/2` so a centered stroke stays inside the
   frame (SwiftUI `strokeBorder` behavior); Line and Polygon resolve exactly at their authored
-  points, and a stroked segment touching the frame edge may clip on the clipping backends
+  points, and a stroked segment touching the frame edge may clip on the clipping toolkits
   (Qt/Android/XAML), exactly as raw canvas does.
 - **Line is stroke-only** (`.fill` records nothing; a segment has no interior), and its rect may
   be degenerate (a horizontal line in a zero-height sub-rect), so it skips the empty-rect bail.
@@ -147,7 +137,7 @@ inscribed unit points; the point-list form subsumes it.
 Placement: **`.at(fx, fy, fw, fh)`** resolves the shape inside that fractional sub-rect of its
 bounds (applied before `.inset`). It exists for composition: hand-drawn glyph code full of
 `Rect::new(ox + fx * s, oy + fy * s, fw * s, fh * s)` translates 1:1 into `.at(fx, fy, fw, fh)`
-children of a group (§3.6). It works on a standalone shape too.
+children of a group. It works on a standalone shape too.
 
 ### 3.2 Style: `Paint` and `Stroke` (data, growable)
 
@@ -166,7 +156,7 @@ pub enum Paint {
     // Angular { stops: Vec<(f64, Color)>, center: UnitPoint, start_deg: f64 } — native on
     //   Apple (CGContextDrawConicGradient) / Qt (QConicalGradient) / Android (SweepGradient) /
     //   OH_Drawing (sweep); needs a wedge-fan fallback on cairo + XAML XAML (the hop recipe).
-    // Token(SemanticColor),                            // §6 theme tokens, late-bound
+    // Token(SemanticColor),                            // Theme tokens, late-bound
 }
 impl From<Color> for Paint { /* … */ }
 impl From<LinearGradient> for Paint { /* … */ }
@@ -189,8 +179,8 @@ pub struct ShapePiece {
     stroke: Option<Stroke>,
     inset:  Reactive<f64>,           // uniform inset before resolving (stroke-safe by default)
     // reserved seams (design now, wire later):
-    on_tap: Option<Rc<dyn Fn()>>,    // path-precise (§6)
-    anim:   Option<Animation>,       // implicit-animate reads (§5)
+    on_tap: Option<Rc<dyn Fn()>>,    // path-precise
+    anim:   Option<Animation>,       // implicit-animate reads
     // phase 2: trim: Option<(Reactive<f64>, Reactive<f64>)>, rotation: Reactive<f64>, …
 }
 
@@ -239,7 +229,7 @@ impl Piece for ShapePiece {
             if let Some(st)   = &stroke { d.stroke(geom, st.paint.get().solid(), st.width.get()); }
         });
 
-        // Path-precise interaction: test the tap against the resolved path in Rust (§6).
+        // Path-precise interaction: test the tap against the resolved path in Rust.
         if let Some(on_tap) = self.on_tap {
             let (kind, inset) = (kind.clone(), inset.clone());
             cx.on(node, move |ev| if let Event::Tap(p) = ev {
@@ -256,7 +246,7 @@ impl Piece for ShapePiece {
 `bind` that records → `replay`) factored out so both `canvas()` and `shape()` share it.
 
 That is the entire v1 renderer; the five built-in kinds with solid fill/stroke need no
-`day-spec`, `day-core`, or backend changes. `.id`, `.a11y`, `.frame`, `.padding` come from `Decorate`
+`day-spec`, `day-core`, or toolkit changes. `.id`, `.a11y`, `.frame`, `.padding` come from `Decorate`
 unchanged. Reactivity, diffing, and native replay come from the canvas machinery unchanged.
 
 ### 3.5 Reference example: re-express the gauge
@@ -314,7 +304,7 @@ group (put gestures on the group via `Decorate::on_tap`), and a group has no per
 because it is one leaf.
 
 As a rule of density, a backdrop is a shape, a glyph is a group, and hundreds of shapes are a
-`canvas()` (the §4 escape hatch, unchanged).
+[`canvas()`](canvas.md).
 
 ## 4. Reactivity, identity, accessibility
 
@@ -327,8 +317,7 @@ As a rule of density, a backdrop is a shape, a glyph is a group, and hundreds of
 
 ## 5. Animation
 
-Shapes animate by interpolating parameters and re-recording per frame, on the canvas path of
-§8.4 rather than the native-widget `AnimSpec` path:
+Shapes animate by interpolating parameters and re-recording per frame, on the canvas path rather than the native-widget `AnimSpec` path:
 
 ```rust
 pub struct Animation { pub curve: Curve, pub duration_ms: u32, pub delay_ms: u32 }
@@ -347,8 +336,8 @@ Two entry points, matching SwiftUI:
 - **Explicit**: `with_animation(Animation::spring(...), || path.set(newValue))` animates any signal
   writes in the closure through their dependent animated shapes.
 
-**Realization (§8.4).** Day owns one per-window frame clock (CVDisplayLink / Choreographer /
-GdkFrameClock / DispatchSourceTimer), started only while ≥1 animation is live and stopped when the
+**Realization.** Day owns one per-window frame clock (CVDisplayLink / Choreographer /
+[GdkFrameClock](https://docs.gtk.org/gdk4/class.FrameClock.html) / DispatchSourceTimer), started only while ≥1 animation is live and stopped when the
 pool drains (no idle wakeups). Each tick advances active `Animatable` transitions and `notify()`s a
 Trigger that the animated shapes' canvas `bind`s track, so the existing record→diff→replay path
 redraws them. This is additive: shapes ship and work without animation; `.animation` is a no-op
@@ -366,17 +355,17 @@ and delivers `Event::LongPress`; that alone does not expose the event on the sha
 
 ## 7. Gradients & `ShapeStyle` (linear + radial: DONE; angular: later)
 
-Linear and radial gradients are implemented end-to-end: `Paint::Linear`/`Paint::Radial` on the
+Linear and radial gradients are implemented end-to-end: [`Paint::Linear`](https://developer.android.com/reference/android/graphics/Paint)/[`Paint::Radial`](https://developer.android.com/reference/android/graphics/Paint) on the
 `Fill` op, `Draw::fill(shape, gradient)` on raw canvas, `.fill_linear(...)`/`.fill_radial(...)`
-on shape pieces (reactive), and native replay on every backend (radial: NSGradient center-draw,
-CGContextDrawRadialGradient, cairo radial pattern, QRadialGradient in ObjectMode, Android
+on shape pieces (reactive), and native replay on every toolkit (radial: [NSGradient](https://developer.apple.com/documentation/appkit/nsgradient) center-draw,
+CGContextDrawRadialGradient, cairo radial pattern, [QRadialGradient](https://doc.qt.io/qt-6/qradialgradient.html) in ObjectMode, Android
 RadialGradient shader + local matrix, XAML RadialGradientBrush (OS 1903+, now the msix
 MinVersion), and OH_Drawing radial shader with local matrix). Radial geometry is unit-space and
-stretches elliptically to non-square bounds on every backend. `Paint` still grows to `Angular` +
+stretches elliptically to non-square bounds on every toolkit. `Paint` still grows to `Angular` +
 semantic `Token`s later.
 This is the one place the
 canvas layer must grow: a `Fill(Shape, Paint)`/`Stroke(Shape, Paint, StrokeStyle)` op (Paint, not
-just Color) + per-backend gradient replay (CGGradient, cairo pattern, QGradient/QConicalGradient,
+just Color) + per-toolkit gradient replay ([CGGradient](https://developer.apple.com/documentation/coregraphics/cggradient), cairo pattern, QGradient/QConicalGradient,
 Android shaders, XAML brushes). hop already implemented this on four toolkits (linear and radial
 native everywhere; angular native on Qt, hand-rendered as a wedge fan elsewhere), so the recipe is
 known. It benefits raw `canvas()` too. Gradients are a canvas-layer feature and add no node kind.
@@ -393,19 +382,19 @@ pub fn path(build: impl Fn(&mut PathBuilder) + 'static) -> ShapePiece;         /
 pub fn shape_fn(f: impl Fn(Rect) -> PathData + 'static) -> ShapePiece;
 ```
 
-Requires `PathData` + a `FillPath`/`StrokePath` canvas op + backend replay (NSBezierPath /
-cairo path / QPainterPath / android.graphics.Path all support arbitrary paths). This closes SwiftUI
+Requires `PathData` + a `FillPath`/`StrokePath` canvas op + toolkit replay ([NSBezierPath](https://developer.apple.com/documentation/appkit/nsbezierpath) /
+cairo path / [QPainterPath](https://doc.qt.io/qt-6/qpainterpath.html) / android.graphics.Path all support arbitrary paths). This closes SwiftUI
 `Path`/custom-`Shape` parity. `.trim(from, to)` (progress rings, draw-on animations) also lives here
 (trim a resolved path by arc-length).
 
 ## 9. Proposal B (alternative): a native `SHAPE` leaf
 
 Instead of lowering to canvas, add `kinds::SHAPE` + `ShapeProps { kind, fill, stroke }` and render
-natively per backend (CAShapeLayer / GtkSnapshot / QGraphics / android.graphics / XAML Path).
+natively per toolkit (CAShapeLayer / GtkSnapshot / QGraphics / android.graphics / XAML Path).
 
 - **Pros**: native gradients/shadows/materials, native path animation, native precise hit testing,
   potentially cheaper for many shapes (one layer vs one canvas view each).
-- **Cons**: six backend implementations; more `day-spec` surface; diverges from "atop canvas";
+- **Cons**: six toolkit implementations; more `day-spec` surface; diverges from "atop canvas";
   reactivity needs explicit `bind_seeded` per prop (loses D4's freebie); duplicates what canvas does.
 
 **Recommendation: A now, B as a transparent optimization later.** Because the public API
@@ -415,16 +404,16 @@ morphs), chosen by capability or a `.native()` hint, with no change to user code
 
 ## 10. Phasing
 
-- **Phase 1 (small, no backend work):** `Reactive<T>`/`IntoReactive`; `ShapeKind`
-  {Rectangle, RoundedRectangle, Circle, Ellipse, Capsule}; `Paint::Solid`; `shape()` + sugar;
+- **Phase 1 (small, no toolkit work):** `Reactive<T>`/`IntoReactive`; `ShapeKind`
+  {Rectangle, RoundedRectangle, Circle, Ellipse, Capsule}; [`Paint::Solid`](https://developer.android.com/reference/android/graphics/Paint); `shape()` + sugar;
   `.fill/.stroke/.inset`; canvas lowering; `.id/.a11y/.frame` via `Decorate`; mock-tested op-lists;
-  a `shapes` showcase playground. Works on all six backends immediately.
-- **Phase 1.5 (shipped; still no backend work):** `Arc`; `Line`/`Polygon` unit-point kinds;
-  `.at` fractional placement; `shape_group`/`shape_group_fn` (§3.6). Day Skies' weather glyphs
+  a `shapes` showcase playground. Works on all six toolkits immediately.
+- **Phase 1.5 (shipped; still no toolkit work):** `Arc`; `Line`/`Polygon` unit-point kinds;
+  `.at` fractional placement; `shape_group`/`shape_group_fn`. Day Skies' weather glyphs
   and range bars are the reference consumers.
-- **Phase 2 (canvas-layer growth):** gradients (`Paint` + gradient ops + backend replay, per hop);
+- **Phase 2 (canvas-layer growth):** gradients (`Paint` + gradient ops + toolkit replay, per hop);
   `PathData` + path ops + `path()`/`shape_fn()`; arc modes (Sector/Chord), `.trim`.
-- **Phase 3 (pillars):** the §8.4 frame clock + `Animatable`/`Animation` → `.animation`/
+- **Phase 3 (pillars):** the frame clock + `Animatable`/`Animation` → `.animation`/
   `with_animation`; gesture wiring → `.on_tap` with path-precise hit testing.
 - **Phase 4 (optional):** native `SHAPE` leaf (Proposal B) as a transparent lowering for fidelity.
 
@@ -440,3 +429,8 @@ morphs), chosen by capability or a `.native()` hint, with no change to user code
    encoder.
 5. **`.background(shape)` / `.clip(shape)`**: SwiftUI uses shapes as backgrounds/clips. Out of
    scope here, but the `ShapeKind` value is exactly what those modifiers would consume later.
+
+## Platform guidance
+
+- [Apple: Core Graphics](https://developer.apple.com/documentation/coregraphics)
+- [Qt: painting](https://doc.qt.io/qt-6/paintsystem.html)

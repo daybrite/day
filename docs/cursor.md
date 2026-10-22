@@ -8,12 +8,11 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Cursor (the pointer's shape over a piece)
+# Cursor
 
-> **Status: shipped** (2026-09) as `Decorate::cursor`, `Toolkit::set_cursor`, and `Cap::Cursor`.
-> Seven backends draw it; harmony-arkui answers `Unsupported` for now, because HarmonyOS names
-> its pointer styles only in ArkTS and the toolkit has no call path into ArkTS yet. Custom
-> cursors from `resource/cursors/` are a planned second phase and are not in the tree.
+Change the mouse pointer to show what an area does: a link can use a pointing hand, a drawing
+surface a crosshair, and a divider a resize cursor. Apply `.cursor(...)` to a piece; the pointer
+updates when its bound state changes.
 
 ## Authoring
 
@@ -80,27 +79,31 @@ below is the only mapping written down.
 `Cursor::css_name()` answers the keyword, and `Cursor::NAMED` walks the named set in order,
 which is what the Showcase's Cursors page draws.
 
+Custom cursor images are not supported.
+
 ## Per toolkit
+
+Platform guidance: [Apple: pointing devices](https://developer.apple.com/design/human-interface-guidelines/pointing-devices); [Windows: mouse interactions](https://learn.microsoft.com/en-us/windows/apps/design/input/mouse-interactions).
 
 | Toolkit | Mechanism | `Cap::Cursor` | What differs |
 |---|---|---|---|
-| macos-appkit | an `NSTrackingArea` with `cursorUpdate` per view, owned by a small object that sets the `NSCursor` | Native | no wait, progress, help, or move shape (the arrow, or the open hand for move); zoom, diagonal frame resize, and column/row resize need macOS 15 and fall back below it; `None` hides the pointer while inside |
+| macos-appkit | an [`NSTrackingArea`](https://developer.apple.com/documentation/appkit/nstrackingarea) with `cursorUpdate` per view, owned by a small object that sets the [`NSCursor`](https://developer.apple.com/documentation/appkit/nscursor) | Native | no wait, progress, help, or move shape (the arrow, or the open hand for move); zoom, diagonal frame resize, and column/row resize need macOS 15 and fall back below it; `None` hides the pointer while inside |
 | gtk | `widget.set_cursor(gdk::Cursor::from_name(css))` | Native | the theme's own drawings; a name the theme lacks falls back to its arrow |
-| qt | `QWidget::setCursor(Qt::CursorShape)` | Emulated | no zoom, cell, context-menu, or vertical-text shape; each takes its nearest (`Help` is What's This, `Progress` is Busy) |
-| xaml (windows-winui) | the element's `ProtectedCursor`, an `InputCursor` built from the Win32 `IDC_*` cursor; WinUI shows it while the pointer is over the element (WinUI's input system sets the island's cursor on every move, so the host cannot) | Emulated | no grab, zoom, column/row resize, copy, alias, cell, or vertical-text shape; nearest of the classic set. The deprecated windows-xaml build has no per-element cursor property in system XAML, so `PointerEntered`/`PointerExited` record the shape and the host window answers `WM_SETCURSOR` with the same cursor |
+| qt | [`QWidget::setCursor(Qt::CursorShape)`](https://doc.qt.io/qt-6/qwidget.html) | Emulated | no zoom, cell, context-menu, or vertical-text shape; each takes its nearest (`Help` is What's This, `Progress` is Busy) |
+| WinUI (windows-winui) | the element's `ProtectedCursor`, an `InputCursor` built from the Win32 `IDC_*` cursor; WinUI shows it while the pointer is over the element (WinUI's input system sets the island's cursor on every move, so the host cannot) | Emulated | no grab, zoom, column/row resize, copy, alias, cell, or vertical-text shape; nearest of the classic set. |
 | web-dom | an inline `cursor:` style on the element | Native | the browser's own set; `Default` removes the inline style so the stylesheet's affordance rules apply again |
-| android-mdc | `View.setPointerIcon(PointerIcon.getSystemIcon(…))`, API 24 | Native | the full vocabulary; visible only with a mouse or trackpad, on ChromeOS, or in desktop windowing |
-| ios-uikit | a `UIPointerInteraction` whose delegate answers a `UIPointerStyle` | Emulated | iPadOS draws pointer effects, not arrows: `Text` and `VerticalText` become a beam, `Pointer`, `Grab`, `Grabbing`, `Copy`, `Alias`, and `ContextMenu` the highlight effect, `Move` the lift effect, `None` hides the pointer, everything else keeps the system pointer |
-| harmony-arkui | none yet | Unsupported | `pointer.setPointerStyle` exists only in ArkTS; wiring a hover hook through an ArkTS helper is the follow-up |
+| android-mdc | [`View.setPointerIcon(PointerIcon.getSystemIcon(…))`](https://developer.android.com/reference/android/view/View), API 24 | Native | the full vocabulary; visible only with a mouse or trackpad, on ChromeOS, or in desktop windowing |
+| ios-uikit | a [`UIPointerInteraction`](https://developer.apple.com/documentation/uikit/uipointerinteraction) whose delegate answers a [`UIPointerStyle`](https://developer.apple.com/documentation/uikit/uipointerstyle) | Emulated | iPadOS draws pointer effects, not arrows: `Text` and `VerticalText` become a beam, `Pointer`, `Grab`, `Grabbing`, `Copy`, `Alias`, and `ContextMenu` the highlight effect, `Move` the lift effect, `None` hides the pointer, everything else keeps the system pointer |
+| harmony-arkui | none yet | Unsupported | [`pointer.setPointerStyle`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-input-kit/js-apis-pointer.md) exists only in ArkTS; wiring a hover hook through an ArkTS helper is the follow-up |
 | mock | records the last cursor per widget | Native | probe-visible in tests |
 
-The duty and its implementors are in [duty-matrix.md](duty-matrix.md); the capability answers
-in [coverage-matrix.md](coverage-matrix.md). Both are generated and diffed in CI.
+The duty and its implementors are in [duty-matrix](duty-matrix.md); the capability answers
+in [coverage-matrix](coverage-matrix.md). Both are generated and diffed in CI.
 
 ## Shapes only one toolkit names
 
 The `day::cursor` module carries them, one submodule per toolkit, each gated on the facade's
-backend feature:
+toolkit feature:
 
 | Module | Constants |
 |---|---|
@@ -109,7 +112,7 @@ backend feature:
 | `day::cursor::xaml` | `PERSON`, `PIN`, `UP_ARROW`, `APP_STARTING` |
 | `day::cursor::android` | `ALL_SCROLL`, `NO_DROP`, `TOP_RIGHT_DIAGONAL`, `TOP_LEFT_DIAGONAL` |
 
-Each is a `Cursor::Native` value, so the named backend resolves it by its own table and any
+Each is a `Cursor::Native` value, so the named toolkit resolves it by its own table and any
 other ignores it. The gate is the point: a name only AppKit has is a compile error in a GTK
 build rather than a silent arrow, and the app wraps the use in the same `#[cfg(feature = …)]`.
 `Cursor::native("…")` is the ungated form for a name Day has no constant for.

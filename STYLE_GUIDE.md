@@ -16,6 +16,11 @@ Follow this whenever you write or edit that kind of text. Code comments follow t
 - Don't sell. Say what it does and what it costs; let the reader decide.
 - One idea per sentence. Prefer short sentences.
 - Cut the last paragraph when it just restates the first.
+- Begin reference pages with what the reader can do. Omit implementation-status banners;
+  explain concrete limitations beside the affected feature or platform.
+- Link native API names and platform-specific behavior to first-party documentation, including
+  design guidance where useful. Verify the target and toolkit version. See the
+  [documentation linking guidelines](website/authoring/style-guide.md#link-platform-guidance-and-native-apis).
 
 ## Minimize LLM-isms
 
@@ -123,6 +128,13 @@ was caught in review; the replacements are the settled rulings — follow them.
 | assist | help |
 | additionally | also, and |
 
+Use **toolkit**, not **backend**, when referring to a Day UI implementation. Preserve exact
+identifiers and paths; “backend” can still describe a server or storage provider. Label platform
+notes and tables with the standard target icons and tints, following the
+[toolkit labeling guidelines](website/authoring/style-guide.md#name-and-label-toolkits).
+Keep verification reports out of public references; retain app-facing limitations in platform-labeled
+admonitions and keep useful instructions for testing apps.
+
 ## Code comments
 
 Comments in source files (`//`, `///`, `//!`, `#`, `/* */`, and the comments inside the scaffold
@@ -147,7 +159,17 @@ sound human apply to them too:
 - Historical records (`DESIGN.md` Part II, changelogs) narrate change; everything else describes
   the code as it is now, not the diff that produced it.
 
+Internal documentation link labels omit `.md` and `.mdx`; use a page name or route label.
+Keep extensions only when referring to actual source files. Reference titles omit packaging
+parentheses; place crate dependencies and platform availability after the introduction, following
+the [documentation structure guide](website/authoring/style-guide.md#write-for-the-reader).
+
 ## Tone
+
+- Link references to other documented Day capabilities, crates, and guides to their relevant
+  internal pages. Link exact API symbols to Rustdoc. Use root-relative site URLs (`/docs/...`,
+  `/api/...`) for site content, and keep code examples copyable. Follow the
+  [documentation cross-reference rules](website/authoring/style-guide.md#link-related-documentation).
 
 - Confident, not boastful. Back every claim with a specific.
 - Address the reader as "you" in guides and tutorials. Use the third person for reference docs.

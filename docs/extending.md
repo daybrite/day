@@ -13,7 +13,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 A **piece** is a reusable Day widget. Day ships built-in pieces (`button`, `slider`, `list`, …), but
 anyone can publish a piece as an independent crate that adds both its cross-platform front-end
 (Rust) and its per-toolkit native backend (Objective-C via objc2, C++ shims, Android Java, …),
-with no edits to any core Day crate. `day-piece-searchfield` is the reference implementation.
+with no edits to any core Day crate. [`day-piece-searchfield`](/docs/reference/searchfield) is the reference implementation.
 
 **Scaffold a new piece with `day new`.** Don't hand-assemble the crate: `day new piece <name>`
 generates a ready-to-build project (remote Day deps by default; `--local <path>` for a local Day
@@ -22,9 +22,9 @@ checkout). With no `--toolkits` it emits a **composite** piece (front-end only);
 per backend plus the C++/Java/Swift glue each one needs. Either kind comes with `demo/`, a one-page
 app that shows the piece and runs its walkthrough (`--no-demo` skips it). The companion `day new part <name>` scaffolds
 a headless part. For full walkthroughs see the tutorials:
-[composite piece](https://daybrite.dev/contributing/tutorials/composite-piece/),
-[native piece](https://daybrite.dev/contributing/tutorials/native-piece/), and
-[part](https://daybrite.dev/contributing/tutorials/part/).
+[composite piece](/contributing/tutorials/composite-piece/),
+[native piece](/contributing/tutorials/native-piece/), and
+[part](/contributing/tutorials/part/).
 
 Extensibility rests on two mechanisms:
 
@@ -32,7 +32,7 @@ Extensibility rests on two mechanisms:
    dispatches an unknown `kind` to the piece's `make`/`update`/`measure` with no registry edits.
    (web-dom is the one exception: `linkme` has no wasm32 implementation, so `day-dom` keeps a
    runtime registry and the piece calls `day_dom::register_renderer` from its own constructor. Same
-   three functions, same dispatch, different moment; see [media.md](media.md).)
+   three functions, same dispatch, different moment; see [media](media.md).)
 2. **Native backend assets** (C++ shims, Android Java, Gradle deps) are declared in the crate's own
    `Cargo.toml` / `build.rs` and folded into the app's native build automatically.
    Browser JavaScript can ship in a `day_bridge::bridge!` arm: the CLI stages and registers its
@@ -66,7 +66,7 @@ Those modifiers return `Decorated<YourPiece>` rather than erasing, so a chain ke
 make your own builder methods reachable after one, put `#[day::builder(GaugeBuilder)]` on the
 inherent `impl` block that holds them; the attribute generates the `GaugeBuilder` trait, its
 impl for `Gauge`, and the forwarding impl for `Decorated<Gauge>`, the pattern every built-in
-piece follows, written up in [docs/api-style.md](api-style.md) "Typed builders and erasure":
+piece follows, written up in [docs/api-style](api-style.md) "Typed builders and erasure":
 
 ```rust
 use day::prelude::*;   // `Decorated` and `Piece` must be in scope for the generated impls
@@ -128,7 +128,7 @@ A piece often needs native code the Rust FFI alone can't express. Day gives each
 extension path so that code lives in the piece crate:
 
 > [!NOTE]
-> **Implementing a *function* in another language? Use a bridge instead** ([bridge.md](bridge.md)).
+> **Implementing a *function* in another language? Use a bridge instead** ([bridge](bridge.md)).
 > The per-toolkit paths below stage whole directories of hand-written shims, which is the right
 > shape for a native **view** (a renderer wiring a `UIView`, a `QWidget`, an ArkUI component).
 > daybridge is the shape for a native **call**: one Rust declaration, an implementation per
@@ -184,7 +184,7 @@ day-piece-lottie forwards to day-piece-webview this way. The example galleries a
 `day-piece-charts-gallery` and `day-piece-lottie-gallery` hold their demos' pages as libraries, so
 the demo app is a thin shell around them and Day-Showcase mounts the same pages. A gallery like
 that brings everything its pages need. Its strings are a private catalog
-([localization.md](localization.md) "Private catalogs") that resolves in any host. Its files
+([localization](localization.md) "Private catalogs") that resolves in any host. Its files
 are data assets, staged under its crate name. Its backends are forwarded as above. The host adds
 one dependency and copies nothing.
 
@@ -330,10 +330,10 @@ binding) and App Fair's `platform/android/proguard-rules.pro` (reflection, app s
 references.
 
 The piece's Java uses only day-android's public surface: `DayBridge.ctx` (the `Context`) and
-`DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `kind` per §14.2, `4` = selection).
+`DayBridge.nativeOnEvent(id, kind, num, str)` (the event trampoline, `4` = selection).
 The Rust side binds its Java class with `day_android::java_class!` and makes its View with
 `day_android::realize`, which falls back to the visible placeholder when the factory throws
-([docs/android-jni.md](android-jni.md)). `pieces/day-piece-searchfield/src/lib-android.rs` is the
+([docs/android-jni](android-jni.md)). `pieces/day-piece-searchfield/src/lib-android.rs` is the
 reference, with `src/DaySearch.java` beside it.
 
 > **Gradle configuration cache.** Day's Gradle plugin reads `day-pieces.json`, and the other files
@@ -389,7 +389,7 @@ per-crate subfolder). The app's generated (or optionally checked-in) `.xcodeproj
 analog of the Gradle host scaffold: a `XCLocalSwiftPackageReference` + a product dependency in a
 Frameworks phase). So adding an iOS piece is pure `Cargo.toml` data; no `.xcodeproj` edits are needed.
 
-Two further keys are shared with the macOS table below ([docs/swiftui.md](swiftui.md) covers them
+Two further keys are shared with the macOS table below ([docs/swiftui](swiftui.md) covers them
 in full):
 
 - A `swift-packages` entry may be **local** (`{ path = "swiftui", products = ["MyViews"] }`,
@@ -408,7 +408,7 @@ The macos-appkit leg uses the same table shape: `swift`, `swift-packages` (remot
 `frameworks`, `platform`. `day build` generates `build/day/macos/DayPieces` from the table and
 the selected macOS host project's `project.xcproj` references it (Xcode 27+); xcodebuild compiles
 and links the package with the Runner, the same shape as iOS (the Swift runtime resolves against
-the OS dylibs). `day-piece-swiftui` declares the same shim dir under both tables, one
+the OS dylibs). [`day-piece-swiftui`](/docs/reference/swiftui) declares the same shim dir under both tables, one
 `DaySwiftUI.swift` with `#if os(...)` arms.
 
 ### HarmonyOS ArkTS components (`[package.metadata.day.ohos]`)
@@ -437,7 +437,7 @@ export const dayPiece: DayPieceModule = {
 ```
 
 `settle` is for a component that renders outside ArkUI's own frame, which the screenshot
-checkpoint ([docs/window-image.md](window-image.md)) cannot see: a web view's renderer paints on its own thread and
+checkpoint ([docs/window-image](window-image.md)) cannot see: a web view's renderer paints on its own thread and
 can trail the DOM a script just changed. The capture waits for every module's `settle` before its
 ArkUI render checkpoint, so the hook resolves once the pending rendering has committed, and caps
 its own wait (a hidden page paints nothing): a capture may be late, never stuck. The cap must be
@@ -450,7 +450,7 @@ compositor's pipeline), lets any CSS transition run out, and polls for the resul
 The Rust-side counterpart, for a piece that presents frames through a Day canvas on any
 toolkit, is a capture hold: `day_spec::capture::register_hold(fn() -> bool)`, answering whether
 every frame the host owes is on screen, which `screenshot` and `sample_pixel` wait on before the
-toolkit's checkpoint ([docs/window-image.md](window-image.md)).
+toolkit's checkpoint ([docs/window-image](window-image.md)).
 
 The same table carries the raw HarmonyOS permissions a crate needs, the counterpart of Android's
 `[package.metadata.day.android] permissions`. It is for the `system_grant` ones, which no prompt
@@ -465,7 +465,7 @@ permissions = ["ohos.permission.GET_NETWORK_INFO"]   # joined into module.json5 
 (gitignored) and generates two files beside them: `DayPiece.ets` (the interface above) and
 `DayPieces.ets`, whose `registerDayPieces(uiContext, builtins)` hands the native shim one factory,
 command sink, and disposer for all pieces. The framework's host page (staged beside them from the
-day-arkui crate, [docs/harmonyos.md](harmonyos.md)) calls it once, before `start()`, so adding an
+day-arkui crate, [docs/harmonyos](harmonyos.md)) calls it once, before `start()`, so adding an
 ArkTS piece is pure `Cargo.toml` data, like the iOS leg, and the shim never grows a case per piece.
 An ArkTS component reports with `nativeEntry.pieceEvent(id, text, num?, kind?)`: with no `kind`
 the message arrives as the piece's own `Event::Custom`; with one (1 `TextChanged`, 2
@@ -474,7 +474,7 @@ send, so a stand-in control needs no event translation in Rust. day-arkui also s
 piece its laid-out size as the command `day.frame` `"<w>,<h>"` (vp) whenever it changes: a
 component built in a `BuilderNode` resolves percentages against the window, so one that fills its
 frame sizes itself from that. `builtins` are the framework's own ArkTS-only components, which ride the same channel: the host
-passes the menu-style picker's `Select` ([docs/picker.md](picker.md)), and an app's piece of the same kind wins.
+passes the menu-style picker's `Select` ([docs/picker](picker.md)), and an app's piece of the same kind wins.
 
 On the Rust side the renderer is the thinnest of all the backends, because there is no native widget
 to build. `day_arkui::piece::make` returns the ArkTS component's FrameNode as an ordinary handle:
@@ -485,7 +485,7 @@ fn update(_b: &mut ArkUi, h: &AHandle, patch: &WebPatch) { piece::update(h, "loa
 ```
 
 Events come back through the shim's `pieceEvent(id, text)` as `Event::Custom`, the same open channel
-(§8.2) the Android bridge uses, payload only. The bridge enforces two rules. A declined `make`
+the Android bridge uses, payload only. The bridge enforces two rules. A declined `make`
 yields Day's placeholder leaf rather than a null handle (a null would take the whole parent's layout
 down), and `release` routes an ArkTS-owned node to `dispose` instead of disposing it natively.
 
@@ -513,14 +513,14 @@ files = ["web/day-sql-worker.js"]   # staged beside them, loaded by the modules
 `day build -t web-dom` stages them under `dist/modules/<crate>/` for every crate the wasm build
 links. A module exports `register(rt)`, which returns wasm imports, and optionally
 `start(rt, module)`, which the page awaits before the app's entry point.
-[docs/web.md](web.md#web-modules) has the contract; [`day-sqlite-worker`](https://github.com/daybrite/day-persistence/tree/main/crates/day-sqlite-worker) is the
+[docs/web](web.md#web-modules) has the contract; [`day-sqlite-worker`](https://github.com/daybrite/day-persistence/tree/main/crates/day-sqlite-worker) is the
 reference, and `scripts/ci/web-shim-abi.py` checks that a crate's modules supply every import
 its Rust declares.
 
 ### The Android bridging contract
 
 These are the guarantees a part or piece can rely on when its Rust calls its Java sidecar (all
-provided by `day-android`, all exercised in production by `day-part-http`). A [daybridge](bridge.md)
+provided by `day-android`, all exercised in production by [`day-part-http`](/docs/reference/http)). A [daybridge](bridge.md)
 arm rides these same guarantees (its generated JNI wrapper is written against them), so this list
 is what that generated code does on your behalf, and what to know when you write the call by hand:
 
@@ -532,9 +532,9 @@ is what that generated code does on your behalf, and what to know when you write
   though a bare JNI `FindClass` there only sees system classes.
 - **Calls clear their own exceptions.** Inside `day_android::java(|env| …)` a thrown Java exception
   is described to logcat, cleared, and returned as `None`
-  ([docs/android-jni.md](android-jni.md#calling)).
+  ([docs/android-jni](android-jni.md#calling)).
 - **Post to the UI thread** with `DayBridge.main.post(...)` on the Java side; on the Rust side,
-  capture a `day_reactive::Setter` ([docs/focus.md](focus.md), DESIGN §4.5) rather than touching UI state
+  capture a `day_reactive::Setter` ([docs/focus](focus.md)) rather than touching UI state
   from a worker.
 - **Bulk payloads cross as one `byte[]` envelope**: `[status i32 BE][meta-len i32 BE]
   ["k\nv\n…" meta][payload]`; a negative status is your error sentinel with the message riding
@@ -562,7 +562,7 @@ The app mirrors each: `my-piece/<backend>` in the matching feature. Adding a pie
 changes to `day`, the toolkit crates, the CLI, or the Gradle scaffold.
 
 **Dependency layering.** The extension graph stays acyclic by rule: **pieces may depend on
-parts** (day-piece-remote-image → day-part-http is the shipped example) **and on core crates;
+parts** ([day-piece-remote-image](/docs/reference/images) → [day-part-http](/docs/reference/http) is the shipped example) **and on core crates;
 parts must not depend on `day-pieces` or any `day-piece-*`; tweaks may depend on `day-pieces`
 (the built-ins they configure) but not on any satellite `day-piece-*` or `day-part-*`.** A
 workspace test (`crates/day-cli/tests/layering.rs`) enforces this over `cargo metadata`, so a
@@ -574,7 +574,7 @@ A piece is not limited to leaves: it can be a **container** whose native view ho
 subtree. day-core mounts children **by handle, not by kind** (the tree walks to the nearest native
 ancestor and calls `Toolkit::insert(ancestor_handle, child_handle, index)` without consulting the
 ancestor's kind), so a piece-realized node is a valid insertion parent on every backend. The recipe
-(established by `pieces/day-piece-pullrefresh`, the reference container piece; see [docs/pullrefresh.md](pullrefresh.md)):
+(established by `pieces/day-piece-pullrefresh`, the reference container piece; see [docs/pullrefresh](pullrefresh.md)):
 
 ```rust
 let node = cx.native(
@@ -682,7 +682,7 @@ pieces/day-piece-searchfield/
 ```
 
 `lib.rs` declares the backends with one `day_pieces::glue_modules!(appkit, gtk, qt, uikit, mdc,
-xaml)` line (§2), so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
+xaml)` line, so every `lib-<toolkit>.rs` is compiled only for its feature+target and the whole
 native surface for a toolkit lives in one place.
 
 [day-piece-webview](https://github.com/daybrite/day-piece-webview) is a second reference, in its own
@@ -691,7 +691,7 @@ embedded browser) that additionally contributes an Android permission, hand-roll
 `WKWebView` (linking WebKit.framework through the `frameworks` key above), and returns the proposal
 from `measure` so a growing leaf fills on Android. It follows the external-repository rules
 described under day-piece-lottie below, and its `demo/` app's dayscript is its on-device test. The
-JavaScript evaluation seam it registers with stays here, in [webview-eval.md](webview-eval.md).
+JavaScript evaluation seam it registers with stays here, in [webview-eval](webview-eval.md).
 
 [day-piece-lottie](https://github.com/daybrite/day-piece-lottie) is a third reference, and the first
 piece to live in a separate repository: an iOS/Android-only piece that pulls an external native package
@@ -719,7 +719,7 @@ crate's own `build.rs`) owns the session. It is also the first piece to declare
 As an external repository it follows the same rules as day-piece-lottie above: bare canonical day
 dependencies, a `compat` line, and a `demo/` app whose dayscript is the on-device test.
 
-`parts/day-part-battery` (see [battery.md](battery.md)) is a fourth reference, the first **part**:
+`parts/day-part-battery` (see [battery](battery.md)) is a fourth reference, the first **part**:
 a headless crate with no UI Piece at all. Where `pieces/` holds UI-library extensions (each
 registers a renderer), `parts/` is the non-UI counterpart: capability crates (`day-part-*`) that extend
 Day apps with platform services. It shows the backend-contribution mechanism accommodates non-UI
@@ -784,9 +784,9 @@ that reaches further declares the `finish-args` it needs:
 finish-args = ["--socket=pulseaudio"]
 ```
 
-That is `day-part-sound`'s declaration: its Linux engine reaches the sound server through
+That is [`day-part-sound`](/docs/reference/sound)'s declaration: its Linux engine reaches the sound server through
 libpulse, and a sandbox has no route to that server without the socket
-([sound.md](sound.md#linux)).
+([sound](sound.md#linux)).
 
 `day pack` collects the entries from the same dependency graph as the bases and adds them to the
 manifest after the defaults, sorted and without repeats, so the manifest is the same on every
@@ -823,7 +823,7 @@ launcher uses for its own paths. Identical declarations coalesce. Two crates giv
 different values stop packaging with an error, and so does a malformed declaration. The Flatpak
 launcher does not apply these defaults, because a Flatpak takes its toolkit from the runtime.
 
-`day-piece-media` is the reference. linuxdeploy bundles libgstreamer but no GStreamer element
+[`day-piece-media`](/docs/reference/media) is the reference. linuxdeploy bundles libgstreamer but no GStreamer element
 plugins, and the bundled library looks for plugins only beside itself. Qt Multimedia's GStreamer
 backend then finds no elements and crashes, so the crate selects Qt's FFmpeg backend, whose codec
 libraries linuxdeploy does bundle.

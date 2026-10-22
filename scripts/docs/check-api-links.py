@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Copyright © The Daybrite Project
 # SPDX-License-Identifier: MPL-2.0
-"""Check the generated API bundle, including Rustdoc alias redirects and encoded IDs."""
+"""Check Rustdoc and guide-to-API links, including alias redirects and encoded IDs."""
 from pathlib import Path
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote
@@ -40,10 +40,11 @@ def main():
     files = {path for path in DIST.rglob('*') if path.is_file()}
     failures = []
     checked = external = 0
+    guide_links = 0
 
     def destination(source, href):
         parsed = urlsplit(href)
-        if parsed.scheme or parsed.netloc:
+        if (parsed.scheme or parsed.netloc) and parsed.netloc != 'daybrite.dev':
             return None, parsed.fragment
         path = unquote(parsed.path)
         target = DIST / path.lstrip('/') if path.startswith('/') else source.parent / path if path else source
@@ -52,7 +53,25 @@ def main():
             target /= 'index.html'
         return target, parsed.fragment
 
-    for source in api_pages:
+    # Guide links used to escape both checkers: the site checker skips /api/, while this
+    # checker only walked Rustdoc. Include every guide's API links in the same fragment check.
+    guide_pages = []
+    for source in sorted(files):
+        if source.suffix != '.html' or source in pages:
+            continue
+        page = Page(source)
+        api_links = []
+        for href in page.links:
+            target, _ = destination(source, href)
+            if target is not None and target.is_relative_to(DIST / 'api'):
+                api_links.append(href)
+        if api_links:
+            page.links = api_links
+            pages[source] = page
+            guide_pages.append(source)
+            guide_links += len(api_links)
+
+    for source in api_pages + guide_pages:
         for href in pages[source].links:
             target, fragment = destination(source, href)
             if target is None:
@@ -101,7 +120,8 @@ def main():
             if href not in page.links:
                 navigation_failures.append(str(path.relative_to(DIST)) + ': ' + href)
 
-    result = {'html_pages': len(api_pages), 'checked': checked, 'external_skipped': external,
+    result = {'html_pages': len(api_pages), 'guide_api_links': guide_links,
+              'checked': checked, 'external_skipped': external,
               'crates': len(crates), 'navigation_failures': navigation_failures, 'failures': failures}
     (WORK / 'api-links.json').write_text(json.dumps(result, indent=2) + '\n')
     print(json.dumps({key: value for key, value in result.items() if key != 'failures'}))

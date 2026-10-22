@@ -11,7 +11,8 @@ const { title, description, route = Astro.url.pathname.replace(/\/$/, ''), audie
 const active = audience === 'contributor' ? 'contributing' : audience === 'evaluator' ? 'product' : 'docs';
 const pages = await contentPages();
 const sections = navigation(pages, audience);
-const sequence = sections.find((group) => group.pages.some((p) => p.route === route))?.pages ?? [];
+const currentSection = sections.find((group) => group.pages.some((p) => p.route === route));
+const sequence = currentSection?.sections.find((group) => group.pages.some((p) => p.route === route))?.pages ?? currentSection?.pages ?? [];
 const idx = sequence.findIndex((p) => p.route === route);
 const prev = idx > 0 ? { href: url(sequence[idx - 1].route), title: sequence[idx - 1].title } : null;
 const next = idx >= 0 && idx < sequence.length - 1 ? { href: url(sequence[idx + 1].route), title: sequence[idx + 1].title } : null;
@@ -33,14 +34,24 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
         </> : <>
           <a class="side-link" href={url(home)}>{audience === 'contributor' ? 'Contributing home' : 'Start here'}</a>
           {sections.map((section) => (
-            <details open={route === section.route || section.pages.some((p) => p.route === route)}>
+            <details open={route === section.route || section.pages.some((p) => p.route === route) || (section.name === 'Reference' && route === '/docs/reference/api')}>
               <summary class="side-h">{section.name}</summary>
-              <a class="side-link" href={url(section.route)}>{section.name} index</a>
-              {section.pages.map((page) => <a href={url(page.route)}
+              <a class="side-link" href={url(section.route)} aria-current={route === section.route ? 'page' : undefined}>{section.name} index</a>
+              {section.name === 'Reference' && <a class:list={['side-link', { on: route === '/docs/reference/api' }]} href={url('docs/reference/api')} aria-current={route === '/docs/reference/api' ? 'page' : undefined}>Rust API reference</a>}
+              {section.sections.length ? section.sections.map((group) => (
+                <details class="reference-group" open={group.pages.some((p) => p.route === route)}>
+                  <summary class:list={['reference-group-title', { current: group.pages.some((p) => p.route === route) }]}>{group.name}</summary>
+                  <div class="reference-group-pages">
+                    {group.pages.map((page) => <a href={url(page.route)}
+                      class:list={['side-link', { on: page.route === route }]}
+                      aria-current={page.route === route ? 'page' : undefined}
+                      title={page.navTitle ? page.title : undefined}>{page.navTitle ?? page.title}</a>)}
+                  </div>
+                </details>
+              )) : section.pages.map((page) => <a href={url(page.route)}
                 class:list={['side-link', { on: page.route === route }]}
                 aria-current={page.route === route ? 'page' : undefined}
                 title={page.navTitle ? page.title : undefined}>{page.navTitle ?? page.title}</a>)}
-              {section.name === 'Reference' && <a class="side-link" href={url('docs/reference/api')}>Rust API reference</a>}
             </details>
           ))}
           <a class="side-link" href={url(audience === 'contributor' ? 'docs' : 'contributing')}>{audience === 'contributor' ? 'App documentation' : 'Contributing'}</a>
@@ -91,6 +102,20 @@ const home = audience === 'contributor' ? '/contributing' : '/docs';
     padding-right: 6px;
   }
   .sidebar nav details { margin-top: 16px; }
+  .sidebar nav details.reference-group { margin-top: 4px; }
+  .reference-group-title {
+    cursor: pointer;
+    padding: 10px 6px;
+    font-size: 0.88rem;
+    font-weight: 650;
+    color: var(--muted);
+    border-radius: 6px;
+  }
+  .reference-group-title:hover { color: var(--text); background: var(--hover); }
+  .reference-group-title.current { color: var(--text); }
+  .reference-group-pages { margin: 2px 0 10px 10px; border-left: 1px solid var(--border-soft); }
+  .reference-group-pages .side-link { font-size: 0.88rem; padding-block: 7px; }
+  .sidebar summary:focus-visible, .sidebar a:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
   .docs-menu-toggle { display: none; font-weight: 600; cursor: pointer; }
   summary.side-h { cursor: pointer; padding: 8px 0; }
   .side-h {

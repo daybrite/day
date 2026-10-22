@@ -245,7 +245,7 @@ stringly, move to an enum when the app grows, mix the two freely (a typed nav ho
   installed nav store, as described above. Persist your own signals (see
   [parts: prefs](/docs/reference/parts)) only for custom state beyond navigation.
 - **More windows:** `day::open_window` opens secondary windows on every [backend](/docs/reference/glossary#backend)
-  (`WindowKind::Normal`, `Preferences` or `About`; `day-piece-settings` registers the
+  (`WindowKind::Normal`, `Preferences` or `About`; [`day-piece-settings`](/docs/reference/settings) registers the
   Settings and About windows for you): native windows on the desktop backends, iPad scenes, Android activities, and OHOS
   abilities; iPhone and the web present them as a fullscreen cover. See
   [windows](/docs/reference/windows). Dialogs and alerts are separate

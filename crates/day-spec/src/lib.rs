@@ -445,6 +445,10 @@ pub enum SurfaceRole {
     /// The window's own background, the surface a page sits on: what an opaque cover paints
     /// by default, and the card of a composed modal sheet (docs/cover.md "Modal sheet").
     Window,
+    /// The layer between a composed modal sheet and the page under it, which says the page is
+    /// out of reach until the sheet goes. The container's `background` is the plain dimming a
+    /// backend draws when it has no material of its own; the web frosts the page instead.
+    Scrim,
 }
 
 pub const NAV_SIDEBAR_WIDTH: f64 = 240.0;
@@ -5162,8 +5166,11 @@ impl Symbol {
                 "M10 4a6 6 0 1 0 3.5 10.9l4.8 4.8 1.4-1.4-4.8-4.8A6 6 0 0 0 10 4m0 2a4 4 0 1 1 0 8 4 4 0 0 1 0-8"
             }
             S::Share => "M12 3l5 5h-3v7h-4V8H7zM5 17h14v4H5z",
+            // An eight-tooth gear, round about the center (radius 10 at the teeth, 7.6 at the
+            // roots) with a 3.2 hole: square in its box, so it sits in a row's 24-point icon
+            // slot at the same size as its neighbors.
             S::Settings => {
-                "M12 2l2 3h3l1 3-2 4 2 4-1 3h-3l-2 3-2-3H7l-1-3 2-4-2-4 1-3h3zm0 6a4 4 0 1 0 0 8 4 4 0 0 0 0-8"
+                "M9.9 4.7L10.2 2.2L13.8 2.2L14.1 4.7A7.6 7.6 0 0 1 15.7 5.4L17.7 3.8L20.2 6.3L18.6 8.3A7.6 7.6 0 0 1 19.3 9.9L21.8 10.2L21.8 13.8L19.3 14.1A7.6 7.6 0 0 1 18.6 15.7L20.2 17.7L17.7 20.2L15.7 18.6A7.6 7.6 0 0 1 14.1 19.3L13.8 21.8L10.2 21.8L9.9 19.3A7.6 7.6 0 0 1 8.3 18.6L6.3 20.2L3.8 17.7L5.4 15.7A7.6 7.6 0 0 1 4.7 14.1L2.2 13.8L2.2 10.2L4.7 9.9A7.6 7.6 0 0 1 5.4 8.3L3.8 6.3L6.3 3.8L8.3 5.4A7.6 7.6 0 0 1 9.9 4.7zM12 8.8a3.2 3.2 0 1 0 0 6.4a3.2 3.2 0 1 0 0-6.4z"
             }
             S::Info => "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20m-1 5h2v2h-2zm0 4h2v6h-2z",
             S::Star => {

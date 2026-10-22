@@ -10,6 +10,9 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Screenshot bundle
 
+Package app screenshots for a release or share captures from several targets. Day’s screenshot
+archives include checksums and can be extracted with standard archive tools.
+
 A release carries its captures as `screenshots.tar.xz`, with one `screenshots-<target>[-<device>].tar.xz`
 per capture tree beside it. Each is a plain tar.xz file: `tar -xJf` extracts it anywhere, and
 `sha256sum -c SHA256SUMS` checks what came out. `day screenshot pack` writes them and
@@ -151,11 +154,10 @@ Before this, the same kind of image arrived differently per target (Day Showcase
 | linux-gtk | RGBA, opaque | none |
 | linux-qt | RGBA, opaque | `pHYs` |
 | web-dom | RGB | none |
-| windows-xaml | RGBA, opaque | `sRGB`, `gAMA`, `pHYs` |
 | windows-winui | RGBA, a 1-pixel frame at alpha 102 | `sRGB`, `gAMA`, `pHYs` |
 | macos-appkit | RGBA, translucent window corners | `iCCP` (the display's profile), `eXIf` |
 
-The AppKit backend converts its capture to sRGB before encoding it, so a macOS capture's samples
+The AppKit toolkit converts its capture to sRGB before encoding it, so a macOS capture's samples
 are comparable with the other targets' and independent of the capturing display.
 
 ## Measurements behind the design

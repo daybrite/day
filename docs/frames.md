@@ -8,6 +8,9 @@ description: "Cancellable native frame callbacks for canvas animations and other
 
 # Display frame callbacks
 
+Schedule animation or rendering work in step with the display. A frame clock runs callbacks
+on the UI thread and lets the app stop them by dropping their handle.
+
 `day::frame` schedules UI-thread work at native display frame opportunities. It is independent
 of canvas and pieces: capture a `FrameClock::current()` while building a page, or obtain one
 from `WindowHandle::frame_clock()`, then keep the returned `FrameHandle` in your controller.
@@ -41,7 +44,7 @@ carry monotonically allocated integer tickets, so a late callback cannot touch a
 Callbacks and handles stay on the UI thread; callback panics are contained and stop that client.
 
 `Frame` contains monotonic `timestamp`, subscription-local `delta`, and an optional
-`target_timestamp` when the backend supplies a predicted presentation time. The epoch is native
+`target_timestamp` when the toolkit supplies a predicted presentation time. The epoch is native
 and may differ across windows or platforms. Delivery is a **frame opportunity**, not proof of
 presentation. Delta is zero on the first frame and after pause/resume or app foregrounding.
 It is deliberately unclamped. Physics clients should choose a fixed-step/catch-up policy; the
@@ -54,16 +57,16 @@ visible animations. Hidden/unmapped-window throttling follows the native schedul
 portable per-view visibility signal. Clients should pause when their animation is no longer
 needed (including retained, offscreen pages). `in_scope()` cancels at scope disposal.
 
-| Backend | Native source |
+| Toolkit | Native source |
 | --- | --- |
-| macos-appkit | View-associated `CADisplayLink` on macOS 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
-| ios-uikit | Screen-associated `CADisplayLink`, in common run-loop modes |
-| android-mdc | `Choreographer.postFrameCallback` / `removeFrameCallback` |
-| windows-winui | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` (the XAML backend; the deprecated windows-xaml uses `Windows.UI.Xaml`'s) |
+| macos-appkit | View-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink) on macOS 14+; `CVDisplayLink` on supported macOS 13, marshaled to the main queue |
+| ios-uikit | Screen-associated [`CADisplayLink`](https://developer.apple.com/documentation/quartzcore/cadisplaylink), in common run-loop modes |
+| android-mdc | [`Choreographer.postFrameCallback`](https://developer.android.com/reference/android/view/Choreographer) / `removeFrameCallback` |
+| windows-winui | One-shot registration with `Microsoft.UI.Xaml.Media.CompositionTarget.Rendering` |
 | web-dom | `requestAnimationFrame` / `cancelAnimationFrame` |
-| macos/linux/windows-gtk | Host widget's `add_tick_callback`, timestamped by its `GdkFrameClock` |
-| macos/linux/windows-qt | Host `QWindow::requestUpdate()` / `QEvent::UpdateRequest` |
-| harmony-arkui | `OH_NativeVSync_RequestFrame`, delivered back onto the ArkUI JS/UI loop |
+| macos/linux/windows-gtk | Host widget's `add_tick_callback`, timestamped by its [`GdkFrameClock`](https://docs.gtk.org/gdk4/class.FrameClock.html) |
+| macos/linux/windows-qt | Host [`QWindow::requestUpdate()`](https://doc.qt.io/qt-6/qwindow.html) / [`QEvent::UpdateRequest`](https://doc.qt.io/qt-6/qevent.html) |
+| harmony-arkui | [`OH_NativeVSync_RequestFrame`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkgraphics2d/capi-nativevsync.md), delivered back onto the ArkUI JS/UI loop |
 | mock | Inert; core tests inject a manual timestamp source |
 
 There is no Day timer fallback. [Qt documents](https://doc.qt.io/qt-6/qwindow.html#requestUpdate)
@@ -75,17 +78,17 @@ window-ID association. macOS 13's Core Video adapter selects the host's display 
 modern AppKit follows the view's display automatically. Predicted timestamps are currently
 available on CADisplayLink; other adapters leave them absent.
 
-`Toolkit::request_frame(host, callback) -> CancelFrame` is the backend seam. It must never
+`Toolkit::request_frame(host, callback) -> CancelFrame` is the toolkit seam. It must never
 invoke the callback inline; delivery is one-shot and cancellation must be safe before or after
-delivery. A backend can keep a paused native source during delivery to reuse it if Day re-arms,
+delivery. A toolkit can keep a paused native source during delivery to reuse it if Day re-arms,
 but must release it when demand ends. Qt keeps only an inert event filter after cancellation;
 its pending window update, if any, still belongs to Qt's backing-store machinery.
 
 The existing `frame_clock` piece uses this same service. Its compatibility contract still gives
 an initial 1/60 s step and clamps subsequent deltas to 100 ms. New clients should use the explicit
-handle API so they can stop while idle. Native-widget `with_animation` continues to use backend
+handle API so they can stop while idle. Native-widget `with_animation` continues to use toolkit
 animators; this primitive does not replace them. Interpolation, timing and a frame-driven
-transition driver built on it are in [tween.md](tween.md).
+transition driver built on it are in [tween](tween.md).
 
 Regression coverage lives in `day-core/src/frame.rs`: coalescing, callback reentrancy, cancellation,
 late native delivery, independent windows, lifecycle suspension, malformed timestamps, and

@@ -8,17 +8,31 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# OS permissions (headless capability crate)
+# OS permissions
 
-> **Status: implemented** as `day-part-permissions` (in `parts/`, the headless counterpart of
-> `pieces/`), plus the build-time declaration pipeline in the CLI. It's a headless day-ecosystem
-> crate (no UI Piece): ask what the OS will do about a permission, and ask the OS itself. Any Rust
-> code can depend on it and call `day_part_permissions::status(perm)`. Host build/clippy/tests, the
-> iOS-device and iOS-simulator cross-compiles, the Android cross-compile with its Java shim compiled
-> and dexed into a real APK, and the generated declarations for Android (verified in a built APK,
-> `maxSdkVersion` included) and iOS (verified in a built `.app`, idempotent across builds) are all
-> verified. The HarmonyOS writer is unit-tested against the real `module.json5` but has not yet run
-> through a device build, and no runtime prompt has been exercised on a device.
+Check whether an app can use a protected capability and ask the user for access when needed.
+`day-part-permissions` handles runtime permission checks and requests; `Day.toml` declares the
+capabilities and explanations required by each operating system.
+
+## Add to your app
+
+Defined in [`day-part-permissions`](https://github.com/daybrite/day/tree/main/parts/day-part-permissions). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-part-permissions = { git = "https://github.com/daybrite/day.git" }
+```
+
+The implementation is selected by the compilation target; no toolkit feature flags
+or dependency entry in `Day.toml` are needed.
+
+Declare the required capabilities and usage explanations in [Day.toml permissions](/docs/reference/permissions#declare-before-you-ask).
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, HarmonyOS, Web | Permission checks and requests vary by capability. Device prompts remain unverified. |
+| Windows, Linux (GTK / Qt) | Reports static gate results; does not open system permission prompts. |
 
 ## Declare before you ask
 
@@ -137,17 +151,19 @@ the OS, and the runtime hands your app the two bits it needs to draw its own pri
 `should_show_rationale` and `can_prompt`.
 
 As a consequence, no user-facing string crosses this crate's boundary, so the layering rule that
-keeps `IntoText`/`LocalizedText` out of parts ([docs/extending.md](extending.md) §4) never has to be worked around.
+keeps `IntoText`/`LocalizedText` out of parts ([extension model](extending.md)) never has to be worked around.
 
 ## Per-platform native realization
 
+Platform guidance: [Apple: privacy](https://developer.apple.com/design/human-interface-guidelines/privacy); [Android: requesting permissions](https://developer.android.com/training/permissions/requesting).
+
 | OS | check | request | dependency |
 |---|---|---|---|
-| iOS | `CLLocationManager`, `AVCaptureDevice`, `PHPhotoLibrary`, `UNUserNotificationCenter` (async-only), `CMMotionActivityManager` | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
+| iOS | [`CLLocationManager`](https://developer.apple.com/documentation/corelocation/cllocationmanager), [`AVCaptureDevice`](https://developer.apple.com/documentation/avfoundation/avcapturedevice), [`PHPhotoLibrary`](https://developer.apple.com/documentation/photos/phphotolibrary), [`UNUserNotificationCenter`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter) (async-only), [`CMMotionActivityManager`](https://developer.apple.com/documentation/coremotion/cmmotionactivitymanager) | the matching block-based `request…` | `objc2` + `block2`, `[package.metadata.day.ios].frameworks` |
 | macOS | the same TCC APIs where they exist; no CoreMotion | same | shared `apple.rs` |
-| Android | `Context.checkSelfPermission` + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-android` + the crate's own Java shim |
-| HarmonyOS | `OH_AT_CheckSelfPermission`; for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
-| Web | `navigator.permissions.query` + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-dom shim |
+| Android | [`Context.checkSelfPermission`](https://developer.android.com/reference/android/content/Context#checkSelfPermission(java.lang.String)) + `getPackageInfo(GET_PERMISSIONS)` | `requestPermissions` from a headless `Fragment` | `day-android` + the crate's own Java shim |
+| HarmonyOS | [`OH_AT_CheckSelfPermission`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-ability-kit/capi-ability-access-control-h.md); for notifications, `notificationManager.isNotificationEnabledSync` | `requestPermissionsFromUser`, through the host page's `registerPermissions` seam in `day-arkui` (found in the app's own library by `dlsym`, so the part links no toolkit); for notifications, `requestEnableNotification` | raw FFI; the notification switch through an ArkTS daybridge arm |
+| Web | [`navigator.permissions.query`](https://www.w3.org/TR/permissions/#dom-permissions-query) + a live `change` cache; `Notification.permission` is sync | the per-API call | the day-dom shim |
 | Linux / Windows | constants | resolves immediately | — |
 
 Two platform facts apply everywhere:
@@ -178,24 +194,24 @@ day_part_permissions::request(perm, move |s| {
 `day launch -t macos-appkit` runs the bare binary, not a bundle. TCC reads usage descriptions from a
 bundle's `Info.plist`, so an unbundled process is denied (or killed) regardless of what Day.toml
 says. Only `day pack -t macos-appkit` produces a bundle that can be granted anything. The crate
-guards every `UNUserNotificationCenter` call behind a bundle check for the same reason: touching it
+guards every [`UNUserNotificationCenter`](https://developer.apple.com/documentation/usernotifications/unusernotificationcenter) call behind a bundle check for the same reason: touching it
 unbundled aborts the process.
 
 ## What the declaration pipeline generates
 
 | portable name | Android | iOS `Info.plist` | macOS | HarmonyOS |
 |---|---|---|---|---|
-| `location-when-in-use` | `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` | `NSLocationWhenInUseUsageDescription` | + `NSLocationUsageDescription` | `APPROXIMATELY_LOCATION` + `LOCATION` |
-| `location-always` | + `ACCESS_BACKGROUND_LOCATION` | that key **and** the when-in-use one (Apple suppresses the prompt without both) | + `NSLocationUsageDescription` | + `LOCATION_IN_BACKGROUND` |
-| `camera` | `CAMERA` | `NSCameraUsageDescription` | same | `ohos.permission.CAMERA` |
-| `microphone` | `RECORD_AUDIO` | `NSMicrophoneUsageDescription` | same | `ohos.permission.MICROPHONE` |
+| `location-when-in-use` | `ACCESS_FINE_LOCATION`, `ACCESS_COARSE_LOCATION` | [`NSLocationWhenInUseUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocationwheninuseusagedescription) | + [`NSLocationUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocationusagedescription) | `APPROXIMATELY_LOCATION` + `LOCATION` |
+| `location-always` | + `ACCESS_BACKGROUND_LOCATION` | that key **and** the when-in-use one (Apple suppresses the prompt without both) | + [`NSLocationUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nslocationusagedescription) | + `LOCATION_IN_BACKGROUND` |
+| `camera` | `CAMERA` | [`NSCameraUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nscamerausagedescription) | same | `ohos.permission.CAMERA` |
+| `microphone` | `RECORD_AUDIO` | [`NSMicrophoneUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsmicrophoneusagedescription) | same | `ohos.permission.MICROPHONE` |
 | `notifications` | `POST_NOTIFICATIONS` | none | none | none (a runtime call) |
-| `photos` | `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_EXTERNAL_STORAGE` capped at `maxSdkVersion=32` | `NSPhotoLibraryUsageDescription` | same | `READ_IMAGEVIDEO` ⚠ |
-| `motion` | `ACTIVITY_RECOGNITION` | `NSMotionUsageDescription` | none (CoreMotion is iOS-only) | `ACTIVITY_MOTION` |
+| `photos` | `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_EXTERNAL_STORAGE` capped at `maxSdkVersion=32` | [`NSPhotoLibraryUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsphotolibraryusagedescription) | same | `READ_IMAGEVIDEO` ⚠ |
+| `motion` | `ACTIVITY_RECOGNITION` | [`NSMotionUsageDescription`](https://developer.apple.com/documentation/bundleresources/information-property-list/nsmotionusagedescription) | none (CoreMotion is iOS-only) | `ACTIVITY_MOTION` |
 | `screen-privacy` | none | none | none | `PRIVACY_WINDOW` (granted at install, no reason) |
 
 `screen-privacy = true` is how a HarmonyOS app opts into content protection
-(`WindowHandle::set_content_protected`, [docs/windows.md](windows.md)): the window's privacy mode needs this
+(`WindowHandle::set_content_protected`, [docs/windows](windows.md)): the window's privacy mode needs this
 permission, and `Cap::ContentProtection` answers `Native` there only when the app declared it. No
 other platform needs a permission for it, and nothing prompts, so it takes no reason.
 
@@ -231,7 +247,7 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
   the keys in the table above plus your `[permissions.raw]` keys; every other byte is preserved, so
   the diff shows only what changed, and a hand-added key Day doesn't model is never touched. Two
   consecutive builds produce a byte-identical file. This is an exception to "aggregation
-  never mutates the scaffolds" (DESIGN §15.2), because the alternative broke `⌘R` in Xcode.
+  never mutates the scaffolds", because the alternative broke `⌘R` in Xcode.
   The plist carries the default locale's text; the translations go to `InfoPlist.xcstrings`
   beside it, the string catalog Xcode 15+ reads localized `Info.plist` values from, one
   `stringUnit` per key and locale in Xcode's own locale spelling (`zh-Hans`). The scaffold
@@ -250,8 +266,18 @@ Day.toml is a **hard build error** on iOS and HarmonyOS, naming the crate and th
 
 ## Testing past the prompt
 
+> [!WARNING]
+> **Device permission prompts.**
+> Runtime prompts have not been exercised on devices. Test granting, denying, and revoking
+> each permission your app requests.
+
+> [!WARNING]
+> **HarmonyOS / ArkUI: permissions manifest.**
+> Generated permissions have not been verified in a device build. Check the packaged
+> manifest and permission behavior on your target device.
+
 A dayscript drives Day's own views and nothing else; the consent dialog is the system's window,
-out of its reach ([docs/testing.md](testing.md)), so a walkthrough that needs the camera or the
+out of its reach ([docs/testing](testing.md)), so a walkthrough that needs the camera or the
 microphone stops at the first `request`. Rather than drive the prompt, avoid it:
 
 ```sh
@@ -275,7 +301,7 @@ did not happen would surface minutes later as a failed assertion with nothing to
 | `ios-uikit` on a device (`--ios-device`) | refused: the consent record is the device's own |
 | `harmony-arkui` | refused: HarmonyOS ships no tool that marks a `user_grant` permission from outside the app |
 | `macos-*` | refused: `tccutil` resets TCC, it never grants (see above) |
-| `web-dom` | refused: the driver's own grants stand ([docs/web.md](web.md)) |
+| `web-dom` | refused: the driver's own grants stand ([docs/web](web.md)) |
 | `linux-*`, `windows-*` | nothing gates the capability, so the launch notes that and carries on |
 
 The shared CI workflow's `grant-permissions` input names the grants per target, so one call can
@@ -299,4 +325,4 @@ into the app's Gradle build by `[package.metadata.day.android]`, with **no edits
 crate**, including the permission-result callback, which lives in a headless `Fragment` the crate
 attaches itself rather than in `day-android`'s `DayActivity`. Its `permissions = []` entry is
 empty and must stay that way, because a permissions crate must never force a permission into an
-app's manifest. See [extending.md](extending.md).
+app's manifest. See [extending](extending.md).

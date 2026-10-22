@@ -34,7 +34,7 @@ For an operation shared across surfaces, use a [reusable `Command`](commands.md)
 title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Icons and labels
 
@@ -112,29 +112,31 @@ button(res::str::drafts())
 
 | Toolkit | Selected rendering |
 | --- | --- |
-| AppKit | The `NSButton` becomes push-on/push-off on its first selection; the on state is the bezel's highlighted fill |
+| AppKit | The [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) becomes push-on/push-off on its first selection; the on state is the bezel's highlighted fill |
 | UIKit | `isSelected`, drawn with the system's tinted configuration; deselecting restores the button's style |
-| Android | A checkable `MaterialButton` in its checked state, plus the view's selected state for TalkBack |
-| GTK | The `:checked` state flag on the plain `GtkButton`, which the theme draws as a toggle's checked look |
-| Qt | A checkable `QPushButton` in its checked state |
-| XAML | The theme's accent fill on the `Button`; automation carries no selected state |
+| Android | A checkable [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) in its checked state, plus the view's selected state for TalkBack |
+| GTK | The `:checked` state flag on the plain [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html), which the theme draws as a toggle's checked look |
+| Qt | A checkable [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) in its checked state |
+| XAML | The theme's accent fill on the [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button); automation carries no selected state |
 | ArkUI | The prominent fill over the button's own style; the bound NDK has no selected state attribute |
 | web-dom | `aria-pressed` and the `selected` class, drawn as the accent fill |
 
 `read_native` reports the state as `checked`, so a conformance case asserts it with
-`assert_on` and `assert_native` ([docs/testing.md](testing.md)). The composed document strip uses it for the
-current tab ([docs/navigation.md](navigation.md) "Document tabs").
+`assert_on` and `assert_native` ([docs/testing](testing.md)). The composed document strip uses it for the
+current tab ([docs/navigation](navigation.md) "Document tabs").
 
 ## Platform implementation
 
+Platform guidance: [Apple: buttons](https://developer.apple.com/design/human-interface-guidelines/buttons); [Android: buttons](https://developer.android.com/develop/ui/views/components/button).
+
 | Toolkit | Button and icon implementation |
 | --- | --- |
-| AppKit | `NSButton` image and image-position properties; SF Symbols or bundled template images |
-| UIKit | `UIButtonConfiguration` image, title, and spacing; SF Symbols or bundled template images sized to 20 points |
-| Android | `MaterialButton` icon, gravity, padding, and content description; packaged drawables |
-| GTK | `GtkButton` containing an image and optional label; icon-theme symbols with Day outlines as fallback |
-| Qt | `QPushButton` with a `QIcon`; theme icons, standard icons, Day outlines, or bundled files |
-| XAML | `Button` content containing an icon and optional text; symbol glyphs, vector paths, or bundled images |
+| AppKit | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) image and image-position properties; SF Symbols or bundled template images |
+| UIKit | [`UIButtonConfiguration`](https://developer.apple.com/documentation/uikit/uibuttonconfiguration) image, title, and spacing; SF Symbols or bundled template images sized to 20 points |
+| Android | [`MaterialButton`](https://developer.android.com/reference/com/google/android/material/button/MaterialButton) icon, gravity, padding, and content description; packaged drawables |
+| GTK | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) containing an image and optional label; icon-theme symbols with Day outlines as fallback |
+| Qt | [`QPushButton`](https://doc.qt.io/qt-6/qpushbutton.html) with a [`QIcon`](https://doc.qt.io/qt-6/qicon.html); theme icons, standard icons, Day outlines, or bundled files |
+| XAML | [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button) content containing an icon and optional text; symbol glyphs, vector paths, or bundled images |
 | ArkUI | A native button containing an image and optional text; Day symbol outlines or packaged SVG/PNG assets |
 | web-dom | A native `<button>` with a CSS image mask using the current text color |
 
@@ -155,10 +157,10 @@ usual pressed-color change. AppKit applies label contrast through an attributed 
 icon contrast through `contentTintColor`; UIKit uses configuration foreground and background
 colors.
 
-## Backend contract
+## Toolkit contract
 
 `.plain()` requests a borderless native action button for toolbar commands and list
-accessories. AppKit removes the NSButton bezel; UIKit uses its system button; Android
+accessories. AppKit removes the [NSButton](https://developer.apple.com/documentation/appkit/nsbutton) bezel; UIKit uses its system button; Android
 uses Material's theme-resolved text-button colors with compact horizontal insets;
 GTK applies `flat`. Native press, focus, accessibility and disabled behavior remain.
 Qt, XAML and web currently use their automatic style as a fallback; ArkUI's automatic
@@ -172,7 +174,7 @@ buttons continue to send `ButtonPatch::Title`. Icon buttons send `ButtonPatch::C
 which updates their title and icon together and invalidates their measured size. The
 reactive binding uses `bind_seeded`, avoiding a duplicate update immediately after creation.
 
-`Enabled` and `Style` patches remain independent of content. A backend must preserve the
+`Enabled` and `Style` patches remain independent of content. A toolkit must preserve the
 icon and accessible title when a style changes. UIKit retains content in a side table because
 replacing a configuration also replaces its image. ArkUI releases its internal image and
 text nodes when content changes or the button is released.

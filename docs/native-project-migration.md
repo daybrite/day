@@ -34,7 +34,7 @@ For app-specific Android declarations, keep an optional overlay at
 contributions in every app variant, using Android's standard rules. This path alone does not
 select a persistent host. Keep only custom declarations and explicit merge markers; do not copy
 the complete old host manifest. See
-[manifest customization](https://daybrite.dev/docs/reference/platforms/android-mdc#manifest-customization).
+[manifest customization](/docs/reference/platforms/android-mdc#manifest-customization).
 
 ## Preserve app configuration
 

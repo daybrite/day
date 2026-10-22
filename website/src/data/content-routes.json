@@ -22,7 +22,8 @@
     "source": "docs/android-adaptive-navigation-proposal.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "design record; verify implementation status before use"
+    "status": "design record; verify implementation status before use",
+    "published": false
   },
   "internal/android-jni": {
     "route": "/contributing/backend-contracts/android-jni",
@@ -179,7 +180,8 @@
     "source": "docs/drag-and-drop-plan.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "design record; verify implementation status before use"
+    "status": "design record; verify implementation status before use",
+    "published": false
   },
   "internal/drag-and-drop": {
     "route": "/docs/reference/drag-and-drop",
@@ -917,7 +919,8 @@
     "route": "/docs/reference/platforms/windows-xaml",
     "source": "website/src/content/docs/platforms/windows-xaml.mdx",
     "type": "reference",
-    "audience": "app developer"
+    "audience": "app developer",
+    "published": false
   },
   "docs/project-structure": {
     "route": "/docs/reference/project-structure",
@@ -1008,35 +1011,40 @@
     "source": "docs/design/badge.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "historical design; includes unimplemented proposals"
+    "status": "historical design; includes unimplemented proposals",
+    "published": false
   },
   "internal/design/notify": {
     "route": "/contributing/design/notify",
     "source": "docs/design/notify.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "historical design; includes unimplemented proposals"
+    "status": "historical design; includes unimplemented proposals",
+    "published": false
   },
   "internal/design/tree": {
     "route": "/contributing/design/tree",
     "source": "docs/design/tree.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "historical design; includes unimplemented proposals"
+    "status": "historical design; includes unimplemented proposals",
+    "published": false
   },
   "internal/design/color": {
     "route": "/contributing/design/color",
     "source": "docs/design/color.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "proposal; not implemented"
+    "status": "proposal; not implemented",
+    "published": false
   },
   "internal/design/focus": {
     "route": "/contributing/design/focus",
     "source": "docs/design/focus.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "resolved design discussion"
+    "status": "resolved design discussion",
+    "published": false
   },
   "internal/backend-contracts/focus": {
     "route": "/contributing/backend-contracts/focus",
@@ -1050,7 +1058,8 @@
     "source": "docs/design/grid.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "deferred design"
+    "status": "deferred design",
+    "published": false
   },
   "internal/backend-contracts/grid": {
     "route": "/contributing/backend-contracts/grid",
@@ -1064,7 +1073,8 @@
     "source": "docs/design/deep-links.md",
     "type": "explanation",
     "audience": "contributor",
-    "status": "historical proposals; some superseded by implementation"
+    "status": "historical proposals; some superseded by implementation",
+    "published": false
   },
   "repository/setup": {
     "route": "/contributing/setup",

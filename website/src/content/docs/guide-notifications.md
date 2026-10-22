@@ -11,7 +11,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
 Local notifications let an app deliver reminders and status updates through the operating
-system. `day-part-local-notify` supports immediate and scheduled delivery, including reminders
+system. [`day-part-local-notify`](/docs/reference/notify) supports immediate and scheduled delivery, including reminders
 due after the app has closed. Posting a notification requires permission and a configured channel:
 
 **Works on:** iOS, macOS, Android, and HarmonyOS. Support is selected by operating system.
@@ -60,7 +60,7 @@ notification does not change language later. The remaining code blocks are integ
 
 ## 1. Declare the permission
 
-Add `day-part-local-notify` and `day-part-permissions` to your app’s Cargo dependencies,
+Add [`day-part-local-notify`](/docs/reference/notify) and [`day-part-permissions`](/docs/reference/permissions) to your app’s Cargo dependencies,
 using the same Day revision as the rest of the project.
 
 Declare notification access in `Day.toml`:

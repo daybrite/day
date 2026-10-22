@@ -10,8 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-The examples below are API fragments showing common controls and UI patterns. They are not
-complete apps, and no screenshot-to-code attribution is established for them. Use the
+Browse examples of common controls and UI patterns. These are API fragments, not complete apps.
+Use the
 [beginner journey](/docs/tutorials/first-app) and
 [technical recipes](/docs/reference/examples/catalog#technical-recipes) for designated compiled code. They use `day::prelude::*` for the common APIs. For the underlying
 concepts, see [Pieces](/docs/explanation/pieces), [Reactivity](/docs/explanation/reactivity), and [Layout](/docs/explanation/layout).
@@ -22,7 +22,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## A first app
 
 `launch` takes window options and a `root` closure that returns a Piece. Entry points and loop
-ownership vary by backend; mobile/web hosts can own the loop. The desktop fragment below needs
+ownership vary by toolkit; mobile/web hosts can own the loop. The desktop fragment below needs
 a manifest, build script, and resource catalog as shown in the first-app tutorial.
 
 ```rust
@@ -197,8 +197,8 @@ Navigation state lives in signals too. Changing a selection or path updates the 
 container; using its tabs or back button updates the signal. Choose between two containers:
 
 **`nav`** is a one-of-N choice bound to a `Signal<String>`. Its `.style` picks the native
-chrome: `Sidebar` becomes a `NavigationSplitView` (an `AdwNavigationSplitView` on GTK, an
-`NSSplitView` source list on macOS, a pushing list on mobile); `Tabs` becomes a native tab widget.
+chrome: `Sidebar` becomes a `NavigationSplitView` (an [`AdwNavigationSplitView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationSplitView.html) on GTK, an
+[`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) source list on macOS, a pushing list on mobile); `Tabs` becomes a native tab widget.
 
 ```rust
 let section = Signal::new(String::new());
@@ -211,7 +211,7 @@ nav(section)
 ```
 
 **`nav_stack`** is a push/pop stack bound to a `Signal<Vec<String>>` path. Day reconciles the
-native stack (`UINavigationController`, `AdwNavigationView`, the Android back stack) to the path.
+native stack ([`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the Android back stack) to the path.
 
 ```rust
 let path = Signal::new(Vec::<String>::new());

@@ -100,7 +100,6 @@ when and how to use it.
 | `android-mdc` | `.apk` + `.aab` (release-signed) |
 | `linux-gtk` / `linux-qt` | single-file `.flatpak` bundle **and** a `.appimage` |
 | `windows-winui` | self-contained `.msix` + NSIS `-setup.exe` |
-| `windows-xaml` (deprecated) | `.msix` + NSIS `-setup.exe` |
 | `harmony-arkui` | `.hap` |
 | `web-dom` | none — `day build` already emits a self-contained static `dist/` |
 
@@ -323,7 +322,7 @@ day launch -t macos-gtk --script dayscript/walkthrough.yaml --locale fr
 # (build/day/screenshots/<target>/<variant>/) and DAY_THEME forces the theme on every backend
 day launch -t macos-gtk --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
 
-# variant loops share one binary (theme and locale are runtime inputs): build once, then
+# variant loops share one binary: build once, then
 # `--skip-build` reuses the artifact — on iOS this pays xcodebuild once instead of per variant
 day build -t ios-uikit
 day launch -t ios-uikit --skip-build --script dayscript/walkthrough.yaml --variant dark --env DAY_THEME=dark
@@ -775,7 +774,7 @@ hiding an `--allow` that has outlived its reason.
 Under GitHub Actions, findings also become annotations on the lines they name, plus a summary table
 on the run page.
 
-One [backend](/docs/reference/glossary#backend) feature is enabled per binary; `day launch -t <target>` selects it, so the AppKit build
+One [toolkit](/docs/reference/glossary#toolkit) feature is enabled per binary; `day launch -t <target>` selects it, so the AppKit build
 contains only AppKit code and the Android build only its JNI bridge. The full directory anatomy,
 the per-target build pipelines, and how [resources](/docs/reference/glossary#resource) are packaged are covered in
 [Project structure & builds](/docs/reference/project-structure).

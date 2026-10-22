@@ -8,11 +8,14 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Localization (§12)
+# Localization
+
+Translate the app’s interface and update its text when the user changes language. Generated
+message accessors keep the Rust code connected to the app’s Fluent catalogs.
 
 Day embeds Fluent catalogs and generates Rust accessors for their messages. The runtime
 resolves each message using a shared locale signal and the catalog attached to the accessor.
-The [localization guide](https://daybrite.dev/docs/how-to/localization) covers setup and translation
+The [localization guide](/docs/how-to/localization) covers setup and translation
 workflows. This reference defines the generation, lookup, and tooling contracts.
 
 ## Catalog generators
@@ -124,7 +127,7 @@ The generated module also carries `res::window_options()`: the `WindowOptions` e
 the app starts from, with the locale catalog installed, the title taken from the `app_title`
 message (or the manifest's title when the catalog has none) and the version from Cargo.toml.
 An app chains the rest onto it (`res::window_options().size(960.0, 640.0)`) and hands the result
-to `day_start!`/`day::launch` and `open_window` ([docs/windows.md](windows.md)).
+to `day_start!`/`day::launch` and `open_window` ([docs/windows](windows.md)).
 
 Plural selectors and `NUMBER()` arguments are numeric. String selectors, such as a selection
 on `$gender`, remain string-capable. The generator unions message keys across locales;
@@ -187,7 +190,7 @@ and one store listing per language stay enough.
 
 ## Which language an app opens in
 
-`day::launch` collects backend locale hints, installs `WindowOptions::locales`, computes
+`day::launch` collects toolkit locale hints, installs `WindowOptions::locales`, computes
 the localized title `res::window_options()` carries, and then builds the UI. The app catalog declares supported launch languages;
 private catalogs do not add languages to that declaration.
 
@@ -345,7 +348,7 @@ Store copy lives in `store/storefront.toml`, as `[storefront.metadata]` with a t
 from UI messages. `day store stage` maps project locale tags to each store's spelling and
 generates fastlane metadata. Website locale
 configuration lives in `website/site.toml`; the app site uses store text and localized
-screenshot metadata. See [store listings](store.md) and [DayScript](https://daybrite.dev/docs/how-to/dayscript).
+screenshot metadata. See [store listings](store.md) and [DayScript](/docs/how-to/dayscript).
 
 ## Adding and removing locales
 

@@ -117,11 +117,13 @@ that storage. Picker and activation requests are distinct from navigation/deep l
 
 ## Platform mapping
 
+Platform guidance: [Apple: file management](https://developer.apple.com/design/human-interface-guidelines/file-management); [Android: accessing shared documents](https://developer.android.com/training/data-storage/shared/documents-files).
+
 | Target | Registration | Delivery and limits |
 |---|---|---|
-| macOS AppKit | `CFBundleDocumentTypes` with the declared role and rank; exported UTIs for the app's own types, imported UTIs for the rest, in the built `.app` | `NSApplicationDelegate.application:openURLs:`; Finder, Open With and Dock drops, before or after launch. Requires the bundle, not its bare executable. |
+| macOS AppKit | [`CFBundleDocumentTypes`](https://developer.apple.com/documentation/bundleresources/information-property-list/cfbundledocumenttypes) with the declared role and rank; exported UTIs for the app's own types, imported UTIs for the rest, in the built `.app` | [`NSApplicationDelegate.application:openURLs:`](https://developer.apple.com/documentation/appkit/nsapplicationdelegate/application(_:open:)); Finder, Open With and Dock drops, before or after launch. Requires the bundle, not its bare executable. |
 | macOS GTK | Same bundle metadata | `GApplication` open signal. Day creates a development `.app` when file types are declared. |
-| macOS Qt | Same bundle metadata | `QFileOpenEvent`; same development bundle policy as GTK. |
+| macOS Qt | Same bundle metadata | [`QFileOpenEvent`](https://doc.qt.io/qt-6/qfileopenevent.html); same development bundle policy as GTK. |
 | iOS UIKit | Document types with role and rank, exported or imported UTIs; `LSSupportsOpeningDocumentsInPlace=false` | App delegate and scene URL contexts, including cold connection options. Files imports a copy; reading uses the current app window unless the app chooses otherwise. |
 | Android MDC | Exported Activity `ACTION_VIEW` (plus `ACTION_EDIT` for editors), `CATEGORY_DEFAULT`, exact MIME filters | Cold Intent and `onNewIntent`; `content://` and `file://` provider streams are copied before delivery. No broad external-storage permission is required. |
 | Linux GTK / Qt | `.desktop` `MimeType`, `Exec … --day-open-files %U`, and `share/mime/packages/<app-id>.xml` for exported types, in Flatpak/AppImage packaging | Explicit launch arguments; GTK also handles `GApplication` open events. Desktop integration must install the desktop entry. Qt activations may start another process. |

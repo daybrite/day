@@ -1,6 +1,6 @@
 ---
 title: "Progress indicators"
-description: "progress and spinner: determinate and indeterminate, native on every backend."
+description: "progress and spinner: determinate and indeterminate, native on every toolkit."
 ---
 
 <!--
@@ -8,11 +8,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Progress indicators (`progress`, `spinner`)
+# Progress indicators
 
-A progress indicator reports the state of ongoing work. Day exposes the two SwiftUI
-shapes as separate constructors so the call site says which one it means, with no bare
-boolean or sentinel value to decode ([docs/api-style.md](api-style.md)):
+Show how far a task has progressed, or indicate that work is still running when its duration
+is unknown. Day provides separate constructors for determinate progress and a busy indicator.
 
 ```rust
 // Determinate: a bar that fills to a known fraction (0.0..=1.0).
@@ -36,7 +35,7 @@ column((
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## API
 
@@ -46,8 +45,8 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 - `progress(fraction: impl IntoFraction<M>) -> Progress`: determinate. `IntoFraction`
   mirrors `IntoText`: it is implemented for `f64` (constant), `Signal<f64>`, and any
   `Fn() -> f64`, each under a disjoint marker so the three call forms stay coherent.
-- Out-of-range fractions are clamped to `0.0..=1.0` before they ever reach a backend,
-  so a backend never has to defend against `1.7` or `-0.2`.
+- Out-of-range fractions are clamped to `0.0..=1.0` before they ever reach a toolkit,
+  so a toolkit never has to defend against `1.7` or `-0.2`.
 - A determinate bar takes `grow_w` (it fills the available width like a slider); a spinner
   keeps its fixed intrinsic size.
 
@@ -70,21 +69,23 @@ no new trait method was needed.
 
 ## Native mapping
 
-Each backend resolves the two variants to its usual native widget:
+Platform guidance: [Apple: progress indicators](https://developer.apple.com/design/human-interface-guidelines/progress-indicators); [Windows: progress controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/progress-controls).
 
-| Backend | Determinate | Indeterminate |
+Each toolkit resolves the two variants to its usual native widget:
+
+| Toolkit | Determinate | Indeterminate |
 |---------|-------------|---------------|
-| AppKit  | `NSProgressIndicator` (`.bar`, min 0 / max 1) | `NSProgressIndicator` (`.spinning`, animating) |
-| UIKit   | `UIProgressView` | `UIActivityIndicatorView` (animating) |
-| GTK 4   | `GtkProgressBar` (`set_fraction`) | `GtkSpinner` (`start`) |
-| Qt      | `QProgressBar` (0..1000) | `QProgressBar` in busy mode (`range(0,0)`) |
+| AppKit  | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (`.bar`, min 0 / max 1) | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (`.spinning`, animating) |
+| UIKit   | [`UIProgressView`](https://developer.apple.com/documentation/uikit/uiprogressview) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) (animating) |
+| GTK 4   | [`GtkProgressBar`](https://docs.gtk.org/gtk4/class.ProgressBar.html) (`set_fraction`) | [`GtkSpinner`](https://docs.gtk.org/gtk4/class.Spinner.html) (`start`) |
+| Qt      | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (0..1000) | [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) in busy mode (`range(0,0)`) |
 | Android | `LinearProgressIndicator` (M3, 0..1000) | `LoadingIndicator` (M3 Expressive morphing spinner) |
-| XAML | `ProgressBar` (0..1000) | `ProgressRing` (`IsActive`) |
+| XAML | [`ProgressBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.progressbar) (0..1000) | [`ProgressRing`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.progressring) (`IsActive`) |
 
 Notes:
 
 - **Qt has no native spinner widget.** The conventional Qt indeterminate indicator is a busy
-  `QProgressBar` (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
+  [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (`min == max == 0`), so Day uses that rather than emulating a ring. It is a
   horizontal busy bar rather than a circular spinner, the one cross-platform divergence.
 - The determinate fraction crosses the C ABI (Qt/Android/XAML) as an integer tick in
   `0..1000`, the same encoding `slider` uses, so there is no float-ABI concern.
@@ -107,20 +108,12 @@ progress(move || volume.get() / 100.0)
 
 `Role::Meter` maps to each platform's progress accessibility role.
 
-## Testing
+## Checking progress in a walkthrough
 
-- **Unit / e2e (`day-mock`):** the op log records `realize day.progress … value=Some(0.25)`
-  and `update day.progress … value=Some(0.75)`. The e2e suite
-  (`crates/day-pieces/tests/mock_e2e.rs`) asserts: exactly one value patch per reactive
-  change, clamping of out-of-range fractions, that a spinner is indeterminate and emits no
-  value updates, and that a constant fraction installs no binding.
-- **dayscript:** the determinate fraction is captured in the node probe (like `slider`), so
-  a walkthrough can assert it:
+The determinate fraction is captured in the node probe, so a DayScript walkthrough can
+assert it:
 
-  ```yaml
-  - set_value: { id: volume_slider, value: 80 }
-  - assert_value: { id: volume_progress, value: 0.8 }   # 80/100, reactive
-  ```
-
-  The showcase `controls` page carries a `volume-progress` determinate bar bound to the
-  volume slider plus a `busy-spinner`, verified on all five local targets.
+```yaml
+- set_value: { id: volume_slider, value: 80 }
+- assert_value: { id: volume_progress, value: 0.8 }   # 80/100, reactive
+```

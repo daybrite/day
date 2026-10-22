@@ -11,11 +11,11 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 # Focus
 
 Bind keyboard focus to a signal to observe the active control or move focus from your app.
-Text inputs support this across backends. Focusable containers and non-text controls have
+Text inputs support this across toolkits. Focusable containers and non-text controls have
 platform limits described below.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## 1. The API
 
@@ -61,14 +61,13 @@ containers. Editable descendants retain their editing keys; a container can requ
 `.focused(...)` after navigation. XAML and ArkUI still require a canvas or native control as the
 keyboard focus target; their container duty remains a no-op. Reserved with names but not implemented: `default_focus(…)`
 on containers, `focus_order(n)`, and focus scopes for dialogs. Tab/Shift-Tab traversal stays
-native. Day wraps real widgets, so platform traversal is already correct (§13: focus order
-follows layout order).
+native, with focus order following layout order.
 
 ## 2. Semantics: the rules
 
 1. **Writes are requests.** A write asks the toolkit on the next main-loop turn; the last write
    in a turn wins.
-2. **The signal converges on reality.** Backends report the *resulting* state through
+2. **The signal converges on reality.** Toolkits report the *resulting* state through
    `Event::FocusChanged`, and that report is what lands in the signal (through the echo guard).
    A request naming a target the platform will not focus produces no event: platform focus is
    unchanged, and the next real focus event corrects the signal.
@@ -80,7 +79,7 @@ follows layout order).
    never had would steal it from whoever has it.)
 5. **Echo discipline.** A programmatic focus move fires native focus events; those must not
    re-request. The pieces layer keeps a per-binding echo cell of the native state and skips
-   applies that already match it; backends additionally skip resigns when the control doesn't
+   applies that already match it; toolkits additionally skip resigns when the control doesn't
    own focus (so a stale release can't blur a sibling).
 6. **Loss and gain pair up.** When focus moves between two controls bound to the same group
    signal, the event pump dispatches the queued gain *before* the loss it arrived with, so the
@@ -108,7 +107,6 @@ Place long forms in a scroll view. Android and UIKit resize the available conten
 the keyboard appears and reveal the focused field. HarmonyOS uses ArkUI's resize avoidance
 mode. Test field visibility at the bottom of the form and after changing keyboard height.
 
-## Implementation and design
+## Implementation
 
-See the [backend contract](backend-contracts/focus.md) for event delivery and keyboard handling,
-and the [design decisions](design/focus.md) for prior art.
+See the [toolkit contract](backend-contracts/focus.md) for event delivery and keyboard handling.

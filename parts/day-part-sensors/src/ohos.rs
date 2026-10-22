@@ -1,19 +1,13 @@
 // Copyright © The Daybrite Project
 // SPDX-License-Identifier: MPL-2.0
 
-// HarmonyOS / OpenHarmony: the native SensorServiceKit C API (`libohsensor.so`, `oh_sensor.h`,
-// API 11+). Pure FFI, like iOS: no ArkTS bridge or Day runtime needed (unlike Android's
-// SensorManager, which rides day-android's JVM/Context). The API is push-only: the first `read` for
-// a kind lazily creates a subscription (SubscriptionId + Attribute + Subscriber, all kept alive for
-// the process) whose callback caches the newest sample in a static; Rust polls the cache. Values are
-// already SI (m/s², rad/s, µT). NOTE: subscribing to the accelerometer requires the
-// `ohos.permission.ACCELEROMETER` permission and the gyroscope `ohos.permission.GYROSCOPE` (declare
-// them in the app's module.json5 `requestPermissions`); the magnetometer needs none.
+// HarmonyOS SensorServiceKit event subscriptions (API 11+).
 
 use core::ffi::c_int;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use super::{SensorKind, SensorReading};
+use super::{Calibration, Sensor, SensorKind, SensorReading, push};
 
 // Sensor_Type (oh_sensor_type.h).
 const SENSOR_TYPE_ACCELEROMETER: c_int = 1;
@@ -24,7 +18,7 @@ const SENSOR_TYPE_MAGNETIC_FIELD: c_int = 6;
 const SENSOR_SUCCESS: c_int = 0;
 
 /// Data reporting interval passed to the subscription, in nanoseconds (~UI rate).
-const SAMPLING_INTERVAL_NS: i64 = 60_000_000;
+const SAMPLING_INTERVAL_NS: i64 = 50_000_000;
 
 // Opaque SensorServiceKit handles.
 #[repr(C)]
@@ -71,6 +65,11 @@ unsafe extern "C" {
         subscriber: *const SensorSubscriber,
     ) -> c_int;
 
+    fn OH_Sensor_Unsubscribe(
+        id: *const SensorSubscriptionId,
+        subscriber: *const SensorSubscriber,
+    ) -> c_int;
+
     fn OH_SensorEvent_GetType(event: *mut SensorEvent, sensor_type: *mut c_int) -> i32;
     fn OH_SensorEvent_GetData(
         event: *mut SensorEvent,
@@ -79,29 +78,20 @@ unsafe extern "C" {
     ) -> i32;
 }
 
-fn sensor_type(kind: SensorKind) -> c_int {
-    match kind {
+fn sensor_type(kind: Sensor) -> c_int {
+    match kind.kind {
         SensorKind::Accelerometer => SENSOR_TYPE_ACCELEROMETER,
         SensorKind::Gyroscope => SENSOR_TYPE_GYROSCOPE,
         SensorKind::Magnetometer => SENSOR_TYPE_MAGNETIC_FIELD,
     }
 }
 
-fn kind_index(kind: SensorKind) -> usize {
-    match kind {
-        SensorKind::Accelerometer => 0,
-        SensorKind::Gyroscope => 1,
-        SensorKind::Magnetometer => 2,
-    }
-}
+// The API supplies a function pointer without user data. Lifecycle is serialized by the
+// dispatcher; invalidate before unsubscribe, and install the new epoch only after it completes.
+static GENERATIONS: [AtomicU32; 3] = [const { AtomicU32::new(0) }; 3];
+static STOP_FAILED: [AtomicBool; 3] = [const { AtomicBool::new(false) }; 3];
 
-/// Latest sample per kind, written by the subscription callback, read by `read`.
-static LATEST: Mutex<[Option<[f64; 3]>; 3]> = Mutex::new([None; 3]);
-/// Whether the per-kind subscription is active (its handles are kept for the process lifetime
-/// because the API has no `stop`, and the service requires them alive while subscribed).
-static SUBSCRIBED: Mutex<[bool; 3]> = Mutex::new([false; 3]);
-
-/// The subscription callback: identify the sensor by type and cache its x/y/z triple.
+/// Copy the native sample before returning; the service owns the event memory.
 unsafe extern "C" fn on_event(event: *mut SensorEvent) {
     let mut ty: c_int = 0;
     if unsafe { OH_SensorEvent_GetType(event, &mut ty) } != SENSOR_SUCCESS {
@@ -113,6 +103,10 @@ unsafe extern "C" fn on_event(event: *mut SensorEvent) {
         SENSOR_TYPE_MAGNETIC_FIELD => 2,
         _ => return,
     };
+    let generation = GENERATIONS[idx].load(Ordering::Acquire);
+    if generation == 0 {
+        return;
+    }
     let mut data: *mut f32 = std::ptr::null_mut();
     let mut len: u32 = 0;
     if unsafe { OH_SensorEvent_GetData(event, &mut data, &mut len) } != SENSOR_SUCCESS
@@ -122,48 +116,83 @@ unsafe extern "C" fn on_event(event: *mut SensorEvent) {
         return;
     }
     let xyz = unsafe { [*data as f64, *data.add(1) as f64, *data.add(2) as f64] };
-    if let Ok(mut latest) = LATEST.lock() {
-        latest[idx] = Some(xyz);
+    if let Some(kind) = Sensor::from_code(idx as u32) {
+        push(
+            kind,
+            generation,
+            SensorReading {
+                x: xyz[0],
+                y: xyz[1],
+                z: xyz[2],
+            },
+        );
     }
 }
 
-/// Subscribe to `kind` if not yet subscribed. Failures (e.g. a missing ACCELEROMETER/GYROSCOPE
-/// permission) release the handles and leave the flag unset, so a later read retries.
-fn ensure_subscribed(kind: SensorKind) {
-    let Ok(mut subscribed) = SUBSCRIBED.lock() else {
-        return;
-    };
-    let idx = kind_index(kind);
-    if subscribed[idx] {
-        return;
-    }
-    unsafe {
-        let id = OH_Sensor_CreateSubscriptionId();
-        let attr = OH_Sensor_CreateSubscriptionAttribute();
-        let sub = OH_Sensor_CreateSubscriber();
-        let ok = !id.is_null()
-            && !attr.is_null()
-            && !sub.is_null()
-            && OH_SensorSubscriptionId_SetType(id, sensor_type(kind)) == SENSOR_SUCCESS
-            && OH_SensorSubscriptionAttribute_SetSamplingInterval(attr, SAMPLING_INTERVAL_NS)
-                == SENSOR_SUCCESS
-            && OH_SensorSubscriber_SetCallback(sub, on_event) == SENSOR_SUCCESS
-            && OH_Sensor_Subscribe(id, attr, sub) == SENSOR_SUCCESS;
-        if ok {
-            // Leak id/attr/sub: the service needs them for as long as we're subscribed, which is
-            // the rest of the process.
-            subscribed[idx] = true;
-        } else {
-            if !sub.is_null() {
-                OH_Sensor_DestroySubscriber(sub);
+pub struct Subscription {
+    kind: Sensor,
+    id: *mut SensorSubscriptionId,
+    attr: *mut SensorSubscriptionAttribute,
+    sub: *mut SensorSubscriber,
+    active: bool,
+}
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        GENERATIONS[self.kind.index()].store(0, Ordering::Release);
+        unsafe {
+            if self.active && OH_Sensor_Unsubscribe(self.id, self.sub) != SENSOR_SUCCESS {
+                // The service may still hold these pointers. Preserve them, and prevent a new
+                // source from accepting old events through the callback without user data.
+                STOP_FAILED[self.kind.index()].store(true, Ordering::Release);
+                eprintln!(
+                    "day-part-sensors: native unsubscribe failed for {:?}",
+                    self.kind
+                );
+                return;
             }
-            if !attr.is_null() {
-                OH_Sensor_DestroySubscriptionAttribute(attr);
+            if !self.sub.is_null() {
+                OH_Sensor_DestroySubscriber(self.sub);
             }
-            if !id.is_null() {
-                OH_Sensor_DestroySubscriptionId(id);
+            if !self.attr.is_null() {
+                OH_Sensor_DestroySubscriptionAttribute(self.attr);
+            }
+            if !self.id.is_null() {
+                OH_Sensor_DestroySubscriptionId(self.id);
             }
         }
+    }
+}
+pub fn start(kind: Sensor, generation: u32) -> Option<Subscription> {
+    if kind.calibration == Calibration::Uncalibrated {
+        return None;
+    }
+    if STOP_FAILED[kind.index()].load(Ordering::Acquire) || !is_available(kind) {
+        return None;
+    }
+    unsafe {
+        let mut source = Subscription {
+            kind,
+            id: OH_Sensor_CreateSubscriptionId(),
+            attr: OH_Sensor_CreateSubscriptionAttribute(),
+            sub: OH_Sensor_CreateSubscriber(),
+            active: false,
+        };
+        if source.id.is_null()
+            || source.attr.is_null()
+            || source.sub.is_null()
+            || OH_SensorSubscriptionId_SetType(source.id, sensor_type(kind)) != SENSOR_SUCCESS
+            || OH_SensorSubscriptionAttribute_SetSamplingInterval(source.attr, SAMPLING_INTERVAL_NS)
+                != SENSOR_SUCCESS
+            || OH_SensorSubscriber_SetCallback(source.sub, on_event) != SENSOR_SUCCESS
+        {
+            return None;
+        }
+        GENERATIONS[kind.index()].store(generation, Ordering::Release);
+        if OH_Sensor_Subscribe(source.id, source.attr, source.sub) != SENSOR_SUCCESS {
+            return None;
+        }
+        source.active = true;
+        Some(source)
     }
 }
 
@@ -206,19 +235,9 @@ fn query_types() -> Option<Vec<c_int>> {
     }
 }
 
-pub fn is_available(kind: SensorKind) -> bool {
-    available_types().contains(&sensor_type(kind))
-}
-
-pub fn sample(kind: SensorKind) -> Option<SensorReading> {
-    if !is_available(kind) {
-        return None;
+pub fn is_available(kind: Sensor) -> bool {
+    if kind.calibration == Calibration::Uncalibrated {
+        return false;
     }
-    ensure_subscribed(kind);
-    let xyz = LATEST.lock().ok()?[kind_index(kind)]?;
-    Some(SensorReading {
-        x: xyz[0],
-        y: xyz[1],
-        z: xyz[2],
-    })
+    available_types().contains(&sensor_type(kind))
 }

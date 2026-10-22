@@ -43,25 +43,25 @@ walkthrough asserts the same facts at runtime via `assert_no_placeholders`.
 `✓` = the crate ships that backend's renderer arm; `·` = no arm, so the kind renders the
 placeholder. A piece may still be absent at runtime if the app does not enable its feature.
 
-A `·` is not always a gap: `day-piece-colorpicker` answers android and arkui with a picker
+A `·` is not always a gap: [`day-piece-colorpicker`](/docs/reference/colorpicker) answers android and arkui with a picker
 COMPOSED from ordinary pieces, which by construction registers no renderer for its kind
-([colorpicker.md](colorpicker.md)). This table measures arms, so it cannot see that —
+([colorpicker](colorpicker.md)). This table measures arms, so it cannot see that —
 nothing derived from `realize` can.
 
 | piece | kind(s) | appkit | uikit | gtk | qt | xaml | android | arkui | dom |
 |---|---|---|---|---|---|---|---|---|---|
-| `day-piece-activity` | `day.piece.activity` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| `day-piece-colorpicker` | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
-| `day-piece-combobox` | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| `day-piece-datetime` | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| `day-piece-map` | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
+| [`day-piece-activity`](/docs/reference/activity) | `day.piece.activity` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`day-piece-colorpicker`](/docs/reference/colorpicker) | `day.piece.colorpicker` | ✓ | ✓ | ✓ | ✓ | ✓ | · | · | ✓ |
+| [`day-piece-combobox`](/docs/reference/combobox) | `day.piece.combobox` | ✓ | · | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`day-piece-datetime`](/docs/reference/datepicker) | `day.piece.datepicker`, `day.piece.timepicker` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`day-piece-map`](/docs/reference/map) | `day.piece.map` | ✓ | ✓ | · | · | · | · | · | · |
 | `day-piece-pager` | `day.piece.pager` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| `day-piece-pullrefresh` | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
-| `day-piece-remote-image` | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| `day-piece-searchfield` | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
-| `day-piece-stepper` | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
-| `day-piece-swiftui` | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
-| `day-piece-texteditor` | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| [`day-piece-pullrefresh`](/docs/reference/pullrefresh) | `day.piece.pullrefresh` | · | ✓ | · | · | · | ✓ | ✓ | · |
+| [`day-piece-remote-image`](/docs/reference/images) | `day.piece.remote_image` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`day-piece-searchfield`](/docs/reference/searchfield) | `day.piece.searchfield` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · |
+| [`day-piece-stepper`](/docs/reference/stepper) | `day.piece.stepper` | ✓ | · | ✓ | ✓ | · | · | · | · |
+| [`day-piece-swiftui`](/docs/reference/swiftui) | `day.piece.swiftui` | ✓ | ✓ | · | · | · | · | · | · |
+| [`day-piece-texteditor`](/docs/reference/texteditor) | `day.piece.texteditor` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 
 ## Capabilities
 

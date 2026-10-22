@@ -194,7 +194,7 @@ closes it on Android).
 
 ## 5. Add Settings, About and File ▸ New Window
 
-Settings and About come from `day-piece-settings` ([settings](/docs/reference/settings)): one
+Settings and About come from [`day-piece-settings`](/docs/reference/settings) ([settings](/docs/reference/settings)): one
 declaration in your root builder, before `app_menu`, registers both windows and their menu
 items on every desktop and the navigation presentation on the phones:
 

@@ -95,9 +95,6 @@ From the repository root, with the documented Node and Rust tools and dependenci
 
 ```sh
 npm --prefix website run build:force
-bash scripts/build-api-docs.sh --out website/dist/api
-node website/scripts/check-api-bundle.mjs
-python3 -B scripts/docs/check-api-links.py
 npm --prefix website run linkcheck
 npm --prefix website run preview
 ```
@@ -105,13 +102,15 @@ npm --prefix website run preview
 These commands build and serve locally; they do not publish. The site build may fetch existing
 gallery/release inputs and rewrite generated data. The API script clears `target/doc`, runs Cargo,
 and replaces the destination bundle. Use an isolated checkout/copy when preserving local build
-output or lockfile edits. Do not run a later Astro build against the completed artifact: it clears
-`dist`, including the API bundle. `scripts/website.sh preview` also rebuilds, so use the direct
-preview command above to inspect the combined artifact.
+output or lockfile edits. The full build generates Rustdoc after Astro, then checks the bundle
+and links into it. A later `build:site` or bare Astro build clears `dist`, including the API
+bundle; rerun `build:api` afterward. `scripts/website.sh preview` rebuilds both outputs; use the
+direct preview command above to inspect an existing artifact.
 
 The artifact completeness check requires the gallery and Showcase pages, search entry files,
 sitemap, custom-domain file, API bridge, root API landing page, and every crate
-entry from the shared manifest. The separate API link checker validates item destinations and fragments; Rustdoc warnings fail
+entry from the shared manifest. The API link checker validates guide-to-API links as well as
+Rustdoc item destinations and fragments; Rustdoc warnings fail
 the build. The completeness check itself does not replace either check.
 The website link checker excludes Rustdoc and external URLs; review those separately. Search
 indexes the Astro site before Rustdoc is added and is not evidence of full API-item search.

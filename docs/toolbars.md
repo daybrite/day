@@ -10,16 +10,14 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Toolbars
 
-> **Status: implemented** on every backend. A toolbar is chrome, not a piece: it does not live in
-> the tree and day does not lay it out. Each backend realizes the model with its platform's own
-> bar — `NSToolbar`, `AdwHeaderBar`, `QToolBar`, `CommandBar`, a `UINavigationItem`, a Material
-> app bar's menu, a `Navigation`'s `.menus()`, a drawn strip on the web.
+Put actions for the current window or page in its toolbar. Day places them in the platform’s
+own bar and keeps them present for as long as the declaring content is visible.
 
 For an operation shared across surfaces, use a [reusable `Command`](commands.md) to define its
 title, availability, optional check state, icon, shortcut, and handler once.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 A localized label, tooltip or search prompt follows a language change in place: a fixed list
 relabels its registered items (`relabel_contribution`) and a derived list re-runs on the locale,
 and either way the words reach the bar as `ToolbarPatch::Label` and `ToolbarPatch::Placeholder`
@@ -57,7 +55,7 @@ them. That is what a window's bar showing a page's commands one level out of ste
 
 [`Decorate::toolbar`] takes one item, a list of them, an array, or a closure that derives the list
 and re-runs whenever its reactive reads change — one name for all four, through a disjoint marker
-parameter (the same `IntoText` shape §12.2 uses). There is no separate reactive spelling.
+parameter (the same `IntoText` shape used for other localized text). There is no separate reactive spelling.
 
 ```rust
 page.toolbar(one_item)
@@ -86,7 +84,7 @@ already follows from where it was declared.
 | `Bottom` | falls back to `Secondary` | `toolbarItems`, the bottom bar | falls back to `Secondary` | falls back |
 
 There is deliberately no `Cancel`/`Confirm`: a modal's affirmative and dismissive buttons are
-dialog buttons with their own roles ([docs/dialogs.md](dialogs.md)), and a second, weaker spelling
+dialog buttons with their own roles ([docs/dialogs](dialogs.md)), and a second, weaker spelling
 of the same idea would leave two right answers for one question.
 
 On UIKit, a `toolbar_label` with `Principal` placement uses a native single-line title label.
@@ -106,28 +104,28 @@ an item came from, because the declaration site already said so, and stamps it o
 
 `macos-appkit` realizes it with a tracking separator at each divider: AppKit vends
 `NSToolbarSidebarTrackingSeparatorItemIdentifier` for the sidebar's, and Day builds the second
-with `NSTrackingSeparatorToolbarItem` bound to the split at divider 1. Windows carry
+with [`NSTrackingSeparatorToolbarItem`](https://developer.apple.com/documentation/appkit/nstrackingseparatortoolbaritem) bound to the split at divider 1. Windows carry
 `NSWindowStyleMaskFullSizeContentView` so those items can find their dividers. The sidebar's
 commands pack against its trailing edge; every other column packs leading roles first, then the
 trailing ones at that column's own right edge. `web-dom` does the same with three flex tracks
-whose widths follow the panes'. Qt does it inside its one `QToolBar`: three track widgets, the
+whose widths follow the panes'. Qt does it inside its one [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html): three track widgets, the
 sidebar's and the list's given the width of their splitter pane every time the splitter lays
 out, the detail's taking the rest — the same packing within each. A window with no navigation
 splitter (a settings window, a stack-only app) packs one flat bar by placement.
 
 Everywhere else the column is DROPPED, never the item: GTK draws one header bar with no divider
-to track, XAML's `CommandBar` spans the window, and ArkUI's `.menus()` is a flat list.
+to track, XAML's [`CommandBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.commandbar) spans the window, and ArkUI's `.menus()` is a flat list.
 Degradation always removes the specialization and keeps the command.
 
 ## The sidebar affordance
 
-A `nav(Sidebar)` supplies its own, so an app declares nothing for it. It reaches the backends
+A `nav(Sidebar)` supplies its own, so an app declares nothing for it. It reaches the toolkits
 as an ordinary button under the reserved id `day_spec::SIDEBAR_TOGGLE_ID` whose action names the
 host it was built for (`Toolkit::toggle_sidebar(host)`), so a second window's button collapses
 that window's sidebar and a dayscript `toolbar:` step presses it like any other item. Each
-backend does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`,
+toolkit does what its platform expects: AppKit swaps in `NSToolbarToggleSidebarItemIdentifier`,
 Qt keeps the button on the bar when its pane collapses (the track shrinks to it), XAML drops it because
-`NavigationView` draws its own pane button, and **UIKit drops it entirely** — `UISplitViewController`
+[`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) draws its own pane button, and **UIKit drops it entirely** — [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller)
 and `.tabSidebar` each supply one, and Day's copy was both dead on a phone and doubled on an iPad.
 Suppress it with `.no_sidebar_toggle()`.
 
@@ -146,7 +144,7 @@ There are no spacers. Alignment is [placement](#placement), which is a fact abou
 IS rather than about where it happens to sit in a list, and it survives a bar that has to fold.
 
 **Search is declared elsewhere.** It belongs to the navigation surface it filters
-(`Nav::searchable`, [docs/search.md](search.md)), and Day merges the resulting field into this bar under the
+(`Nav::searchable`, [docs/search](search.md)), and Day merges the resulting field into this bar under the
 reserved id `day::search`. Declaring it on the surface lets the platform move it (into the
 navigation list on a window too narrow for a sidebar) without the app re-declaring anything.
 
@@ -170,8 +168,8 @@ toolbar_segmented(
 ) // mode: Signal<usize>, or any Binding<usize>
 ```
 
-Each backend draws the control its platform already has: `NSSegmentedControl` in `selectOne`
-tracking on AppKit, a `.linked` box of grouped toggle buttons on GTK, an exclusive `QButtonGroup`
+Each toolkit draws the control its platform already has: [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) in `selectOne`
+tracking on AppKit, a `.linked` box of grouped toggle buttons on GTK, an exclusive [`QButtonGroup`](https://doc.qt.io/qt-6/qbuttongroup.html)
 on Qt, a tight row of compact `AppBarToggleButton`s inside one `AppBarElementContainer` on XAML
 (a checkable menu when it folds into the overflow), and the same `.day-segmented` element the
 picker piece uses on the web. The control enforces exclusivity; the signal only ever holds the
@@ -182,7 +180,7 @@ dayscript target, and the key a targeted update addresses. Ids are unique within
 
 ### What changes the bar, and how
 
-The bar is never rebuilt. Day hands a backend its bar as **edits**, the way the view tree
+The bar is never rebuilt. Day hands a toolkit its bar as **edits**, the way the view tree
 arrives as `insert`/`remove` rather than as a new tree: each `ToolbarOp` adds or removes one
 item, and an item no op names keeps its native widget. That is what keeps a search field focused
 while the page around it changes.
@@ -196,7 +194,7 @@ while the page around it changes.
   completions) change by `ToolbarPatch` on the live item, never by an edit. These ride their own
   bindings, so keep them out of a derived builder's reactive reads and put structure there:
   - a `toolbar_toggle`'s binding
-  - a `.searchable(..)` surface's query binding ([docs/search.md](search.md))
+  - a `.searchable(..)` surface's query binding ([docs/search](search.md))
   - a reactive `.enabled(…)`
 
   A value the user changes (typing, a click) is recorded in Day's model as it is reported, so the
@@ -224,7 +222,7 @@ is kept and Day logs a warning.
 
 ### Icons
 
-`.icon(Symbol::…)` names what the icon means, and each backend draws its platform's glyph:
+`.icon(Symbol::…)` names what the icon means, and each toolkit draws its platform's glyph:
 an SF Symbol on macOS, a freedesktop icon name on GTK and Qt, a Segoe Fluent glyph on Windows.
 This is the only way one icon looks native on four desktops; a bundled PNG cannot, because it is
 one artist's take on all of them. Use `.image(name)` only for something app-specific.
@@ -233,7 +231,7 @@ one artist's take on all of them. Use `.image(name)` only for something app-spec
 names the rest of the app uses. The vector is tried first, because on AppKit a vector asset stages
 as an SVG and nothing else: looking only for a raster found nothing and the item silently fell back
 to drawing its label, a button reading "Star" where a star belonged. Bundled glyphs are templates,
-so each backend tints them to the bar's own foreground (Qt does this explicitly, since an untinted
+so each toolkit tints them to the bar's own foreground (Qt does this explicitly, since an untinted
 template is a flat black shape, invisible on a dark toolbar).
 
 On the web there is no system icon set to borrow, so day-dom draws the standard symbols itself,
@@ -242,7 +240,7 @@ geometry authored in day rather than a third-party icon set, which keeps the fra
 icon license. Before that, `Icon::Symbol` was dropped on the web entirely and only items carrying
 a bundled image had a glyph, so a bar mixed icons and words.
 
-`Symbol` is `#[non_exhaustive]`. A backend that has no glyph for a symbol draws none and the item
+`Symbol` is `#[non_exhaustive]`. A toolkit that has no glyph for a symbol draws none and the item
 falls back to its label, never to a broken-image placeholder. GTK additionally checks the running
 icon theme before setting a name, because icon themes vary in completeness and a missing name
 paints GTK's broken-image glyph.
@@ -259,7 +257,7 @@ drawn strip — so an app never needs a fallback branch for "there is no toolbar
 that had them have been deleted. `Native` on the desktops and the phones, `Emulated` on web-dom
 (a strip docked above the app root, since a browser tab has no title bar to hang chrome on; a
 cover-tier window — the settings surface, anything `open_window` presents as a cover
-([docs/cover.md](cover.md)) — gets a strip of its own over the cover, where a navigation stack
+([docs/cover](cover.md)) — gets a strip of its own over the cover, where a navigation stack
 inside the cover also puts its back button and title, so the cover's Done and the stack's bar
 are one bar as on a phone's modal navigation controller) and on
 HarmonyOS (the bar belongs to the navigation destination, not the window). Probe it only for a
@@ -307,7 +305,7 @@ Record and Play folded away to two bare glyphs. A toggle folds to a checked row,
 a titled submenu of the same children, and a segmented item to its segments under the name of
 the segment in force. Tapping the row runs what the button would have run, the toggle's own
 flip included. Two kinds never reach a phone's bar: search, which rides the navigation
-list there ([docs/search.md](search.md)), and the sidebar toggle, which the split view owns.
+list there ([docs/search](search.md)), and the sidebar toggle, which the split view owns.
 Android draws a `Symbol` from day-android's own glyph set — one Material Symbols vector per
 variant, shipped in the toolkit's `res/` and named `day_symbol_<variant>` — so a symbol-only
 item has an icon to show in the bar, the way an SF Symbol gives it one on Apple. An item with
@@ -323,7 +321,9 @@ bar and the window's New Window and appearance chooser fold into the overflow wh
 that narrow.
 
 
-## Per-backend native realization
+## Per-toolkit native realization
+
+Platform guidance: [Apple: toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars); [Android: app bars](https://developer.android.com/develop/ui/views/components/appbar); [Windows: command bars](https://learn.microsoft.com/en-us/windows/apps/design/controls/command-bar).
 
 | | AppKit | GTK | Qt | XAML | UIKit | Android | ArkUI | web-dom |
 |---|---|---|---|---|---|---|---|---|
@@ -332,13 +332,13 @@ that narrow.
 
 | | AppKit | GTK | Qt | XAML |
 |---|---|---|---|---|
-| bar | `NSToolbar`, unified style | the window's `AdwHeaderBar` | `QToolBar` | `CommandBar` |
-| button | `NSToolbarItem` (bordered) | flat `GtkButton` | `QAction` | `AppBarButton` |
-| toggle | `NSButton` push-on/push-off | `GtkToggleButton` | checkable `QAction` | `AppBarToggleButton` |
-| menu | `NSMenuToolbarItem` | `GtkMenuButton` + `GMenu` | `QToolButton` (InstantPopup) + `QMenu` | `AppBarButton` + `MenuFlyout` |
-| search | `NSSearchToolbarItem` | `GtkSearchEntry` | `QLineEdit` (clear button + find action) | `AutoSuggestBox` |
-| separator | *(none — a fixed space)* | `GtkSeparator` | `QToolBar::addSeparator` | `AppBarSeparator` |
-| icons | SF Symbols | freedesktop symbolic names | `QIcon::fromTheme`, then `QStyle` standard pixmaps | Segoe Fluent glyphs |
+| bar | [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar), unified style | the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) | [`CommandBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.commandbar) |
+| button | [`NSToolbarItem`](https://developer.apple.com/documentation/appkit/nstoolbaritem) (bordered) | flat [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html) | [`QAction`](https://doc.qt.io/qt-6/qaction.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.appbarbutton) |
+| toggle | [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) push-on/push-off | [`GtkToggleButton`](https://docs.gtk.org/gtk4/class.ToggleButton.html) | checkable [`QAction`](https://doc.qt.io/qt-6/qaction.html) | `AppBarToggleButton` |
+| menu | [`NSMenuToolbarItem`](https://developer.apple.com/documentation/appkit/nsmenutoolbaritem) | [`GtkMenuButton`](https://docs.gtk.org/gtk4/class.MenuButton.html) + `GMenu` | [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) (InstantPopup) + [`QMenu`](https://doc.qt.io/qt-6/qmenu.html) | [`AppBarButton`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.appbarbutton) + [`MenuFlyout`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.menuflyout) |
+| search | [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) | [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) | [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) (clear button + find action) | [`AutoSuggestBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.autosuggestbox) |
+| separator | *(none — a fixed space)* | [`GtkSeparator`](https://docs.gtk.org/gtk4/class.Separator.html) | [`QToolBar::addSeparator`](https://doc.qt.io/qt-6/qtoolbar.html) | `AppBarSeparator` |
+| icons | SF Symbols | freedesktop symbolic names | [`QIcon::fromTheme`](https://doc.qt.io/qt-6/qicon.html), then [`QStyle`](https://doc.qt.io/qt-6/qstyle.html) standard pixmaps | Segoe Fluent glyphs |
 
 Notes that are not obvious from the table:
 
@@ -356,34 +356,34 @@ Notes that are not obvious from the table:
 
 - **AppKit**: macOS toolbars have no separator item, so `toolbar_separator(id)` renders as the
   system's own fixed space, which is what macOS uses between groups. The toolbar is created once
-  per window and edited in place (a replaced `NSToolbar` flashes the title bar and drops
+  per window and edited in place (a replaced [`NSToolbar`](https://developer.apple.com/documentation/appkit/nstoolbar) flashes the title bar and drops
   focus). User customization is off: the item list is app-declared and reactive, so an autosaved
   arrangement would be in permanent conflict with the next edit. Adding or removing the toolbar
-  resizes the content view without a window resize, so the backend reports the new content size
+  resizes the content view without a window resize, so the toolkit reports the new content size
   itself.
-- **GTK**: could express COLUMNS — a per-pane `AdwHeaderBar` over each pane of the navigation
+- **GTK**: could express COLUMNS — a per-pane [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) over each pane of the navigation
   split is the GNOME idiom, and Nautilus and Text Editor both do it. Day does not yet; the
   column is dropped and one header bar carries everything. That is a gap, not a toolkit limit.
 - **GTK**: GNOME has no separate toolbar. The header bar is the toolbar, and GTK4 removed
-  `GtkToolbar` outright, so items go into the `AdwHeaderBar` the window already has, around the
+  [`GtkToolbar`](https://docs.gtk.org/gtk3/class.Toolbar.html) outright, so items go into the [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) the window already has, around the
   title: into two boxes Day packs at its start and end, so items go in and out one at a time
   without Adwaita's own children in the way. Buttons get the `flat` class, per the GNOME HIG.
-- **Qt**: the bar is a `QToolBar` parented to the window and laid out with the menu bar, not a
-  `QMainWindow` dock; the geometry there is already hand-managed. It is a real `QToolBar` either
+- **Qt**: the bar is a [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) parented to the window and laid out with the menu bar, not a
+  [`QMainWindow`](https://doc.qt.io/qt-6/qmainwindow.html) dock; the geometry there is already hand-managed. It is a real [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) either
   way: it takes its icon size and its icon/text style from the user's Qt settings, which is the
-  KDE convention and why the backend sets neither. It does not get dragging between dock
-  areas, which needs `QMainWindow`. Columns are three plain widgets on that bar, each with a
+  KDE convention and why the toolkit sets neither. It does not get dragging between dock
+  areas, which needs [`QMainWindow`](https://doc.qt.io/qt-6/qmainwindow.html). Columns are three plain widgets on that bar, each with a
   row layout of three groups (leading, principal, trailing) that items go in and out of; a bar
-  without columns is one such track across the whole bar. A button is a `QAction` shown through
-  an auto-raise `QToolButton` of the bar's own style, so patches by action reach it directly.
+  without columns is one such track across the whole bar. A button is a [`QAction`](https://doc.qt.io/qt-6/qaction.html) shown through
+  an auto-raise [`QToolButton`](https://doc.qt.io/qt-6/qtoolbutton.html) of the bar's own style, so patches by action reach it directly.
   Items are kept per window, since two windows show the same ids. Icons: Qt has no
-  glyph set of its own beyond QStyle's few dialog bitmaps, so a symbol is the desktop theme's
+  glyph set of its own beyond [QStyle](https://doc.qt.io/qt-6/qstyle.html)'s few dialog bitmaps, so a symbol is the desktop theme's
   icon where one exists (a freedesktop theme on Linux; on macOS Qt 6.7+ maps the freedesktop
-  names it knows to SF Symbols), then Day's outline, then QStyle's. Those drawings never
+  names it knows to SF Symbols), then Day's outline, then [QStyle](https://doc.qt.io/qt-6/qstyle.html)'s. Those drawings never
   agreed on a box, so every toolbar glyph is fitted by its ink to the same fraction of the bar's
-  icon box and tinted to the palette text color; the box is 24 points on macOS (an NSToolbar
+  icon box and tinted to the palette text color; the box is 24 points on macOS (an [NSToolbar](https://developer.apple.com/documentation/appkit/nstoolbar)
   glyph's), and the user's setting on the Linux desktops.
-- **XAML**: `CommandBar` right-aligns `PrimaryCommands`, left-aligns `Content` and folds
+- **XAML**: [`CommandBar`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.commandbar) right-aligns `PrimaryCommands`, left-aligns `Content` and folds
   `SecondaryCommands` into its overflow — which is exactly the three groups Day's placements
   reduce to, so `Navigation`/`Principal` land in `Content`, `Automatic`/`Primary` in
   `PrimaryCommands` and `Secondary` in the overflow. A crowded bar folds its right-hand commands
@@ -397,15 +397,15 @@ Notes that are not obvious from the table:
   placed `Secondary`, it becomes one overflow command titled by the choice in force, whose flyout
   lists the choices as checkable rows. `.label_style(…)` is honored (`IconOnly` collapses the
   label, `TitleOnly` drops the icon); `.prominent()` is not drawn yet. The bar is docked only
-  while it draws something: the sidebar toggle alone (which `NavigationView` draws itself) leaves
+  while it draws something: the sidebar toggle alone (which [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) draws itself) leaves
   no empty strip under the title bar. It comes first in tab order, before the content it acts
   on, and Tab wraps around the window rather than stopping at its last control. Secondary
   windows carry their own bar, like the primary.
 
-## How a backend applies an edit
+## How a toolkit applies an edit
 
 `Toolkit::edit_toolbar(h, ops)` gets the removals first, then the insertions in ascending
-position, so applying them in order to the bar's current items yields the new bar. Every backend
+position, so applying them in order to the bar's current items yields the new bar. Every toolkit
 keeps a `day_spec::ToolbarMirror` of its bar and applies each op to it, and then does one of two
 things with its native bar:
 
@@ -414,10 +414,10 @@ things with its native bar:
   `ToolbarMirror::prev_where` its own group (an end of the header bar, a column's leading,
   principal or trailing group, a region of the CommandBar). Nothing already on the bar moves.
   Where the groups depend on the window (Qt's and web-dom's column tracks follow the navigation
-  split's panes), the backend keeps each item's column and order, and when the split arrives,
+  split's panes), the toolkit keeps each item's column and order, and when the split arrives,
   leaves, or a pane collapses, moves just the affected widgets into their new groups, keeping
   the keyboard focus where it was.
-  AppKit's native bar is NSToolbar's identifier list, with system spacers between the groups, so
+  AppKit's native bar is [NSToolbar](https://developer.apple.com/documentation/appkit/nstoolbar)'s identifier list, with system spacers between the groups, so
   it removes the named items and then brings the identifier list to the one the model lays out,
   inserting new items and moving only spacers, which hold no state.
 - **A bar of stateless actions** (Android's app-bar menu, UIKit's bar button items, ArkUI's
@@ -429,7 +429,7 @@ A value patch goes to the live item, and into the mirror, so a later repaint sho
 ## One model per window
 
 Every contribution — the window's own and each showing page's — is composed into ONE model per
-window before it crosses to the toolkit, so a backend draws what it has always drawn and never has
+window before it crosses to the toolkit, so a toolkit draws what it has always drawn and never has
 to know that a page contributed any of it. There is deliberately no per-page model: one authority,
 so a live `enabled` patch and a re-compose cannot disagree. (They did once, and a page command
 declared while nothing was selected stayed disabled on a window that never re-composed afterwards —
@@ -464,7 +464,7 @@ against a state it had not reached. The step now refuses it and says which argum
 
 The step resolves the item in the current model and dispatches its
 action, so it passes even if the native control is still bound to a previous model's action, the
-failure mode a real keystroke hits. A backend that rebuilds its bar must rebind the live controls,
+failure mode a real keystroke hits. A toolkit that rebuilds its bar must rebind the live controls,
 not just diff the identifier list (day-appkit had exactly this bug: after a locale change the
 search field dispatched an action id day-core had already swept, so typing did nothing).
 
@@ -473,24 +473,6 @@ wiring end to end. It does **not** prove the native widget drew; a screenshot do
 fails on an unknown item (retryable, since a reactive bar may not have installed yet), on a
 disabled item, and on an item with no command.
 
-## Verification
-
-The showcase **Toolbars** page (`pages/toolbars.rs`) installs the main window's own toolbar with
-every item kind, and drives the whole API from the page: add and remove an item, enable and
-disable one, write both bound signals, and read back what the bar did. The walkthrough runs a
-button, types into the search field, sets the toggle, adds the optional item and runs it, then
-disables one and clears the search, asserting the page's live readouts after each.
-
-Day-Rise carries a small applied example: New Item on the content-list pane and Delete on the
-editor, enabled when an item is selected. Its portable `dayscript/demo.yaml` smoke test drives
-both commands while creating, editing, and deleting one item.
-
-Verified by running Day-Rise's demo on macos-appkit, macos-gtk, macos-qt, web-dom, ios-uikit
-(iPhone and iPad) and android-mdc (phone and tablet), and the Showcase walkthrough on
-macos-appkit and web-dom. A green `toolbar:` step proves the MODEL, never the pixels — an
-offscreen snapshot cannot show the title bar on AppKit — so any change to a placement path is
-also checked by capturing the real window.
-
 ## Follow-ups
 
 - WinUI does not apply `ToolbarPatch::Label`/`Placeholder` yet (its shim has no setter for a
@@ -498,14 +480,14 @@ also checked by capturing the real window.
   language change leaves the old words until the bar is next edited.
 - macOS toolbar customization, which needs the model and an autosaved arrangement to be
   reconciled rather than in conflict.
-- Qt dock-area dragging, which needs `DayWindow` to become a `QMainWindow`.
-- GTK columns, through a per-pane `AdwHeaderBar` over the navigation split's panes (see the
-  backend notes) — the only platform where the column is dropped for want of work rather than for
+- Qt dock-area dragging, which needs `DayWindow` to become a [`QMainWindow`](https://doc.qt.io/qt-6/qmainwindow.html).
+- GTK columns, through a per-pane [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) over the navigation split's panes (see the
+  toolkit notes) — the only platform where the column is dropped for want of work rather than for
   want of an API.
 - Contributions order by registration, not by tree position: a `when` arm switching on late
   appends within its placement bucket rather than inserting where it sits.
 - `web-dom` measures the panes once per re-lower, so a track's width is stale until the next one.
-- On an iPad the backend infers whether a tab page will bring its own navigation host from the
+- On an iPad the toolkit infers whether a tab page will bring its own navigation host from the
   tab bar's horizontal size class — the same question `gated_detail_piece` asks in the pieces
   layer. Two layers deriving one fact; the fix is for the tabs presentation to build each
   destination as a navigation host, as SwiftUI's `TabView { NavigationStack { … } }` does.
@@ -521,7 +503,7 @@ separators as unique; only the system's fixed and flexible spaces can repeat.
 
 On AppKit, inserting or removing an item makes the bar lay out again and paint every item's
 image afresh, and the painting lands a frame or two after the edit: a capture taken straight
-after shows each bezel empty, including the items the edit never touched. The backend therefore
+after shows each bezel empty, including the items the edit never touched. The toolkit therefore
 reports `ui_idle` false for 120 ms after a toolbar edit, so a `wait_idle` or `screenshot` step
 right after one waits that long. Nothing observable marks the end of the painting, which is why
 the wait is a bounded settle rather than a signal.

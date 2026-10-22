@@ -8,14 +8,29 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Activity spinner (external piece)
+# Activity spinner
 
-> **Status:** `day-piece-activity` is implemented in this repository as an optional Piece crate.
-> Enable its matching backend feature. Renderer presence is not runtime verification; web and
-> mock do not supply a native activity renderer in this checkout. It wraps each
-> toolkit's native indeterminate activity/loading spinner. Unlike the media player it has an
-> **intrinsic size** (a spinner is a small square control), so it is a natural-size leaf: no
-> `.frame(w, h)` is required to make it visible.
+An activity indicator shows that work is in progress when the app cannot report a percentage.
+`day-piece-activity` provides a native loading spinner that sizes itself without an explicit frame.
+The CLI selects the toolkit feature; web and mock have no native activity renderer.
+
+## Add to your app
+
+Defined in [`day-piece-activity`](https://github.com/daybrite/day/tree/main/pieces/day-piece-activity). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-activity = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI | Native activity indicator; Qt uses a busy progress bar. |
+| Web | No renderer; use the built-in [spinner](/docs/reference/progress). |
 
 ## Authoring
 
@@ -38,75 +53,58 @@ the piece writes a sparse `ActivityPatch::Animating(bool)` that starts or stops 
 animation. `.large()` selects the platform's large control size; the default is the regular one.
 
 `Activity` implements `Piece`, so `.id()` / `.a11y()` / `.frame()` chain via `Decorate`. It is a
-natural-size leaf (`Flex::default()`, and each backend's default `measure` returns the native
+natural-size leaf (`Flex::default()`, and each toolkit's default `measure` returns the native
 indicator's fitting size), so it takes exactly the space the control wants; wrap it in `.frame(w, h)`
 only if you want to reserve a fixed region (e.g. to keep surrounding layout stable while it toggles).
 
 There is no determinate mode here, because that is day's built-in `progress(fraction)`
-([docs/progress.md](progress.md)). This piece covers the indeterminate "work of unknown extent" spinner.
+([docs/progress](progress.md)). This piece covers the indeterminate "work of unknown extent" spinner.
 
-## Per-backend native realization
+## Per-toolkit native realization
+
+Platform guidance: [Apple: progress indicators](https://developer.apple.com/design/human-interface-guidelines/progress-indicators); [Windows: progress controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/progress-controls).
 
 | | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|---|
-| control | `NSProgressIndicator` (Spinning) | `UIActivityIndicatorView` | `gtk4::Spinner` | busy `QProgressBar` (range 0..0) | `android.widget.ProgressBar` | `ProgressRing` | `ARKUI_NODE_LOADING_PROGRESS` |
+| control | [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) (Spinning) | [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) | [`gtk4::Spinner`](https://docs.gtk.org/gtk4/class.Spinner.html) | busy [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) (range 0..0) | [`android.widget.ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) | [`ProgressRing`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.progressring) | [`ARKUI_NODE_LOADING_PROGRESS`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) |
 | native code | objc2-app-kit | objc2-ui-kit | gtk4 crate (core mdc) | `src/lib-qt-shim.cpp` | `src/DayActivity.java` | `src/lib-xaml-shim.cpp` | C node API (`src/lib-arkui.rs`) |
-| run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | `View.VISIBLE` ↔ `INVISIBLE` | `IsActive` | `ENABLE_LOADING` + `VISIBLE` ↔ `HIDDEN` |
+| run/stop | `startAnimation:` / `stopAnimation:` | `startAnimating` / `stopAnimating` | `start()` / `stop()` | range 0..0 (busy) ↔ 0..1 (frozen) | [`View.VISIBLE`](https://developer.android.com/reference/android/view/View) ↔ `INVISIBLE` | `IsActive` | `ENABLE_LOADING` + `VISIBLE` ↔ `HIDDEN` |
 | `.large` | `controlSize` Large/Regular | style Large/Medium | `set_size_request` 48/24 | bigger minimum size | `setScaleX/Y(1.5)` | Width/Height 48 | 64 vp instead of 32 |
 | stopped state | stays visible (`displayedWhenStopped`) | stays visible (`hidesWhenStopped = false`) | stays visible (drawn static) | frozen empty bar | INVISIBLE (box kept) | `IsActive(false)` | HIDDEN (box kept) |
 
-**Backend notes:**
+**Toolkit notes:**
 
-- **AppKit**: `NSProgressIndicator` with `style = Spinning` and `indeterminate = true`. `.large`
-  maps to `controlSize` (`NSControlSize::Large` vs `Regular`; needs objc2-app-kit's `NSCell`
-  feature, which carries `NSControlSize`). `startAnimation:` / `stopAnimation:` are the run/stop
+- **AppKit**: [`NSProgressIndicator`](https://developer.apple.com/documentation/appkit/nsprogressindicator) with `style = Spinning` and `indeterminate = true`. `.large`
+  maps to `controlSize` ([`NSControlSize::Large`](https://developer.apple.com/documentation/appkit/nscontrolsize) vs `Regular`; needs objc2-app-kit's [`NSCell`](https://developer.apple.com/documentation/appkit/nscell)
+  feature, which carries [`NSControlSize`](https://developer.apple.com/documentation/appkit/nscontrolsize)). `startAnimation:` / `stopAnimation:` are the run/stop
   calls; `setDisplayedWhenStopped(true)` keeps a stopped indicator on screen (a frozen indicator)
   instead of vanishing, matching UIKit.
-- **UIKit**: `UIActivityIndicatorView` with the Large/Medium style. objc2-ui-kit binds the whole
-  control, so unlike the media piece's hand-rolled `AVPlayerViewController`, no `extern_class!`
+- **UIKit**: [`UIActivityIndicatorView`](https://developer.apple.com/documentation/uikit/uiactivityindicatorview) with the Large/Medium style. objc2-ui-kit binds the whole
+  control, so unlike the media piece's hand-rolled [`AVPlayerViewController`](https://developer.apple.com/documentation/avkit/avplayerviewcontroller), no `extern_class!`
   shim is needed. `hidesWhenStopped = false` keeps a stopped indicator visible.
-- **GTK**: `gtk4::Spinner` (a core widget, so the feature compiles everywhere). Its natural size is
+- **GTK**: [`gtk4::Spinner`](https://docs.gtk.org/gtk4/class.Spinner.html) (a core widget, so the feature compiles everywhere). Its natural size is
   tiny, so the piece gives it a `set_size_request` square (48 for `.large`, else 24). A stopped
   spinner is drawn static.
-- **Qt**: Qt ships no native spinner widget, so this crate's C++ shim wraps a `QProgressBar`
+- **Qt**: Qt ships no native spinner widget, so this crate's C++ shim wraps a [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html)
   in busy mode (`setRange(0, 0)`), the usual Qt way to show indeterminate progress and the same
   technique day-qt uses for `spinner()`. build.rs compiles the shim against `Qt6Widgets` (already
   linked by day-qt-sys, so it emits no extra link flags). Animating toggles between busy (range
   0..0) and a frozen static bar (range 0..1, value 0). `.large` gives it a bigger minimum size. (A
-  busy `QProgressBar` is a horizontal moving-chunk bar rather than a ring; that's what Qt provides
+  busy [`QProgressBar`](https://doc.qt.io/qt-6/qprogressbar.html) is a horizontal moving-chunk bar rather than a ring; that's what Qt provides
   natively.)
-- **Android**: a framework `android.widget.ProgressBar`, whose default style is a circular
+- **Android**: a framework [`android.widget.ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar), whose default style is a circular
   indeterminate spinner, so the piece needs no Gradle dependency or permission. A default
-  indeterminate `ProgressBar` always animates while `VISIBLE`; the closest to a stopped-but-present
+  indeterminate [`ProgressBar`](https://developer.android.com/reference/android/widget/ProgressBar) always animates while `VISIBLE`; the closest to a stopped-but-present
   spinner is `INVISIBLE` (which keeps the layout box so surrounding layout does not jump). `.large`
   scales the drawable via `setScaleX/Y`. The Java factory
   (`dev.daybrite.day.piece.activity.DayActivity`) is bundled with the crate in `src/DayActivity.java` and
   folded into the app's Gradle build via `[package.metadata.day.android]`, using only day-android's
   public `DayBridge.ctx`.
-- **XAML** (`windows-winui`, and the deprecated `windows-xaml`): this crate's C++/WinRT shim
-  wraps a `ProgressRing` (`Microsoft.UI.Xaml.Controls` under WinUI 3, `Windows.UI.Xaml.Controls`
-  when built for system XAML), boxed via day-xaml-sys's `day_xaml_box` functions like the media /
+- **WinUI** (`windows-winui`): this crate's C++/WinRT shim
+  wraps a [`ProgressRing`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.progressring)
+  (`Microsoft.UI.Xaml.Controls`), boxed via day-xaml-sys's `day_xaml_box` functions like the media /
   picker / webview XAML pieces. `IsActive` runs/stops it; `.large` sets Width/Height. WinUI 3's
   ring measures to nothing before it loads, so the WinUI build also sets `MinWidth`/`MinHeight`
-  (20, or 48 when large). Creation degrades to a `TextBlock` on any unexpected throw.
+  (20, or 48 when large). Creation degrades to a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) on any unexpected throw.
 - **mock**: the feature exists (so an app can enable `day-piece-activity/mock` uniformly per
-  backend) but registers no renderer; the activity kind falls back to day's placeholder leaf.
-
-## Testing
-
-The crate's test boots the piece on the mock toolkit (which realizes unknown kinds as plain
-widgets and ignores unknown patches, the same as a backend built without the feature), flips the
-bound signal both ways, and must never panic: `cargo test -p day-piece-activity`.
-
-For a live check, wire the showcase activity page to a spinner bound to a `Signal<bool>` and a toggle
-over the same signal; the walkthrough navigates to the route, toggles the control, and screenshots
-(one always-animating `.large` spinner keeps a visible spinning indicator in the shot).
-
-## Contract evidence
-
-`activity() -> Activity` defaults to animating with regular size. `Activity::large(self) -> Self`
-is parameterless; do not copy the stale `.large(bool)` wording from a source comment.
-`.animating<M>(impl IntoReactive<bool, M>)` accepts a constant, signal, or reactive closure.
-See [the implementation](../pieces/day-piece-activity/src/lib.rs) and
-[generated coverage](coverage-matrix.md). The authoring block is an integration fragment;
-`cargo test -p day-piece-activity` exercises mock behavior, not native animation or timing.
+  toolkit) but registers no renderer; the activity kind falls back to day's placeholder leaf.

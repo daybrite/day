@@ -29,13 +29,13 @@ label(text).runs(runs)
 > and its emphasis in Fluent, then use `label(res::str::save_instructions()).markdown()`.
 > Translators can reorder it without changing byte ranges or assembling English fragments.
 > Use `TextBuilder` for structured user-authored content or styles that Markdown cannot express.
-> See [Localization](https://daybrite.dev/docs/how-to/localization).
+> See [Localization](/docs/how-to/localization).
 
 `TextBuilder` returns the plain string and the runs that style it, which is exactly what
 `label().runs()` takes. `.runs_from(builder)` does both in one call.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Why not several labels in a row
 
@@ -61,9 +61,9 @@ pub struct TextRun {
 ```
 
 Runs must be ascending, non-overlapping, inside the string, and on character boundaries.
-`runs_are_valid` checks that once in the pieces layer, so no backend has to: overlapping ranges
+`runs_are_valid` checks that once in the pieces layer, so no toolkit has to: overlapping ranges
 would produce a different wrong answer per platform, and a range splitting a multi-byte character
-would panic on `str` slicing in some backends and render mojibake in others. Runs that fail the
+would panic on `str` slicing in some toolkits and render mojibake in others. Runs that fail the
 check are dropped with a warning and the text renders unstyled.
 
 Text and runs travel together, in `LabelPatch::Runs(String, Vec<TextRun>)`, because a range only
@@ -103,16 +103,16 @@ both places.
 
 | toolkit | Mechanism | Fixed-pitch face |
 | --- | --- | --- |
-| AppKit | `NSAttributedString` on the `NSTextField` | `monospacedSystemFontOfSize:weight:` |
-| UIKit | `NSAttributedString` on the `UILabel` | `monospacedSystemFontOfSize:weight:`, scaled by `UIFontMetrics` |
+| AppKit | [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) on the [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) | `monospacedSystemFontOfSize:weight:` |
+| UIKit | [`NSAttributedString`](https://developer.apple.com/documentation/foundation/nsattributedstring) on the [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) | `monospacedSystemFontOfSize:weight:`, scaled by [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics) |
 | GTK | Pango markup | `font_family="monospace"` |
 | Qt | Qt rich text | `<code>`, which Qt maps to its own fixed font |
 | Android | `SpannableString` spans | `TypefaceSpan("monospace")` |
-| ArkUI | `ARKUI_NODE_SPAN` children | `HarmonyOS Sans Mono, monospace` |
-| XAML | `Run` inlines in `TextBlock.Inlines` | `Consolas, Courier New, monospace` |
+| ArkUI | [`ARKUI_NODE_SPAN`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) children | `HarmonyOS Sans Mono, monospace` |
+| XAML | `Run` inlines in [`TextBlock.Inlines`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) | `Consolas, Courier New, monospace` |
 | web-dom | `<span class="day-run">` children | the `ui-monospace` stack |
 
-Ranges convert to UTF-16 for the Apple and Android backends, which index text that way; any emoji
+Ranges convert to UTF-16 for the Apple and Android toolkits, which index text that way; any emoji
 or CJK in the string makes the two disagree.
 
 ### What each toolkit cannot draw
@@ -122,7 +122,7 @@ or CJK in the string makes the two disagree.
 | `Underline::Double` | Qt draws a single rule; Android draws a single rule |
 | `Underline::Dotted` | GTK draws a single rule (Pango has no dotted); Android draws a single rule |
 | `Underline::Wavy` | GTK draws the spell-check squiggle (`Underline::Error`); Android draws a single rule |
-| `background` | everywhere except where noted below; XAML needs a `TextHighlighter`, since a `Run` has no background |
+| `background` | everywhere except where noted below; XAML needs a [`TextHighlighter`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.documents.texthighlighter), since a `Run` has no background |
 | `scale` | GTK takes an absolute Pango size in 1/1024 pt; the relative `font_scale`/`size="N%"` attributes are Pango 1.50's, and a Pango that does not know an attribute fails the whole markup parse and renders the label empty. Qt takes points too: its CSS subset ignores a percentage |
 
 Everything else draws on all eight.
@@ -160,12 +160,12 @@ labels, reactive targets, removal from a handler and default route navigation. T
 injected taps alone do not prove span hit testing. Per-link keyboard traversal and screen-reader
 activation are not covered by this native tap suite.
 
-Some backend details affect how runs are built.
+Some toolkit details affect how runs are built.
 
 **On macOS the label itself handles the field editor's link callback.** AppKit makes the
-`NSTextField` the shared field editor's delegate; it does not forward
+[`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) the shared field editor's delegate; it does not forward
 `textView:clickedOnLink:atIndex:` to the field's separate control delegate. `DayLabel`, an
-`NSTextField` subclass, handles that callback and returns `true`, suppressing AppKit's external
+[`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) subclass, handles that callback and returns `true`, suppressing AppKit's external
 URL opening. It reports the original target through `Event::LinkActivated`, including `#route`
 targets. The subclass is used for plain labels too, so links added by reactive markdown patches
 work without replacing the view. Labels with links remain selectable for native hit testing;
@@ -174,7 +174,7 @@ removing links restores the app's explicit selection setting. See Apple's
 and the [native link regression](../toolkits/day-appkit/tests/native_links.rs).
 
 **GTK renders runs as markup, not as a `pango::AttrList`,** because Pango's attributes cannot
-express a link and the markup dialect can. A `GtkLabel`'s attribute list *overrides* the
+express a link and the markup dialect can. A [`GtkLabel`](https://docs.gtk.org/gtk4/class.Label.html)'s attribute list *overrides* the
 attributes its markup parsed, so a base weight attribute spanning the label silently defeats a
 `<b>` run. So a label with runs carries no attribute list at all, and its base
 font arrives as a wrapping `<span>`. It also measures from that markup: `label.text()` is the
@@ -183,7 +183,7 @@ markup with its tags stripped, and measuring it would size every run at the base
 **Qt does not resolve a generic `monospace` family from a style attribute** (it rendered
 proportional), so the fixed face comes from `<code>` instead.
 
-**A label with a link on iOS is a `UITextView`.** UIKit reserves both selection and link hit
+**A label with a link on iOS is a [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview).** UIKit reserves both selection and link hit
 testing for text-input views, so `.selectable()` rebuilds the label as a read-only text view, and
 a label that arrives with a link run is built as one from the start. That swap carries the
 attributed text across rather than the plain string. A link that first appears in a later patch
@@ -192,11 +192,16 @@ its link, or mark the label `.selectable()`.
 
 ## Markdown
 
-[markdown.md](./markdown.md) covers `.markdown()`, which parses inline markdown at run time and
+[markdown](./markdown.md) covers `.markdown()`, which parses inline markdown at run time and
 produces exactly these runs; it is the convenient way to get them when the text is a translated
 string or something a user typed.
 
 ## What `Cap` answers
 
-`Cap::TextRuns` and `Cap::TextLinks` are Native on all eight backends (AppKit, GTK, Qt,
+`Cap::TextRuns` and `Cap::TextLinks` are Native on all eight toolkits (AppKit, GTK, Qt,
 UIKit, Android, XAML, ArkUI and web-dom).
+
+## Platform guidance
+
+- [Apple: typography](https://developer.apple.com/design/human-interface-guidelines/typography)
+- [Windows: typography](https://learn.microsoft.com/en-us/windows/apps/design/style/typography)

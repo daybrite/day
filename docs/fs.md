@@ -15,11 +15,29 @@ cached responses, and other data that is too large for [preferences](prefs.md).
 Native targets use filesystem storage; web uses the browser’s Origin Private File System
 (OPFS). Files persist across launches, subject to the platform’s storage policies.
 
-This reference covers paths, errors, and backend behavior. The
-[local storage guide](https://daybrite.dev/docs/how-to/guide-storage) shows how to use files from an app.
+## Add to your app
+
+Defined in [`day-part-fs`](https://github.com/daybrite/day/tree/main/parts/day-part-fs). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-part-fs = { git = "https://github.com/daybrite/day.git" }
+```
+
+The implementation is selected by the compilation target; no toolkit feature flags
+or dependency entry in `Day.toml` are needed.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, Windows, Linux (GTK / Qt), HarmonyOS | Filesystem storage beneath the app-data root. |
+| Web | Async APIs only, using OPFS; unavailable storage returns an error. |
+
+This reference covers paths, errors, and storage behavior. The
+[local storage guide](/docs/how-to/guide-storage) shows how to use files from an app.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -47,12 +65,12 @@ day::task(async move {
 The contract points:
 
 - **Paths are checked lexically.** Absolute paths, colons, and `.`/`..`/empty segments return
-  `FsError::BadPath` before backend access. This does not reject symlinks within the root or
+  `FsError::BadPath` before filesystem access. This does not reject symlinks within the root or
   create an OS sandbox. Native fallback directories use shared `day/day-fs` naming; provide
   an app-specific `DAY_DATA_DIR` when isolation is required. `write` creates missing parents.
 - **`list("")` is the root**, entries sorted, directories suffixed `/`. A never-written
   directory lists as empty, the ordinary first-run state, not an error.
-- **The blocking calls follow the day-part-http rule**: real on every native target, and
+- **The blocking calls follow the [day-part-http](/docs/reference/http) rule**: real on every native target, and
   `FsError::Unsupported` on web, where the single browser thread cannot wait. The `*_async`
   twins and `*_future` forms are the portable surface.
 
@@ -72,7 +90,7 @@ EntryAbility in day-arkui's staged ArkTS host), and tests set it to a scratch di
 
 `day_part_fs::data_dir()` returns that directory without the `day-fs/` leaf on native targets,
 for code that keeps files of its own beside the part's: a download manager's journal and partial
-files, for instance ([docs/downloads.md](downloads.md)). `day_part_fs::platform_data_dir()`
+files, for instance ([docs/downloads](downloads.md)). `day_part_fs::platform_data_dir()`
 returns the platform directory above it, the one every application's data sits under, for an
 app that opens a store another application keeps there (a Day client over a desktop app's own
 database); `DAY_DATA_DIR` does not redirect that one. The web has no such directory, so both
@@ -87,7 +105,7 @@ into `Io`, except `NotFoundError` → `NotFound` and a context without OPFS → 
 
 This is the third part to ride the day-dom shim (after prefs and http), and the second to
 complete back into wasm with the request-id pattern. Native needs no platform code at all: one
-`std::fs` backend over an env-resolved root covers six targets, with the mobile hosts
+`std::fs` implementation over an env-resolved root covers six targets, with the mobile hosts
 contributing a single `DAY_DATA_DIR` line each.
 
 ## v2 notes (out of scope)
@@ -109,7 +127,7 @@ native handle; use `read_future` there, which currently returns the whole file a
 ## Lifetime and evidence
 
 Code above is an integration fragment; its literal bytes are synthetic sample document data.
-Use the [compiled storage recipe](https://daybrite.dev/docs/how-to/guide-storage) for full setup.
+Use the [compiled storage recipe](/docs/how-to/guide-storage) for full setup.
 Native async jobs run detached on the blocking pool. Dropping `FsFuture` discards delivery but
 does not undo an accepted write. `write` creates/truncates and does not promise atomic replacement.
 `FsError` is non-exhaustive; callers must allow new variants.

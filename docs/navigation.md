@@ -8,7 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Navigation (`nav`, `nav_stack`)
+# Navigation
 
 Navigation state lives in signals. Selecting a tab or pressing Back updates the signal;
 changing the signal from app code updates the native container.
@@ -22,12 +22,12 @@ you want the compiler to check destinations and their associated data. The strin
 (`navigate`, `nav_back`, `current_route`) lets deep links and dayscript address either form.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Sidebar pull-to-refresh
 
 `nav(selection).refreshable(refreshing, action)` installs the native pull control on
-UIKit (`UIRefreshControl`) and Android (`SwipeRefreshLayout`) sidebar menus, including
+UIKit ([`UIRefreshControl`](https://developer.apple.com/documentation/uikit/uirefreshcontrol)) and Android ([`SwipeRefreshLayout`](https://developer.android.com/reference/androidx/swiperefreshlayout/widget/SwipeRefreshLayout)) sidebar menus, including
 lists shorter than the viewport. The native scroll view owns gesture arbitration: a pull
 starts only at the top, without intercepting ordinary row taps, long presses or scrolling.
 Android wraps the Material menu's RecyclerView inside its NavigationView, preserving the
@@ -84,14 +84,14 @@ An `.on_close(handler)` callback receives a request; the app calls `tabs.close(&
 accepts. Keeping the key vetoes the request. Without a handler, a request removes the key directly.
 `.on_new(handler)` delegates creation and key allocation to the app.
 
-`.native(|| preference.get())` changes presentation reactively. Supported backends use a native
-in-window control or an OS window group. Unsupported backends keep the composed strip. Content,
+`.native(|| preference.get())` changes presentation reactively. Supported toolkits use a native
+in-window control or an OS window group. Unsupported toolkits keep the composed strip. Content,
 scopes, and native handles survive each switch; only composed chrome is conditionally built.
 `.chrome(|actions| ...)` replaces that strip; `TabActions` supplies `tabs`, `new_tab`, `close`,
 `drag`, and `drop_before`. Drag payloads are host-scoped so equal keys in unrelated collections
 cannot move each other's documents. `.layout(|chrome, content| ...)` places the composed chrome.
 The default strip is native buttons: the current document's is a selected button
-(`button(..).selected(..)`, [docs/buttons.md](buttons.md)), so it keeps its focus stop and activation, the
+(`button(..).selected(..)`, [docs/buttons](buttons.md)), so it keeps its focus stop and activation, the
 platform draws its own selected look, and assistive tech hears a selected tab in a tab list
 (`Role::Tab`, `Role::TabList`). `.strip_id(id!(docs))` gives the strip a declared ID.
 Child IDs use the `document_tab`, `document_close`, and `document_new` families. For
@@ -99,14 +99,14 @@ document key `a`, the tab is `document_tab:docs%3Aa`; the colon in the combined 
 is percent-encoded. Without an explicit strip ID, the host uses `document_strip:<n>`.
 See [element IDs](element-ids.md) before writing script locators.
 
-| Backend | Native document presentation |
+| Toolkit | Native document presentation |
 |---|---|
 | AppKit | OS window tabs; composed mode parks pages in an NSTabView. |
-| Qt | QTabWidget; macOS can move documents into OS window tabs. |
+| Qt | [QTabWidget](https://doc.qt.io/qt-6/qtabwidget.html); macOS can move documents into OS window tabs. |
 | GTK | AdwTabView/AdwTabBar, including macOS. OS-window grouping is unsupported because GDK owns window decorations. |
 | WinUI | TabView with close requests and within-strip dragging. |
 | Android | Scrollable Material TabLayout with add/close controls and host-scoped long-press dragging. |
-| UIKit, ArkUI, DOM, system XAML | Composed strip; UIKit uses a UIViewController container for documents. |
+| UIKit, ArkUI, DOM | Composed strip; UIKit uses a [UIViewController](https://developer.apple.com/documentation/uikit/uiviewcontroller) container for documents. |
 
 Toolkit duties distinguish OS-window grouping (`native_window_tabs`) from in-window chrome
 (`native_document_tabs`). Both default to false. `DocumentTabsConfig` carries localized labels
@@ -117,14 +117,14 @@ final destination index in `num`. These tags are protocol identifiers, not trans
 
 Day's nav host keeps its menu as child 0, inside the sidebar page whose rows become the bar, so
 a toolkit's document i is Day's child i + 1. Neither Qt nor GTK gives that page a tab: Qt parks
-it under the `QTabWidget`, on the menu's parent chain but never a page, and GTK keeps it in a
-hidden box beside the `AdwTabView`, so native tab indices are destination indices with nothing
+it under the [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html), on the menu's parent chain but never a page, and GTK keeps it in a
+hidden box beside the [`AdwTabView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.TabView.html), so native tab indices are destination indices with nothing
 to subtract, and a drag to the first slot is an ordinary move. The
 [native Qt regression](../toolkits/day-qt-sys/tests/tabs.cpp) parks a page, drives a plain tabbed
 nav with real keyboard events, checks the current widget and the reported indices, and in
 document mode checks a close request and a drag to the first slot.
 
-The conformance cases (`day test 'document-tabs-*'`, [docs/testing.md](testing.md)) run on every toolkit:
+The conformance cases (`day test 'document-tabs-*'`, [docs/testing](testing.md)) run on every toolkit:
 selection through the strip with the current tab enabled and natively selected, neighbor
 selection on close, a vetoed close request, reordering with resident counters and the strip's
 geometry, background opens, cycling, the add button, an empty host, live titles, repeated
@@ -171,7 +171,7 @@ a phone to a desktop. So `Automatic` and `Sidebar` behave identically on a deskt
 iOS, Android, HarmonyOS and the web.
 
 `Rail` is not gated by that capability: a narrow sidebar is an ordinary desktop shape, and on
-Windows it is what `NavigationView` does at that width. A backend with no rail control rounds it
+Windows it is what [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) does at that width. A toolkit with no rail control rounds it
 to a neighbor of its own choosing: macOS has nothing that is a vertical strip of icon-only
 destinations, so appkit draws an ordinary sidebar there.
 
@@ -200,32 +200,32 @@ switches; the user picking natively writes it back (origin-tagged, no echo).
 
 | Presentation | Native container |
 |---|---|
-| `Split` | a NavigationSplitView: macOS `NSSplitViewController` with a sidebar `NSSplitViewItem` (system material, source-list `NSOutlineView`, full-height under the titlebar) + detail; GTK two nested `GtkPaned`s (sidebar | list | detail, every divider draggable); Qt `QSplitter`; iOS `UISplitViewController`; Android `SlidingPaneLayout`. |
-| `Stack` | one page at a time, back-navigable: `UINavigationController`, `AdwNavigationView`, the Android back stack, or a desktop back-header above the pages. |
-| `Tabs` | the rows drawn as a tab bar: `UITabBarController` / Material `NavigationBarView` / `NavigationView.PaneDisplayMode = Top` / an `NSTabView` on macOS / an `AdwViewSwitcher` on GTK / a `QTabWidget` on Qt / a composed bar on web-dom. |
-| `Rail` | the rows as a narrow strip: Material `NavigationRailView`, `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
+| `Split` | a NavigationSplitView: macOS [`NSSplitViewController`](https://developer.apple.com/documentation/appkit/nssplitviewcontroller) with a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem) (system material, source-list [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview), full-height under the titlebar) + detail; GTK two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s (sidebar | list | detail, every divider draggable); Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html); iOS [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller); Android `SlidingPaneLayout`. |
+| `Stack` | one page at a time, back-navigable: [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html), the Android back stack, or a desktop back-header above the pages. |
+| `Tabs` | the rows drawn as a tab bar: [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) / Material [`NavigationBarView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationBarView) / [`NavigationView.PaneDisplayMode = Top`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) / an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) on macOS / an [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) on GTK / a [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) on Qt / a composed bar on web-dom. |
+| `Rail` | the rows as a narrow strip: Material [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView), `PaneDisplayMode = LeftCompact`, an ArkUI vertical `Tabs`; **roundable** where a toolkit has none. |
 
 `nav` is one primitive, a selection-bound switcher, and a presentation is chrome plus page
 lifetime rather than a different host. That is why a window crossing a breakpoint re-presents
 (`NavPatch::Presentation`) rather than rebuilding: the pages it already has are re-homed, so
 nothing loses a scroll offset, a focused field, or an animation in flight.
 
-**What each backend draws.** The rows become the platform's destination chrome, and where a
+**What each toolkit draws.** The rows become the platform's destination chrome, and where a
 platform has no such widget the presentation rounds to the neighbor it does have (`Rail` lands on
-an ordinary sidebar on macOS and Qt). A backend that answers `Cap::NavTabs = Unsupported` sends
-`Automatic` through the sidebar ladder instead, which is what every backend did before adaptive
+an ordinary sidebar on macOS and Qt). A toolkit that answers `Cap::NavTabs = Unsupported` sends
+`Automatic` through the sidebar ladder instead, which is what every toolkit did before adaptive
 navigation existed.
 
-| Backend | Tabs presentation | Adaptive |
+| Toolkit | Tabs presentation | Adaptive |
 |---------|-------------------|----------|
-| macos-appkit | `NSTabView` (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
-| ios-uikit | `UITabBarController` in `.tabSidebar` mode, driven by `UITab` on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
-| android-mdc | navigation suite: `BottomNavigationView` → `NavigationRailView` → permanent `NavigationView` drawer, by width. A `NavStyle::Sidebar` pane is a `NavigationView` too (2026-09) — see below | yes |
-| linux-gtk | `AdwViewSwitcher` over an `AdwViewStack` of resident pages, each in a filling `DayCell` | no |
-| linux-qt | `QTabWidget` — Qt's own one-of-N container | no |
+| macos-appkit | [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) (top tabs on a bezel), the detail pages as its items; labels from the host's rows | no; a Mac narrows to a stack |
+| ios-uikit | [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, driven by [`UITab`](https://developer.apple.com/documentation/uikit/uitab) on iOS 18+ and by `viewControllers` below it (2026-09) — see below | yes |
+| android-mdc | navigation suite: `BottomNavigationView` → [`NavigationRailView`](https://developer.android.com/reference/com/google/android/material/navigationrail/NavigationRailView) → permanent [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) drawer, by width. A `NavStyle::Sidebar` pane is a [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview) too (2026-09) — see below | yes |
+| linux-gtk | [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) of resident pages, each in a filling `DayCell` | no |
+| linux-qt | [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) — Qt's own one-of-N container | no |
 | web-dom | a composed tab bar (`.day-nav.tabs`) | yes |
-| harmony-arkui | a composed suite over resident pages, built from Day's primitives (ArkUI's native node set has no tab container): a bottom bar on a compact window, a rail on a medium one, a sidebar column on an expanded one, by the host's width ([docs/size-classes.md](size-classes.md)) | yes |
-| windows-winui | the same `NavigationView` with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
+| harmony-arkui | a composed suite over resident pages, built from Day's primitives (ArkUI's native node set has no tab container): a bottom bar on a compact window, a rail on a medium one, a sidebar column on an expanded one, by the host's width ([docs/size-classes](size-classes.md)) | yes |
+| windows-winui | the same [`NavigationView`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.navigationview) with `PaneDisplayMode = Top`; `Rail` is `LeftCompact`, a real rail | no |
 
 Only the phones and the web grow a tab bar as the window narrows (`Cap::NavTabsAdaptive`); a
 desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and pushes.
@@ -235,18 +235,18 @@ desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and p
 > rows page's menu at the moment that page was inserted — before the menu existed, since
 > day-core mounts a page into its host before the page's content is built — and GTK's foot
 > switcher was pushed below the pane's clipped edge by the pages' own Day frames. Both now use
-> the toolkit's own tab control: an `NSTabView` whose items own the pages and take their
+> the toolkit's own tab control: an [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) whose items own the pages and take their
 > labels when the `NAV_MENU` is inserted (and again on `NavMenuPatch::Items`), and an
-> `AdwViewSwitcher` over the `AdwViewStack`, whose pages sit in filling `DayCell`s and report
+> [`AdwViewSwitcher`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewSwitcher.html) over the [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html), whose pages sit in filling `DayCell`s and report
 > their size from the cell's allocation. Bundled vectors reach the switcher's `icon-name` as
 > SYMBOLIC icons, so GTK tints them to the label's color in either theme: day-gtk stages each
 > as `<name>-symbolic.symbolic.png` (the shape over black, rendered through librsvg) in the
 > XDG cache and puts that directory on the icon theme's search path — a symbolic SVG would go
-> through GTK 4.20+'s own `GtkSvg` parser, which draws only a subset and broke a Material
+> through GTK 4.20+'s own [`GtkSvg`](https://docs.gtk.org/gtk4/class.Svg.html) parser, which draws only a subset and broke a Material
 > glyph's curves. A row with no glyph gets a transparent symbolic, since libadwaita's switcher
-> button shows `image-missing` for a page without one. On AppKit the `NSTabView` is inset in
+> button shows `image-missing` for a page without one. On AppKit the [`NSTabView`](https://developer.apple.com/documentation/appkit/nstabview) is inset in
 > its pane (12pt sides and foot, 8pt top), so its tabs clear the toolbar's edge.
-> Qt's `QTabWidget` drew its bar all along, but a programmatic selection (a route, a deep
+> Qt's [`QTabWidget`](https://doc.qt.io/qt-6/qtabwidget.html) drew its bar all along, but a programmatic selection (a route, a deep
 > link) never reached it: the suite's `NavPatch::Select` branch sat inside the split/stack
 > block, which has no state entry for a suite host and returned first. It is answered ahead
 > of that block now.
@@ -258,11 +258,11 @@ desktop may pin one with `NavStyle::Tabs`, but narrowing hides its sidebar and p
 
 A sidebar walks with the arrow keys: ↑/↓ move to the next destination, Home and End to the first
 and last, and the selection reports exactly what a click on that row reports. The desktops get
-this from the widget the style maps to (an `NSOutlineView` source list, a `NavigationView`) with
+this from the widget the style maps to (an [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) source list, a [`NavigationView`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationview)) with
 nothing of Day's in front of it: keys go to whatever has focus and no route sits above them
-([docs/menus.md](menus.md)).
+([docs/menus](menus.md)).
 
-**web-dom** has no such widget, so the backend builds the behavior: `.day-navmenu` carries the tab
+**web-dom** has no such widget, so the toolkit builds the behavior: `.day-navmenu` carries the tab
 stop and `role="listbox"`, its rows carry `role="option"` and `aria-selected`, and the shim moves
 the selection by reporting the new index the way the click handler does. It also holds the focus
 across the page swap its own key press caused: a detail pane can contain an element the browser
@@ -272,10 +272,10 @@ would answer one arrow and then go quiet.
 ### Immersive items (`.immersive()`)
 
 `item(key, title).immersive()` marks that destination as an immersive-chrome page: on
-backends with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
+toolkits with an immersive nav mode (day-android's edge-to-edge opt-in today) its pushed page
 keeps the floating transparent bar over full-bleed content, while unmarked pages and the root
-get the standard opaque bar. Every other backend ignores the flag. Pair it with
-`day::safe_area()` ([docs/layout](https://daybrite.dev/docs/explanation/layout)): the immersive page paints its background unpadded and pads
+get the standard opaque bar. Every other toolkit ignores the flag. Pair it with
+`day::safe_area()` ([docs/layout](/docs/explanation/layout)): the immersive page paints its background unpadded and pads
 its content by the reported insets.
 
 ## `nav_stack`: push/pop with a value path
@@ -291,18 +291,18 @@ nav_stack(path, home_view)
 
 Day reconciles the native stack to `path` (keep the common prefix, pop the rest, push the new
 suffix; the same diff `NavigationStack`/React-Navigation do). The native containers:
-`UINavigationController` (iOS), `AdwNavigationView` (GTK; a pushed page carries an
-`AdwHeaderBar` with the page's title, in which the view draws its back button, over a filling
+[`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) (iOS), [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html) (GTK; a pushed page carries an
+[`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) with the page's title, in which the view draws its back button, over a filling
 cell that reports the content's size under the bar — the root page is the content alone),
 Android back-stack, and a
-top-page-only presentation on macOS `NSSplitView` / Qt `QSplitter` in stack mode. The path is
+top-page-only presentation on macOS [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) / Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) in stack mode. The path is
 data, so deep-linking is "parse the URL into a path and `set` it," and the stack is unit-testable
 without the framework.
 
 ## Commands on the chrome
 
 There is no `bar_action`. A command that belongs on the chrome rather than in the page is a
-TOOLBAR ITEM declared on the piece it acts on ([docs/toolbars.md](toolbars.md)), and which bar it
+TOOLBAR ITEM declared on the piece it acts on ([docs/toolbars](toolbars.md)), and which bar it
 rides follows from that:
 
 ```rust
@@ -369,16 +369,16 @@ change so native image caches invalidate. A missing/unreadable file has no image
 should supply their own bundled fallback until the download is ready.
 
 `item(key, title).icon(name)` is the row spec; `.icon_tint(color)` recolors the row's glyph
-([docs/vectors.md](vectors.md)), `.context_menu(vec![…])` attaches a per-row context menu ([docs/menus.md](menus.md)),
+([docs/vectors](vectors.md)), `.context_menu(vec![…])` attaches a per-row context menu ([docs/menus](menus.md)),
 and `.immersive()` on it marks that row's pushed page immersive-chrome, same as the static
 form above.
 
 `.badge(text)` is the row's count or status word, drawn in the platform's own badge slot: the
-source-list count on AppKit, a dim count in the GTK row and on Qt and the web, a `UITab`'s badge
+source-list count on AppKit, a dim count in the GTK row and on Qt and the web, a [`UITab`](https://developer.apple.com/documentation/uikit/uitab)'s badge
 on iPadOS and in the tab bar, a Material badge on Android's bottom bar and rail and a trailing
 count in its drawer. Empty text is no badge, so a count can return `""` at zero rather than
 switching the badge off. A badge that ticks (or a title that changes language) updates that row in
-place on every backend that can (`NavMenuPatch::Items::rows_changed`), without rebuilding the
+place on every toolkit that can (`NavMenuPatch::Items::rows_changed`), without rebuilding the
 bar or replaying its selection animation.
 
 `.badge_icon(name)` puts a glyph at the row's trailing edge, with `.badge_tint(color)` for a
@@ -392,13 +392,13 @@ item(section, title)
     .badge_tint(AMBER)
 ```
 
-Both are template glyphs, so an untinted one takes the backend's neutral row color and follows
-the theme; a tinted one keeps its color because the color carries meaning. Every backend draws it:
-the trailing slot of the AppKit cell, the GTK row box, a `QStyledItemDelegate` on Qt (a
-`QListWidgetItem` has only the leading icon slot), the `end` compound drawable on Android, the
-composed `NavigationViewItem.Content` on XAML, between label and chevron on ArkUI, a masked
-element on web-dom, and a trailing `UIImageView` on UIKit, which is also where the nav badge slot
-first appeared on that backend. A nav host used as a self-contained widget inside a
+Both are template glyphs, so an untinted one takes the toolkit's neutral row color and follows
+the theme; a tinted one keeps its color because the color carries meaning. Every toolkit draws it:
+the trailing slot of the AppKit cell, the GTK row box, a [`QStyledItemDelegate`](https://doc.qt.io/qt-6/qstyleditemdelegate.html) on Qt (a
+[`QListWidgetItem`](https://doc.qt.io/qt-6/qlistwidgetitem.html) has only the leading icon slot), the `end` compound drawable on Android, the
+composed [`NavigationViewItem.Content`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitem) on XAML, between label and chevron on ArkUI, a masked
+element on web-dom, and a trailing [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) on UIKit, which is also where the nav badge slot
+first appeared on that toolkit. A nav host used as a self-contained widget inside a
 page that already routes should call `.local()` so it does not add a segment to `current_route` or
 intercept `navigate`.
 
@@ -407,7 +407,7 @@ anything `.items` takes: one item, a tuple, an `Option`, a `nav_items` block, or
 rides the first row of the content (the first row of a data-driven block, wherever the data
 starts). `item(key, title).section(title)` opens a header from inside a data-driven mapper, which
 is how a derived list keeps its groups under a search filter: attach the header to the first
-surviving row of each group, and a group whose rows are all filtered out disappears with them. Headers are a grouping hint: a backend
+surviving row of each group, and a group whose rows are all filtered out disappears with them. Headers are a grouping hint: a toolkit
 without grouped rows (a tab strip, a plain phone list) shows one flat list, so a header is never
 the only way a row is reachable, and a row's icon tint is the grouping signal that survives
 there. AppKit draws them as source-list group rows (small, bold, secondary, pinned as their
@@ -417,9 +417,9 @@ UIKit and Android draw floating headers from their native list styling. UIKit he
 an opaque system secondary-background surface across their full width by default, so scrolled
 row text never overlaps the heading. The semantic color follows light/dark appearance changes;
 apps do not need to add their own backgrounds. GTK draws them
-in its list box's header slot. Qt, whose `QListWidget` has no header slot, draws each as a small
+in its list box's header slot. Qt, whose [`QListWidget`](https://doc.qt.io/qt-6/qlistwidget.html) has no header slot, draws each as a small
 bold dimmed item of its own that takes no click, hover or selection, and web-dom as a heading
-element between the rows. Windows adds a `NavigationViewItemHeader` to the pane's items (a disabled
+element between the rows. Windows adds a [`NavigationViewItemHeader`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.navigationviewitemheader) to the pane's items (a disabled
 item in the plain `ListView` sidebar), collapsing them while the pane is a tab strip or an icon
 rail, and HarmonyOS a secondary-colored title above the group's first row. These four translate
 indices at the list, so a row keeps the index Day gave it however many headings sit above it.
@@ -437,26 +437,26 @@ nav(section)
 arbitrary rich row (an avatar + preview + badge); a master list that needs those is a `list`, and
 combining a rich master list with native master-detail push is a separate, not-yet-built feature.
 
-**Backend support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
+**Toolkit support (2026-07):** dynamic add/remove/reselect renders on `macos-appkit`, `linux-gtk`,
 `linux-qt`, and `web-dom` (and their host variants), verified in the showcase walkthrough. The
 `ios-uikit` sidebar and tab selection are wired; dynamic rendering on the UIKit/Android/ArkUI/XAML
-tab widgets is in progress (those backends ignore the item-set patch until then, so the initial set
-still shows). The item logic is backend-independent and covered by
+tab widgets is in progress (those toolkits ignore the item-set patch until then, so the initial set
+still shows). The item logic is toolkit-independent and covered by
 `mock_e2e::nav_data_driven_items_reconcile`.
 
 ### The iOS tabs host is driven by `UITab`
 
-A `Tabs` presentation on ios-uikit is a `UITabBarController` in `.tabSidebar` mode, and since
+A `Tabs` presentation on ios-uikit is a [`UITabBarController`](https://developer.apple.com/documentation/uikit/uitabbarcontroller) in `.tabSidebar` mode, and since
 2026-09 its destinations are [`UITab`](https://developer.apple.com/documentation/uikit/uitab)
-objects rather than a `viewControllers` array of `UITabBarItem`s. Apple's guidance since iOS 18 is
-that adopting `UITab` is what gives a tab bar its automatic adaptivity — the tab bar and the
+objects rather than a `viewControllers` array of [`UITabBarItem`](https://developer.apple.com/documentation/uikit/uitabbaritem)s. Apple's guidance since iOS 18 is
+that adopting [`UITab`](https://developer.apple.com/documentation/uikit/uitab) is what gives a tab bar its automatic adaptivity — the tab bar and the
 sidebar become two renderings of ONE list of tabs, which is Day's model exactly, and it is what
 `.tabSidebar` is built to consume. The array still works, but the controller has to infer
 everything from view controllers, and the sidebar-side affordances have no tab to hang on.
 
-Six things this backend learned the hard way:
+Six things this toolkit learned the hard way:
 
-- **A `UITab` is a model object with an identity, not a per-render descriptor.** Its provider hands
+- **A [`UITab`](https://developer.apple.com/documentation/uikit/uitab) is a model object with an identity, not a per-render descriptor.** Its provider hands
   UIKit a view controller and UIKit then owns that controller as the tab's. This host re-syncs on
   every page insert and every rows change; minting fresh tabs each time left two tabs claiming one
   controller, and UIKit asserts in `-[UITab viewController]` as soon as it resolves the second. A
@@ -464,11 +464,11 @@ Six things this backend learned the hard way:
 - **The identifier is the PAGE, not the position.** `insert` can put a page in the middle, and an
   identifier is fixed at construction. Day's index is the tab's position in the host's `tabs`.
 - **A tab's glyph needs a SIZE, and the ASSET is where it comes from.** A tab bar draws
-  `UITab.image` at the image's own size: UIKit scales an SF Symbol to the bar's metrics, but a
+  [`UITab.image`](https://developer.apple.com/documentation/uikit/uitab) at the image's own size: UIKit scales an SF Symbol to the bar's metrics, but a
   catalog image has no metrics to scale by. A Material Symbols export carries `width="48"
   height="48"` and drew at 48pt, twice the height of an iOS tab icon and overlapping its own
-  label. The backend hands the image over untouched and the glyph is authored at icon size
-  instead ([docs/vectors.md](vectors.md)): thumbnailing here downsamples the catalog's bitmap
+  label. The toolkit hands the image over untouched and the glyph is authored at icon size
+  instead ([docs/vectors](vectors.md)): thumbnailing here downsamples the catalog's bitmap
   rendition and throws away the vector representation that put it there. Day-Showcase's Grids
   tabs were the last 48pt holdouts (2026-09-05).
 - **A tab switch waits for the visible stack's transition.** Switching tabs hides the outgoing
@@ -481,17 +481,17 @@ Six things this backend learned the hard way:
   its own.** The wrapper is what gives a tab a bar for its page's commands. A page whose root is a
   `nav_stack` (or another stack or split host) already has one, and the wrapper stacked a second
   bar over it with the same title and commands (Stanza's tabs on an iPad, 2026-10). The host
-  arrives after its page, so the backend undoes the wrapper when it does, leaving the tab as a
+  arrives after its page, so the toolkit undoes the wrapper when it does, leaving the tab as a
   compact window has it: the page, whose own stack owns the bar.
 - **`didSelectTab:previousTab:` fires for programmatic selection too**, where the old
   `didSelectViewController:` fired only for user taps. It therefore needs the same origin guard as
   every other two-way control here — without it, installing the tabs reported a selection the user
   never made and the app's bound signal followed it.
 
-**Below iOS 18 the same host runs on `viewControllers`.** `UITab` and `setTabs:` are iOS 18's, so
+**Below iOS 18 the same host runs on `viewControllers`.** [`UITab`](https://developer.apple.com/documentation/uikit/uitab) and `setTabs:` are iOS 18's, so
 the sync asks the CONTROLLER whether it answers `setTabs:` — the same shape the `.tabSidebar`
 `setMode:` probe takes — and where it does not, each page carries its title and glyph on the
-`UITabBarItem` UIKit makes for it, the roster goes in through `setViewControllers:`, `Select`
+[`UITabBarItem`](https://developer.apple.com/documentation/uikit/uitabbaritem) UIKit makes for it, the roster goes in through `setViewControllers:`, `Select`
 addresses a page by INDEX, and the delegate's `didSelectViewController:` reports a tap. An iOS 17
 device therefore gets the plain tab bar an iOS 17 app always had rather than a crash. The
 `didSelectTab:previousTab:` method is declared OUTSIDE the delegate's protocol block for the same
@@ -499,20 +499,20 @@ reason: a protocol block asks the runtime for the nav host's type encoding, and 
 18 nav host on an older runtime fails the class registration itself, which took down the whole
 scene as soon as a tabs host was realized.
 
-`UITabGroup` is deliberately NOT used. Day's `NavMenuProps::sections` are headings — "a section
-header introducing the row at the same index" — whereas a `UITabGroup` is a destination that
+[`UITabGroup`](https://developer.apple.com/documentation/uikit/uitabgroup) is deliberately NOT used. Day's `NavMenuProps::sections` are headings — "a section
+header introducing the row at the same index" — whereas a [`UITabGroup`](https://developer.apple.com/documentation/uikit/uitabgroup) is a destination that
 CONTAINS others: in a sidebar it draws as a heading, but in the compact tab bar the whole group
 collapses to a single tab. Mapping flat sections onto it would turn N tab-bar destinations into G.
 It becomes the right realization if Day's nav host ever grows real hierarchy.
 
 ### The iOS sidebar is a collection-view list
 
-`nav(NavStyle::Sidebar)` realizes on ios-uikit as a `UICollectionView` laid out by
-`UICollectionLayoutListConfiguration` with the **`.sidebar` appearance**, in the primary column of
-a `UISplitViewController`. That appearance publishes the `listEnvironment` trait the cells'
-adaptive `UIListContentConfiguration::cellConfiguration` reads, and it is what gives the Settings
+`nav(NavStyle::Sidebar)` realizes on ios-uikit as a [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview) laid out by
+[`UICollectionLayoutListConfiguration`](https://developer.apple.com/documentation/uikit/uicollectionlayoutlistconfiguration) with the **`.sidebar` appearance**, in the primary column of
+a [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller). That appearance publishes the `listEnvironment` trait the cells'
+adaptive [`UIListContentConfiguration::cellConfiguration`](https://developer.apple.com/documentation/uikit/uilistcontentconfiguration) reads, and it is what gives the Settings
 sidebar its look: an inset rounded selection pill with a tinted label, and rows with no separators.
-A `UITableView` draws its selection edge to edge whatever background configuration its cells carry,
+A [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) draws its selection edge to edge whatever background configuration its cells carry,
 so the rounded shape is the list appearance's to give.
 
 **The list runs under the bars.** A page whose content is one scroll view — this list, a
@@ -528,23 +528,23 @@ a bar with.
 
 **Section headings ride the same list configuration.** `setHeaderMode(.supplementary)` turns them
 on, and a heading is a supplementary view carrying the adaptive
-`UIListContentConfiguration::headerConfiguration`, so its type, color and insets come from the same
+[`UIListContentConfiguration::headerConfiguration`](https://developer.apple.com/documentation/uikit/uilistcontentconfiguration), so its type, color and insets come from the same
 sidebar environment the rows do. A list that declares no heading sets `.none` instead, so a flat
 sidebar reserves no band where a heading would go, and flipping heading-ness re-installs the
 layout, header mode being a property of the layout rather than of the data.
 
 The grouping stays private to the list. `NavMenuProps::sections` is parallel to the rows (a heading
-introduces the row at its own index), the backend folds that into runs of `(heading, first, len)`,
-and `row_of`/`path_of` translate between a flat row index and an `NSIndexPath`. Everything above
-the backend — `SelectionChanged`, `NavMenuProps::selected`, the per-row tint and badge arrays —
+introduces the row at its own index), the toolkit folds that into runs of `(heading, first, len)`,
+and `row_of`/`path_of` translate between a flat row index and an [`NSIndexPath`](https://developer.apple.com/documentation/foundation/nsindexpath). Everything above
+the toolkit — `SelectionChanged`, `NavMenuProps::selected`, the per-row tint and badge arrays —
 keeps speaking in flat row indices.
 
 ### The Android sidebar is a NavigationView
 
 `nav(NavStyle::Sidebar)` realizes on android-mdc as a Material
 [`NavigationView`](https://developer.android.com/reference/com/google/android/material/navigation/NavigationView),
-the class Android means for a standing navigation column. It was a `LinearLayout` of `TextView`
-rows in a `ScrollView` until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
+the class Android means for a standing navigation column. It was a [`LinearLayout`](https://developer.android.com/reference/android/widget/LinearLayout) of [`TextView`](https://developer.android.com/reference/android/widget/TextView)
+rows in a [`ScrollView`](https://developer.android.com/reference/android/widget/ScrollView) until 2026-09, with the 48dp height, the padding, the ripple and the 24dp
 leading glyph measured out by hand — a comment called that "the Material nav-drawer idiom", which
 it was imitating. The real one brings the M3 row metrics, the ripple, subheaders between
 `NavMenuProps::sections` (the flat list dropped them, so eight groups arrived as twenty bare rows),
@@ -555,12 +555,12 @@ Two consequences worth knowing before touching it:
 
 - **A row's menu id is not its index.** `NavigationMenuItemView` copies its item's id onto ITSELF,
   which puts menu ids and view ids in the one namespace `findViewById` searches — and Day's own
-  fragment containers take `View.generateViewId()`, which counts up from 1. Rows keyed by bare
+  fragment containers take [`View.generateViewId()`](https://developer.android.com/reference/android/view/View), which counts up from 1. Rows keyed by bare
   index collided immediately: `containerId` was 1, the second row became a view with id 1, it sits
   earlier in the traversal than the detail container, and `FragmentTransaction.replace` built every
   detail page INSIDE that sidebar row. Ids start at `ROW_ID_BASE` (0x01000000) for rows and
   `SECTION_ID_BASE` for headings, above `generateViewId`'s ceiling and below aapt's floor.
-- **Rows recycle**, so a per-row context menu ([docs/menus.md](menus.md)) cannot be attached once. It goes on
+- **Rows recycle**, so a per-row context menu ([docs/menus](menus.md)) cannot be attached once. It goes on
   from `OnChildAttachStateChangeListener`, reading the row a cell is CURRENTLY bound to from its
   own `getItemData()` rather than from its adapter position, which headings and dividers shift.
 
@@ -642,7 +642,7 @@ that proceeds pops through Day's rail and the next swipe works with nothing to r
 > delete the `NavPatch` vocabulary with it. It was set aside on purpose. Day's model being the
 > truth, synchronously, is what lets one dayscript walkthrough pass on nine targets and every gate
 > keyed on the selection stay coherent in one flush; the friction it costs is confined to this
-> one backend; and the pieces that broke between iOS 18 and 26 were the places Day *observed*
+> one toolkit; and the pieces that broke between iOS 18 and 26 were the places Day *observed*
 > UIKit, which that design would do more of. Revisit only if a later iOS release breaks the split
 > merge again after the remaining reconciliation has been trimmed, or a second native toolkit
 > needs the same fight.
@@ -683,14 +683,14 @@ guard may hold the `BackRequest` and call `proceed()` later: the unsaved-changes
 flow. `proceed()` performs exactly the pop `Proceed` would have.
 
 While a guard is armed above the root, Day tells the toolkit to stop auto-popping on a native
-gesture and route the back through Day instead (`NavPatch::GuardTop`). What that means per backend:
+gesture and route the back through Day instead (`NavPatch::GuardTop`). What that means per toolkit:
 
-| backend | native-gesture arming while guarded |
+| toolkit | native-gesture arming while guarded |
 |---|---|
-| iOS (UIKit) | swipe disabled; the back **button** is vetoed via a `UINavigationController` subclass's `navigationBar:shouldPopItem:`, which emits the back to Day |
-| Android | a higher-priority `OnBackPressedCallback` routes the system/gesture back and the toolbar up-arrow to Day (the predictive-back preview is unavailable while armed) |
+| iOS (UIKit) | swipe disabled; the back **button** is vetoed via a [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) subclass's `navigationBar:shouldPopItem:`, which emits the back to Day |
+| Android | a higher-priority [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback) routes the system/gesture back and the toolbar up-arrow to Day (the predictive-back preview is unavailable while armed) |
 | HarmonyOS (ArkUI) | the top `NavDestination`'s `onBackPressed` consumes the native back and defers to Day |
-| GTK | the top `AdwNavigationPage` sets `can-pop = false` (swipe/Escape disabled; the app drives back through its own control, which is guarded) |
+| GTK | the top [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html) sets `can-pop = false` (swipe/Escape disabled; the app drives back through its own control, which is guarded) |
 | macOS / Qt / XAML / web | no-op — the back button already routes through Day, so the guard runs with no native arming needed |
 
 The guard's logic (intercept, defer, proceed, never-on-programmatic-write) is identical everywhere
@@ -744,19 +744,19 @@ state instead.
   leaves the section.
 - `current_route()`: the **full** path, every mounted surface's contribution from outermost to
   innermost (`"mail/inbox/msg-42"`). It round-trips through `navigate`, so persisting the *whole*
-  route by hand is two lines: save `current_route()` on the way out (day-part-prefs works),
+  route by hand is two lines: save `current_route()` on the way out ([day-part-prefs](/docs/reference/prefs) works),
   `navigate(&saved)` after the first mount on the way back. For a single surface, `.restore`
   (below) does the same without the plumbing. dayscript's `assert_route` compares against the same
   full path.
 - Startup deep links (`DAY_DEEPLINK`) and warm links (`RouteRequested`) route the
   same way. On hosts with no process environment the platform entry records the launch route
   with `day_core::set_launch_deeplink` instead; web-dom seeds it from the page's URL hash
-  ([docs/web.md](web.md)), so `…/#controls` opens on that section. The OS side (scheme registration,
-  per-platform intake, and testing) is [docs/deep-links.md](deep-links.md).
-- The URL stays live both ways on web-dom: day-core reports every route change to the backend
+  ([docs/web](web.md)), so `…/#controls` opens on that section. The OS side (scheme registration,
+  per-platform intake, and testing) is [docs/deep-links](deep-links.md).
+- The URL stays live both ways on web-dom: day-core reports every route change to the toolkit
   (`Toolkit::set_route`: the hash updates as you navigate, one history entry per step), and a
   hash change the app didn't write (browser back/forward, a hand-edited URL) arrives as
-  `Event::RouteRequested` and navigates. Other backends inherit the no-op default.
+  `Event::RouteRequested` and navigates. Other toolkits inherit the no-op default.
 
 Because each surface owns its own signal, a `nav(Tabs)` or a `nav_stack` nests inside a
 `nav(Sidebar)` section with no extra wiring. There is no global navigation controller
@@ -944,14 +944,14 @@ A `nav(Sidebar)` shows its list beside the selected page in a wide window and pu
 page over the list in a narrow one. That follows the window, not the platform: it is resolved
 from the window's size class and re-resolved whenever the window crosses a breakpoint, so one
 `nav` is right on a desktop, a tablet, and a phone. `.presentation(…)` pins it where the
-content only works one way. [docs/size-classes.md](size-classes.md) is normative; it covers the
-breakpoints, what survives a re-presentation, and which backends morph today.
+content only works one way. [docs/size-classes](size-classes.md) is normative; it covers the
+breakpoints, what survives a re-presentation, and which toolkits morph today.
 
 ## The content list (three panes)
 
-> **Status: implemented** (2026-08). Native pane on macos-appkit (a real `contentList`
-> `NSSplitViewItem`), on Qt (the middle pane of the navigation `QSplitter`, since 2026-09) and
-> ios-uikit (`UISplitViewController` triple-column, merging into the stack at compact width);
+> Native pane on macos-appkit (a real `contentList`
+> [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem)), on Qt (the middle pane of the navigation [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html), since 2026-09) and
+> ios-uikit ([`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller) triple-column, merging into the stack at compact width);
 > composed by the nav host everywhere else, including the mock.
 > `Cap::NavContentList` carries the three-way answer. Since 2026-08 the composed compact flow
 > is push navigation: a list-backed tab is a nested navigation controller, not a swap.
@@ -987,12 +987,12 @@ nav(section).style(NavStyle::Sidebar)
 - **Where the pane lands** is `Cap::NavContentList`'s answer. `Native` (macos-appkit, Qt,
   GTK): a real pane at every presentation, with a draggable divider on each side; a narrow
   window collapses the sidebar and keeps the list, as a narrow Mail.app does. On Qt the pane is
-  the middle of the same three-pane `QSplitter` the sidebar lives in, hidden on a host that
+  the middle of the same three-pane [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html) the sidebar lives in, hidden on a host that
   declared no list, so pane indices and the back header never move; on GTK it is the start
-  child of the inner of the host's two nested `GtkPaned`s, hidden the same way (since 2026-09;
-  the backend notes below have the shape). `Emulated` (ios-uikit): a real
+  child of the inner of the host's two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s, hidden the same way (since 2026-09;
+  the toolkit notes below have the shape). `Emulated` (ios-uikit): a real
   column while expanded that merges into the navigation stack when the host collapses. A
-  `UISplitViewController` fixes its column count at creation, never shows the primary without
+  [`UISplitViewController`](https://developer.apple.com/documentation/uikit/uisplitviewcontroller) fixes its column count at creation, never shows the primary without
   the supplementary, and drops a controller re-mounted in another of its columns, so a
   destination without a list gets a double-column host and one with a list a triple-column
   host: a change between the two on a wide window rebuilds the host with fresh column
@@ -1012,7 +1012,7 @@ nav(section).style(NavStyle::Sidebar)
   until the app writes `true` (a row was opened); the detail pushes then, and the platform's
   back writes `false` on the way
   out. In a chrome presentation (a tab bar, a rail) the same flow runs inside the tab: the
-  destination's page is a nested navigation host (a `UINavigationController` in the tab, a
+  destination's page is a nested navigation host (a [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) in the tab, a
   Material toolbar over the fragment back stack), so the tab gets a navigation bar, a title,
   and a native back, and the nav host's bar actions ride that bar (a tabs chrome otherwise
   draws none). Without `detail_visible` a stacked host behaves classically (the detail pushes
@@ -1020,7 +1020,7 @@ nav(section).style(NavStyle::Sidebar)
 - **`ContentList::detail_for(selection)`** is `detail_visible` for a list whose selection is the
   detail's subject: it takes a `Binding<Option<T>>` and reads `true` while it holds a value.
   Writing `Some` opens the detail; the back's `false` writes `None`, which clears the selection
-  too, so one signal serves the list (`List::selection`, [docs/list.md](list.md)), the detail
+  too, so one signal serves the list (`List::selection`, [docs/list](list.md)), the detail
   and the gate. The `day new` starter uses it this way.
 - **`ContentList::detail_title`** names the detail layer's navigation bar: the pushed editor on a phone,
   the detail page's bar wherever the toolkit titles one. Reactive like every title: a closure
@@ -1041,18 +1041,20 @@ nav(section).style(NavStyle::Sidebar)
   the native back, with the gated detail pushed on top of whatever the stack pushed.
 
 Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_key(…)`
-([docs/focus.md](focus.md)) so the arrows walk the selection, and a `scroll_target` signal
+([docs/focus](focus.md)) so the arrows walk the selection, and a `scroll_target` signal
 (`ScrollTarget::Id`) to keep the selected row in view.
 
-## Backend notes
+## Toolkit notes
+
+Platform guidance: [Apple: navigation and search](https://developer.apple.com/design/human-interface-guidelines/navigation-and-search); [Windows: navigation design](https://learn.microsoft.com/en-us/windows/apps/design/basics/navigation-basics).
 
 - **GTK** adopts libadwaita throughout (`adw::Application` loads the Adwaita stylesheet). The
-  window is an `AdwApplicationWindow` whose content is an `AdwToolbarView` (an `AdwHeaderBar`
+  window is an [`AdwApplicationWindow`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html) whose content is an [`AdwToolbarView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ToolbarView.html) (an [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html)
   supplies the title, window controls, and drag; Day's content sits below it). Navigation:
-  `Sidebar` → two nested `GtkPaned`s — sidebar | (list | detail) — with a user-draggable
-  divider on each side, the AppKit `NSSplitView` shape; `nav_stack` → `AdwNavigationView`
+  `Sidebar` → two nested [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html)s — sidebar | (list | detail) — with a user-draggable
+  divider on each side, the AppKit [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) shape; `nav_stack` → [`AdwNavigationView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationView.html)
   (push/pop + back gesture; its `popped` signal writes native back into the path). A split
-  pane's page (a `GtkFixed`) sits in a filling `DayCell` — day-gtk's custom container, which
+  pane's page (a [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html)) sits in a filling `DayCell` — day-gtk's custom container, which
   asks GTK for no size and hands its child the whole allocation — so a page's Day-laid frame
   never becomes a pane's GTK minimum; each cell carries its pane's honest minimum as its size
   request instead (`NAV_SIDEBAR_MIN_W`, `NAV_LIST_MIN_W`, and 200pt for the detail), no pane
@@ -1068,10 +1070,10 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   toolbar's sidebar toggle hides it independently, and a toggled-off sidebar stays off. The
   inner paned exists on every host, list or not — with no list page, or one collapsed by
   `ContentList::only_for`, GTK gives the detail the whole inner allocation and draws no handle — so
-  the widget shape never changes under live pages. A stack page's `GtkFixed` is wrapped in an
-  `AdwNavigationPage`. Tabs use an `AdwViewStack` with a `.linked` toggle switcher; dialogs use
-  `AdwAlertDialog` ([docs/dialogs.md](dialogs.md)).
-  **Decision (2026-09): `AdwOverlaySplitView` is gone from this backend, with no flag to bring
+  the widget shape never changes under live pages. A stack page's [`GtkFixed`](https://docs.gtk.org/gtk4/class.Fixed.html) is wrapped in an
+  [`AdwNavigationPage`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.NavigationPage.html). Tabs use an [`AdwViewStack`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ViewStack.html) with a `.linked` toggle switcher; dialogs use
+  [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) ([docs/dialogs](dialogs.md)).
+  **Decision (2026-09): [`AdwOverlaySplitView`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.OverlaySplitView.html) is gone from this toolkit, with no flag to bring
   it back.** libadwaita pins sidebar widths by design (the GNOME HIG has no draggable
   sidebars), so the Adw split could never give Day's desktop apps the adjustable columns
   AppKit and Qt have, and its pane sizing — a min == max sidebar, a content pane whose minimum
@@ -1082,7 +1084,7 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   above. `DAY_GTK_SPLIT`, which used to select the paned, is no longer read.
 > [!NOTE]
 > **The macOS sidebar does not survive an offscreen screenshot** (2026-08). `Sidebar` now hands
-> its pane to a sidebar `NSSplitViewItem`, so AppKit supplies the material (on macOS 26 a
+> its pane to a sidebar [`NSSplitViewItem`](https://developer.apple.com/documentation/appkit/nssplitviewitem), so AppKit supplies the material (on macOS 26 a
 > `NSContainerConcentricGlassEffectView` floating glass panel). That material samples what is
 > behind the window, and the dayscript screenshot path renders the window offscreen
 > (`cacheDisplayInRect`), where there is nothing to sample: the sidebar comes out a flat white
@@ -1091,7 +1093,7 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
 > material altogether, and it is why the gallery's macOS sidebar shots need a window-server
 > capture rather than an offscreen one.
 
-- **macOS `NSSplitView` / Qt `QSplitter`** honor the resolved presentation: `Split` shows both panes; a
+- **macOS [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) / Qt [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html)** honor the resolved presentation: `Split` shows both panes; a
   `nav_stack` collapses the empty sidebar and stacks every page (top visible) in the detail pane,
   with a **back header** (chevron + centered title, hidden at the root) above the pages;
   desktop has no system back affordance, so a pushed page carries its own way out. The button
@@ -1123,28 +1125,19 @@ Keyboard: pair the list's content with `.focusable()` + `.focused(sig)` + `.on_k
   `NavBack { already_popped: true }`. Acknowledgements are tied to the removed page,
   consumed by either an answering `Popped` patch or page removal; owners that omit
   `Popped` cannot leave a stale counter that skips a later pop. Compact section Back
-  uses an explicit `OnBackPressedCallback`, not fragment history; it does not have a
+  uses an explicit [`OnBackPressedCallback`](https://developer.android.com/reference/androidx/activity/OnBackPressedCallback), not fragment history; it does not have a
   seekable fragment predictive animation. Nested pages retain fragment predictive Back.
   Rust-initiated pops run `popBackStack`. When testing on Android 13/14 (API 33/34), the system gates
   predictive-back animation behind Developer options → "Predictive back animations"
   (`adb shell settings put global enable_back_animation 1`), and gesture navigation must be
   active; Android 15+ enables it by default.
 - **Mobile** presents the host as a native stack for both `Sidebar` (collapsed) and `nav_stack`. A
-  `nav_stack` nested inside such a host's page merges into it (one `UINavigationController` /
+  `nav_stack` nested inside such a host's page merges into it (one [`UINavigationController`](https://developer.apple.com/documentation/uikit/uinavigationcontroller) /
   `DayNavHost`, one back button) rather than nesting a second controller; see Composition. No
-  backend change is involved: the shared host receives NAV_PAGE pushes/pops from both the outer
+  toolkit change is involved: the shared host receives NAV_PAGE pushes/pops from both the outer
   surface and the inner stack identically to a single-surface stack.
 
-## Testing
-
-`crates/day-pieces/tests/mock_e2e.rs`: nav host tabs/sidebar two-way binding, stack
-push/pop/reconcile, native-back-into-path, deep-link, nested fall-through, and typed routes
-(a `Signal<Option<Area>>` sidebar over a data-carrying `Leg(u32)` stack, including segment
-validation). The showcase's top-level nav is a typed `nav(Sidebar)` over a `Section`
-enum, its Tabs page a typed `nav(Tabs)`, and its Stack page a `nav_stack` over a
-data-carrying `Drill` enum, all driven through the walkthrough on all five local targets.
-
-### Progress over sidebar icons
+## Progress over sidebar icons
 
 `nav(selection).icon_progress(move || active.get())` accepts a reactive closure returning
 `Vec<(K, Option<f64>)>`: active route keys with `None` for indeterminate activity or
@@ -1163,8 +1156,6 @@ The background softens the icon beneath it. No Rust animation timer or canvas re
 runs. Only changed visible cells receive updates, and newly displayed/reused cells receive
 the stored state. Completion removes the layer/view and its animation. Text, badges and row
 geometry stay unchanged. Other toolkits currently ignore this optional decoration.
-`nav_icon_progress_updates_without_rebuilding_rows_and_remaps_after_filtering` guards the
-separate-patch and route-remapping contracts.
 
 ## Reordering sidebar destinations
 

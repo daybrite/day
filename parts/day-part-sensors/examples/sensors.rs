@@ -3,8 +3,7 @@
 
 //! `cargo run -p day-part-sensors --example sensors` streams the device's motion sensors for a few
 //! seconds. Demonstrates that any Rust code can depend on this crate and use the API with no Day
-//! framework at all. (On the mac host every kind is unavailable; try a Linux laptop with an iio
-//! accelerometer, or a phone.)
+//! framework at all. (On the mac host every kind is unavailable; try a phone or a Windows tablet with sensors.)
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -26,7 +25,7 @@ fn main() {
         let counter = seen.clone();
         // The handle stops delivery when dropped, so keep it for as long as you want samples.
         let watch = day_part_sensors::watch(kind, move |r| {
-            // Print the first few of each kind, then just count; 20 Hz fills a terminal fast.
+            // Print the first few of each kind, then just count; sensor events fill a terminal fast.
             if counter.fetch_add(1, Ordering::Relaxed) < 3 {
                 println!("{kind:?}: x {:+.3} y {:+.3} z {:+.3} {unit}", r.x, r.y, r.z);
             }

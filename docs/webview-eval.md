@@ -5,6 +5,26 @@ description: "Run JavaScript in an embedded page and await its JSON result."
 
 # Web view JavaScript evaluation
 
+Run JavaScript in an embedded web view and receive its result in Rust. Use a `JsHandle` to
+address the view after its page has loaded.
+
+## Add to your app
+
+Defined in [`day-piece-webview`](https://github.com/daybrite/day-piece-webview).
+Add the dependency to your app’s `Cargo.toml`:
+
+```toml
+[dependencies]
+day-piece-webview = { git = "https://github.com/daybrite/day-piece-webview.git" }
+```
+
+`day build -t <target>` enables the matching toolkit feature and stages native contributions.
+No dependency entry is needed in `Day.toml`.
+
+See [platform support](#platform-support) for required web engines and evaluation restrictions.
+
+## Evaluating JavaScript
+
 Bind a `JsHandle` to the web view, then evaluate after its page loads:
 
 ```rust
@@ -25,16 +45,18 @@ exceptions and values that cannot be serialized become errors. This is synchrono
 evaluation, not an API for awaiting JavaScript promises.
 
 Each request has its own numeric ID. A reply contains either `1␟<JSON>` or
-`0␟<error name>␟<message>` (`␟` denotes U+001F). Backends remove their native string/JSON wrapper
+`0␟<error name>␟<message>` (`␟` denotes U+001F). Toolkits remove their native string/JSON wrapper
 before delivering this envelope. Replies are separate from URL changes and external-link events.
 Disposing the Day node invalidates its handle; callers must handle errors when navigating away.
 
+## Platform support
+
 | Target | Implementation |
 |---|---|
-| macos-appkit, macos-gtk, ios-uikit | WKWebView `evaluateJavaScript` |
+| macos-appkit, macos-gtk, ios-uikit | [WKWebView](https://developer.apple.com/documentation/webkit/wkwebview) `evaluateJavaScript` |
 | linux-gtk | WebKitGTK `evaluate_javascript` |
 | macos-qt, linux-qt | QWebEngine `runJavaScript` |
-| windows-winui | WinUI's `WebView2` control, driving its `ICoreWebView2` (the deprecated windows-xaml hosts a WebView2 composition controller) |
+| windows-winui | WinUI's `WebView2` control, driving its [`ICoreWebView2`](https://learn.microsoft.com/en-us/microsoft-edge/webview2/reference/win32/icorewebview2) |
 | windows-gtk, windows-qt without Qt WebEngine | WebView2 child window through Wry |
 | android-mdc | Android WebView `evaluateJavascript` |
 | harmony-arkui | ArkWeb `runJavaScript` |
@@ -44,16 +66,17 @@ Disposing the Day node invalidates its handle; callers must handle errors when n
 still apply: a bundled site works; an inaccessible cross-origin frame returns an error. Remote
 sites can also refuse iframe embedding. This API does not bypass those restrictions.
 
-The Windows GTK/Qt child hosts are not runtime-verified on Windows. They require the WebView2
-Runtime. The common Rust host cross-checks against `x86_64-pc-windows-msvc`; the Qt hosting code
-has a C++ syntax check. Linux GTK's API is checked against the installed `webkit6` crate source.
-Harmony requires a compatible ArkWeb engine; a successful Rust build alone does not verify it.
+> [!WARNING]
+> **Windows / GTK / Qt: web engines.**
+> Child-window hosting requires the WebView2 Runtime and remains unverified on Windows.
 
-## Testing
+> [!WARNING]
+> **HarmonyOS / ArkUI: web engine.**
+> Evaluation requires a compatible ArkWeb engine; device behavior remains unverified.
 
-In the `day-piece-webview` repository, `cargo test --lib` covers encoding, error replies and native path handling.
-`node --test tests/browser.mjs` checks browser link routing and same-origin evaluation/error replies.
-The demo's `dayscript/webview.yaml` checks the actual bundled page and return path:
+## Testing embedded content
+
+Use `web_eval` to check the bundled page and its return path:
 
 ```yaml
 - web_eval:
@@ -66,3 +89,8 @@ The demo's `dayscript/webview.yaml` checks the actual bundled page and return pa
 Use `text` for an exact result or `contains` for a substring. An omitted assertion only checks
 that evaluation succeeds. For rendered-content tests, also assert dimensions and inspect a
 screenshot: a page can execute JavaScript while its content has no visible layout space.
+
+## Platform guidance
+
+- [Apple: WebKit](https://developer.apple.com/documentation/webkit)
+- [Android: WebView](https://developer.android.com/develop/ui/views/layout/webapps/webview)

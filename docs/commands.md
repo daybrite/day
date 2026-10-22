@@ -7,15 +7,18 @@ description: "Define an application operation once and present it in buttons, me
 
 # Reusable commands
 
+Define an action once and reuse it in menus, toolbars, and buttons. A `Command` keeps its
+label, availability, check state, shortcut, and handler consistent across those controls.
+
 `day::Command` is an application operation: one id, one title, one availability, one handler.
 `Command::new(id, label, action)` builds it, and clones share its behavior and presentation
 metadata. The type is in the prelude and lives in `day-pieces`, above the toolkit-neutral menu,
 toolbar, and button models. There is no
-new backend protocol, global action registry, or toolkit dependency. Each presentation keeps its
+new toolkit protocol, global action registry, or toolkit dependency. Each presentation keeps its
 normal native widget and dispatch registration; the command shares Rust behavior and state.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Define once, present in several places
 
@@ -147,12 +150,12 @@ implied. Arguments can be captured by typed Rust command factories, without an e
 
 | Toolkit | Presentation details and limitations |
 |---|---|
-| AppKit | Native `NSButton`, `NSMenuItem`, and toolbar items/toggles. Primary shortcuts use Command. Standard edit roles still follow native focus. |
-| UIKit | Native buttons, context `UIMenu`/`UIAction`, and navigation-bar toolbar contributions. Main menus depend on the iPad/Catalyst/hardware-keyboard context; never make an operation reachable only from an app menu on iPhone. |
-| GTK | `GtkButton`, stateful menu `GAction`, and header-bar controls. Header bars are window chrome; they do not reproduce AppKit's separate per-column toolbar placement. |
-| Qt | Buttons, menu `QAction`, and `QToolBar` actions. Day creates separate native presentations; this does not expose or share a native `QAction` object. Icon availability follows the platform theme and Day's fallback mapping. |
+| AppKit | Native [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton), [`NSMenuItem`](https://developer.apple.com/documentation/appkit/nsmenuitem), and toolbar items/toggles. Primary shortcuts use Command. Standard edit roles still follow native focus. |
+| UIKit | Native buttons, context [`UIMenu`](https://developer.apple.com/documentation/uikit/uimenu)/[`UIAction`](https://developer.apple.com/documentation/uikit/uiaction), and navigation-bar toolbar contributions. Main menus depend on the iPad/Catalyst/hardware-keyboard context; never make an operation reachable only from an app menu on iPhone. |
+| GTK | [`GtkButton`](https://docs.gtk.org/gtk4/class.Button.html), stateful menu `GAction`, and header-bar controls. Header bars are window chrome; they do not reproduce AppKit's separate per-column toolbar placement. |
+| Qt | Buttons, menu [`QAction`](https://doc.qt.io/qt-6/qaction.html), and [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) actions. Day creates separate native presentations; this does not expose or share a native [`QAction`](https://doc.qt.io/qt-6/qaction.html) object. Icon availability follows the platform theme and Day's fallback mapping. |
 | Android MDC | Material buttons and app-bar items/overflow. Global menu shortcuts are not a portable hardware-keyboard binding; overflow icons may be omitted and deeper menu nesting flattens. |
-| Windows XAML | Native buttons, `MenuBar`/`MenuFlyout`, and `CommandBar` items. Primary means Ctrl. Command availability is Day's predicate, not a public WinUI `ICommand`; existing placement and icon limitations apply. |
+| Windows XAML | Native buttons, [`MenuBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menubar)/[`MenuFlyout`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.menuflyout), and [`CommandBar`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.commandbar) items. Primary means Ctrl. Command availability is Day's predicate, not a public WinUI `ICommand`; existing placement and icon limitations apply. |
 | Web DOM | DOM buttons, composed toolbars and per-piece context menus. No native application menu/OS-wide accelerator installation; browser-reserved shortcuts remain the browser's. Provide visible buttons. |
 | ArkUI | Buttons can invoke commands and follow availability. Unsupported application-menu/toolbar surfaces remain unsupported: commands do not fabricate an OS menu or bar. Keep content buttons for those operations. |
 
@@ -189,10 +192,15 @@ requests. Existing app walkthroughs cover migrated operations.
 
 This section recorded an assessment (2026-09) of named-field definitions for other
 constructors, with the then-current `Command { id, label, action }.build()` as the model. The
-outcome is the house style in [docs/api-style.md](api-style.md): a constructor keeps up to
+outcome is the house style in [docs/api-style](api-style.md): a constructor keeps up to
 three positional, type-distinct arguments (`Command::new(id, label, action)` is one), coupled
 configuration is one value with its own builder (`Search`, `ContentList`, `Reorder`, `Delete`,
 `Move`), items are values (`item(..)`, `toolbar_button(..)`, `menu_item(..)`, `(value, title)`
 picker options), and named fields are reserved for same-typed arguments, where the generated
-`res::str` argument structs use them ([docs/localization.md](localization.md)). No
+`res::str` argument structs use them ([docs/localization](localization.md)). No
 `.into_piece()`/`.into_entry()` wrappers were added.
+
+## Platform guidance
+
+- [Apple: menus](https://developer.apple.com/design/human-interface-guidelines/menus)
+- [Windows: menus and context menus](https://learn.microsoft.com/en-us/windows/apps/design/controls/menus-and-context-menus)

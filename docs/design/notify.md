@@ -17,7 +17,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 
 > [!NOTE]
-> **Status: `day-part-local-notify` phases 1 and 2a shipped on Apple and Android; the rest is
+> **Status: [`day-part-local-notify`](/docs/reference/notify) phases 1 and 2a shipped on Apple and Android; the rest is
 > proposed.** What exists: the crate, its API (`Channel`, `Notification`, `Trigger`,
 > `capabilities`, `cancel`), the **iOS + macOS** arm over `UNUserNotificationCenter`, and the
 > **Android** arm over `NotificationManager` + `AlarmManager` with its own Java shim, alarm
@@ -49,7 +49,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 >
 > **Three things a first user hit, all now fixed; each fails silently.**
 > (1) Nothing requested consent, so Apple accepted every post and dropped it. Consent belongs to
-> day-part-permissions (`Permission::Notifications`), and an app must call it.
+> [day-part-permissions](/docs/reference/permissions) (`Permission::Notifications`), and an app must call it.
 > (2) iOS suppresses a notification posted while the app is in the foreground unless a
 > `UNUserNotificationCenterDelegate` returns presentation options from `willPresent`; the delegate
 > now does, and its `didReceive` also delivers taps, so `Cap::tap_route` is true on Apple.
@@ -70,7 +70,7 @@ them. Day already asks for the `Notifications` permission ([docs/permissions.md]
 one. This closes that gap.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](../snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](../snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Two capabilities, so two parts
 
@@ -87,14 +87,14 @@ existing part granularity (battery, network, clipboard are each their own crate)
 three ways:
 
 - **An app that only wants a local "download done" toast** (Files, Photos, a game) depends on
-  `day-part-local-notify` alone and compiles none of the push transport machinery (APNs
+  [`day-part-local-notify`](/docs/reference/notify) alone and compiles none of the push transport machinery (APNs
   registration, the UnifiedPush receiver, the service worker, VAPID keys). Its build-time
   footprint is a single runtime permission.
 - **Build-time declarations differ.** Local needs `POST_NOTIFICATIONS` and maybe an
   exact-alarm permission. Push needs entitlements, background modes, manifest receivers, and a
   VAPID key. `day build` folds in only what the dependency graph pulls, so the manifest stays
   minimal for the common case.
-- **Push depends on local.** `day-part-push-notify` depends on `day-part-local-notify` and
+- **Push depends on local.** `day-part-push-notify` depends on [`day-part-local-notify`](/docs/reference/notify) and
   calls into it to display. This mirrors the platforms: a data-only UnifiedPush or FCM message on
   Android hands you a payload and you call `NotificationManager` yourself, which is the local
   API. An Apple background push wakes the app, which may then post a local
@@ -107,7 +107,7 @@ day-part-push-notify   (transport: APNs / UnifiedPush / Web Push / optional FCM)
 day-part-local-notify  (Channel, Notification, Trigger, Action, display, tap→route)
 ```
 
-The rest of this document details `day-part-local-notify`, then sketches the push part and the
+The rest of this document details [`day-part-local-notify`](/docs/reference/notify), then sketches the push part and the
 sending tool, both of which build on local.
 
 ---
@@ -122,7 +122,7 @@ parts do.
 
 This example uses the shipped local-notification API. Notification actions, repeating
 triggers, and pending-notification enumeration in the design below remain proposals.
-For an app walkthrough, see [Notifications](https://daybrite.dev/docs/how-to/guide-notifications).
+For an app walkthrough, see [Notifications](/docs/how-to/guide-notifications).
 
 ```rust
 use day_part_local_notify::{Channel, Importance, Notification, Trigger, cancel, cancel_all};
@@ -196,7 +196,7 @@ is how a Clock alarm rings without a background process. Channels map to interru
 / `UNTextInputNotificationAction`, registered with `setNotificationCategories` at launch. Taps and
 actions arrive at the `UNUserNotificationCenterDelegate` (`didReceive response`); foreground
 presentation is decided in `willPresent`, which the part defaults to showing. Native half: raw
-`objc2` + `objc2-user-notifications`, the CoreLocation budget from `day-part-location`. **Local
+`objc2` + `objc2-user-notifications`, the CoreLocation budget from [`day-part-location`](/docs/reference/location). **Local
 notifications need no entitlement** (only push needs `aps-environment`), so the local part is
 lighter than the push part on Apple.
 
@@ -219,7 +219,7 @@ boot receiver are declared through `[package.metadata.day.android]`.
 
 The desktop notification spec, over the session D-Bus: `Notify(app_name, replaces_id, icon,
 summary, body, actions, hints, timeout)`, with `ActionInvoked` and `NotificationClosed` signals
-for tap and action routing. There are two implementation tiers, matching how `day-part-clipboard`
+for tap and action routing. There are two implementation tiers, matching how [`day-part-clipboard`](/docs/reference/clipboard)
 handles a missing native API: the first cut shells out to `notify-send` (from libnotify-bin,
 common but not guaranteed), which shows the notification but gives no action callbacks or stable
 id; the full path speaks the D-Bus wire protocol directly over `$DBUS_SESSION_BUS_ADDRESS` (the
@@ -246,7 +246,7 @@ first run.
 no notification surface an app can use, so the arm is ArkTS. An importance picks the notification's
 slot (HarmonyOS's fixed channels); a tap starts the entry ability with the route as its `day.uri`
 want parameter, the deep-link intake. Posting needs the per-app notification switch, which
-day-part-permissions' `Permission::Notifications` asks for with `requestEnableNotification`; until
+[day-part-permissions](/docs/reference/permissions)' `Permission::Notifications` asks for with `requestEnableNotification`; until
 it is on, a post answers `PermissionDenied`. A scheduled notification is an in-process timer, as on
 Linux; the reminder agent could hold one across an exit, at the cost of the
 `PUBLISH_AGENT_REMINDER` permission and its per-app quota.
@@ -292,7 +292,7 @@ whole flow is unit-testable on `day-mock` without a display, matching every othe
 Through the existing machinery ([docs/permissions.md](../permissions.md), §15.2), and only what the app uses:
 
 - **Always**: `POST_NOTIFICATIONS` (Android 13+) and the notification permission prompt, via
-  `day-part-permissions` (`Permission::Notifications`); the parts compose rather than duplicating
+  [`day-part-permissions`](/docs/reference/permissions) (`Permission::Notifications`); the parts compose rather than duplicating
   consent.
 - **Only if the app schedules**: Android `SCHEDULE_EXACT_ALARM`/`USE_EXACT_ALARM`,
   `RECEIVE_BOOT_COMPLETED`, and the `<receiver>`s; add `USE_FULL_SCREEN_INTENT` only for
@@ -383,7 +383,7 @@ is listed with how the part handles it.
 
 ## `day-part-push-notify` (layered on local)
 
-Push is opt-in, depends on `day-part-local-notify` for display, and returns a **routing token**
+Push is opt-in, depends on [`day-part-local-notify`](/docs/reference/notify) for display, and returns a **routing token**
 the app ships to its own backend. Day provides the client half and the sending tool; it never runs
 the server.
 
@@ -429,7 +429,7 @@ servers. It abstracts APNs HTTP/2 (JWT from a `.p8`), Web Push (RFC 8291 encrypt
 UnifiedPush (a plain POST), and optional FCM (HTTP v1 + service account) behind one command,
 choosing the transport from the token's scheme. Configuration (`day-notify.toml`) holds the
 per-transport credentials, which live on the server and never in the app. The payload type is the
-same one `day-part-local-notify` renders, so what the tool sends and what the app shows are one
+same one [`day-part-local-notify`](/docs/reference/notify) renders, so what the tool sends and what the app shows are one
 contract, and a batch send returns per-token results (a 410 means "drop this stale token") so a
 server can prune its table.
 
@@ -444,7 +444,7 @@ day notify send --to "apns:9c8b…" --title "Build done" --body "macos-appkit pa
 
 ## Crate configuration
 
-Modeled on `day-part-location`'s manifest (the closest existing part: per-OS halves, a Java
+Modeled on [`day-part-location`](/docs/reference/location)'s manifest (the closest existing part: per-OS halves, a Java
 shim, an Apple framework). Platform selection is `cfg(target_os)` with no backend features,
 because a notification is an OS concern, not a widget-toolkit one.
 
@@ -618,7 +618,7 @@ It uses no Play Services, so it runs on AOSP, GrapheneOS, or a Kindle.
 
 Scheduling is the hard half, because **Android has no notification scheduler**. The flow:
 
-1. `schedule()` serializes the `Payload` and writes a record through `day-part-fs`
+1. `schedule()` serializes the `Payload` and writes a record through [`day-part-fs`](/docs/reference/fs)
    (`notify/scheduled/<id>.json`), so it survives process death and reboot.
 2. It sets an `AlarmManager` alarm whose `PendingIntent` targets `DayNotifyAlarmReceiver`, choosing
    the strongest API the app is entitled to: `setAlarmClock` for `Importance::Urgent` (Doze-exempt,
@@ -643,7 +643,7 @@ omission; an app overrides it with a `res::images` handle.
 
 ### Linux — `src/linux.rs`
 
-There are two tiers, mirroring how `day-part-clipboard` handles a missing toolkit-independent
+There are two tiers, mirroring how [`day-part-clipboard`](/docs/reference/clipboard) handles a missing toolkit-independent
 API:
 
 - **Tier 1**: shell out to `notify-send`. Shows the notification, gives no action callbacks and no
@@ -685,7 +685,7 @@ tier made a separate `.ets` source dir unnecessary.
 `new Notification(title, options)` while the page is open, or
 `ServiceWorkerRegistration.showNotification()` when actions are wanted (the plain constructor
 supports none). New shim imports (`day_dom_notify_post`, `day_dom_notify_cancel`,
-`day_dom_notify_permission`) follow the `day-part-prefs`/`day-part-location` web-arm pattern. Taps
+`day_dom_notify_permission`) follow the [`day-part-prefs`](/docs/reference/prefs)/[`day-part-location`](/docs/reference/location) web-arm pattern. Taps
 arrive at the service worker's `notificationclick`, which `postMessage`s to the page, which calls
 back into wasm. `capabilities()` reports no `schedule_while_dead`; a running page schedules through
 the delayed poster. The service worker must be a served file, not a bundled asset, since

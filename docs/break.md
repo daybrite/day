@@ -14,6 +14,10 @@ Crash reporting lives in the standalone [day-piece-break repository](https://git
 The [package reference](https://github.com/daybrite/day-piece-break/blob/main/docs/break.md)
 covers capture, the report schema, transports, consent UI, platform limitations, and tests.
 
+## Add to your app
+
+Add this dependency to your app’s `Cargo.toml`:
+
 ```toml
 [dependencies]
 day-piece-break = { git = "https://github.com/daybrite/day-piece-break" }
@@ -22,7 +26,12 @@ day-piece-break = { git = "https://github.com/daybrite/day-piece-break" }
 Initialize `day_piece_break::Config` before launching the app. Its default `ui` feature provides
 `consent_banner()` for reviewing, sending, and discarding pending reports. Set
 `default-features = false` to use capture, storage, and transports with your own interface.
-The UI composes existing Day pieces and needs no per-backend feature flags.
+The UI composes existing Day pieces and needs no per-toolkit feature flags.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| macOS, iOS, Android, Linux (GTK / Qt), HarmonyOS | Rust panics and native Unix faults; Android also captures uncaught Java exceptions. |
+| Windows | Rust panic capture; native Windows exception capture is not implemented. |
 
 ## Migrating from day-break
 

@@ -1,5 +1,8 @@
 # System application handlers
 
+Find which installed apps can open a URL or file, or identify the user’s default browser,
+without launching another app.
+
 Use `day::application_handlers(&HandlerQuery)` to read current OS associations, and
 `day::default_browser()` for the OS-selected HTTPS browser. `HandlerQuery` accepts an
 absolute URL (including `file:`), a scheme without `:`, a MIME type, or a file extension
@@ -25,7 +28,7 @@ The target browser decides whether to use a tab or window; Day does not start du
 browser instances or require Apple Events automation permission.
 
 AppKit implements every query kind with NSWorkspace and UniformTypeIdentifiers. UIKit and
-other backends currently return `ApplicationError::Unsupported`; continue to use `open_url`
+other toolkits currently return `ApplicationError::Unsupported`; continue to use `open_url`
 for their default handler. No fake browser name or fixed installed-app list is returned.
 Malformed queries return `InvalidInput`, and a valid unregistered content type can return
 an empty result. Native discovery, malformed queries, stale application IDs, and list focus

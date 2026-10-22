@@ -41,11 +41,11 @@ day::open_window(
 
 The same builders apply to the first window through the `WindowOptions` handed to `day::launch`.
 Phones and the web ignore them: a phone window has no frame to change, and a window the platform
-cannot open presents as a cover inside the first one ([docs/windows.md](windows.md)), which is the
+cannot open presents as a cover inside the first one ([docs/windows](windows.md)), which is the
 right splash on a phone.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Chrome
 
@@ -108,7 +108,9 @@ positions, so there `At` behaves like `Automatic` (`Cap::WindowPosition`).
 
 ## Platform support
 
-| Backend | Frameless | Overlay | Transparent | Material | Drag region |
+Platform guidance: [Apple: windows](https://developer.apple.com/design/human-interface-guidelines/windows); [Windows: windowing](https://learn.microsoft.com/en-us/windows/apps/develop/ui-input/windowing-overview).
+
+| Toolkit | Frameless | Overlay | Transparent | Material | Drag region |
 |---|---|---|---|---|---|
 | AppKit | Native | Native | Native | Native | Native |
 | Windows XAML | Native | Native | Unsupported | Native on Windows 11 22H2+ | Native |
@@ -121,30 +123,30 @@ Probe the matching `Cap` before relying on an option: `FramelessWindow`, `Overla
 `TransparentWindow`, `WindowMaterial`, `DragRegion`. An option the toolkit cannot honor falls
 back to the standard frame or the opaque background.
 
-### How each backend does it
+### How each toolkit does it
 
 - **AppKit.** `Frameless` is a borderless window that can still become key. `Overlay` is a full-size
-  content view with a transparent, untitled title bar. Materials are an `NSVisualEffectView`
+  content view with a transparent, untitled title bar. Materials are an [`NSVisualEffectView`](https://developer.apple.com/documentation/appkit/nsvisualeffectview)
   behind the content. A drag region answers a press on its own background with
   `performWindowDragWithEvent:`, and reads the user's double-click setting
   (`AppleActionOnDoubleClick`).
 - **Windows XAML.** `Frameless` keeps the caption and sizing styles and returns 0 from
   `WM_NCCALCSIZE`, so the shadow, rounded corners and Aero Snap stay. `Overlay` uses DWM's custom
-  frame (`DwmExtendFrameIntoClientArea`, `DwmDefWindowProc`). Materials set
+  frame ([`DwmExtendFrameIntoClientArea`](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmextendframeintoclientarea), [`DwmDefWindowProc`](https://learn.microsoft.com/en-us/windows/win32/api/dwmapi/nf-dwmapi-dwmdefwindowproc)). Materials set
   `DWMWA_SYSTEMBACKDROP_TYPE`. Drag regions answer `HTCAPTION` from the window's hit test, which
   brings the system's own move, snap and double-click maximize; the XAML island's windows pass
   those hits through. These paths are compile-checked; the Windows runtime pass is pending.
 - **GTK.** `Frameless` drops the header bar; with `shadow: false` the window is undecorated and
-  Day resizes it from its edges with `gdk::Toplevel::begin_resize`. `Overlay` replaces the header
-  bar with `GtkWindowControls` over the content's top band and reports the band's height as the
-  inset. A drag region moves the window with `gdk::Toplevel::begin_move` once a drag passes the
+  Day resizes it from its edges with [`gdk::Toplevel::begin_resize`](https://docs.gtk.org/gdk4/method.Toplevel.begin_resize.html). `Overlay` replaces the header
+  bar with [`GtkWindowControls`](https://docs.gtk.org/gtk4/class.WindowControls.html) over the content's top band and reports the band's height as the
+  inset. A drag region moves the window with [`gdk::Toplevel::begin_move`](https://docs.gtk.org/gdk4/method.Toplevel.begin_move.html) once a drag passes the
   platform threshold; a double click follows `gtk-titlebar-double-click`, and a secondary click
   opens the window menu. GTK 4 cannot place windows, so `placement` is the window manager's.
 - **Qt.** `Frameless` is `Qt::FramelessWindowHint`, resized from its edges with
-  `QWindow::startSystemResize`. A drag region calls `QWindow::startSystemMove` once a drag passes
+  [`QWindow::startSystemResize`](https://doc.qt.io/qt-6/qwindow.html). A drag region calls [`QWindow::startSystemMove`](https://doc.qt.io/qt-6/qwindow.html) once a drag passes
   `startDragDistance`, and a double click toggles maximize. Qt has no way to keep the window
   controls while removing the title bar, so `Overlay` keeps the standard frame and reports no
   inset. On Wayland the compositor places windows.
 - **Web.** An installed Chromium app with a window-controls overlay honors `Overlay` (the inset
-  comes from `navigator.windowControlsOverlay`) and drag regions (CSS `app-region: drag`, with
+  comes from [`navigator.windowControlsOverlay`](https://wicg.github.io/window-controls-overlay/)) and drag regions (CSS `app-region: drag`, with
   `no-drag` on controls). Elsewhere both are inert.

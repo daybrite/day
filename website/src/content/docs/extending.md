@@ -37,7 +37,7 @@ rating(stars).max(5).editable(true)
 ```
 
 Most reusable UI in a Day app is this tier: cards, badges, form rows, charts drawn with
-`canvas`. The shipped `day-piece-rating` and `day-piece-settings` crates are composite pieces,
+`canvas`. The shipped [`day-piece-rating`](/contributing/tutorials/composite-piece) and [`day-piece-settings`](/docs/reference/settings) crates are composite pieces,
 and the [composite piece tutorial](/contributing/tutorials/composite-piece) provides a complete example.
 
 ## Tier 1: a native leaf widget per toolkit

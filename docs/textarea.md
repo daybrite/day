@@ -8,14 +8,31 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Text area (built-in)
+# Text area
 
-> **Status: implemented** as a built-in piece (`kinds::TEXT_AREA`; moved in from the satellite
-> `day-piece-textarea` 2026-07). A native multi-line text editor bound two-way to a string, with
-> an auto-growing height band. In `day::prelude::*`, with no dependency to add.
+Let people write messages, notes, or other multi-line text. `text_area` binds the text to app
+state and grows with its content up to a chosen height, then scrolls within the editor.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
+
+## Add to your app
+
+Defined in [`day-pieces`](https://github.com/daybrite/day/tree/main/crates/day-pieces) and
+re-exported by `day::prelude`. An app created with `day new` already has the required dependency;
+otherwise add it to `Cargo.toml`:
+
+```toml
+[dependencies]
+day = { git = "https://github.com/daybrite/day.git" }
+```
+
+No additional piece crate or `Day.toml` dependency is needed. Build with the app’s selected
+toolkit using `day build -t <target>`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit, GTK, Qt, Android, WinUI, ArkUI, Web | Built-in control; see [native realization](#per-toolkit-native-realization) for presentation differences. |
 
 ## Authoring
 
@@ -66,16 +83,16 @@ gates its three toggles that way):
 | selectable | `Cap::TextSelectable` | ✓ | ✓ | — (always on) | ✓ | ✓ | emulated | emulated |
 | spell-check | `Cap::TextSpellCheck` | ✓ | ✓ | — (none built in) | — (none) | ✓ | ✓ | follow-up |
 
-GTK's `GtkTextView` is always selectable (no toggle), and neither GTK nor Qt ships a built-in
+GTK's [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) is always selectable (no toggle), and neither GTK nor Qt ships a built-in
 spell-checker (that needs libspelling/gspell or Hunspell).
 
-**XAML** honors editable and spell-check with the plain `TextBox` properties `IsReadOnly` and
-`IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a `TextBlock` /
-`RichTextBlock` property and `TextBox` carries no equivalent, so `.selectable(false)` is EMULATED:
+**XAML** honors editable and spell-check with the plain [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) properties `IsReadOnly` and
+`IsSpellCheckEnabled`. Selection is the odd one out: `IsTextSelectionEnabled` is a [`TextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) /
+[`RichTextBlock`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richtextblock) property and [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) carries no equivalent, so `.selectable(false)` is EMULATED:
 the shim collapses each selection as `SelectionChanged` reports it and suppresses the context menu,
 which is the other route to Copy / Select All.
 
-**ArkUI** keeps its native `ARKUI_NODE_TEXT_AREA` and emulates editable/selectable policy. The
+**ArkUI** keeps its native [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) and emulates editable/selectable policy. The
 API 18 C interface has no persistent read-only or selection-enable property: `EDITING=false`
 only ends the current editing session. Day vetoes native insert/delete callbacks while read-only,
 suppresses keyboard activation/autofill, and restores the held text if an input path bypasses the
@@ -87,9 +104,9 @@ to a caret, and intercepts Select All/Copy/Cut shortcuts before the IME. Typing 
 when `.editable(true)`. Both policies apply at creation and reactively, without replacing the
 editor. They report `Support::Emulated`; spell-check remains `Unsupported`.
 
-It is the multi-line sibling of `text_field` ([docs/forms.md](forms.md)): a field is one line and submits on
+It is the multi-line sibling of `text_field` ([docs/forms](forms.md)): a field is one line and submits on
 Return; a text area keeps newlines. Both raise the soft keyboard through the focus system
-([docs/focus.md](focus.md)), and keyboard avoidance (the focused editor scrolling clear of the keyboard) applies
+([docs/focus](focus.md)), and keyboard avoidance (the focused editor scrolling clear of the keyboard) applies
 to both.
 
 ### Submission
@@ -111,15 +128,17 @@ Custom ArkTS hosts must adopt the staged host's `registerTextAreaKey` callback f
 without it, the shortcut is ignored with a diagnostic rather than replacing text outside the
 native editing pipeline. `day build` stages this callback automatically for standard hosts.
 
-## Per-backend native realization
+## Per-toolkit native realization
+
+Platform guidance: [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields); [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method); [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls).
 
 | AppKit | UIKit | GTK | Qt | Android | XAML | ArkUI |
 |---|---|---|---|---|---|---|
-| `NSTextView` in `NSScrollView` | `UITextView` | `GtkTextView` in `GtkScrolledWindow` | `QPlainTextEdit` | multi-line `EditText` | wrapping `TextBox` | `ARKUI_NODE_TEXT_AREA` |
+| [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) in [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) | multi-line [`EditText`](https://developer.android.com/reference/android/widget/EditText) | wrapping [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) | [`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md) |
 
-Each backend keeps the `(min_lines, max_lines)` band and grows its `measure` height in a line band.
+Each toolkit keeps the `(min_lines, max_lines)` band and grows its `measure` height in a line band.
 Text changes report through `Event::TextChanged(String)`; programmatic sync (`TextAreaPatch::SetText`)
-is echo-guarded per backend, and the attribute patches (`SetEditable`/`SetSelectable`/`SetSpellCheck`)
+is echo-guarded per toolkit, and the attribute patches (`SetEditable`/`SetSelectable`/`SetSpellCheck`)
 apply the native property. The Qt and XAML renderers carry C++ shims in the matching `-sys` crate
 (`shim-textarea.cpp`: Qt adds `day_textarea_set_attrs`/`set_read_only`/`set_selectable`; XAML adds
 `day_textarea_xaml_set_editable`/`set_selectable`/`set_spellcheck`, applied at build as well as on
@@ -127,22 +146,11 @@ patch so an editor that starts read-only comes up that way); Android's
 `DayTextArea.java` rides the framework shim (its `applyAttrs` maps editable→InputType/keyListener,
 selectable→`setTextIsSelectable`, spell-check→`TYPE_TEXT_FLAG_NO_SUGGESTIONS`).
 
-## Verification
-
-The Day-Matrix app's composer (a standalone Day app) is the shipped consumer. A mock-backend test
-(`crates/day-pieces/tests/mock_e2e.rs` `picker_and_text_area_are_built_in`) asserts the two-way binding
-round-trips.
-
-The portable conformance cases cover initial read-only/unselectable editors and preserving
-multiline text through reactive policy changes and programmatic writes. The
-[native ArkUI input suite](testing.md#native-arkui-text-area-tests) additionally exercises actual
-keyboard, clipboard and touch input; injected Day events cannot prove native input rejection.
-
 ## Follow-ups
 
 - **ArkUI spell-check**: still unsupported; verify an appropriate SDK/IME contract before
   advertising it. The API 18 C TextArea interface has no spell-check toggle.
-- Styled text is a different control: `day-piece-texteditor` edits a whole `StyledText` — the
+- Styled text is a different control: [`day-piece-texteditor`](/docs/reference/texteditor) edits a whole `StyledText` — the
   document labels render and `.markdown()` produces — in each platform's rich-text view
-  ([docs/texteditor.md](texteditor.md)). `text_area` stays the plain-text one.
+  ([docs/texteditor](texteditor.md)). `text_area` stays the plain-text one.
 - Reactive placeholder; a character/line counter affordance.

@@ -8,7 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Accessibility (§13)
+# Accessibility
 
 Day starts with the accessibility behavior of its native controls. App code supplies the
 meaning those controls cannot infer: a label for an icon-only button, a summary for a chart,
@@ -20,7 +20,7 @@ Test keyboard navigation and screen-reader behavior on the platforms you ship; a
 alone do not establish that a screen is usable.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -38,7 +38,7 @@ gauge(level).a11y(|a| a.role(Role::Meter).label(res::str::volume()).value(res::s
 `.decorative()` (decorative ⇒ hidden + exempt from the "needs a label" lint). `.id(_)` sets the
 identifier. `.selected` is the platform's selected state for one item among peers, a `Role::Tab`
 or a row; it takes a `bool`, a `Signal<bool>` or a closure and follows it. A `button(..).selected(..)`
-carries the same state through the control itself ([docs/buttons.md](buttons.md)), so the annotation is for
+carries the same state through the control itself ([docs/buttons](buttons.md)), so the annotation is for
 custom chrome and drawn pieces.
 The three strings take what a `label` takes: a literal, a `String`, a `Signal<String>` or a
 closure. A closure is re-read whenever what it reads changes and the new string is re-sent on
@@ -53,7 +53,7 @@ the merged `A11yProps` on the node, re-applies the full picture on each change, 
 `a11y_audit` as the expectation).
 
 `.id` names the piece's own node wherever it sits in the chain. `.a11y` is an ordered
-modifier ([docs/api-style.md](api-style.md) "Modifier classes"): it annotates the node built so
+modifier ([docs/api-style](api-style.md) "Modifier classes"): it annotates the node built so
 far, so put it before `.frame()`/`.padding()` on canvas/leaf pieces, which wrap in a handle-less
 layout node that annotations placed after them would land on.
 
@@ -63,7 +63,7 @@ layout node that annotations placed after them would land on.
 `Tree`, `TreeItem`, `Tab`, `TabList`.
 
 `Tab` and `TabList` are what the composed document strip applies to its title buttons and their
-row ([docs/navigation.md](navigation.md) "Document tabs"): a tab button on AppKit, `role="tab"` on the web, GTK's
+row ([docs/navigation](navigation.md) "Document tabs"): a tab button on AppKit, `role="tab"` on the web, GTK's
 and Qt's tab roles, a button with the selected trait or state on UIKit and Android, where no
 single-tab role exists.
 
@@ -72,15 +72,17 @@ already report the right role, so Day records their kind-default (`Role::for_kin
 expectation but never overrides the widget. `resolved_role(kind)` = explicit role, else the kind
 default.
 
-## Per-backend mapping (`set_a11y`)
+## Per-toolkit mapping (`set_a11y`)
+
+Platform guidance: [Apple: accessibility](https://developer.apple.com/design/human-interface-guidelines/accessibility); [Android: accessibility principles](https://developer.android.com/guide/topics/ui/accessibility/principles); [Windows: accessible apps](https://learn.microsoft.com/en-us/windows/apps/design/accessibility/accessibility).
 
 | field | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
 |---|---|---|---|---|---|---|---|---|
 | label | `accessibilityLabel` | `accessibilityLabel` | `Property::Label` | `accessibleName` (+ tooltip) | `contentDescription` | `AutomationProperties.Name` | `NODE_ACCESSIBILITY_TEXT` | `aria-label` |
 | hint | `accessibilityHelp` | `accessibilityHint` | `Property::Description` | `accessibleDescription` | `hintText` through a delegate | `HelpText` | `NODE_ACCESSIBILITY_DESCRIPTION` | `aria-description` |
-| value | `accessibilityValue` | `accessibilityValue` | `Property::ValueText` | `QAccessibleInterface::text(Value)` | `stateDescription` (API 30+; appended to the label below) | `ItemStatus` | `NODE_ACCESSIBILITY_VALUE` | `aria-valuetext` (+ `aria-valuenow`) on meters and sliders, else in `aria-description` |
-| role (explicit) | `accessibilityRole` (+ the tab-button subrole for `Tab`) | `accessibilityTraits` (button, adjustable, header, image, tab bar) | `accessible-role`, set before the widget meets an AT | `QAccessibleInterface::role()` | `className` and `heading` through a delegate | `HeadingLevel`; `LocalizedControlType` for the rest | `NODE_ACCESSIBILITY_ROLE` | `role` (+ `aria-level`) |
-| selected | `accessibilitySelected` | the selected trait | `State::Selected` | `selected` state through Day's interface | `View.setSelected` | not applied: no automation property short of a custom peer | not applied: no state attribute in the bound NDK | `aria-selected` |
+| value | `accessibilityValue` | `accessibilityValue` | `Property::ValueText` | [`QAccessibleInterface::text(Value)`](https://doc.qt.io/qt-6/qaccessibleinterface.html) | `stateDescription` (API 30+; appended to the label below) | `ItemStatus` | `NODE_ACCESSIBILITY_VALUE` | `aria-valuetext` (+ `aria-valuenow`) on meters and sliders, else in `aria-description` |
+| role (explicit) | `accessibilityRole` (+ the tab-button subrole for `Tab`) | `accessibilityTraits` (button, adjustable, header, image, tab bar) | `accessible-role`, set before the widget meets an AT | [`QAccessibleInterface::role()`](https://doc.qt.io/qt-6/qaccessibleinterface.html) | `className` and `heading` through a delegate | `HeadingLevel`; `LocalizedControlType` for the rest | `NODE_ACCESSIBILITY_ROLE` | `role` (+ `aria-level`) |
+| selected | `accessibilitySelected` | the selected trait | `State::Selected` | `selected` state through Day's interface | [`View.setSelected`](https://developer.android.com/reference/android/view/View) | not applied: no automation property short of a custom peer | not applied: no state attribute in the bound NDK | `aria-selected` |
 | hidden / decorative | `accessibilityElement = false`, no children | `isAccessibilityElement = false`, descendants hidden | `State::Hidden` | `invisible` + `offscreen` state, no children | `importantForAccessibility = NO_HIDE_DESCENDANTS` | `AccessibilityView.Raw` | `NODE_ACCESSIBILITY_MODE` disabled for descendants | `aria-hidden`, out of the tab order |
 | identifier | `accessibilityIdentifier` | `accessibilityIdentifier` | `widget name` (Inspector only) | `objectName` | `uniqueId` through the delegate (API 33+; node extras below) | `AutomationId` | `NODE_ID` | `id` |
 
@@ -93,12 +95,12 @@ What each platform does not carry:
   and its rows; Android's `Tree`/`TreeItem` and UIKit's `TextInput`/`Meter`/`Group`/`Tree` have
   no counterpart. A canvas with `Role::Button` on the web becomes keyboard-reachable
   (`tabindex`, Enter and Space tap it).
-- **Qt** realizes value, role and hidden through its own `QAccessibleInterface` for a widget
+- **Qt** realizes value, role and hidden through its own [`QAccessibleInterface`](https://doc.qt.io/qt-6/qaccessibleinterface.html) for a widget
   that asked for any of them; the heading level needs Qt 6.8.
-- **Android** reaches hint, role and the identifier through one `AccessibilityDelegate` per
+- **Android** reaches hint, role and the identifier through one [`AccessibilityDelegate`](https://developer.android.com/reference/android/view/View.AccessibilityDelegate) per
   annotated view, wrapping whatever delegate the widget already had. The identifier is the
   node's `uniqueId`, which UiAutomator and Appium address from API 33; below that the compat
-  call keeps it in the node's extras, where only an in-process reader finds it (§13's table).
+  call keeps it in the node's extras, where only an in-process reader finds it.
 - **GTK**'s role is set only while the widget has no root, which is when day-core first applies
   annotations; a role changed later is ignored. A plain Day container on **WinUI** is a `Canvas`,
   which has no automation peer, so annotations on a bare container are stored but not exposed.
@@ -113,7 +115,7 @@ that the user can reach needs none. Nothing happens when no screen reader is run
 | | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
 |---|---|---|---|---|---|---|---|---|
 | `Cap::Announce` | Native | Native | Native on GTK 4.14+ | Native on Qt 6.8+ | Native | Native | Native | Emulated |
-| mechanism | `NSAccessibilityAnnouncementRequested` notification on the window | `UIAccessibilityAnnouncementNotification`; polite announcements queue | `gtk_accessible_announce`, looked up at run time | `QAccessibleAnnouncementEvent` | `announceForAccessibility`; urgent interrupts first | `AutomationPeer.RaiseNotificationEvent` | `accessibility.sendAccessibilityEvent` from the ArkTS host | two ARIA live regions |
+| mechanism | [`NSAccessibilityAnnouncementRequested`](https://developer.apple.com/documentation/appkit/nsaccessibility-swift.struct/notification/announcementrequested) notification on the window | [`UIAccessibilityAnnouncementNotification`](https://developer.apple.com/documentation/uikit/uiaccessibility/notification/announcement); polite announcements queue | [`gtk_accessible_announce`](https://docs.gtk.org/gtk4/method.Accessible.announce.html), looked up at run time | [`QAccessibleAnnouncementEvent`](https://doc.qt.io/qt-6/qaccessibleannouncementevent.html) | `announceForAccessibility`; urgent interrupts first | `AutomationPeer.RaiseNotificationEvent` | [`accessibility.sendAccessibilityEvent`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-accessibility-kit/js-apis-accessibility.md) from the ArkTS host | two ARIA live regions |
 
 GTK makes the call only through an AT-SPI context, which exists only once the accessibility
 bus answered: GTK 4.14 reaches the announcement through its no-AT context otherwise and the
@@ -132,7 +134,7 @@ animation Day drives consults.
   destination is applied as it is.
 - **What keeps moving.** An endless tween (`repeat: u32::MAX`): a spinner or a pulse that is
   the only sign of work. Native transitions a toolkit owns (a navigation push) are the
-  toolkit's, and the backends that animate them read the gate before doing so.
+  toolkit's, and the toolkits that animate them read the gate before doing so.
 - **What is the app's.** Motion driven from `day::frame` (a simulation, a chart's easing) is
   the app's own, and Day cannot know which of it is decoration. `day::reduce_motion()` is the
   reactive read: a closure reading it re-runs when the setting flips, so the app settles or
@@ -145,41 +147,39 @@ let frames = day::frame::subscribe(move |f| {
 });
 ```
 
-The gate is the user's system setting (`Toolkit::reduce_motion`, re-read when the backend's
+The gate is the user's system setting (`Toolkit::reduce_motion`, re-read when the toolkit's
 observer reports a flip) OR a launch that forced it. `day launch --fast` forces it: fast mode
 is this setting and nothing more, so a scripted run shows what a user who asked for less motion
 sees. `DAY_REDUCE_MOTION=1` is the same force under the name an app or a screenshot variant
-would use. `Cap::ReduceMotion` says whether the backend reads a real setting; where it does
+would use. `Cap::ReduceMotion` says whether the toolkit reads a real setting; where it does
 not, apps on that platform animate as with the setting off, and the force still applies.
 
 | | AppKit | UIKit | GTK | Qt | Android | WinUI | ArkUI | web |
 |---|---|---|---|---|---|---|---|---|
-| setting | Reduce Motion | Reduce Motion | Animations off (`gtk-enable-animations`) | — | Remove animations (animator scale 0) | Show animations off | animator scale 0 | `prefers-reduced-motion` |
-| read | `accessibilityDisplayShouldReduceMotion` | `isReduceMotionEnabled` | `GtkSettings` | — | `Settings.Global.ANIMATOR_DURATION_SCALE` | `UISettings.AnimationsEnabled` | `settings.display.ANIMATOR_DURATION_SCALE` (ArkTS host) | `matchMedia` |
-| change | workspace options notification | status-did-change notification | `notify::gtk-enable-animations` | — | settings `ContentObserver` | `AnimationsEnabledChanged` | `settings.registerKeyObserver` | media-query `change` |
+| setting | Reduce Motion | Reduce Motion | Animations off ([`gtk-enable-animations`](https://docs.gtk.org/gtk4/property.Settings.gtk-enable-animations.html)) | — | Remove animations (animator scale 0) | Show animations off | animator scale 0 | `prefers-reduced-motion` |
+| read | `accessibilityDisplayShouldReduceMotion` | `isReduceMotionEnabled` | [`GtkSettings`](https://docs.gtk.org/gtk4/class.Settings.html) | — | `Settings.Global.ANIMATOR_DURATION_SCALE` | [`UISettings.AnimationsEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.viewmanagement.uisettings.animationsenabled) | `settings.display.ANIMATOR_DURATION_SCALE` (ArkTS host) | `matchMedia` |
+| change | workspace options notification | status-did-change notification | `notify::gtk-enable-animations` | — | settings [`ContentObserver`](https://developer.android.com/reference/android/database/ContentObserver) | `AnimationsEnabledChanged` | `settings.registerKeyObserver` | media-query `change` |
 
-Qt has no reduce-motion reading of its own (`QStyleHints` carries none), so `linux-qt` answers
+Qt has no reduce-motion reading of its own ([`QStyleHints`](https://doc.qt.io/qt-6/qstylehints.html) carries none), so `linux-qt` answers
 `Unsupported`; the forced gate still applies there. Android and ArkUI also route their native
 transition skips (list diffs, a navigation push, a cover slide) through the same gate, so a user
 who removed animations gets what a scripted run gets.
 
-## Verification: `a11y_audit` (§14.2)
+## Auditing accessibility
 
 The dayscript step `a11y_audit: { id? }` walks Day's id'd nodes, reads each widget's actual
 native state (`Toolkit::read_native`, whose accessibility group this uses), and diffs identifier
-+ label + value + explicit-role against Day's stored expectation. Backends that can't read their
++ label + value + explicit-role against Day's stored expectation. Toolkits that can't read their
 native tree (`found=false`) skip. Nodes reported natively hidden (`visible=false`) also skip:
 retained navigation panes can omit accessibility metadata while offscreen. Unknown visibility
 does not exempt a node. Navigate to a pane before auditing its metadata; use `assert_native`
 to check visibility itself. The Apple targets read it from NSAccessibility /
 UIAccessibility (→ Day `Role`), the web from the ARIA attributes on the element (`role`,
 `aria-label`, `aria-valuetext` or else `aria-description`, `id`), Qt from the widget's
-`QAccessibleInterface` and `objectName`, Windows from the automation peer and
-`AutomationProperties`, and Android (API 30+) from the view's `AccessibilityNodeInfo`. GTK and
+[`QAccessibleInterface`](https://doc.qt.io/qt-6/qaccessibleinterface.html) and `objectName`, Windows from the automation peer and
+[`AutomationProperties`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.automation.automationproperties), and Android (API 30+) from the view's `AccessibilityNodeInfo`. GTK and
 ArkUI answer `found=false`: GTK 4 has no public getters for an accessible's label and value, and
-ArkUI's accessibility text is empty unless Day set it, so neither can be read back faithfully. It is required in the CI walkthrough on those
-targets and passes there (the showcase gauge audits as role=Meter + label + value + id, twice:
-once more after its slider moves, which is what shows the reactive value landing natively). Role
+ArkUI's accessibility text is empty unless Day set it, so neither can be read back faithfully. Role
 is diffed only for explicit roles Day applied, since native controls own their roles, which vary
 per platform.
 

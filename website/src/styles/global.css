@@ -510,3 +510,27 @@ a.tier-badge:hover {
   .gloss-pop { animation: gloss-in 120ms ease-out; }
   @keyframes gloss-in { from { opacity: 0; transform: translateY(-2px); } }
 }
+
+/* Documentation target labels use the same marks and palette as platform cards. */
+.doc-target-label {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.3em;
+  color: color-mix(in srgb, var(--pf) 65%, var(--text));
+  background: color-mix(in srgb, var(--pf) 10%, transparent);
+  border-radius: 0.3em;
+  padding: 0.05em 0.28em;
+}
+.doc-target-icon {
+  display: inline-block;
+  flex: none;
+  width: 0.95em;
+  height: 0.95em;
+  vertical-align: -0.1em;
+  background: currentColor;
+  mask: var(--target-icon) center / contain no-repeat;
+  -webkit-mask: var(--target-icon) center / contain no-repeat;
+}
+code[data-pf] > .doc-target-icon { margin-right: 0.3em; }
+
+.doc-target-icon[data-pf] { color: color-mix(in srgb, var(--pf) 65%, var(--text)); }

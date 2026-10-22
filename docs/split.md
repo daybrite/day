@@ -8,13 +8,7 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Split (`split`)
-
-> **Status: implemented** (2026-10). Native on macos-appkit (`NSSplitView`), gtk (`GtkPaned`)
-> and qt (`QSplitter`); composed on ios-uikit, android-mdc, harmony-arkui, web-dom, xaml and
-> mock, where no toolkit ships a general two-pane splitter (`Cap::Split = Unsupported` there;
-> the piece supplies the panes, the divider and the drag itself). Exercised by Day-Yaak,
-> whose request form and response view sit in one.
+# Split
 
 A `split` puts two panes in the space it is given with a divider between them that the user
 drags, the editor-beside-preview shape. Like every Day surface it projects app-owned state:
@@ -41,19 +35,21 @@ does, so it goes where a `.grow()` child would.
 
 ## Native and composed
 
+Platform guidance: [Apple: split views](https://developer.apple.com/design/human-interface-guidelines/split-views).
+
 Where `Cap::Split` answers `Native` the piece realizes `kinds::SPLIT` and the toolkit's own
 splitter draws the divider, drags it and sizes the panes:
 
 | Toolkit | Splitter | Notes |
 |---|---|---|
-| macos-appkit | `NSSplitView` (thin divider), `vertical` set from the axis | pane frames native-owned, reported through `Event::FrameChanged` as an inspector pane's are; a drag reports `Event::ValueChanged` with the new share |
-| gtk | `GtkPaned`, orientation from the axis, both children filling `DayCell`s | the position-notify reports the share |
-| qt | `QSplitter`, orientation from the axis | `splitterMoved` reports the share |
+| macos-appkit | [`NSSplitView`](https://developer.apple.com/documentation/appkit/nssplitview) (thin divider), `vertical` set from the axis | pane frames native-owned, reported through `Event::FrameChanged` as an inspector pane's are; a drag reports `Event::ValueChanged` with the new share |
+| gtk | [`GtkPaned`](https://docs.gtk.org/gtk4/class.Paned.html), orientation from the axis, both children filling `DayCell`s | the position-notify reports the share |
+| qt | [`QSplitter`](https://doc.qt.io/qt-6/qsplitter.html), orientation from the axis | `splitterMoved` reports the share |
 
 Each pane is a `kinds::SPLIT_PANE` whose frame the splitter owns; Day lays the pane's content
 out inside the size the toolkit last reported, the same native-owned-frame contract as nav
-pages ([docs/navigation.md](navigation.md)) and inspector panes
-([docs/inspector.md](inspector.md)). The share patch (`SplitPatch::Fraction`) moves the
+pages ([docs/navigation](navigation.md)) and inspector panes
+([docs/inspector](inspector.md)). The share patch (`SplitPatch::Fraction`) moves the
 divider without re-emitting the report (the from-native echo rule), and the axis patch
 (`SplitPatch::Axis`) turns the splitter with its panes in place.
 

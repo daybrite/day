@@ -8,12 +8,12 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# HarmonyOS Next: the ArkUI backend (§9)
+# HarmonyOS Next: the ArkUI backend
 
 HarmonyOS Next dropped the AOSP layer; its UI framework is **ArkUI**. Day targets it with a native
 backend (`day-arkui`) built on the **ArkUI Native NodeAPI**, using the same "real native widgets, Day
 owns layout" model as every other backend, adapted to HarmonyOS's ArkTS-hosted world. `harmony-arkui`
-is [Tier 3](https://daybrite.dev/docs/reference/platforms#support-tiers): tested, but not comprehensively, and
+is [Tier 3](/docs/reference/platforms#support-tiers): tested, but not comprehensively, and
 not yet exercised by shipping applications.
 
 ## Launch logs
@@ -54,7 +54,7 @@ it matches the `libentry.so` the ArkTS runtime loads.
 
 The ArkTS host is the framework's, not the app's. It lives in the day-arkui crate at
 `toolkits/day-arkui/platform/harmony/` — `ets/` holds `EntryAbility` (which also reports the
-app lifecycle, [docs/lifecycle.md](lifecycle.md), through the `lifecycle` export: its foreground/background,
+app lifecycle, [docs/lifecycle](lifecycle.md), through the `lifecycle` export: its foreground/background,
 memory and destroy callbacks plus the window stage's active/inactive events), `DayWindowAbility`,
 the `Index` page and the secondary-window `DayWindow` page; `types/Index.d.ts` declares the native
 module's exports, so it always matches the `#[napi]` exports the app links. `day build`
@@ -100,7 +100,7 @@ will resolve from a different directory in the staged project.
   `TEXT_INPUT`, `TOGGLE`, `SLIDER`), children get an explicit position + size in **vp** (≈ Day
   points), and events (click / text / toggle / slider) come back through `on_event`. A standalone
   piece drives its own node through `day_arkui::node` and the raw `day_arkui::arkui_sys` bindings
-  (day-piece-datetime, day-piece-pullrefresh, day-tweak-slider-tickmarks): no C++ of its own.
+  ([day-piece-datetime](/docs/reference/datepicker), [day-piece-pullrefresh](/docs/reference/pullrefresh), day-tweak-slider-tickmarks): no C++ of its own.
 - **`day::day_start_arkui!(root)`**: exports `day_arkui_start`, the symbol the shim's NAPI `start` calls;
   it mounts the app's root piece and runs the loop (`day::arkui::start` → `launch_with`). Apps
   reach it through `day::day_start!("App Name", root)`, which expands to this macro and to every
@@ -343,36 +343,36 @@ on the Oniro emulator:
 - **Nav shell** (`nav`) — ArkUI's `Navigation`: the rows beside the detail where the window has
   room (a tablet, `NavigationMode.Auto` tiling its nav bar and content), a list that pushes detail
   pages where it has not; the mode is ArkUI's decision, observed and reconciled
-  ([docs/size-classes.md](size-classes.md)).
+  ([docs/size-classes](size-classes.md)).
 - **Controls** — `Text`, `Button`, `TextInput`, native `Slider` / `Toggle`, a determinate `Progress`
   bar + an indeterminate `LoadingProgress` spinner, and `Divider` hairlines.
 - **Inline links** — native clickable `SPAN` children route their original targets through
   `Event::LinkActivated`. Markdown, `TextBuilder` and standalone `link(...)` use the same
   path, including wrapped text and reactive updates. `Cap::TextLinks` reports `Native`.
-  See [text-runs.md](text-runs.md) and the [native tap tests](testing.md#native-arkui-link-tests).
+  See [text-runs](text-runs.md) and the [native tap tests](testing.md#native-arkui-link-tests).
 - **Text areas** — native `TextArea` with live read-only and selection policies. Day vetoes edits
   and restores text for input paths that bypass the veto; selection-disabled editors collapse
   native ranges and suppress selection menus/clipboard shortcuts. Both capabilities report
   `Emulated` because the API 18 C editor lacks equivalent persistent properties. Read-only
   text can still be copied, and app writes still replace its contents. Spell-check remains
-  unsupported. See [textarea.md](textarea.md) and the [native-input tests](testing.md#native-arkui-text-area-tests).
+  unsupported. See [textarea](textarea.md) and the [native-input tests](testing.md#native-arkui-text-area-tests).
   `.on_submit(...)` uses the native Send action and submit event. Shift+Enter dispatches the
   native newline action through the ArkTS host, retaining selection and undo/redo; plain
   text areas keep multiline Enter behavior.
-- **Canvas** (§11) — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
+- **Canvas** — an `ARKUI_NODE_CUSTOM` node whose on-draw callback replays Day's display list
   with **OH_Drawing** (arcs, fills, strokes, rounded-rects, ellipses, text): the gauge + shapes pages.
   Day holds a Stack containing the custom surface and a transparent, unpadded button with an
   empty label. The button receives focus and keys for the canvas; the Stack lays out both
   siblings and owns accessibility. Keeping drawing outside the button avoids its native
   switch between text layout and a focus scope with no focusable children. This preserves
-  drawing and `.focused(..)` after native layout (`canvas::create`; [focus.md](focus.md)).
+  drawing and `.focused(..)` after native layout (`canvas::create`; [focus](focus.md)).
 - **Switch alignment** — Day clears the native Toggle's default outer margins. ArkUI adds
   theme hot-zone margins otherwise, moving a switch below and to the right of its assigned
   frame and into neighboring form rows. Native inspection uses the painted window position:
   the layout-position query substitutes the explicit position and hides this offset. The
   `labeled-nontext-controls-center` and `row-nontext-controls-center` conformance cases compare
   native control/label centers and spacing, including after value changes.
-- **List** (§10) — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
+- **List** — an `ARKUI_NODE_LIST` driven by an `OH_ArkUI_NodeAdapter` with cell reuse, so a
   500-row list only builds the visible cells. Native row containers fill the viewport width,
   including selection and hit testing. Reloads and programmatic scrolling run outside Day's
   tree borrow, since either can synchronously request a row binding. Row jumps reveal with
@@ -383,8 +383,8 @@ on the Oniro emulator:
   bottom-aligned action sheets, including destructive/cancel roles and editable prompt text.
   Requests are queued and closed by request ID, with Back/outside cancellation and cleanup
   after disappearance. Content is a themed ArkUI builder, rather than Day-rendered overlay
-  controls. See [dialogs.md](dialogs.md#arkui-presentation-and-lifetime) for lifecycle and
-  primary-window ownership, and [testing.md](testing.md#native-arkui-dialog-tests) for real-input tests.
+  controls. See [dialogs](dialogs.md#arkui-presentation-and-lifetime) for lifecycle and
+  primary-window ownership, and [testing](testing.md#native-arkui-dialog-tests) for real-input tests.
 - **Gestures** — `.on_tap` (NODE_ON_CLICK) and `.on_drag` (a native pan recognizer via the
   NDK gesture API, reported on the shared kind-11 wire in px). The existing toolkit hook
   `GestureKind::LongPress` uses ArkUI's one-finger, non-repeating, 500 ms recognizer and emits
@@ -398,13 +398,13 @@ on the Oniro emulator:
   a public `.on_long_press` modifier, and this does not add native context menus. UIKit and
   Android likewise use long presses internally for menus/dragging without implementing this
   generic hook. See [native-input regression tests](testing.md#native-arkui-long-press-tests).
-- **Scrolling** (§7.6) — `scroll()` is a real `ARKUI_NODE_SCROLL` whose day children live in a
+- **Scrolling** — `scroll()` is a real `ARKUI_NODE_SCROLL` whose day children live in a
   shim-owned container sized by `set_scroll_content`; without it the Scroll measures a content
   extent of 0 (day's content nodes are layout-only) and neither touch nor `scroll_to` moves.
-- **Frame clock** (§8.4) — `OH_NativeVSync_RequestFrame` drives `day::frame`, with delivery
+- **Frame clock** — `OH_NativeVSync_RequestFrame` drives `day::frame`, with delivery
   marshaled to the JS/UI loop. Integer request tickets make cancellation and late callbacks safe;
-  the native source is released when idle. See [frames.md](frames.md) for timing and lifecycle.
-- **Animation** (§8.4) — `Cap::Animation` is `Native`. `set_opacity`, `set_transform`, and an
+  the native source is released when idle. See [frames](frames.md) for timing and lifecycle.
+- **Animation** — `Cap::Animation` is `Native`. `set_opacity`, `set_transform`, and an
   animated container background run inside the NDK's `animateTo` (`anim::animate`),
   so ArkUI interpolates `NODE_OPACITY`, `NODE_TRANSLATE`/`NODE_SCALE`/`NODE_ROTATE` (about
   `NODE_TRANSFORM_CENTER`), and `NODE_BACKGROUND_COLOR` on its compositor. Easing curves map to
@@ -429,16 +429,16 @@ on the Oniro emulator:
 - **Canvas images** — `DrawOp::Image` draws the decoded pixelmap with
   `OH_Drawing_CanvasDrawPixelMapRect`, preceded by a fully transparent rect: a custom node's
   recording whose only content is pixel map draws renders nothing.
-- **Remote images** — `day-piece-remote-image` has a native Image-node renderer, automatically
+- **Remote images** — [`day-piece-remote-image`](/docs/reference/images) has a native Image-node renderer, automatically
   enabled by its `arkui` feature metadata. Reactive PNG/JPEG bytes replace the displayed image;
   absent, empty, or invalid bytes restore the placeholder. Fit/fill scaling and rounded or
   centered circular clipping apply to both content and placeholder. Drawables are retained
-  until replacement or node disposal. See [images.md](images.md#reactive-remote-image-views)
+  until replacement or node disposal. See [images](images.md#reactive-remote-image-views)
   for behavior, conformance coverage, and decoding limits.
-- **Fullscreen cover** ([docs/cover.md](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
+- **Fullscreen cover** ([docs/cover](cover.md)) — `Cap::Cover` answers `Emulated`: the cover node is
   re-homed onto the window root at full bounds (no transition, no gesture dismissal).
 
-- **ArkTS-built pieces** ([docs/extending.md](extending.md)) — a piece whose component exists only in ArkTS (the
+- **ArkTS-built pieces** ([docs/extending](extending.md)) — a piece whose component exists only in ArkTS (the
   declarative `Web` has no ArkUI C node kind) ships its own `.ets`; `day build` stages it into the
   hvigor project and generates `entry/src/main/ets/daypieces/DayPieces.ets`, which the host page
   registers with the shim (`registerPiece`) before `start()`. `day-piece-webview` is the first user.
@@ -528,7 +528,7 @@ Wire the remaining pieces (image / lottie / map), richer accessibility (roles be
 label), interactive tab-bar labels on the swiper, and the image/webview backends. The dayscript
 engine's TCP channel is flaky on the TCG emulator (occasional connection resets), so scripted
 walkthrough screenshots on OHOS are best-effort. Canvas fonts and the font list
-([docs/fonts.md](fonts.md)) compile against `OH_Drawing_FontMgr` and are verified by CI on a
+([docs/fonts](fonts.md)) compile against `OH_Drawing_FontMgr` and are verified by CI on a
 device. A family the ability registered through `font.registerFont` is NOT visible to
 `OH_Drawing_FontMgrMatchFamilyStyle` (the 2026-09 showcase drew canvas text in the system face
 while its labels were right), so the toolkit builds a typeface from each bundled font's bytes

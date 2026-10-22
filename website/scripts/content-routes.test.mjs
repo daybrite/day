@@ -3,7 +3,7 @@
 import test from 'node:test';
 import { checkDocSiteLinks } from './doc-site-links.mjs';
 import assert from 'node:assert/strict';
-import { canonicalPath, metadata, navigation } from '../src/lib/content-routes.mjs';
+import { canonicalPath, metadata, navigation, referenceNavigation, routes, hubs, isPublished, isUnpublishedPath } from '../src/lib/content-routes.mjs';
 import { resolveContentLink } from '../plugins/content-links.mjs';
 
 test('migrated links retain query strings and fragments, and leave other hosts alone', () => {
@@ -17,7 +17,7 @@ test('migrated links retain query strings and fragments, and leave other hosts a
 
 test('repository links resolve from the canonical source, including nested splits and standards', () => {
   assert.equal(resolveContentLink('../badge.md', 'docs/design/badge.md'), '/docs/reference/badge');
-  assert.equal(resolveContentLink('design/badge.md', 'docs/badge.md'), '/contributing/design/badge');
+  assert.equal(resolveContentLink('design/badge.md', 'docs/badge.md'), null);
   assert.equal(resolveContentLink('style-guide.md', 'website/authoring/authoring.md'), '/contributing/documentation/style-guide');
   assert.equal(resolveContentLink('../crates/day-spec/src/lib.rs', 'docs/badge.md'), 'https://github.com/daybrite/day/blob/main/crates/day-spec/src/lib.rs');
   assert.equal(resolveContentLink('./LICENSE', 'CONTRIBUTING.md'), 'https://github.com/daybrite/day/blob/main/LICENSE');
@@ -31,7 +31,32 @@ test('unplaced content fails and audience navigation keeps proposals out of app 
     return { ...metadata(collection, id.join('/')), title: key, order: 0 };
   });
   assert.deepEqual(navigation(pages, 'app developer').flatMap((g) => g.pages).map((p) => p.route), ['/docs/reference/badge']);
-  assert.deepEqual(navigation(pages, 'contributor').flatMap((g) => g.pages).map((p) => p.route), ['/contributing/design/badge']);
+  assert.deepEqual(navigation(pages, 'contributor').flatMap((g) => g.pages), []);
+});
+
+test('reference navigation covers every published page once and groups related tasks', () => {
+  const pages = Object.values(routes).filter(isPublished);
+  const groups = referenceNavigation(pages);
+  const actual = groups.flatMap((group) => group.pages.map((p) => p.route));
+  assert.equal(actual.length, new Set(actual).size);
+  assert.deepEqual(new Set(actual), new Set(pages.filter((p) => p.route.startsWith('/docs/reference/')).map((p) => p.route)));
+  const groupOf = (slug) => groups.find((g) => g.pages.some((p) => p.route === `/docs/reference/${slug}`))?.id;
+  assert.equal(groupOf('buttons'), groupOf('grid'));
+  assert.equal(groupOf('clipboard'), groupOf('logging'));
+  assert.equal(groupOf('haptics'), groupOf('location'));
+  assert.notEqual(groupOf('commands'), groupOf('buttons'));
+  assert.equal(groupOf('platforms/harmony-arkui'), 'platforms');
+  assert.throws(() => referenceNavigation([{ route: '/docs/reference/synthetic-new-page' }]), /Uncategorized reference/);
+});
+
+test('design records stay in the source catalog but cannot become public links or navigation', () => {
+  assert.equal(metadata('internal', 'design/badge').published, false);
+  assert.equal(hubs.some((p) => p.route === '/contributing/design'), false);
+  for (const href of ['/contributing/design', '/contributing/design/badge#history', 'https://daybrite.dev/contributing/design/badge']) {
+    assert.equal(isUnpublishedPath(href), true);
+    assert.equal(resolveContentLink(href, 'docs/badge.md'), null);
+  }
+  assert.equal(isUnpublishedPath('https://example.org/contributing/design/badge'), false);
 });
 
 // Synthetic source fixtures cover prose, Rust strings, and scaffold comments.

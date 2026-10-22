@@ -2,8 +2,15 @@
 // SPDX-License-Identifier: CC-BY-SA-4.0
 import routes from '../data/content-routes.json' with { type: 'json' };
 import migrations from '../data/route-migrations.json' with { type: 'json' };
+import referenceGroups from '../data/reference-navigation.json' with { type: 'json' };
 
 export { routes };
+export const isPublished = (page) => page.published !== false;
+const unpublished = new Set(Object.values(routes).filter((p) => !isPublished(p)).map((p) => p.route));
+export function isUnpublishedPath(href) {
+  const path = canonicalPath(href).split(/[?#]/)[0].replace(/\/$/, '');
+  return path === '/contributing/design' || unpublished.has(path);
+}
 
 export function metadata(collection, id) {
   const result = routes[`${collection}/${id}`];
@@ -26,9 +33,8 @@ export const hubs = [
   { route: '/docs/tutorials', title: 'Tutorials', description: 'Build a Session counter on macOS in six lessons, from your first window to events, state, layout, navigation, and a tested app.', audience: 'app developer' },
   { route: '/docs/how-to', title: 'How-to guides', description: 'Find a procedure for a specific app development task.', audience: 'app developer' },
   { route: '/docs/explanation', title: 'Explanation', description: 'Understand pieces, signals, layout, state, and lifecycle.', audience: 'app developer' },
-  { route: '/contributing', title: 'Contributing', description: 'Set up framework development, understand the architecture, and find backend contracts and design records.', audience: 'contributor' },
+  { route: '/contributing', title: 'Contributing', description: 'Set up framework development, understand the architecture, and find backend contracts.', audience: 'contributor' },
   { route: '/contributing/backend-contracts', title: 'Backend contracts', description: 'Implementation contracts, generated coverage tables, and framework testing records.', audience: 'contributor' },
-  { route: '/contributing/design', title: 'Design records', description: 'Proposals, resolved decisions, and historical implementation plans. These records are not stable API reference.', audience: 'contributor' },
   { route: '/contributing/history', title: 'History', description: 'Retained migration and implementation history.', audience: 'contributor' },
   { route: '/contributing/tutorials', title: 'Contributor tutorials', description: 'Learn to create composite pieces, native pieces, and parts.', audience: 'contributor' },
   { route: '/contributing/documentation', title: 'Documentation authoring', description: 'The canonical style guide, terminology, authoring workflow, and validation commands.', audience: 'contributor' },
@@ -46,7 +52,6 @@ export const groups = [
   { name: 'Contributor tutorials', route: '/contributing/tutorials', audience: 'contributor' },
   { name: 'Backend contracts', route: '/contributing/backend-contracts', audience: 'contributor' },
   { name: 'Documentation', route: '/contributing/documentation', audience: 'contributor' },
-  { name: 'Design records', route: '/contributing/design', audience: 'contributor' },
   { name: 'History', route: '/contributing/history', audience: 'contributor' },
 ];
 
@@ -55,16 +60,35 @@ export function belongsTo(page, group) {
     (!group.direct || !page.route.slice(group.route.length + 1).includes('/'));
 }
 
-const referencePriority = ['/docs/reference/api', '/docs/reference/cli',
-  '/docs/reference/platforms', '/docs/reference/system-requirements'];
-function navigationOrder(page, group) {
-  const pin = group.route === '/docs/reference' ? referencePriority.indexOf(page.route) : -1;
-  return pin >= 0 ? pin - referencePriority.length : page.order;
+/** One explicit placement per reference page, shared by the sidebar and reference index. */
+export function referenceNavigation(pages) {
+  const byRoute = new Map(pages.filter(isPublished).map((p) => [p.route, p]));
+  const assigned = new Set();
+  const sections = referenceGroups.map((group) => ({
+    ...group,
+    pages: group.pages.flatMap((slug) => {
+      const route = `/docs/reference/${slug}`;
+      if (assigned.has(route)) throw new Error(`Duplicate reference placement: ${route}`);
+      assigned.add(route);
+      return byRoute.has(route) ? [byRoute.get(route)] : [];
+    }),
+  }));
+  for (const page of byRoute.values()) {
+    if (page.route.startsWith('/docs/reference/') && !assigned.has(page.route)) {
+      throw new Error(`Uncategorized reference: ${page.route}; add reference-navigation.json placement`);
+    }
+  }
+  return sections.filter((group) => group.pages.length);
 }
 
 export function navigation(pages, audience) {
-  return groups.filter((g) => g.audience === audience).map((group) => ({
-    ...group,
-    pages: pages.filter((p) => belongsTo(p, group)).sort((a, b) => navigationOrder(a, group) - navigationOrder(b, group) || a.title.localeCompare(b.title)),
-  }));
+  return groups.filter((g) => g.audience === audience).map((group) => {
+    const members = pages.filter((p) => isPublished(p) && belongsTo(p, group));
+    const sections = group.route === '/docs/reference' ? referenceNavigation(members) : [];
+    return {
+      ...group, sections,
+      pages: sections.length ? sections.flatMap((s) => s.pages) :
+        members.sort((a, b) => a.order - b.order || a.title.localeCompare(b.title)),
+    };
+  });
 }

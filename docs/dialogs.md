@@ -8,14 +8,10 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Dialogs, modals & imperative presentation (`present`)
+# Dialogs, modals & imperative presentation
 
-Alerts, confirmations, action sheets, text prompts (and later native pickers) are
-*imperative request→response* interactions: an action opens one and needs the answer
-back. SwiftUI models this as a detached binding
-(`showAlert = true` … `.alert($showAlert)`) because `body` re-runs. In Day a
-`button().action(|| …)` is a closure on the persistent main thread, so the request and
-its response sit together with async/await:
+Ask for confirmation, show an alert, or collect a short answer through a native dialog.
+An action opens the dialog and awaits the result; the app can then continue or cancel its work.
 
 ```rust
 button(res::str::delete()).action(move || {
@@ -37,12 +33,12 @@ The request and its answer live in one closure. `day::task` is the one
 explicit opt-in ("this action starts an async flow").
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Layers
 
 **Layer 0: the primitive (plumbing).** Mirrors the `nav` controller pattern: an
-imperative call routes a request through the tree to the backend, and the answer flows
+imperative call routes a request through the tree to the toolkit, and the answer flows
 back through the enqueue-only `Event` sink.
 
 - `day_spec::present::PresentSpec`: `Dialog { title, message, buttons, sheet }` or
@@ -55,7 +51,7 @@ back through the enqueue-only `Event` sink.
   `Event::PresentResult { req, result }`; `Cap::Dialogs`.
 - `day-core` keeps a thread-local `PENDING: HashMap<u64, …>`. `present(spec)` mints a
   `req`, presents through `with_tree(|t| t.present(req, spec))`, and parks a waker. When
-  the backend answers, `pump_events` routes `Event::PresentResult` to `resolve(req,
+  the toolkit answers, `pump_events` routes `Event::PresentResult` to `resolve(req,
   result)`, which wakes the future. Native modals dismiss themselves; a *programmatic*
   resolve (dayscript) also calls `dismiss(req)`.
 
@@ -85,18 +81,20 @@ Every text field is an `IntoText`, so titles and buttons accept generated `res::
 
 ## Per-toolkit native mapping
 
+Platform guidance: [Apple: alerts](https://developer.apple.com/design/human-interface-guidelines/alerts); [Android: dialogs](https://developer.android.com/develop/ui/views/components/dialogs); [Windows: dialogs](https://learn.microsoft.com/en-us/windows/apps/design/controls/dialogs-and-flyouts/dialogs).
+
 | Toolkit | Dialog / sheet | Prompt |
 |---|---|---|
-| appkit | `NSAlert` + `beginSheetModalForWindow:` (async) | `NSAlert` with an `NSTextField` accessory |
-| uikit | `UIAlertController` (`.alert` / `.actionSheet`) on the root VC | `UIAlertController` + `addTextField` |
-| gtk | `AdwAlertDialog` (libadwaita 1.5; `response` signal) | `AdwAlertDialog` with a `GtkEntry` extra-child |
-| qt | `QMessageBox.open()` + `finished` (shim) | `QInputDialog.getText` (shim) |
-| android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + `TextInputLayout` |
+| appkit | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) + `beginSheetModalForWindow:` (async) | [`NSAlert`](https://developer.apple.com/documentation/appkit/nsalert) with an [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) accessory |
+| uikit | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) (`.alert` / `.actionSheet`) on the root VC | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) + `addTextField` |
+| gtk | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) (libadwaita 1.5; `response` signal) | [`AdwAlertDialog`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.AlertDialog.html) with a [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html) extra-child |
+| qt | [`QMessageBox.open()`](https://doc.qt.io/qt-6/qmessagebox.html) + `finished` (shim) | [`QInputDialog.getText`](https://doc.qt.io/qt-6/qinputdialog.html) (shim) |
+| android | `MaterialAlertDialogBuilder` (buttons / `setItems` for sheets) | M3 dialog + [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) |
 | arkui | ArkUI `PromptAction.openCustomDialog` modal with themed native `Text` / `Button` content; sheets align to the bottom | Same modal host with native `TextInput`, initial value, placeholder and IME submit |
 | mock | records the spec; resolved programmatically | same |
-| xaml | `ContentDialog` (unverified, no local Windows) | `ContentDialog` + `TextBox` |
+| xaml | [`ContentDialog`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.contentdialog) (unverified, no local Windows) | [`ContentDialog`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.contentdialog) + [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox) |
 
-All backends use the non-blocking async APIs (sheets / `open()` / callbacks), so the
+All toolkits use the non-blocking async APIs (sheets / `open()` / callbacks), so the
 main loop keeps running and dayscript stays live while a modal is up.
 
 GTK keeps an early programmatic close pending until the native dialog confirms closure.
@@ -201,17 +199,17 @@ Use explicit platform permission setup or platform UI automation for those tests
 - **Fluent**: spec fields are `IntoText`.
 - **polyglot**: `PresentSpec`/results are an open per-kind set; a third-party crate can
   add a platform picker (contacts, photos, files, share) the same way
-  `day-piece-combobox` adds a widget: a new spec variant + `Cap` + backend arms, with no
+  [`day-piece-combobox`](/docs/reference/combobox) adds a widget: a new spec variant + `Cap` + toolkit arms, with no
   day-core edits.
 
 ## Deferred
 
 - **Native integration pickers** (contacts / photos / share): same present→result model with
   richer result payloads and `Cap`-gated fallbacks; designed here, implemented after the dialog
-  family lands. (File open/save pickers have landed; see [files.md](./files.md).)
-- **New windows**: shipped since ([docs/windows.md](windows.md)), and the sketch above aged: the
+  family lands. (File open/save pickers have landed; see [files](./files.md).)
+- **New windows**: shipped since ([docs/windows](windows.md)), and the sketch above aged: the
   implementation kept one tree with multiple adopted roots (no tree-per-window refactor),
-  and non-desktop backends degrade to a fullscreen cover instead of missing out. Dialogs
+  and non-desktop toolkits degrade to a fullscreen cover instead of missing out. Dialogs
   now attach to the key window at present time.
 - **Task/scope binding**: v1 tasks run at the root scope; cancelling an in-flight dialog
   when its owning subtree is disposed is a later refinement (signal writes to disposed

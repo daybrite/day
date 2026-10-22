@@ -28,15 +28,15 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 ## What Day is (facts)
 
 Day builds cross-platform desktop + mobile apps in Rust. You write one declarative UI as a tree of
-**Pieces**; each Piece is realized by a native widget (`NSTextField`, `UILabel`, `GtkEntry`,
-`QSlider`, XAML `TextBox`, `android.widget.*`) through a per-platform toolkit backend. Day owns layout,
+**Pieces**; each Piece is realized by a native widget ([`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield), [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel), [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html),
+[`QSlider`](https://doc.qt.io/qt-6/qslider.html), XAML [`TextBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textbox), `android.widget.*`) through a per-platform toolkit toolkit. Day owns layout,
 reactivity, localization, accessibility policy, and scripting; the OS owns pixels, text input, scrolling,
 and assistive tech. The native tree is built once and Signals bind straight to native attributes;
 nothing diffs or rebuilds it.
 
 ## Invariants (MUST; violating these is a bug)
 
-1. **One toolkit backend per binary.** A binary compiles exactly one backend (selected by a Cargo
+1. **One toolkit toolkit per binary.** A binary compiles exactly one toolkit (selected by a Cargo
    feature via the target). Never enable two. The build enforces this with a `compile_error!`.
 2. **Views are built once, then kept live by bindings, never rebuilt.** Never rebuild the view on state change. To make UI reactive, pass a
    closure that reads a Signal (`label(move || …count.get()…)`), or pass a Signal to a control
@@ -93,14 +93,13 @@ height = 640
   a label's closure. `label(res::str::hi())` also follows locale changes.
 - A **target** is `(OS, toolkit)`: `macos-appkit`, `macos-gtk`, `macos-qt`, `ios-uikit`,
   `android-mdc`, `harmony-arkui`, `linux-gtk`, `linux-qt`, `windows-winui`, `windows-gtk`,
-  `windows-qt`, `windows-xaml` (deprecated), `web-dom` (wasm in a browser; no process
+  `windows-qt`, `web-dom` (wasm in a browser; no process
   environment, so pass runtime flags with `day launch --env K=V` and read them with `day::env("K")`, which is portable to every target).
 - Each target has a **support tier** ([definitions](/docs/reference/platforms#support-tiers)), which tells
   you how much to trust it: `ios-uikit`, `android-mdc`, `macos-appkit` are Tier 1 (thoroughly
   tested); `linux-gtk`, `linux-qt`, `windows-winui` are Tier 2; `harmony-arkui` and `web-dom` are
   Tier 3 (experimental, with real gaps); `macos-gtk`, `macos-qt`, `windows-gtk`, `windows-qt` are
-  Tier 4 development combos that no app ships on and `day pack` refuses; `windows-xaml` is Tier 5
-  (deprecated: still builds, but new apps use `windows-winui`). Verify a user-facing
+  Tier 4 development combos that no app ships on and `day pack` refuses. Verify a user-facing
   change on a Tier 1 target unless the change is that platform's.
 
 ## Canonical patterns (copy these)
@@ -213,7 +212,7 @@ let text = Signal::new(String::new());
 combo_box(items, text).id(id!(combo))
 ```
 
-SwiftUI views embed via `day-piece-swiftui` on macos-appkit / ios-uikit only:
+SwiftUI views embed via [`day-piece-swiftui`](/docs/reference/swiftui) on macos-appkit / ios-uikit only:
 `swiftui("name")` resolves a provider class, or a local SwiftPM package's views become typed
 `crate::swiftui::MyView(…)` constructors. Gate the UI on the probe (`support()` is fixed per
 binary, so a plain `if` at build time is right):
@@ -227,7 +226,7 @@ if day_piece_swiftui::support() == Support::Native {
 ```
 
 **Invariant:** `support()` probes are the only correct gate for platform-limited pieces. Never
-gate on `target_os` or backend-feature cfgs; `target_os = "macos"` also covers macos-gtk and
+gate on `target_os` or toolkit-feature cfgs; `target_os = "macos"` also covers macos-gtk and
 macos-qt, which have no AppKit view tree.
 
 ## API quick reference
@@ -258,7 +257,7 @@ day build   -t <target>               # compile
 day launch  -t <target>               # build + run (streams stdout/stderr)
 day launch  -t <target> --script s.yaml   # build + run + drive/assert
 day launch  -t <target> --record s.yaml   # record your manual session as a replayable dayscript
-#   scripted-launch flags: --variant <name> (screenshot set), --locales <l,…> / --themes <t,…>
+#   scripted-launch flags: --variant <name>, --locales <l,…> / --themes <t,…>
 #   (capture matrix: one run per theme×locale), --keep-alive, --skip-build,
 #   --ios-device / --ios-simulator / --android-device (pick the device per runtime)
 day pack    -t <target>               # installable artifact (.dmg / .ipa / .aab / .hap / flatpak / installer)

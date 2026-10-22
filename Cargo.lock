@@ -874,9 +874,11 @@ dependencies = [
 name = "day-part-sensors"
 version = "0.6.0"
 dependencies = [
+ "block2",
  "day-android",
  "objc2",
  "objc2-core-motion",
+ "objc2-foundation",
  "windows",
 ]
 
@@ -3182,6 +3184,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf94da2dcaad7e727ad6a1ea2312293c776f0df8cbc87fde6654d100a24386a"
 dependencies = [
+ "bitflags",
+ "block2",
  "objc2",
  "objc2-foundation",
 ]

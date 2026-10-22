@@ -10,19 +10,29 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Styled text editor
 
-> [!NOTE]
-> **Shipped.** `day-piece-texteditor` carries all eight toolkit arms. Six are verified running
-> (macos-appkit, macos-gtk, macos-qt, ios-uikit, android-mdc, web-dom; the Showcase walkthrough
-> drives the editor on each). **harmony-arkui** builds and stages its ArkTS but has not been driven
-> on a device. The XAML arm was written blind against the Windows SDK; on **windows-winui** (whose
-> build switches its document API to `Microsoft.UI.Text`) the Showcase walkthrough's editor steps
-> pass ([winui.md](winui.md)), but the Windows checks in §6 have not been done by hand. Both are
-> called out again in §6.
-
+Let people write and format rich text in the platform’s native editor.
 `text_editor(doc)` edits a [`StyledText`](#2-the-document), the same document a label renders and
 `.markdown()` produces, live in each platform's text editor: bold, italic, underline,
 strikethrough, relative size, text and highlight color, plus paragraph alignment, indent, spacing
 and list markers.
+
+## Add to your app
+
+Defined in [`day-piece-texteditor`](https://github.com/daybrite/day/tree/main/pieces/day-piece-texteditor). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-texteditor = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, UIKit, GTK, Qt, Android, Web | Native or browser rich-text editing. |
+| WinUI, ArkUI | Editor implementation is present; selection and editing limitations below remain unverified. |
 
 ```rust
 use day::prelude::*;
@@ -52,7 +62,7 @@ column((
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## 1. Every toolkit already has one
 
@@ -61,13 +71,13 @@ text editor, including web-dom. Nothing here is drawn by Day.
 
 | Toolkit | Editor | Model it edits | Offsets it speaks |
 |---|---|---|---|
-| appkit | `NSTextView` (`setRichText(true)`) in an `NSScrollView` | `NSTextStorage` | UTF-16 |
-| uikit | `UITextView` (itself a scroll view) | the same TextKit `NSTextStorage` | UTF-16 |
-| gtk | `GtkTextView` in a `GtkScrolledWindow` | `GtkTextBuffer` + interned `GtkTextTag`s | characters |
-| qt | `QTextEdit` (not the `QPlainTextEdit` `text_area` uses) | `QTextDocument` through a `QTextCursor` | UTF-16 (QChar) |
-| mdc | an `EditText` subclass | its live `SpannableStringBuilder` | UTF-16 (Java `char`) |
-| xaml | `RichEditBox` | RichEdit's `ITextDocument` (TOM) | UTF-16 |
-| arkui | the ArkTS `RichEditor` | `RichEditorController` spans | UTF-16 (ArkTS string index) |
+| appkit | [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) (`setRichText(true)`) in an [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview) | [`NSTextStorage`](https://developer.apple.com/documentation/uikit/nstextstorage) | UTF-16 |
+| uikit | [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (itself a scroll view) | the same TextKit [`NSTextStorage`](https://developer.apple.com/documentation/uikit/nstextstorage) | UTF-16 |
+| gtk | [`GtkTextView`](https://docs.gtk.org/gtk4/class.TextView.html) in a [`GtkScrolledWindow`](https://docs.gtk.org/gtk4/class.ScrolledWindow.html) | [`GtkTextBuffer`](https://docs.gtk.org/gtk4/class.TextBuffer.html) + interned [`GtkTextTag`](https://docs.gtk.org/gtk4/class.TextTag.html)s | characters |
+| qt | [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html) (not the [`QPlainTextEdit`](https://doc.qt.io/qt-6/qplaintextedit.html) `text_area` uses) | [`QTextDocument`](https://doc.qt.io/qt-6/qtextdocument.html) through a [`QTextCursor`](https://doc.qt.io/qt-6/qtextcursor.html) | UTF-16 (QChar) |
+| mdc | an [`EditText`](https://developer.android.com/reference/android/widget/EditText) subclass | its live [`SpannableStringBuilder`](https://developer.android.com/reference/android/text/SpannableStringBuilder) | UTF-16 (Java `char`) |
+| xaml | [`RichEditBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richeditbox) | RichEdit's [`ITextDocument`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextdocument) (TOM) | UTF-16 |
+| arkui | the ArkTS [`RichEditor`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) | [`RichEditorController`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) spans | UTF-16 (ArkTS string index) |
 | dom | a `contenteditable` element | the DOM subtree, flattened by the shim | bytes, converted in JS |
 
 The offset column matters most: a range is a **byte** range into a Rust `String`
@@ -97,7 +107,7 @@ applies to whole paragraphs and folding it into a character run would make inval
 representable.
 
 Everything a toolbar needs is a pure function over that document. It runs in Rust with no
-backend duty behind it, so it is identical on every target and testable on the headless one:
+toolkit duty behind it, so it is identical on every target and testable on the headless one:
 
 ```rust
 /// The style across a range: where runs disagree, the differing attribute reads as OFF, which is
@@ -147,9 +157,9 @@ all nine targets.
 The cost is that there is no attribute read-back. Pasting styled text keeps its
 characters and takes the surrounding style ("paste and match style", which is the only paste this
 model can describe), and the platform's bold shortcut does nothing. The per-toolkit hook a
-future read-back would use is `NSTextStorageDelegate`'s `editedAttributes` mask, GTK's
-`apply-tag`/`remove-tag`, `QTextDocument::contentsChanged`, an Android `SpanWatcher`,
-`ITextRange::Expand(tomCharFormat)`, `RichEditorController::getSpans`, and a DOM
+future read-back would use is [`NSTextStorageDelegate`](https://developer.apple.com/documentation/uikit/nstextstoragedelegate)'s `editedAttributes` mask, GTK's
+`apply-tag`/`remove-tag`, [`QTextDocument::contentsChanged`](https://doc.qt.io/qt-6/qtextdocument.html), an Android `SpanWatcher`,
+[`ITextRange::Expand(tomCharFormat)`](https://learn.microsoft.com/en-us/windows/win32/api/tom/nf-tom-itextrange-expand), [`RichEditorController::getSpans`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md), and a DOM
 `MutationObserver`.
 
 ### Recovering the edit
@@ -163,7 +173,7 @@ prefix / common suffix diff (`diff_edit`), pulled back to character boundaries:
 
 `reflow` then moves the runs: ranges before the edit are untouched, ranges after shift, a range
 containing the edit grows or shrinks, and an emptied range is dropped. It is O(runs) rather than
-O(document), and needs no backend cooperation, which lets one code path serve all eight arms.
+O(document), and needs no toolkit cooperation, which lets one code path serve all eight arms.
 
 ### A scripted `input`
 
@@ -231,32 +241,32 @@ never heard about the style. The native call remains as the frame-one appearance
 The shape is the same everywhere (realize an editor, seed it, patch it, report the two events), so
 what follows is what differs, and what each platform cannot represent.
 
-**appkit.** `NSTextView` in an `NSScrollView`. `setUsesFontPanel(false)`, `setImportsGraphics(false)`,
+**appkit.** [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) in an [`NSScrollView`](https://developer.apple.com/documentation/appkit/nsscrollview). `setUsesFontPanel(false)`, `setImportsGraphics(false)`,
 smart quotes and dashes off (a substitution is an edit Day never asked for, in a document an app may
-be re-parsing). Paragraph attributes are one `NSMutableParagraphStyle` per paragraph run. The
-empty-state prompt is an `NSTextField` subview, since `NSTextView` has no placeholder.
+be re-parsing). Paragraph attributes are one [`NSMutableParagraphStyle`](https://developer.apple.com/documentation/appkit/nsmutableparagraphstyle) per paragraph run. The
+empty-state prompt is an [`NSTextField`](https://developer.apple.com/documentation/appkit/nstextfield) subview, since [`NSTextView`](https://developer.apple.com/documentation/appkit/nstextview) has no placeholder.
 
-**uikit.** The same TextKit model through `UITextView`, so the two arms differ only in class names.
+**uikit.** The same TextKit model through [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview), so the two arms differ only in class names.
 `allowsEditingTextAttributes = false` is the iOS-only line: it keeps the selection's edit menu
 from offering B/I/U. Italic is a descriptor trait, asked for on top of the traits the font
 already has, so bold+italic stays bold.
 
 **gtk.** GTK uses tags rather than attributes. Each distinct `RunStyle` becomes one interned
-`GtkTextTag`, keyed by a canonical string and reused for the buffer's life; a fresh tag per run per
+[`GtkTextTag`](https://docs.gtk.org/gtk4/class.TextTag.html), keyed by a canonical string and reused for the buffer's life; a fresh tag per run per
 keystroke would grow the tag table without bound under a live highlighter. Offsets are characters.
 The losses are that Pango has no dotted underline (it draws a single rule) and that its wavy
 underline is the spell-check squiggle (`Underline::Error`). Paragraph attributes ride the same
 tags, with the marker's hanging indent spelled as a negative first-line offset against a wider
 left margin, the inverse of Apple's spelling of the same layout.
 
-**qt.** `QTextEdit`, driven through a `QTextCursor` in this crate's own shim
+**qt.** [`QTextEdit`](https://doc.qt.io/qt-6/qtextedit.html), driven through a [`QTextCursor`](https://doc.qt.io/qt-6/qtextcursor.html) in this crate's own shim
 (`src/lib-qt-shim.cpp`). The shim avoids `setHtml`, which replaces the document, moving the caret
 and clearing undo. `beginEditBlock`/`endEditBlock` collapse a sweep into one undo step and one
 relayout. Qt draws no double underline (it degrades to single). Monospace comes from
-`QFontDatabase::systemFont(FixedFont)`, because Qt's rich text does not resolve the generic
+[`QFontDatabase::systemFont(FixedFont)`](https://doc.qt.io/qt-6/qfontdatabase.html), because Qt's rich text does not resolve the generic
 `monospace` family from a char format; the label path hit the same limit.
 
-**mdc.** An `EditText` subclass over its live `Editable`, with the piece's own Java
+**mdc.** An [`EditText`](https://developer.android.com/reference/android/widget/EditText) subclass over its live `Editable`, with the piece's own Java
 (`src/DayTextEditor.java`) staged by `[package.metadata.day.android]`. Attributes are
 applied to the buffer the user is typing in, removing only the span classes this file sets, so the
 IME's composing spans and the framework's selection spans survive (removing those cancels a
@@ -267,8 +277,8 @@ one underline span (dotted and wavy draw a plain rule), no per-paragraph justifi
 paragraph-spacing span.
 
 **arkui.** The ArkUI **C** node API has no rich editor (`native_node.h` stops at
-`ARKUI_NODE_TEXT_AREA`), so this arm ships its own ArkTS (`platform/harmony/ets/Index.ets`), staged into the
-app's hvigor project by `[package.metadata.day.ohos]`. `RichEditorController` is the best-shaped
+[`ARKUI_NODE_TEXT_AREA`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-native-node-h.md)), so this arm ships its own ArkTS (`platform/harmony/ets/Index.ets`), staged into the
+app's hvigor project by `[package.metadata.day.ohos]`. [`RichEditorController`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/arkui-ts/ts-basic-components-richeditor.md) is the best-shaped
 controller of the eight: `updateSpanStyle` restyles without touching characters, `setTypingStyle`
 is native, and `setSelection` speaks the same offsets. The whole channel is strings (one props
 string at realize, `(cmd, arg)` pairs after), and reports come back through `pieceEvent` as
@@ -305,8 +315,8 @@ A rewrite during IME composition is skipped outright, and the selection is never
 a pointer drag is in progress, because `removeAllRanges` mid-drag collapses what the user is
 selecting.
 
-**xaml (unverified).** `RichEditBox` through its TOM `ITextDocument`. `GetRange(start, end)` takes
-UTF-16 positions, assigning an `ITextCharacterFormat` to a range applies it in one call, and a
+**xaml (unverified).** [`RichEditBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.richeditbox) through its TOM [`ITextDocument`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextdocument). `GetRange(start, end)` takes
+UTF-16 positions, assigning an [`ITextCharacterFormat`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.text.itextcharacterformat) to a range applies it in one call, and a
 collapsed `Document.Selection`'s format is the typing style. `BatchDisplayUpdates` /
 `ApplyDisplayUpdates` bracket a sweep. This is the one arm whose underline vocabulary is complete:
 single, double, dotted and wave all exist.
@@ -320,8 +330,8 @@ and only on that platform.
 
 ## 5. What a toolkit with no styled editor gets, and what it must not do
 
-None of the eight is in this position; the mock backend is, and an external toolkit
-([extending.md](extending.md)) could be. The tier for those is **plain text**: realize the ordinary
+None of the eight is in this position; the mock toolkit is, and an external toolkit
+([extending](extending.md)) could be. The tier for those is **plain text**: realize the ordinary
 `text_area`, drop the runs, report `Support::Emulated`, and keep the document's *text*
 round-tripping so nothing is lost but the styling.
 
@@ -336,23 +346,17 @@ character, word and line. A canvas with a blinking rectangle gets all of those w
 failures show up in the locales and for the users least able to work around them. Every platform
 ships this control because it is not reasonable to write.
 
-## 6. What is verified, and where
+## Platform limitations
 
-| Target | Built | Driven | Notes |
-|---|---|---|---|
-| macos-appkit | ✅ | ✅ | the model the others are compared against |
-| ios-uikit | ✅ | ✅ | simulator |
-| macos-gtk | ✅ | ✅ | |
-| macos-qt | ✅ | ✅ | |
-| android-mdc | ✅ | ✅ | emulator |
-| web-dom | ✅ | ✅ | headless WebKit through the walkthrough |
-| harmony-arkui | ✅ | ❌ | the Rust arm compiles and the ArkTS stages; not driven on a device |
-| windows-winui | ✅ | walkthrough | written blind against the Windows SDK; the Showcase walkthrough passes on it, the checks below are open. The deprecated windows-xaml builds the same arm against system XAML |
+> [!WARNING]
+> **Windows / WinUI: native editing.**
+> Caret stability during restyling, selection reporting, suppression of Ctrl+B/I/U, and
+> empty-document placeholders remain unverified. Test these interactions in your editor.
 
-A check on Windows has to confirm: that `RichEditBox` seeds and restyles without the caret moving,
-that `SelectionChanged` reports the range the piece expects, that the swallowed Ctrl+B/I/U really do
-nothing, and that the placeholder shows on an empty document. A check on HarmonyOS has to confirm
-the same list plus that `onDidChange` fires for every committed edit including an IME commit.
+> [!WARNING]
+> **HarmonyOS / ArkUI: native editing.**
+> Device behavior remains unverified, including selection, restyling, placeholders, and
+> delivery of committed edits from input methods. Test the languages your app supports.
 
 ## 7. What the piece needed outside itself
 
@@ -361,7 +365,7 @@ the same list plus that `onDidChange` fires for every committed edit including a
    from day-pieces so the parser and the document live together.
 2. **Eight label paths** got the two new run attributes and the scale, next to the code that
    already mapped `color` and `strikethrough`.
-3. **Public font resolution per backend** — `day_gtk::{gtk_style, pango_weight}`,
+3. **Public font resolution per toolkit** — `day_gtk::{gtk_style, pango_weight}`,
    `day_qt::qt_style`, `day_android::font_style`, `day_arkui::font_vp`, `Uikit::mtm`,
    `day_uikit::set_text_input_trait`. A piece has to resolve the same scale its labels do.
 4. **day-dom** grew the editor entry points: `Dom::set_html` (caret-preserving),
@@ -387,7 +391,7 @@ below it, which remains the right control for a chat composer or a commit messag
 - **Three documents**: a formatted note parsed from Markdown, a Rust sample the page re-tokenizes on
   every keystroke and pushes back as fresh runs, and an empty one that shows the placeholder.
 - **A selection inspector** — the range and the style under it, read straight out of the document,
-  which is the surface a walkthrough asserts against on every backend without a screenshot.
+  which is the surface a walkthrough asserts against on every toolkit without a screenshot.
 - **Import and export** — Markdown, HTML and RTF out, and a Read back button that parses the result
   into the document again.
 
@@ -401,7 +405,7 @@ rather than beside it (Day-Yaak is the app that asked for them).
 
 **Highlighting** is a function from text to runs. `text_editor(doc).highlight(f)` runs `f` after
 every edit, and whenever a signal `f` reads changes, and pushes the runs back as the attributes
-patch (§3), so the caret and the undo stack stay put. `highlight::highlighter(language, palette,
+patch, so the caret and the undo stack stay put. `highlight::highlighter(language, palette,
 templates)` builds `f` for the languages the crate tokenizes itself, with no grammar engine
 behind them: JSON (with comments), XML and HTML, GraphQL, Rust, and `Plain`. `templates` paints
 every `${[ … ]}` tag over whatever token it sits in, the way a Yaak-style client renders a
@@ -409,7 +413,7 @@ variable. `Language::for_mime` picks one for a response body. The `Palette` is a
 that read on a light and on a dark surface over a monospace base; an app's own palette (the
 Showcase's Rust sample uses its page colors) is a struct update away.
 
-`text_editor_text(text)` is the same editor over a `String` binding (a signal, or a day-model
+`text_editor_text(text)` is the same editor over a `String` binding (a signal, or a [day-model](/docs/explanation/model)
 field), for a model that holds text rather than a document: the piece owns the `StyledText`,
 edits write the string, a string the app writes replaces the text, and the highlighter supplies
 the runs. The mock asserts that a keystroke under a highlighter goes out as `SetAttributes` and
@@ -439,7 +443,7 @@ opening bracket; an opening bracket or quote gets its closer typed after the car
 back between the pair. Each goes in through `EditorPatch::Insert`, the one new arm duty: insert
 text at a byte offset through the view's own insertion, so the platform's undo records it as
 typing and the view reports it back as a `TextChanged`. The arms spell it `insertText:replacementRange:`,
-UIKit's `insertText:`, a GTK user action around `TextBuffer::insert`, a `QTextCursor::insertText`,
+UIKit's `insertText:`, a GTK user action around `TextBuffer::insert`, a [`QTextCursor::insertText`](https://doc.qt.io/qt-6/qtextcursor.html),
 `Editable.insert`, a TOM range `SetText`, `addTextSpan` with an offset, and the shim's one
 `execCommand('insertText')`, the only insertion a browser records for undo (it inserts plain
 text, so the normalization problem the rest of the shim avoids `execCommand` for does not
@@ -451,10 +455,16 @@ this at the caret" and sends it through `Insert`, and the editing rules then run
 own report of it, exactly as for a keystroke. That is what lets a script prove the closer and
 the auto-indent natively.
 
-The piece's conformance cases (`day test 'texteditor-*'`, [docs/testing.md](testing.md)) cover all of it on
+The piece's conformance cases (`day test 'texteditor-*'`, [docs/testing](testing.md)) cover all of it on
 every toolkit: the highlighter restyling typed JSON in place (five runs, the native text
 unchanged), the single line submitting on Enter and flattening a pasted newline in the view,
 Tab indenting, and `{` → `{}` → Enter → `{\n  }` read back from the native view. Day-Yaak's
 walkthrough drives the same Tab on the empty body on every target in its matrix, where the
 caret can only be at the start, and asserts the two spaces through `assert_text`, which the
 piece now keeps current for an editor the way a field does.
+
+## Platform guidance
+
+- [Apple: text fields](https://developer.apple.com/design/human-interface-guidelines/text-fields)
+- [Android: input methods](https://developer.android.com/develop/ui/views/touch-and-input/creating-input-method)
+- [Windows: text controls](https://learn.microsoft.com/en-us/windows/apps/design/controls/text-controls)

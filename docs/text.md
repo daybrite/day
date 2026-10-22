@@ -1,6 +1,6 @@
 ---
 title: "Text & typography"
-description: "Labels, symbolic fonts, dynamic type, selection, and the text pipeline on every backend."
+description: "Labels, symbolic fonts, dynamic type, selection, and the text pipeline on every toolkit."
 ---
 
 <!--
@@ -31,7 +31,7 @@ label(res::str::custom_size_sample()).font(Font::System(18.0))                //
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Semantic styles (`Font`)
 
@@ -40,14 +40,14 @@ The styles, largest to smallest, mirror SwiftUI's `Font.TextStyle`:
 `LargeTitle`, `Title`, `Title2`, `Title3`, `Headline`, `Subheadline`, `Body` (default), `Callout`,
 `Footnote`, `Caption`, `Caption2`. Plus `System(pt)` for a custom point size, and
 `Custom("Family", pt)` for a bundled custom font referenced by family name (ship the file in the
-project's `resource/fonts/` directory; see [docs/resources.md](resources.md) §18.4 for the packaging and naming rules).
+project's `resource/fonts/` directory; see [docs/resources](resources.md) for the packaging and naming rules).
 
 Each maps to the platform's native text style where one exists, so sizes and weights match the OS:
 
-| Backend | Semantic style | Accessibility scaling |
+| Toolkit | Semantic style | Accessibility scaling |
 |---|---|---|
-| **UIKit** (iOS) | `UIFont.preferredFont(forTextStyle:)` (Dynamic Type) | Yes, live, via `adjustsFontForContentSizeCategory` (Settings ▸ Accessibility ▸ Larger Text) |
-| **AppKit** (macOS) | `NSFont.preferredFont(forTextStyle:)` | Follows the system font settings |
+| **UIKit** (iOS) | [`UIFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/uikit/uifont) (Dynamic Type) | Yes, live, via `adjustsFontForContentSizeCategory` (Settings ▸ Accessibility ▸ Larger Text) |
+| **AppKit** (macOS) | [`NSFont.preferredFont(forTextStyle:)`](https://developer.apple.com/documentation/appkit/nsfont) | Follows the system font settings |
 | **XAML** | point sizes (aligned to the desktop scale) | Yes, `FontSize` tracks the OS text-scale-factor |
 | **Android** | `sp` sizes (mobile scale, aligned to iOS) | Yes, `sp` tracks Settings ▸ Display ▸ Font size |
 | **GTK** | Pango point sizes | Yes, Pango sizes track GNOME's text-scaling-factor |
@@ -57,16 +57,16 @@ Each maps to the platform's native text style where one exists, so sizes and wei
 ## Weight & style
 
 - `.weight(FontWeight::Semibold)`: `UltraLight, Thin, Light, Regular, Medium, Semibold, Bold, Heavy,
-  Black` (matching `UIFont.Weight`). `.bold()` is shorthand for `.weight(FontWeight::Bold)`.
+  Black` (matching [`UIFont.Weight`](https://developer.apple.com/documentation/uikit/uifont)). `.bold()` is shorthand for `.weight(FontWeight::Bold)`.
 - `.italic()`: slants the text.
 - Canvas text and a drawing app's font menu are a different surface — the platform's font
-  list, absolute sizes, measurement — covered in [docs/fonts.md](fonts.md).
+  list, absolute sizes, measurement — covered in [docs/fonts](fonts.md).
 - A weight override keeps the style's accessibility-scaled size (on iOS the weighted font is wrapped in
-  `UIFontMetrics` so it also scales with Dynamic Type).
+  [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics) so it also scales with Dynamic Type).
 - `.monospace()`: the platform's fixed-pitch face, at the same semantic size.
 
 To vary style *within* one label (a bold phrase, an inline `code` span, a colored word), see
-[text-runs.md](./text-runs.md). It stays one label, so it wraps, selects and is announced as one
+[text-runs](./text-runs.md). It stays one label, so it wraps, selects and is announced as one
 paragraph.
 
 ## Color
@@ -82,10 +82,10 @@ label(res::str::nothing_selected()).secondary()
 ```
 
 It is semantic for the same reason `Font::Body` is: a literal grey chosen against a light background
-is close to invisible on a dark one, so only the platform can answer correctly in both. Each backend
+is close to invisible on a dark one, so only the platform can answer correctly in both. Each toolkit
 uses its own: `secondaryLabelColor` on macOS and iOS, `?android:attr/textColorSecondary`, GTK's
 `dim-label` style class, and on the web a mix of the inherited text color. An explicit `.color()`
-still wins, and a backend with no such color renders the primary one, which is legible but not
+still wins, and a toolkit with no such color renders the primary one, which is legible but not
 dimmed.
 
 ## Presets
@@ -110,7 +110,7 @@ is still semantic fonts and the platform's colors.
 ## Custom sizes and accessibility
 
 `Font::System(pt)` takes an explicit point size, but it is still scaled by the platform's
-accessibility text-size setting (iOS runs it through `UIFontMetrics`, Android uses `sp`, GTK uses the
+accessibility text-size setting (iOS runs it through [`UIFontMetrics`](https://developer.apple.com/documentation/uikit/uifontmetrics), Android uses `sp`, GTK uses the
 text-scaling factor, web-dom expresses it as `pt/16` rem so it rides the browser's font-size
 preference), so a hard-coded size never turns into a fixed, unreadable pixel size.
 
@@ -136,7 +136,7 @@ activation; see the [toolkit support table](./text-runs.md#per-toolkit).
 
 ## Selectable text
 
-Text is **not** user-selectable by default on any backend: a label, a button's caption, and a
+Text is **not** user-selectable by default on any toolkit: a label, a button's caption, and a
 table cell all match each platform's native behavior, where static text can't be selected. Opt a
 piece in with `.selectable()`:
 
@@ -146,25 +146,25 @@ label(res::str::sample_order()).selectable() // the reader can select and copy i
 
 It applies to the piece's own widget, so on a container it makes every label within selectable
 only where the platform affordance cascades (web's `user-select` inherits; the widget-flip
-backends reach the label the modifier is on). Put it on the label itself for portable behavior.
+toolkits reach the label the modifier is on). Put it on the label itself for portable behavior.
 The modifier routes to `Toolkit::set_selectable`:
 
-| Backend | Affordance |
+| Toolkit | Affordance |
 |---|---|
-| AppKit | `NSTextField.setSelectable:` |
-| UIKit | the label is rebuilt as a read-only, non-scrolling `UITextView` (below) |
-| GTK | `GtkLabel.set_selectable` |
-| Qt | `QLabel` `TextSelectableByMouse`/`ByKeyboard` |
-| XAML | `TextBlock.IsTextSelectionEnabled` |
+| AppKit | [`NSTextField.setSelectable:`](https://developer.apple.com/documentation/appkit/nstextfield) |
+| UIKit | the label is rebuilt as a read-only, non-scrolling [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (below) |
+| GTK | [`GtkLabel.set_selectable`](https://docs.gtk.org/gtk4/class.Label.html) |
+| Qt | [`QLabel`](https://doc.qt.io/qt-6/qlabel.html) `TextSelectableByMouse`/`ByKeyboard` |
+| XAML | [`TextBlock.IsTextSelectionEnabled`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.textblock) |
 | HarmonyOS | `Text` `NODE_TEXT_COPY_OPTION` (long-press → copy) |
-| Android | `TextView.setTextIsSelectable` (long-press → copy) |
+| Android | [`TextView.setTextIsSelectable`](https://developer.android.com/reference/android/widget/TextView) (long-press → copy) |
 | web-dom | `user-select: text` (the `#day-root` default is `none`) |
 
 UIKit is the one platform whose label class has no selection support to switch on: UIKit
-reserves selection for `UITextInput` views, and SwiftUI's selectable `Text` isn't a `UILabel`
+reserves selection for [`UITextInput`](https://developer.apple.com/documentation/uikit/uitextinput) views, and SwiftUI's selectable `Text` isn't a [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel)
 either; it pairs its own text renderer with the system selection UI. Day ships the standard
 UIKit emulation of that: `set_selectable` rebuilds the label as a read-only,
-non-scrolling `UITextView` (zero container inset and padding, so it measures like the label),
+non-scrolling [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview) (zero container inset and padding, so it measures like the label),
 and day-core re-points the node's handle at the replacement so text/font/color updates and
 layout keep flowing. The reader gets the platform's real selection: long-press or double-tap,
 grabbers, and the Copy/Look Up edit menu.
@@ -186,7 +186,7 @@ text-view backing and do not guarantee this truncation behavior.
 
 Plain labels support `.max_lines(n)` with zero meaning unlimited; `.single_line()`
 takes precedence. AppKit and UIKit enforce the limit and truncate the last line natively,
-including during measurement. Other backends and selectable/link-backed text retain their
+including during measurement. Other toolkits and selectable/link-backed text retain their
 existing wrapping behavior. The limit is set at construction; a keyed subtree can rebuild
 when a display preference changes.
 
@@ -194,3 +194,8 @@ Use `.font_scale(1.4)` on a plain label to enlarge its resolved native font by 4
 its semantic style and accessibility scaling. The factor is fixed at construction, and
 explicit styled runs keep their own font descriptors. Nonpositive or nonfinite factors
 use 1.0. This also works through label decorations.
+
+## Platform guidance
+
+- [Apple: typography](https://developer.apple.com/design/human-interface-guidelines/typography)
+- [Windows: typography](https://learn.microsoft.com/en-us/windows/apps/design/style/typography)

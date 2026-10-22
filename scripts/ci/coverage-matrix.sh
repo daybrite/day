@@ -19,8 +19,16 @@ cd "$(dirname "$0")/../.."
 
 python3 -B - "$@" <<'EOF'
 import re
+import json
 from pathlib import Path
 from scripts.ci.generated import write_or_check
+
+reference_crates = json.loads(Path('website/src/data/reference-crates.json').read_text())
+
+
+def crate_link(crate):
+    route = reference_crates.get(crate)
+    return f"[`{crate}`]({route})" if route else f"`{crate}`"
 
 BACKENDS = [
     ("appkit", "toolkits/day-appkit/src/lib.rs", "lib-appkit.rs"),
@@ -156,16 +164,16 @@ out += [
     "`✓` = the crate ships that backend's renderer arm; `·` = no arm, so the kind renders the",
     "placeholder. A piece may still be absent at runtime if the app does not enable its feature.",
     "",
-    "A `·` is not always a gap: `day-piece-colorpicker` answers android and arkui with a picker",
+    f"A `·` is not always a gap: {crate_link('day-piece-colorpicker')} answers android and arkui with a picker",
     "COMPOSED from ordinary pieces, which by construction registers no renderer for its kind",
-    "([colorpicker.md](colorpicker.md)). This table measures arms, so it cannot see that —",
+    "([colorpicker](colorpicker.md)). This table measures arms, so it cannot see that —",
     "nothing derived from `realize` can.",
     "",
     "| piece | kind(s) | " + " | ".join(names) + " |",
     "|---|---|" + "---|" * len(names),
 ]
 for crate, kind_consts, arms in pieces:
-    row = [f"`{crate}`", ", ".join(f"`{k}`" for k in kind_consts)]
+    row = [crate_link(crate), ", ".join(f"`{k}`" for k in kind_consts)]
     for n in names:
         row.append("✓" if n in arms else "·")
     out.append("| " + " | ".join(row) + " |")

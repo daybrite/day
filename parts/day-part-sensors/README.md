@@ -5,15 +5,17 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # day-part-sensors
 
-Motion sensors — accelerometer and gyroscope readings — where the hardware has them.
+Subscribe to accelerometer, gyroscope, and magnetometer events with `watch(kind, callback)`.
+Dropping the last watch releases the native source. Native callbacks use a background dispatcher;
+web callbacks run on the browser thread. Slow consumers receive the newest pending reading.
+Pass `kind.with_calibration(Calibration::Uncalibrated)` to select an uncalibrated source, and
+query `is_available` for that mode before offering it. Kind-only calls use the normal platform
+source; calibrated and uncalibrated subscriptions have independent lifetimes.
 
-Sampling runs through each platform's native sensor API, and a capability check tells you
-what the device offers before you ask, so a phone app and a desktop app can share the same
-code without surprises.
-
-Parts are Day's small capability crates: no UI, just a plain Rust API over something the
-platform already provides. This one works in any Rust program — you don't need a Day app
-around it.
+Supported sources are CoreMotion on iOS, SensorManager on Android, SensorServiceKit on HarmonyOS,
+WinRT on Windows, and DeviceMotionEvent on the web. Desktop Linux and macOS report unavailable.
+Android needs Day's JVM host and web needs the day-dom host shim; the other implementations are
+independent of Day UI toolkits. See the [sensor API](../../docs/sensors.md) for units and permissions.
 
 ## Part of Day
 

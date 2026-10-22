@@ -1367,7 +1367,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Web shim regressions
-        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs
+        run: node --test scripts/ci/webdom-clipboard-test.mjs scripts/ci/webdom-route-test.mjs scripts/ci/webdom-share-test.mjs scripts/ci/webdom-sensor-events-test.mjs
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -1488,7 +1488,7 @@ jobs:
           npm run docs:check
           npm run docs:test
           npm run docs:architecture
-          npm run build
+          npm run build:site
 
       - name: Check rendered pages and sitemap
         run: python3 -B scripts/docs/check-site.py
@@ -1502,7 +1502,9 @@ jobs:
         run: node website/scripts/check-api-bundle.mjs
 
       - name: Check API reference links
-        run: python3 -B scripts/docs/check-api-links.py
+        run: |
+          python3 -B -m unittest discover -s scripts/docs -p 'test_*links.py'
+          python3 -B scripts/docs/check-api-links.py
 
       - name: Check for broken links
         working-directory: website

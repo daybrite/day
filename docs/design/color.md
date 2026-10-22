@@ -18,7 +18,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 ## 4. Proposal
 
 > [!WARNING]
-> Everything below is a proposal. It is not implemented, and `day-piece-colorpicker` binds to
+> Everything below is a proposal. It is not implemented, and [`day-piece-colorpicker`](/docs/reference/colorpicker) binds to
 > today's `Color`.
 
 There are five changes, ordered by what they pay off. Each is independently landable, and only

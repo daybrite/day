@@ -8,6 +8,9 @@ description: "label(…).markdown(): inline Markdown rendered through each platf
 
 # Markdown
 
+Add emphasis, links, and inline code to labels with Markdown. The `.markdown()` modifier
+turns the label’s text into styled runs and updates them when that text changes.
+
 ```rust
 label(res::str::save_instructions()).markdown()
 label(res::str::release_note()).markdown()          // a translated string
@@ -18,7 +21,7 @@ label(move || draft.get()).markdown()         // live, as the user types
 marked becomes [styled runs](./text-runs.md) in the one label.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Why it parses at run time
 
@@ -76,7 +79,7 @@ The route must belong to a registered navigation surface; a separate Settings wi
 example, needs an app handler that calls `day::open_preferences()`.
 
 Activation is `Cap::TextLinks`, which is narrower than run rendering. Where it is missing the
-link still draws; the tap does nothing. See [text-runs.md](./text-runs.md#per-toolkit) for the
+link still draws; the tap does nothing. See [text-runs](./text-runs.md#per-toolkit) for the
 per-toolkit table.
 
 ## Escaping user text

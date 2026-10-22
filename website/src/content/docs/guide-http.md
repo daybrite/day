@@ -10,8 +10,8 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-Fetch a response with `day-part-http` and handle transport failures separately from HTTP status
-codes. Start with a working Day app and add `day-part-http` from the same checkout or pinned
+Fetch a response with [`day-part-http`](/docs/reference/http) and handle transport failures separately from HTTP status
+codes. Start with a working Day app and add [`day-part-http`](/docs/reference/http) from the same checkout or pinned
 revision as `day`. Use the [recipe harness](/docs/reference/examples/catalog#technical-recipes)
 to compile the example without making a network request.
 

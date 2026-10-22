@@ -3,9 +3,10 @@ title: "Search"
 description: "searchable(Search): a declared search surface each platform presents natively: toolbar field, navigation search, or list filter."
 ---
 
-# Search (`searchable`)
+# Search
 
-Search is declared on the **surface**, not on the toolbar.
+Let people filter a page or find a destination with a search field in the platform’s usual
+location. Bind the query to app state with `.searchable()`; the app decides which results to show.
 
 ```rust
 nav(section)
@@ -23,24 +24,8 @@ never branches on where the field went.
 
 This is the same move SwiftUI made with `.searchable()`, for the same reason.
 
-> [!NOTE]
-> **Implementation status (2026-08-09).** `Search::scopes` lowers correctly but **no backend
-> draws a scope bar yet**, because a scope bar belongs below the field, and the toolbar placement has
-> nowhere to put one (see below). Everything else on this page is implemented.
->
-> The following were removed rather than shipped inert: `is_searching()`, `dismiss_search()`, and the
-> `Cap::Search`/`SearchScopes`/`SearchSuggestions` capabilities. No backend emitted the activity
-> event or reported those caps, so the first two were always false and the caps answered
-> `Unsupported` on platforms where search works. They will come back with the
-> backends that implement them.
->
-> A sidebar `.header()` on iOS defeats the search-bar auto-hide, because the header is a
-> static view above the list and UIKit's collapse tracks the page's top-anchored scroll view.
-> Day-Showcase dropped its header for this reason; the framework fix is to make a sidebar header
-> the table's `tableHeaderView` so header and rows scroll as one.
-
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## The modifiers
 
@@ -67,7 +52,7 @@ validation is also needed to verify actual AppKit event delivery.
 
 ## Placement is a preference
 
-`SearchPlacement::{Automatic, Toolbar, Inline}` states a preference. A backend that cannot
+`SearchPlacement::{Automatic, Toolbar, Inline}` states a preference. A toolkit that cannot
 honor the request falls back to its platform's convention, as SwiftUI documents
 ("depending on the containing view hierarchy and platform, the requested placement may not be able
 to be fulfilled"). `Automatic` is almost always the right answer: it lets the field live in
@@ -77,29 +62,32 @@ the toolbar on a desktop window and move into the navigation list on a phone.
 (`Cap::Toolbar` and `Cap::ToolbarSearch`), and to **`Inline`** where it cannot. The phones answer
 `Cap::ToolbarSearch` unsupported: an Android app-bar menu, iOS bar buttons and ArkUI's title-bar
 menus are rows of actions, so their field goes on the navigation surface. That needs no size class,
-because "this toolkit's bar holds no field" is a static fact about the backend rather than a
+because "this toolkit's bar holds no field" is a static fact about the toolkit rather than a
 question about the window's width. An explicit `Toolbar` falls back to `Inline` on the same
-backends: a field the bar cannot draw would otherwise not be drawn at all, which is what happened
+toolkits: a field the bar cannot draw would otherwise not be drawn at all, which is what happened
 on iOS, Android and ArkUI before the capability existed.
 
-On **iOS the two placements name one surface** anyway: `UINavigationItem` owns the navigation bar's
+On **iOS the two placements name one surface** anyway: [`UINavigationItem`](https://developer.apple.com/documentation/uikit/uinavigationitem) owns the navigation bar's
 buttons AND its search controller, and the window toolbar rides that same item
-([docs/toolbars.md](toolbars.md)), so day-uikit installs the field whichever way it was asked
+([docs/toolbars](toolbars.md)), so day-uikit installs the field whichever way it was asked
 for.
 
 > [!NOTE]
 > **The case in between still waits on size classes**: a narrow window on a toolkit that
 > *does* have a toolbar. Until that lands, a narrow desktop window keeps its field in the toolbar
-> ([docs/navigation.md](navigation.md)).
+> ([docs/navigation](navigation.md)).
+
+On iOS, a sidebar `.header()` prevents the search bar from hiding automatically because
+the header sits outside the list’s scrolling view.
 
 ### Inline, per platform
 
 Each platform keeps its own convention.
 
-| backend | where | resting state | how it is revealed |
+| toolkit | where | resting state | how it is revealed |
 |---|---|---|---|
-| ios-uikit | `UISearchController` on the root page's `navigationItem` | pinned by default | opt-in: search and large title collapse while scrolling; initially-hidden mode uses a compact title and pull-down drawer |
-| android-mdc | Material `TextInputLayout` over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
+| ios-uikit | [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on the root page's `navigationItem` | pinned by default | opt-in: search and large title collapse while scrolling; initially-hidden mode uses a compact title and pull-down drawer |
+| android-mdc | Material [`TextInputLayout`](https://developer.android.com/reference/com/google/android/material/textfield/TextInputLayout) over the nav list | pinned by default | opt-in: scroll/enter-always app bar, returns on downward scroll |
 | harmony-arkui | ArkUI `Search` atop the nav list | visible | always there |
 
 `Search::reveal(SearchReveal::Scrolls)` opts into scrolling chrome. Desktop toolbar search
@@ -122,10 +110,10 @@ an iPad does not substitute an always-visible inline field. iOS 15 uses its nati
 placement. UIKit owns subsequent scrolling, editing and navigation transitions: Day never
 resets the content offset or clears the query on layout, return navigation or rotation.
 `Always` keeps the large-title presentation, and `Scrolls` keeps it with the collapsing
-chrome. Other backends treat `OnPull` as `Scrolls`; their existing search placement is
+chrome. Other toolkits treat `OnPull` as `Scrolls`; their existing search placement is
 unchanged.
 
-Android uses `CoordinatorLayout` and Material `AppBarLayout` scroll/enter-always/snap flags.
+Android uses [`CoordinatorLayout`](https://developer.android.com/reference/androidx/coordinatorlayout/widget/CoordinatorLayout) and Material `AppBarLayout` scroll/enter-always/snap flags.
 Only nested scrolls originating in the root navigation list move this chrome. The search
 field is kept expanded during editing. On compact destinations the search field is hidden
 and the same MaterialToolbar is moved outside the scrolling CoordinatorLayout, where Up,
@@ -140,7 +128,7 @@ continues to filter the existing list; it does not open a separate full-screen S
 ## One model, one writer
 
 `SearchProps` on the nav host holds the state for every placement. The toolbar item a
-desktop backend draws is a rendering of it and carries no state of its own:
+desktop toolkit draws is a rendering of it and carries no state of its own:
 both inbound transports (a toolbar value callback, or `Event::SearchChanged` from an inline field)
 write the app's `Signal`, and one outbound binding patches whichever target the resolved placement
 renders into.
@@ -149,7 +137,7 @@ That will make a placement change tractable. The state does not live in the widg
 re-rendering into the other target is a patch rather than a rebuild, the same property that makes
 the navigation host re-presentable. The remaining step for the size-class work is a
 `SearchPatch::Placement` that swaps the render target on a live host; until it exists, placement is
-resolved once at realize and cannot change ([docs/navigation.md](navigation.md)).
+resolved once at realize and cannot change ([docs/navigation](navigation.md)).
 
 ## How the toolbar placement is realized
 
@@ -157,7 +145,7 @@ Day hands the resolved field to day-core as an ordinary `ToolbarItemKind::Search
 merged into the window's bar under the reserved id **`day::search`**, trailing. This has two
 consequences:
 
-- every backend that already drew a toolbar search field draws this one, with no per-backend code;
+- every toolkit that already drew a toolbar search field draws this one, with no per-toolkit code;
 - the merge happens inside day-core's window-bar composition, not at the app's call site, because the app
   installs its bar *before* the tree builds and a derived contribution re-lowers on
   any reactive change. An item injected once would be dropped by the next rebuild.
@@ -171,28 +159,28 @@ says so.)
 
 ## Scopes are not drawn yet
 
-`Search::scopes` is in the API and lowers correctly, but **no backend draws a scope bar yet**,
+`Search::scopes` is in the API and lowers correctly, but **no toolkit draws a scope bar yet**,
 because a scope bar has nowhere to live at the Toolbar placement: it belongs *below* the field, and
 Day's toolbar model is a flat list of items with no "below the bar" slot. The field currently sits
-inside an `NSSearchToolbarItem` / an `AdwHeaderBar` entry / a `QToolBar` widget, none of which can
+inside an [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) / an [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) entry / a [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html) widget, none of which can
 host one.
 
 Scopes therefore wait on the **Inline** placement, where the field is attached to the navigation
-surface and the bar can sit under it. When they land, the per-backend mapping is:
+surface and the bar can sit under it. When they land, the per-toolkit mapping is:
 
-| backend | scope bar | `Cap::SearchScopes` |
+| toolkit | scope bar | `Cap::SearchScopes` |
 |---|---|---|
-| ios-uikit | `UISearchBar.scopeButtonTitles` | `Native` |
+| ios-uikit | [`UISearchBar.scopeButtonTitles`](https://developer.apple.com/documentation/uikit/uisearchbar) | `Native` |
 | android-mdc | `ChipGroup` of single-selection filter chips | `Emulated` |
 | harmony-arkui | `SegmentButtonV2` | `Emulated` |
-| macos-appkit | `NSSegmentedControl` | `Emulated` |
+| macos-appkit | [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol) | `Emulated` |
 | linux-gtk | `.linked` toggle buttons | `Emulated` |
 | linux-qt | a button row | `Emulated` |
 | web-dom | a radio group | `Emulated` |
-| windows-winui | a `ToggleButton` row (written for system XAML, which has no `Segmented`; the WinUI build keeps it) | `Emulated` |
+| windows-winui | a [`ToggleButton`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.primitives.togglebutton) row | `Emulated` |
 
 `Emulated` covers two different situations there: a real native component doing this job (the
-chips, `SegmentButtonV2`, `NSSegmentedControl`) and a bar composed from primitives (web, XAML).
+chips, `SegmentButtonV2`, [`NSSegmentedControl`](https://developer.apple.com/documentation/appkit/nssegmentedcontrol)) and a bar composed from primitives (web, XAML).
 Neither claims to be the platform's scope bar.
 
 ## Suggestions complete the field
@@ -205,14 +193,14 @@ Day uses the search widget's own completion affordance, and only that: a complet
 itself would not match the platform's keyboard handling or styling, and a search field that behaves
 differently from every other one on the system is worse than no completions.
 
-| backend | completions |
+| toolkit | completions |
 |---|---|
-| linux-qt | `QCompleter` (native popup, case-insensitive) |
+| linux-qt | [`QCompleter`](https://doc.qt.io/qt-6/qcompleter.html) (native popup, case-insensitive) |
 | web-dom | `<datalist>` (the browser's own popup) |
-| windows-winui | `AutoSuggestBox.ItemsSource` |
-| ios-uikit | `UISearchResultsUpdating`, at any placement — see below |
-| macos-appkit | **none.** `NSSearchField`'s menu is a recents list, not completions for the current text, so Day does not present it as one |
-| linux-gtk | **none.** GTK4 deprecated `GtkEntryCompletion` and `GtkSearchEntry` has no replacement |
+| windows-winui | [`AutoSuggestBox.ItemsSource`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) |
+| ios-uikit | [`UISearchResultsUpdating`](https://developer.apple.com/documentation/uikit/uisearchresultsupdating), at any placement — see below |
+| macos-appkit | **none.** [`NSSearchField`](https://developer.apple.com/documentation/appkit/nssearchfield)'s menu is a recents list, not completions for the current text, so Day does not present it as one |
+| linux-gtk | **none.** GTK4 deprecated [`GtkEntryCompletion`](https://docs.gtk.org/gtk4/class.EntryCompletion.html) and [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) has no replacement |
 | android-mdc, harmony-arkui | with the Inline placement |
 
 Choosing a suggestion puts it in the field and emits the same change any keystroke would, so an app
@@ -222,7 +210,7 @@ for an app that wants to act on the choice itself.
 ## What is searchable
 
 A navigation surface (`Nav::searchable`), and a `nav_stack` page (`Decorate::searchable`, below).
-Search on arbitrary content is out of scope, because every backend would need a placement answer for
+Search on arbitrary content is out of scope, because every toolkit would need a placement answer for
 content that is not navigation chrome.
 
 ## Page search
@@ -244,15 +232,15 @@ The field is the reserved `day::search` item on the page's own chrome, so it fol
 it shows while the page is on top of its stack and leaves when another page is pushed over it or
 the page is popped. Each toolkit draws it where its platform puts a page's search:
 
-| backend | page search | submit |
+| toolkit | page search | submit |
 |---|---|---|
-| ios-uikit | the page's own `UISearchController` on its `navigationItem`, stacked under the title as Mail's mailbox does: shown when the field arrives, then hidden on scroll and back on a pull; Cancel clears the query. One controller per page for the page's life, so a page covered by a push keeps its field and text | the keyboard's Search key |
-| android-mdc | a collapsible `androidx.appcompat.widget.SearchView` action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
+| ios-uikit | the page's own [`UISearchController`](https://developer.apple.com/documentation/uikit/uisearchcontroller) on its `navigationItem`, stacked under the title as Mail's mailbox does: shown when the field arrives, then hidden on scroll and back on a pull; Cancel clears the query. One controller per page for the page's life, so a page covered by a push keeps its field and text | the keyboard's Search key |
+| android-mdc | a collapsible [`androidx.appcompat.widget.SearchView`](https://developer.android.com/reference/androidx/appcompat/widget/SearchView) action on the page's app bar: the magnifier expands into a field across the bar; the collapse arrow or system Back closes it and clears the query | the keyboard's Search key |
 | harmony-arkui | an ArkUI `Search` at the top of the showing page, under its title bar | `Search.onSubmit` |
-| macos-appkit | the `NSSearchToolbarItem` at the trailing edge of the window toolbar | Return or keypad Enter, taken by the field (`insertNewline:`), so no default button fires and editing continues |
-| linux-gtk | a `GtkSearchEntry` in the window's `AdwHeaderBar` | Enter (`activate`) |
-| linux-qt | a `QLineEdit` on the window's `QToolBar`, with a clear button and a `QCompleter` popup | Return (`returnPressed`); Return on a completion applies it first |
-| windows-winui | an `AutoSuggestBox` in the window toolbar | `QuerySubmitted`: Return, the query glyph, or a picked suggestion |
+| macos-appkit | the [`NSSearchToolbarItem`](https://developer.apple.com/documentation/appkit/nssearchtoolbaritem) at the trailing edge of the window toolbar | Return or keypad Enter, taken by the field (`insertNewline:`), so no default button fires and editing continues |
+| linux-gtk | a [`GtkSearchEntry`](https://docs.gtk.org/gtk4/class.SearchEntry.html) in the window's [`AdwHeaderBar`](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.HeaderBar.html) | Enter (`activate`) |
+| linux-qt | a [`QLineEdit`](https://doc.qt.io/qt-6/qlineedit.html) on the window's [`QToolBar`](https://doc.qt.io/qt-6/qtoolbar.html), with a clear button and a [`QCompleter`](https://doc.qt.io/qt-6/qcompleter.html) popup | Return (`returnPressed`); Return on a completion applies it first |
+| windows-winui | an [`AutoSuggestBox`](https://learn.microsoft.com/en-us/windows/windows-app-sdk/api/winrt/microsoft.ui.xaml.controls.autosuggestbox) in the window toolbar | `QuerySubmitted`: Return, the query glyph, or a picked suggestion |
 | web-dom | an `<input type=search enterkeyhint=search>` in the docked toolbar strip, outside any form | Return, outside IME composition, after any `<datalist>` completion it accepted |
 
 The desktops and the web draw one bar per window, so the field rides it while its page is on top
@@ -286,3 +274,8 @@ Both directions go through the app's `Signal`, never through the widget:
   it, so a sync never steals focus or resets the insertion point mid-word.
 
 That discipline will let the field change placement later without the query noticing.
+
+## Platform guidance
+
+- [Apple: search fields](https://developer.apple.com/design/human-interface-guidelines/search-fields)
+- [Android: search interface](https://developer.android.com/develop/ui/views/search/search-dialog)

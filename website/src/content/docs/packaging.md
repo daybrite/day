@@ -37,7 +37,6 @@ credentials and check the destination store’s submission requirements.
 | `android-mdc` | `.apk`, `.aab` | Direct installation or Google Play |
 | `linux-gtk`, `linux-qt` | `.flatpak`, `.appimage` | Flatpak bundle or executable with bundled libraries |
 | `windows-winui` | `.msix`, `-setup.exe` | Self-contained MSIX package or per-user installer |
-| `windows-xaml` (deprecated) | `.msix`, `-setup.exe` | MSIX package or per-user installer |
 | `harmony-arkui` | `.hap` | HarmonyOS application package |
 | `web-dom` | Static `dist/` directory | Static hosting; use `day build` |
 

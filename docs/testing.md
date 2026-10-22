@@ -28,7 +28,7 @@ A test is named after its function, with hyphens for underscores: `button_press`
 reading the source all agree on it.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Declaring a test
 
@@ -478,7 +478,7 @@ pair as the `conformance-results` artifact. A failed test fails its leg.
 
 The same job then runs `scripts/ci/conformance-claims.py` over the merged results. Each leg's
 `caps` (what its toolkit answered during the run) is held against
-[docs/coverage-matrix.md](coverage-matrix.md), which is generated from source: a disagreement
+[docs/coverage-matrix](coverage-matrix.md), which is generated from source: a disagreement
 fails the job, naming the target and capability, because the published matrix would then be
 wrong for that target (a `?` cell, decided at run time, accepts any answer and reports it). The
 script also writes `verified-matrix.md` into the artifact: per built-in kind and target, `✓`

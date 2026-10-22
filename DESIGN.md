@@ -3883,6 +3883,29 @@ Two package kinds share the mechanism:
   Day-Time, now carries that module itself, since a pure-Rust dependency with no platform arm
   needs no part.)
 
+Motion sensor parts use event sources throughout (`day-part-sensors`, [sensor API](docs/sensors.md)).
+The first `watch` starts a source per kind and calibration mode; the last drop invalidates queued delivery and requests
+teardown. On native targets a condition-variable dispatcher serializes source lifecycle and user
+callbacks, coalesces pending readings to one per kind, and exits when idle. It does not sample on a
+clock. Callback reentry is supported; no registry lock is held while invoking app code. Generation
+tokens reject samples from replaced subscriptions. UIKit uses CoreMotion blocks. Its magnetometer
+uses device-motion calibrated magnetic fields in device coordinates (`xArbitraryCorrectedZVertical`)
+and withholds samples until calibration is available. Calibrated gyroscope readings share that
+stream; without a magnetometer subscriber, the frame is `xArbitraryZVertical`. Membership changes
+restart the stream with captured subscriber generations and invalidate old callbacks. The last
+calibrated subscriber stops device motion. Raw gyro/magnetic streams remain independent.
+`SensorKind::with_calibration` returns a `Sensor` accepted by `watch` and `is_available`; kind-only
+calls select `Calibration::Calibrated` (the platform's normal source). Explicit uncalibrated sources
+are supported for iOS gyro/magnetometer and Android's three kinds where hardware exposes them;
+other targets report them unavailable. There is no silent mode substitution, and no change to
+units or gravity inclusion. Sensor fusion may use hardware whose independent subscription is
+paused. Android uses JNI callbacks, ArkUI SensorServiceKit, Windows WinRT events, and DOM `devicemotion` with direct WASM
+callbacks. DOM delivery runs on the browser thread. Desktop Linux and macOS report unavailable;
+Linux buffered IIO is deferred. This is a live-state API, not a lossless recording stream.
+Lifecycle and bounded-delivery regressions live in `parts/day-part-sensors/src/tests.rs`; the
+browser ABI is exercised by `scripts/ci/webdom-sensor-events-test.mjs`.
+
+
 Application-owned network caches use `day-part-http::CacheValidators` with
 `Request::conditional`: validators stay with the persisted representation, 304 merges metadata
 without a body, and a successfully stored 2xx replaces old validators. The shared
@@ -6103,6 +6126,10 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    the gallery and Showcase pages, search entry files, sitemap, and custom-domain file.
    The rendered-page audit checks metadata, headings, image descriptions, and sitemap coverage
    before the API bundle is added.
+   Normal local `npm run build` and `build:force` commands also assemble the site and Rustdoc,
+   then validate the combined artifact. CI uses the separate `build:site` step before its
+   explicit API build. Reference guides link API names to generated item pages and anchors;
+   the API link checker validates those incoming links as well as links within Rustdoc.
    Rustdoc runs with a locked dependency graph and warnings denied. The builder creates each
    published crate's output directory before documentation starts and serializes rustdoc, so
    cross-crate links resolve locally even when Cargo documents a consumer first. Its item-link check follows
@@ -8148,7 +8175,9 @@ references on dismissal or handle release. UIKit uses FormSheet for modal sheets
 `Cap::CoverSheet` = Native; everywhere else the `cover` piece composes the sheet (2026-10): on a
 window wider than compact, a clear cover holding a dimmed fill and a card in the window's own
 color (`SurfaceRole::Window`), centered at AppKit's sheet proportions; on a compact window, the
-full-window cover as before. This hint does not change Cap::Cover.
+full-window cover as before. The fill is `SurfaceRole::Scrim`, which web-dom draws as a light
+frost; there the sheet's toolbar strip is the card's header and Escape closes it ([docs/cover.md](docs/cover.md)).
+This hint does not change Cap::Cover.
 AppKit scripted snapshots capture the active attached sheet, including the offscreen fallback.
 Dialogs opened from a sheet attach to that modal surface, and dismissal uses the actual sheet parent.
 Day-News uses an unrouted subscription sheet for toolbar/menu/URL activation, explicit Verify,

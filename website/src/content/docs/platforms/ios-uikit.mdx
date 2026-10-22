@@ -54,10 +54,10 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
 - Declare permissions before you use them. A gated API without its `NS*UsageDescription` key
   terminates the app on first use. Day generates those keys from your `[permissions]` table, and
   `day lint` fails the build when one is missing, so the mistake surfaces in CI.
-- `day-piece-combobox` has no UIKit arm, because iOS has no native combo-box control; it renders as
+- [`day-piece-combobox`](/docs/reference/combobox) has no UIKit arm, because iOS has no native combo-box control; it renders as
   a placeholder. Use `picker().menu()`.
 - iOS has no persistent menu bar, so `set_app_menu` is a no-op; context menus work
-  (`UIContextMenuInteraction`).
+  ([`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction)).
 - Window screenshots aren't implemented in-process; the walkthrough uses
   `simctl io booted screenshot` instead.
 - Dynamic Type is live: labels set `adjustsFontForContentSizeCategory`, so text rescales with
@@ -65,14 +65,14 @@ device build (`<stem>-ios-uikit-unsigned.ipa`) for sideloading or your own signi
 
 ## What each piece becomes
 
-The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every backend;
+The generated [coverage matrix](/contributing/backend-contracts/coverage-matrix), checked in CI, covers every toolkit;
 this table adds links and notes.
 
 | Day piece | UIKit class |
 |---|---|
 | `column` / `row` / `nav_stack` / `section` | [`UIView`](https://developer.apple.com/documentation/uikit/uiview) |
 | `label` | [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) |
-| `button` | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) (system type; bordered/prominent use `UIButtonConfiguration`) |
+| `button` | [`UIButton`](https://developer.apple.com/documentation/uikit/uibutton) (system type; bordered/prominent use [`UIButtonConfiguration`](https://developer.apple.com/documentation/uikit/uibuttonconfiguration)) |
 | `toggle` | [`UISwitch`](https://developer.apple.com/documentation/uikit/uiswitch) |
 | `slider` | [`UISlider`](https://developer.apple.com/documentation/uikit/uislider) |
 | `text_field` | [`UITextField`](https://developer.apple.com/documentation/uikit/uitextfield) |
@@ -91,7 +91,7 @@ this table adds links and notes.
 | `cover()` | a full-screen modal [`UIViewController`](https://developer.apple.com/documentation/uikit/uiviewcontroller) |
 | `image` | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) |
 | `vector` | [`UIImageView`](https://developer.apple.com/documentation/uikit/uiimageview) — the SVG ships in a DayPieces imageset with `preserves-vector-representation`, so it renders at display size |
-| `canvas` | a custom `UIView` replaying the display list through Core Graphics |
+| `canvas` | a custom [`UIView`](https://developer.apple.com/documentation/uikit/uiview) replaying the display list through Core Graphics |
 | dialogs / alerts / prompts | [`UIAlertController`](https://developer.apple.com/documentation/uikit/uialertcontroller) |
 | file dialogs | [`UIDocumentPickerViewController`](https://developer.apple.com/documentation/uikit/uidocumentpickerviewcontroller) |
 | context menus | [`UIContextMenuInteraction`](https://developer.apple.com/documentation/uikit/uicontextmenuinteraction) |

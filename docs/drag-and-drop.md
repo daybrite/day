@@ -7,6 +7,9 @@ description: "Native transfers, representation types, destination policy, and pl
 
 # Drag and drop
 
+Let people drag text, images, files, and other data between your app and other apps. Sources
+offer data in one or more formats; drop targets choose the formats they can accept.
+
 `day::transfer` attaches native system transfers to pieces. A source supplies an owned
 `Offer` when the native drag starts. An offer contains separate `Item`s; each item's MIME
 representations are alternative encodings of the same object. Arbitrary binary data is
@@ -56,7 +59,7 @@ before `.drop_target(...)` when the identifier must still address the canvas its
 transfer decorator creates a native wrapper. The source and target may be the same piece.
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Acceptance and completion
 
@@ -86,10 +89,10 @@ item/alternative coverage; multiple native file references can be encoded in one
 
 | Toolkit | Native mechanism | File and timing notes |
 |---|---|---|
-| AppKit | NSDraggingSession, NSPasteboard | File URLs; synchronous receipt |
+| AppKit | NSDraggingSession, [NSPasteboard](https://developer.apple.com/documentation/appkit/nspasteboard) | File URLs; synchronous receipt |
 | GTK | DragSource, DropTargetAsync, GIO streams | URI lists; reads cancel after 30 seconds |
-| Qt | QDrag, QMimeData | URLs; synchronous receipt; source survives nested event-loop disposal safely |
-| XAML | CanDrag/AllowDrop in-app, host-window `IDropTarget` for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
+| Qt | [QDrag](https://doc.qt.io/qt-6/qdrag.html), QMimeData | URLs; synchronous receipt; source survives nested event-loop disposal safely |
+| XAML | CanDrag/AllowDrop in-app, host-window [`IDropTarget`](https://learn.microsoft.com/en-us/windows/win32/api/oleidl/nn-oleidl-idroptarget) for external drags, DataPackage | StorageItems; drag/drop deferrals; CF_HDROP imported as `text/uri-list` |
 | UIKit | UIDragInteraction, UIDropInteraction, NSItemProvider | Encoded byte providers; pending loads cancel after 30 seconds |
 | Android | startDragAndDrop, ClipData, ContentProvider | Read-only URI grants; bounded reads on a worker; permissions released at receipt/timeout |
 | ArkUI | native node drag events, UDMF | General byte records and file URI records; compile checked against API 18 |
@@ -105,43 +108,23 @@ binary bundles, but HTML custom strings do **not** provide universal native bina
 filesystem paths. Check capabilities rather than assuming desktop file behavior on web.
 
 The current API is eager bytes. File promises, asynchronous application-supplied providers,
-portable file leases, and externally committed moves remain staged work in the
-[implementation plan](drag-and-drop-plan.md). UIKit does not yet import promised files through
+portable file leases, and externally committed moves are not supported. UIKit does not yet import promised files through
 NSItemProvider file representations; Android content URIs are read into bytes. File references
 are not a portable promise of sandbox access. The `DragFilePromises` and `DragExternalMove`
 capabilities therefore remain unsupported. Existing canvas and collection gestures remain
 separate from system data transfers.
 
-## Showcase and verification
+> [!WARNING]
+> **Windows / WinUI: external file drops.**
+> Explorer file drops have not been verified on WinUI.
+> Cross-process transfers between Windows toolkits also remain unverified.
 
-The **Drag & Drop** page has image bytes, a file chooser, and a custom five-byte binary card.
-The red strip rejects drops, and the acceptance toggle rejects all destinations. Drops to
-another tile on the same page move the object; other windows copy it. The page intentionally
-accepts exactly one item per drop. Repeat the three payload cases between independent toolkit
-processes in both directions; include cancellation, disabled acceptance, and the red strip.
+> [!WARNING]
+> **Linux and HarmonyOS: native transfers.**
+> Native drag-and-drop behavior remains unverified. Test cross-application transfers,
+> cancellation, and the formats your app accepts.
 
-Current evidence:
+## Platform guidance
 
-- User-tested macOS same-window, separate-window, and cross-toolkit process transfers.
-- Native HTML mouse tests: forbidden-region rejection, image move, and custom binary move.
-- All three macOS Sketch builds and 655-step walkthroughs pass; 109 Sketch unit tests pass.
-  Sketch also builds for iOS, Android, and web (web reports an existing unused click-state warning).
-  Import tests cover pan/zoom coordinates, preserved image bytes, and grouped undo/redo.
-- iOS and Android applications build and their Showcase page scripts pass. Android native
-  long-press testing confirms a local image move. This is not proof of every mobile foreign-provider
-  combination. The Android provider is a toolkit manifest contribution, so existing apps receive it.
-- Harmony native adapter compile check passes; emulator acceptance belongs in CI.
-- The XAML backend is verified on a Windows host, built as the (now deprecated) windows-xaml:
-  dropping a file from Explorer onto a Showcase drop zone imports it. Getting there needed two
-  things the macOS-written adapter could not have found. `OleInitialize` — `init_apartment` brings
-  up COM only, and cross-process drag and drop is an OLE service. And a host-window `IDropTarget`:
-  the system XAML island routes only drags that BEGIN inside it, so `DesktopWindowXamlSource` never
-  registers its HWND and an external drag was never offered to it, silently, while
-  `AllowDrop(true)` still reported success. See `toolkits/day-xaml-sys/src/transfer-host.inc`,
-  which is shared code, so windows-winui registers the same host-window target; an Explorer drop
-  has not been re-checked on the WinUI build. Linux remains unverified.
-
-Framework regression: `cargo test -p day-spec transfer`. Browser integration is in
-`Day-Showcase/tests/drag-drop-web.mjs`, used as `DAY_WEB_DRIVER` with
-`dayscript/drag-drop.yaml`. It uses real mouse input, not synthetic DataTransfer objects.
-Require its `Native HTML drag: ... passed` log marker; a screenshot alone is not a drag test.
+- [Apple: drag and drop](https://developer.apple.com/design/human-interface-guidelines/drag-and-drop)
+- [Android: drag and drop](https://developer.android.com/develop/ui/views/touch-and-input/drag-drop)

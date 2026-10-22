@@ -69,7 +69,7 @@ WARN  day_core::nav: .restore("app.section") has no NavStore installed — …
 ```
 
 The target names the crate and module that emitted the line, which tells you whether a
-complaint is yours, a piece's, or a backend's.
+complaint is yours, a piece's, or a toolkit's.
 
 ## Color
 
@@ -113,7 +113,7 @@ stdout.
 | Level | Use it for | On by default |
 |---|---|---|
 | `error!` | a feature is gone: the window could not be created, the engine never bound | yes |
-| `warn!` | Day recovered, but not as intended: a missing font, a piece with no renderer on this backend, a placeholder substituted | yes |
+| `warn!` | Day recovered, but not as intended: a missing font, a piece with no renderer on this toolkit, a placeholder substituted | yes |
 | `info!` | milestones a user or operator would want in a report: startup, a completed import | yes |
 | `debug!` | the trace you want while working on something — a malformed field, a layout decision | debug builds |
 | `trace!` | per-frame or per-event firehose | no |
@@ -152,7 +152,7 @@ Two consequences follow.
 
 - **Per-target filtering comes with the logger you choose.** Day's default has a single global
   level; `env_logger` gives you `RUST_LOG=warn,day_uikit=debug` and the ability to silence one
-  noisy backend.
+  noisy toolkit.
 - **`tracing` users** can bridge with `tracing-log` and receive Day's output as tracing events.
 
 ### `env_logger` as the logger
@@ -173,7 +173,7 @@ fn main() {
 }
 ```
 
-The per-target filter is the main reason to switch. It turns one backend up without the rest of
+The per-target filter is the main reason to switch. It turns one toolkit up without the rest of
 the app coming along:
 
 ```sh
@@ -200,20 +200,20 @@ pub fn console_sink(level: log::Level, line: &str) {
 }
 ```
 
-A backend that needs its own destination installs a **sink**, a `fn(log::Level, &str)` that
+A toolkit that needs its own destination installs a **sink**, a `fn(log::Level, &str)` that
 receives the already-formatted line, through `day_core::set_log_sink` instead of replacing the
 logger. That keeps the format and the level filtering in one place. The facade wires web-dom's in
 `day::web::start`.
 
 Day does not ship `console_log` or `wasm-logger` for the browser: each requires `web-sys` (and
-`wasm-logger` requires `wasm-bindgen`), while the web-dom backend's shim is numeric ids across
-`extern "C"`, built without a bundler ([docs/web.md](web.md)). Routing a formatted line to
+`wasm-logger` requires `wasm-bindgen`), while the web-dom toolkit's shim is numeric ids across
+`extern "C"`, built without a bundler ([docs/web](web.md)). Routing a formatted line to
 `console.*` is one call, so the dependency would add a toolchain for no gain.
 
 ## What Day itself logs
 
 Every framework diagnostic goes through the same macros, so `DAY_LOG=debug` shows you Day's
-reasoning alongside your own: a piece with no renderer on the current backend, a route that did
+reasoning alongside your own: a piece with no renderer on the current toolkit, a route that did
 not match, a bundled font the toolkit refused, a nav stack whose bar actions were dropped because
 it merged into an enclosing one. Those were `eprintln!` before and are `warn!` now, which means
 they are filterable, they carry the emitting module, and they reach the browser console.

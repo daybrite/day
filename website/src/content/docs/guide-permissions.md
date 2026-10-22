@@ -12,7 +12,7 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 Access to the camera, location, and other protected features may require the user’s permission.
 Day handles this in two stages: a declaration in `Day.toml` supplies the platform metadata,
-and `day-part-permissions` checks or requests access while the app is running.
+and [`day-part-permissions`](/docs/reference/permissions) checks or requests access while the app is running.
 
 Request a permission from an explicit user action. Check its status first so a granted,
 restricted, or unsupported capability does not send the user through an irrelevant request
@@ -29,7 +29,7 @@ The UI snippets use generated `res::str` accessors from an app's Fluent catalog;
 
 ## Check an authoritative status
 
-Start with `day-part-permissions` at the same revision as `day` and the manifest declaration
+Start with [`day-part-permissions`](/docs/reference/permissions) at the same revision as `day` and the manifest declaration
 below. Use `status_future` where a cached `Unknown` is insufficient. This module asks only
 when the current answer is `Prompt`, or is `Denied` and the backend allows another prompt; it does not open Settings for a granted or unsupported
 permission. Request consent from a user action, and offer a separate Settings action after denial.

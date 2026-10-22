@@ -255,11 +255,11 @@ controls through separate crates:
 2. **Composite pieces**: plain Rust functions or builder structs that compose existing Pieces.
    They need no new native code; their target support is limited by the controls and capabilities they compose. Most of your app is this; so
    are the
-   in-tree `day-piece-rating` and `day-piece-settings`, and the
+   in-tree [`day-piece-rating`](/contributing/tutorials/composite-piece) and [`day-piece-settings`](/docs/reference/settings), and the
    [star-rating tutorial](/contributing/tutorials/composite-piece).
 3. **Native pieces**: a new leaf widget with a per-toolkit implementation, registered at link
    time. This is how `day-piece-webview` wraps `WKWebView`/`WebView`/`WebKitGTK`, how
-   `day-piece-swiftui` hosts [your own SwiftUI views](/docs/reference/swiftui) on macOS and iOS,
+   [`day-piece-swiftui`](/docs/reference/swiftui) hosts [your own SwiftUI views](/docs/reference/swiftui) on macOS and iOS,
    and how you'd wrap a platform control Day doesn't cover. See the
    [native piece tutorial](/contributing/tutorials/native-piece).
 

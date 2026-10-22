@@ -18,7 +18,7 @@ let png: Vec<u8> = day::window_image().capture()?;
 
 The call is **synchronous** and returns PNG bytes. Nothing is written to disk and no permission is
 requested; an app photographing its own window is not a screen recording, and none of the nine
-backends treats it as one.
+toolkits treats it as one.
 
 Pair it with a save picker ([files](./files.md)) to let the user keep the result:
 
@@ -41,7 +41,7 @@ button(res::str::screenshot()).action(move || {
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## What lands in the image
 
@@ -61,8 +61,8 @@ day::window_image().chrome().capture()?
 | Windows, Qt | the window, already including in-window chrome; see below | same image |
 | HarmonyOS | the window root node | same image |
 
-Two backends cannot separate the two. On Windows the capture is a `PrintWindow` of the top-level
-`HWND`, and on Qt a `QWidget::grab` of the top-level widget: both already contain everything drawn
+Two toolkits cannot separate the two. On Windows the capture is a `PrintWindow` of the top-level
+`HWND`, and on Qt a [`QWidget::grab`](https://doc.qt.io/qt-6/qwidget.html) of the top-level widget: both already contain everything drawn
 *inside* the window, and neither can reach the frame the window manager draws *outside* it. They
 answer `chrome()` with the same image.
 
@@ -71,31 +71,31 @@ window, an IME candidate popup, a screen-recording indicator) is part of any cap
 
 ## Capability
 
-`day::window_image_support()` reports whether the running backend can capture at all:
+`day::window_image_support()` reports whether the running toolkit can capture at all:
 
 ```rust
 if day::window_image_support() == Support::Native { /* offer the command */ }
 ```
 
-It answers `Support::Native` on eight backends and `Support::Unsupported` on **web-dom**, where a
+It answers `Support::Native` on eight toolkits and `Support::Unsupported` on **web-dom**, where a
 DOM cannot rasterize itself. Gate the UI on it (the Showcase's Screenshot menu item
 does) rather than offering a command that can only fail.
 
 `capture()` still returns `Err` for the ordinary runtime reasons even where support is `Native`:
 no window on screen yet, a zero-size window, a compositor that declined.
 
-## How each backend captures
+## How each toolkit captures
 
-| backend | API |
+| toolkit | API |
 |---|---|
-| macOS (AppKit) | `CGWindowListCreateImage`, cropped to the content view; `cacheDisplayInRect` into an `NSBitmapImageRep` when the window server declines |
-| iOS (UIKit) | `UIGraphicsImageRenderer` + `drawViewHierarchyInRect:afterScreenUpdates:` |
+| macOS (AppKit) | [`CGWindowListCreateImage`](https://developer.apple.com/documentation/coregraphics/cgwindowlistcreateimage), cropped to the content view; `cacheDisplayInRect` into an [`NSBitmapImageRep`](https://developer.apple.com/documentation/appkit/nsbitmapimagerep) when the window server declines |
+| iOS (UIKit) | [`UIGraphicsImageRenderer`](https://developer.apple.com/documentation/uikit/uigraphicsimagerenderer) + `drawViewHierarchyInRect:afterScreenUpdates:` |
 | macOS (GTK) | Window-server image cropped to the GTK widget, including Cocoa child views; GTK widget rendering when the window server declines |
-| Linux (GTK) | `GtkWidgetPaintable` rendered through the window's own `GskRenderer` |
-| Qt | `QWidget::grab()` |
+| Linux (GTK) | [`GtkWidgetPaintable`](https://docs.gtk.org/gtk4/class.WidgetPaintable.html) rendered through the window's own `GskRenderer` |
+| Qt | [`QWidget::grab()`](https://doc.qt.io/qt-6/qwidget.html) |
 | Windows (XAML) | `PrintWindow` with `PW_RENDERFULLCONTENT`, `BitBlt` from the screen as a fallback |
-| Android | `View.draw(Canvas)` into a `Bitmap`, `Bitmap.compress(PNG)`; a software canvas ignores outline clipping, so Day's containers clip their rounded corners by hand there |
-| HarmonyOS (ArkUI) | `OH_ArkUI_GetNodeSnapshot` + the native image packer |
+| Android | [`View.draw(Canvas)`](https://developer.android.com/reference/android/view/View) into a [`Bitmap`](https://developer.android.com/reference/android/graphics/Bitmap), [`Bitmap.compress(PNG)`](https://developer.android.com/reference/android/graphics/Bitmap); a software canvas ignores outline clipping, so Day's containers clip their rounded corners by hand there |
+| HarmonyOS (ArkUI) | [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) + the native image packer |
 | web-dom | unsupported |
 
 AppKit and UIKit in-process PNG captures use sRGB. UIKit explicitly selects an sRGB renderer
@@ -107,21 +107,21 @@ Two of these were the second thing tried:
 
 **AppKit prefers the window server.** `cacheDisplayInRect` renders the view hierarchy the app
 drew and nothing else, so macOS's composited materials (a Liquid Glass sidebar, vibrancy)
-come back blank. `CGWindowListCreateImage` asks the window server for the pixels the user is
+come back blank. [`CGWindowListCreateImage`](https://developer.apple.com/documentation/coregraphics/cgwindowlistcreateimage) asks the window server for the pixels the user is
 looking at. It has the opposite limitation: it has no image for a window that is not on
 screen, so the offscreen render remains the fallback.
 
 **ArkUI encodes natively.** The obvious route is the ArkTS host (that is how
 day-arkui reaches the file picker and the browser), but `@ohos.multimedia.image` has no
 synchronous packer at all (`packToData` and `packing` are Promise/callback only), so bridging
-through the host would have forced `window_image()` to be async on **every** backend to satisfy
-this one. `OH_ArkUI_GetNodeSnapshot` and `OH_ImagePackerNative_PackToDataFromPixelmap` do the same
+through the host would have forced `window_image()` to be async on **every** toolkit to satisfy
+this one. [`OH_ArkUI_GetNodeSnapshot`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) and `OH_ImagePackerNative_PackToDataFromPixelmap` do the same
 work synchronously in-process, so the API stays sync everywhere. It costs two extra linked
 libraries (`libpixelmap.so`, `libimage_packer.so`), linked by the image kit's `ohos-sys` bindings (day-arkui's `images` module).
 
 ## Relationship to dayscript screenshots
 
-A dayscript `screenshot:` step ([agent](./agent.md), DESIGN.md §14) is a separate path with a
+A dayscript `screenshot:` step ([agent](./agent.md)) is a separate path with a
 different goal, and it does **not** call this API directly.
 
 - **Desktop** — the in-process capture is the real capture, and it is what a walkthrough writes.
@@ -140,7 +140,7 @@ different goal, and it does **not** call this API directly.
   unsuccessful capture command, or non-PNG output refuses the device capture. Physical devices
   get the same checks but no automatic dismissal or settings changes. If the app-only fallback
   also fails, the screenshot step fails and no previous image at its path is retained.
-  Where a mobile backend has an in-process capture it now serves as the
+  Where a mobile toolkit has an in-process capture it now serves as the
   **fallback**; a refusing device tool used to abandon the shot outright. Because that image is
   wanted only when the device tool refuses, the runner tells the engine not to render one
   (`in_process: false` on the step) and re-asks on the failure path: rendering and encoding a
@@ -163,11 +163,11 @@ step; they do not authorize a stale capture.
 
 | Toolkit / platform targets | Freshness boundary |
 |---|---|
-| ArkUI / HarmonyOS | Every ArkTS piece module's `settle` ([docs/extending.md](extending.md); the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
+| ArkUI / HarmonyOS | Every ArkTS piece module's `settle` ([docs/extending](extending.md); the web view waits for four animation frames and any CSS transition in its page, capped), then an ArkTS component snapshot with `waitUntilRenderFinished: true`; a tiny disposable PixelMap confirms rendering before the full device capture |
 | GTK / Linux, macOS, Windows | Selected window's frame clock `after-paint`, following a requested draw |
 | Android / MDC | `registerFrameCommitCallback`; after-draw fallback for software rendering and Android before API 29 |
 | DOM / web | Two animation-frame turns; the browser screenshot operation performs final capture synchronization |
-| Qt / Linux, macOS, Windows | Synchronous `QWidget::render` / `grab` in the capture itself |
+| Qt / Linux, macOS, Windows | Synchronous [`QWidget::render`](https://doc.qt.io/qt-6/qwidget.html) / `grab` in the capture itself |
 | AppKit / macOS | Layout, display and Core Animation flush in the window capture |
 | UIKit / iOS | In-process capture uses `afterScreenUpdates: true`; external `simctl` capture keeps its existing transition check and capture semantics |
 | XAML / Windows (XAML and WinUI) | Shared CompositionTarget/DwmFlush checkpoint; WinUI also selects a fresh WGC frame |

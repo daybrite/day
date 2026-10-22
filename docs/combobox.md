@@ -8,19 +8,33 @@ Copyright © The Daybrite Project
 SPDX-License-Identifier: CC-BY-SA-4.0
 -->
 
-# Combo box (external piece)
+# Combo box
 
-> **Status: implemented** as `day-piece-combobox`, an external Day Piece (like
-> `day-piece-searchfield`) registered link-time into each backend's renderer slice without
-> touching day. One API: free-form text entry plus a native dropdown of suggestions, bound
-> two-way to a `Signal<String>` (the text is the value) with a reactive
-> `Signal<Vec<String>>` item list. Reworked 2026-07 from a selection-only dropdown (an
-> `NSPopUpButton`-style control bound to an index) into an editable combo box; `picker`
-> ([docs/picker.md](picker.md)) is now the one-of-N control, and the combo box is for values
-> that need not be in the list.
+A combo box lets people type a value or choose a suggestion. `day-piece-combobox` binds the text
+and suggestion list to app state. For a choice restricted to listed values, use a
+[picker](/docs/reference/picker).
+
+## Add to your app
+
+Defined in [`day-piece-combobox`](https://github.com/daybrite/day/tree/main/pieces/day-piece-combobox). Add this to your app’s `Cargo.toml`
+`[dependencies]` table, using the same Day Git source as the rest of your app:
+
+```toml
+[dependencies]
+day-piece-combobox = { git = "https://github.com/daybrite/day.git" }
+```
+
+`day build -t <target>` enables this direct dependency’s matching toolkit feature
+automatically. No dependency entry is needed in `Day.toml`.
+
+| Platforms / toolkits | Availability |
+| --- | --- |
+| AppKit, GTK, Qt, Android, WinUI | Native editable choice control. |
+| ArkUI | Composed text input and suggestions menu. |
+| UIKit, Web | No renderer; use a [picker](/docs/reference/picker) or [text field](/docs/reference/textfield). |
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## Authoring
 
@@ -36,66 +50,57 @@ combo_box(flavors, flavor)
 
 `combo_box(items, text)` binds `text` two-way: typing writes the signal per keystroke, picking a
 dropdown item writes the item's string, and setting the signal patches the control (echo-guarded,
-§4.4: the guard remembers the last value that arrived from the native control so `bind_seeded`
+the guard remembers the last value that arrived from the native control so `bind_seeded`
 does not patch it straight back). `items` is reactive: a change patches the native dropdown live,
 and the typed text survives the swap. `.placeholder(impl IntoText)` sets the empty-state prompt
 (read once at build). `ComboBox` implements `Piece`, so `.id()`/`.a11y()`/`.frame()` chain via
 `Decorate`. Like `text_field` it is a **width-growing leaf** (`grow_w = true`, natural
 single-line height).
 
-Every backend reports both change paths (typing and picking) through the one
-`Event::TextChanged(String)`, so `dayscript`'s `input:` step drives the entry on every backend.
+Every toolkit reports both change paths (typing and picking) through the one
+`Event::TextChanged(String)`, so `dayscript`'s `input:` step drives the entry on every toolkit.
 The front-end also answers a synthetic `Event::SelectionChanged(i)` by mapping `i` through the
-current items, so `dayscript`'s `select:` step is the scripted menu path (native backends never
+current items, so `dayscript`'s `select:` step is the scripted menu path (native toolkits never
 emit it: a native pick already arrives as text).
 
-## Per-backend native realization
+## Per-toolkit native realization
+
+Platform guidance: [Apple: pickers](https://developer.apple.com/design/human-interface-guidelines/pickers); [Android: spinners](https://developer.android.com/develop/ui/views/components/spinner); [Windows: combo boxes](https://learn.microsoft.com/en-us/windows/apps/design/controls/combo-box).
 
 | AppKit | GTK | Qt | Android | XAML | UIKit | ArkUI |
 |---|---|---|---|---|---|---|
-| `NSComboBox` | `GtkComboBoxText` with entry | editable `QComboBox` | `AutoCompleteTextView` | editable `ComboBox` (1809+) | — placeholder | ArkTS `TextInput` + suggestions menu |
+| [`NSComboBox`](https://developer.apple.com/documentation/appkit/nscombobox) | [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) with entry | editable [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) | [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView) | editable [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) (1809+) | — placeholder | ArkTS `TextInput` + suggestions menu |
 
 iOS has no native combo-box control, so the piece carries **no renderer** there: day renders its
 placeholder leaf, and the showcase adds a footnote saying why. Use `picker` or `text_field` on
 iOS. HarmonyOS has none either, but ArkTS composes one cheaply: the piece ships an ArkTS half
 (`platform/harmony/ets`) that sets a `TextInput` beside a chevron button whose `bindMenu` lists
-the items, and reports typing and picks alike as `Event::TextChanged`, as the native backends do. The change plumbing per backend:
+the items, and reports typing and picks alike as `Event::TextChanged`, as the native toolkits do. The change plumbing per toolkit:
 
 - **AppKit**: one per-node delegate serves both halves,
-  `NSControlTextEditingDelegate::controlTextDidChange:` for keystrokes and
-  `NSComboBoxDelegate::comboBoxSelectionDidChange:` for picks. The selection notification fires
+  [`NSControlTextEditingDelegate::controlTextDidChange:`](https://developer.apple.com/documentation/appkit/nscontroltexteditingdelegate) for keystrokes and
+  [`NSComboBoxDelegate::comboBoxSelectionDidChange:`](https://developer.apple.com/documentation/appkit/nscomboboxdelegate) for picks. The selection notification fires
   *before* the control writes the pick into its own `stringValue`, so the handler reads the
   selected item's string instead. `setCompletes(true)` gives inline autocompletion. Programmatic
   `setStringValue` fires neither (no suppression needed).
-- **GTK**: `GtkComboBoxText::with_entry()`; the internal `GtkEntry`'s `changed` signal is the
+- **GTK**: [`GtkComboBoxText::with_entry()`](https://docs.gtk.org/gtk4/class.ComboBoxText.html); the internal [`GtkEntry`](https://docs.gtk.org/gtk4/class.Entry.html)'s `changed` signal is the
   single change path (a pick writes the entry). It also fires on programmatic `set_text`, so a
-  per-node `suppress` cell guards the sync. GTK 4.10 deprecated `GtkComboBoxText` without an
-  editable replacement (`GtkDropDown` has no entry), so the renderer keeps it under a commented
+  per-node `suppress` cell guards the sync. GTK 4.10 deprecated [`GtkComboBoxText`](https://docs.gtk.org/gtk4/class.ComboBoxText.html) without an
+  editable replacement ([`GtkDropDown`](https://docs.gtk.org/gtk4/class.DropDown.html) has no entry), so the renderer keeps it under a commented
   `allow(deprecated)`.
 - **Qt / XAML**: each carries its own C++ shim inside this crate (`src/lib-qt-shim.cpp`,
   `src/lib-xaml-shim.cpp`), compiled by the crate's `build.rs`. The Qt shim is a
-  `QComboBox` with `setEditable(true)` + `NoInsert`; `editTextChanged` is the single change
+  [`QComboBox`](https://doc.qt.io/qt-6/qcombobox.html) with `setEditable(true)` + `NoInsert`; `editTextChanged` is the single change
   path, and programmatic setters sit in `blockSignals`. The XAML shim boxes an editable
-  `ComboBox` through the `day_xaml_box` / `day_xaml_unbox` functions. Documented divergence: XAML's
-  `ComboBox` has no per-keystroke text event, so free-form text commits on Enter or focus loss
+  [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) through the `day_xaml_box` / `day_xaml_unbox` functions. Documented divergence: XAML's
+  [`ComboBox`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.combobox) has no per-keystroke text event, so free-form text commits on Enter or focus loss
   (`TextSubmitted` / `LostFocus`) while picks report immediately (`SelectionChanged`).
 - **Android**: carries its own Java factory
   (`src/DayCombo.java`), folded into the app's Gradle
   build via `[package.metadata.day.android]` with no edits to day-android. Android's combo box
-  is `AutoCompleteTextView`: suggestions prefix-filter while typing, and a tap or focus pops the
-  dropdown open so the list is reachable without typing. One `TextWatcher` reports both paths as
+  is [`AutoCompleteTextView`](https://developer.android.com/reference/android/widget/AutoCompleteTextView): suggestions prefix-filter while typing, and a tap or focus pops the
+  dropdown open so the list is reachable without typing. One [`TextWatcher`](https://developer.android.com/reference/android/text/TextWatcher) reports both paths as
   `DayBridge.K_TEXT_CHANGED`; the programmatic setters guard on equality.
-
-## Verification
-
-The showcase **Controls** page (`controls.rs` `flavor_block`) binds a `combo_box` to a `flavor`
-signal with a localized three-item list, an **Add** button that pushes the typed text into the
-items, and a readout mirroring the signal. The walkthrough drives all three behaviors: `select`
-index 2 (menu path, asserted by localized key), `input` a literal that is in no list (free-form
-path), then Add + `select` index 3 (an index that exists only after the add), which shows the
-reactive item list round-trips. Runs on macOS-AppKit, GTK, Qt, iOS-sim (placeholder + synthetic
-steps), and the Android emulator. Rust is clippy-clean (`-D warnings`) and `cargo fmt`-clean for
-every backend feature.
 
 ## Follow-ups
 

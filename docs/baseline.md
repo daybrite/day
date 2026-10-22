@@ -27,7 +27,7 @@ row((label(res::str::total()), label(res::str::sample_total()).font(Font::Title2
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## What day asks the toolkit
 
@@ -100,7 +100,7 @@ like it did not work. The `decorated_children_keep_their_baseline` test in
 `day-pieces/tests/mock_e2e.rs` pins it.
 
 Grid cells are **not** baseline-aligned; `grid_row(..).align(VAlign::FirstBaseline)` reads as
-`Center`. See [docs/grid.md](grid.md).
+`Center`. See [docs/grid](grid.md).
 
 ## Row height
 

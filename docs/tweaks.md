@@ -10,8 +10,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 
 # Tweaks: per-toolkit configuration of built-in pieces
 
-A **tweak** configures the native widget behind a Day-created piece: the extra `NSButton` or
-XAML `Button` method call that doesn't justify a whole custom piece. A piece with a tweak applied is
+A **tweak** configures the native widget behind a Day-created piece: the extra [`NSButton`](https://developer.apple.com/documentation/appkit/nsbutton) or
+XAML [`Button`](https://learn.microsoft.com/en-us/uwp/api/windows.ui.xaml.controls.button) method call that doesn't justify a whole custom piece. A piece with a tweak applied is
 a **Tweaked Piece**. Day keeps owning the widget's lifecycle, layout, and managed properties; the
 tweak reaches in through the same handle Day manages.
 
@@ -24,7 +24,7 @@ native pieces      renderer! per toolkit              a NEW widget kind
 ```
 
 The UI snippets use generated `res::str` accessors from an app's Fluent catalog; see the
-[example messages](snippet-catalog.md) and [catalog setup](https://daybrite.dev/docs/how-to/localization).
+[example messages](snippet-catalog.md) and [catalog setup](/docs/how-to/localization).
 
 ## The portable surface
 
@@ -50,7 +50,7 @@ day::invalidate_size(node);
 Each toolkit crate has an `ext` module with a typed (or raw) accessor and a matching
 `Decorate` extension trait. Those traits return `day_pieces::Decorated<Self>`, like every other
 modifier, so a tweak does not erase the piece's type and can be chained on either side of a typed
-builder ([docs/api-style.md](api-style.md) "Typed builders and erasure"). The support tiers:
+builder ([docs/api-style](api-style.md) "Typed builders and erasure"). The support tiers:
 
 Every accessor hands the closure the native widget **and its concrete class name** (a `&str`),
 then whatever context that toolkit needs:
@@ -61,7 +61,7 @@ then whatever context that toolkit needs:
 | UIKit   | `day_uikit::with_native` / `.uikit(…)`   | `&Retained<UIView>`, `class`, marker | typed |
 | GTK     | `day_gtk::with_native` / `.gtk(…)`       | `&gtk4::Widget`, `class` (`downcast_ref` to the class) | typed |
 | Android | `day_android::with_native` / `.android(…)` | `&GlobalRef`, `class`, attached `&mut JNIEnv` | typed (JNI) |
-| Qt      | `day_qt::with_native_raw` / `.qt_raw(…)` | the raw `QWidget*`, `class`; bring your own C++ (below) | raw |
+| Qt      | `day_qt::with_native_raw` / `.qt_raw(…)` | the raw [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html), `class`; bring your own C++ (below) | raw |
 | XAML   | `day_xaml::with_native_raw` / `.xaml_raw(…)` | the **borrowed** `IUIElement*` ABI pointer, `class`; bring your own C++/WinRT (below) | raw |
 | ArkUI   | `day_arkui::with_native_raw` / `.arkui_raw(…)` | the raw `ArkUI_NodeHandle`, `class`; NDK C API | raw |
 
@@ -88,8 +88,8 @@ the accessor hands you that widget's concrete class name:
 - **Typed tiers** (AppKit/UIKit/GTK) report the *live* widget's runtime class: objc
   `object_getClass` (`"NSSlider"`, `"UILabel"`), GTK's GType name (`"GtkScale"`). Because it reads
   the real object, it stays correct even when a piece has a **conditional backing**, which is no
-  longer hypothetical: a `.selectable()` label on UIKit is realized as a read-only `UITextView`,
-  because `UILabel` has no selection support to switch on ([docs/text.md](text.md)). The class tells you
+  longer hypothetical: a `.selectable()` label on UIKit is realized as a read-only [`UITextView`](https://developer.apple.com/documentation/uikit/uitextview),
+  because [`UILabel`](https://developer.apple.com/documentation/uikit/uilabel) has no selection support to switch on ([docs/text](text.md)). The class tells you
   which one you got, and a `downcast_ref` you'd have guessed wrong is avoided:
 
   ```rust
@@ -114,8 +114,8 @@ kinds whose stored handle is a container rather than a single leaf widget.
 The native class behind a piece is **not part of Day's API**. Day picks the best class for the
 piece's current modifiers on each platform, and that choice can change with a modifier (a
 `.selectable()` label on UIKit), with a platform version, or with a Day release. SwiftUI works
-the same way underneath: when iOS 16 moved `List` from `UITableView` to `UICollectionView`,
-hardcoded `UITableView` casts stopped matching, and swiftui-introspect handles that with
+the same way underneath: when iOS 16 moved `List` from [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) to [`UICollectionView`](https://developer.apple.com/documentation/uikit/uicollectionview),
+hardcoded [`UITableView`](https://developer.apple.com/documentation/uikit/uitableview) casts stopped matching, and swiftui-introspect handles that with
 per-OS-version pins on every view type. Day owns realization, so the accessor reports the
 concrete class of the live widget and keeps the node's handle pointed at whatever is on screen,
 and no version pinning is needed. Three rules keep a tweak on the right side of that contract:
@@ -128,9 +128,9 @@ and no version pinning is needed. Three rules keep a tweak on the right side of 
    widget the rebuild discards, and Day logs a warning when that happens; chained after, the tweak
    sees the widget that ships. When in doubt, tweaks go last in the chain. This ordering rule is
    the tweak's alone: `.id` names the piece's own node wherever it sits
-   ([docs/api-style.md](api-style.md) "Modifier classes"), so an id need not move to make room.
+   ([docs/api-style](api-style.md) "Modifier classes"), so an id need not move to make room.
 3. **Prefer the widest surface that expresses the intent.** A mutation on the common superclass
-   (`UIView`/`NSView` alpha, layers, tooltips) lands identically on every backing and survives a
+   ([`UIView`](https://developer.apple.com/documentation/uikit/uiview)/[`NSView`](https://developer.apple.com/documentation/appkit/nsview) alpha, layers, tooltips) lands identically on every backing and survives a
    swap without a branch; reach for the concrete class only when the intent needs it.
 
 `NativeRef` is immune to all of this: it stores the node rather than the widget and re-resolves
@@ -148,9 +148,9 @@ calls per toolkit and **no-ops where it has no coverage**; the consuming app wri
 | `tweaks/day-tweak-button-bezel` | AppKit only | the minimal shape: one enum of symbolic constants, one setter |
 | `tweaks/day-tweak-tooltip` | AppKit, GTK, Android | one modifier across three access tiers (objc2 / gtk4-rs / JNI) |
 | `tweaks/day-tweak-slider-tickmarks` | AppKit, GTK, Android, Qt, XAML, ArkUI | a configurable feature (`Tickmarks { count, snap, position }`), including the crate's own Qt C++, WinRT C++, and NDK C++ |
-| `tweaks/day-tweak-tree-style` | AppKit, GTK | styling a composite control's subcontrols (`with_native_subcontrol` reaches the `NSOutlineView` inside the tree's scroll host; GTK adds a CSS class to the `GtkListView`) |
+| `tweaks/day-tweak-tree-style` | AppKit, GTK | styling a composite control's subcontrols (`with_native_subcontrol` reaches the [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) inside the tree's scroll host; GTK adds a CSS class to the [`GtkListView`](https://docs.gtk.org/gtk4/class.ListView.html)) |
 
-The Cargo shape mirrors piece crates: per-backend `[features]` gating optional deps, plus
+The Cargo shape mirrors piece crates: per-toolkit `[features]` gating optional deps, plus
 
 ```toml
 [package.metadata.day.piece]
@@ -166,7 +166,7 @@ as `Day-Showcase/Cargo.toml` does.
 Pass the `class` the accessor gave you across the FFI so your C++ can guard the cast; Rust can't
 type the pointer for you, but it can tell you what it is.
 
-**Qt.** The handle is the `QWidget*`. Compile a few lines of C++ in your crate's `build.rs` with
+**Qt.** The handle is the [`QWidget*`](https://doc.qt.io/qt-6/qwidget.html). Compile a few lines of C++ in your crate's `build.rs` with
 `cc` + `pkg-config Qt6Widgets` (Qt itself is already linked by day-qt-sys):
 
 ```rust
@@ -187,22 +187,16 @@ extern "C" void my_ticks(void* w, const char* cls, int interval) {
 }
 ```
 
-**XAML.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
+**WinUI.** `with_native_raw` hands you a *borrowed* ABI pointer via the shim's `day_xaml_unbox`
 function, plus the class. In your C++/WinRT (compiled with `cc`; mirror
 `tweaks/day-tweak-slider-tickmarks/build.rs`, which adds
 `day_toolchain::winappsdk::shim_includes(&cppwinrt)` and defines `DAY_WINUI` when
-`day_toolchain::winappsdk::shim_is_winui()`, so one file builds for windows-winui against
-`Microsoft.UI.Xaml` and for the deprecated windows-xaml against `Windows.UI.Xaml`):
+`day_toolchain::winappsdk::shim_is_winui()`). For `windows-winui`, use `Microsoft.UI.Xaml`:
 
 ```cpp
 #include <cstring>
-#ifdef DAY_WINUI
 #include <winrt/Microsoft.UI.Xaml.Controls.h>
 namespace WUX = winrt::Microsoft::UI::Xaml;
-#else
-#include <winrt/Windows.UI.Xaml.Controls.h>
-namespace WUX = winrt::Windows::UI::Xaml;
-#endif
 extern "C" void my_ticks(void* abi, const char* cls, double freq) {
     if (!cls || std::strcmp(cls, "Slider") != 0) return;
     WUX::UIElement e{ nullptr };
@@ -216,7 +210,7 @@ The crate also declares a `winui` feature (`winui = ["xaml", "day-xaml/winui"]`)
 `"winui"` in its `backends`.
 
 **ArkUI.** The handle is the NDK `ArkUI_NodeHandle` and the class is the node type name
-(`"Slider"`); resolve the node API with `OH_ArkUI_GetModuleInterface` and `setAttribute` away (see
+(`"Slider"`); resolve the node API with [`OH_ArkUI_GetModuleInterface`](https://github.com/openharmony/docs/blob/master/en/application-dev/reference/apis-arkui/capi-arkui-nativemodule.md) and `setAttribute` away (see
 `tweaks/day-tweak-slider-tickmarks/src/ticks-arkui.cpp`).
 
 ## Rules
@@ -229,10 +223,10 @@ The crate also declares a `winui` feature (`winui = ["xaml", "day-xaml/winui"]`)
 - **Never destroy or reparent** the widget; Day owns its lifecycle. Don't hold raw pointers or
   handle clones past the call; hold a `NativeRef` and re-resolve.
 - **Never set a delegate or data source** on a widget Day drives. Day's object makes
-  the piece work (`list` and the sidebar's `NSOutlineView` both install one), so replacing it
+  the piece work (`list` and the sidebar's [`NSOutlineView`](https://developer.apple.com/documentation/appkit/nsoutlineview) both install one), so replacing it
   tears the data out from under the piece. Pieces whose native widget decides things through a
   delegate expose those decisions as their own hooks instead (see
-  [docs/tree.md](tree.md) for the worked example).
+  [docs/tree](tree.md) for the worked example).
 - **Managed properties can be clobbered.** Day re-applies what it manages (title, value, enabled,
   frame, a11y) on its next patch of that node. Unmanaged properties (bezel styles, tick marks,
   selectability) are stable. If you must re-assert, do it from an `Effect` or event handler via
