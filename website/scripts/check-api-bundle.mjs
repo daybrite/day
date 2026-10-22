@@ -9,7 +9,9 @@ const website = fileURLToPath(new URL('..', import.meta.url));
 const dist = resolve(process.argv[2] ?? resolve(website, 'dist'));
 const manifest = JSON.parse(readFileSync(resolve(website, 'src/data/api-crates.json'), 'utf8'));
 const crates = manifest.groups.flatMap(group => group.crates);
-const entries = ['index.html', 'docs/reference/api/index.html', `${manifest.outDir}/index.html`,
+const entries = ['index.html', 'gallery/index.html', 'showcase/index.html', 'CNAME', 'sitemap.xml',
+  'pagefind/pagefind.js', 'pagefind/pagefind-entry.json',
+  'docs/reference/api/index.html', `${manifest.outDir}/index.html`,
   ...crates.map(crate => `${manifest.outDir}/${crate.pkg.replaceAll('-', '_')}/index.html`)];
 const missing = entries.filter(entry => {
   try { const file = statSync(resolve(dist, entry)); return !file.isFile() || file.size === 0; }

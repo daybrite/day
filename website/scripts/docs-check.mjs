@@ -5,6 +5,8 @@
 // Rule intent and limits: website/authoring/authoring.md.
 import { createMarkdownProcessor, parseFrontmatter } from '@astrojs/markdown-remark';
 import { readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { glossary } from '../src/lib/glossary.mjs';
@@ -102,7 +104,25 @@ function insideRoot(path) {
   return rel !== '..' && !rel.startsWith('../') && !isAbsolute(rel);
 }
 
-export async function checkFiles(paths) {
+function repositoryPaths() {
+  // Source archives have no Git metadata; their on-disk checks already use only exported files.
+  if (!existsSync(resolve(root, '.git'))) return null;
+  // Include new, non-ignored files so authors can validate before staging. Ignored local files
+  // must not make public links pass when a clean CI checkout would lack their destinations.
+  const names = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'],
+    { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
+  const paths = new Set(['']);
+  for (const name of names) {
+    const segments = name.split('/');
+    while (segments.length) {
+      paths.add(segments.join('/'));
+      segments.pop();
+    }
+  }
+  return paths;
+}
+
+export async function checkFiles(paths, { sourcePaths = null } = {}) {
   const cache = new Map();
   const parse = async (path) => {
     if (!cache.has(path)) cache.set(path, inspectMarkdown(await readFile(path, 'utf8'), { bodyTitle: relative(root, path).startsWith('docs/') }));
@@ -123,7 +143,11 @@ export async function checkFiles(paths) {
       try {
         const url = new URL(link.url, pathToFileURL(path));
         const target = fileURLToPath(url);
-        if (!insideRoot(target) || !insideRoot(await realpath(target))) throw new Error('link escapes repository');
+        const canonical = await realpath(target);
+        if (!insideRoot(target) || !insideRoot(canonical)) throw new Error('link escapes repository');
+        if (sourcePaths && [target, canonical].some((p) => !sourcePaths.has(relative(root, p).split('\\').join('/')))) {
+          throw new Error('link targets an ignored local file outside the repository sources');
+        }
         const info = await stat(target);
         if (url.hash && extname(target) === '.md') {
           const destination = await parse(target);
@@ -150,7 +174,7 @@ async function main() {
     ...await markdownFiles(resolve(root, 'website/src/content/docs')),
     ...['CONTRIBUTING.md'].map((name) => resolve(root, name)),
   ])];
-  const result = await checkFiles(paths);
+  const result = await checkFiles(paths, { sourcePaths: repositoryPaths() });
   const glossaryIssues = checkGlossary(glossary);
   const errors = [...result.errors, ...glossaryIssues.map((message) => `glossary: ${message}`)];
   for (const message of errors) console.error(message);

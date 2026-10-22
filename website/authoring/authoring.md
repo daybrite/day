@@ -8,7 +8,8 @@ SPDX-License-Identifier: CC-BY-SA-4.0
 Use the [style guide](style-guide.md), [maintenance checklist](maintenance.md), and
 [page templates](templates/README.md). Follow [CONTRIBUTING](../../CONTRIBUTING.md) and the
 [website conventions](../README.md). The [shared glossary](../src/lib/glossary.mjs) is the
-terminology source. Follow the repository’s `AGENTS.md` instructions for automated edits.
+terminology source. For automated edits, also follow any local `AGENTS.md` instructions supplied
+with your checkout; those files are not part of the published documentation.
 
 ## Prepare a change
 
@@ -40,7 +41,9 @@ matching dependencies already exist. No global editorial package is required.
 `docs:check` discovers all Markdown under `docs/`, `website/src/content/docs/`, and
 `website/authoring/`, plus the contribution guide. New pages are included automatically. It checks Markdown structure, fence languages,
 selected prose rules, descriptive links, image alt text, local source destinations, and glossary
-structure. Code and HTML comments are excluded from prose rules. Check additional Markdown with:
+structure. In a Git checkout, local links must point to tracked or new non-ignored source files;
+ignored files on an author's machine cannot satisfy a public link. Code and HTML comments are
+excluded from prose rules. Check additional Markdown with:
 
 ```sh
 npm --prefix website run docs:check -- docs/history/documentation-overhaul.md

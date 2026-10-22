@@ -1482,13 +1482,16 @@ jobs:
           # and the hero carousel built from it (website/integrations/gallery.mjs). Only on runs
           # that deploy (the same condition as `website-deploy` below), so pull requests and
           # forks still build and linkcheck while an app's site is down, since they publish nothing.
-          DAY_REQUIRE_SHOWCASE: ${{ github.repository == 'daybrite/day' && github.event_name != 'pull_request' && '1' || '' }}
+          DAY_REQUIRE_SHOWCASE: ${{ github.repository == 'daybrite/day' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && '1' || '' }}
         run: |
           npm ci
           npm run docs:check
           npm run docs:test
           npm run docs:architecture
           npm run build
+
+      - name: Check rendered pages and sitemap
+        run: python3 -B scripts/docs/check-site.py
 
       - name: Build the Rust API reference (dist/api)
         # Astro clears dist during its build. Add Rustdoc afterward so the Pages artifact
@@ -1513,8 +1516,9 @@ jobs:
   website-deploy:
     name: website (deploy)
     needs: website
-    # Forks and pull requests build and linkcheck; only the canonical repository publishes.
-    if: ${{ github.repository == 'daybrite/day' && github.event_name != 'pull_request' }}
+    # Match the github-pages environment's main-only branch policy. Manual runs on other
+    # branches build and linkcheck without attempting a deployment the environment will reject.
+    if: ${{ github.repository == 'daybrite/day' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request' }}
     runs-on: ubuntu-latest
     # One deploy at a time, and never cancel one in flight: a half-uploaded Pages artifact is
     # worse than a stale page. Queued deploys collapse to the newest, which is the one worth

@@ -3,8 +3,8 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdtemp, writeFile, rm, symlink } from 'node:fs/promises';
+import { resolve, relative } from 'node:path';
 import { inspectMarkdown, checkFiles, checkGlossary, root } from './docs-check.mjs';
 
 // Synthetic Markdown fixtures: never shipped UI or API examples.
@@ -53,6 +53,26 @@ test('glossary contract requires core terms and unique anchors', () => {
   assert.ok(issues.some((i) => i.includes('duplicate')));
   assert.ok(issues.some((i) => i.includes('Missing core term: window')));
   assert.ok(issues.some((i) => i.includes('Incomplete')));
+});
+
+test('existing ignored files cannot satisfy public links, including through source symlinks', async () => {
+  const directory = await mkdtemp(resolve(root, 'website/scripts/.docs-check-test-'));
+  try {
+    const source = resolve(directory, 'source.md');
+    const local = resolve(directory, 'local.md');
+    const alias = resolve(directory, 'alias.md');
+    await writeFile(local, '# Local fixture\n');
+    await symlink('local.md', alias);
+    await writeFile(source, '# Source fixture\n\n[Local](local.md) [Alias](alias.md)\n');
+    const sourcePaths = new Set([source, alias].map((p) => relative(root, p).split('\\').join('/')));
+    const result = await checkFiles([source], { sourcePaths });
+    assert.equal(result.errors.length, 2);
+    assert.ok(result.errors.every((e) => e.includes('ignored local file')));
+    sourcePaths.add(relative(root, local).split('\\').join('/'));
+    assert.deepEqual((await checkFiles([source], { sourcePaths })).errors, []);
+  } finally {
+    await rm(directory, { recursive: true });
+  }
 });
 
 test('canonical repository metadata does not duplicate its visible H1', async () => {

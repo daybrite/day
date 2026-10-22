@@ -6089,7 +6089,8 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    the Showcase's gallery or a front-page carousel screenshot (2026-09-14). The 2026-09-13 deploy
    rendered both empty while the Showcase's site served no usable index; the last good deploy now
    stays live instead. Deployment and `DAY_REQUIRE_SHOWCASE` are enabled only for non-PR
-   runs in `daybrite/day`; forks and pull requests still build and linkcheck the site but
+   runs on `main` in `daybrite/day`, matching the Pages environment's branch policy;
+   forks, pull requests, and manual runs on other branches still build and linkcheck the site but
    never enter the Pages deployment job.
    The lane runs on every push and pull request with the rest of `ci.yml`, and alone on the
    website-only triggers: a `gallery-published` `repository_dispatch` an app's CI
@@ -6098,7 +6099,10 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    website-only trigger until 2026-10; it now runs the complete workflow on `main`, so a
    runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The `website` job builds the rustdoc bundle into
    `dist/api` after the Astro build, which clears `dist`. Pages deploys one artifact, so the job
-   that feeds the deploy assembles both outputs and checks every manifest-listed crate entry.
+   that feeds the deploy assembles both outputs and checks every manifest-listed crate entry,
+   the gallery and Showcase pages, search entry files, sitemap, and custom-domain file.
+   The rendered-page audit checks metadata, headings, image descriptions, and sitemap coverage
+   before the API bundle is added.
    Rustdoc runs with a locked dependency graph and warnings denied. The builder creates each
    published crate's output directory before documentation starts and serializes rustdoc, so
    cross-crate links resolve locally even when Cargo documents a consumer first. Its item-link check follows

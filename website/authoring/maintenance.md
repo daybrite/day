@@ -109,7 +109,8 @@ output or lockfile edits. Do not run a later Astro build against the completed a
 `dist`, including the API bundle. `scripts/website.sh preview` also rebuilds, so use the direct
 preview command above to inspect the combined artifact.
 
-The API completeness check requires the site, API bridge, root API landing page, and every crate
+The artifact completeness check requires the gallery and Showcase pages, search entry files,
+sitemap, custom-domain file, API bridge, root API landing page, and every crate
 entry from the shared manifest. The separate API link checker validates item destinations and fragments; Rustdoc warnings fail
 the build. The completeness check itself does not replace either check.
 The website link checker excludes Rustdoc and external URLs; review those separately. Search
@@ -118,6 +119,7 @@ indexes the Astro site before Rustdoc is added and is not evidence of full API-i
 Before any authorized publication, review the exact artifact, its screenshot/release inputs,
 known failures, and unrun checks. The current CI website lane can deploy independently of the
 framework lane; a green website build does not certify the framework. A manual website-only run
-in the canonical repository can publish, so it is not a harmless preview command. Review approval
+on `main` in the canonical repository can publish, so it is not a harmless preview command.
+Manual runs on other branches build and check the site without deploying. Review approval
 does not authorize a commit, push, workflow dispatch, or deployment. Named ownership can remain
 deferred while the maintenance process and evidence are available for review.

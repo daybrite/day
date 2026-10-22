@@ -53,7 +53,6 @@ Follow the [writing style guide](STYLE_GUIDE.md),
 [authoring workflow and checks](website/authoring/authoring.md), and
 [page templates](website/authoring/templates/README.md). Use the existing
 [shared glossary](website/src/lib/glossary.mjs) as the terminology source.
-AI authors should also read the [concise instructions](AGENTS.md).
 Use the [documentation maintenance checklist](website/authoring/maintenance.md) for review,
 freshness, platform-claim changes, and publication checks. Named documentation ownership remains
 deferred; record the reviewer and evidence for each change without assigning a permanent owner.
