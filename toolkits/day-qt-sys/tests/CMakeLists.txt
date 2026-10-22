@@ -44,3 +44,10 @@ target_compile_options(qt-vectors PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,
 add_test(NAME qt-vectors COMMAND qt-vectors
     "${CMAKE_CURRENT_SOURCE_DIR}/../../../crates/day-vector/fixtures/conformance/vector_detail.svg")
 set_tests_properties(qt-vectors PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")
+
+add_executable(qt-export export.cpp ../src/shim.cpp)
+target_compile_features(qt-export PRIVATE cxx_std_17)
+target_link_libraries(qt-export PRIVATE Qt6::Widgets Qt6::Svg)
+target_compile_options(qt-export PRIVATE $<IF:$<CXX_COMPILER_ID:MSVC>,/UNDEBUG,-UNDEBUG>)
+add_test(NAME qt-export COMMAND qt-export)
+set_tests_properties(qt-export PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen")

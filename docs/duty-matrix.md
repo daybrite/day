@@ -62,6 +62,8 @@ implement them, and this table proves it.
 | `encode_image` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
 | `encode_formats` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
 | `release_image` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| `render_bitmap` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | ✓ | ✓ | ✓ |
+| `render_pdf` | · | ✓ | ✓ | ✓ | ✓ | · | ✓ | · | · | · |
 | `snapshot_window` | · | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | · | ✓ |
 | `snapshot_origin` | · | · | · | · | · | ✓ | ✓ | · | · | · |
 | `prepare_snapshot` | · | · | · | ✓ | · | · | ✓ | ✓ | ✓ | · |

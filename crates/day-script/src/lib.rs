@@ -428,25 +428,25 @@ fn find_menu_actions(
     target_id: Option<&str>,
     path: &[(String, String)],
 ) -> Vec<(u64, bool, Vec<String>)> {
-    // Mirrors day-pieces' role_catalog_key (docs/menus.md), the stable `day-*` key set.
+    // Mirrors day-pieces' role_catalog_key (docs/menus.md), the stable `day_*` key set.
     fn role_key(role: day_spec::MenuRole) -> &'static str {
         use day_spec::MenuRole as R;
         match role {
-            R::Cut => "day-cut",
-            R::Copy => "day-copy",
-            R::Paste => "day-paste",
-            R::SelectAll => "day-select-all",
-            R::Undo => "day-undo",
-            R::Redo => "day-redo",
-            R::Delete => "day-delete",
-            R::About => "day-about",
-            R::Quit => "day-quit",
-            R::Preferences => "day-preferences",
-            R::Minimize => "day-minimize",
-            R::CloseWindow => "day-close",
-            R::Fullscreen => "day-fullscreen",
-            R::NewWindow => "day-new-window",
-            R::CheckForUpdates => "day-check-for-updates",
+            R::Cut => "day_cut",
+            R::Copy => "day_copy",
+            R::Paste => "day_paste",
+            R::SelectAll => "day_select_all",
+            R::Undo => "day_undo",
+            R::Redo => "day_redo",
+            R::Delete => "day_delete",
+            R::About => "day_about",
+            R::Quit => "day_quit",
+            R::Preferences => "day_preferences",
+            R::Minimize => "day_minimize",
+            R::CloseWindow => "day_close",
+            R::Fullscreen => "day_fullscreen",
+            R::NewWindow => "day_new_window",
+            R::CheckForUpdates => "day_check_for_updates",
         }
     }
     #[allow(clippy::too_many_arguments)]
@@ -1119,12 +1119,15 @@ fn exec(step: Step, revision: u32) -> Reply {
                     }
                 }
                 let node = find(&id)?;
-                let items = with_tree(|t| t.context_menu_of(node)).ok_or_else(|| {
+                let menu = with_tree(|t| t.context_menu_of(node)).ok_or_else(|| {
                     Reply::fail(
                         format!("context_menu {id:?}: the element has no menu"),
                         true,
                     )
                 })?;
+                // Asked outside the tree borrow, at the origin, as a native summon asks it: a
+                // provider may select what it was summoned over and flush.
+                let items = menu(day_spec::Point::ZERO);
                 let target_label = match (&item_id, &item, &key) {
                     (Some(_), _, _) => String::new(),
                     (None, Some(l), _) => l.clone(),
@@ -1222,14 +1225,14 @@ fn exec(step: Step, revision: u32) -> Reply {
                 // menu (the backend's default menu carries them): resolve their keys straight
                 // to the registered dispatch actions when the model has no entry.
                 let auto_id = match (matches.is_empty(), key.as_deref()) {
-                    (true, Some("day-preferences")) => {
+                    (true, Some("day_preferences")) => {
                         Some(day_core::windows::preferences_action_id())
                     }
-                    (true, Some("day-new-window")) => {
+                    (true, Some("day_new_window")) => {
                         Some(day_core::windows::new_window_action_id())
                     }
-                    (true, Some("day-about")) => Some(day_core::windows::about_action_id()),
-                    (true, Some("day-check-for-updates")) => {
+                    (true, Some("day_about")) => Some(day_core::windows::about_action_id()),
+                    (true, Some("day_check_for_updates")) => {
                         Some(day_core::windows::check_for_updates_action_id())
                     }
                     _ => None,

@@ -843,6 +843,20 @@ pub enum Event {
         req: u64,
         result: Result<Vec<u8>, ImageError>,
     },
+    /// A canvas drawing started by [`Toolkit::render_bitmap`] finished rendering
+    /// (docs/canvas.md "Exporting"). Keyed by request id like [`Event::ImageDecoded`], and like
+    /// it carries no bitmap id: day-core minted the id and handed it over with the ops, so the
+    /// answer is only the facts of the image the backend stored under it.
+    BitmapRendered {
+        req: u64,
+        result: Result<BitmapInfo, ExportError>,
+    },
+    /// A PDF started by [`Toolkit::render_pdf`] finished (docs/canvas.md "Exporting"): the
+    /// document's bytes, or why they could not be produced.
+    PdfRendered {
+        req: u64,
+        result: Result<Vec<u8>, ExportError>,
+    },
     /// An open, piece-defined event (§8.2). `tag` names the event for in-process emitters (a static
     /// literal); it is empty for events that cross a native boundary (JNI/C-ABI), which carry only the
     /// primitive `num`/`text` payload. A piece's `cx.on` reads whichever fields it needs. This is the
@@ -2538,6 +2552,19 @@ pub enum Cap {
     /// `Unsupported` where reading it would mean shipping a parser or a new framework, which is
     /// most places. An app that wants orientation must handle `None`.
     ImageProperties,
+    /// The toolkit can replay a canvas drawing into an offscreen bitmap
+    /// ([`Toolkit::render_bitmap`], docs/canvas.md "Exporting"): what `Drawing::to_bitmap` and
+    /// `Drawing::to_png` rest on. `Native` where the toolkit's own canvas painter can target an
+    /// image surface (a `CGBitmapContext`, a cairo image surface, a `QImage`, an android
+    /// `Bitmap`, an `OH_Drawing_Bitmap`, a detached `<canvas>`); `Unsupported` where the
+    /// on-screen canvas has no painter to retarget (WinUI builds XAML shapes instead).
+    CanvasBitmap,
+    /// The toolkit can replay canvas drawings into a PDF document ([`Toolkit::render_pdf`],
+    /// docs/canvas.md "Exporting"), with vector shapes and the platform's own font embedding.
+    /// `Native` only where the platform ships a PDF writer the canvas painter can draw into
+    /// (Core Graphics on AppKit and UIKit, cairo on GTK, `QPdfWriter` on Qt, `PdfDocument` on
+    /// Android); `Unsupported` on ArkUI, the web and WinUI, which have none.
+    CanvasPdf,
     /// The toolkit minimizes, zooms, hides and restores a window on request
     /// ([`WindowChange::State`], [`WindowChange::Visible`], docs/windows.md) and reports what the
     /// user does through [`Event::WindowStateChanged`]. `Native` on the desktop backends;
@@ -2619,7 +2646,7 @@ pub enum Cap {
 impl Cap {
     /// Every capability, in declaration order: what a conformance run asks the toolkit about,
     /// so the evidence can be held against the declared coverage matrix (docs/testing.md).
-    pub const ALL: [Cap; 78] = [
+    pub const ALL: [Cap; 80] = [
         Cap::DragDrop,
         Cap::DragExternalImport,
         Cap::DragExternalExport,
@@ -2698,6 +2725,8 @@ impl Cap {
         Cap::CoverSheet,
         Cap::ListEditing,
         Cap::ListItem,
+        Cap::CanvasBitmap,
+        Cap::CanvasPdf,
     ];
 
     /// The capability's place in [`Cap::ALL`]. Exhaustive, so a new variant fails to compile
@@ -2782,6 +2811,8 @@ impl Cap {
             Cap::CoverSheet => 75,
             Cap::ListEditing => 76,
             Cap::ListItem => 77,
+            Cap::CanvasBitmap => 78,
+            Cap::CanvasPdf => 79,
         }
     }
 }
@@ -3067,6 +3098,76 @@ impl std::fmt::Display for ImageError {
 }
 
 impl std::error::Error for ImageError {}
+
+// ---------------------------------------------------------------------------
+// Canvas export (docs/canvas.md "Exporting"): a recorded drawing replayed into an offscreen
+// bitmap or a PDF by the same painter the on-screen canvas uses.
+// ---------------------------------------------------------------------------
+
+/// The largest side, in pixels, a rendered bitmap may have (docs/canvas.md "Exporting").
+/// day-core answers [`ExportError::TooLarge`] above it before any toolkit allocates.
+pub const EXPORT_MAX_SIDE: u32 = 16_384;
+
+/// The most pixels a rendered bitmap may hold in total: 64 megapixels, 256 MB at four bytes a
+/// pixel, which is already more than the tightest per-app heap (Android's) comfortably holds.
+pub const EXPORT_MAX_PIXELS: u64 = 64 * 1024 * 1024;
+
+/// The pixel size a drawing of `size` points renders to at `scale` pixels per point: each side
+/// rounded up, so a drawing never loses its last partial pixel. Shared by day-core's limit
+/// check and every backend, so the bitmap a backend allocates is the one day-core approved.
+pub fn export_pixels(size: Size, scale: f64) -> (u32, u32) {
+    let side = |v: f64| (v * scale).ceil().clamp(0.0, u32::MAX as f64) as u32;
+    (side(size.width), side(size.height))
+}
+
+/// One page of a PDF [`Toolkit::render_pdf`] writes: the page size in PDF points (1/72 inch,
+/// the same unit as canvas points) and the ops to replay onto it, origin top-left.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PdfPage {
+    pub size: Size,
+    pub ops: Vec<DrawOp>,
+}
+
+/// The document information a PDF carries. A backend whose writer has no metadata API (Android's
+/// `PdfDocument`) ignores it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PdfInfo {
+    pub title: Option<String>,
+    pub author: Option<String>,
+}
+
+/// Why a canvas export could not answer (docs/canvas.md "Exporting").
+#[derive(Clone, Debug, PartialEq)]
+pub enum ExportError {
+    /// This toolkit has no path for the export (probe [`Cap::CanvasBitmap`] /
+    /// [`Cap::CanvasPdf`]).
+    Unsupported,
+    /// The bitmap would exceed [`EXPORT_MAX_SIDE`] or [`EXPORT_MAX_PIXELS`]; checked in
+    /// day-core before the toolkit runs. The size is the one that was refused, in pixels.
+    TooLarge { width: u32, height: u32 },
+    /// A zero, negative or non-finite size or scale, or a PDF with no pages.
+    Invalid,
+    /// The platform refused (out of memory, a writer error); the text is the platform's.
+    Failed(String),
+}
+
+impl std::fmt::Display for ExportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ExportError::Unsupported => write!(f, "this export is unavailable on this backend"),
+            ExportError::TooLarge { width, height } => {
+                write!(
+                    f,
+                    "a {width} × {height} pixel bitmap is too large to render"
+                )
+            }
+            ExportError::Invalid => write!(f, "the drawing has no size or the PDF has no pages"),
+            ExportError::Failed(why) => write!(f, "rendering failed: {why}"),
+        }
+    }
+}
+
+impl std::error::Error for ExportError {}
 
 /// Where a raster image's pixels come from (docs/images.md).
 ///
@@ -7046,6 +7147,39 @@ pub trait Toolkit: Sized + 'static {
     /// Drop a decoded image and everything the backend cached for it. Called when the app's
     /// last handle to it goes away; an id the backend never saw is a no-op.
     fn release_image(&mut self, _id: BitmapId) {}
+
+    // --- canvas export (docs/canvas.md "Exporting") --------------------------------------
+    //
+    // Request-id shaped like the image duties above, for the same reason: the browser's
+    // `createImageBitmap` is a promise. Every other backend renders inline and raises the
+    // completion before returning. day-core validates sizes, enforces the pixel limits and
+    // probes the caps first, so a backend sees only requests it can attempt.
+
+    /// Replay `ops` into a new offscreen bitmap of `size` points at `scale` pixels per point
+    /// ([`export_pixels`] gives the pixel size), with a transparent background and the
+    /// canvas's top-left origin. Store it under `id` in the same table [`Self::decode_image`]
+    /// fills, so `image_info`, `encode_image`, `release_image`, the `image` piece and
+    /// [`DrawOp::Image`] all take it, then answer `req` with [`Event::BitmapRendered`] (its
+    /// [`BitmapInfo::scale`] is `scale`).
+    ///
+    /// The painter must be the one [`Self::replay`] uses, so text, gradients, clips and stamps
+    /// match the screen. Defaulted to nothing: day-core probes [`Cap::CanvasBitmap`] and answers
+    /// [`ExportError::Unsupported`] itself.
+    fn render_bitmap(
+        &mut self,
+        _req: u64,
+        _id: BitmapId,
+        _ops: &[DrawOp],
+        _size: Size,
+        _scale: f64,
+    ) {
+    }
+
+    /// Replay each page into one PDF document and answer `req` with [`Event::PdfRendered`].
+    /// Units are PDF points, top-left origin; shapes and text stay vector, and images embed at
+    /// their pixel size. `pages` is never empty. Defaulted to nothing: day-core probes
+    /// [`Cap::CanvasPdf`] first.
+    fn render_pdf(&mut self, _req: u64, _pages: &[PdfPage], _info: &PdfInfo) {}
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {
         Err("snapshot unsupported".into())

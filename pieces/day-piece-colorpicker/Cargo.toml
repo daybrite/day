@@ -55,7 +55,7 @@ day-core = { workspace = true }
 day-pieces = { workspace = true }
 day-reactive = { workspace = true }
 # The composed panel's buttons and its screen-reader labels come from the core catalog
-# (`day-cancel`, `day-done`, `day-color-*`), so they arrive translated in every locale Day ships.
+# (`day_cancel`, `day_done`, `day_color_*`), so they arrive translated in every locale Day ships.
 day-l10n = { workspace = true }
 linkme = { workspace = true }
 day-appkit = { workspace = true, optional = true }

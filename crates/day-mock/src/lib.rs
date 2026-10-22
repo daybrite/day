@@ -1150,6 +1150,10 @@ impl Toolkit for MockToolkit {
             // mock reads no metadata, and pretending otherwise would let a test pass against a
             // capability no backend answers this way.
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+            // A rendered bitmap is a synthetic entry in the same table a decode fills, so app
+            // logic around export (menus, save flows) runs headless. PDF stays Unsupported, the
+            // answer three real toolkits give, so the disabled path is the one a test sees.
+            Cap::CanvasBitmap => Support::Native,
             // Records the shape per widget (probe-visible), so a test can assert it.
             Cap::Cursor => Support::Native,
             // Records every window change and Dock menu and completes state requests the way a
@@ -2158,6 +2162,38 @@ impl Toolkit for MockToolkit {
         let mut s = self.state.borrow_mut();
         s.bitmaps.remove(&id.0);
         s.log(format!("release_image #{}", id.0));
+    }
+
+    /// No pixels, like a decode: the bitmap's facts are the size and scale asked for, which is
+    /// what a test asserts against, and it joins the table `encode_image` reads.
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        let (w, h) = day_spec::export_pixels(size, scale);
+        let info = day_spec::BitmapInfo {
+            pixels: Size::new(f64::from(w), f64::from(h)),
+            scale,
+            format: None,
+            has_alpha: true,
+        };
+        let mut s = self.state.borrow_mut();
+        s.log(format!(
+            "render_bitmap #{} {} ops {} @{scale}",
+            id.0,
+            ops.len(),
+            fmt_size(size)
+        ));
+        s.bitmaps.insert(id.0, info);
+        drop(s);
+        self.raise(Event::BitmapRendered {
+            req,
+            result: Ok(info),
+        });
     }
 
     fn replay(&mut self, h: &MockHandle, ops: &[DrawOp], size: Size) {

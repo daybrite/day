@@ -1113,6 +1113,36 @@ const env = {
 
   day_dom_canvas_replay: (id, ops, opsLen, strs, strsLen, w, h) =>
     replay(E(id), f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen), w, h),
+  // A drawing exported to a bitmap (docs/canvas.md "Exporting"): painted into a detached canvas
+  // of `pw` × `ph` pixels scaled to `scale` pixels per point, transparent where nothing is drawn.
+  // The paint is synchronous, so the op views over wasm memory are read before anything awaits.
+  // The result joins `bitmaps` like a decode: the `ImageBitmap` canvases draw, plus an object
+  // URL an `<img>` loads. The answer comes back through `day_dom_bitmap_rendered`, with the
+  // engine's error text when it refuses (a canvas past its size limit has no 2D context).
+  day_dom_canvas_render_bitmap: (req, id, ops, opsLen, strs, strsLen, pw, ph, scale) => {
+    const fail = (e) => {
+      const msg = utf8enc.encode(String((e && e.message) || e || 'the canvas could not render'));
+      const p = msg.length ? wasm.day_dom_alloc(msg.length) : 0;
+      if (msg.length) mem().set(msg, p);
+      wasm.day_dom_bitmap_rendered(req, id, 0, p, msg.length);
+    };
+    let c;
+    try {
+      c = Object.assign(document.createElement('canvas'), { width: pw, height: ph });
+      const ctx = c.getContext('2d');
+      if (!ctx) throw new Error(`no 2D context for a ${pw}x${ph} canvas`);
+      ctx.scale(scale, scale);
+      paint(ctx, f64(ops, opsLen), new Uint8Array(wasm.memory.buffer, strs, strsLen));
+    } catch (e) { fail(e); return; }
+    const blob = new Promise((res, rej) =>
+      c.toBlob((out) => (out ? res(out) : rej(new Error('the canvas could not be encoded'))), 'image/png'));
+    Promise.all([createImageBitmap(c), blob])
+      .then(([bitmap, png]) => {
+        bitmaps.set(id, { bitmap, url: URL.createObjectURL(png) });
+        wasm.day_dom_bitmap_rendered(req, id, 1, 0, 0);
+      })
+      .catch(fail);
+  },
 
   // Raster images from bytes (docs/images.md). A browser decodes asynchronously, so the answer
   // comes back through the exported `day_dom_image_decoded` rather than from this call, which is
@@ -2686,6 +2716,7 @@ function fontListText() {
 // cap is only to keep a long-lived page from holding every path it has ever drawn.
 const pathCache = new Map();
 
+// The on-screen canvas: a backing store at the device pixel ratio, cleared, then painted.
 function replay(canvas, ops, strs, w, h) {
   const dpr = devicePixelRatio || 1;
   canvas.width = Math.max(1, Math.round(w * dpr));
@@ -2693,6 +2724,13 @@ function replay(canvas, ops, strs, w, h) {
   const ctx = canvas.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  paint(ctx, ops, strs);
+}
+
+// The one painter: the op stream drawn into `ctx` in canvas points, under whatever transform
+// the caller set. The on-screen canvas (`replay`) and an exported bitmap
+// (`day_dom_canvas_render_bitmap`) both paint through it, so the two cannot drift apart.
+function paint(ctx, ops, strs) {
   let i = 0;
   const next = () => ops[i++];
   const readPaint = () => {

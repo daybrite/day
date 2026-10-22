@@ -4174,6 +4174,37 @@ mod imp {
             BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
         }
 
+        /// Replay a drawing into an offscreen pixelmap (docs/canvas.md "Exporting"): a CPU
+        /// `OH_Drawing_Bitmap` under the canvas node's own painter, kept in the pixelmap registry
+        /// a decode fills, so the image piece, `DrawOp::Image` and encoding take it as they are.
+        fn render_bitmap(
+            &mut self,
+            req: u64,
+            id: day_spec::BitmapId,
+            ops: &[DrawOp],
+            size: Size,
+            scale: f64,
+        ) {
+            ensure_canvas_fonts();
+            let (pw, ph) = day_spec::export_pixels(size, scale);
+            let (nums, texts) = day_spec::encode_ops(ops);
+            let result = match crate::canvas::render_bitmap(nums, texts, pw, ph, scale) {
+                Ok(pm) => {
+                    crate::images::insert(id.0, pm);
+                    let info = day_spec::BitmapInfo {
+                        pixels: Size::new(f64::from(pw), f64::from(ph)),
+                        scale,
+                        format: None,
+                        has_alpha: true,
+                    };
+                    BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                    Ok(info)
+                }
+                Err(why) => Err(day_spec::ExportError::Failed(why)),
+            };
+            emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+        }
+
         fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
             let result = encode_bitmap(id, spec);
             emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
@@ -4374,6 +4405,10 @@ mod imp {
                 // `OH_ImageSourceNative_GetImageProperty`, but nothing reads it yet, and an empty
                 // struct would read as "this file records nothing" rather than "nobody looked".
                 Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+                // A drawing replays into a CPU `OH_Drawing_Bitmap` through the canvas node's own
+                // painter and lands in the pixelmap registry (docs/canvas.md "Exporting"). No
+                // PDF: the platform's PDF Kit edits documents and offers no drawing context.
+                Cap::CanvasBitmap => Support::Native,
                 // OH_ArkUI_GetNodeSnapshot + the native image packer, both synchronous
                 // (docs/window-image.md).
                 Cap::Snapshot => Support::Native,

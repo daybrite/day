@@ -139,7 +139,7 @@ the main window) or
 ```rust
 // root(), once, before app_menu:
 day::register_preferences_with(
-    res::window_options().title(tr("day-preferences").format()).size(520.0, 640.0),
+    res::window_options().title(res::str::day_preferences().format()).size(520.0, 640.0),
     || my_prefs_page(),
 );
 // anywhere (menu items get this wired automatically; toolbar gears call it directly):
@@ -158,7 +158,7 @@ Registering a preferences piece enables the following, without any menu code in 
   itself.
 - The window opens under the singleton key `day.preferences` (`WindowKind::Preferences`);
   reopening focuses. On cover-tier backends `open_preferences` presents the same piece
-  fullscreen. The default title is the platform's word (`day-settings`).
+  fullscreen. The default title is the platform's word (`day_settings`).
 
 Apps rarely call these directly: `day-piece-settings` ([docs/settings.md](settings.md))
 declares the settings and About once and registers both windows, the menu items and the
@@ -382,7 +382,7 @@ before tagging; an app that sets only `title` still shows "Day News" in its App 
 ## dayscript
 
 ```yaml
-- menu: { key: day-preferences }                       # invoke a menu action (menus.md)
+- menu: { key: day_preferences }                       # invoke a menu action (menus.md)
 - wait_for: { id: prefs_title }                        # global lookup; focused window wins duplicates
 - screenshot: { name: prefs, window: day.preferences } # capture a window by its open key
 - close_window: { window: day.preferences }            # async confirm → teardown, like the title bar

@@ -240,7 +240,7 @@ fn cancel_restores_the_color_the_panel_opened_on() {
         "a press in the shade field's white corner drives the bound color live"
     );
 
-    press_labeled(&probe, &day_l10n::t("day-cancel"));
+    press_labeled(&probe, &day_l10n::t(day_l10n::key::day_cancel));
     assert_eq!(
         color.get_untracked(),
         start,
@@ -265,7 +265,7 @@ fn done_keeps_the_pick() {
     let picked = color.get_untracked();
     assert_ne!(picked, Color::hex(0xE86A3C), "the hue moved");
 
-    press_labeled(&probe, &day_l10n::t("day-done"));
+    press_labeled(&probe, &day_l10n::t(day_l10n::key::day_done));
     assert_eq!(color.get_untracked(), picked, "Done keeps what was picked");
     assert_eq!(
         probe.find_by_kind("day.canvas").len(),

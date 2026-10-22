@@ -3876,8 +3876,21 @@ pub(crate) mod conformance {
         .no_separators()
     }
 
-    /// Each `sized:` row's Day height and native top, in window points, in row order.
-    fn sized_rows() -> Result<Vec<(&'static str, f64, f64)>, Fail> {
+    /// One `sized:` row as laid out: its label's Day height, the height Day gave the row around
+    /// it, and the row's native top, in window points.
+    struct SizedRow {
+        key: &'static str,
+        content: f64,
+        row: f64,
+        top: f64,
+    }
+
+    /// Every `sized:` row, in row order.
+    ///
+    /// The row's height is its cell anchor's Day frame, not the label's: Day lays a row inside
+    /// the platform's margins and holds it at the platform's minimum height (docs/list.md "Row
+    /// metrics"), so a caption row is taller than its text by more than a large-title row is.
+    fn sized_rows() -> Result<Vec<SizedRow>, Fail> {
         day_core::try_with_tree(|t| {
             SIZED
                 .iter()
@@ -3886,49 +3899,70 @@ pub(crate) mod conformance {
                     let node = t
                         .find_by_id(&id)
                         .ok_or_else(|| Fail(format!("no element {id:?}")))?;
-                    let day = t
+                    let content = t
                         .node_frame(node)
                         .ok_or_else(|| Fail(format!("{id:?} has no Day frame")))?;
+                    let mut anchor = node;
+                    while t.node_kind(anchor) != Some(kinds::LIST_CELL) {
+                        anchor = t
+                            .parent_of(anchor)
+                            .ok_or_else(|| Fail(format!("{id:?} is not inside a list cell")))?;
+                    }
+                    let row = t
+                        .node_frame(anchor)
+                        .ok_or_else(|| Fail(format!("{id:?}'s row has no Day frame")))?;
                     let native = t
                         .read_native(node)
                         .and_then(|n| n.frame)
                         .ok_or_else(|| Fail(format!("{id:?} has no native frame")))?;
-                    Ok((*key, day.size.height, native.origin.y))
+                    Ok(SizedRow {
+                        key,
+                        content: content.size.height,
+                        row: row.size.height,
+                        top: native.origin.y,
+                    })
                 })
                 .collect()
         })
         .unwrap_or_else(|| Err(Fail("the tree is busy".into())))
     }
 
-    /// Every row is as tall as its content: the next row starts exactly one row height below
-    /// it, give or take a chrome allowance (a GTK row's theme padding) that every row shares.
-    /// A row the platform held at a fixed height either clips its content (the next row starts
-    /// too soon) or leaves a gap that differs from row to row.
-    fn rows_fit() -> Result<Vec<(&'static str, f64, f64)>, Fail> {
+    /// Every row is as tall as Day laid it: the next row's content starts one row height below
+    /// this one's, give or take a chrome allowance (a GTK row's theme padding) that every row
+    /// shares. A row the platform held at a fixed height either clips its content (the next row
+    /// starts too soon) or leaves a gap that differs from row to row.
+    ///
+    /// Measured content top to content top, and Day centers content in a row taller than it,
+    /// so each pitch also carries half the difference between the two rows' spare height.
+    fn rows_fit() -> Result<Vec<(&'static str, f64)>, Fail> {
         let rows = sized_rows()?;
-        let chrome = (rows[1].2 - rows[0].2) - rows[0].1;
+        let spare = |r: &SizedRow| (r.row - r.content) / 2.0;
+        let expected = |a: &SizedRow, b: &SizedRow| a.row - spare(a) + spare(b);
+        let chrome = (rows[1].top - rows[0].top) - expected(&rows[0], &rows[1]);
         for pair in rows.windows(2) {
-            let ((key, height, top), (_, _, next)) = (pair[0], pair[1]);
-            let pitch = next - top;
-            if pitch + 0.5 < height {
+            let (this, next) = (&pair[0], &pair[1]);
+            let pitch = next.top - this.top;
+            if pitch + 0.5 < this.content {
                 return Err(Fail(format!(
-                    "row {key:?} is {height:.1} tall but the next row starts {pitch:.1} below \
-                     it: the native row clips its content"
+                    "row {:?} is {:.1} tall but the next row starts {pitch:.1} below it: the \
+                     native row clips its content",
+                    this.key, this.content
                 )));
             }
-            if (pitch - height - chrome).abs() > 1.5 {
+            let want = expected(this, next) + chrome;
+            if (pitch - want).abs() > 1.5 {
                 return Err(Fail(format!(
-                    "row {key:?} is {height:.1} tall and the next row starts {pitch:.1} below \
-                     it, {:.1} more than its height, where the first row's allowance is \
-                     {chrome:.1}: the native row did not take its content's height",
-                    pitch - height
+                    "row {:?} holds {:.1} of content in a {:.1} row, and the next row starts \
+                     {pitch:.1} below it where {want:.1} was expected (the first row's chrome \
+                     allowance is {chrome:.1}): the native row did not take its content's height",
+                    this.key, this.content, this.row
                 )));
             }
         }
-        Ok(rows)
+        Ok(rows.into_iter().map(|r| (r.key, r.content)).collect())
     }
 
-    fn height_of(rows: &[(&str, f64, f64)], key: &str) -> f64 {
+    fn height_of(rows: &[(&str, f64)], key: &str) -> f64 {
         rows.iter().find(|r| r.0 == key).map_or(0.0, |r| r.1)
     }
 

@@ -1140,7 +1140,7 @@ pub const PREFERENCES_KEY: &str = "day.preferences";
 pub fn register_preferences<P: Piece>(build: impl Fn() -> P + 'static) {
     register_preferences_with(
         WindowOptions {
-            title: day_l10n::t("day-settings"),
+            title: day_l10n::t(day_l10n::key::day_settings),
             version: None,
             // The width a settings panel wants, and a ceiling for the height rather than the
             // height itself: `size_to_fit` shrinks the window to whatever the rows actually

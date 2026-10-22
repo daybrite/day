@@ -308,7 +308,7 @@ impl<F: Fn() -> Vec<ToolbarEntry> + 'static> ToolbarContent<DerivedMark> for F {
 pub fn sidebar_toggle_item(host: day_core::RNode) -> ToolbarEntry {
     toolbar_button(
         day_core::id!(day::sidebar_toggle),
-        day_l10n::t("day-toggle-sidebar"),
+        day_l10n::t(day_l10n::key::day_toggle_sidebar),
     )
     .icon(Symbol::Sidebar)
     .placement(day_spec::ToolbarPlacement::Navigation)

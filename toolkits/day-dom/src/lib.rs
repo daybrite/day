@@ -157,6 +157,20 @@ unsafe extern "C" {
         fit_h: f64,
     );
     fn day_dom_image_release(id: f64);
+    /// Paint `ops` into a detached `pw` × `ph` pixel canvas scaled by `scale`, and keep the
+    /// result under `id` beside the decoded bitmaps (docs/canvas.md "Exporting"). The shim
+    /// answers through the exported `day_dom_bitmap_rendered` once `createImageBitmap` resolves.
+    fn day_dom_canvas_render_bitmap(
+        req: u32,
+        id: f64,
+        ops: *const f64,
+        ops_len: usize,
+        strs: *const u8,
+        strs_len: usize,
+        pw: f64,
+        ph: f64,
+        scale: f64,
+    );
     /// Whether the engine writes this MIME type — `toBlob` would otherwise substitute PNG.
     fn day_dom_image_can_encode(fmt: *const u8, fmt_len: usize) -> u32;
     /// Point a realized `<img>` at a decoded bitmap's object URL.
@@ -1284,7 +1298,7 @@ fn install_app_menu(items: &[day_spec::MenuItem]) {
     );
     let items = web_menu_items(&bar);
     let mut json = String::from("{\"label\":");
-    json_str(&mut json, &day_l10n::t("day-menu"));
+    json_str(&mut json, &day_l10n::t(day_l10n::key::day_menu));
     json.push_str(",\"items\":");
     menu_items_json(&mut json, &items);
     if let Some(url) = symbol_svg(day_spec::Symbol::More) {
@@ -1383,23 +1397,23 @@ fn web_menu_items(items: &[day_spec::MenuItem]) -> Vec<day_spec::MenuItem> {
 fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
     use day_spec::MenuRole as R;
     match role {
-        R::Cut => "day-cut",
-        R::Copy => "day-copy",
-        R::Paste => "day-paste",
-        R::SelectAll => "day-select-all",
-        R::Undo => "day-undo",
-        R::Redo => "day-redo",
-        R::Delete => "day-delete",
-        R::About => "day-about",
-        R::Quit => "day-quit",
+        R::Cut => "day_cut",
+        R::Copy => "day_copy",
+        R::Paste => "day_paste",
+        R::SelectAll => "day_select_all",
+        R::Undo => "day_undo",
+        R::Redo => "day_redo",
+        R::Delete => "day_delete",
+        R::About => "day_about",
+        R::Quit => "day_quit",
         // The web says "Settings", like macOS, Windows and the phones (docs/settings.md);
         // "Preferences" is the GNOME/KDE word.
-        R::Preferences => "day-settings",
-        R::Minimize => "day-minimize",
-        R::CloseWindow => "day-close",
-        R::Fullscreen => "day-fullscreen",
-        R::NewWindow => "day-new-window",
-        R::CheckForUpdates => "day-check-for-updates",
+        R::Preferences => "day_settings",
+        R::Minimize => "day_minimize",
+        R::CloseWindow => "day_close",
+        R::Fullscreen => "day_fullscreen",
+        R::NewWindow => "day_new_window",
+        R::CheckForUpdates => "day_check_for_updates",
     }
 }
 
@@ -1891,6 +1905,9 @@ impl Toolkit for Dom {
             // the browser exposes no metadata reader, and an empty struct would read as "this
             // file records nothing" rather than "nobody looked".
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+            // A drawing exports through the on-screen painter into a detached `<canvas>`, kept
+            // as an `ImageBitmap` (docs/canvas.md "Exporting"). No PDF: a browser writes none.
+            Cap::CanvasBitmap => Support::Native,
             // The browser's file input and download are its file dialogs; bytes ride the
             // `web_files` store instead of a filesystem (docs/files.md).
             Cap::FileDialogs => Support::Native,
@@ -3426,6 +3443,48 @@ impl Toolkit for Dom {
         });
         // SAFETY: an id the shim either knows or does not; releasing an absent one is a no-op.
         unsafe { day_dom_image_release(id.0 as f64) };
+    }
+
+    /// Replay a drawing into an offscreen bitmap (docs/canvas.md "Exporting") through the same
+    /// painter the on-screen canvas uses. Like a decode, the browser answers on a later turn
+    /// (`createImageBitmap` is a promise), through `day_dom_bitmap_rendered`.
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        let (pw, ph) = day_spec::export_pixels(size, scale);
+        // Seeded now, as a decode is: the answer only confirms it or takes it back out.
+        BITMAP_INFO.with(|m| {
+            m.borrow_mut().insert(
+                id.0,
+                day_spec::BitmapInfo {
+                    pixels: Size::new(f64::from(pw), f64::from(ph)),
+                    scale,
+                    format: None,
+                    has_alpha: true,
+                },
+            )
+        });
+        let (buf, strs) = encode_ops(ops);
+        // SAFETY: both spans outlive the call, and the shim paints from them synchronously
+        // before its first await point.
+        unsafe {
+            day_dom_canvas_render_bitmap(
+                req as u32,
+                id.0 as f64,
+                buf.as_ptr(),
+                buf.len(),
+                strs.as_ptr(),
+                strs.len(),
+                f64::from(pw),
+                f64::from(ph),
+                scale,
+            )
+        };
     }
 
     fn request_frame(
@@ -5011,6 +5070,50 @@ pub extern "C" fn day_dom_image_decoded(req: u32, id: f64, w: f64, h: f64) {
             }
         };
         emit(day_spec::WINDOW_NODE, event);
+    });
+}
+
+/// The browser answering a canvas export (docs/canvas.md "Exporting"): `ok` is 1 when the bitmap
+/// is stored under `id`; otherwise `ptr`/`len` are a `day_dom_alloc` buffer holding the engine's
+/// error text (or empty), to take ownership of.
+#[unsafe(no_mangle)]
+pub extern "C" fn day_dom_bitmap_rendered(req: u32, id: f64, ok: u32, ptr: *mut u8, len: usize) {
+    let id = day_spec::BitmapId(id as u64);
+    let why = if ok == 0 && !ptr.is_null() && len > 0 {
+        take_string(ptr, len)
+    } else {
+        String::new()
+    };
+    day_spec::ffi_guard::contain((), move || {
+        let result = if ok != 0 {
+            // `render_bitmap` recorded the size and scale when it asked. An id released while
+            // the browser was still rendering has no record left; the shim's fresh entry goes too.
+            BITMAP_INFO
+                .with(|m| m.borrow().get(&id.0).copied())
+                .ok_or_else(|| {
+                    // SAFETY: an id the shim has just stored; releasing it is always valid.
+                    unsafe { day_dom_image_release(id.0 as f64) };
+                    day_spec::ExportError::Failed(
+                        "the bitmap was released before it rendered".into(),
+                    )
+                })
+        } else {
+            BITMAP_INFO.with(|m| {
+                m.borrow_mut().remove(&id.0);
+            });
+            Err(day_spec::ExportError::Failed(if why.is_empty() {
+                "the canvas could not render".into()
+            } else {
+                why
+            }))
+        };
+        emit(
+            day_spec::WINDOW_NODE,
+            Event::BitmapRendered {
+                req: u64::from(req),
+                result,
+            },
+        );
     });
 }
 

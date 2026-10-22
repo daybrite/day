@@ -47,7 +47,8 @@ nothing diffs or rebuilds it.
    `.id_of(move || id!(row, slot.key()))`. Route and model keys remain separate from element IDs.
 5. **Localize user-facing text** with Fluent files. Scaffolded apps generate a typed function
    per key (`res::str::my_key()`, parameters become typed arguments), so a missing key or
-   wrong arity is a compile error; prefer those over raw `tr("key")` (both exist). Messages
+   wrong arity is a compile error. Always call those, never `tr("key")` with a literal (`day lint`
+   reports it as `string-key`); Day's own strings are there too (`res::str::day_cancel()`). Messages
    with multiple variables take generated named-field structs. Include accessibility labels,
    hints, errors, and units in the catalog. Provider data and synthetic test inputs stay verbatim.
 6. **Edit `Day.toml` + Rust; never hand-edit the generated Xcode/Gradle scaffolds.** `day` regenerates

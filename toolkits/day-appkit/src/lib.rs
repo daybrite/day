@@ -371,6 +371,159 @@ fn encode_bitmap(
     Ok(data.to_vec())
 }
 
+/// Replay a display list into the current graphics context. The one painter both the on-screen
+/// `DayCanvas` (its `drawRect:`) and the canvas exports run, so the two cannot drift apart
+/// (docs/canvas.md "Exporting").
+fn paint_ops(ops: &[DrawOp]) {
+    for op in ops {
+        draw_op(op);
+    }
+}
+
+/// Paint `ops` into `cg` with a top-left origin and y down, as the flipped `DayCanvas` sees
+/// them. `height` is the context's own height in its base units (pixels for a bitmap, points for
+/// a PDF page) and `scale` its units per canvas point.
+///
+/// The CTM flip turns the geometry the right way up; wrapping the context as a FLIPPED
+/// `NSGraphicsContext` is what tells AppKit's text and image drawing to keep glyphs and pictures
+/// upright inside that flip, exactly as they are in a flipped view's `drawRect:`.
+fn paint_flipped(cg: &objc2_core_graphics::CGContext, height: f64, scale: f64, ops: &[DrawOp]) {
+    use objc2_core_graphics::CGContext;
+    CGContext::save_g_state(Some(cg));
+    CGContext::translate_ctm(Some(cg), 0.0, height);
+    CGContext::scale_ctm(Some(cg), scale, -scale);
+    let ns = NSGraphicsContext::graphicsContextWithCGContext_flipped(cg, true);
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&ns));
+    paint_ops(ops);
+    NSGraphicsContext::restoreGraphicsState_class();
+    CGContext::restore_g_state(Some(cg));
+}
+
+/// Render a canvas display list offscreen (docs/canvas.md "Exporting"): `export_pixels` of
+/// transparent sRGB, premultiplied RGBA, painted at `scale` pixels per point.
+///
+/// A `CGBitmapContext` rather than `NSGraphicsContext(bitmapImageRep:)`: it carries a real sRGB
+/// color space, so the `NSBitmapImageRep` built from its image is tagged sRGB like every canvas
+/// color, shows on the display through the same color matching the live canvas gets, and writes
+/// that profile into a PNG.
+fn render_bitmap_image(
+    ops: &[DrawOp],
+    size: Size,
+    scale: f64,
+) -> Result<AppKitBitmap, day_spec::ExportError> {
+    use objc2::AllocAnyThread as _;
+    use objc2_core_graphics::{
+        CGBitmapContextCreate, CGBitmapContextCreateImage, CGColorSpace, CGImageAlphaInfo,
+    };
+    let failed = |what: &str| day_spec::ExportError::Failed(what.to_string());
+    let (pw, ph) = day_spec::export_pixels(size, scale);
+    // SAFETY: `kCGColorSpaceSRGB` is an immutable CoreGraphics constant, valid for the process.
+    let space = CGColorSpace::with_name(Some(unsafe { objc2_core_graphics::kCGColorSpaceSRGB }))
+        .ok_or_else(|| failed("CoreGraphics has no sRGB color space"))?;
+    // SAFETY: a null data pointer asks CoreGraphics to allocate (and own) the buffer, and a zero
+    // row stride lets it choose one; 8 bits × RGBA premultiplied is a supported layout.
+    let cg = unsafe {
+        CGBitmapContextCreate(
+            std::ptr::null_mut(),
+            pw as usize,
+            ph as usize,
+            8,
+            0,
+            Some(&space),
+            CGImageAlphaInfo::PremultipliedLast.0,
+        )
+    }
+    .ok_or_else(|| {
+        day_spec::ExportError::Failed(format!("CGBitmapContextCreate refused {pw}x{ph}"))
+    })?;
+    // A new bitmap context starts zeroed, which is the transparent background.
+    paint_flipped(&cg, ph as f64, scale, ops);
+    let cg_image = CGBitmapContextCreateImage(Some(&cg))
+        .ok_or_else(|| failed("CGBitmapContextCreateImage returned nothing"))?;
+    let rep = unsafe {
+        objc2_app_kit::NSBitmapImageRep::initWithCGImage(
+            objc2_app_kit::NSBitmapImageRep::alloc(),
+            &cg_image,
+        )
+    };
+    // Sized in POINTS, pixels over scale, so the image draws at the drawing's size and stays
+    // sharp at `scale`× — the same shape as a staged @2x asset.
+    let points = NSSize::new(pw as f64 / scale, ph as f64 / scale);
+    unsafe { rep.setSize(points) };
+    let image =
+        unsafe { objc2_app_kit::NSImage::initWithSize(objc2_app_kit::NSImage::alloc(), points) };
+    unsafe { image.addRepresentation(&rep) };
+    Ok(AppKitBitmap {
+        image,
+        rep: Some(rep),
+        info: day_spec::BitmapInfo {
+            pixels: Size::new(pw as f64, ph as f64),
+            scale,
+            format: None,
+            has_alpha: true,
+        },
+    })
+}
+
+/// Write `pages` as one PDF document (docs/canvas.md "Exporting"): a `CGPDFContext` on a
+/// `CGDataConsumer` over memory, one page per drawing with its own media box, the title and
+/// author in the document info. Shapes and text stay vector: the same painter draws into the PDF
+/// context, and AppKit's string drawing there emits real glyphs from embedded font subsets.
+fn render_pdf_bytes(
+    pages: &[day_spec::PdfPage],
+    info: &day_spec::PdfInfo,
+) -> Result<Vec<u8>, day_spec::ExportError> {
+    use objc2_core_foundation::{
+        CFDictionary, CFMutableData, CFRetained, CFString, CGPoint, CGRect, CGSize,
+    };
+    use objc2_core_graphics::{CGContext, CGDataConsumer, CGPDFContextClose, CGPDFContextCreate};
+    let failed = |what: &str| day_spec::ExportError::Failed(what.to_string());
+    let media =
+        |size: Size| CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(size.width, size.height));
+    let first = pages.first().ok_or(day_spec::ExportError::Invalid)?;
+    let data = CFMutableData::new(None, 0)
+        .ok_or_else(|| failed("CFDataCreateMutable returned nothing"))?;
+    let consumer = CGDataConsumer::with_cf_data(Some(&data))
+        .ok_or_else(|| failed("CGDataConsumerCreateWithCFData returned nothing"))?;
+
+    let mut keys: Vec<&CFString> = Vec::new();
+    let mut values: Vec<CFRetained<CFString>> = Vec::new();
+    // SAFETY: the auxiliary-info keys are immutable CoreGraphics constants.
+    let (title_key, author_key) = unsafe {
+        (
+            objc2_core_graphics::kCGPDFContextTitle,
+            objc2_core_graphics::kCGPDFContextAuthor,
+        )
+    };
+    for (key, value) in [(title_key, &info.title), (author_key, &info.author)] {
+        if let Some(value) = value {
+            keys.push(key);
+            values.push(CFString::from_str(value));
+        }
+    }
+    let values: Vec<&CFString> = values.iter().map(|v| &**v).collect();
+    let aux = CFDictionary::<CFString, CFString>::from_slices(&keys, &values);
+
+    let first_box = media(first.size);
+    // SAFETY: `first_box` outlives the call, and the dictionary maps the documented
+    // auxiliary-info string keys to strings, which is the type those keys take.
+    let pdf = unsafe { CGPDFContextCreate(Some(&consumer), &first_box, Some(aux.as_opaque())) }
+        .ok_or_else(|| failed("CGPDFContextCreate refused the document"))?;
+    for page in pages {
+        let page_box = media(page.size);
+        // SAFETY: `page_box` outlives the call; in a PDF context it becomes the page's MediaBox.
+        unsafe { CGContext::begin_page(Some(&pdf), &page_box) };
+        paint_flipped(&pdf, page.size.height, 1.0, &page.ops);
+        CGContext::end_page(Some(&pdf));
+    }
+    // Closing flushes the trailer into the consumer; the bytes are complete only after it.
+    CGPDFContextClose(Some(&pdf));
+    drop(pdf);
+    drop(consumer);
+    Ok(data.to_vec())
+}
+
 thread_local! {
     /// Each realized list item's current props, by its view: a patch updates one part and the
     /// item is re-dressed from the whole (docs/list.md "List items").
@@ -383,6 +536,13 @@ thread_local! {
 /// subtitle under it, a secondary trailing value, and the accent checkmark, in a horizontal
 /// stack at least 28pt tall. Parts that are absent are hidden, and the stack closes up around
 /// them.
+///
+/// The row's width is spoken for explicitly, as an image-and-text cell's is: the stack fills
+/// its frame edge to edge, the words take every spare point and give way first, and the
+/// trailing parts keep their own size. Left to the stack's default gravity areas, the spare
+/// width had two equally weak claims, the words' column and the gap before the trailing parts,
+/// so Auto Layout settled it from whatever the row's last layout had been: a checkmark landed
+/// beside the title in one row and at the trailing edge in the next, and stayed put.
 fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> Retained<NSView> {
     use objc2_app_kit::{
         NSImageView, NSLayoutAttribute, NSStackView, NSUserInterfaceLayoutOrientation,
@@ -400,9 +560,17 @@ fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> 
     };
     let size = unsafe { objc2_app_kit::NSFont::systemFontSize() };
     let small = unsafe { objc2_app_kit::NSFont::smallSystemFontSize() };
+    const ACROSS: objc2_app_kit::NSLayoutConstraintOrientation =
+        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal;
+    // Hugging: the words stretch (1), the trailing parts hold their size (750), and the stack
+    // keeps its edges on its first and last parts (750), so exactly one part takes the slack.
+    const STRETCH: f32 = 1.0;
+    const HOLD: f32 = 750.0;
     let stack = NSStackView::new(mtm);
     stack.setOrientation(NSUserInterfaceLayoutOrientation::Horizontal);
+    stack.setDistribution(objc2_app_kit::NSStackViewDistribution::Fill);
     stack.setAlignment(NSLayoutAttribute::CenterY);
+    stack.setHuggingPriority_forOrientation(HOLD, ACROSS);
     stack.setSpacing(6.0);
     // A table row's breathing room above and below; the list gives the sides.
     stack.setEdgeInsets(objc2_foundation::NSEdgeInsets {
@@ -422,31 +590,31 @@ fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> 
             .setActive(true);
     }
     stack.addArrangedSubview(&icon);
+    // The title and subtitle span the words' column (Width alignment), so the column's width is
+    // theirs and nothing is left over inside it.
     let texts = NSStackView::new(mtm);
     texts.setOrientation(NSUserInterfaceLayoutOrientation::Vertical);
-    texts.setAlignment(NSLayoutAttribute::Leading);
+    texts.setAlignment(NSLayoutAttribute::Width);
     texts.setSpacing(1.0);
+    // Its height is its lines', centered in the row, not the row's height with the lines
+    // floating somewhere inside it.
+    texts.setHuggingPriority_forOrientation(
+        HOLD,
+        objc2_app_kit::NSLayoutConstraintOrientation::Vertical,
+    );
     let title = label("", size, false);
     let subtitle = label("", small, true);
     // The words take the width and give way first, truncating, before the trailing parts.
-    unsafe {
-        title.setContentCompressionResistancePriority_forOrientation(
-            250.0,
-            objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
-        );
-        subtitle.setContentCompressionResistancePriority_forOrientation(
-            250.0,
-            objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
-        );
+    for line in [&title, &subtitle] {
+        line.setContentHuggingPriority_forOrientation(STRETCH, ACROSS);
+        line.setContentCompressionResistancePriority_forOrientation(250.0, ACROSS);
     }
     texts.addArrangedSubview(&title);
     texts.addArrangedSubview(&subtitle);
-    texts.setContentHuggingPriority_forOrientation(
-        1.0,
-        objc2_app_kit::NSLayoutConstraintOrientation::Horizontal,
-    );
     stack.addArrangedSubview(&texts);
     let detail = label("", size, true);
+    detail.setContentHuggingPriority_forOrientation(HOLD, ACROSS);
+    detail.setContentCompressionResistancePriority_forOrientation(HOLD, ACROSS);
     stack.addArrangedSubview(&detail);
     let check = unsafe { NSImageView::new(mtm) };
     unsafe {
@@ -459,6 +627,8 @@ fn make_list_item(p: &day_spec::props::ListItemProps, mtm: MainThreadMarker) -> 
         );
         check.setContentTintColor(Some(&objc2_app_kit::NSColor::controlAccentColor()));
     }
+    check.setContentHuggingPriority_forOrientation(HOLD, ACROSS);
+    check.setContentCompressionResistancePriority_forOrientation(HOLD, ACROSS);
     stack.addArrangedSubview(&check);
     let view = Retained::from(<NSStackView as AsRef<NSView>>::as_ref(&stack));
     LIST_ITEMS.with(|m| m.borrow_mut().insert(ptr_of(&view), p.clone()));
@@ -1639,9 +1809,7 @@ define_class!(
         fn draw_rect(&self, _dirty: NSRect) {
             let ptr = (self as *const DayCanvas).cast::<NSView>() as usize;
             let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
-            for op in &ops {
-                draw_op(op);
-            }
+            paint_ops(&ops);
         }
 
         /// Hover entry/motion/exit (docs/canvas.md "Interaction"). The tracking area is installed
@@ -6662,6 +6830,9 @@ impl Toolkit for AppKit {
             // back PNG/JPEG/TIFF/BMP/GIF, and carries the container's own metadata dictionary
             // (docs/images.md).
             Cap::ImageDecode | Cap::ImageEncode | Cap::ImageProperties => Support::Native,
+            // Canvas export (docs/canvas.md "Exporting"): the canvas painter replayed into a
+            // CGBitmapContext, or a CGPDFContext that keeps shapes and text vector.
+            Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
             // The announcement-requested notification, posted from the primary window
             // (docs/accessibility.md).
             Cap::Announce => Support::Native,
@@ -9469,7 +9640,7 @@ impl Toolkit for AppKit {
                     // (AppKit owns it so it can append the live window list), and Help sits
                     // last on every Mac menu bar.
                     if *role == Some(day_spec::MenuBarRole::Help)
-                        || *label == day_l10n::t("day-help")
+                        || *label == day_l10n::t(day_l10n::key::day_help)
                     {
                         help_menu = Some((label.clone(), sub));
                         continue;
@@ -9897,6 +10068,30 @@ impl Toolkit for AppKit {
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
         release_bitmap(id);
+    }
+
+    /// Replay `ops` offscreen through the canvas's own painter (docs/canvas.md "Exporting") and
+    /// keep the result in the decode table, so `image`, `encode_image` and `DrawOp::Image` take
+    /// it like any decoded bitmap.
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        let result = render_bitmap_image(ops, size, scale).map(|bitmap| {
+            let info = bitmap.info;
+            BITMAPS.with(|m| m.borrow_mut().insert(id.0, bitmap));
+            info
+        });
+        emit(WINDOW_NODE, Event::BitmapRendered { req, result });
+    }
+
+    fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {
+        let result = render_pdf_bytes(pages, info);
+        emit(WINDOW_NODE, Event::PdfRendered { req, result });
     }
 
     /// `NSFontManager.availableFontFamilies` + `availableMembersOfFontFamily:`, whose members
@@ -11142,8 +11337,12 @@ fn install_application_menu(
     // placed the role itself or the updater only registered its action.
     let updates_id = day_core::windows::check_for_updates_action_id();
     let updates = updates.or_else(|| {
-        (updates_id != 0)
-            .then(|| standard(R::CheckForUpdates, day_l10n::t("day-check-for-updates")))
+        (updates_id != 0).then(|| {
+            standard(
+                R::CheckForUpdates,
+                day_l10n::t(day_l10n::key::day_check_for_updates),
+            )
+        })
     });
     let mut head = vec![about];
     if let Some(mut updates) = updates {
@@ -11251,13 +11450,13 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
         let file_menu = unsafe {
             NSMenu::initWithTitle(
                 NSMenu::alloc(mtm),
-                &NSString::from_str(&day_l10n::t("day-file")),
+                &NSString::from_str(&day_l10n::t(day_l10n::key::day_file)),
             )
         };
         let new_window = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(mtm),
-                &NSString::from_str(&day_l10n::t("day-new-window")),
+                &NSString::from_str(&day_l10n::t(day_l10n::key::day_new_window)),
                 Some(sel!(fire:)),
                 &NSString::from_str("n"),
             )
@@ -11272,7 +11471,7 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
         let close = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(mtm),
-                &NSString::from_str(&day_l10n::t("day-close")),
+                &NSString::from_str(&day_l10n::t(day_l10n::key::day_close)),
                 Some(sel!(performClose:)),
                 &NSString::from_str("w"),
             )
@@ -11286,7 +11485,7 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
     let edit_menu = unsafe {
         NSMenu::initWithTitle(
             NSMenu::alloc(mtm),
-            &NSString::from_str(&day_l10n::t("day-edit")),
+            &NSString::from_str(&day_l10n::t(day_l10n::key::day_edit)),
         )
     };
     let add = |key: &str, action: objc2::runtime::Sel, accel: &str| {
@@ -11300,13 +11499,13 @@ fn install_main_menu(mtm: MainThreadMarker, app: &NSApplication, title: &str) {
         };
         edit_menu.addItem(&item);
     };
-    add("day-undo", sel!(undo:), "z");
-    add("day-redo", sel!(redo:), "Z");
+    add("day_undo", sel!(undo:), "z");
+    add("day_redo", sel!(redo:), "Z");
     edit_menu.addItem(&NSMenuItem::separatorItem(mtm));
-    add("day-cut", sel!(cut:), "x");
-    add("day-copy", sel!(copy:), "c");
-    add("day-paste", sel!(paste:), "v");
-    add("day-select-all", sel!(selectAll:), "a");
+    add("day_cut", sel!(cut:), "x");
+    add("day_copy", sel!(copy:), "c");
+    add("day_paste", sel!(paste:), "v");
+    add("day_select_all", sel!(selectAll:), "a");
     edit_item.setSubmenu(Some(&edit_menu));
     menubar.addItem(&edit_item);
 
@@ -11324,7 +11523,7 @@ fn install_windows_menu(mtm: MainThreadMarker, app: &NSApplication, menubar: &NS
     let menu = unsafe {
         NSMenu::initWithTitle(
             NSMenu::alloc(mtm),
-            &NSString::from_str(&day_l10n::t("day-window")),
+            &NSString::from_str(&day_l10n::t(day_l10n::key::day_window)),
         )
     };
     let add = |key: &str, action: objc2::runtime::Sel, accel: &str| {
@@ -11338,12 +11537,12 @@ fn install_windows_menu(mtm: MainThreadMarker, app: &NSApplication, menubar: &NS
         };
         menu.addItem(&item);
     };
-    add("day-minimize", sel!(performMiniaturize:), "m");
-    add("day-zoom", sel!(performZoom:), "");
+    add("day_minimize", sel!(performMiniaturize:), "m");
+    add("day_zoom", sel!(performZoom:), "");
     menu.addItem(&NSMenuItem::separatorItem(mtm));
-    add("day-bring-all-front", sel!(arrangeInFront:), "");
+    add("day_bring_all_front", sel!(arrangeInFront:), "");
     let item = NSMenuItem::new(mtm);
-    item.setTitle(&NSString::from_str(&day_l10n::t("day-window")));
+    item.setTitle(&NSString::from_str(&day_l10n::t(day_l10n::key::day_window)));
     item.setSubmenu(Some(&menu));
     menubar.addItem(&item);
     unsafe { app.setWindowsMenu(Some(&menu)) };

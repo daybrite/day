@@ -940,13 +940,13 @@ impl About {
         self.links.push((title.into_text(), url.into()));
         self
     }
-    /// The app's website, titled from Day's catalog (`day-about-website`).
+    /// The app's website, titled from Day's catalog (`day_about_website`).
     pub fn website(self, url: impl Into<String>) -> Self {
-        self.link(day_fluent::tr("day-about-website"), url)
+        self.link(day_fluent::res::str::day_about_website(), url)
     }
-    /// The app's source code, titled from Day's catalog (`day-about-source`).
+    /// The app's source code, titled from Day's catalog (`day_about_source`).
     pub fn source(self, url: impl Into<String>) -> Self {
-        self.link(day_fluent::tr("day-about-source"), url)
+        self.link(day_fluent::res::str::day_about_source(), url)
     }
     /// The privacy policy URL: a known slot (the stores ask for it, GTK has a field).
     pub fn privacy(mut self, url: impl Into<String>) -> Self {
@@ -985,9 +985,7 @@ impl About {
             .version
             .clone()
             .or_else(|| day_core::launch_options().and_then(|o| o.version.clone()))?;
-        let mut line = day_fluent::tr("day-about-version")
-            .arg("version", version)
-            .format();
+        let mut line = day_fluent::res::str::day_about_version(version).format();
         if let Some(build) = &self.build
             && !build.is_empty()
         {
@@ -1310,9 +1308,9 @@ impl Installed {
 fn platform_word() -> String {
     let gnome_or_kde = matches!(day_core::toolkit_key(), Some("gtk" | "qt"));
     if gnome_or_kde {
-        day_l10n::t("day-preferences")
+        day_l10n::t(day_l10n::key::day_preferences)
     } else {
-        day_l10n::t("day-settings")
+        day_l10n::t(day_l10n::key::day_settings)
     }
 }
 
@@ -1556,7 +1554,7 @@ fn install_about(inst: Rc<Installed>) {
         .as_ref()
         .map(About::display_name)
         .unwrap_or_default();
-    let title = day_fluent::tr("day-about-app").arg("app", name);
+    let title = day_fluent::res::str::day_about_app(name);
     // Where windows open as covers (the web, a phone), About is a sheet with a title bar and a
     // Done button, as Settings is there: a bare page had no way out.
     let cover = day_core::capability(day_spec::Cap::MultiWindow) == day_spec::Support::Unsupported;
@@ -1579,7 +1577,7 @@ fn install_about(inst: Rc<Installed>) {
                 .toolbar(
                     toolbar_button(
                         day_core::id!(about_done),
-                        day_fluent::tr("day-settings-done"),
+                        day_fluent::res::str::day_settings_done(),
                     )
                     .action(|| {
                         if let Some(w) = day_core::window_by_key(day_core::windows::ABOUT_KEY) {
@@ -1669,7 +1667,7 @@ pub fn wire_general() {
 /// bundled locale under its own name). `locales` is the app's generated `res::locales::ALL`.
 pub fn general_group(locales: LocaleTable) -> Group {
     wire_general();
-    Group::new("general", day_fluent::tr("day-settings-general"))
+    Group::new("general", day_fluent::res::str::day_settings_general())
         .icon(day_spec::Symbol::Settings)
         .row(appearance_row())
         .row(language_row(locales))
@@ -1680,11 +1678,11 @@ pub fn appearance_row() -> Row {
     wire_general();
     rows::choice(
         &APPEARANCE,
-        day_fluent::tr("day-settings-theme"),
+        day_fluent::res::str::day_settings_theme(),
         [
-            (Appearance::Light, day_fluent::tr("day-theme-light")),
-            (Appearance::Dark, day_fluent::tr("day-theme-dark")),
-            (Appearance::System, day_fluent::tr("day-theme-system")),
+            (Appearance::Light, day_fluent::res::str::day_theme_light()),
+            (Appearance::Dark, day_fluent::res::str::day_theme_dark()),
+            (Appearance::System, day_fluent::res::str::day_theme_system()),
         ],
     )
     .segmented()
@@ -1697,15 +1695,19 @@ pub fn language_row(locales: LocaleTable) -> Row {
     wire_general();
     let mut options: Vec<(String, TextSource)> = vec![(
         String::new(),
-        day_fluent::tr("day-theme-system").into_text(),
+        day_fluent::res::str::day_theme_system().into_text(),
     )];
     options.extend(
         locales
             .iter()
             .map(|(tag, name)| ((*tag).to_string(), TextSource::Static((*name).to_string()))),
     );
-    choice_text(&LANGUAGE, day_fluent::tr("day-settings-language"), options)
-        .id(day_core::id!(language_picker))
+    choice_text(
+        &LANGUAGE,
+        day_fluent::res::str::day_settings_language(),
+        options,
+    )
+    .id(day_core::id!(language_picker))
 }
 
 /// [`choice`] over already-resolved label sources (what [`language_row`] builds from a
@@ -1759,7 +1761,7 @@ impl Route for SettingsRoute {
     /// Tracked, so a shown page's bar follows a language change (`nav_stack` re-reads it).
     fn title(&self) -> String {
         match self {
-            SettingsRoute::About => day_l10n::t("day-about"),
+            SettingsRoute::About => day_l10n::t(day_l10n::key::day_about),
             SettingsRoute::Group(g) => installed()
                 .and_then(|i| i.group(g).map(|g| resolve_text(&g.title)))
                 .unwrap_or_else(|| g.clone()),
@@ -2373,7 +2375,7 @@ fn navigation_stack(inst: Rc<Installed>, done: bool) -> AnyPiece {
         stack = stack.toolbar(
             toolbar_button(
                 day_core::id!(settings_done),
-                day_fluent::tr("day-settings-done"),
+                day_fluent::res::str::day_settings_done(),
             )
             .action(|| {
                 if let Some(w) = day_core::window_by_key(day_core::windows::PREFERENCES_KEY) {
@@ -2632,7 +2634,7 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
         .collect();
     if let Some(p) = about.privacy_url() {
         links.push(
-            link(day_fluent::tr("day-about-privacy"), p.to_string())
+            link(day_fluent::res::str::day_about_privacy(), p.to_string())
                 .id(day_core::id!(about_privacy))
                 .any(),
         );
@@ -2644,16 +2646,17 @@ fn about_page(inst: Rc<Installed>) -> AnyPiece {
     if let Some(c) = about.credits_text() {
         let credits = c.clone();
         notes.push(
-            rows::navigate(day_fluent::tr("day-about-acknowledgements"), move || {
-                scroll(label(credits.clone()).padding(16.0))
-            })
+            rows::navigate(
+                day_fluent::res::str::day_about_acknowledgements(),
+                move || scroll(label(credits.clone()).padding(16.0)),
+            )
             .into_piece(inst.clone()),
         );
     }
     if let Some(l) = about.licenses_text() {
         let licenses = l.clone();
         notes.push(
-            rows::navigate(day_fluent::tr("day-about-licenses"), move || {
+            rows::navigate(day_fluent::res::str::day_about_licenses(), move || {
                 scroll(label(licenses.clone()).monospace().padding(16.0))
             })
             .into_piece(inst.clone()),

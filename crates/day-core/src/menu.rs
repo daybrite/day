@@ -412,7 +412,7 @@ fn inject_about(mut items: Vec<day_spec::MenuItem>) -> Vec<day_spec::MenuItem> {
     // Only an app-owned Help menu takes them here; without one the stock Help menu does.
     if let Some(M::Submenu { items: help, .. }) = items.iter_mut().find(|it| {
         matches!(it, M::Submenu { role, label, .. }
-            if *role == Some(day_spec::MenuBarRole::Help) || *label == day_l10n::t("day-help"))
+            if *role == Some(day_spec::MenuBarRole::Help) || *label == day_l10n::t(day_l10n::key::day_help))
     }) {
         help.extend(missing);
     }
@@ -521,7 +521,7 @@ impl MenuBarStyle {
         };
         match role {
             B::Edit => sub(
-                "day-edit",
+                "day_edit",
                 vec![
                     act(R::Undo),
                     act(R::Redo),
@@ -533,17 +533,17 @@ impl MenuBarStyle {
                     act(R::SelectAll),
                 ],
             ),
-            B::View => sub("day-view", vec![act(R::Fullscreen)]),
+            B::View => sub("day_view", vec![act(R::Fullscreen)]),
             // macOS keeps About in the app menu; the other desktops keep it in Help. An empty
             // Help menu still earns its place on macOS, where AppKit fills it with the help search.
             B::Help => match self {
-                MenuBarStyle::Macos => sub("day-help", Vec::new()),
+                MenuBarStyle::Macos => sub("day_help", Vec::new()),
                 _ => {
                     let mut items = vec![act(R::About)];
                     if crate::windows::check_for_updates_action_id() != 0 {
                         items.push(act(R::CheckForUpdates));
                     }
-                    sub("day-help", items)
+                    sub("day_help", items)
                 }
             },
             _ => None,
@@ -635,11 +635,11 @@ fn take_slot(
 fn role_title(role: day_spec::MenuBarRole) -> Option<String> {
     use day_spec::MenuBarRole as B;
     let key = match role {
-        B::File => "day-file",
-        B::Edit => "day-edit",
-        B::View => "day-view",
-        B::Window => "day-window",
-        B::Help => "day-help",
+        B::File => "day_file",
+        B::Edit => "day_edit",
+        B::View => "day_view",
+        B::Window => "day_window",
+        B::Help => "day_help",
         _ => return None,
     };
     Some(day_l10n::t(key))

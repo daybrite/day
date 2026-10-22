@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <QCheckBox>
 #include <QFileDialog>
 #include <QFont>
@@ -31,6 +32,9 @@
 #include <QHBoxLayout>
 #include <QFileInfo>
 #include <QPainter>
+#include <QPageLayout>
+#include <QPageSize>
+#include <QPdfWriter>
 #include <QStyledItemDelegate>
 #include <QPainterPath>
 #include <QPropertyAnimation>
@@ -2898,301 +2902,465 @@ void day_qt_measure_text(const char *text, double size, int weight, int italic,
 
 } // extern "C"
 
+// Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Paths and
+// polygons are the only ops whose geometry arrives as TEXT, and re-parsing it was this backend's
+// per-frame cost: every segment of every path split and converted again for a drawing that had
+// not moved. The key IS the content, so an entry can never go stale — the cap only stops a
+// long-lived canvas from holding every path it has ever drawn. A canvas widget keeps one across
+// paints (surviving them is the whole point); an export starts from an empty one.
+// `QPainterPath`/`QPolygonF` are copy-on-write, so handing back a copy is cheap and no caller can
+// disturb the cached original.
+struct DayCanvasCaches {
+    QHash<qint64, QPainterPath> pathCache;
+    QHash<qint64, QPolygonF> polyCache;
+};
+
+/// The canvas painter (docs/canvas.md): replay one encoded op list (day_spec::encode_ops) onto
+/// `p`. The on-screen widget, the offscreen bitmap and every PDF page all paint through this one
+/// function, so an export matches the screen. `fontScale` multiplies canvas text point sizes:
+/// 1 wherever the device resolves points at the screen's DPI, and screen DPI / 72 on a PDF page,
+/// where one unit is one PDF point.
+static void day_paint_ops(QPainter &p, const QVector<double> &nums, const QStringList &texts,
+                          DayCanvasCaches &caches, double fontScale) {
+    QHash<qint64, QPainterPath> &pathCache = caches.pathCache;
+    QHash<qint64, QPolygonF> &polyCache = caches.polyCache;
+    int ti = 0;
+    // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
+    // stops, applied as the brush of the next fill-shape record (resolved against that
+    // shape's bounding rect).
+    bool gradPending = false;
+    int gradType = 0;
+    double gsx = 0, gsy = 0, gex = 0, gey = 0;
+    QGradientStops gstops;
+    // A decoded kind-18 record (stroke style), applied to the next stroke record only.
+    bool stylePending = false;
+    int sCap = 0, sJoin = 0; double sMiter = 10.0, sPhase = 0.0;
+    QVector<qreal> sDash;
+    // A decoded kind-19 record (font), applied to the next text record only.
+    bool fontPending = false;
+    // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
+    // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
+    QVector<QPointF> stampAt;
+    int stampN = 0;
+    int fWeight = 0; bool fItalic = false; QString fFamily;
+    // Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a QPainterPath.
+    auto parsePath = [](const QString &spec, int rule) {
+        QPainterPath path;
+        path.setFillRule(rule == 1 ? Qt::OddEvenFill : Qt::WindingFill);
+        const QStringList tok = spec.split(' ', Qt::SkipEmptyParts);
+        for (int i = 0; i < tok.size();) {
+            const QString &op = tok[i++];
+            auto num = [&]() { return i < tok.size() ? tok[i++].toDouble() : 0.0; };
+            if (op == "M") { double x = num(), y = num(); path.moveTo(x, y); }
+            else if (op == "L") { double x = num(), y = num(); path.lineTo(x, y); }
+            else if (op == "Q") { double cx = num(), cy = num(), x = num(), y = num(); path.quadTo(cx, cy, x, y); }
+            else if (op == "C") { double ax = num(), ay = num(), bx = num(), by = num(), x = num(), y = num(); path.cubicTo(ax, ay, bx, by, x, y); }
+            else if (op == "Z") path.closeSubpath();
+        }
+        return path;
+    };
+    // The cached forms. A key of 0 means the encoder offered none — parse as before.
+    auto cachedPath = [&](double key, const QString &spec, int rule) {
+        const qint64 kk = (qint64)key;
+        if (kk == 0) return parsePath(spec, rule);
+        const auto it = pathCache.constFind(kk);
+        if (it != pathCache.constEnd()) return it.value();
+        QPainterPath built = parsePath(spec, rule);
+        if (pathCache.size() > 512) pathCache.clear();
+        pathCache.insert(kk, built);
+        return built;
+    };
+    auto cachedPolygon = [&](double key, const QString &pts) {
+        const qint64 kk = (qint64)key;
+        if (kk != 0) {
+            const auto it = polyCache.constFind(kk);
+            if (it != polyCache.constEnd()) return it.value();
+        }
+        QPolygonF poly;
+        for (const QString &pair : pts.split(' ', Qt::SkipEmptyParts)) {
+            int comma = pair.indexOf(',');
+            if (comma > 0)
+                poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
+        }
+        if (kk != 0) {
+            if (polyCache.size() > 512) polyCache.clear();
+            polyCache.insert(kk, poly);
+        }
+        return poly;
+    };
+    auto gradBrush = [&](const QRectF &bounds) {
+        gradPending = false;
+        if (gradType == 1) {
+            // Radial: ObjectMode maps the unit square onto the drawn shape's bounding
+            // rect, so a unit-space circle renders elliptically in non-square bounds —
+            // the same rule as every other backend. (a,b = center, c = radius: gsx,gsy,gex.)
+            QRadialGradient rg(QPointF(gsx, gsy), gex, QPointF(gsx, gsy));
+            rg.setCoordinateMode(QGradient::ObjectMode);
+            rg.setStops(gstops);
+            return QBrush(rg);
+        }
+        QLinearGradient lg(bounds.x() + gsx * bounds.width(), bounds.y() + gsy * bounds.height(),
+                           bounds.x() + gex * bounds.width(), bounds.y() + gey * bounds.height());
+        lg.setStops(gstops);
+        return QBrush(lg);
+    };
+    for (int i = 0; i + 8 < nums.size(); i += 9) {
+        int k = (int)nums[i];
+        double a = nums[i+1], b = nums[i+2], c = nums[i+3], d = nums[i+4];
+        double e = nums[i+5], f = nums[i+6], g = nums[i+7];
+        unsigned col = (unsigned)nums[i+8];
+        QColor color((col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, (col >> 24) & 0xff);
+        QPen pen(color); pen.setWidthF(g);
+        // Day's default cap is BUTT (this backend used to force RoundCap); a kind-18 record
+        // overrides cap/join/miter/dash for the one stroke that follows it.
+        pen.setCapStyle(Qt::FlatCap);
+        if (stylePending) {
+            pen.setCapStyle(sCap == 1 ? Qt::RoundCap : sCap == 2 ? Qt::SquareCap : Qt::FlatCap);
+            pen.setJoinStyle(sJoin == 1 ? Qt::RoundJoin : sJoin == 2 ? Qt::BevelJoin : Qt::MiterJoin);
+            pen.setMiterLimit(sMiter);
+            if (!sDash.isEmpty()) {
+                // Qt's dash pattern is in PEN WIDTHS, not pixels.
+                QVector<qreal> scaled;
+                const qreal wdt = g > 0.0 ? g : 1.0;
+                for (qreal v : sDash) scaled << v / wdt;
+                pen.setDashPattern(scaled);
+                pen.setDashOffset(sPhase / wdt);
+            }
+            // Consumed by whichever stroke record this is; cleared at the end of the case.
+        }
+        // Stamp prefix and its coordinate records: collected, never drawn on their own.
+        if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
+        if (k == 21) {
+            // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth
+            // point's y rides the slot other records use for their color. The last record of
+            // a run is padded with zeros, so the header's count is what says where the real
+            // ones stop.
+            const double xs[4] = { a, c, e, g };
+            const double ys[4] = { b, d, f, (double)nums[i+8] };
+            for (int q = 0; q < 4 && stampAt.size() < stampN; ++q)
+                stampAt.append(QPointF(xs[q], ys[q]));
+            continue;
+        }
+        // The template is replayed once per position under a translated transform. `ti` is
+        // rewound each time so a template with a texts payload (a polygon, a path) reads the
+        // Same entry every repetition and consumes it exactly once overall.
+        const int reps = stampAt.isEmpty() ? 1 : stampAt.size();
+        const int tiStart = ti;
+        for (int rep = 0; rep < reps; ++rep) {
+        ti = tiStart;
+        if (!stampAt.isEmpty()) { p.save(); p.translate(stampAt[rep]); }
+        switch (k) {
+            case 0:
+                if (gradPending) { p.setPen(Qt::NoPen); p.setBrush(gradBrush(QRectF(a, b, c, d))); p.drawRect(QRectF(a, b, c, d)); }
+                else p.fillRect(QRectF(a, b, c, d), color);
+                break;
+            case 1: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(QRectF(a, b, c, d)); break;
+            case 2: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
+            case 13: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
+            case 3: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawEllipse(QRectF(a, b, c, d)); break;
+            case 4: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QRectF(a, b, c, d)); break;
+            case 5: // arc: spec is clockwise-degrees; Qt is CCW 1/16°
+                p.setPen(pen); p.setBrush(Qt::NoBrush);
+                p.drawArc(QRectF(a, b, c, d), (int)(-e * 16.0), (int)(-f * 16.0));
+                break;
+            case 6: p.setPen(pen); p.drawLine(QPointF(a, b), QPointF(c, d)); break;
+            case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
+                QString t = ti < texts.size() ? texts[ti++] : QString();
+                QFont font = day_qt_canvas_font(p.font(), e * fontScale,
+                                                fontPending ? fWeight : 0,
+                                                fontPending && fItalic,
+                                                fontPending ? fFamily : QString());
+                p.setFont(font);
+                p.setPen(QPen(color));
+                // drawText takes the BASELINE; the anchor positions the line box
+                // (ascent + descent), the box day_qt_measure_text reports. Same arithmetic
+                // as TextAnchor::offset in day-spec, from metrics this draw already holds.
+                // The PAINTER's device resolves the point size (a widget, an export image and a
+                // PDF page can differ in DPI), so the metrics must come from that device too.
+                QFontMetricsF fm(font, p.device());
+                const int ah = (int)f / 4, av = (int)f % 4;
+                const double w = fm.horizontalAdvance(t);
+                const double dx = ah == 1 ? -w / 2.0 : ah == 2 ? -w : 0.0;
+                const double dy = av == 1   ? -fm.height() / 2.0
+                                  : av == 2 ? -fm.ascent()
+                                  : av == 3 ? -fm.height()
+                                            : 0.0;
+                p.drawText(QPointF(a + dx, b + dy + fm.ascent()), t);
+                break;
+            }
+            case 19: { // font for the next text: a weight (0 default), b italic; family on texts
+                fFamily = ti < texts.size() ? texts[ti++] : QString();
+                fWeight = (int)a; fItalic = b > 0.5;
+                fontPending = true;
+                break;
+            }
+            case 8: p.save(); break;
+            case 9: p.restore(); break;
+            case 10:
+                // Packed affine (a,b,c,d,tx,ty); QTransform(m11,m12,m21,m22,dx,dy) has the same
+                // row-vector meaning. combine=true concatenates onto the current world transform.
+                p.setWorldTransform(QTransform(a, b, c, d, e, f), true);
+                break;
+            case 11: case 12: { // polygon (11 fill / 12 stroke); points in texts as "x,y x,y …"
+                // The texts entry is consumed either way: that channel is positional, so a
+                // cache hit that skipped it would desynchronize every record after this one.
+                QString t = ti < texts.size() ? texts[ti++] : QString();
+                QPolygonF poly = cachedPolygon(a, t);
+                if (poly.size() >= 2) {
+                    if (k == 11) {
+                        p.setPen(Qt::NoPen);
+                        p.setBrush(gradPending ? gradBrush(poly.boundingRect()) : QBrush(color));
+                        p.drawPolygon(poly);
+                    }
+                    else { p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPolygon(poly); }
+                }
+                break;
+            }
+            case 15: case 16: { // path (15 fill / 16 stroke); segments in texts, f = fill rule
+                QString spec = ti < texts.size() ? texts[ti++] : QString();
+                QPainterPath path = cachedPath(a, spec, (int)f);
+                if (k == 15) {
+                    p.setPen(Qt::NoPen);
+                    p.setBrush(gradPending ? gradBrush(path.boundingRect()) : QBrush(color));
+                    p.drawPath(path);
+                } else {
+                    if (gradPending) pen.setBrush(gradBrush(path.boundingRect()));
+                    p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPath(path);
+                    gradPending = false;
+                }
+                break;
+            }
+            case 17: { // clip: f names the shape, a..d geometry, e radius or fill rule
+                QPainterPath clip;
+                switch ((int)f) {
+                    case 1: clip.addRoundedRect(QRectF(a, b, c, d), e, e); break;
+                    case 2: clip.addEllipse(QRectF(a, b, c, d)); break;
+                    // Both take a CACHED copy: `clip` is a local, so adding to it leaves the
+                    // cached geometry untouched, and `setClipPath` only ever reads it.
+                    case 3: clip = cachedPath(a, ti < texts.size() ? texts[ti++] : QString(), (int)e); break;
+                    case 4: clip.addPolygon(cachedPolygon(a, ti < texts.size() ? texts[ti++] : QString())); break;
+                    default: clip.addRect(QRectF(a, b, c, d)); break;
+                }
+                // IntersectClip, matching the spec: a clip only ever narrows until restore.
+                p.setClipPath(clip, Qt::IntersectClip);
+                break;
+            }
+            case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
+                QString t = ti < texts.size() ? texts[ti++] : QString();
+                sCap = (int)a; sJoin = (int)b; sMiter = c; sPhase = d;
+                sDash.clear();
+                for (const QString &v : t.split(' ', Qt::SkipEmptyParts)) sDash << v.toDouble();
+                stylePending = true;
+                break;
+            }
+            case 14: { // set-gradient (f = type): stops ride the texts channel as "offset,aarrggbb …"
+                QString t = ti < texts.size() ? texts[ti++] : QString();
+                gradType = (int)f;
+                gstops.clear();
+                for (const QString &pair : t.split(' ', Qt::SkipEmptyParts)) {
+                    int comma = pair.indexOf(',');
+                    if (comma <= 0) continue;
+                    double off = pair.left(comma).toDouble();
+                    unsigned bits = pair.mid(comma + 1).toUInt(nullptr, 16);
+                    gstops << QGradientStop(off, QColor((bits >> 16) & 0xff, (bits >> 8) & 0xff,
+                                                        bits & 0xff, (bits >> 24) & 0xff));
+                }
+                gsx = a; gsy = b; gex = c; gey = d;
+                gradPending = !gstops.isEmpty();
+                break;
+            }
+            case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
+                auto it = day_qt_bitmaps().constFind((quint64)e);
+                // A released bitmap draws nothing rather than a placeholder: a canvas
+                // re-records on every tracked read, so a handle can be dropped between the
+                // record and this replay.
+                if (it == day_qt_bitmaps().constEnd()) break;
+                const qreal was = p.opacity();
+                p.setOpacity(was * qBound(0.0, f, 1.0));
+                p.drawImage(QRectF(a, b, c, d), *it);
+                p.setOpacity(was);
+                break;
+            }
+        }
+        if (!stampAt.isEmpty()) p.restore();
+        }
+        stampAt.clear();
+        // A style record applies to one stroke; anything else that consumed the pen clears it
+        // too, so it can never leak into a later record. Same for a font and its text.
+        if (k != 18) stylePending = false;
+        if (k != 19) fontPending = false;
+    }
+}
+
 class DayCanvasWidget : public QWidget {
 public:
     QVector<double> nums;
     QStringList texts;
-    // Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Paths and
-    // polygons are the only ops whose geometry arrives as TEXT, and re-parsing it was this
-    // backend's per-frame cost: every segment of every path split and converted again for a
-    // drawing that had not moved. The key IS the content, so an entry can never go stale — the
-    // cap only stops a long-lived canvas from holding every path it has ever drawn. These live
-    // on the widget rather than in the paint handler because surviving across paints is the
-    // whole point. `QPainterPath`/`QPolygonF` are copy-on-write, so handing back a copy is cheap
-    // and no caller can disturb the cached original.
-    QHash<qint64, QPainterPath> pathCache;
-    QHash<qint64, QPolygonF> polyCache;
+    // Kept across paints (see DayCanvasCaches): a drawing that has not moved re-parses nothing.
+    DayCanvasCaches caches;
     using QWidget::QWidget;
 
 protected:
     void paintEvent(QPaintEvent *) override {
         QPainter p(this);
         p.setRenderHint(QPainter::Antialiasing, true);
-        int ti = 0;
-        // A decoded kind-14 record (set-gradient): type (0 linear, 1 radial) + unit geometry +
-        // stops, applied as the brush of the next fill-shape record (resolved against that
-        // shape's bounding rect).
-        bool gradPending = false;
-        int gradType = 0;
-        double gsx = 0, gsy = 0, gex = 0, gey = 0;
-        QGradientStops gstops;
-        // A decoded kind-18 record (stroke style), applied to the next stroke record only.
-        bool stylePending = false;
-        int sCap = 0, sJoin = 0; double sMiter = 10.0, sPhase = 0.0;
-        QVector<qreal> sDash;
-        // A decoded kind-19 record (font), applied to the next text record only.
-        bool fontPending = false;
-        // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
-        // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
-        QVector<QPointF> stampAt;
-        int stampN = 0;
-        int fWeight = 0; bool fItalic = false; QString fFamily;
-        // Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path) into a QPainterPath.
-        auto parsePath = [](const QString &spec, int rule) {
-            QPainterPath path;
-            path.setFillRule(rule == 1 ? Qt::OddEvenFill : Qt::WindingFill);
-            const QStringList tok = spec.split(' ', Qt::SkipEmptyParts);
-            for (int i = 0; i < tok.size();) {
-                const QString &op = tok[i++];
-                auto num = [&]() { return i < tok.size() ? tok[i++].toDouble() : 0.0; };
-                if (op == "M") { double x = num(), y = num(); path.moveTo(x, y); }
-                else if (op == "L") { double x = num(), y = num(); path.lineTo(x, y); }
-                else if (op == "Q") { double cx = num(), cy = num(), x = num(), y = num(); path.quadTo(cx, cy, x, y); }
-                else if (op == "C") { double ax = num(), ay = num(), bx = num(), by = num(), x = num(), y = num(); path.cubicTo(ax, ay, bx, by, x, y); }
-                else if (op == "Z") path.closeSubpath();
-            }
-            return path;
-        };
-        // The cached forms. A key of 0 means the encoder offered none — parse as before.
-        auto cachedPath = [&](double key, const QString &spec, int rule) {
-            const qint64 kk = (qint64)key;
-            if (kk == 0) return parsePath(spec, rule);
-            const auto it = pathCache.constFind(kk);
-            if (it != pathCache.constEnd()) return it.value();
-            QPainterPath built = parsePath(spec, rule);
-            if (pathCache.size() > 512) pathCache.clear();
-            pathCache.insert(kk, built);
-            return built;
-        };
-        auto cachedPolygon = [&](double key, const QString &pts) {
-            const qint64 kk = (qint64)key;
-            if (kk != 0) {
-                const auto it = polyCache.constFind(kk);
-                if (it != polyCache.constEnd()) return it.value();
-            }
-            QPolygonF poly;
-            for (const QString &pair : pts.split(' ', Qt::SkipEmptyParts)) {
-                int comma = pair.indexOf(',');
-                if (comma > 0)
-                    poly << QPointF(pair.left(comma).toDouble(), pair.mid(comma + 1).toDouble());
-            }
-            if (kk != 0) {
-                if (polyCache.size() > 512) polyCache.clear();
-                polyCache.insert(kk, poly);
-            }
-            return poly;
-        };
-        auto gradBrush = [&](const QRectF &bounds) {
-            gradPending = false;
-            if (gradType == 1) {
-                // Radial: ObjectMode maps the unit square onto the drawn shape's bounding
-                // rect, so a unit-space circle renders elliptically in non-square bounds —
-                // the same rule as every other backend. (a,b = center, c = radius: gsx,gsy,gex.)
-                QRadialGradient rg(QPointF(gsx, gsy), gex, QPointF(gsx, gsy));
-                rg.setCoordinateMode(QGradient::ObjectMode);
-                rg.setStops(gstops);
-                return QBrush(rg);
-            }
-            QLinearGradient lg(bounds.x() + gsx * bounds.width(), bounds.y() + gsy * bounds.height(),
-                               bounds.x() + gex * bounds.width(), bounds.y() + gey * bounds.height());
-            lg.setStops(gstops);
-            return QBrush(lg);
-        };
-        for (int i = 0; i + 8 < nums.size(); i += 9) {
-            int k = (int)nums[i];
-            double a = nums[i+1], b = nums[i+2], c = nums[i+3], d = nums[i+4];
-            double e = nums[i+5], f = nums[i+6], g = nums[i+7];
-            unsigned col = (unsigned)nums[i+8];
-            QColor color((col >> 16) & 0xff, (col >> 8) & 0xff, col & 0xff, (col >> 24) & 0xff);
-            QPen pen(color); pen.setWidthF(g);
-            // Day's default cap is BUTT (this backend used to force RoundCap); a kind-18 record
-            // overrides cap/join/miter/dash for the one stroke that follows it.
-            pen.setCapStyle(Qt::FlatCap);
-            if (stylePending) {
-                pen.setCapStyle(sCap == 1 ? Qt::RoundCap : sCap == 2 ? Qt::SquareCap : Qt::FlatCap);
-                pen.setJoinStyle(sJoin == 1 ? Qt::RoundJoin : sJoin == 2 ? Qt::BevelJoin : Qt::MiterJoin);
-                pen.setMiterLimit(sMiter);
-                if (!sDash.isEmpty()) {
-                    // Qt's dash pattern is in PEN WIDTHS, not pixels.
-                    QVector<qreal> scaled;
-                    const qreal wdt = g > 0.0 ? g : 1.0;
-                    for (qreal v : sDash) scaled << v / wdt;
-                    pen.setDashPattern(scaled);
-                    pen.setDashOffset(sPhase / wdt);
-                }
-                // Consumed by whichever stroke record this is; cleared at the end of the case.
-            }
-            // Stamp prefix and its coordinate records: collected, never drawn on their own.
-            if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
-            if (k == 21) {
-                // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth
-                // point's y rides the slot other records use for their color. The last record of
-                // a run is padded with zeros, so the header's count is what says where the real
-                // ones stop.
-                const double xs[4] = { a, c, e, g };
-                const double ys[4] = { b, d, f, (double)nums[i+8] };
-                for (int q = 0; q < 4 && stampAt.size() < stampN; ++q)
-                    stampAt.append(QPointF(xs[q], ys[q]));
-                continue;
-            }
-            // The template is replayed once per position under a translated transform. `ti` is
-            // rewound each time so a template with a texts payload (a polygon, a path) reads the
-            // Same entry every repetition and consumes it exactly once overall.
-            const int reps = stampAt.isEmpty() ? 1 : stampAt.size();
-            const int tiStart = ti;
-            for (int rep = 0; rep < reps; ++rep) {
-            ti = tiStart;
-            if (!stampAt.isEmpty()) { p.save(); p.translate(stampAt[rep]); }
-            switch (k) {
-                case 0:
-                    if (gradPending) { p.setPen(Qt::NoPen); p.setBrush(gradBrush(QRectF(a, b, c, d))); p.drawRect(QRectF(a, b, c, d)); }
-                    else p.fillRect(QRectF(a, b, c, d), color);
-                    break;
-                case 1: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRect(QRectF(a, b, c, d)); break;
-                case 2: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
-                case 13: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawRoundedRect(QRectF(a, b, c, d), e, e); break;
-                case 3: p.setPen(Qt::NoPen); p.setBrush(gradPending ? gradBrush(QRectF(a, b, c, d)) : QBrush(color)); p.drawEllipse(QRectF(a, b, c, d)); break;
-                case 4: p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawEllipse(QRectF(a, b, c, d)); break;
-                case 5: // arc: spec is clockwise-degrees; Qt is CCW 1/16°
-                    p.setPen(pen); p.setBrush(Qt::NoBrush);
-                    p.drawArc(QRectF(a, b, c, d), (int)(-e * 16.0), (int)(-f * 16.0));
-                    break;
-                case 6: p.setPen(pen); p.drawLine(QPointF(a, b), QPointF(c, d)); break;
-                case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
-                    QString t = ti < texts.size() ? texts[ti++] : QString();
-                    QFont font = day_qt_canvas_font(p.font(), e,
-                                                    fontPending ? fWeight : 0,
-                                                    fontPending && fItalic,
-                                                    fontPending ? fFamily : QString());
-                    p.setFont(font);
-                    p.setPen(QPen(color));
-                    // drawText takes the BASELINE; the anchor positions the line box
-                    // (ascent + descent), the box day_qt_measure_text reports. Same arithmetic
-                    // as TextAnchor::offset in day-spec, from metrics this draw already holds.
-                    QFontMetricsF fm(font);
-                    const int ah = (int)f / 4, av = (int)f % 4;
-                    const double w = fm.horizontalAdvance(t);
-                    const double dx = ah == 1 ? -w / 2.0 : ah == 2 ? -w : 0.0;
-                    const double dy = av == 1   ? -fm.height() / 2.0
-                                      : av == 2 ? -fm.ascent()
-                                      : av == 3 ? -fm.height()
-                                                : 0.0;
-                    p.drawText(QPointF(a + dx, b + dy + fm.ascent()), t);
-                    break;
-                }
-                case 19: { // font for the next text: a weight (0 default), b italic; family on texts
-                    fFamily = ti < texts.size() ? texts[ti++] : QString();
-                    fWeight = (int)a; fItalic = b > 0.5;
-                    fontPending = true;
-                    break;
-                }
-                case 8: p.save(); break;
-                case 9: p.restore(); break;
-                case 10:
-                    // Packed affine (a,b,c,d,tx,ty); QTransform(m11,m12,m21,m22,dx,dy) has the same
-                    // row-vector meaning. combine=true concatenates onto the current world transform.
-                    p.setWorldTransform(QTransform(a, b, c, d, e, f), true);
-                    break;
-                case 11: case 12: { // polygon (11 fill / 12 stroke); points in texts as "x,y x,y …"
-                    // The texts entry is consumed either way: that channel is positional, so a
-                    // cache hit that skipped it would desynchronize every record after this one.
-                    QString t = ti < texts.size() ? texts[ti++] : QString();
-                    QPolygonF poly = cachedPolygon(a, t);
-                    if (poly.size() >= 2) {
-                        if (k == 11) {
-                            p.setPen(Qt::NoPen);
-                            p.setBrush(gradPending ? gradBrush(poly.boundingRect()) : QBrush(color));
-                            p.drawPolygon(poly);
-                        }
-                        else { p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPolygon(poly); }
-                    }
-                    break;
-                }
-                case 15: case 16: { // path (15 fill / 16 stroke); segments in texts, f = fill rule
-                    QString spec = ti < texts.size() ? texts[ti++] : QString();
-                    QPainterPath path = cachedPath(a, spec, (int)f);
-                    if (k == 15) {
-                        p.setPen(Qt::NoPen);
-                        p.setBrush(gradPending ? gradBrush(path.boundingRect()) : QBrush(color));
-                        p.drawPath(path);
-                    } else {
-                        if (gradPending) pen.setBrush(gradBrush(path.boundingRect()));
-                        p.setPen(pen); p.setBrush(Qt::NoBrush); p.drawPath(path);
-                        gradPending = false;
-                    }
-                    break;
-                }
-                case 17: { // clip: f names the shape, a..d geometry, e radius or fill rule
-                    QPainterPath clip;
-                    switch ((int)f) {
-                        case 1: clip.addRoundedRect(QRectF(a, b, c, d), e, e); break;
-                        case 2: clip.addEllipse(QRectF(a, b, c, d)); break;
-                        // Both take a CACHED copy: `clip` is a local, so adding to it leaves the
-                        // cached geometry untouched, and `setClipPath` only ever reads it.
-                        case 3: clip = cachedPath(a, ti < texts.size() ? texts[ti++] : QString(), (int)e); break;
-                        case 4: clip.addPolygon(cachedPolygon(a, ti < texts.size() ? texts[ti++] : QString())); break;
-                        default: clip.addRect(QRectF(a, b, c, d)); break;
-                    }
-                    // IntersectClip, matching the spec: a clip only ever narrows until restore.
-                    p.setClipPath(clip, Qt::IntersectClip);
-                    break;
-                }
-                case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
-                    QString t = ti < texts.size() ? texts[ti++] : QString();
-                    sCap = (int)a; sJoin = (int)b; sMiter = c; sPhase = d;
-                    sDash.clear();
-                    for (const QString &v : t.split(' ', Qt::SkipEmptyParts)) sDash << v.toDouble();
-                    stylePending = true;
-                    break;
-                }
-                case 14: { // set-gradient (f = type): stops ride the texts channel as "offset,aarrggbb …"
-                    QString t = ti < texts.size() ? texts[ti++] : QString();
-                    gradType = (int)f;
-                    gstops.clear();
-                    for (const QString &pair : t.split(' ', Qt::SkipEmptyParts)) {
-                        int comma = pair.indexOf(',');
-                        if (comma <= 0) continue;
-                        double off = pair.left(comma).toDouble();
-                        unsigned bits = pair.mid(comma + 1).toUInt(nullptr, 16);
-                        gstops << QGradientStop(off, QColor((bits >> 16) & 0xff, (bits >> 8) & 0xff,
-                                                            bits & 0xff, (bits >> 24) & 0xff));
-                    }
-                    gsx = a; gsy = b; gex = c; gey = d;
-                    gradPending = !gstops.isEmpty();
-                    break;
-                }
-                case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
-                    auto it = day_qt_bitmaps().constFind((quint64)e);
-                    // A released bitmap draws nothing rather than a placeholder: a canvas
-                    // re-records on every tracked read, so a handle can be dropped between the
-                    // record and this replay.
-                    if (it == day_qt_bitmaps().constEnd()) break;
-                    const qreal was = p.opacity();
-                    p.setOpacity(was * qBound(0.0, f, 1.0));
-                    p.drawImage(QRectF(a, b, c, d), *it);
-                    p.setOpacity(was);
-                    break;
-                }
-            }
-            if (!stampAt.isEmpty()) p.restore();
-            }
-            stampAt.clear();
-            // A style record applies to one stroke; anything else that consumed the pen clears it
-            // too, so it can never leak into a later record. Same for a font and its text.
-            if (k != 18) stylePending = false;
-            if (k != 19) fontPending = false;
-        }
+        day_paint_ops(p, nums, texts, caches, 1.0);
     }
 };
+
+// The encoded op list's two channels, as the painter reads them.
+static QVector<double> day_qt_ops_nums(const double *nums, int n) {
+    QVector<double> out;
+    out.reserve(n > 0 ? n : 0);
+    for (int i = 0; i < n; i++) out.append(nums[i]);
+    return out;
+}
+// 0x1f unit separator; keep empties — one entry per kind-7/11/12 record.
+static QStringList day_qt_ops_texts(const char *texts_joined) {
+    return QString::fromUtf8(texts_joined ? texts_joined : "").split(QChar(0x1f));
+}
 
 void *day_qt_canvas_new() { return new DayCanvasWidget(); }
 void day_qt_canvas_set_ops(void *w, const double *nums, int n, const char *texts_joined) {
     DayCanvasWidget *c = static_cast<DayCanvasWidget *>(w);
-    c->nums.clear();
-    for (int i = 0; i < n; i++) c->nums.append(nums[i]);
-    // 0x1f unit separator; keep empties — one entry per kind-7/11/12 record.
-    c->texts = QString::fromUtf8(texts_joined).split(QChar(0x1f));
+    c->nums = day_qt_ops_nums(nums, n);
+    c->texts = day_qt_ops_texts(texts_joined);
     c->update();
+}
+
+// ---- canvas export (docs/canvas.md "Exporting") -------------------------------------------
+
+/// Render an encoded op list into a new `pw`×`ph` pixel bitmap of `w`×`h` points and store it in
+/// the bitmap registry under `id`, beside the decoded ones, so encode, the image widget and the
+/// canvas image op all take it. Premultiplied ARGB32, filled transparent, with a device pixel
+/// ratio of `scale` so the painter works in points exactly as the widget does. Returns 0 when the
+/// image could not be allocated.
+int day_qt_canvas_render_image(unsigned long long id, const double *nums, int n,
+                               const char *texts_joined, int pw, int ph, double scale) {
+    try {
+        QImage img(pw, ph, QImage::Format_ARGB32_Premultiplied);
+        if (img.isNull()) return 0;
+        img.setDevicePixelRatio(scale);
+        img.fill(Qt::transparent);
+        {
+            QPainter p(&img);
+            if (!p.isActive()) return 0;
+            p.setRenderHint(QPainter::Antialiasing, true);
+            DayCanvasCaches caches;
+            day_paint_ops(p, day_qt_ops_nums(nums, n), day_qt_ops_texts(texts_joined), caches,
+                          1.0);
+        }
+        day_qt_bitmaps().insert(id, img);
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
+/// One page of `day_qt_canvas_render_pdf`: its size in PDF points and its encoded ops.
+struct DayQtPdfPage {
+    double w, h;
+    const double *nums;
+    int n;
+    const char *texts;
+};
+
+#if QT_VERSION < QT_VERSION_CHECK(6, 9, 0)
+// An XMP packet naming the title and author, for a Qt whose QPdfWriter has no setAuthor.
+static QByteArray day_qt_pdf_xmp(const QString &title, const QString &author) {
+    auto esc = [](const QString &v) { return v.toHtmlEscaped().toUtf8(); };
+    QByteArray x;
+    x += "<?xpacket begin='' id='W5M0MpCehiHzreSzNTczkc9d'?>\n"
+         "<x:xmpmeta xmlns:x='adobe:ns:meta/'>\n"
+         "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'>\n"
+         "<rdf:Description rdf:about='' xmlns:dc='http://purl.org/dc/elements/1.1/'>\n";
+    if (!title.isEmpty())
+        x += "<dc:title><rdf:Alt><rdf:li xml:lang='x-default'>" + esc(title) +
+             "</rdf:li></rdf:Alt></dc:title>\n";
+    if (!author.isEmpty())
+        x += "<dc:creator><rdf:Seq><rdf:li>" + esc(author) + "</rdf:li></rdf:Seq></dc:creator>\n";
+    x += "</rdf:Description>\n</rdf:RDF>\n</x:xmpmeta>\n<?xpacket end='w'?>";
+    return x;
+}
+#endif
+
+/// Write `count` pages into one PDF through QPdfWriter: resolution 72 and zero margins, so one
+/// painter unit is one PDF point and the origin is the page's top-left corner; each page takes
+/// its own size. Shapes and text stay vector. Returns a malloc'd buffer of `*out_len` bytes to
+/// release with `day_qt_bytes_free`, or null with `*err` set to a heap string (release with
+/// `day_qt_string_free`).
+unsigned char *day_qt_canvas_render_pdf(const DayQtPdfPage *pages, int count, const char *title,
+                                        const char *author, int *out_len, char **err) {
+    if (out_len) *out_len = 0;
+    if (err) *err = nullptr;
+    auto fail = [&](const char *why) -> unsigned char * {
+        if (err) *err = strdup(why);
+        return nullptr;
+    };
+    try {
+        if (!pages || count <= 0) return fail("the document has no pages");
+        QByteArray bytes;
+        QBuffer buf(&bytes);
+        if (!buf.open(QIODevice::WriteOnly)) return fail("could not open the PDF buffer");
+        // Canvas text resolves its point sizes at the screen's DPI (the widget, the export
+        // bitmap and day_qt_measure_text all do); a PDF page resolves them at 72. A fresh
+        // QImage carries the default DPI QFontMetricsF uses, which is the one to match.
+        const double screenDpi = QImage(1, 1, QImage::Format_ARGB32_Premultiplied).logicalDpiY();
+        const double fontScale = screenDpi > 0 ? screenDpi / 72.0 : 1.0;
+        {
+            QPdfWriter pdf(&buf);
+            pdf.setResolution(72);
+            pdf.setCreator(QCoreApplication::applicationName());
+            const QString t = QString::fromUtf8(title ? title : "");
+            const QString a = QString::fromUtf8(author ? author : "");
+            if (!t.isEmpty()) pdf.setTitle(t);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 9, 0)
+            if (!a.isEmpty()) pdf.setAuthor(a);
+#else
+            if (!a.isEmpty()) pdf.setDocumentXmpMetadata(day_qt_pdf_xmp(t, a));
+#endif
+            auto layout = [](const DayQtPdfPage &pg) {
+                // ExactMatch: a size near a standard one (A4, Letter) must not snap to it.
+                return QPageLayout(QPageSize(QSizeF(pg.w, pg.h), QPageSize::Point, QString(),
+                                             QPageSize::ExactMatch),
+                                   QPageLayout::Portrait, QMarginsF(0, 0, 0, 0),
+                                   QPageLayout::Point);
+            };
+            if (!pdf.setPageLayout(layout(pages[0]))) return fail("QPdfWriter refused the page size");
+            QPainter p;
+            if (!p.begin(&pdf)) return fail("QPainter could not begin on the PDF writer");
+            for (int i = 0; i < count; i++) {
+                if (i > 0) {
+                    // The new layout applies from the next page on.
+                    pdf.setPageLayout(layout(pages[i]));
+                    if (!pdf.newPage()) {
+                        p.end();
+                        return fail("QPdfWriter could not start a new page");
+                    }
+                }
+                p.setRenderHint(QPainter::Antialiasing, true);
+                DayCanvasCaches caches;
+                // Saved and restored per page: a clip or transform a page leaves behind must
+                // not carry over to the next one.
+                p.save();
+                day_paint_ops(p, day_qt_ops_nums(pages[i].nums, pages[i].n),
+                              day_qt_ops_texts(pages[i].texts), caches, fontScale);
+                p.restore();
+            }
+            if (!p.end()) return fail("QPdfWriter could not finish the document");
+        }
+        buf.close();
+        if (bytes.isEmpty()) return fail("QPdfWriter wrote no bytes");
+        unsigned char *out = (unsigned char *)malloc(bytes.size());
+        if (!out) return fail("out of memory");
+        memcpy(out, bytes.constData(), bytes.size());
+        if (out_len) *out_len = (int)bytes.size();
+        return out;
+    } catch (const std::exception &e) {
+        return fail(e.what());
+    } catch (...) {
+        return fail("QPdfWriter failed");
+    }
 }
 
 // Aspect-aware image widget (§18.3): paints the pixmap scaled per content mode

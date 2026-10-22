@@ -27,7 +27,7 @@ block2 = { workspace = true }
 dispatch2 = { workspace = true }
 objc2-foundation = { workspace = true, features = ["NSLocale", "NSString", "NSUndoManager", "NSArray", "NSBundle", "NSDictionary", "NSPathUtilities", "NSURL", "NSIndexPath", "NSRunLoop", "NSDate", "NSObjCRuntime", "NSUserActivity", "NSSet", "NSEnumerator"] }
 objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
-objc2-core-graphics = { workspace = true, features = ["CGContext", "CGGradient", "CGColorSpace"] }
+objc2-core-graphics = { workspace = true, features = ["CGContext", "CGGradient", "CGColorSpace", "CGPDFContext"] }
 objc2-quartz-core = { workspace = true, features = ["CADisplayLink"] }
 objc2-ui-kit = { workspace = true, features = [
     "UIApplication", "UIResponder", "UIView", "UIWindow", "UIScreen", "UIViewController",
@@ -44,6 +44,8 @@ objc2-ui-kit = { workspace = true, features = [
     "UIDevice",
     # Window capture (docs/window-image.md): UIGraphicsImageRenderer + UIImagePNGRepresentation.
     "UIGraphicsRenderer", "UIGraphicsImageRenderer", "UIImage",
+    # Canvas export to PDF (docs/canvas.md "Exporting").
+    "UIGraphicsPDFRenderer",
     "UIButtonConfiguration", "UIBackgroundConfiguration",
     "UILabel", "UIControl", "UIButton", "UITextField", "UISwitch",
     # A text field's input traits (docs/textfield.md): keyboard, capitalization and return-key

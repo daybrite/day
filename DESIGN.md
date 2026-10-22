@@ -83,6 +83,7 @@ the architecture-level view and the rationale.
 | build flavors — `Day-<name>.toml`, `--flavor`, the merged manifest, the `[cargo]`/`[env]`/resource/store overlays, the per-flavor build subtree and artifact names | [docs/flavors.md](docs/flavors.md) | [§16.6](#166-build-flavors) |
 | vector images — `resource/vectors/`, the `vector` piece, per-backend staging + tint | [docs/vectors.md](docs/vectors.md) | [§18.3](#183-images-and-data) |
 | raster images from bytes — `day::decode_image`, the `Bitmap` handle, `ImageSource`, `Draw::image`, per-backend decode/encode/metadata | [docs/images.md](docs/images.md) | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
+| canvas export — `Drawing::record`, `to_bitmap`/`to_png`/`to_pdf`, `PdfDocument`, `canvas_exports()`, `Cap::CanvasBitmap`/`Cap::CanvasPdf`, per-toolkit painters and PDF writers | [docs/canvas.md](docs/canvas.md) "Exporting" | [§8.1](#81-the-toolkit-trait), [§11](#11-canvas) |
 | window image — `day::window_image()`, content vs `.chrome()`, per-backend capture, dayscript precedence | [docs/window-image.md](docs/window-image.md) | [§8.1](#81-the-toolkit-trait), [§14](#14-scripting-dayscript) |
 | dialogs & presentation — alert/confirm/prompt/sheets, file pickers | [docs/dialogs.md](docs/dialogs.md), [docs/files.md](docs/files.md) | [§8.1](#81-the-toolkit-trait) |
 | fullscreen cover — `cover`, `defers_system_gestures`, `interactive_dismiss_disabled`, `status_bar_hidden` (`Cap::StatusBarHidden`) | [docs/cover.md](docs/cover.md) | [§10.5](#105-navigation-and-presentation) |
@@ -699,10 +700,10 @@ pub fn counter() -> impl Piece {
     let count = Signal::new(0);
 
     column((
-        label(tr("counter-value").arg("count", count)),
+        label(res::str::counter_value(count)),
         row((
-            button(tr("decrement")).action(move || count.update(|c| *c -= 1)),
-            button(tr("increment")).action(move || count.update(|c| *c += 1)),
+            button(res::str::decrement()).action(move || count.update(|c| *c -= 1)),
+            button(res::str::increment()).action(move || count.update(|c| *c += 1)),
         ))
         .spacing(8.0),
     ))
@@ -1013,6 +1014,9 @@ Command::new(id, title, action).enabled(e)   // one value for button/menu/toolba
 canvas(draw_fn)
     d.text(s, at, TextStyle { size, color, anchor, font })   // one line, in a CanvasFont (docs/fonts.md)
 font_families()   measure_text(s, size, &font)    // the platform font list (Cap::FontList), text metrics
+Drawing::record(size, draw_fn)                    // the same draw fn, recorded once for export
+    .to_bitmap(scale) / .to_png(scale) / .to_pdf()  // the toolkit's own painter (docs/canvas.md)
+PdfDocument::new().title(t).page(drawing).render()  canvas_exports()   // Cap::CanvasBitmap / CanvasPdf
 announce(text)    announce_urgent(text)           // speak through the screen reader (Cap::Announce, docs/accessibility.md)
 rectangle()  rounded_rectangle(r)  circle()  capsule()  ellipse()  arc(start, sweep)
 line(a, b)  polygon(points)        // unit-point kinds over the existing Line/Polygon ops
@@ -1235,7 +1239,7 @@ column((
             spacer(),
             button(icon("close"))
                 .action(move || { todos.remove(item.key()); })
-                .a11y(|a| a.label(tr("todo-remove")))
+                .a11y(|a| a.label(res::str::todo_remove()))
                 .id(id!(todo_remove, item.key())),  // stable per-item id (§5.5)
         )).spacing(6.0)
     }),
@@ -1755,7 +1759,7 @@ pub trait Toolkit: Sized + 'static {
     // capabilities — feature detection for pieces (§10; Cap: ListRecycling, Lottie,
     // NativeSymbols, Snapshot, NavSplit, NavRepresent, NavContentList, NavHeader, Appearance,
     // Dialogs, FileDialogs, Animation, Cover, TextEditable, TextSelectable, TextSpellCheck,
-    // …, Cursor, FontList, Announce, ReduceMotion)
+    // …, Cursor, FontList, Announce, ReduceMotion, CanvasBitmap, CanvasPdf)
     fn capability(&self, cap: Cap) -> Support { Support::Unsupported }
 
     // node lifecycle — typed props in, sparse typed patches on update
@@ -1937,6 +1941,13 @@ pub trait Toolkit: Sized + 'static {
     fn encode_formats(&mut self) -> Vec<ImageFormat> { Vec::new() }       // every platform reads
                                                                           // more than it writes
     fn release_image(&mut self, id: BitmapId) {}                          // the handle's last drop
+    // canvas export (docs/canvas.md "Exporting") — Cap::CanvasBitmap / Cap::CanvasPdf. The
+    // painter `replay` uses, pointed at an offscreen surface; day-core validates the size,
+    // enforces 16,384 px a side and 64 MP, and probes the Cap before calling either.
+    fn render_bitmap(&mut self, req, id: BitmapId, ops: &[DrawOp], size, scale) {} // → Event::BitmapRendered;
+                                                                          // stored like a decode
+    fn render_pdf(&mut self, req, pages: &[PdfPage], info: &PdfInfo) {}  // → Event::PdfRendered;
+                                                                          // native writers only
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> { … }    // dayscript §14, docs/window-image.md
     fn snapshot_window_chrome(&mut self) -> Result<Vec<u8>, String> { … } // + titlebar/status bar
     fn snapshot_origin(&mut self, root: &Self::Handle) -> Option<Point> { None } // root's place in the capture
@@ -2236,6 +2247,8 @@ pub enum Event {
     ImageDecoded { req, result },             // a decode answered (docs/images.md); in-process
     ImageEncoded { req, result },             // only — neither crosses a BridgeKind, because
                                               // bytes never ride the event wire
+    BitmapRendered { req, result },           // a canvas export answered (docs/canvas.md);
+    PdfRendered { req, result },              // in-process only, like the two above
     MenuAction(u64),                          // docs/menus.md
     Lifecycle(Lifecycle),                     // docs/lifecycle.md; DidExit is the last phase,
                                               // after which day-core writes its exit line
@@ -3113,6 +3126,13 @@ pub fn gauge(value: Signal<f64>) -> impl Piece {
   `CanvasFont` — a family from the platform list (`font_families()`, [docs/fonts.md](docs/fonts.md)),
   a weight, a slant — at an absolute size, and `measure_text()` answers the line box the anchors
   position, from the same engine.
+- **Export** ([docs/canvas.md](docs/canvas.md) "Exporting"): `Drawing::record(size, draw_fn)` runs
+  the same draw function once, untracked, and `to_bitmap(scale)` / `to_png(scale)` / `to_pdf()` /
+  `PdfDocument` hand the recorded ops to two more request-shaped duties, `render_bitmap` and
+  `render_pdf`, which replay them with the painter `replay` uses, pointed at an offscreen surface.
+  A rendered bitmap is an ordinary `Bitmap` in the decode table. Bitmaps render on every toolkit
+  but WinUI, whose canvas builds XAML shapes and has no painter to retarget; PDF only where the
+  platform ships a writer (Core Graphics, cairo, `QPdfWriter`, android `PdfDocument`).
 - Pointer/key events opt in: `.on_pointer(f)`. Accessibility of canvas content: MVP = the canvas
   node is one a11y element (label/value/role as above); **virtual child elements**
   (`UIAccessibilityElement` / `AccessibilityNodeProvider` / … ) are specified as a post-MVP
@@ -3194,9 +3214,15 @@ track source-text revisions or determine whether a translation's wording is curr
 > list and opened in `DEFAULT`. `day::resources!()` surfaces the generated module in the same
 > spirit: one line where the app used to write the `include!` itself. The
 > **preferred authoring surface is now the generated `res::str::key(args…)` functions**
-> ([§18.5](#185-typed-resource-constants-docsresourcesmd)) — typed, autocompleted, compile-checked keys — with `tr("…")` remaining for dynamic
-> keys. Keys are therefore **snake_case** (they must be Rust identifiers), not kebab-case as
-> sketched below. The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions **shipped** (2026-07):
+> ([§18.5](#185-typed-resource-constants-docsresourcesmd)) — typed, autocompleted, compile-checked keys. Keys are therefore **snake_case** (they must be Rust
+> identifiers), not kebab-case as first sketched. **Revised 2026-10-21:** they are the only
+> surface. Code never names a string by its key in a literal: `day lint` reports a `tr("…")` as
+> `string-key`, and a table of choices holds accessors (`[fn() -> LocalizedText; N]`), not keys.
+> Day's core catalog follows the same rule: its keys are `day_*` identifiers (`day_cancel`, once
+> `day-cancel`), day-l10n's build script generates `day_l10n::key::<key>` and the typed
+> `day::res::str::<key>()` from `catalog/en.ftl`, and every generated `res::str` re-exports the
+> core accessors, so an app writes `res::str::day_about_website()` ([docs/localization.md](docs/localization.md)
+> "Core strings the framework provides"). The ICU4X-backed `NUMBER`/`DATETIME` Fluent functions **shipped** (2026-07):
 > `day-l10n` registers them — plus a bundle-wide number formatter, so plain `{ $n }`
 > interpolations localize too — on every bundle via icu4x 2.x (in-tree, not fluent-datetime),
 > with locale-aware collation (`compare`/`sort_localized`) and a standalone decimal formatter
@@ -3212,11 +3238,12 @@ track source-text revisions or determine whether a translation's wording is curr
 ```rust
 label(res::str::greeting(name))               // generated, typed (name: Signal<String> — live)
 button(res::str::increment())
-label(tr("app-title"))                        // dynamic-key escape hatch
+label(res::str::day_cancel())                 // a core string, re-exported beside the app's
 ```
 
-- `tr(key) -> LocalizedText` implements `IntoText`. `.arg(k, v)` accepts values, signals, and
-  closures; Fluent handles plurals/genders/selection.
+- `res::str::<key>(…) -> LocalizedText` implements `IntoText`. Its arguments (and the `.arg(k, v)`
+  the generated body passes them to) accept values, signals, and closures; Fluent handles
+  plurals/genders/selection. The `tr(key)` it is built on is for generated code only.
 - **Number/date formatting is NOT free**: fluent-rs registers no default `NUMBER`/`DATETIME`
   functions and does no locale-aware number rendering. `day-l10n` registers **ICU4X-backed
   functions** (`icu_decimal`, `icu_datetime` — in-tree, `crates/day-l10n/src/intl.rs`) into every
@@ -3233,7 +3260,7 @@ label(tr("app-title"))                        // dynamic-key escape hatch
   discouraged for user-facing text). The same pattern serves Fluent `.arg` values; compile-pass
   tests for all call shapes land in M1.
 - `day lint` covers fluent coverage — keys missing from locales, unused keys, unknown key
-  references (strict mode for CI); the bare-literal warning was not built (`res::str` makes
+  references, and a `tr("…")` naming a string by its key (`string-key`) (strict mode for CI); the bare-literal warning was not built (`res::str` makes
   keyed strings the path of least resistance instead).
 - The **current locale is a `Signal<LanguageIdentifier>`** in `day-fluent`, initialized from
   (1) `--locale` launch override → (2) OS preference list (`Platform::locale_hints`, negotiated
@@ -3275,11 +3302,11 @@ Day's job is to (a) not break it, (b) provide the uniform annotation API, (c) en
 
 ```rust
 button(icon("trash"))
-    .a11y(|a| a.label(tr("delete-item")).hint(tr("delete-item-hint")))
+    .a11y(|a| a.label(res::str::delete_item()).hint(res::str::delete_item_hint()))
     .id(id!(delete_button))
 
 image(res::images::chart)
-    .a11y(|a| a.label(tr("q3-chart-summary")))     // or .decorative()
+    .a11y(|a| a.label(res::str::q3_chart_summary()))   // or .decorative()
 
 canvas(…).a11y(|a| a.role(Role::Meter).value(move || format!("{:.0}%", level.get())))
 ```
@@ -5768,8 +5795,10 @@ be passed where CLDR plural rules need a number (a string select like `$gender -
 each function's **doc comment carries the reference-locale value** (`/// \`greeting\` — \`Hello, { $name }!\``)
 so hover shows the actual text. Two build-time rules apply: every key must be a valid Rust identifier (so
 keys are **snake_case**, not the Fluent-legal kebab-case), and **all locales must agree on a key's parameter
-names** (`en {name}` vs `fr {nom}` → error; numeric-ness is OR-ed across locales). `tr("…")` stays for dynamic
-keys, and using the generated functions is optional (`day lint` counts a `res::str::key` reference as a use).
+names** (`en {name}` vs `fr {nom}` → error; numeric-ness is OR-ed across locales). The generated functions
+are how code names every localized string (`day lint` reports a `tr("…")` as `string-key`, and counts a
+`res::str::key` reference as a use), and each generated `res::str` also re-exports Day's core accessors
+(`res::str::day_cancel()`, generated by day-l10n from its own catalog, [§12](#12-localization-fluent)).
 The `fluent-syntax` parse is the single source of Fluent handling — the codegen, `day lint`'s coverage
 checks (`day_build::message_keys`), and the runtime resolver (`fluent-bundle`) all share it, so what the
 tooling accepts matches what resolves.
@@ -7515,7 +7544,7 @@ The Showcase walkthrough samples after groups of screens and ends with a `1G` bu
 | `web_eval` | `id`, `script`, `contains?`, `text?`, `timeout_secs?` | evaluate JavaScript in a web-view node and assert on the result ([docs/webview-eval.md](docs/webview-eval.md)) — proves a page RENDERED where `assert_visible` only proves the native view exists; retryable while pending/throwing/mismatching; `timeout_secs` raises the engine and runner wait budgets for cold browser startup or slow page loads (tested by `web_eval_honors_its_own_timeout`); gate with `only_on:` to the backends whose eval arm exists |
 | `expand` | `id`, `row`, `expanded?` | disclose/collapse a tree row by its `.row_id` string — emits the same `TreeExpanded` a native disclosure does ([docs/tree.md](docs/tree.md)); omitted `expanded` = true |
 | `tree_move` | `id`, `row`, `parent?`, `index?` | move a tree row through the guard → commit seam ([docs/tree.md](docs/tree.md)): absent `parent` = the root, absent `index` = dropped ONTO the parent; a guard denial fails the step, non-retryably |
-| `menu` | `id` \| `item` \| `key`, `path?` | invoke an app-menu action. `id` names the item the app named with `MenuEntry::id` — the address that survives a locale change or a moving check mark, and the one to prefer; `item` matches a literal label, `key` a Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day-preferences`/`day-new-window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
+| `menu` | `id` \| `item` \| `key`, `path?` | invoke an app-menu action. `id` names the item the app named with `MenuEntry::id` — the address that survives a locale change or a moving check mark, and the one to prefer; `item` matches a literal label, `key` a Fluent key (locale-portable; the auto Preferences/New Window items resolve by `day_preferences`/`day_new_window` even with no app menu). `path` narrows by ancestor submenu, each entry matching a literal label or a Fluent key — [docs/menus.md](docs/menus.md) |
 | `context_menu` | `id`, `item_id` \| `item` \| `key`, `path?`, `if_present?` | choose an item from the element's context menu (`.context_menu`, `.context_menu_fn`; a provider is asked at the element's origin), addressed as `menu` addresses one; `if_present` skips an absent element once the UI settles, as `tap`'s does. Day keeps each node's menu as the app gave it, so this runs the item's action the way the native choice would, without the native menu opening — [docs/menus.md](docs/menus.md) |
 | `toolbar` | `item`, `text?` \| `key?` + `args?` \| `on?`, `submit?` | drive a toolbar item by its id (`day::search` reaches the search field inline too, where a phone's bar holds none): bare = run a button's command, `text` types into a search item (`key` types a Fluent key resolved in the run's locale instead — locale-portable, as `input` takes one) and `submit: true` then submits it as its Return key does, `on` sets a toggle. Resolves against the window's COMPOSED bar, so it reaches only what is on screen — a list pane's command needs that list showing. Goes through the same dispatch the native control fires, so it exercises the app's wiring but does NOT prove the widget drew — [docs/toolbars.md](docs/toolbars.md) |
 | `close_window` | `window` | close the secondary window opened under this key through the async confirm → teardown path ([docs/windows.md](docs/windows.md)); already-closed is a success |

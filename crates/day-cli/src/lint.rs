@@ -284,7 +284,9 @@ fn scan_res_str(dir: &Path, out: &mut Vec<Hit>) {
                 let end = s
                     .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
                     .unwrap_or(s.len());
-                if end > 0 {
+                // `res::str::DndData { … }` is the argument struct of a message taking two or
+                // more arguments (PascalCase, §18.5), not a key; keys are snake_case.
+                if end > 0 && !s.starts_with(|c: char| c.is_ascii_uppercase()) {
                     out.push(Hit::found(path, src, &s[..end]));
                 }
             }
@@ -483,6 +485,26 @@ fn scan_sources(dir: &Path, pat: &str, out: &mut Vec<Hit>) {
     for_each_rs(dir, &mut |path, src| {
         for at in matches_of(src, pat) {
             let rest = &src[at + pat.len()..];
+            if let Some(end) = rest.find('"') {
+                out.push(Hit::found(path, src, &rest[..end]));
+            }
+        }
+    });
+}
+
+/// Stringly lookups of a localized string: `tr("key")` or `day::tr("key")`, which name the string
+/// by its key where the generated `res::str::<key>()` names it by a symbol the compiler checks
+/// (docs/localization.md). The character before `tr(` must not be an identifier character, so
+/// `push_str("…")` and `attr("…")` are not lookups.
+fn scan_string_keys(dir: &Path, out: &mut Vec<Hit>) {
+    const PAT: &str = "tr(\"";
+    for_each_rs(dir, &mut |path, src| {
+        for at in matches_of(src, PAT) {
+            let before = src[..at].chars().next_back();
+            if before.is_some_and(|c| c.is_alphanumeric() || c == '_') {
+                continue;
+            }
+            let rest = &src[at + PAT.len()..];
             if let Some(end) = rest.find('"') {
                 out.push(Hit::found(path, src, &rest[..end]));
             }
@@ -1432,6 +1454,26 @@ fn collect(project: &Project) -> Vec<Finding> {
             scan_res_str(r, &mut used_keys);
         }
     }
+    // Every localized string is named through its generated accessor, never by its key.
+    let mut string_keys = Vec::new();
+    for r in &roots {
+        scan_string_keys(r, &mut string_keys);
+    }
+    for h in &string_keys {
+        findings.push(
+            Finding {
+                code: "day::lint::string-key",
+                message: format!(
+                    "tr({:?}) names a localized string by its key; call its generated accessor, \
+                     res::str::{}()",
+                    h.text,
+                    h.text.replace(['-', '.'], "_")
+                ),
+                ..Default::default()
+            }
+            .located(h.location(&project.root)),
+        );
+    }
     let used = texts(&used_keys);
     // Where each key is first referenced, so `unknown-key` points at the `tr("…")` that will fail.
     let mut first_use: BTreeMap<String, Location> = BTreeMap::new();
@@ -1457,7 +1499,7 @@ fn collect(project: &Project) -> Vec<Finding> {
         let spelled = spellings(default_keys.keys());
         let core = core_catalog_keys();
         for k in &used {
-            // A `day-*` key the core catalog defines resolves through `day::tr` in every app
+            // A `day_*` key the core catalog defines resolves through `day::tr` in every app
             // (docs/localization.md), so it is never unknown; an app may still override it.
             if !spelled.contains(k) && !core.contains(k) {
                 findings.push(
@@ -1828,7 +1870,7 @@ fn write_step_summary(active: &[&Finding], waived: &BTreeMap<&str, (usize, &str)
 }
 
 /// The keys of Day's core catalog (`crates/day-l10n/catalog/en.ftl`, docs/localization.md): the
-/// `day-*` strings every app can reach through `day::tr` without defining them.
+/// `day_*` strings every app can reach through `day::tr` without defining them.
 /// Bundle the catalog in the CLI package: day-l10n is not published, so a sibling-crate
 /// include works in the workspace but breaks `cargo package` and crates.io installs.
 fn core_catalog_keys() -> BTreeSet<String> {
@@ -2231,7 +2273,7 @@ mod tests {
                 "sync resources/core-en.ftl from day-l10n/catalog/en.ftl"
             );
         }
-        assert!(core_catalog_keys().contains("day-ok"));
+        assert!(core_catalog_keys().contains("day_ok"));
     }
 
     /// The id rule reports once per platform that cannot build it, and stays quiet when the
@@ -2631,6 +2673,56 @@ e = { PLATFORM() }
         let mut out: Vec<&'static str> = collect(project).iter().map(|f| f.code).collect();
         out.sort_unstable();
         out
+    }
+
+    /// A message with two or more arguments is called with its generated argument struct,
+    /// `res::str::dnd_data(res::str::DndData { … })`; the struct's name is not a key.
+    #[test]
+    fn an_argument_struct_is_not_an_unknown_key() {
+        let (dir, project) = app(
+            "arg-struct",
+            &[
+                (
+                    "resource/locales/en/app.ftl",
+                    "dnd_data = { $mime }: { $count }\n",
+                ),
+                (
+                    "src/lib.rs",
+                    "pub fn f() { res::str::dnd_data(res::str::DndData { mime: \"a\", count: 1 }); }\n",
+                ),
+            ],
+        );
+        assert_eq!(codes(&project), Vec::<&str>::new());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    /// A localized string named by its key in a literal is a finding wherever `tr(` is the call,
+    /// and only there: `push_str("…")` ends in `tr("` too.
+    #[test]
+    fn a_string_key_lookup_is_reported_and_its_accessor_named() {
+        let (dir, project) = app(
+            "string-key",
+            &[
+                (
+                    "resource/locales/en/app.ftl",
+                    "greeting = Hi
+",
+                ),
+                (
+                    "src/lib.rs",
+                    "pub fn f(s: &mut String) { s.push_str(\"x\"); \
+                     let _ = day::tr(\"greeting\"); let _ = tr(\"day_ok\"); }\n",
+                ),
+            ],
+        );
+        let findings: Vec<_> = collect(&project)
+            .into_iter()
+            .filter(|f| f.code == "day::lint::string-key")
+            .collect();
+        assert_eq!(findings.len(), 2, "{findings:?}");
+        assert!(findings[0].message.contains("res::str::greeting()"));
+        assert!(findings[1].message.contains("res::str::day_ok()"));
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

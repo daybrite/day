@@ -80,6 +80,8 @@ pub use structure::*;
 // app's `*-core` crate (which depends on day-core but not on day-pieces) can `impl Ambient`
 // for its view-model. Re-exported here so `day_pieces::environment` and the prelude are unchanged.
 pub use day_core::{Ambient, app_environment, environment, focused_environment, with_environment};
+// Canvas export (docs/canvas.md "Exporting"): what this toolkit can render a `Drawing` to.
+pub use day_core::{CanvasExports, RenderBitmap, RenderPdf, canvas_exports};
 pub use toolbar::*;
 
 pub mod prelude {
@@ -112,6 +114,10 @@ pub mod prelude {
         toolbar_toggle, vector, when, with_environment, zstack,
     };
     pub use crate::{Space, TextPreset};
+    // Canvas export (docs/canvas.md "Exporting"): record a drawing once, render it to a bitmap
+    // or a PDF through the toolkit's own painter, and ask what this target can do first.
+    pub use crate::{CanvasExports, Drawing, PdfDocument, canvas_exports};
+    pub use day_spec::ExportError;
     // The hierarchical tree (docs/tree.md): the piece, its sources, and its verdict enum.
     pub use crate::{
         Branches, MoveVerdict, NodeSource, TreeBuilder, TreeConn, TreePiece, branches, tree,

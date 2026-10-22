@@ -88,8 +88,10 @@ pub use frame::{
     remove_frame_consumer,
 };
 pub use image::{
-    Bitmap, decode as decode_image, decode_async as decode_image_async, image_decode_support,
-    image_encode_formats, image_encode_support, resolve_image_decode, resolve_image_encode,
+    Bitmap, CanvasExports, RenderBitmap, RenderPdf, canvas_exports, decode as decode_image,
+    decode_async as decode_image_async, image_decode_support, image_encode_formats,
+    image_encode_support, render_bitmap, render_bitmap_async, render_pdf, render_pdf_async,
+    resolve_bitmap_render, resolve_image_decode, resolve_image_encode, resolve_pdf_render,
 };
 pub use layout::*;
 pub use lifecycle::{dispatch_lifecycle, lifecycle_supported, on_lifecycle};

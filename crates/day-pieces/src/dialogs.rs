@@ -144,8 +144,8 @@ pub fn confirm<M>(title: impl IntoText<M>) -> Confirm {
         message: None,
         // Localized from the core catalog (docs/dialogs.md); `.confirm_label`/`.cancel_label`
         // override. Resolved in the current locale at build time.
-        confirm: day_l10n::t("day-ok"),
-        cancel: day_l10n::t("day-cancel"),
+        confirm: day_l10n::t(day_l10n::key::day_ok),
+        cancel: day_l10n::t(day_l10n::key::day_cancel),
         destructive: false,
     }
 }
@@ -219,8 +219,8 @@ pub fn prompt<M>(title: impl IntoText<M>) -> Prompt {
         placeholder: String::new(),
         initial: String::new(),
         // Localized from the core catalog (docs/dialogs.md); `.ok_label`/`.cancel_label` override.
-        ok: day_l10n::t("day-ok"),
-        cancel: day_l10n::t("day-cancel"),
+        ok: day_l10n::t(day_l10n::key::day_ok),
+        cancel: day_l10n::t(day_l10n::key::day_cancel),
     }
 }
 
@@ -428,7 +428,7 @@ pub struct OpenFile {
 /// Start a native open-file picker (docs/files.md).
 pub fn open_file() -> OpenFile {
     OpenFile {
-        title: day_l10n::t("day-open"),
+        title: day_l10n::t(day_l10n::key::day_open),
         filters: Vec::new(),
     }
 }
@@ -483,7 +483,7 @@ pub struct SaveFile {
 /// Start a native save-file picker for `data` (docs/files.md).
 pub fn save_file(data: impl Into<Vec<u8>>) -> SaveFile {
     SaveFile {
-        title: day_l10n::t("day-save"),
+        title: day_l10n::t(day_l10n::key::day_save),
         suggested_name: "untitled.txt".to_string(),
         filters: Vec::new(),
         data: data.into(),

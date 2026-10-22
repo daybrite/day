@@ -214,9 +214,9 @@ like Settings there.
 
 `from_manifest()` reads the identity `day build`/`day launch` export (`DAY_APP_ID`,
 `DAY_APP_VERSION`, `DAY_APP_BUILD`, `DAY_APP_TITLE`), falling back to the launch window's app
-name and `WindowOptions::version`. The core catalog carries the labels (`day-about-version`,
-`day-about-website`, `day-about-source`, `day-about-privacy`, `day-about-licenses`,
-`day-about-acknowledgements`) in seven languages.
+name and `WindowOptions::version`. The core catalog carries the labels (`day_about_version`,
+`day_about_website`, `day_about_source`, `day_about_privacy`, `day_about_licenses`,
+`day_about_acknowledgements`) in seven languages.
 
 Presentation: a Day window (`WindowKind::About`, singleton key `day.about`, fixed, centered,
 out of the macOS Window menu) on macOS, Qt and Windows, a cover on the web; libadwaita's `AdwAboutDialog`
@@ -252,7 +252,7 @@ that keeps settings as an in-app route on desktop too); `Presentation::Window` t
 The default follows `Cap::MultiWindow` and `Cap::AppMenu`.
 
 The word is the platform's: "Settings" on macOS, Windows and the phones, "Preferences" on GNOME
-and KDE (`day-settings` / `day-preferences`), read from the running toolkit.
+and KDE (`day_settings` / `day_preferences`), read from the running toolkit.
 
 ## Opening and routes
 
@@ -300,7 +300,7 @@ on wasm, where linkme has no implementation, and anywhere explicit order matters
 `register_provider(&UPDATES)` or `Preferences::new().provider(&UPDATES)` names it.
 `.providers(Providers::None)` and `.without_provider("updates")` opt out. A provider's
 strings live in its own private catalog ([localization](localization.md)); shared vocabulary
-(`day-settings-updates`, `day-check-for-updates`) is in the core catalog.
+(`day_settings_updates`, `day_check_for_updates`) is in the core catalog.
 
 The self-updater is the first provider: its Updates group (check automatically, frequency,
 download automatically, last checked, Check Now) and its Check for Updates… command, which
@@ -315,7 +315,7 @@ the mock. The day-pieces mock e2e suite covers the window registration, the menu
 the singleton reopen. The starter's `dayscript/demo.yaml` navigates to `settings` and waits for
 `language_picker` on every target, so a broken route or id fails the template's CI. In a
 script, `screenshot: { name: s, window: day.preferences }` (or `day.about`) captures the panel
-instead of the primary window, and `menu: { key: day-about }` / `menu: { key: day-check-for-updates }`
+instead of the primary window, and `menu: { key: day_about }` / `menu: { key: day_check_for_updates }`
 dispatch the injected role items, which carry no id of their own.
 
 ### Settings on tablet widths

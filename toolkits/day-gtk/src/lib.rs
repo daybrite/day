@@ -2165,6 +2165,104 @@ fn set_picture_source(pic: &gtk4::Picture, source: &day_spec::ImageSource) {
     }
 }
 
+/// The body of `render_bitmap`: `ops` painted at `scale` onto a transparent ARGB32 surface of
+/// `export_pixels(size, scale)`, stored in `BITMAPS` under `id`. Errors carry cairo's text.
+fn render_bitmap_to(
+    id: day_spec::BitmapId,
+    ops: &[DrawOp],
+    size: Size,
+    scale: f64,
+) -> Result<day_spec::BitmapInfo, String> {
+    use gtk4::cairo;
+    let (pw, ph) = day_spec::export_pixels(size, scale);
+    // day-core caps a side at 16,384 pixels before calling, so these always fit.
+    let w = i32::try_from(pw).map_err(|e| e.to_string())?;
+    let h = i32::try_from(ph).map_err(|e| e.to_string())?;
+    let mut surface =
+        cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).map_err(|e| e.to_string())?;
+    {
+        // A new image surface is cleared to transparent black, the export's background.
+        let cr = cairo::Context::new(&surface).map_err(|e| e.to_string())?;
+        cr.scale(scale, scale);
+        let (nums, texts) = day_spec::encode_ops(ops);
+        cairo_draw(&cr, &nums, &texts);
+        cr.status().map_err(|e| e.to_string())?;
+    }
+    surface.flush();
+    let stride = usize::try_from(surface.stride()).map_err(|e| e.to_string())?;
+    let bytes = surface.data().map_err(|e| e.to_string())?.to_vec();
+    // CAIRO_FORMAT_ARGB32 is premultiplied ARGB in NATIVE-endian 32-bit words: B, G, R, A in
+    // memory on a little-endian machine — GDK_MEMORY_DEFAULT, spelled out per byte order.
+    let format = if cfg!(target_endian = "little") {
+        gtk4::gdk::MemoryFormat::B8g8r8a8Premultiplied
+    } else {
+        gtk4::gdk::MemoryFormat::A8r8g8b8Premultiplied
+    };
+    let texture: gtk4::gdk::Texture =
+        gtk4::gdk::MemoryTexture::new(w, h, format, &gtk4::glib::Bytes::from_owned(bytes), stride)
+            .upcast();
+    // The pixbuf twin is what `DrawOp::Image` paints and the JPEG/BMP encoders read, exactly as
+    // for a decoded bitmap.
+    let pixbuf = gtk4::gdk::pixbuf_get_from_texture(&texture);
+    let info = day_spec::BitmapInfo {
+        pixels: Size::new(f64::from(pw), f64::from(ph)),
+        scale,
+        format: None,
+        has_alpha: true,
+    };
+    BITMAPS.with(|m| {
+        m.borrow_mut().insert(
+            id.0,
+            GtkBitmap {
+                texture,
+                pixbuf,
+                info,
+            },
+        )
+    });
+    Ok(info)
+}
+
+/// The body of `render_pdf`: every page through `cairo_draw` onto one `PdfSurface` writing into
+/// memory, with the title and author in the document's info dictionary.
+fn render_pdf_bytes(
+    pages: &[day_spec::PdfPage],
+    info: &day_spec::PdfInfo,
+) -> Result<Vec<u8>, String> {
+    let first = pages.first().map_or(Size::new(1.0, 1.0), |p| p.size);
+    let surface = cairo::PdfSurface::for_stream(first.width, first.height, Vec::<u8>::new())
+        .map_err(|e| e.to_string())?;
+    if let Some(title) = &info.title {
+        surface
+            .set_metadata(cairo::PdfMetadata::Title, title)
+            .map_err(|e| e.to_string())?;
+    }
+    if let Some(author) = &info.author {
+        surface
+            .set_metadata(cairo::PdfMetadata::Author, author)
+            .map_err(|e| e.to_string())?;
+    }
+    for page in pages {
+        // Takes effect for the page about to start: cairo reads the size at its first drawing.
+        surface
+            .set_size(page.size.width, page.size.height)
+            .map_err(|e| e.to_string())?;
+        let cr = cairo::Context::new(&surface).map_err(|e| e.to_string())?;
+        let (nums, texts) = day_spec::encode_ops(&page.ops);
+        cairo_draw(&cr, &nums, &texts);
+        cr.show_page().map_err(|e| e.to_string())?;
+    }
+    // Finishing flushes the trailer and hands the Vec back; it can only panic on a second call
+    // or a stream type that re-enters the surface, and a Vec does neither.
+    let stream = surface
+        .finish_output_stream()
+        .map_err(|e| e.error.to_string())?;
+    stream
+        .downcast::<Vec<u8>>()
+        .map(|bytes| *bytes)
+        .map_err(|_| "the PDF stream was not the buffer it was created with".to_string())
+}
+
 /// Re-encode a decoded bitmap (docs/images.md).
 ///
 /// PNG and TIFF come from the texture's own writers where nothing was rescaled; everything else
@@ -4677,6 +4775,12 @@ impl Toolkit for Gtk {
             // here: there is no metadata reader on this path, and answering an empty struct would
             // read as "this file records nothing" rather than "nobody looked".
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+            // Canvas export (docs/canvas.md "Exporting"): `cairo_draw` paints a cairo image
+            // surface for a bitmap and a cairo PDF surface for a document. The PDF symbols live in
+            // libcairo itself; Homebrew, Debian/Ubuntu and MSYS2's mingw-w64-cairo (the
+            // windows-gtk toolchain, which ships cairo-pdf.h and cairo-pdf.pc) all build that
+            // backend, so every GTK target links and answers it.
+            Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
             // GtkTextView is editable-toggleable; it's always selectable and ships no spell-check,
             // so TextSelectable / TextSpellCheck stay Unsupported (the default arm).
             Cap::TextRuns
@@ -8467,6 +8571,28 @@ impl Toolkit for Gtk {
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
         release_bitmap(id);
+    }
+
+    /// Replay `ops` through `cairo_draw` — the canvas's own painter — into a cairo image surface,
+    /// then keep the pixels as a texture under `id`, beside the decoded bitmaps
+    /// (docs/canvas.md "Exporting").
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        let result = render_bitmap_to(id, ops, size, scale).map_err(day_spec::ExportError::Failed);
+        emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+    }
+
+    /// One cairo PDF surface, resized before each page and painted by `cairo_draw`, so shapes
+    /// stay vector and Pango text is embedded as font subsets (docs/canvas.md "Exporting").
+    fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {
+        let result = render_pdf_bytes(pages, info).map_err(day_spec::ExportError::Failed);
+        emit(day_spec::WINDOW_NODE, Event::PdfRendered { req, result });
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

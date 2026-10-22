@@ -723,7 +723,7 @@ fn present_about(inst: &Installed) {
     }
     // The link titled with the catalog's "Website" is the dialog's own website slot; the
     // rest are its titled links.
-    let website = day_l10n::t("day-about-website");
+    let website = day_l10n::t(day_l10n::key::day_about_website);
     for (title, url) in about.links() {
         let title = title.initial();
         if title == website {
@@ -733,7 +733,7 @@ fn present_about(inst: &Installed) {
         }
     }
     if let Some(p) = about.privacy_url() {
-        dialog.add_link(&day_l10n::t("day-about-privacy"), p);
+        dialog.add_link(&day_l10n::t(day_l10n::key::day_about_privacy), p);
     }
     if let Some(credits) = about.credits_text() {
         let people: Vec<&str> = credits
@@ -743,14 +743,14 @@ fn present_about(inst: &Installed) {
             .collect();
         if !people.is_empty() {
             dialog.add_acknowledgement_section(
-                Some(&day_l10n::t("day-about-acknowledgements")),
+                Some(&day_l10n::t(day_l10n::key::day_about_acknowledgements)),
                 &people,
             );
         }
     }
     if let Some(licenses) = about.licenses_text() {
         dialog.add_legal_section(
-            &day_l10n::t("day-about-licenses"),
+            &day_l10n::t(day_l10n::key::day_about_licenses),
             None,
             gtk4::License::Custom,
             Some(&licenses),

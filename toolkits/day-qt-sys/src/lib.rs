@@ -361,6 +361,29 @@ unsafe extern "C" {
         n: c_int,
         texts_joined: *const c_char,
     );
+    // Canvas export (docs/canvas.md "Exporting"): the widget's painter, replayed offscreen.
+    /// Render encoded ops into a `pw`×`ph` pixel bitmap at `scale` pixels per point and store it
+    /// in the decoded-bitmap registry under `id`. Returns 0 when the image could not be made.
+    pub fn day_qt_canvas_render_image(
+        id: u64,
+        nums: *const c_double,
+        n: c_int,
+        texts_joined: *const c_char,
+        pw: c_int,
+        ph: c_int,
+        scale: c_double,
+    ) -> c_int;
+    /// Write `count` pages into one PDF. A heap buffer of `*out_len` bytes, released with
+    /// [`day_qt_bytes_free`]; null on failure with `*err` set to a heap string, released with
+    /// [`day_qt_string_free`]. `title`/`author` may be null.
+    pub fn day_qt_canvas_render_pdf(
+        pages: *const DayQtPdfPage,
+        count: c_int,
+        title: *const c_char,
+        author: *const c_char,
+        out_len: *mut c_int,
+        err: *mut *mut c_char,
+    ) -> *mut u8;
     /// `tint` is "#rrggbb" or "" for the authored colors.
     pub fn day_qt_image_new(path: *const c_char, mode: c_int, tint: *const c_char) -> *mut c_void;
     /// Repaint a realized glyph with a new tint ("" restores the authored colors).
@@ -676,6 +699,18 @@ unsafe extern "C" {
     /// Per-row context menus for the nav list (docs/menus.md): a parallel array of QMenu*
     /// (null = no menu for that row); the shim maps a custom-context request to its row.
     pub fn day_qt_navlist_set_row_menus(w: *mut c_void, menus: *const *mut c_void, n: i32);
+}
+
+/// One page of [`day_qt_canvas_render_pdf`] (shim.cpp's `DayQtPdfPage`): its size in PDF points
+/// and its ops as `day_spec::encode_ops` flattens them, texts joined with U+001F. The pointers
+/// are borrowed for the call.
+#[repr(C)]
+pub struct DayQtPdfPage {
+    pub w: c_double,
+    pub h: c_double,
+    pub nums: *const c_double,
+    pub n: c_int,
+    pub texts: *const c_char,
 }
 
 /// A widget's native state as `day_qt_read_native` writes it (shim.cpp's `DayQtNative`). Each

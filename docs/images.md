@@ -105,6 +105,13 @@ is the platform's own — which is why `image_encode_formats()` exists rather th
 if day::image_encode_formats().contains(&ImageFormat::Jpeg) { … }
 ```
 
+## Rendering a drawing into one
+
+A canvas drawing rendered offscreen is a third source of a `Bitmap`, beside staged assets and
+decoded bytes: `Drawing::record(size, draw).to_bitmap(scale)` replays the drawing through the
+toolkit's own canvas painter and returns a handle in the same table, so everything on this page
+applies to it, encoding included ([canvas.md](canvas.md#exporting)).
+
 ## What each backend can and cannot do
 
 Everything above works on every backend except where noted.

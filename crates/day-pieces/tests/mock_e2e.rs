@@ -9492,6 +9492,151 @@ fn encoding_honors_the_format_list_and_refuses_the_rest() {
     assert!(day_core::image_encode_formats().contains(&day_spec::ImageFormat::Png));
 }
 
+/// The swatch the export tests record: two ops, so a recording is easy to assert on.
+fn export_swatch(d: &mut Draw, size: Size) {
+    d.fill(
+        day_spec::Shape::Rect(day_spec::Rect::new(0.0, 0.0, size.width, size.height)),
+        day_spec::Color::rgb(1.0, 0.0, 0.0),
+    );
+    d.fill(
+        day_spec::Shape::Ellipse(day_spec::Rect::new(10.0, 10.0, 20.0, 20.0)),
+        day_spec::Color::rgb(1.0, 1.0, 1.0),
+    );
+}
+
+#[test]
+fn a_recorded_drawing_holds_what_a_canvas_would_replay() {
+    let size = Size::new(120.0, 80.0);
+    let drawing = Drawing::record(size, export_swatch);
+    let mut d = Draw::new();
+    export_swatch(&mut d, size);
+    assert_eq!(drawing.ops(), d.ops());
+    assert_eq!(drawing.size(), size);
+
+    // Recording is untracked: a signal read inside it subscribes nothing, so recording from a
+    // binding cannot make that binding follow the drawing's data.
+    let _probe = boot(|| label("idle").any());
+    let reads = std::rc::Rc::new(std::cell::Cell::new(0));
+    let count = reads.clone();
+    let data = Signal::new(1.0);
+    day_reactive::Effect::new(move || {
+        count.set(count.get() + 1);
+        let _ = Drawing::record(size, |d, s| {
+            if data.get() > 0.0 {
+                export_swatch(d, s);
+            }
+        });
+    });
+    let before = reads.get();
+    data.set(2.0);
+    flush_sync();
+    assert_eq!(reads.get(), before, "the recording subscribed to `data`");
+}
+
+#[test]
+fn rendering_a_drawing_answers_a_bitmap_at_the_export_scale() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("export")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    let drawing = Drawing::record(Size::new(120.5, 80.0), export_swatch);
+                    *sink.borrow_mut() = Some(drawing.to_bitmap(2.0).await);
+                });
+            })
+            .id(day_core::id!(export))
+            .any()
+    });
+    assert!(canvas_exports().bitmap);
+    assert!(canvas_exports().png());
+    assert!(
+        !canvas_exports().pdf,
+        "the mock has no PDF writer, like ArkUI and the web"
+    );
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+
+    let bitmap = out
+        .borrow_mut()
+        .take()
+        .expect("the render answered")
+        .expect("the mock renders bitmaps");
+    let info = bitmap.info();
+    // 120.5 points at 2× rounds the partial pixel up.
+    assert_eq!(info.pixels, Size::new(241.0, 160.0));
+    assert_eq!(info.scale, 2.0);
+    assert!(
+        probe
+            .log()
+            .iter()
+            .any(|l| l.starts_with(&format!("render_bitmap #{} 2 ops", bitmap.id().0))),
+        "{:?}",
+        probe.log()
+    );
+    // A rendered bitmap is a Bitmap like any decode: the toolkit knows it, and the last handle
+    // releases it.
+    let id = bitmap.id();
+    assert_eq!(day_core::with_tree(|t| t.image_info(id)), Some(info));
+    drop(bitmap);
+    assert_eq!(day_core::with_tree(|t| t.image_info(id)), None);
+}
+
+#[test]
+fn export_refuses_bad_sizes_and_missing_writers_before_the_toolkit_runs() {
+    let out = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let sink = out.clone();
+    let probe = boot(move || {
+        let sink = sink.clone();
+        button("export")
+            .action(move || {
+                let sink = sink.clone();
+                day_core::task(async move {
+                    let empty = Drawing::record(Size::new(0.0, 10.0), export_swatch);
+                    let huge = Drawing::record(Size::new(9_000.0, 9_000.0), export_swatch);
+                    let fine = Drawing::record(Size::new(10.0, 10.0), export_swatch);
+                    let png = fine.to_png(1.0).await;
+                    let answers = vec![
+                        empty.to_bitmap(1.0).await.err(),
+                        huge.to_bitmap(1.0).await.err(),
+                        fine.to_pdf().await.err(),
+                        PdfDocument::new().render().await.err(),
+                        png.err(),
+                    ];
+                    *sink.borrow_mut() = answers;
+                });
+            })
+            .id(day_core::id!(export))
+            .any()
+    });
+    probe.clear_log();
+    probe.emit(node_id(&probe, "day.button", 0), Event::Pressed);
+    flush_sync();
+    let answers = out.borrow();
+    assert_eq!(
+        *answers,
+        vec![
+            Some(ExportError::Invalid),
+            Some(ExportError::TooLarge {
+                width: 9_000,
+                height: 9_000
+            }),
+            Some(ExportError::Unsupported),
+            Some(ExportError::Unsupported),
+            None,
+        ]
+    );
+    // Only the one valid bitmap reached the toolkit.
+    let renders = probe
+        .log()
+        .iter()
+        .filter(|l| l.starts_with("render_bitmap"))
+        .count();
+    assert_eq!(renders, 1, "{:?}", probe.log());
+}
+
 #[test]
 fn an_image_piece_carries_bytes_and_swaps_them_without_realizing_again() {
     let state = std::rc::Rc::new(std::cell::Cell::new(None));

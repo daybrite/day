@@ -33,6 +33,12 @@ gtk4 = { workspace = true, features = ["v4_10"] }
 # slant, shaping and BiDi, where cairo's own "toy" text API has none. The C library is already
 # linked (gtk4.pc requires pangocairo); this is only the binding, from the same gtk-rs release.
 pangocairo = "0.22"
+# Canvas export (docs/canvas.md "Exporting"): cairo's PDF surface. gtk4 re-exports cairo-rs
+# without its `pdf` feature, so this names the same crate at the same version to turn it on; the
+# feature only declares the `cairo_pdf_*` symbols, which libcairo itself exports wherever its PDF
+# backend is built (Homebrew, Debian/Ubuntu and MSYS2's mingw-w64-cairo all build it). v1_16 is
+# for `cairo_pdf_surface_set_metadata` (title, author); cairo 1.16 predates every GTK 4.10 distro.
+cairo-rs = { version = "0.22", features = ["pdf", "v1_16"] }
 # libadwaita: the desktop navigation paradigm (AdwNavigationSplitView / AdwNavigationView),
 # AdwApplicationWindow + AdwToolbarView chrome, AdwViewStack/AdwViewSwitcher tabs, and
 # AdwAlertDialog. v1_5 gates AdwAlertDialog; it is the version shipped by Ubuntu 24.04, so CI

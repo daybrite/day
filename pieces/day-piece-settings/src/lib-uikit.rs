@@ -2248,7 +2248,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         .collect();
     if let Some(p) = about.privacy_url() {
         let url = p.to_string();
-        let mut cell = GroupedCell::new(day_fluent::tr("day-about-privacy").into_text())
+        let mut cell = GroupedCell::new(day_fluent::res::str::day_about_privacy().into_text())
             .with_id(day_core::id!(about_privacy))
             .tap(move || day_core::open_url(&url));
         cell.tone = Tone::Tint;
@@ -2262,14 +2262,14 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
     let mut notes: Vec<GroupedCell> = Vec::new();
     if let Some(c) = about.credits_text() {
         let credits = c.clone();
-        let row = rows::navigate(day_fluent::tr("day-about-acknowledgements"), move || {
+        let row = rows::navigate(day_fluent::res::str::day_about_acknowledgements(), move || {
             scroll(label(credits.clone()).padding(16.0))
         });
         notes.push(GroupedCell::from_row(inst.clone(), &row));
     }
     if let Some(l) = about.licenses_text() {
         let licenses = l.clone();
-        let row = rows::navigate(day_fluent::tr("day-about-licenses"), move || {
+        let row = rows::navigate(day_fluent::res::str::day_about_licenses(), move || {
             scroll(label(licenses.clone()).monospace().padding(16.0))
         });
         notes.push(GroupedCell::from_row(inst.clone(), &row));

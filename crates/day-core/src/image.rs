@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MPL-2.0
 
 //! Raster images (docs/images.md): decoding encoded bytes into a native image, reading what it
-//! is, encoding it back, and releasing it again.
+//! is, encoding it back, and releasing it again. Rendering a canvas drawing into a bitmap or a
+//! PDF (docs/canvas.md "Exporting") lives here too: a rendered bitmap is the same [`Bitmap`] a
+//! decode returns, held in the same toolkit table.
 //!
 //! The shape mirrors presentation (`present.rs`): a request id, a pending registry, and a
 //! completion that arrives as an [`Event`] the backend raises. It is request-shaped rather than
@@ -21,7 +23,10 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 
-use day_spec::{BitmapId, BitmapInfo, Cap, EncodeSpec, ImageError, ImageFormat, ImageProperties};
+use day_spec::{
+    BitmapId, BitmapInfo, Cap, DrawOp, EncodeSpec, ExportError, ImageError, ImageFormat,
+    ImageProperties, PdfInfo, PdfPage, Size,
+};
 
 use crate::with_tree;
 
@@ -33,10 +38,19 @@ day_reactive::tls_slots! {
     static PENDING_DECODE: RefCell<HashMap<u64, (BitmapId, Pending<(BitmapId, BitmapInfo)>)>> =
         RefCell::new(HashMap::new());
     static PENDING_ENCODE: RefCell<HashMap<u64, Pending<Vec<u8>>>> = RefCell::new(HashMap::new());
+    /// Canvas exports, keyed like the decodes: a rendered bitmap's id is minted here too.
+    static PENDING_BITMAP: RefCell<HashMap<u64, (BitmapId, Waiting<(BitmapId, BitmapInfo), ExportError>)>> =
+        RefCell::new(HashMap::new());
+    static PENDING_PDF: RefCell<HashMap<u64, Waiting<Vec<u8>, ExportError>>> =
+        RefCell::new(HashMap::new());
     /// Releases that arrived while the tree was borrowed (a handler dropping its last handle
     /// inside `collect_and_release`), drained at the top of the next pump, once the borrow ends.
     static DEFERRED_RELEASE: RefCell<Vec<BitmapId>> = RefCell::new(Vec::new());
     static NEXT_REQ: Cell<u64> = const { Cell::new(1) };
+    /// [`canvas_exports`]'s answer for the installed tree, read once: the caps and the encode
+    /// list never change under a running toolkit, and a context menu built inside the tree's
+    /// own borrow must still be able to ask.
+    static EXPORTS: Cell<Option<CanvasExports>> = const { Cell::new(None) };
     /// Ids are minted here, not by the backends: day-core hands the id to the backend with the
     /// bytes, so the backend's side table is keyed by something the app can name afterwards.
     /// Never reused, so a completion arriving after a release finds nothing and does nothing.
@@ -48,23 +62,27 @@ day_reactive::tls_slots! {
 ///
 /// Named rather than spelled out at each use so the three signatures below read as one idea,
 /// and not `Done<T>`, which is day-bridge's callback tier and a different thing.
-type ImageDone<T> = Box<dyn FnOnce(Result<T, ImageError>)>;
+type ImageDone<T, E = ImageError> = Box<dyn FnOnce(Result<T, E>)>;
 
-/// One waiting caller: either a future parked on a `Waker`, or a plain callback.
-struct Pending<T> {
-    shared: Rc<Shared<T>>,
-    callback: Option<ImageDone<T>>,
+/// One waiting caller: either a future parked on a `Waker`, or a plain callback. The error is
+/// [`ImageError`] for the image duties and [`ExportError`] for canvas exports.
+struct Waiting<T, E> {
+    shared: Rc<Shared<T, E>>,
+    callback: Option<ImageDone<T, E>>,
 }
 
-struct Shared<T> {
-    result: RefCell<Option<Result<T, ImageError>>>,
+/// The image duties' waiter, named so their signatures read as before.
+type Pending<T> = Waiting<T, ImageError>;
+
+struct Shared<T, E = ImageError> {
+    result: RefCell<Option<Result<T, E>>>,
     waker: RefCell<Option<Waker>>,
     /// The future was dropped before its answer came. A decode that completes afterwards has
     /// nobody to hand its image to, so the completion releases it instead of parking it.
     cancelled: Cell<bool>,
 }
 
-impl<T> Default for Shared<T> {
+impl<T, E> Default for Shared<T, E> {
     fn default() -> Self {
         Shared {
             result: RefCell::new(None),
@@ -433,7 +451,7 @@ pub fn resolve_image_encode(req: u64, result: Result<Vec<u8>, ImageError>) {
     deliver(entry, result);
 }
 
-fn deliver<T>(entry: Pending<T>, value: Result<T, ImageError>) {
+fn deliver<T, E>(entry: Waiting<T, E>, value: Result<T, E>) {
     if let Some(cb) = entry.callback {
         cb(value);
         return;
@@ -457,7 +475,356 @@ pub(crate) fn reset() {
     for entry in encodes {
         deliver(entry, Err(ImageError::Unsupported));
     }
+    let bitmaps: Vec<_> =
+        PENDING_BITMAP.with(|p| p.borrow_mut().drain().map(|(_, (_, e))| e).collect());
+    for entry in bitmaps {
+        deliver(entry, Err(ExportError::Unsupported));
+    }
+    let pdfs: Vec<_> = PENDING_PDF.with(|p| p.borrow_mut().drain().map(|(_, e)| e).collect());
+    for entry in pdfs {
+        deliver(entry, Err(ExportError::Unsupported));
+    }
     DEFERRED_RELEASE.with(|q| q.borrow_mut().clear());
+    EXPORTS.with(|c| c.set(None));
+}
+
+// ---------------------------------------------------------------------------
+// Canvas export (docs/canvas.md "Exporting")
+// ---------------------------------------------------------------------------
+
+/// What this toolkit can export a canvas drawing to ([`Cap::CanvasBitmap`],
+/// [`Cap::CanvasPdf`]). Read it to enable or hide export commands, the way
+/// [`image_encode_formats`] decides which formats to offer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CanvasExports {
+    /// [`render_bitmap`] works here, and with it PNG export wherever [`Bitmap::encode`] writes
+    /// PNG (see [`CanvasExports::png`]).
+    pub bitmap: bool,
+    /// [`render_pdf`] works here: the platform has a native PDF writer.
+    pub pdf: bool,
+    png: bool,
+}
+
+impl CanvasExports {
+    /// Whether a drawing can become PNG bytes here: a rendered bitmap plus a PNG encoder.
+    pub fn png(&self) -> bool {
+        self.png
+    }
+}
+
+/// What this toolkit can export a canvas drawing to.
+///
+/// Safe to call anywhere, including from a context menu that is built while the tree is busy
+/// summoning it: the answer is read once per installed tree and kept. Before a tree is
+/// installed, and in the rare case its first read lands inside a borrow, everything answers
+/// `false`.
+pub fn canvas_exports() -> CanvasExports {
+    if let Some(known) = EXPORTS.with(|c| c.get()) {
+        return known;
+    }
+    let Some(read) = crate::with_tree_if_free(|t| {
+        let yes = |cap| t.capability(cap) != day_spec::Support::Unsupported;
+        let bitmap = yes(Cap::CanvasBitmap);
+        CanvasExports {
+            bitmap,
+            pdf: yes(Cap::CanvasPdf),
+            png: bitmap && t.image_encode_formats().contains(&ImageFormat::Png),
+        }
+    }) else {
+        return CanvasExports::default();
+    };
+    EXPORTS.with(|c| c.set(Some(read)));
+    read
+}
+
+/// `size` points at `scale` is something a toolkit can be asked to render: positive and
+/// finite, and within [`day_spec::EXPORT_MAX_SIDE`] / [`day_spec::EXPORT_MAX_PIXELS`].
+fn check_bitmap(size: Size, scale: f64) -> Result<(), ExportError> {
+    let positive = |v: f64| v.is_finite() && v > 0.0;
+    if !positive(size.width) || !positive(size.height) || !positive(scale) {
+        return Err(ExportError::Invalid);
+    }
+    let (width, height) = day_spec::export_pixels(size, scale);
+    if width > day_spec::EXPORT_MAX_SIDE
+        || height > day_spec::EXPORT_MAX_SIDE
+        || u64::from(width) * u64::from(height) > day_spec::EXPORT_MAX_PIXELS
+    {
+        return Err(ExportError::TooLarge { width, height });
+    }
+    Ok(())
+}
+
+fn check_pdf(pages: &[PdfPage]) -> Result<(), ExportError> {
+    let positive = |v: f64| v.is_finite() && v > 0.0;
+    if pages.is_empty()
+        || pages
+            .iter()
+            .any(|p| !positive(p.size.width) || !positive(p.size.height))
+    {
+        return Err(ExportError::Invalid);
+    }
+    Ok(())
+}
+
+/// The check every bitmap export runs before asking the toolkit: the cap, then the size.
+fn admit_bitmap(size: Size, scale: f64) -> Result<(), ExportError> {
+    if support(Cap::CanvasBitmap) == day_spec::Support::Unsupported {
+        return Err(ExportError::Unsupported);
+    }
+    check_bitmap(size, scale)
+}
+
+fn admit_pdf(pages: &[PdfPage]) -> Result<(), ExportError> {
+    if support(Cap::CanvasPdf) == day_spec::Support::Unsupported {
+        return Err(ExportError::Unsupported);
+    }
+    check_pdf(pages)
+}
+
+/// Replay `ops` into an offscreen bitmap of `size` points at `scale` pixels per point, through
+/// the toolkit's own canvas painter. Resolves with a [`Bitmap`] like a decode does, so
+/// `image(&bitmap)`, `Draw::image` and [`Bitmap::encode`] all take it. Apps reach this through
+/// `Drawing::to_bitmap`.
+pub fn render_bitmap(ops: Vec<DrawOp>, size: Size, scale: f64) -> RenderBitmap {
+    RenderBitmap {
+        job: Some((ops, size, scale)),
+        shared: Rc::new(Shared::default()),
+        started: false,
+    }
+}
+
+/// [`render_bitmap`]'s callback half (docs/async.md rule 3).
+pub fn render_bitmap_async(
+    ops: Vec<DrawOp>,
+    size: Size,
+    scale: f64,
+    on_done: impl FnOnce(Result<Bitmap, ExportError>) + 'static,
+) {
+    if let Err(e) = admit_bitmap(size, scale) {
+        on_done(Err(e));
+        return;
+    }
+    start_bitmap(
+        &ops,
+        size,
+        scale,
+        None,
+        Some(Box::new(move |r| on_done(r.map(bitmap_from)))),
+    );
+}
+
+/// Replay each page into one PDF document through the platform's own PDF writer. Resolves with
+/// the document's bytes. Apps reach this through `Drawing::to_pdf` and `PdfDocument::render`.
+pub fn render_pdf(pages: Vec<PdfPage>, info: PdfInfo) -> RenderPdf {
+    RenderPdf {
+        job: Some((pages, info)),
+        shared: Rc::new(Shared::default()),
+        started: false,
+    }
+}
+
+/// [`render_pdf`]'s callback half (docs/async.md rule 3).
+pub fn render_pdf_async(
+    pages: Vec<PdfPage>,
+    info: PdfInfo,
+    on_done: impl FnOnce(Result<Vec<u8>, ExportError>) + 'static,
+) {
+    if let Err(e) = admit_pdf(&pages) {
+        on_done(Err(e));
+        return;
+    }
+    start_pdf(&pages, &info, None, Some(Box::new(on_done)));
+}
+
+fn start_bitmap(
+    ops: &[DrawOp],
+    size: Size,
+    scale: f64,
+    shared: Option<Rc<Shared<(BitmapId, BitmapInfo), ExportError>>>,
+    callback: Option<ImageDone<(BitmapId, BitmapInfo), ExportError>>,
+) {
+    let req = next_req();
+    let id = next_bitmap();
+    PENDING_BITMAP.with(|p| {
+        p.borrow_mut().insert(
+            req,
+            (
+                id,
+                Waiting {
+                    shared: shared.unwrap_or_default(),
+                    callback,
+                },
+            ),
+        )
+    });
+    with_tree(|t| t.render_bitmap(req, id, ops, size, scale));
+}
+
+fn start_pdf(
+    pages: &[PdfPage],
+    info: &PdfInfo,
+    shared: Option<Rc<Shared<Vec<u8>, ExportError>>>,
+    callback: Option<ImageDone<Vec<u8>, ExportError>>,
+) {
+    let req = next_req();
+    PENDING_PDF.with(|p| {
+        p.borrow_mut().insert(
+            req,
+            Waiting {
+                shared: shared.unwrap_or_default(),
+                callback,
+            },
+        )
+    });
+    with_tree(|t| t.render_pdf(req, pages, info));
+}
+
+/// A bitmap render in flight. Resolves with the rendered [`Bitmap`], or why it could not be.
+/// Nothing is asked of the toolkit until the first poll.
+pub struct RenderBitmap {
+    job: Option<(Vec<DrawOp>, Size, f64)>,
+    shared: Rc<Shared<(BitmapId, BitmapInfo), ExportError>>,
+    started: bool,
+}
+
+impl Future for RenderBitmap {
+    type Output = Result<Bitmap, ExportError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(result) = self.shared.result.borrow_mut().take() {
+            return Poll::Ready(result.map(bitmap_from));
+        }
+        if !self.started {
+            self.started = true;
+            let Some((ops, size, scale)) = self.job.take() else {
+                return Poll::Ready(Err(ExportError::Invalid));
+            };
+            if let Err(e) = admit_bitmap(size, scale) {
+                return Poll::Ready(Err(e));
+            }
+            start_bitmap(&ops, size, scale, Some(self.shared.clone()), None);
+            // Answered inline everywhere but the browser; see `DecodeFuture::poll`.
+            if let Some(result) = self.shared.result.borrow_mut().take() {
+                return Poll::Ready(result.map(bitmap_from));
+            }
+        }
+        *self.shared.waker.borrow_mut() = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+impl Drop for RenderBitmap {
+    fn drop(&mut self) {
+        // The same two cases as `DecodeFuture`: answered but never taken, or still in flight.
+        if let Some(Ok((id, _))) = self.shared.result.borrow_mut().take() {
+            release(id);
+        }
+        self.shared.cancelled.set(true);
+    }
+}
+
+/// A PDF render in flight. Resolves with the document's bytes, or why they could not be
+/// produced. Nothing is asked of the toolkit until the first poll.
+pub struct RenderPdf {
+    job: Option<(Vec<PdfPage>, PdfInfo)>,
+    shared: Rc<Shared<Vec<u8>, ExportError>>,
+    started: bool,
+}
+
+impl Future for RenderPdf {
+    type Output = Result<Vec<u8>, ExportError>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        if let Some(result) = self.shared.result.borrow_mut().take() {
+            return Poll::Ready(result);
+        }
+        if !self.started {
+            self.started = true;
+            let Some((pages, info)) = self.job.take() else {
+                return Poll::Ready(Err(ExportError::Invalid));
+            };
+            if let Err(e) = admit_pdf(&pages) {
+                return Poll::Ready(Err(e));
+            }
+            start_pdf(&pages, &info, Some(self.shared.clone()), None);
+            if let Some(result) = self.shared.result.borrow_mut().take() {
+                return Poll::Ready(result);
+            }
+        }
+        *self.shared.waker.borrow_mut() = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+/// Deliver a bitmap render's answer (`Event::BitmapRendered`). The same contract as
+/// [`resolve_image_decode`], including releasing a success nobody is waiting for.
+pub fn resolve_bitmap_render(req: u64, result: Result<BitmapInfo, ExportError>) {
+    let Some((id, entry)) = PENDING_BITMAP.with(|p| p.borrow_mut().remove(&req)) else {
+        return;
+    };
+    if entry.callback.is_none() && entry.shared.cancelled.get() {
+        if result.is_ok() {
+            release(id);
+        }
+        return;
+    }
+    deliver(entry, result.map(|info| (id, info)));
+}
+
+/// Deliver a PDF render's answer (`Event::PdfRendered`).
+pub fn resolve_pdf_render(req: u64, result: Result<Vec<u8>, ExportError>) {
+    let Some(entry) = PENDING_PDF.with(|p| p.borrow_mut().remove(&req)) else {
+        return;
+    };
+    deliver(entry, result);
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    #[test]
+    fn bitmap_sizes_are_checked_before_the_toolkit() {
+        let size = Size::new(100.0, 50.0);
+        assert_eq!(check_bitmap(size, 2.0), Ok(()));
+        assert_eq!(
+            check_bitmap(Size::new(0.0, 50.0), 1.0),
+            Err(ExportError::Invalid)
+        );
+        assert_eq!(check_bitmap(size, f64::NAN), Err(ExportError::Invalid));
+        assert_eq!(check_bitmap(size, -1.0), Err(ExportError::Invalid));
+        assert_eq!(
+            check_bitmap(Size::new(16_385.0, 1.0), 1.0),
+            Err(ExportError::TooLarge {
+                width: 16_385,
+                height: 1
+            })
+        );
+        // Each side fits, the total does not: 10,000 × 10,000 is 100 megapixels.
+        assert_eq!(
+            check_bitmap(Size::new(5_000.0, 5_000.0), 2.0),
+            Err(ExportError::TooLarge {
+                width: 10_000,
+                height: 10_000
+            })
+        );
+        // Partial pixels round up, so the limit counts the bitmap actually allocated.
+        assert_eq!(day_spec::export_pixels(Size::new(10.2, 3.0), 2.0), (21, 6));
+    }
+
+    #[test]
+    fn a_pdf_needs_pages_with_a_size() {
+        assert_eq!(check_pdf(&[]), Err(ExportError::Invalid));
+        let page = |w, h| PdfPage {
+            size: Size::new(w, h),
+            ops: Vec::new(),
+        };
+        assert_eq!(check_pdf(&[page(612.0, 792.0)]), Ok(()));
+        assert_eq!(
+            check_pdf(&[page(612.0, 792.0), page(0.0, 10.0)]),
+            Err(ExportError::Invalid)
+        );
+    }
 }
 
 #[cfg(test)]

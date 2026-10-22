@@ -179,21 +179,21 @@ pub fn menu_role(role: day_spec::MenuRole) -> MenuEntry {
 fn role_catalog_key(role: day_spec::MenuRole) -> &'static str {
     use day_spec::MenuRole as R;
     match role {
-        R::Cut => "day-cut",
-        R::Copy => "day-copy",
-        R::Paste => "day-paste",
-        R::SelectAll => "day-select-all",
-        R::Undo => "day-undo",
-        R::Redo => "day-redo",
-        R::Delete => "day-delete",
-        R::About => "day-about",
-        R::Quit => "day-quit",
-        R::Preferences => "day-preferences",
-        R::Minimize => "day-minimize",
-        R::CloseWindow => "day-close",
-        R::Fullscreen => "day-fullscreen",
-        R::NewWindow => "day-new-window",
-        R::CheckForUpdates => "day-check-for-updates",
+        R::Cut => "day_cut",
+        R::Copy => "day_copy",
+        R::Paste => "day_paste",
+        R::SelectAll => "day_select_all",
+        R::Undo => "day_undo",
+        R::Redo => "day_redo",
+        R::Delete => "day_delete",
+        R::About => "day_about",
+        R::Quit => "day_quit",
+        R::Preferences => "day_preferences",
+        R::Minimize => "day_minimize",
+        R::CloseWindow => "day_close",
+        R::Fullscreen => "day_fullscreen",
+        R::NewWindow => "day_new_window",
+        R::CheckForUpdates => "day_check_for_updates",
     }
 }
 

@@ -902,7 +902,7 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
         .collect();
     if let Some(p) = about.privacy_url() {
         links.push((
-            day_fluent::tr("day-about-privacy").into_text(),
+            day_fluent::res::str::day_about_privacy().into_text(),
             p.to_string(),
             day_core::id!(about_privacy),
         ));
@@ -918,14 +918,14 @@ pub(super) fn about_page(inst: Rc<Installed>) -> Option<AnyPiece> {
     }
     if let Some(c) = about.credits_text() {
         let credits = c.clone();
-        let r = rows::navigate(day_fluent::tr("day-about-acknowledgements"), move || {
+        let r = rows::navigate(day_fluent::res::str::day_about_acknowledgements(), move || {
             scroll(label(credits.clone()).padding(PAD_H))
         });
         lines.push(crate::row_piece(inst.clone(), &r, false));
     }
     if let Some(l) = about.licenses_text() {
         let licenses = l.clone();
-        let r = rows::navigate(day_fluent::tr("day-about-licenses"), move || {
+        let r = rows::navigate(day_fluent::res::str::day_about_licenses(), move || {
             scroll(label(licenses.clone()).monospace().padding(PAD_H))
         });
         lines.push(crate::row_piece(inst.clone(), &r, false));

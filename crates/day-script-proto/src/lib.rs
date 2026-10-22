@@ -303,7 +303,7 @@ pub enum Step {
     /// leaf in the installed app-menu model by exact `item` label, or by `key`, a Fluent
     /// key resolved in the run's locale (locale-portable; a standard-role item also
     /// matches its role's core-catalog key, so the auto Preferences item is
-    /// `key: day-preferences`). `path` disambiguates with ancestor submenu labels (suffix
+    /// `key: day_preferences`). `path` disambiguates with ancestor submenu labels (suffix
     /// match). Items that run a native selector instead of a day action (role items with
     /// id 0) are not invokable this way.
     /// Choose an item from an element's context menu (`.context_menu`, `.context_menu_fn`;
@@ -329,7 +329,7 @@ pub enum Step {
     /// Choose an app-menu item. Address it by `id:` (the name the app gave it with
     /// `MenuEntry::id`) in preference to anything else: a label is localized, and an item that
     /// shows a check mark rewrites its label as the state moves, so neither is a stable
-    /// address. `item:` matches the literal label, `key:` a built-in role key (`day-copy`) or a
+    /// address. `item:` matches the literal label, `key:` a built-in role key (`day_copy`) or a
     /// Fluent key resolved in the run's locale.
     Menu {
         #[serde(default)]

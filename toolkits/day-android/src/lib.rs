@@ -1035,6 +1035,19 @@ mod imp {
         },
     }
 
+    // DayCanvasView (java/dev/daybrite/day/bridge/DayCanvasView.java): the canvas exports, which
+    // paint with the OpPainter the view's own onDraw uses (docs/canvas.md "Exporting").
+    crate::java_class! {
+        DayCanvasView => dev.daybrite.day.bridge.DayCanvasView,
+        methods {
+            static fn exportError() -> JString,
+            static fn renderBitmap(id: jlong, nums: jdouble[], texts_joined: JString, pw: jint,
+                ph: jint, scale: jdouble) -> jboolean,
+            static fn renderPdf(nums: jdouble[], num_counts: jint[], texts_joined: JString,
+                text_counts: jint[], sizes: jdouble[]) -> jbyte[],
+        },
+    }
+
     /// The natives `DayBridge` declares, each forwarding to the function that does the work.
     /// jni's wrapper around each catches a panic and logs a returned error, so none of these
     /// can unwind into the JVM.
@@ -2844,6 +2857,117 @@ mod imp {
         .ok_or(day_spec::ImageError::Encode)
     }
 
+    /// The platform's reason for the export that just failed, or `fallback` when the call
+    /// itself failed before Java could record one.
+    fn export_failure(env: &mut Env, fallback: &str) -> day_spec::ExportError {
+        let why = java_string(env, DayCanvasView::exportError)
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| fallback.to_string());
+        day_spec::ExportError::Failed(why)
+    }
+
+    /// `render_bitmap`'s body: one JNI call that paints and stores the bitmap, then the facts
+    /// of what was stored. A free function so each refusal is an early return.
+    fn export_bitmap(
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) -> Result<day_spec::BitmapInfo, day_spec::ExportError> {
+        if !vm_ready() {
+            return Err(day_spec::ExportError::Unsupported);
+        }
+        let (pw, ph) = day_spec::export_pixels(size, scale);
+        // day-core caps a side at 16,384 pixels, so both fit an `int`.
+        let (Ok(jw), Ok(jh)) = (i32::try_from(pw), i32::try_from(ph)) else {
+            return Err(day_spec::ExportError::TooLarge {
+                width: pw,
+                height: ph,
+            });
+        };
+        let (nums, texts) = day_spec::encode_ops(ops);
+        with_env(|env| {
+            let painted = java_in(env, |env| {
+                let arr = env.new_double_array(nums.len())?;
+                arr.set_region(env, 0, &nums)?;
+                let joined = JString::from_str(env, texts.join("\u{1f}"))?;
+                DayCanvasView::renderBitmap(env, id.0 as i64, &arr, &joined, jw, jh, scale)
+            });
+            match painted {
+                Some(true) => Ok(day_spec::BitmapInfo {
+                    pixels: Size::new(f64::from(pw), f64::from(ph)),
+                    scale,
+                    format: None,
+                    // Created ARGB_8888 on a transparent field.
+                    has_alpha: true,
+                }),
+                Some(false) => Err(export_failure(env, "the bitmap could not be created")),
+                None => Err(day_spec::ExportError::Failed(
+                    "the bitmap render call failed".into(),
+                )),
+            }
+        })
+    }
+
+    /// `render_pdf`'s body. The pages cross JNI in one call: every page's numbers in one
+    /// `double[]` and its texts in one joined string, with per-page counts to split them by,
+    /// so no page state lives in Java between calls.
+    fn export_pdf(pages: &[day_spec::PdfPage]) -> Result<Vec<u8>, day_spec::ExportError> {
+        if !vm_ready() {
+            return Err(day_spec::ExportError::Unsupported);
+        }
+        let mut nums = Vec::new();
+        let mut texts = Vec::new();
+        let mut num_counts = Vec::with_capacity(pages.len());
+        let mut text_counts = Vec::with_capacity(pages.len());
+        let mut sizes = Vec::with_capacity(pages.len() * 2);
+        for page in pages {
+            let (n, t) = day_spec::encode_ops(&page.ops);
+            let counts = (i32::try_from(n.len()), i32::try_from(t.len()));
+            let (Ok(nc), Ok(tc)) = counts else {
+                return Err(day_spec::ExportError::Invalid);
+            };
+            num_counts.push(nc);
+            text_counts.push(tc);
+            nums.extend_from_slice(&n);
+            texts.extend(t);
+            sizes.push(page.size.width);
+            sizes.push(page.size.height);
+        }
+        with_env(|env| {
+            let bytes = java_in(env, |env| {
+                let jnums = env.new_double_array(nums.len())?;
+                jnums.set_region(env, 0, &nums)?;
+                let jnum_counts = env.new_int_array(num_counts.len())?;
+                jnum_counts.set_region(env, 0, &num_counts)?;
+                let jtext_counts = env.new_int_array(text_counts.len())?;
+                jtext_counts.set_region(env, 0, &text_counts)?;
+                let jsizes = env.new_double_array(sizes.len())?;
+                jsizes.set_region(env, 0, &sizes)?;
+                let joined = JString::from_str(env, texts.join("\u{1f}"))?;
+                let arr = DayCanvasView::renderPdf(
+                    env,
+                    &jnums,
+                    &jnum_counts,
+                    &joined,
+                    &jtext_counts,
+                    &jsizes,
+                )?;
+                if arr.is_null() {
+                    return Ok(None);
+                }
+                env.convert_byte_array(&arr).map(Some)
+            });
+            match bytes {
+                Some(Some(pdf)) => Ok(pdf),
+                Some(None) => Err(export_failure(env, "the PDF could not be written")),
+                None => Err(day_spec::ExportError::Failed(
+                    "the PDF render call failed".into(),
+                )),
+            }
+        })
+    }
+
     /// Ask the bridge for a PNG of this app's window (docs/window-image.md).
     ///
     /// The bytes come back as a Java `byte[]` and are copied out with `convert_byte_array`: no
@@ -2890,6 +3014,9 @@ mod imp {
                 // absent because there is no metadata reader on this path, and an empty struct
                 // would read as "this file records nothing" rather than "nobody looked".
                 Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+                // Canvas exports paint with DayCanvasView's own OpPainter: into a `Bitmap` for the
+                // bitmap, onto `PdfDocument` pages for the PDF (docs/canvas.md "Exporting").
+                Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
                 // `View.draw(Canvas)` renders this app's own window into a bitmap
                 // (docs/window-image.md); surface-backed content is the documented gap.
                 Cap::Snapshot => Support::Native,
@@ -5069,6 +5196,32 @@ mod imp {
                     let _ = DayBridge::imageRelease(env, id.0 as i64);
                 });
             }
+        }
+
+        /// Paint `ops` into a new `Bitmap` with the painter `replay` drives (`DayCanvasView`'s
+        /// `OpPainter`), stored in `DayBridge.bitmaps` beside decoded bitmaps, so every image
+        /// duty and the image piece take it (docs/canvas.md "Exporting").
+        fn render_bitmap(
+            &mut self,
+            req: u64,
+            id: day_spec::BitmapId,
+            ops: &[DrawOp],
+            size: Size,
+            scale: f64,
+        ) {
+            let result = export_bitmap(id, ops, size, scale);
+            if let Ok(info) = result {
+                BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+            }
+            emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+        }
+
+        /// One `PdfDocument` page per drawing, painted by the same `OpPainter`. The writer has
+        /// no metadata API, so `info` (title, author) goes unwritten, and its pages take whole
+        /// points.
+        fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], _info: &day_spec::PdfInfo) {
+            let result = export_pdf(pages);
+            emit(day_spec::WINDOW_NODE, Event::PdfRendered { req, result });
         }
 
         fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

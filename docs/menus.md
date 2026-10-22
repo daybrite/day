@@ -363,7 +363,7 @@ A tagged menu replaces the stock one *in place*, so it also lands where the plat
 menu to sit: `File`, `Edit`, `View` in the bar's leading order rather than adrift after them.
 
 The tag identifies the slot, not the title, because of localization: day's catalog and your
-app's may translate the same menu differently (day's `day-view` is *Présentation*; the showcase's is
+app's may translate the same menu differently (day's `day_view` is *Présentation*; the showcase's is
 *Affichage*), so a bar matched on titles would show both under `--locale fr`. An untagged submenu
 whose title *does* equal the slot's standard name still takes the slot (that stops the most common
 accidental duplicate), but it is a safety net, not the contract. Tag the menu.
@@ -513,8 +513,8 @@ instead of quietly hitting some other item that reads the same.
 
 `menu: { item: "Save" }` invokes a unique app-menu action by exact label;
 `menu: { key: menu_save }` resolves a Fluent key in the run's locale first (locale-portable:
-app keys and the `day-*` role keys both work, so the auto Preferences item is
-`key: day-preferences`, with or without an installed app menu). `path: [File]`
+app keys and the `day_*` role keys both work, so the auto Preferences item is
+`key: day_preferences`, with or without an installed app menu). `path: [File]`
 disambiguates by ancestor submenu: each entry matches a submenu's literal label or its
 Fluent key resolved in the run's locale, so `path: [menu_file]` works wherever
 `key: menu_file` does and one script stays valid in every language. The step dispatches the

@@ -53,6 +53,12 @@ pub use day_core::{
 pub use day_core::{focus_search, request_route};
 /// Tweening for canvas animations (docs/tween.md): `Lerp`, `Timing`, `animate`, `Tweened`.
 pub use day_core::{testing, tween};
+/// Canvas export (docs/canvas.md "Exporting"): render a recorded `Drawing` to a bitmap or a PDF
+/// through the toolkit's own painter. `canvas_exports()` says which of the two this target
+/// offers; the PDF writer is native on AppKit, UIKit, GTK, Qt and Android only.
+pub use day_pieces::{
+    CanvasExports, Drawing, PdfDocument, RenderBitmap, RenderPdf, canvas_exports,
+};
 pub use day_spec::AppBadge;
 pub use day_spec::applications::{
     Application, ApplicationError, ApplicationHandlers, HandlerQuery,
@@ -65,6 +71,7 @@ pub use day_spec::present::app_temp_dir;
 pub use day_spec::{
     BitmapId, BitmapInfo, EncodeSpec, ImageError, ImageFormat, ImageProperties, ImageSource,
 };
+pub use day_spec::{EXPORT_MAX_PIXELS, EXPORT_MAX_SIDE, ExportError, PdfInfo, PdfPage};
 pub use day_spec::{KeyEvent, Modifiers};
 // Secondary windows (docs/windows.md): open/find windows, the kind that shapes their
 // chrome, and the preferences/new-window registrations behind the auto menu items.
@@ -340,7 +347,7 @@ pub mod cursor {
         pub const TOP_LEFT_DIAGONAL: Cursor = Cursor::native("top_left_diagonal_double_arrow");
     }
 }
-pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, tr};
+pub use day_fluent::{IntoFArg, IntoNumberFArg, LocalizedText, res, tr};
 
 /// The `log` crate itself, for an app that needs more than the macros (a `LevelFilter`, a custom
 /// `log::Log`). Re-exported by name so `use day::prelude::*` is enough, the same rule the model

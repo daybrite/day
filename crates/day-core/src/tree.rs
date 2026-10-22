@@ -924,6 +924,9 @@ pub trait TreeOps {
     fn set_route(&mut self, route: &str);
     fn child_count(&self, node: RNode) -> usize;
     fn first_child(&self, node: RNode) -> Option<RNode>;
+    /// `node`'s parent, `None` at a root: the window root, or a list cell's anchor, whose
+    /// parent is the native cell rather than a Day node.
+    fn parent_of(&self, node: RNode) -> Option<RNode>;
     fn node_kind(&self, node: RNode) -> Option<PieceKind>;
     /// The app-authored `.id()` string on `node` (`find_by_id`'s inverse), or `None` for an id-less
     /// or disposed node. Backs the free [`id_of`], the recorder's NodeId → id lookup (§14.6).
@@ -986,6 +989,19 @@ pub trait TreeOps {
     fn image_encode_formats(&mut self) -> Vec<day_spec::ImageFormat>;
     /// Release a decoded image (see `Toolkit::release_image`).
     fn release_image(&mut self, id: day_spec::BitmapId);
+    /// Render a canvas drawing into a bitmap under `id` (see `Toolkit::render_bitmap`); the
+    /// answer arrives as `Event::BitmapRendered`.
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[day_spec::DrawOp],
+        size: Size,
+        scale: f64,
+    );
+    /// Render canvas drawings into a PDF (see `Toolkit::render_pdf`); the answer arrives as
+    /// `Event::PdfRendered`.
+    fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo);
     /// Whether the toolkit can rasterize its own window at all (`Cap::Snapshot`).
     fn window_image_support(&mut self) -> day_spec::Support;
     /// The platform's font families (see `Toolkit::font_families`); cached by day-core.
@@ -1198,9 +1214,11 @@ pub trait TreeOps {
     fn set_drop_target(&mut self, node: RNode, target: day_spec::transfer::Target);
     /// Install a summon-time context-menu provider on `node` (docs/menus.md).
     fn set_context_menu_fn(&mut self, node: RNode, f: day_spec::ContextMenuFn);
-    /// The context menu the app gave `node` (or its nearest ancestor that has one), a
-    /// provider's asked at the origin; what the dayscript `context_menu` step chooses from.
-    fn context_menu_of(&mut self, node: RNode) -> Option<Vec<day_spec::MenuItem>>;
+    /// The context menu the app gave `node` (or its nearest ancestor that has one), as a
+    /// provider; what the dayscript `context_menu` step chooses from. Returned rather than
+    /// called, because a provider is app code: it may select what it summons over and flush,
+    /// which re-enters the tree, so the caller asks it once the tree borrow has ended.
+    fn context_menu_of(&mut self, node: RNode) -> Option<day_spec::ContextMenuFn>;
 }
 
 impl<B: Toolkit> TreeOps for Tree<B> {
@@ -2135,6 +2153,13 @@ impl<B: Toolkit> TreeOps for Tree<B> {
             .and_then(|n| n.children.first().copied())
     }
 
+    fn parent_of(&self, node: RNode) -> Option<RNode> {
+        self.nodes
+            .get(node)
+            .map(|n| n.parent)
+            .filter(|p| !p.is_null() && *p != node)
+    }
+
     fn node_kind(&self, node: RNode) -> Option<PieceKind> {
         self.nodes.get(node).map(|n| n.kind)
     }
@@ -2295,6 +2320,21 @@ impl<B: Toolkit> TreeOps for Tree<B> {
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
         self.toolkit.release_image(id);
+    }
+
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[day_spec::DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        self.toolkit.render_bitmap(req, id, ops, size, scale);
+    }
+
+    fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {
+        self.toolkit.render_pdf(req, pages, info);
     }
 
     fn window_image_support(&mut self) -> day_spec::Support {
@@ -2957,15 +2997,18 @@ impl<B: Toolkit> TreeOps for Tree<B> {
         }
     }
 
-    fn context_menu_of(&mut self, node: RNode) -> Option<Vec<day_spec::MenuItem>> {
+    fn context_menu_of(&mut self, node: RNode) -> Option<day_spec::ContextMenuFn> {
         // The element a script names may sit above or below the node the menu landed on (an id
         // on a wrapper, a menu on the label inside it): the node itself, then its ancestors.
         let mut cur = node;
         loop {
             if let Some(model) = self.context_menus.get(&cur) {
                 return Some(match model {
-                    ContextMenuModel::Items(items) => items.clone(),
-                    ContextMenuModel::Provider(f) => f(Point::ZERO),
+                    ContextMenuModel::Items(items) => {
+                        let items = items.clone();
+                        Rc::new(move |_| items.clone())
+                    }
+                    ContextMenuModel::Provider(f) => f.clone(),
                 });
             }
             // The root (and a list cell's anchor) is its own parent, or has a null one,
@@ -3019,6 +3062,9 @@ pub fn install_tree(tree: Box<dyn TreeOps>) {
     // A fresh mount starts with no route hosts; nav()/tabs() re-register during build.
     crate::nav::clear_controllers();
     TREE.with(|t| *t.borrow_mut() = Some(tree));
+    // Read the export answers now, while the tree is free, so a context menu built inside a
+    // later borrow finds them (`image::canvas_exports`).
+    let _ = crate::image::canvas_exports();
 }
 
 /// Tear the current mount down so the app can be built again in the same process
@@ -3429,6 +3475,15 @@ fn pump_events_inner() {
         }
         if let Event::ImageEncoded { req, result } = ev {
             crate::image::resolve_image_encode(req, result);
+            continue;
+        }
+        // Canvas exports answer the caller too (docs/canvas.md "Exporting").
+        if let Event::BitmapRendered { req, result } = ev {
+            crate::image::resolve_bitmap_render(req, result);
+            continue;
+        }
+        if let Event::PdfRendered { req, result } = ev {
+            crate::image::resolve_pdf_render(req, result);
             continue;
         }
         // Menu actions are keyed by action id, not by tree node (§ menus).

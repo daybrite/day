@@ -1258,8 +1258,9 @@ pub fn render_app(plan: &ResourcePlan, app_title: Option<&str>, window: WindowGe
 /// one-liner an app's `root()` calls; the source list can't drift from the directory because
 /// it is the directory.
 ///
-/// Paths are absolute because this file is `include!`d from `$OUT_DIR`, so a relative
-/// `include_str!` would resolve against `$OUT_DIR` rather than the crate. Several `.ftl` files
+/// A relative `include_str!` would resolve against `$OUT_DIR`, where this file is `include!`d
+/// from, rather than the crate, so each source is named from the crate root through
+/// [`include_source`]. Several `.ftl` files
 /// in one locale directory `concat!` into a single source (Fluent bundles are per-locale, and
 /// `day_l10n::install` keys them by tag, so two entries for one tag would shadow, not merge).
 fn render_locales(s: &mut String, locales: &[LocaleEntry]) {
@@ -1279,12 +1280,11 @@ fn render_locales_for(s: &mut String, locales: &[LocaleEntry], scope: Option<&st
      \x20   pub const CATALOG: &[(&str, &str)] = &[\n",
     );
     for l in locales {
-        // The full path, not `display`'s three-component diagnostic form; `{:?}` escapes it
-        // into a valid Rust literal (Windows separators included).
+        let manifest_dir = std::env::var_os("CARGO_MANIFEST_DIR").map(PathBuf::from);
         let sources: Vec<String> = l
             .sources
             .iter()
-            .map(|p| format!("include_str!({:?})", p.display().to_string()))
+            .map(|p| include_source(p, manifest_dir.as_deref()))
             .collect();
         // `concat!` of one argument is the identity, so the single-file case stays readable.
         let src = if sources.is_empty() {
@@ -1435,6 +1435,10 @@ fn render_strings(s: &mut String, entries: &[StrEntry]) {
 fn render_strings_for(s: &mut String, entries: &[StrEntry], api: &str, constructor: &str) {
     s.push_str("#[allow(dead_code, unused_imports, non_snake_case, clippy::too_many_arguments)]\n");
     s.push_str("pub mod str {\n");
+    // Day's own strings (`day_cancel`, `day_about_website`, …) sit beside the crate's, so every
+    // localized string is named the same way. The glob loses to an item of the same name, so a
+    // message the crate defines under a core key overrides that accessor, as it overrides the text.
+    s.push_str(&format!("    pub use ::{api}::res::str::*;\n"));
     for e in entries {
         // Each param is `impl day::IntoFArg<Mn>`, or `IntoNumberFArg` when the message uses it as a
         // plural/`select` selector (a distinct marker generic per arg). The Rust parameter ident is
@@ -1682,6 +1686,30 @@ pub fn sanitize_ident(name: &str) -> String {
         s.insert(0, 'r');
     }
     s
+}
+
+/// The `include_str!` for one embedded source file.
+///
+/// A file inside the crate is named from `env!("CARGO_MANIFEST_DIR")`, never by its absolute
+/// path, so the generated text is the same wherever the project sits. That is what makes a
+/// release binary reproducible from another directory (`day rebuild`, §20.3): rustc records
+/// source positions as offsets into every file it loaded, a crate that calls into this module
+/// loads this file too, and a path spelled out here would change its length, shift every later
+/// offset, and change the binary's ThinLTO symbol suffixes with them. A file outside the crate (a
+/// flavor's merged tree under another root) keeps its absolute path; `{:?}` escapes either into a
+/// valid Rust literal, Windows separators included.
+fn include_source(path: &Path, manifest_dir: Option<&Path>) -> String {
+    if let Some(rel) = manifest_dir.and_then(|root| path.strip_prefix(root).ok()) {
+        let rel: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
+        return format!(
+            "include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {:?}))",
+            format!("/{}", rel.join("/"))
+        );
+    }
+    format!("include_str!({:?})", path.display().to_string())
 }
 
 /// A project-relative-ish display path for error messages / doc comments (`resource/images/x.png`).
@@ -2003,6 +2031,8 @@ mod tests {
         };
         let code = render(&plan);
         assert!(code.contains("pub mod str {"));
+        // Day's core accessors sit beside the app's (`res::str::day_cancel()`).
+        assert!(code.contains("pub use ::day::res::str::*;"));
         assert!(code.contains("/// `hello_world` — `Hello!`")); // #5: doc shows the value
         assert!(
             code.contains(
@@ -2115,6 +2145,36 @@ mod tests {
         );
         assert!(code.contains("day::install_locales(DEFAULT, CATALOG);"));
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn sources_inside_the_crate_are_named_from_the_manifest_dir() {
+        let root = Path::new("/work/My App");
+        let inside = root
+            .join("resource")
+            .join("locales")
+            .join("fr")
+            .join("app.ftl");
+        assert_eq!(
+            include_source(&inside, Some(root)),
+            "include_str!(concat!(env!(\"CARGO_MANIFEST_DIR\"), \"/resource/locales/fr/app.ftl\"))"
+        );
+        // The same file from another checkout renders the same text, so nothing about the
+        // directory reaches the compiler's source map.
+        let elsewhere = Path::new("/tmp/rebuild/src/My App");
+        assert_eq!(
+            include_source(
+                &elsewhere.join("resource/locales/fr/app.ftl"),
+                Some(elsewhere)
+            ),
+            include_source(&inside, Some(root))
+        );
+        // Outside the crate (a flavor's merged tree) the absolute path stays.
+        let outside = Path::new("/elsewhere/resource/locales/fr/app.ftl");
+        assert_eq!(
+            include_source(outside, Some(root)),
+            format!("include_str!({:?})", outside.display().to_string())
+        );
     }
 
     #[test]

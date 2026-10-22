@@ -368,6 +368,102 @@ Backends draw a batch as a single native path — one `NSBezierPath`, one `Path2
 transform per copy into one geometry — so the rasterizer is entered once however many copies there
 are, rather than once per mark.
 
+## Exporting
+
+The draw function a canvas runs can also render offscreen: to a bitmap, and from there to PNG, or
+to a PDF. Export replays the same display list through the same native painter the canvas uses,
+so text, gradients, clips and stamps come out as they look on screen.
+
+Write the drawing once as a plain function, and call it from the canvas and from export:
+
+```rust
+fn draw_chart(d: &mut Draw, size: Size, series: &[f64]) { /* … */ }
+
+// On screen: layout supplies the size, and reading the signal re-records.
+canvas(move |d, size| draw_chart(d, size, &series.get()))
+
+// Offscreen: you supply the size. Recording runs once and subscribes to nothing.
+let drawing = Drawing::record(Size::new(600.0, 400.0), |d, size| {
+    draw_chart(d, size, &series.get())
+});
+day::task(async move {
+    match drawing.to_png(2.0).await {
+        Ok(png) => {
+            let _ = save_file(png).suggested_name("chart.png").filter("PNG", &["png"]).await;
+        }
+        Err(e) => warn!("export failed: {e}"),
+    }
+});
+```
+
+- `drawing.to_bitmap(scale)` resolves to a [`Bitmap`](images.md), the same handle a decode
+  returns, so `image(&bitmap)`, `Draw::image` and `bitmap.encode(…)` all take it. Its pixel size
+  is the drawing's size times `scale`, each side rounded up, and its `info().scale` is `scale`, so
+  it shows at the drawing's point size.
+- `drawing.to_png(scale)` is `to_bitmap` followed by `encode` as PNG.
+- `drawing.to_pdf()` is a one-page PDF the size of the drawing. `PdfDocument` builds several pages,
+  each the size of its drawing:
+
+```rust
+const LETTER: Size = Size::new(612.0, 792.0);   // PDF points, the same unit as canvas points
+
+let mut doc = PdfDocument::new().title("Quarterly report").author("Sales");
+for region in &regions {
+    doc = doc.page(Drawing::record(LETTER, |d, size| draw_region(d, size, region)));
+}
+let pdf = doc.render().await?;
+```
+
+To fit a smaller drawing on a standard page, record at the page size and position the drawing
+inside it with `d.transformed(…)`.
+
+A drawing that rarely changes can also be rendered once and drawn as an image afterwards, which
+turns thousands of ops per frame into one.
+
+### Offer only what the target can do
+
+`day::canvas_exports()` answers `CanvasExports { bitmap, pdf }` from `Cap::CanvasBitmap` and
+`Cap::CanvasPdf`, and `.png()` adds whether the toolkit encodes PNG. Keep export commands in the
+menu everywhere and disable the ones the target cannot run:
+
+```rust
+let exports = day::canvas_exports();
+vec![
+    menu_item(res::str::export_png()).enabled(exports.png()).action(export_png),
+    menu_item(res::str::export_pdf()).enabled(exports.pdf).action(export_pdf),
+]
+```
+
+A call the target cannot run answers `Err(ExportError::Unsupported)` without reaching the toolkit.
+
+| Target | Bitmap | PDF | How |
+| --- | --- | --- | --- |
+| **macos-appkit** | yes | yes | A flipped `CGBitmapContext`, and `CGPDFContext` with title and author |
+| **ios-uikit** | yes | yes | `UIGraphicsImageRenderer` and `UIGraphicsPDFRenderer` |
+| **macos-gtk**, **linux-gtk**, **windows-gtk** | yes | yes | A cairo image surface, and a cairo PDF surface with title and author |
+| **macos-qt**, **linux-qt**, **windows-qt** | yes | yes | `QImage`, and `QPdfWriter` at 72 dpi so one unit is one point |
+| **android-mdc** | yes | yes | A `Bitmap`-backed `Canvas`, and `android.graphics.pdf.PdfDocument`. It has no metadata API, so title and author are dropped, and page sizes round to whole points |
+| **harmony-arkui** | yes | no | An `OH_Drawing_Bitmap`; HarmonyOS has no PDF drawing context |
+| **web-dom** | yes | no | A detached `<canvas>` and `createImageBitmap`, the one backend that answers on a later turn; browsers have no PDF writer |
+| **windows-winui** | no | no | The canvas builds XAML shapes rather than painting, so there is no painter to point offscreen yet |
+| **mock** | synthetic | no | A bitmap of the right size and scale with no pixels, so app logic around export runs headless |
+
+### Rules
+
+- **Units.** Sizes are points. PDF pages are in PDF points, 1/72 inch: US Letter is 612 × 792 and A4
+  is 595 × 842.
+- **Origin and background.** Top-left origin with y down, as on screen. The background is
+  transparent; a drawing that needs an opaque page fills a rectangle first.
+- **Theme.** Colors in a drawing are concrete, so an export looks the same in light and dark mode.
+  A draw function that reads the theme resolves it when the drawing is recorded.
+- **Fonts and images.** Bundled fonts and decoded images draw as they do on screen. An image whose
+  handle was released before the render draws nothing.
+- **Limits.** A bitmap larger than 16,384 pixels on a side or 64 megapixels in total answers
+  `ExportError::TooLarge` before anything is allocated. A zero or non-finite size or scale, and a
+  PDF with no pages, answer `ExportError::Invalid`.
+- **Threading.** Rendering runs on the UI thread, like every other toolkit call. A very large bitmap
+  or a long PDF holds the UI while it renders.
+
 ## Performance
 
 `CanvasProps` holds the whole op list and a change replaces it, so a canvas is cheapest when its

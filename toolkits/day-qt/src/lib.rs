@@ -265,6 +265,62 @@ fn encode_bitmap(
     Ok(bytes)
 }
 
+/// Encode every page, hand the shim borrowed views of them, and copy the document out.
+fn render_pdf_document(
+    pages: &[day_spec::PdfPage],
+    info: &day_spec::PdfInfo,
+) -> Result<Vec<u8>, day_spec::ExportError> {
+    let encoded: Vec<(Vec<f64>, CString)> = pages
+        .iter()
+        .map(|page| {
+            let (nums, texts) = day_spec::encode_ops(&page.ops);
+            (nums, cstr(&texts.join("\u{1f}")))
+        })
+        .collect();
+    let views: Vec<ffi::DayQtPdfPage> = pages
+        .iter()
+        .zip(&encoded)
+        .map(|(page, (nums, texts))| ffi::DayQtPdfPage {
+            w: page.size.width,
+            h: page.size.height,
+            nums: nums.as_ptr(),
+            n: nums.len() as c_int,
+            texts: texts.as_ptr(),
+        })
+        .collect();
+    let title = info.title.as_deref().map(cstr);
+    let author = info.author.as_deref().map(cstr);
+    let mut len: c_int = 0;
+    let mut err: *mut c_char = std::ptr::null_mut();
+    // SAFETY: every page view borrows `encoded`, which outlives the call, and the strings are
+    // null or NUL-terminated. The shim returns null (with `err` a heap string or null) or a
+    // malloc'd buffer of `len` bytes; each is copied out and released through the shim's frees.
+    unsafe {
+        let p = ffi::day_qt_canvas_render_pdf(
+            views.as_ptr(),
+            views.len() as c_int,
+            title.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
+            author.as_ref().map_or(std::ptr::null(), |a| a.as_ptr()),
+            &mut len,
+            &mut err,
+        );
+        if p.is_null() || len <= 0 {
+            let why = if err.is_null() {
+                "QPdfWriter failed".to_string()
+            } else {
+                let text = CStr::from_ptr(err).to_string_lossy().into_owned();
+                ffi::day_qt_string_free(err);
+                text
+            };
+            ffi::day_qt_bytes_free(p);
+            return Err(day_spec::ExportError::Failed(why));
+        }
+        let out = std::slice::from_raw_parts(p, len as usize).to_vec();
+        ffi::day_qt_bytes_free(p);
+        Ok(out)
+    }
+}
+
 pub(crate) fn cstr(s: &str) -> CString {
     // An interior NUL must not blank the whole string — a label, a menu item, a window title
     // would silently vanish. Strip the NULs and keep the visible text.
@@ -2125,6 +2181,9 @@ impl Toolkit for Qt {
             // is deliberately NOT here: Qt exposes no metadata reader on this path, and an empty
             // struct would read as "this file records nothing" rather than "nobody looked".
             Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+            // The canvas widget's painter replays into a QImage and onto QPdfWriter pages
+            // (QtGui, no extra module), so both exports are native (docs/canvas.md "Exporting").
+            Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
             // QPlainTextEdit honors editable + selectable; Qt ships no built-in spell-check, so
             // Cap::TextSpellCheck stays Unsupported (the default arm).
             Cap::TextRuns
@@ -4247,6 +4306,62 @@ impl Toolkit for Qt {
 
     fn release_image(&mut self, id: day_spec::BitmapId) {
         release_bitmap(id);
+    }
+
+    /// The canvas widget's painter (`day_paint_ops`) replayed into a premultiplied ARGB32
+    /// `QImage` whose device pixel ratio is `scale`, stored in the same registry
+    /// `decode_image` fills (docs/canvas.md "Exporting").
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        let (pw, ph) = day_spec::export_pixels(size, scale);
+        let (nums, texts) = day_spec::encode_ops(ops);
+        let joined = cstr(&texts.join("\u{1f}"));
+        let result = match (c_int::try_from(pw), c_int::try_from(ph)) {
+            // SAFETY: both op channels outlive the call; the shim copies what it keeps.
+            (Ok(w), Ok(h)) => match unsafe {
+                ffi::day_qt_canvas_render_image(
+                    id.0,
+                    nums.as_ptr(),
+                    nums.len() as c_int,
+                    joined.as_ptr(),
+                    w,
+                    h,
+                    scale,
+                )
+            } {
+                0 => Err(day_spec::ExportError::Failed(format!(
+                    "QImage could not allocate {pw} × {ph} pixels"
+                ))),
+                _ => {
+                    let info = day_spec::BitmapInfo {
+                        pixels: Size::new(f64::from(pw), f64::from(ph)),
+                        scale,
+                        format: None,
+                        has_alpha: true,
+                    };
+                    BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+                    Ok(info)
+                }
+            },
+            _ => Err(day_spec::ExportError::TooLarge {
+                width: pw,
+                height: ph,
+            }),
+        };
+        emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+    }
+
+    /// One `QPdfWriter` document, a page per `PdfPage`, each painted by `day_paint_ops` at
+    /// resolution 72 so a unit is a PDF point (docs/canvas.md "Exporting").
+    fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {
+        let result = render_pdf_document(pages, info);
+        emit(day_spec::WINDOW_NODE, Event::PdfRendered { req, result });
     }
 
     fn snapshot_window(&mut self) -> Result<Vec<u8>, String> {

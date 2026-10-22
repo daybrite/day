@@ -132,18 +132,23 @@ fn decode_bytes(bytes: &[u8]) -> Option<(*mut OH_PixelmapNative, u32, u32, i32)>
 /// alpha type rather than inferred from the container.
 pub fn decode(id: u64, bytes: &[u8]) -> Option<(f64, f64, bool)> {
     let (pm, w, h, alpha) = decode_bytes(bytes)?;
-    // Replacing an id releases what it held. day-core mints a fresh id per decode, so this
-    // only fires if one is ever reused.
-    let old = BITMAPS.with(|b| b.borrow_mut().insert(id, pm));
-    if let Some(old) = old.filter(|p| !p.is_null()) {
-        // SAFETY: a pixelmap this registry owned.
-        unsafe { OH_PixelmapNative_Release(old) };
-    }
+    insert(id, pm);
     Some((
         f64::from(w),
         f64::from(h),
         alpha != PIXELMAP_ALPHA_TYPE::PIXELMAP_ALPHA_TYPE_OPAQUE.0 as i32,
     ))
+}
+
+/// Register a pixelmap the registry now owns under `id`: a decode's, or a canvas export's
+/// (docs/canvas.md "Exporting"). Replacing an id releases what it held; day-core mints a fresh
+/// id per request, so that only fires if one is ever reused.
+pub fn insert(id: u64, pm: *mut OH_PixelmapNative) {
+    let old = BITMAPS.with(|b| b.borrow_mut().insert(id, pm));
+    if let Some(old) = old.filter(|p| !p.is_null()) {
+        // SAFETY: a pixelmap this registry owned.
+        unsafe { OH_PixelmapNative_Release(old) };
+    }
 }
 
 /// Drop a decoded bitmap.

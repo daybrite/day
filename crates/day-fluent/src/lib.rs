@@ -15,7 +15,7 @@ use day_pieces::{IntoText, TextSource};
 pub use day_l10n::{
     Catalog, DateFields, FArg, IntoFArg, IntoNumberFArg, SigM, ValM, add_launch_locales, compare,
     compare_in, format_catalog, format_date, format_date_in, format_decimal, format_decimal_in,
-    format_in, format_percent, format_percent_in, locale, matches_search, matches_search_in,
+    format_in, format_percent, format_percent_in, key, locale, matches_search, matches_search_in,
     register_catalog, set_launch_locale, set_launch_locales, set_locale, sort_localized,
     strip_isolates, t,
 };
@@ -54,6 +54,21 @@ pub fn tr_in(catalog: &'static Catalog, key: &str) -> LocalizedText {
         key: key.to_owned(),
         catalog: Some(catalog),
         args: Vec::new(),
+    }
+}
+
+/// Day's own strings, named the way an app's are: `res::str::day_cancel()`,
+/// `res::str::day_about_app(name)`, one typed function per message in the core catalog
+/// (`day-l10n/catalog/en.ftl`), generated from it at build time (docs/localization.md).
+///
+/// An app reaches these through its own `res::str`, which re-exports them beside its messages, so
+/// `res::str::day_about_website()` works there too, and a message the app defines under the same
+/// name overrides the core one. Pieces with no `res` of their own call `day_fluent::res::str`.
+pub mod res {
+    /// The core catalog's messages as typed [`LocalizedText`](crate::LocalizedText) constructors.
+    pub mod str {
+        use crate::{LocalizedText, tr};
+        day_l10n::__core_strings!();
     }
 }
 

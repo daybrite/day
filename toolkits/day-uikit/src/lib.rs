@@ -8472,9 +8472,7 @@ mod imp {
             fn draw_rect(&self, _dirty: CGRect) {
                 let ptr = (self as *const DayCanvasView).cast::<UIView>() as usize;
                 let ops = OPS.with(|t| t.get(ptr)).unwrap_or_default();
-                for op in &ops {
-                    draw_op(op);
-                }
+                paint_ops(&ops);
             }
 
             // Focus, and with it a hardware keyboard's arrows (docs/menus.md, docs/focus.md).
@@ -9314,6 +9312,136 @@ mod imp {
         Ok(data.ok_or(day_spec::ImageError::Encode)?.to_vec())
     }
 
+    /// Replay a canvas's ops into the current UIKit graphics context: the one painter the
+    /// on-screen `drawRect:` and both exports share (docs/canvas.md "Exporting").
+    fn paint_ops(ops: &[day_spec::DrawOp]) {
+        for op in ops {
+            draw_op(op);
+        }
+    }
+
+    /// Render `ops` offscreen at `scale` pixels per point (docs/canvas.md "Exporting").
+    ///
+    /// `UIGraphicsImageRenderer` hands its block a UIKit context with the top-left origin a
+    /// canvas view draws in, so the painter runs unchanged. The format is pinned to the standard
+    /// (sRGB) range, the space canvas colors are written in, so an encode of the export carries
+    /// the bytes the drawing named rather than their Display P3 conversion.
+    fn render_bitmap_image(
+        ops: &[day_spec::DrawOp],
+        size: Size,
+        scale: f64,
+    ) -> Result<(Retained<objc2_ui_kit::UIImage>, day_spec::BitmapInfo), day_spec::ExportError>
+    {
+        use objc2::AllocAnyThread as _;
+        let (pw, ph) = day_spec::export_pixels(size, scale);
+        // SAFETY: main thread (a Toolkit duty). The renderer runs the block synchronously,
+        // inside `imageWithActions`, so the ops it borrows outlive every use.
+        let image = unsafe {
+            let format = objc2_ui_kit::UIGraphicsImageRendererFormat::preferredFormat();
+            format.setScale(scale);
+            format.setOpaque(false);
+            format.setPreferredRange(objc2_ui_kit::UIGraphicsImageRendererFormatRange::Standard);
+            let renderer = objc2_ui_kit::UIGraphicsImageRenderer::initWithSize_format(
+                objc2_ui_kit::UIGraphicsImageRenderer::alloc(),
+                CGSize::new(size.width, size.height),
+                &format,
+            );
+            let ops = ops.to_vec();
+            let block = block2::RcBlock::new(
+                move |_ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsImageRendererContext>| {
+                    day_spec::ffi_guard::contain((), || paint_ops(&ops));
+                },
+            );
+            renderer.imageWithActions(&*block as *const _ as *mut _)
+        };
+        // A renderer that could not allocate its backing store hands back an empty image
+        // rather than an error; that is the only refusal UIKit reports here.
+        // SAFETY: reading the image's backing CGImage, on the thread that made it.
+        if unsafe { image.CGImage() }.is_none() {
+            return Err(day_spec::ExportError::Failed(format!(
+                "UIGraphicsImageRenderer produced no image for {pw}x{ph} pixels"
+            )));
+        }
+        let info = day_spec::BitmapInfo {
+            pixels: Size::new(pw as f64, ph as f64),
+            scale,
+            format: None,
+            has_alpha: true,
+        };
+        Ok((image, info))
+    }
+
+    /// Write `pages` into one PDF with `UIGraphicsPDFRenderer` (docs/canvas.md "Exporting").
+    ///
+    /// Each page opens with `beginPageWithBounds:pageInfo:` at its own size, and UIKit flips
+    /// every page to the top-left origin, so the painter runs unchanged and stays vector: paths
+    /// become PDF paths and text is set from embedded font subsets. Title and author go in the
+    /// format's `documentInfo` under the Core Graphics keys, which land in the file's Info
+    /// dictionary.
+    fn render_pdf_data(
+        pages: &[day_spec::PdfPage],
+        info: &day_spec::PdfInfo,
+    ) -> Result<Vec<u8>, day_spec::ExportError> {
+        use objc2::AllocAnyThread as _;
+        let first = pages.first().ok_or(day_spec::ExportError::Invalid)?;
+        let rect = |s: Size| CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(s.width, s.height));
+        let mut keys: Vec<&NSString> = Vec::new();
+        let mut values: Vec<Retained<AnyObject>> = Vec::new();
+        // SAFETY: `kCGPDFContextTitle`/`kCGPDFContextAuthor` are immutable CFString constants,
+        // and CFString is toll-free bridged with NSString, so the pointer reads as one.
+        let (title_key, author_key) = unsafe {
+            (
+                &*(objc2_core_graphics::kCGPDFContextTitle
+                    as *const objc2_core_foundation::CFString)
+                    .cast::<NSString>(),
+                &*(objc2_core_graphics::kCGPDFContextAuthor
+                    as *const objc2_core_foundation::CFString)
+                    .cast::<NSString>(),
+            )
+        };
+        for (key, value) in [(title_key, &info.title), (author_key, &info.author)] {
+            if let Some(v) = value {
+                keys.push(key);
+                values.push(Retained::into_super(Retained::into_super(
+                    NSString::from_str(v),
+                )));
+            }
+        }
+        let document_info = objc2_foundation::NSDictionary::from_retained_objects(&keys, &values);
+        let page_info = objc2_foundation::NSDictionary::<NSString, AnyObject>::new();
+        // SAFETY: main thread (a Toolkit duty). The dictionaries hold NSString keys and NSString
+        // values, the types `documentInfo` and `pageInfo` declare. The renderer runs the block
+        // synchronously, inside `PDFDataWithActions`.
+        let data = unsafe {
+            let format = objc2_ui_kit::UIGraphicsPDFRendererFormat::new();
+            format.setDocumentInfo(&document_info);
+            let renderer = objc2_ui_kit::UIGraphicsPDFRenderer::initWithBounds_format(
+                objc2_ui_kit::UIGraphicsPDFRenderer::alloc(),
+                rect(first.size),
+                &format,
+            );
+            let pages = pages.to_vec();
+            let block = block2::RcBlock::new(
+                move |ctx: core::ptr::NonNull<objc2_ui_kit::UIGraphicsPDFRendererContext>| {
+                    day_spec::ffi_guard::contain((), || {
+                        let ctx = ctx.as_ref();
+                        for page in &pages {
+                            ctx.beginPageWithBounds_pageInfo(rect(page.size), &page_info);
+                            paint_ops(&page.ops);
+                        }
+                    });
+                },
+            );
+            renderer.PDFDataWithActions(&*block as *const _ as *mut _)
+        };
+        if data.is_empty() {
+            return Err(day_spec::ExportError::Failed(
+                "UIGraphicsPDFRenderer wrote no data".into(),
+            ));
+        }
+        Ok(data.to_vec())
+    }
+
     fn snapshot_uikit(chrome: bool) -> Result<Vec<u8>, String> {
         let view: Retained<UIView> = with_key_scene(|e| {
             if chrome {
@@ -10132,6 +10260,10 @@ mod imp {
                 // an empty struct would read as "this file records nothing" rather than "nobody
                 // looked".
                 Cap::ImageDecode | Cap::ImageEncode => Support::Native,
+                // A canvas renders offscreen through `UIGraphicsImageRenderer` and to a vector PDF
+                // through `UIGraphicsPDFRenderer`, both with the on-screen painter
+                // (docs/canvas.md "Exporting").
+                Cap::CanvasBitmap | Cap::CanvasPdf => Support::Native,
                 // `UIAccessibilityAnnouncementNotification`, queued or interrupting per the
                 // speech attribute (docs/accessibility.md).
                 Cap::Announce => Support::Native,
@@ -13176,6 +13308,29 @@ mod imp {
                 },
             };
             emit(day_spec::WINDOW_NODE, event);
+        }
+
+        /// Offscreen through `UIGraphicsImageRenderer` with the canvas's own painter
+        /// (docs/canvas.md "Exporting"), kept in the table `decode_image` fills.
+        fn render_bitmap(
+            &mut self,
+            req: u64,
+            id: day_spec::BitmapId,
+            ops: &[DrawOp],
+            size: Size,
+            scale: f64,
+        ) {
+            let result = render_bitmap_image(ops, size, scale).map(|(image, info)| {
+                BITMAPS.with(|m| m.borrow_mut().insert(id.0, UikitBitmap { image, info }));
+                info
+            });
+            emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+        }
+
+        /// One vector PDF through `UIGraphicsPDFRenderer`, a page per drawing.
+        fn render_pdf(&mut self, req: u64, pages: &[day_spec::PdfPage], info: &day_spec::PdfInfo) {
+            let result = render_pdf_data(pages, info);
+            emit(day_spec::WINDOW_NODE, Event::PdfRendered { req, result });
         }
 
         fn image_info(&mut self, id: day_spec::BitmapId) -> Option<day_spec::BitmapInfo> {

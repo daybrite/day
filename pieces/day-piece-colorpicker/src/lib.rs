@@ -390,7 +390,10 @@ fn composed_well<C: Binding<Color>>(
         );
     })
     .on_tap(move || open.set(Some(open_key.clone())))
-    .a11y(|a| a.role(Role::Button).label(day_l10n::t("day-color")))
+    .a11y(|a| {
+        a.role(Role::Button)
+            .label(day_l10n::t(day_l10n::key::day_color))
+    })
     .id(key.clone())
     .frame(well_width(alpha), WELL_H);
     zstack((
@@ -480,11 +483,11 @@ fn panel<C: Binding<Color>>(
     }
     rows.push(
         row((
-            button(day_l10n::t("day-cancel"))
+            button(day_l10n::t(day_l10n::key::day_cancel))
                 .action(cancel)
                 .id(day_core::id!(color_picker_cancel)),
             spacer(),
-            button(day_l10n::t("day-done"))
+            button(day_l10n::t(day_l10n::key::day_done))
                 .action(close)
                 .id(day_core::id!(color_picker_done)),
         ))
@@ -548,7 +551,7 @@ fn shade_field(hue: Signal<f64>, sat: Signal<f64>, val: Signal<f64>) -> AnyPiece
     // write the same two values, so a backend that reports both costs nothing.
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
-    .a11y(|a| a.label(day_l10n::t("day-color-shade")))
+    .a11y(|a| a.label(day_l10n::t(day_l10n::key::day_color_shade)))
     // The id before the frame, so it names the canvas the gestures live on.
     .id(day_core::id!(color_picker_shade))
     .frame(FIELD_W, FIELD_H)
@@ -571,7 +574,7 @@ fn hue_strip(hue: Signal<f64>) -> AnyPiece {
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
-    .a11y(|a| a.label(day_l10n::t("day-color-hue")))
+    .a11y(|a| a.label(day_l10n::t(day_l10n::key::day_color_hue)))
     // The id before the frame, so it names the canvas the gestures live on.
     .id(day_core::id!(color_picker_hue))
     .frame(FIELD_W, STRIP_H)
@@ -599,7 +602,7 @@ fn opacity_strip(current: impl Fn() -> Color + 'static, opacity: Signal<f64>) ->
     })
     .on_drag(move |drag| pick(drag.location))
     .on_tap_at(pick)
-    .a11y(|a| a.label(day_l10n::t("day-color-opacity")))
+    .a11y(|a| a.label(day_l10n::t(day_l10n::key::day_color_opacity)))
     // The id before the frame, so it names the canvas the gestures live on.
     .id(day_core::id!(color_picker_opacity))
     .frame(FIELD_W, STRIP_H)

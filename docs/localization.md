@@ -205,10 +205,22 @@ strings passed to `set_locale` normalize underscores to hyphens.
 ## Core strings the framework provides
 
 The core catalog supplies standard dialog buttons, menu roles, window commands, and settings
-labels. It ships `en`, `fr`, `es`, `de`, `ja`, `zh`, and `ar`. Examples include `day-ok`,
-`day-cancel`, `day-copy`, and `day-about-app`; the last accepts the app name as `$app`.
+labels. It ships `en`, `fr`, `es`, `de`, `ja`, `zh`, and `ar`. Examples include `day_ok`,
+`day_cancel`, `day_copy`, and `day_about_app`; the last accepts the app name as `$app`.
 Framework code resolves these through the global lookup, so an installed app catalog can
 override them. Private catalog messages do not override core strings.
+
+Code names a core string the way it names an app string, through a generated accessor:
+`res::str::day_about_website()` in an app or a piece with a private catalog, whose `res::str`
+re-exports the core accessors beside the crate's messages, and `day::res::str::day_cancel()` (or
+`day_fluent::res::str`) anywhere else. Framework crates below day-fluent pass the generated key
+constant to the one-shot lookup, `day_l10n::t(day_l10n::key::day_cancel)`. day-l10n's build
+script generates all three from `catalog/en.ftl`, so every core key is a Rust identifier, and a
+message an app defines under a core key's name replaces that accessor as it replaces the text.
+
+Name a localized string by its accessor, never by its key in a string literal: `res::str::x()`
+fails to compile when `x` is renamed or removed, where `tr("x")` shows `⟨x⟩` at run time.
+`day lint` reports each `tr("…")` in an app's sources as `string-key`.
 
 Native dialogs and permission UI may also contain text supplied by the operating system.
 Those strings follow the system's language rules and may not follow an in-app locale switch.
@@ -364,6 +376,7 @@ adds coverage and metadata checks:
 | Finding | Scope |
 | --- | --- |
 | `unknown-key`, `unused-key` | Heuristic source-reference checks for the global app catalog |
+| `string-key` | A `tr("…")` naming a string by its key instead of its `res::str` accessor |
 | `missing-translation` | Default-locale message keys absent from another existing locale |
 | `invalid-catalog` | Private catalog generation errors, including invalid syntax and collisions |
 | `unknown-function`, `bad-format-option`, `unsupported-format-option` | Fluent formatting calls |

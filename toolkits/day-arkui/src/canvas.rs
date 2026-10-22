@@ -6,7 +6,8 @@
 //! it ([`create`]).
 //!
 //! Day records a display list in day points (vp); the custom node's draw canvas is in px, so a
-//! density scale is pushed first. The op encoding is `day_spec::encode_ops`'s: 9 doubles per op
+//! density scale is pushed first. An exported bitmap ([`render_bitmap`]) replays the same list
+//! through the same [`draw`], with the export scale in place of the density. The op encoding is `day_spec::encode_ops`'s: 9 doubles per op
 //! `[kind, a, b, c, d, e, f, g, argb]`, with polygon points, paths, text and the like riding a
 //! positional text channel.
 
@@ -26,6 +27,7 @@ use ohos_sys::arkui::native_node::{
 use ohos_sys::arkui::native_type::{
     ArkUI_AccessibilityMode, ArkUI_ButtonType, OH_ArkUI_DrawContext_GetCanvas,
 };
+use ohos_sys::drawing::bitmap::*;
 use ohos_sys::drawing::brush::*;
 use ohos_sys::drawing::canvas::*;
 use ohos_sys::drawing::matrix::*;
@@ -41,7 +43,17 @@ use ohos_sys::drawing::shader_effect::*;
 use ohos_sys::drawing::text_blob::*;
 use ohos_sys::drawing::types::*;
 
+use ohos_sys::multimedia::image_kit::native_image::common::ImageResult;
+use ohos_sys::multimedia::image_kit::native_image::pixelmap::{
+    OH_PixelmapInitializationOptions_Create, OH_PixelmapInitializationOptions_Release,
+    OH_PixelmapInitializationOptions_SetAlphaType, OH_PixelmapInitializationOptions_SetHeight,
+    OH_PixelmapInitializationOptions_SetPixelFormat,
+    OH_PixelmapInitializationOptions_SetSrcPixelFormat, OH_PixelmapInitializationOptions_SetWidth,
+    OH_PixelmapNative_CreatePixelmap, PIXEL_FORMAT, PIXELMAP_ALPHA_TYPE,
+};
+
 use crate::fonts::{self, FontReq};
+use crate::images::OH_PixelmapNative;
 use crate::node::{self, Handle};
 
 /// A canvas node's display list.
@@ -173,6 +185,83 @@ pub fn forget(host: Handle) {
     node::dispose_raw(nodes.surface);
 }
 
+/// Replay an encoded display list into a new pixelmap of `pw` × `ph` pixels at `scale` pixels
+/// per point, transparent where nothing draws (docs/canvas.md "Exporting"). The drawing canvas
+/// binds a CPU bitmap over a buffer owned here, painted by the same [`draw`] the node's callback
+/// runs; the pixelmap copies the buffer, and the caller owns it. `Err` is the platform's refusal.
+pub fn render_bitmap(
+    nums: Vec<f64>,
+    texts: Vec<String>,
+    pw: u32,
+    ph: u32,
+    scale: f64,
+) -> Result<*mut OH_PixelmapNative, String> {
+    let ops = Ops { nums, texts };
+    let row = pw as usize * 4;
+    let len = row
+        .checked_mul(ph as usize)
+        .ok_or_else(|| format!("a {pw}x{ph} bitmap overflows memory"))?;
+    let mut px: Vec<u8> = Vec::new();
+    px.try_reserve_exact(len)
+        .map_err(|e| format!("cannot allocate a {pw}x{ph} bitmap: {e}"))?;
+    // Zeroed premultiplied pixels are fully transparent: the export's background.
+    px.resize(len, 0);
+    // BGRA is the byte order `OH_PixelmapNative_CreatePixelmap` documents for its buffer, so the
+    // copy below never depends on a format conversion.
+    let mut info = OH_Drawing_Image_Info {
+        width: pw as i32,
+        height: ph as i32,
+        colorType: OH_Drawing_ColorFormat::COLOR_FORMAT_BGRA_8888,
+        alphaType: OH_Drawing_AlphaFormat::ALPHA_FORMAT_PREMUL,
+    };
+    // SAFETY: the bitmap borrows `px`, which outlives it and the canvas bound to it; both are
+    // destroyed before the buffer is read. The options object is released on every path, and
+    // the pixelmap copies `px` rather than keeping it.
+    unsafe {
+        let bmp = OH_Drawing_BitmapCreateFromPixels(&mut info, px.as_mut_ptr().cast(), row as u32);
+        if bmp.is_null() {
+            return Err(format!(
+                "OH_Drawing_BitmapCreateFromPixels refused {pw}x{ph}"
+            ));
+        }
+        let cv = OH_Drawing_CanvasCreate();
+        if cv.is_null() {
+            OH_Drawing_BitmapDestroy(bmp);
+            return Err("OH_Drawing_CanvasCreate failed".to_string());
+        }
+        OH_Drawing_CanvasBind(cv, bmp);
+        draw(&ops, cv, scale as f32);
+        OH_Drawing_CanvasDestroy(cv);
+        OH_Drawing_BitmapDestroy(bmp);
+
+        let mut opts = ptr::null_mut();
+        if OH_PixelmapInitializationOptions_Create(&mut opts) != ImageResult::SUCCESS
+            || opts.is_null()
+        {
+            return Err("OH_PixelmapInitializationOptions_Create failed".to_string());
+        }
+        let bgra = PIXEL_FORMAT::PIXEL_FORMAT_BGRA_8888.0 as i32;
+        OH_PixelmapInitializationOptions_SetWidth(opts, pw);
+        OH_PixelmapInitializationOptions_SetHeight(opts, ph);
+        OH_PixelmapInitializationOptions_SetSrcPixelFormat(opts, bgra);
+        OH_PixelmapInitializationOptions_SetPixelFormat(opts, bgra);
+        OH_PixelmapInitializationOptions_SetAlphaType(
+            opts,
+            PIXELMAP_ALPHA_TYPE::PIXELMAP_ALPHA_TYPE_PREMULTIPLIED.0 as i32,
+        );
+        let mut pm = ptr::null_mut();
+        let rc = OH_PixelmapNative_CreatePixelmap(px.as_mut_ptr(), px.len(), opts, &mut pm);
+        OH_PixelmapInitializationOptions_Release(opts);
+        if rc != ImageResult::SUCCESS || pm.is_null() {
+            return Err(format!(
+                "OH_PixelmapNative_CreatePixelmap failed with code {}",
+                rc.0
+            ));
+        }
+        Ok(pm)
+    }
+}
+
 unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeCustomEvent) {
     if ev.is_null() {
         return;
@@ -199,7 +288,7 @@ unsafe extern "C" fn receiver(ev: *mut ArkUI_NodeCustomEvent) {
             let Some(ops) = CANVASES.with(|c| c.borrow_mut().remove(&n)) else {
                 return;
             };
-            draw(&ops, cv);
+            draw(&ops, cv, node::density() as f32);
             CANVASES.with(|c| {
                 c.borrow_mut().entry(n).or_insert(ops);
             });
@@ -449,11 +538,13 @@ unsafe fn path_bounds(path: *mut OH_Drawing_Path) -> (f32, f32, f32, f32) {
     }
 }
 
-unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas) {
+/// Replay `ops` onto `cv` at `px_per_vp` pixels per day point: the node's density on screen,
+/// the export scale for [`render_bitmap`]. The one painter both paths share.
+unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas, px_per_vp: f32) {
     let n = &ops.nums;
     let texts = &ops.texts;
     // SAFETY: every OH_Drawing object created in this replay is destroyed before it returns;
-    // the canvas is ArkUI's for the callback's duration.
+    // the canvas is the caller's (ArkUI's draw callback, or an export's bitmap) for the call.
     unsafe {
         let pen = OH_Drawing_PenCreate();
         OH_Drawing_PenSetAntiAlias(pen, true);
@@ -463,7 +554,7 @@ unsafe fn draw(ops: &Ops, cv: *mut OH_Drawing_Canvas) {
         // Base transform: scale vp → px so Day's point-space ops land correctly.
         OH_Drawing_CanvasSave(cv);
         let scale = OH_Drawing_MatrixCreate();
-        let d = node::density() as f32;
+        let d = px_per_vp;
         OH_Drawing_MatrixSetMatrix(scale, d, 0.0, 0.0, 0.0, d, 0.0, 0.0, 0.0, 1.0);
         OH_Drawing_CanvasConcatMatrix(cv, scale);
 

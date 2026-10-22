@@ -39,7 +39,7 @@ objc2-uniform-type-identifiers = { workspace = true }
 block2 = { workspace = true }
 dispatch2 = { workspace = true }
 objc2-core-foundation = { workspace = true, default-features = true, features = ["CFCGTypes"] }
-objc2-core-graphics = { workspace = true, features = ["CGImage"] }
+objc2-core-graphics = { workspace = true, features = ["CGImage", "CGBitmapContext", "CGColorSpace", "CGContext", "CGDataConsumer", "CGPDFContext"] }
 objc2-quartz-core = { workspace = true, features = ["CAMediaTimingFunction", "CATransaction", "CADisplayLink"] }
 objc2-foundation = { workspace = true, features = ["NSLocale",
     "NSString", "NSUndoManager", "NSGeometry", "NSNotification", "NSDistributedNotificationCenter", "NSDictionary", "NSData", "NSValue", "NSIndexSet",

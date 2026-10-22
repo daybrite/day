@@ -12,8 +12,8 @@ use day_core::*;
 use day_reactive::{Scope, Signal};
 use day_spec::props::*;
 use day_spec::{
-    Color, CornerRadii, DrawOp, Event, FillRule, Paint, PathSeg, Point, Rect, Shape, Size,
-    StrokeStyle, kinds,
+    Color, CornerRadii, DrawOp, Event, ExportError, FillRule, Paint, PathSeg, Point, Rect, Shape,
+    Size, StrokeStyle, kinds,
 };
 
 use crate::*;
@@ -398,6 +398,162 @@ pub fn canvas(draw: impl Fn(&mut Draw, Size) + 'static) -> impl Piece {
     piece_fn(move |cx| canvas_leaf(cx, Flex::default(), draw))
 }
 
+// ---------------------------------------------------------------------------
+// Export (docs/canvas.md "Exporting"): the same draw function, replayed offscreen.
+// ---------------------------------------------------------------------------
+
+/// A recorded drawing at a fixed size: what a [`canvas`] would replay, kept for export.
+///
+/// Write the drawing once as a plain function and call it from the canvas and from export:
+///
+/// ```ignore
+/// fn draw_chart(d: &mut Draw, size: Size, series: &[f64]) { /* … */ }
+///
+/// canvas(move |d, size| draw_chart(d, size, &series.get()))           // on screen
+/// let drawing = Drawing::record(Size::new(600.0, 400.0), |d, size| {
+///     draw_chart(d, size, &series.get_untracked())
+/// });
+/// day::task(async move {
+///     if let Ok(png) = drawing.to_png(2.0).await { /* save it */ }
+/// });
+/// ```
+///
+/// Rendering goes through the toolkit's own canvas painter (Core Graphics, cairo, `QPainter`,
+/// an android `Canvas`, …), so an export matches the screen. Probe [`canvas_exports`] before
+/// offering a command.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Drawing {
+    size: Size,
+    ops: Vec<DrawOp>,
+}
+
+impl Drawing {
+    /// Run `draw` once, untracked, at `size` points. Signal reads inside it subscribe nothing,
+    /// so recording from a binding or a menu action is safe.
+    pub fn record(size: Size, draw: impl FnOnce(&mut Draw, Size)) -> Drawing {
+        let mut d = Draw::new();
+        day_reactive::untrack(|| draw(&mut d, size));
+        Drawing { size, ops: d.ops }
+    }
+
+    /// A drawing of ops recorded elsewhere, at `size` points.
+    pub fn from_ops(size: Size, ops: Vec<DrawOp>) -> Drawing {
+        Drawing { size, ops }
+    }
+
+    /// The size the drawing was recorded at, in points.
+    pub fn size(&self) -> Size {
+        self.size
+    }
+
+    /// The recorded display list.
+    pub fn ops(&self) -> &[DrawOp] {
+        &self.ops
+    }
+
+    /// Render to a bitmap of `size × scale` pixels whose `info().scale` is `scale`, so
+    /// `image(&bitmap)` shows it at the drawing's point size. Await it inside `day::task`.
+    ///
+    /// `Err(ExportError::Unsupported)` where the toolkit has no offscreen painter
+    /// ([`Cap::CanvasBitmap`](day_spec::Cap::CanvasBitmap)); `Err(ExportError::TooLarge)` above
+    /// 16,384 pixels a side or 64 megapixels.
+    pub fn to_bitmap(&self, scale: f64) -> day_core::RenderBitmap {
+        day_core::render_bitmap(self.ops.clone(), self.size, scale)
+    }
+
+    /// Render to a bitmap and encode it as PNG: [`Drawing::to_bitmap`] then
+    /// [`Bitmap::encode`]. `Err(ExportError::Unsupported)` where either half is missing
+    /// ([`CanvasExports::png`] answers that up front).
+    pub fn to_png(
+        &self,
+        scale: f64,
+    ) -> impl std::future::Future<Output = Result<Vec<u8>, ExportError>> + 'static {
+        let render = self.to_bitmap(scale);
+        async move {
+            let bitmap = render.await?;
+            bitmap
+                .encode(day_spec::EncodeSpec::default())
+                .await
+                .map_err(|e| match e {
+                    day_spec::ImageError::Unsupported | day_spec::ImageError::Encode => {
+                        ExportError::Unsupported
+                    }
+                    other => ExportError::Failed(other.to_string()),
+                })
+        }
+    }
+
+    /// A one-page PDF the size of the drawing. `Err(ExportError::Unsupported)` where the
+    /// platform has no PDF writer ([`Cap::CanvasPdf`](day_spec::Cap::CanvasPdf)).
+    pub fn to_pdf(&self) -> day_core::RenderPdf {
+        PdfDocument::new().page(self.clone()).render()
+    }
+}
+
+/// A PDF of one or more drawings, one per page; each page takes its drawing's size in PDF
+/// points (1/72 inch, the same unit as canvas points: US Letter is 612 × 792, A4 595 × 842).
+///
+/// ```ignore
+/// let mut doc = PdfDocument::new().title("Quarterly report");
+/// for region in &regions {
+///     doc = doc.page(Drawing::record(LETTER, |d, size| draw_region(d, size, region)));
+/// }
+/// let pdf = doc.render().await?;
+/// ```
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PdfDocument {
+    pages: Vec<Drawing>,
+    info: day_spec::PdfInfo,
+}
+
+impl PdfDocument {
+    /// An empty document; rendering it before adding a page answers `ExportError::Invalid`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Append `drawing` as the next page, at the drawing's size.
+    pub fn page(mut self, drawing: Drawing) -> Self {
+        self.pages.push(drawing);
+        self
+    }
+
+    /// The document title. Android's writer has no metadata API and ignores it.
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.info.title = Some(title.into());
+        self
+    }
+
+    /// The document author. Android's writer ignores it, as it does the title.
+    pub fn author(mut self, author: impl Into<String>) -> Self {
+        self.info.author = Some(author.into());
+        self
+    }
+
+    /// How many pages have been added.
+    pub fn len(&self) -> usize {
+        self.pages.len()
+    }
+
+    /// Whether no page has been added yet.
+    pub fn is_empty(&self) -> bool {
+        self.pages.is_empty()
+    }
+
+    /// Render the document through the platform's PDF writer. Await it inside `day::task`.
+    pub fn render(self) -> day_core::RenderPdf {
+        let pages = self
+            .pages
+            .into_iter()
+            .map(|d| day_spec::PdfPage {
+                size: d.size,
+                ops: d.ops,
+            })
+            .collect();
+        day_core::render_pdf(pages, self.info)
+    }
+}
+
 /// A frame clock (§8.4): an invisible, zero-size piece that calls `tick` every animation frame with
 /// the wall-clock delta since the previous frame, for as long as it is mounted. Drop it into the
 /// tree (e.g. behind a `canvas` in a `zstack`) to drive a game loop or self-driven animation: the
@@ -619,6 +775,161 @@ pub(crate) mod conformance {
                 d.sample_pixel("canvas_image::painted", 0.6, 0.2, "#ffffff")
                     .await
             })
+    }
+
+    /// The drawing the export cases render: red left half, blue right half, a white disc in
+    /// the middle, and a dark bar across the bottom fifth. Solid colors, so a sample has one
+    /// right answer on every toolkit.
+    fn export_swatch(d: &mut Draw, size: day_spec::Size) {
+        let (w, h) = (size.width, size.height);
+        d.fill(
+            Shape::Rect(day_spec::Rect::new(0.0, 0.0, w / 2.0, h)),
+            Color::hex(0xff0000),
+        );
+        d.fill(
+            Shape::Rect(day_spec::Rect::new(w / 2.0, 0.0, w / 2.0, h)),
+            Color::hex(0x0000ff),
+        );
+        d.fill(
+            Shape::Ellipse(day_spec::Rect::new(
+                w / 2.0 - 15.0,
+                h / 2.0 - 15.0,
+                30.0,
+                30.0,
+            )),
+            Color::hex(0xffffff),
+        );
+        d.fill(
+            Shape::Rect(day_spec::Rect::new(0.0, h * 0.8, w, h * 0.2)),
+            Color::hex(0x202020),
+        );
+    }
+
+    /// An exported bitmap shown beside the live canvas reads the same colors in the same places:
+    /// the export path and the on-screen path paint with one painter, with the same origin and
+    /// orientation (docs/canvas.md "Exporting").
+    #[day_macros::test(day_core)]
+    fn canvas_export_matches_screen() -> Case {
+        let size = day_spec::Size::new(120.0, 80.0);
+        Case::new()
+            .proves(kinds::CANVAS)
+            .proves_cap(Cap::CanvasBitmap)
+            .requires(Cap::CanvasBitmap)
+            .requires(Cap::Snapshot)
+            .page(move || {
+                let shown = Signal::new(None::<day_core::Bitmap>);
+                day_core::render_bitmap_async(
+                    Drawing::record(size, export_swatch).ops().to_vec(),
+                    size,
+                    2.0,
+                    move |result| shown.set(result.ok()),
+                );
+                column((
+                    canvas(export_swatch)
+                        .frame(size.width, size.height)
+                        .id(day_core::id!(export::live)),
+                    keyed(
+                        move || shown.get(),
+                        move |bitmap| {
+                            image(bitmap)
+                                .stretch()
+                                .frame(size.width, size.height)
+                                .id(day_core::id!(export::rendered))
+                        },
+                    ),
+                    label(move || match shown.get() {
+                        Some(b) => {
+                            let info = b.info();
+                            format!(
+                                "{}x{}@{}",
+                                info.pixels.width, info.pixels.height, info.scale
+                            )
+                        }
+                        None => "rendering".to_string(),
+                    })
+                    .id(day_core::id!(export::state)),
+                ))
+                .spacing(8.0)
+            })
+            .shot("default")
+            .drive(|d: Drive| async move {
+                // 120 × 80 points at 2× is 240 × 160 pixels that draw back at 120 × 80 points.
+                d.assert_text("export::state", "240x160@2").await?;
+                d.assert_size("export::rendered", 120.0, 80.0).await?;
+                for id in ["export::live", "export::rendered"] {
+                    d.sample_pixel(id, 0.15, 0.3, "#ff0000").await?;
+                    d.sample_pixel(id, 0.85, 0.3, "#0000ff").await?;
+                    d.sample_pixel(id, 0.5, 0.5, "#ffffff").await?;
+                    // The bar is at the bottom in both: a flipped export would put it on top.
+                    d.sample_pixel(id, 0.5, 0.92, "#202020").await?;
+                    d.sample_pixel(id, 0.15, 0.08, "#ff0000").await?;
+                }
+                Ok(())
+            })
+    }
+
+    /// A PDF where the platform has a writer, and `Unsupported` where it has none: the bytes are
+    /// a PDF file, and a toolkit without the cap never pretends otherwise.
+    #[day_macros::test(day_core)]
+    fn canvas_pdf_document() -> Case {
+        Case::headless().run(|t: Drive| async move {
+            let page = |w, h| Drawing::record(day_spec::Size::new(w, h), export_swatch);
+            let result = PdfDocument::new()
+                .title("Conformance")
+                .author("Day")
+                .page(page(612.0, 792.0))
+                .page(page(300.0, 200.0))
+                .render()
+                .await;
+            if !canvas_exports().pdf {
+                return t.check_eq(result.err(), Some(day_spec::ExportError::Unsupported));
+            }
+            let pdf = match result {
+                Ok(pdf) => pdf,
+                Err(e) => return t.check(false, &format!("the PDF did not render: {e}")),
+            };
+            t.check(
+                pdf.starts_with(b"%PDF-"),
+                "the bytes do not start with %PDF-",
+            )?;
+            let tail = String::from_utf8_lossy(&pdf[pdf.len().saturating_sub(64)..]).to_string();
+            t.check(tail.contains("%%EOF"), "the PDF has no %%EOF trailer")?;
+            // An empty document is not a PDF of two pages: each page carries its own content.
+            t.check(
+                pdf.len() > 400,
+                &format!("a {} byte PDF is too small", pdf.len()),
+            )
+        })
+    }
+
+    /// A rendered bitmap is a `Bitmap` like any decode: it reports the export scale and the
+    /// rounded-up pixel size, and encodes to PNG where the toolkit encodes PNG.
+    #[day_macros::test(day_core)]
+    fn canvas_export_scale_and_png() -> Case {
+        Case::headless().run(|t: Drive| async move {
+            let drawing = Drawing::record(day_spec::Size::new(50.5, 20.0), export_swatch);
+            let result = drawing.to_bitmap(3.0).await;
+            if !canvas_exports().bitmap {
+                return t.check_eq(result.err(), Some(day_spec::ExportError::Unsupported));
+            }
+            let bitmap = match result {
+                Ok(b) => b,
+                Err(e) => return t.check(false, &format!("the bitmap did not render: {e}")),
+            };
+            let info = bitmap.info();
+            t.check_eq(info.pixels, day_spec::Size::new(152.0, 60.0))?;
+            t.check_eq(info.scale, 3.0)?;
+            if !canvas_exports().png() {
+                return Ok(());
+            }
+            match drawing.to_png(1.0).await {
+                Ok(png) => t.check_eq(
+                    day_spec::ImageFormat::sniff(&png),
+                    Some(day_spec::ImageFormat::Png),
+                ),
+                Err(e) => t.check(false, &format!("the PNG did not encode: {e}")),
+            }
+        })
     }
 }
 
