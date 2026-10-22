@@ -1462,6 +1462,8 @@ jobs:
 
       - name: Compile documentation recipes and priority excerpts
         env:
+          # Day uses path dependencies into this run's checkout (main HEAD on main builds),
+          # never published Day crates. A cold runner still needs third-party dependencies.
           CARGO_NET_OFFLINE: 'false'
         run: |
           python3 -B scripts/docs/verify-recipes.py

@@ -77,8 +77,11 @@ def main():
     (session / 'sources.json').write_text(json.dumps(hashes, indent=2) + '\n')
     # Copying gives Cargo a stable starting resolution; only the extracted app may update it.
     shutil.copyfile(ROOT / 'Cargo.lock', app / 'Cargo.lock')
-    env = {k: os.environ[k] for k in ('PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL') if k in os.environ}
-    env.update(CARGO_NET_OFFLINE=os.environ.get('CARGO_NET_OFFLINE', 'true'), CARGO_TARGET_DIR=str(ROOT / 'target'),
+    env = {k: os.environ[k] for k in ('PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL',
+                                    'CARGO_HOME', 'RUSTUP_HOME', 'RUSTFLAGS',
+                                    'CARGO_ENCODED_RUSTFLAGS', 'CARGO_INCREMENTAL') if k in os.environ}
+    env.update(CARGO_NET_OFFLINE=os.environ.get('CARGO_NET_OFFLINE', 'true'),
+               CARGO_TARGET_DIR=os.environ.get('CARGO_TARGET_DIR', str(ROOT / 'target')),
                TMPDIR=str(session / 'tmp'), GIT_OPTIONAL_LOCKS='0',
                DAY_DATA_DIR=str(session / 'data'), DAY_PREFS_DIR=str(session / 'prefs'),
                DAY_ASSET_ROOT=str(app / 'resource/assets'))
@@ -114,13 +117,15 @@ fn file_paths_and_round_trip() {
                        'day-mock = { path = "../../crates/day-mock" }\n')
     shutil.copyfile(ROOT / 'scripts/docs/fixtures/priority-recipes.rs', app / 'tests/priority.rs')
     commands_to_run = [
-        ('resolve', ['cargo', 'generate-lockfile', '--offline']),
+        # Let CARGO_NET_OFFLINE control downloads; --offline would override CI's false.
+        # Day dependencies remain paths into this checkout, including on a fresh runner.
+        ('resolve', ['cargo', 'generate-lockfile']),
         ('format', ['cargo', 'fmt', '--all']),
         ('format-check', ['cargo', 'fmt', '--all', '--', '--check']),
-        ('check', ['cargo', 'check', '--offline', '--locked', '--all-targets']),
-        ('clippy', ['cargo', 'clippy', '--offline', '--locked', '--all-targets', '--', '-D', 'warnings']),
-        ('test', ['cargo', 'test', '--offline', '--locked', '--test', 'contracts']),
-        ('priority-tests', ['cargo', 'test', '--offline', '--locked', '--test', 'priority', '--', '--test-threads=1']),
+        ('check', ['cargo', 'check', '--locked', '--all-targets']),
+        ('clippy', ['cargo', 'clippy', '--locked', '--all-targets', '--', '-D', 'warnings']),
+        ('test', ['cargo', 'test', '--locked', '--test', 'contracts']),
+        ('priority-tests', ['cargo', 'test', '--locked', '--test', 'priority', '--', '--test-threads=1']),
     ]
     result = 0
     try:

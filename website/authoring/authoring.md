@@ -118,7 +118,10 @@ Distinguish PASS, FAIL, and NOT RUN. Include changed files, evidence, and remain
 Marc's explicit permission is required separately for commits and pushes. A request for changes
 or a passing validation run does not authorize publication.
 
-The website CI job compiles the designated recipes and priority excerpts. The validators use
-cached Cargo dependencies locally; set `CARGO_NET_OFFLINE=false` to permit dependency downloads
-on a fresh machine. Record wider example-review gaps in the maintenance ledger, not as repeated
-notices on app documentation pages.
+The website CI job compiles the designated recipes and priority excerpts against the checked-out
+Day sources: main HEAD for a main-branch run, or the candidate revision for a pull request.
+It does not use published Day crates. The validators use cached Cargo dependencies locally;
+set `CARGO_NET_OFFLINE=false` to permit third-party dependency downloads on a fresh machine.
+`CARGO_HOME` and `CARGO_TARGET_DIR` can isolate the dependency and build caches for that check.
+Record wider example-review gaps in the maintenance ledger, not as repeated notices on app
+documentation pages.

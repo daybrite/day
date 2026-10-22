@@ -6099,7 +6099,9 @@ The `daybrite/actions` companion repository provides reusable workflows for exte
    runner-image, toolchain, emulator or dependency change surfaces on a day with no push. The `website` job builds the rustdoc bundle into
    `dist/api` after the Astro build, which clears `dist`. Pages deploys one artifact, so the job
    that feeds the deploy assembles both outputs and checks every manifest-listed crate entry.
-   Rustdoc runs with a locked dependency graph and warnings denied; its item-link check follows
+   Rustdoc runs with a locked dependency graph and warnings denied. The builder creates each
+   published crate's output directory before documentation starts and serializes rustdoc, so
+   cross-crate links resolve locally even when Cargo documents a consumer first. Its item-link check follows
    aliases and checks fragment destinations separately from the website link checker. Links to
    private helpers remain prose, public links use resolvable paths, and re-exported standard-library
    links point to the hosted Rust documentation. This artifact sequence

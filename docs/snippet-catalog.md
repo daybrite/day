@@ -368,10 +368,12 @@ python3 -B scripts/docs/verify-recipes.py
 ```
 
 The validator extracts these exact blocks into a fresh repository-local workspace, compiles and
-lints every designated module, and runs synthetic command/prefs/file and mock interaction tests. It uses cached Cargo
-dependencies offline and verifies the original repository lock remains unchanged. A cache miss
-fails validation. It does not send HTTP requests, post notifications, display permission prompts,
-or open user documents. The mock facade does not replace the OS implementation inside every part.
+lints every designated module, and runs synthetic command/prefs/file and mock interaction tests.
+Day dependencies resolve to this checkout. Third-party dependencies use Cargo's offline cache by
+default; set `CARGO_NET_OFFLINE=false` to allow downloads on a fresh machine, as website CI does.
+The validator verifies the original repository lock remains unchanged. The examples do not send
+HTTP requests, post notifications, display permission prompts, or open user documents.
+The mock facade does not replace the OS implementation inside every part.
 The fixture store paths are redirected under the validator's workspace.
 
 All other Rust fences in the technical corpus are API excerpts or integration fragments unless

@@ -159,14 +159,16 @@ day::routes! { pub enum Section { Home => "home", Library => "library", Settings
                 helpers += prelude.get((name, index), '') + '\nlet _ = {\n' + match[1] + '\n};\nOk(())\n}\n'
             records.append(record)
     put(app / 'tests/excerpts.rs', helpers)
-    env = dict(os.environ, CARGO_NET_OFFLINE=os.environ.get('CARGO_NET_OFFLINE', 'true'), CARGO_TARGET_DIR=str(ROOT/'target'),
+    env = dict(os.environ, CARGO_NET_OFFLINE=os.environ.get('CARGO_NET_OFFLINE', 'true'),
+               CARGO_TARGET_DIR=os.environ.get('CARGO_TARGET_DIR', str(ROOT / 'target')),
                GIT_OPTIONAL_LOCKS='0')
     result = 0
     try:
         for name, project in [('app', app), ('private', private)]:
             shutil.copyfile(ROOT / 'Cargo.lock', project / 'Cargo.lock')
-            for action, command in [('resolve', ['cargo', 'generate-lockfile', '--offline']),
-                                    ('check', ['cargo', 'check', '--offline', '--locked', '--all-targets'])]:
+            # Day comes from this checkout; the environment controls third-party downloads.
+            for action, command in [('resolve', ['cargo', 'generate-lockfile']),
+                                    ('check', ['cargo', 'check', '--locked', '--all-targets'])]:
                 with (session / f'{name}-{action}.log').open('w') as log:
                     log.write(f'cwd: {project}\ncommand: {command}\n'); log.flush()
                     run = subprocess.run(command, cwd=project, env=env, stdout=log, stderr=subprocess.STDOUT)

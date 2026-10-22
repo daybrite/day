@@ -61,6 +61,15 @@ export RUSTDOCFLAGS="--html-in-header $hdr --html-after-content $after -D warnin
 cd "$here"
 rm -rf target/doc
 
+# Rustdoc discovers local cross-crate link destinations from directories in its output tree.
+# With --no-deps, Cargo may document a consumer before its dependency, leaving raw Rust paths
+# in the HTML. Reserve every published crate's directory before building, and serialize rustdoc
+# so another invocation cannot replace a directory while it is being inspected. Subsequent CI
+# bundle and item-link checks still require the actual pages and anchors.
+while IFS= read -r crate_dir; do
+  mkdir -p "target/doc/$crate_dir"
+done < <(jq -r '.groups[].crates[].pkg | gsub("-"; "_")' "$manifest")
+
 # Crates with no `features` doc together in one pass; each `features` crate (only `day`) docs on its own
 # so cargo resolves the right single-backend feature set.
 pflags=(); n=0
@@ -69,7 +78,7 @@ while IFS= read -r p; do
   pflags+=(-p "$p"); n=$((n + 1))
 done < <(jq -r '.groups[].crates[] | select(.features==null) | .pkg' "$manifest")
 echo "==> cargo doc ($n portable crates)"
-cargo doc --locked --no-deps "${pflags[@]}"
+cargo doc --locked --no-deps --jobs 1 "${pflags[@]}"
 
 while IFS=$'\t' read -r pkg feats; do
   [ -n "$pkg" ] || continue
