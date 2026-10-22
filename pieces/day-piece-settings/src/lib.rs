@@ -2852,6 +2852,82 @@ pub mod conformance {
     static SOUND: Pref<bool> = Pref::new("conformance.sound", || true);
     static SCALE: Pref<f64> = Pref::new("conformance.scale", || 100.0);
 
+    /// A real Windows card must reflow its control before its header becomes a column of
+    /// broken words, while keeping a roomy card horizontal.
+    #[cfg(all(feature = "xaml", target_os = "windows"))]
+    #[day_macros::test(day_core)]
+    fn settings_card_keeps_header_readable() -> Case {
+        Case::new()
+            .proves("day-piece-settings.row")
+            .page(|| {
+                let inst = Rc::new(Installed {
+                    about: None,
+                    groups: Vec::new(),
+                    presentation: Presentation::Window,
+                    title: TextSource::Static("Settings".into()),
+                    selected: Signal::new(String::new()),
+                    path: Signal::new(Vec::new()),
+                });
+                let narrow = xaml_impl::row_piece(
+                    inst.clone(),
+                    &appearance_row().id(day_core::id!(settings::narrow_theme)),
+                    true,
+                )
+                .unwrap();
+                let wide = xaml_impl::row_piece(
+                    inst,
+                    &appearance_row().id(day_core::id!(settings::wide_theme)),
+                    true,
+                )
+                .unwrap();
+                column((
+                    narrow.id(day_core::id!(settings::narrow_card)).width(250.0),
+                    wide.id(day_core::id!(settings::wide_card)).width(520.0),
+                ))
+            })
+            .drive(|d: Drive| async move {
+                for (card_id, control_id, stacked) in [
+                    ("settings::narrow_card", "settings::narrow_theme", true),
+                    ("settings::wide_card", "settings::wide_theme", false),
+                ] {
+                    d.assert_frame(card_id, day_core::conformance::FrameExpect {
+                        width: Some(if stacked { 250.0 } else { 520.0 }),
+                        ..Default::default()
+                    }).await?;
+                    let (card, control) = day_core::with_tree(|t| {
+                        let card = t
+                            .read_native(t.find_by_id(card_id).unwrap())
+                            .unwrap()
+                            .frame
+                            .unwrap();
+                        let control = t
+                            .read_native(t.find_by_id(control_id).unwrap())
+                            .unwrap()
+                            .frame
+                            .unwrap();
+                        (card, control)
+                    });
+                    let y = control.origin.y - card.origin.y;
+                    d.check(
+                        if stacked { y >= 48.0 } else { y < 40.0 },
+                        "the theme control must move below its header only in a narrow card",
+                    )?;
+                    d.check(
+                        control.origin.x >= card.origin.x + 15.0
+                            && control.origin.x + control.size.width
+                                <= card.origin.x + card.size.width - 15.0,
+                        &format!("the theme control must remain within the card padding: {card:?}, {control:?}"),
+                    )?;
+                }
+                d.select("settings::narrow_theme", 1).await?;
+                d.check(
+                    APPEARANCE.get_untracked() == Appearance::Dark,
+                    "reflowed theme control must remain interactive",
+                )?;
+                d.select("settings::narrow_theme", 2).await
+            })
+    }
+
     /// Choosing a theme applies it and persists; System clears the stored key again.
     #[day_macros::test(day_core)]
     fn settings_theme_applies_and_persists() -> Case {

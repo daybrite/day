@@ -433,11 +433,10 @@ void *day_settings_xaml_card_new(const char *header, const char *description, un
     root.Children().Append(text);
 
     // day sizes the Canvas via set_geometry (Width/Height), which fires SizeChanged; the chrome
-    // grows with it and the text column takes the row height.
-    root.SizeChanged([chrome, text](WF::IInspectable const &, WUX::SizeChangedEventArgs const &e) mutable {
+    // grows with it. Rust places the text column separately so narrow cards can stack.
+    root.SizeChanged([chrome](WF::IInspectable const &, WUX::SizeChangedEventArgs const &e) mutable {
         chrome.Width(e.NewSize().Width);
         chrome.Height(e.NewSize().Height);
-        text.Height(e.NewSize().Height);
     });
 
     return day_xaml_box(winrt::get_abi(root));
@@ -492,6 +491,19 @@ void day_settings_xaml_card_measure(void *handle, double text_w, double *out_w, 
             card.text.Width(text_w);
         if (!std::isnan(saved_h))
             card.text.Height(saved_h);
+    } catch (...) {
+    }
+}
+
+void day_settings_xaml_card_place_text(void *handle, double x, double y, double width, double height) {
+    if (!handle) return;
+    try {
+        auto card = card_of(handle);
+        if (!card.root || !card.text) return; // Button content is laid out by its template.
+        WUXC::Canvas::SetLeft(card.text, x);
+        WUXC::Canvas::SetTop(card.text, y);
+        card.text.Width(width);
+        card.text.Height(height);
     } catch (...) {
     }
 }

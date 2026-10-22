@@ -8019,7 +8019,7 @@ static void insert_toolbar_item(void* win, ToolbarState& st, size_t index, const
             put(host, 1, id, 3);
             // Patches address the field itself (text, suggestions, enablement), not its host.
             elems.insert_or_assign(id, box);
-        } else if (id == "day.sidebar-toggle") {
+        } else if (id == "day::sidebar_toggle") {
             // The sidebar toggle is REALIZED BY THE NAVIGATIONVIEW, not by a bar command: its
             // built-in PaneToggleButton is the hamburger Windows puts at the head of the pane,
             // and drawing our own beside it left the window with two stacked hamburgers doing the

@@ -18,8 +18,7 @@
 // whose Click reaches this arm as the same `Event::Tap` a pointer tap does. A row whose control
 // already shows the title (an action's button, a captioned link) shows its caption alone in the
 // description style, never the title twice; a note or a custom row has no card shape and stays
-// composed. Windows cannot be built here: this arm is written against the toolkit's conventions
-// and verified by the Windows CI leg only.
+// composed. Native Windows conformance covers narrow and wide card layouts.
 // ---------------------------------------------------------------------------
 
 use super::*;
@@ -83,6 +82,7 @@ unsafe extern "C" {
         out_w: *mut f64,
         out_h: *mut f64,
     );
+    fn day_settings_xaml_card_place_text(w: *mut c_void, x: f64, y: f64, width: f64, height: f64);
 }
 
 /// What the shim builds once per row.
@@ -152,9 +152,13 @@ day_pieces::renderer!(day_xaml::RENDERERS, Xaml,
     make: make, update: update, measure: measure);
 
 /// The card's layout: the native text column leading, the single Day child (the control) at the
-/// trailing edge, vertically centered; the row is as tall as the taller of the two plus the
-/// card padding, never under the SettingsCard minimum.
-struct CardLayout;
+/// trailing edge, vertically centered, or below the header when the width is constrained.
+/// The row includes card padding and never falls below the SettingsCard minimum.
+#[derive(Default)]
+struct CardLayout {
+    // Borrowed from this layout's own native node; never used after the node is disposed.
+    handle: std::cell::Cell<*mut c_void>,
+}
 
 impl CardLayout {
     /// The control's size at `row_w`: its natural size, or for a stretching control (a text
@@ -179,26 +183,61 @@ impl CardLayout {
             _ => content_w,
         }
     }
+
+    fn content(
+        cx: &mut dyn LayoutOps,
+        children: &[RNode],
+        row_w: f64,
+    ) -> (Option<Size>, Size, bool) {
+        let control = children.first().map(|&c| Self::control_size(cx, c, row_w));
+        let natural_text = cx.measure_leaf(Proposal::new(None, None));
+        // Keep short headers whole and give longer descriptions a readable column. A narrow
+        // card stacks its control instead of squeezing the header into a few letters per line.
+        let stacked =
+            control.is_some() && Self::text_width(row_w, control) < natural_text.width.min(140.0);
+        let width = Self::text_width(row_w, if stacked { None } else { control });
+        let text = cx.measure_leaf(Proposal::new(Some(width), None));
+        (control, Size::new(width, text.height), stacked)
+    }
 }
 
 impl Layout for CardLayout {
     fn measure(&self, cx: &mut dyn LayoutOps, children: &[RNode], p: Proposal) -> Size {
         let row_w = p.width.unwrap_or(DEFAULT_WIDTH);
-        let control = children.first().map(|&c| Self::control_size(cx, c, row_w));
-        let text = cx.measure_leaf(Proposal::new(Some(Self::text_width(row_w, control)), None));
-        let inner = text.height.max(control.map_or(0.0, |s| s.height));
+        let (control, text, stacked) = Self::content(cx, children, row_w);
+        let inner = if stacked {
+            text.height + GAP + control.map_or(0.0, |s| s.height)
+        } else {
+            text.height.max(control.map_or(0.0, |s| s.height))
+        };
         Size::new(row_w, (inner + 2.0 * PAD).max(MIN_HEIGHT).ceil())
     }
 
     fn place(&self, cx: &mut dyn LayoutOps, children: &[RNode], bounds: Rect) {
         let row_w = bounds.size.width;
-        let control = children.first().map(|&c| Self::control_size(cx, c, row_w));
-        // Measured again with the final width: the shim keeps the last measured width as the
-        // text column's layout width, so the text wraps clear of the control.
-        let _ = cx.measure_leaf(Proposal::new(Some(Self::text_width(row_w, control)), None));
+        let (control, text, stacked) = Self::content(cx, children, row_w);
+        // Position the native header explicitly too: centering it in the whole card would
+        // overlap the control after a narrow card switches to the stacked layout.
+        unsafe {
+            day_settings_xaml_card_place_text(
+                self.handle.get(),
+                PAD,
+                if stacked { PAD } else { 0.0 },
+                text.width,
+                if stacked {
+                    text.height
+                } else {
+                    bounds.size.height
+                },
+            );
+        }
         if let (Some(&c), Some(s)) = (children.first(), control) {
             let x = (row_w - PAD - s.width).max(PAD);
-            let y = ((bounds.size.height - s.height) / 2.0).max(0.0);
+            let y = if stacked {
+                PAD + text.height + GAP
+            } else {
+                ((bounds.size.height - s.height) / 2.0).max(0.0)
+            };
             cx.place_child(c, Rect::new(x, y, s.width, s.height));
         }
     }
@@ -222,16 +261,25 @@ impl Piece for Card {
             control,
             on_tap,
         } = self;
+        let layout = Rc::new(CardLayout::default());
         let node = cx.native(
             KIND,
             &props,
-            Rc::new(CardLayout),
+            layout.clone(),
             Flex {
                 grow_w: true,
                 ..Default::default()
             },
             day_core::Boundary::No,
         );
+        with_tree(|t| {
+            if let Some(handle) = t
+                .node_handle_any(node)
+                .and_then(|h| h.downcast::<WinHandle>().ok())
+            {
+                layout.handle.set(handle.0);
+            }
+        });
         if let Some(control) = control {
             cx.under(node, |cx| {
                 let _ = control.build(cx);
