@@ -832,6 +832,61 @@ mod teardown_tests {
     use super::*;
 
     #[test]
+    fn bitmap_drop_during_reactive_tls_teardown() {
+        const CHILD: &str = "DAY_CORE_BITMAP_REACTIVE_TEARDOWN_CHILD";
+        if let Some(mode) = std::env::var_os(CHILD) {
+            struct TeardownBitmap {
+                bitmap: Option<Bitmap>,
+                dropped: std::sync::mpsc::Sender<()>,
+            }
+            impl Drop for TeardownBitmap {
+                fn drop(&mut self) {
+                    drop(self.bitmap.take());
+                    self.dropped.send(()).unwrap();
+                }
+            }
+            let (dropped, observed) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                // The reactive arena owns the last bitmap until its TLS destructor runs.
+                // Construct the handle directly so the first case never initializes core TLS.
+                day_reactive::Signal::global(TeardownBitmap {
+                    bitmap: Some(bitmap_from((BitmapId(1), BitmapInfo::default()))),
+                    dropped,
+                });
+                if mode == "initialized" {
+                    // On Windows GNU, core TLS can be initialized again after its destructor
+                    // finishes. This is the canvas mock_e2e crash's teardown ordering.
+                    assert!(crate::try_tls_root(|_| ()).is_ok());
+                }
+            })
+            .join()
+            .unwrap();
+            observed
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("bitmap was not dropped during reactive TLS teardown");
+            return;
+        }
+        // A TLS destructor panic aborts, so isolate both the never-initialized core and the
+        // already-destroyed core cases. Neither may initialize signals while releasing a bitmap.
+        for mode in ["uninitialized", "initialized"] {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "image::teardown_tests::bitmap_drop_during_reactive_tls_teardown",
+                    "--nocapture",
+                ])
+                .env(CHILD, mode)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{mode}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+    }
+
+    #[test]
     fn bitmap_drop_during_core_tls_teardown() {
         const CHILD: &str = "DAY_CORE_BITMAP_TEARDOWN_CHILD";
         if std::env::var_os(CHILD).is_some() {
