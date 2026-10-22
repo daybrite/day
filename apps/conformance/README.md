@@ -90,7 +90,8 @@ python apps/conformance/scripts/windows-canvas.py
 
 The fixture continuously repaints a Win2D canvas. The script uses Windows `SendInput`
 for clicks held across redraws and for a drag, checking tap counts, focus and drag completion.
-UI Automation only locates the surface; Day's driver only asserts results. This complements
+The native window supplies screen coordinates; Day's driver only asserts results.
+Screen pixel samples verify that frames actually repaint during the held press. This complements
 `canvas-*` conformance cases, whose pixel checks cover PNG export, scale, transparency,
 geometric clipping, transforms and image opacity. It requires an interactive desktop and
 is separate from headless unit tests.

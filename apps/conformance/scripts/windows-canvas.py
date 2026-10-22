@@ -37,7 +37,8 @@ def main():
 
     def counts(taps, drags):
         drive({"op": "assert_text", "id": "native_canvas::taps", "text": f"Taps: {taps}"},
-              {"op": "assert_text", "id": "native_canvas::drags", "text": f"Drags: {drags}"})
+              {"op": "assert_text", "id": "native_canvas::drags", "text": f"Drags: {drags}"},
+              {"op": "assert_text", "id": "native_canvas::began", "text": f"Began: {drags}"})
 
     class MOUSEINPUT(ctypes.Structure):
         _fields_ = [("dx", wintypes.LONG), ("dy", wintypes.LONG), ("mouseData", wintypes.DWORD),
@@ -54,22 +55,59 @@ def main():
     user.SendInput.restype = wintypes.UINT
     user.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
 
-    def mouse(flags):
-        event = INPUT(0, INPUTUNION(mi=MOUSEINPUT(0, 0, 0, flags, 0, 0)))
+    def mouse(flags, dx=0, dy=0):
+        event = INPUT(0, INPUTUNION(mi=MOUSEINPUT(dx, dy, 0, flags, 0, 0)))
         if user.SendInput(1, ctypes.byref(event), ctypes.sizeof(INPUT)) != 1:
             raise ctypes.WinError(ctypes.get_last_error())
 
-    # UI Automation reports physical screen bounds; it does not invoke the tested control.
-    bounds_script = r'''
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-$condition = New-Object System.Windows.Automation.PropertyCondition([System.Windows.Automation.AutomationElement]::NameProperty, 'Native canvas input')
-$element = [System.Windows.Automation.AutomationElement]::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants, $condition)
-if ($null -eq $element) { throw 'Native canvas input was not found' }
-$bounds = $element.Current.BoundingRectangle
-@{x=$bounds.X; y=$bounds.Y; w=$bounds.Width; h=$bounds.Height} | ConvertTo-Json -Compress
-'''
-    run(day + ["launch", "-t", "windows-winui", "--skip-build", "--detach", "--env", "DAY_NATIVE_CANVAS_TEST=1"])
+    def move(x, y):
+        left, top = user.GetSystemMetrics(76), user.GetSystemMetrics(77)
+        width, height = user.GetSystemMetrics(78), user.GetSystemMetrics(79)
+        mouse(0xC001, round((x - left) * 65535 / (width - 1)),
+              round((y - top) * 65535 / (height - 1)))
+
+    # The fixture places its 300x200 DIP canvas at the client origin. Resolve the
+    # actual native window, then convert that point to physical screen coordinates.
+    # This deliberately does not depend on automation peers to deliver mouse input.
+    callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user.EnumWindows.argtypes = [callback_type, wintypes.LPARAM]
+    user.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user.IsWindowVisible.argtypes = [wintypes.HWND]
+    user.SetForegroundWindow.argtypes = [wintypes.HWND]
+    user.ClientToScreen.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.POINT)]
+    user.GetDpiForWindow.argtypes = [wintypes.HWND]
+    user.GetDC.argtypes = [wintypes.HWND]
+    user.GetDC.restype = wintypes.HDC
+    user.ReleaseDC.argtypes = [wintypes.HWND, wintypes.HDC]
+    gdi = ctypes.WinDLL("gdi32", use_last_error=True)
+    gdi.GetPixel.argtypes = [wintypes.HDC, ctypes.c_int, ctypes.c_int]
+    gdi.GetPixel.restype = wintypes.DWORD
+
+    def native_window():
+        pid = int(run(["powershell.exe", "-NoProfile", "-Command",
+                       "(Get-Process -Name conformance).Id"]).strip())
+        found = []
+
+        @callback_type
+        def visit(hwnd, _):
+            owner = wintypes.DWORD()
+            user.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+            if owner.value == pid and user.IsWindowVisible(hwnd):
+                found.append(hwnd)
+            return True
+
+        user.EnumWindows(visit, 0)
+        assert len(found) == 1, f"Expected one visible conformance window, found {len(found)}"
+        return found[0]
+
+    # The detached GUI may inherit stdout. A real log file avoids waiting for a pipe
+    # to reach EOF while that GUI is deliberately still running.
+    launch_log = APP / "build/day/windows-canvas-launch.log"
+    with launch_log.open("w", encoding="utf-8") as output:
+        subprocess.run(list(map(str, day + ["launch", "-t", "windows-winui", "--skip-build", "--detach",
+                                            "--env", "DAY_NATIVE_CANVAS_TEST=1"])),
+                       stdout=output, stderr=subprocess.STDOUT, check=True, timeout=60)
+    dc = None
     try:
         deadline = time.monotonic() + 25
         while True:
@@ -80,25 +118,63 @@ $bounds = $element.Current.BoundingRectangle
                 if time.monotonic() > deadline:
                     raise
                 time.sleep(0.25)
-        bounds = json.loads(run(["powershell.exe", "-NoProfile", "-Command", bounds_script]))
-        x, y = round(bounds["x"] + bounds["w"] / 3), round(bounds["y"] + bounds["h"] / 2)
+        hwnd = native_window()
+        if not user.SetForegroundWindow(hwnd):
+            raise AssertionError("Could not foreground the fixture; use an unlocked desktop")
+        time.sleep(0.2)
+        scale = user.GetDpiForWindow(hwnd) / 96
+        point = wintypes.POINT(round(100 * scale), round(100 * scale))
+        if not user.ClientToScreen(hwnd, ctypes.byref(point)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        x, y = point.x, point.y
+        colors = set()
+        dc = user.GetDC(None)
+        if not dc:
+            raise ctypes.WinError(ctypes.get_last_error())
         for n in range(1, 4):
-            user.SetCursorPos(x, y)
+            move(x, y)
             mouse(0x0002)
-            time.sleep(0.25)  # Several redraws occur while the native press is held.
+            for _ in range(20):
+                colors.add(gdi.GetPixel(dc, x + 20, y + 20))
+                time.sleep(0.015)  # Sample actual Win2D frames while holding the press.
             mouse(0x0004)
             counts(n, 0)
         print("PASS: three native clicks survive continuous repaint", flush=True)
         drive({"op": "assert_focused", "id": "native_canvas::pad", "focused": True})
-        user.SetCursorPos(x, y)
+        move(x, y)
         mouse(0x0002)
+        time.sleep(0.05)
         for n in range(1, 11):
-            user.SetCursorPos(x + n * 8, y + n * 3)
+            move(x + round(n * 8 * scale), y + round(n * 3 * scale))
             time.sleep(0.04)
         mouse(0x0004)
         counts(3, 1)
+        drive({"op": "assert_text", "id": "native_canvas::changed", "text": "Changed: true"},
+              {"op": "assert_text", "id": "native_canvas::delta_valid", "text": "Delta valid: true"})
+        # COLORREF is 0x00BBGGRR; both alternating fixture colors must reach the screen.
+        assert {0xcc8844, 0xcc8855} <= colors, f"Missing repainted canvas colors: {colors}"
         print("PASS: native drag completes across redraws without a release tap", flush=True)
+        # Capture must survive leaving the canvas, and a drag back to its origin must
+        # not become a click merely because press/release positions coincide.
+        for drag_count, offsets in [(2, [80, 160, 240, 320]), (3, [40, 80, 40, 0])]:
+            move(x, y)
+            mouse(0x0002)
+            time.sleep(0.05)
+            for offset in offsets:
+                move(x + round(offset * scale), y)
+                time.sleep(0.08)
+            mouse(0x0004)
+            counts(3, drag_count)
+            drive({"op": "assert_text", "id": "native_canvas::delta_valid", "text": "Delta valid: true"})
+        move(x, y)
+        mouse(0x0002)
+        time.sleep(0.08)
+        mouse(0x0004)
+        counts(4, 3)
+        print("PASS: capture outside the canvas, return-to-origin drag and subsequent click", flush=True)
     finally:
+        if dc:
+            user.ReleaseDC(None, dc)
         mouse(0x0004)
         run(day + ["stop", "-t", "windows-winui"])
 

@@ -23,9 +23,9 @@ use day_piece_texteditor as _;
 
 use day::prelude::*;
 
-mod vector_icons;
 #[cfg(all(target_os = "windows", feature = "winui"))]
 mod native_canvas;
+mod vector_icons;
 
 #[cfg(target_env = "ohos")]
 mod native_dialogs;

@@ -874,6 +874,12 @@ pub(crate) mod conformance {
     fn canvas_clip_transform_png() -> Case {
         fn swatch(d: &mut Draw, _: day_spec::Size) {
             use day_spec::{Point, Rect};
+            // An empty data series must leave the transparent corners untouched.
+            d.stamp(
+                Shape::Rect(Rect::new(0.0, 0.0, 120.0, 100.0)),
+                vec![],
+                Color::BLACK,
+            );
             d.transformed(day_geometry::Affine::translate(20.0, 10.0), |d| {
                 d.clipped(Shape::Ellipse(Rect::new(0.0, 0.0, 80.0, 80.0)), |d| {
                     d.fill(

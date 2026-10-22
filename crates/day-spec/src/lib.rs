@@ -8795,6 +8795,11 @@ pub fn encode_ops(ops: &[DrawOp]) -> (Vec<f64>, Vec<String>) {
                 shape_record(false, shape, 0.0, col, &mut nums, &mut texts);
             }
             DrawOp::Stamp(st) => {
+                // No copies means no drawing. Some native decoders use an empty point
+                // buffer to mean an ordinary (unstamped) template, so omit the entire op.
+                if st.at.is_empty() {
+                    continue;
+                }
                 // A prefix record, then the coordinates, then the template shape record: the
                 // "applies to the next record" rule the gradient, stroke style and font records
                 // already follow, so a decoder needs no new kind of state, only one more slot in
