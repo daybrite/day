@@ -31,6 +31,9 @@ fn main() {
         // recompiles every source whenever this script re-runs, so the split gave no incremental
         // win — editing the 177-line picker cost the same full rebuild as editing shim.cpp — while
         // each satellite still carried duplicate includes, namespace aliases and `hs`/`u8` copies.
+        // Concern-specific .inc files keep that single translation unit while making the source
+        // easier to navigate. Include order and C/C++ linkage remain owned by shim.cpp; register
+        // each fragment in the rerun-if-changed list below so edits always rebuild the shim.
         .file("src/shim.cpp");
     // WinUI 3 (the `windows-winui` target): the same shim compiled against Microsoft.UI.Xaml. The
     // generated Windows App SDK projection goes AHEAD of the SDK's cppwinrt directory (it shares
@@ -95,6 +98,19 @@ fn main() {
     // DragQueryFileW — reading CF_HDROP, the form Explorer offers dropped files in.
     println!("cargo:rustc-link-lib=shell32");
     println!("cargo:rerun-if-changed=src/shim.cpp");
+    println!("cargo:rerun-if-changed=src/container-style.inc");
+    println!("cargo:rerun-if-changed=src/controls.inc");
+    println!("cargo:rerun-if-changed=src/text-input.inc");
+    println!("cargo:rerun-if-changed=src/images.inc");
+    println!("cargo:rerun-if-changed=src/accessibility.inc");
+    println!("cargo:rerun-if-changed=src/gestures.inc");
+    println!("cargo:rerun-if-changed=src/snapshot.inc");
+    println!("cargo:rerun-if-changed=src/menus.inc");
+    println!("cargo:rerun-if-changed=src/toolbar.inc");
+    println!("cargo:rerun-if-changed=src/dialogs.inc");
+    println!("cargo:rerun-if-changed=src/shell-integration.inc");
+    println!("cargo:rerun-if-changed=src/picker.inc");
+    println!("cargo:rerun-if-changed=src/tree.inc");
     println!("cargo:rerun-if-changed=src/transfer.inc");
     println!("cargo:rerun-if-changed=src/canvas-winui.inc");
     println!("cargo:rerun-if-changed=src/list-winui.inc");
