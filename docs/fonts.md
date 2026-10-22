@@ -142,11 +142,9 @@ never wrong. Cap height falls back to 0.7 × size.
 | Windows (XAML) | a `TextBlock`'s desired size and `BaselineOffset` | **0.7 × size** — a `TextBlock` reports neither | **the line box** — likewise |
 | web-dom | `measureText` with `fontBoundingBoxAscent` / `Descent` | the ink ascent of `H` | `actualBoundingBox*` |
 
-The three backends taking "the ink ascent of `H`" pay one extra measurement of a one-character
-string, [memoized](#it-is-cached) per `(size, font)`, so a whole process pays for it once. XAML's
-two approximations are the only ones without an exact answer behind them: DirectWrite holds both
-(`IDWriteFontFace::GetMetrics`, `GetGlyphRunMetrics`), but reaching them means a slab of COM that
-backend does not otherwise touch, and it is the one target nothing here can run to check.
+Backends measuring `H` pay one extra measurement of a one-character string,
+[memoized](#it-is-cached) per `(size, font)`. WinUI uses the same Win2D text layout
+for measurements, screen drawing and bitmap export, including bundled families.
 
 ### It is cached
 

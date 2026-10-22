@@ -868,6 +868,94 @@ pub(crate) mod conformance {
             })
     }
 
+    /// Curved/path clips must retain their geometry and the transform at clipping time.
+    /// The PNG round trip must preserve transparent pixels outside that geometry too.
+    #[day_macros::test(day_core)]
+    fn canvas_clip_transform_png() -> Case {
+        fn swatch(d: &mut Draw, _: day_spec::Size) {
+            use day_spec::{Point, Rect};
+            d.transformed(day_geometry::Affine::translate(20.0, 10.0), |d| {
+                d.clipped(Shape::Ellipse(Rect::new(0.0, 0.0, 80.0, 80.0)), |d| {
+                    d.fill(
+                        Shape::Rect(Rect::new(-20.0, -10.0, 160.0, 120.0)),
+                        Color::hex(0xff0000),
+                    );
+                    let triangle = PathBuilder::new()
+                        .move_to(Point::new(40.0, 0.0))
+                        .line_to(Point::new(80.0, 80.0))
+                        .line_to(Point::new(0.0, 80.0))
+                        .close()
+                        .build();
+                    d.clipped(triangle, |d| {
+                        d.transformed(day_geometry::Affine::translate(-20.0, -10.0), |d| {
+                            d.fill(
+                                Shape::Rect(Rect::new(0.0, 0.0, 120.0, 100.0)),
+                                Color::hex(0x0000ff),
+                            );
+                        });
+                    });
+                });
+            });
+            // Restoring must remove both clips and transforms.
+            d.fill(
+                Shape::Rect(day_spec::Rect::new(0.0, 90.0, 120.0, 10.0)),
+                Color::hex(0x00ff00),
+            );
+        }
+        Case::new()
+            .proves(kinds::CANVAS)
+            .proves_cap(Cap::ImageEncode)
+            .requires(Cap::CanvasBitmap)
+            .requires(Cap::ImageEncode)
+            .requires(Cap::Snapshot)
+            .page(|| {
+                let decoded = Signal::new(None::<day_core::Bitmap>);
+                let status = Signal::new("rendering".to_string());
+                day_core::task(async move {
+                    let result = Drawing::record(day_spec::Size::new(120.0, 100.0), swatch)
+                        .to_png(2.0)
+                        .await;
+                    match result {
+                        Ok(bytes) => match day_core::decode_image(std::sync::Arc::new(bytes)).await
+                        {
+                            Ok(bitmap) => {
+                                decoded.set(Some(bitmap));
+                                status.set("ready".into());
+                            }
+                            Err(e) => status.set(format!("decode: {e}")),
+                        },
+                        Err(e) => status.set(format!("export: {e}")),
+                    }
+                });
+                column((
+                    canvas(swatch)
+                        .frame(120.0, 100.0)
+                        .id(day_core::id!(clip_png::live)),
+                    keyed(
+                        move || decoded.get(),
+                        |bitmap| {
+                            image(bitmap)
+                                .stretch()
+                                .frame(120.0, 100.0)
+                                .id(day_core::id!(clip_png::decoded))
+                        },
+                    ),
+                    label(move || status.get()).id(day_core::id!(clip_png::state)),
+                ))
+                .background(Color::WHITE)
+            })
+            .drive(|d: Drive| async move {
+                d.assert_text("clip_png::state", "ready").await?;
+                for id in ["clip_png::live", "clip_png::decoded"] {
+                    d.sample_pixel(id, 0.2, 0.14, "#ffffff").await?;
+                    d.sample_pixel(id, 0.24, 0.5, "#ff0000").await?;
+                    d.sample_pixel(id, 0.5, 0.6, "#0000ff").await?;
+                    d.sample_pixel(id, 0.1, 0.95, "#00ff00").await?;
+                }
+                Ok(())
+            })
+    }
+
     /// A PDF where the platform has a writer, and `Unsupported` where it has none: the bytes are
     /// a PDF file, and a toolkit without the cap never pretends otherwise.
     #[day_macros::test(day_core)]

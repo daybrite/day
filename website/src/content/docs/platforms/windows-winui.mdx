@@ -63,6 +63,16 @@ toolkits.
 Those need MSYS2 and a GNU Rust toolchain alongside your MSVC default;
 [Qt and GTK on a Windows host](#qt-and-gtk-on-a-windows-host) has the recipe.
 
+## Canvas graphics
+
+Canvas elements use Microsoft's Win2D drawing API. Screen drawing and offscreen bitmap
+export share the same renderer, including paths, geometric clipping, gradients, transformed
+images and bundled fonts. `Drawing::to_png(scale)` supports transparent PNG export; vector
+PDF export is not yet supported.
+
+Day automatically fetches the pinned `Microsoft.Graphics.Win2D` package with the other SDK
+inputs. Packed apps include its native DLL, so users do not install Win2D separately.
+
 ## Packing
 
 ```powershell

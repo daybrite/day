@@ -79,3 +79,18 @@ project with `day open -t <target>`; edits to generated files are disposable. Ap
 sources, plists and `.xcconfig` files, and any Android resource overlays, remain app-owned
 under `platform/`. For additional native configuration, use
 `day project add-target <target> --persist-native-project` to create a persistent override.
+
+## Native WinUI canvas input
+
+After building conformance for `windows-winui`, run this on an unlocked Windows desktop:
+
+```powershell
+python apps/conformance/scripts/windows-canvas.py
+```
+
+The fixture continuously repaints a Win2D canvas. The script uses Windows `SendInput`
+for clicks held across redraws and for a drag, checking tap counts, focus and drag completion.
+UI Automation only locates the surface; Day's driver only asserts results. This complements
+`canvas-*` conformance cases, whose pixel checks cover PNG export, scale, transparency,
+geometric clipping, transforms and image opacity. It requires an interactive desktop and
+is separate from headless unit tests.

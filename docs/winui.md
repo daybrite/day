@@ -144,3 +144,18 @@ runtime on every link.
 - CI: the `windows-winui` legs (the scaffold check and toolkit row in ci.yml, the showcase
   gallery through daybrite/actions, whose `setup-day-deps` installs the Windows App Runtime and
   caches the SDK packages) are written but have not run on GitHub yet.
+
+## Canvas and PNG export
+
+The WinUI canvas uses Microsoft.Graphics.Win2D 1.4.0, fetched and projected by
+`day_toolchain::winappsdk` alongside the Windows App SDK. No separate manual install is
+needed. Packaged applications carry `Microsoft.Graphics.Canvas.dll`; development builds
+can load it from the pinned SDK cache. An offline `DAY_WINAPPSDK` directory must include
+`microsoft.graphics.win2d.1.4.0` with its NuGet layout.
+
+A `CanvasControl` replays Day's drawing operations through Win2D. A persistent host owns
+focus and input, so drawing updates do not replace gesture targets. The same painter renders
+into `CanvasRenderTarget` for bitmap/PNG export. WIC decodes bitmap inputs and encodes PNG,
+including transparency and optional downscaling. WinUI advertises `CanvasBitmap` and
+`ImageEncode` (PNG only); PDF remains unsupported. Deprecated `windows-xaml` has no canvas
+renderer or canvas text measurement.

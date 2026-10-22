@@ -63,6 +63,8 @@ fn main() {
             format!("L\"{dll}\"").as_str(),
         );
         build.include(&sdk.projection);
+        let canvas_dll = sdk.canvas_dll.to_string_lossy().replace('\\', "\\\\");
+        build.define("DAY_WIN2D_DLL", format!("L\"{canvas_dll}\"").as_str());
         for dir in &sdk.includes {
             build.include(dir);
         }
@@ -83,6 +85,7 @@ fn main() {
     println!("cargo:rustc-link-lib=dwmapi"); // dark title bar opt-in (DwmSetWindowAttribute)
     println!("cargo:rustc-link-lib=dwrite"); // the system font collection (docs/fonts.md)
     println!("cargo:rustc-link-lib=d2d1"); // stroked vector geometry in native IconElement slots
+    println!("cargo:rustc-link-lib=windowscodecs"); // Win2D bitmap decode and PNG encoding
     // D3D11CreateDevice / CreateDirect3D11DeviceFromDXGIDevice: WinUI's window capture
     // (Windows.Graphics.Capture hands frames back as D3D11 textures).
     println!("cargo:rustc-link-lib=d3d11");
@@ -93,6 +96,7 @@ fn main() {
     println!("cargo:rustc-link-lib=shell32");
     println!("cargo:rerun-if-changed=src/shim.cpp");
     println!("cargo:rerun-if-changed=src/transfer.inc");
+    println!("cargo:rerun-if-changed=src/canvas-winui.inc");
     println!("cargo:rerun-if-changed=src/list-winui.inc");
     println!("cargo:rerun-if-changed=src/vector-icon.inc");
     println!("cargo:rerun-if-changed=src/transfer-host.inc");

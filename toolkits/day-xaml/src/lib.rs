@@ -1235,10 +1235,10 @@ impl Toolkit for Xaml {
             // DirectWrite's system font collection (docs/fonts.md).
             Cap::FontList => Support::Native,
             Cap::Snapshot => Support::Native,
+            #[cfg(feature = "winui")]
+            Cap::CanvasBitmap | Cap::ImageEncode => Support::Native,
             // A `BitmapImage` decodes every container WIC reads, and the canvas draws it
-            // (docs/images.md). `Cap::ImageEncode` is deliberately absent: writing would mean
-            // `BitmapEncoder`, a namespace this shim does not use, and this is the one backend
-            // with no local compiler to check it against. `Cap::ImageProperties` likewise.
+            // (docs/images.md). WinUI encodes PNG through WIC; system XAML remains decode-only.
             Cap::ImageDecode => Support::Native,
             // TextBlock.BaselineOffset for text, font-derived for templated controls
             // (docs/baseline.md).
@@ -1378,12 +1378,17 @@ impl Toolkit for Xaml {
                     WinHandle(sv)
                 }
                 Some(Builtin::Canvas) => {
-                    // Focus, and with it the keyboard (docs/menus.md, docs/focus.md): a canvas
-                    // is the one built-in piece with no native control under it, so nothing
-                    // else would ever make it a tab stop.
-                    let h = ffi::day_xaml_canvas_new(id.0, on_key_handled, on_key);
-                    ffi::day_xaml_enable_focus(h, id.0, on_focus);
-                    WinHandle(h)
+                    #[cfg(feature = "winui")]
+                    {
+                        // Win2D paints; a persistent control owns focus and pointer input.
+                        let h = ffi::day_xaml_canvas_new(id.0, on_key_handled, on_key);
+                        ffi::day_xaml_enable_focus(h, id.0, on_focus);
+                        WinHandle(h)
+                    }
+                    #[cfg(not(feature = "winui"))]
+                    {
+                        placeholder_handle(kind)
+                    }
                 }
                 Some(Builtin::Nav) => {
                     let Some(p) = props_of::<NavProps>(kind, "xaml", props) else {
@@ -3355,6 +3360,75 @@ impl Toolkit for Xaml {
         BITMAP_INFO.with(|m| m.borrow().get(&id.0).copied())
     }
 
+    #[cfg(feature = "winui")]
+    fn render_bitmap(
+        &mut self,
+        req: u64,
+        id: day_spec::BitmapId,
+        ops: &[DrawOp],
+        size: Size,
+        scale: f64,
+    ) {
+        let (width, height) = day_spec::export_pixels(size, scale);
+        let (nums, texts) = day_spec::encode_ops(&resolve_canvas_fonts(ops));
+        let texts = cstr(&texts.join("\u{1f}"));
+        // Core validated dimensions and limits; all borrowed buffers outlive this synchronous call.
+        let rc = unsafe {
+            ffi::day_xaml_canvas_bitmap(
+                id.0,
+                nums.as_ptr(),
+                nums.len() as c_int,
+                texts.as_ptr(),
+                width as c_int,
+                height as c_int,
+                scale,
+            )
+        };
+        let result = if rc == 0 {
+            let info = day_spec::BitmapInfo {
+                pixels: Size::new(f64::from(width), f64::from(height)),
+                scale,
+                format: None,
+                has_alpha: true,
+            };
+            BITMAP_INFO.with(|m| m.borrow_mut().insert(id.0, info));
+            Ok(info)
+        } else {
+            Err(day_spec::ExportError::Failed(format!(
+                "Win2D bitmap rendering failed ({rc})"
+            )))
+        };
+        emit(day_spec::WINDOW_NODE, Event::BitmapRendered { req, result });
+    }
+
+    #[cfg(feature = "winui")]
+    fn encode_formats(&mut self) -> Vec<day_spec::ImageFormat> {
+        vec![day_spec::ImageFormat::Png]
+    }
+
+    #[cfg(feature = "winui")]
+    fn encode_image(&mut self, req: u64, id: day_spec::BitmapId, spec: &day_spec::EncodeSpec) {
+        let mut result = Err(day_spec::ImageError::Encode);
+        if spec.format == day_spec::ImageFormat::Png {
+            let fit = spec.fit.unwrap_or(Size::ZERO);
+            let mut len = 0;
+            // The shim allocates the returned bytes; copy before freeing through its allocator.
+            unsafe {
+                let bytes = ffi::day_xaml_encode_png(
+                    id.0,
+                    fit.width as c_int,
+                    fit.height as c_int,
+                    &mut len,
+                );
+                if !bytes.is_null() {
+                    result = Ok(std::slice::from_raw_parts(bytes, len as usize).to_vec());
+                    ffi::day_xaml_bytes_free(bytes);
+                }
+            }
+        }
+        emit(day_spec::WINDOW_NODE, Event::ImageEncoded { req, result });
+    }
+
     fn release_image(&mut self, id: day_spec::BitmapId) {
         BITMAP_INFO.with(|m| {
             m.borrow_mut().remove(&id.0);
@@ -3401,7 +3475,7 @@ impl Toolkit for Xaml {
         }
     }
 
-    /// A `TextBlock` measured with the font the canvas draws with (docs/fonts.md).
+    /// Win2D text layout measured with the font the canvas draws with (docs/fonts.md).
     fn measure_text(
         &mut self,
         text: &str,

@@ -77,6 +77,20 @@ pub struct DayXamlMonitor {
 }
 
 unsafe extern "C" {
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_canvas_bitmap(
+        id: u64,
+        nums: *const f64,
+        n: c_int,
+        texts: *const c_char,
+        width: c_int,
+        height: c_int,
+        scale: f64,
+    ) -> c_int;
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_encode_png(id: u64, fit_w: c_int, fit_h: c_int, len: *mut c_int) -> *mut u8;
+    #[cfg(feature = "winui")]
+    pub fn day_xaml_bytes_free(bytes: *mut u8);
     // window / app lifecycle
     pub fn day_xaml_window_new(
         title: *const c_char,

@@ -88,6 +88,14 @@
 // against the aliases defined here; what differs (hosting, dispatch, bootstrapping, capture)
 // is behind `#ifdef DAY_WINUI` where it happens.
 #ifdef DAY_WINUI
+#include <winrt/Microsoft.Graphics.Canvas.h>
+#include <winrt/Microsoft.Graphics.Canvas.Brushes.h>
+#include <winrt/Microsoft.Graphics.Canvas.Geometry.h>
+#include <winrt/Microsoft.Graphics.Canvas.Text.h>
+#include <winrt/Microsoft.Graphics.Canvas.UI.Xaml.h>
+#include <winrt/Windows.Foundation.Numerics.h>
+#include <wincodec.h>
+#include <roapi.h>
 #include <MddBootstrap.h>
 #include <winrt/Microsoft.UI.h>
 #include <winrt/Microsoft.UI.Interop.h>
@@ -283,10 +291,7 @@ static void pump_until(F done, ULONGLONG timeout_ms) {
     }
 }
 
-// ---- canvas display list helpers (§11, docs/shapes.md) ----
-// XAML is retained-mode, so each op becomes a Path/TextBlock child of the Canvas; the painter
-// transform stack (Save/Restore/Concat) is folded into each element's RenderTransform (a
-// MatrixTransform — same row-vector convention as day's Affine).
+// Native control brushes. Canvas drawing lives in canvas-winui.inc.
 static WUXM::SolidColorBrush brush_bits(unsigned col) {
     WUI::Color c;
     c.A = static_cast<uint8_t>((col >> 24) & 0xff);
@@ -295,119 +300,7 @@ static WUXM::SolidColorBrush brush_bits(unsigned col) {
     c.B = static_cast<uint8_t>(col & 0xff);
     return WUXM::SolidColorBrush(c);
 }
-// System XAML (Windows.UI.Xaml.Media) ships LinearGradientBrush but no RadialGradientBrush — that
-// type lives only in WinUI 2 (Microsoft.UI.Xaml), which this shim doesn't pull in. Synthesize the
-// equivalent: rasterize the radial ramp into a unit-square WriteableBitmap and paint it through an
-// ImageBrush with Stretch::Fill, which maps the unit square onto the shape's bounds — so the circle
-// stretches to an ellipse in non-square bounds, matching LinearGradientBrush's RelativeToBoundingBox.
-static WUI::Color radial_color_at(std::vector<std::pair<float, WUI::Color>> const& stops, double t) {
-    if (stops.empty()) return WUI::Color{};
-    if (t <= stops.front().first) return stops.front().second;
-    if (t >= stops.back().first) return stops.back().second;
-    for (size_t i = 1; i < stops.size(); ++i) {
-        if (t <= stops[i].first) {
-            double span = stops[i].first - stops[i - 1].first;
-            double u = span > 0.0 ? (t - stops[i - 1].first) / span : 0.0;
-            WUI::Color a = stops[i - 1].second, b = stops[i].second;
-            auto mix = [u](uint8_t x, uint8_t y) {
-                return static_cast<uint8_t>(std::lround(x + (y - x) * u));
-            };
-            WUI::Color c;
-            c.A = mix(a.A, b.A);
-            c.R = mix(a.R, b.R);
-            c.G = mix(a.G, b.G);
-            c.B = mix(a.B, b.B);
-            return c;
-        }
-    }
-    return stops.back().second;
-}
-static WUXM::ImageBrush make_radial_brush(double cx, double cy, double radius,
-                                          std::vector<std::pair<float, WUI::Color>> stops) {
-    std::sort(stops.begin(), stops.end(),
-              [](auto const& l, auto const& r) { return l.first < r.first; });
-    const int N = 256;
-    WUXM::Imaging::WriteableBitmap wb(N, N);
-    uint8_t* px = nullptr;
-    wb.PixelBuffer().as<::Windows::Storage::Streams::IBufferByteAccess>()->Buffer(&px);
-    for (int y = 0; y < N; ++y) {
-        double v = static_cast<double>(y) / (N - 1);
-        for (int x = 0; x < N; ++x) {
-            double u = static_cast<double>(x) / (N - 1);
-            double du = radius > 0.0 ? (u - cx) / radius : 0.0;
-            double dv = radius > 0.0 ? (v - cy) / radius : 0.0;
-            double t = std::sqrt(du * du + dv * dv);
-            WUI::Color c = radial_color_at(stops, t > 1.0 ? 1.0 : t);
-            // WriteableBitmap's PixelBuffer is premultiplied BGRA8.
-            size_t o = (static_cast<size_t>(y) * N + x) * 4;
-            px[o + 0] = static_cast<uint8_t>(c.B * c.A / 255);
-            px[o + 1] = static_cast<uint8_t>(c.G * c.A / 255);
-            px[o + 2] = static_cast<uint8_t>(c.R * c.A / 255);
-            px[o + 3] = c.A;
-        }
-    }
-    wb.Invalidate();
-    WUXM::ImageBrush ib;
-    ib.ImageSource(wb);
-    ib.Stretch(WUXM::Stretch::Fill);
-    return ib;
-}
-
-// RadialGradientBrush is unavailable to the system-XAML half of this shared backend, so the
-// helper above rasterizes a 256x256 ramp. Rebuilding that bitmap for every shape is extremely
-// expensive: an animated canvas with forty marbles used to generate 2.6 million gradient pixels
-// (including a sqrt and stop search for each one), then throw every bitmap away, on every frame.
-// Gradient records are value objects in Day's display list, and an ImageBrush may be shared by
-// multiple shapes, so retain the finished brush by its complete encoded value. The cache is
-// shared by windows-xaml and windows-winui and turns the Physics page's ten recurring marble
-// ramps into ten one-time rasterizations.
-static std::map<std::string, WUXM::ImageBrush> g_radial_brush_cache;
-static WUXM::ImageBrush cached_radial_brush(double cx, double cy, double radius,
-                                             std::string const& encoded_stops,
-                                             std::vector<std::pair<float, WUI::Color>> stops) {
-    std::string key = std::to_string(cx) + "," + std::to_string(cy) + "," +
-                      std::to_string(radius) + ":" + encoded_stops;
-    auto hit = g_radial_brush_cache.find(key);
-    if (hit != g_radial_brush_cache.end()) return hit->second;
-    if (g_radial_brush_cache.size() >= 256) g_radial_brush_cache.clear();
-    auto brush = make_radial_brush(cx, cy, radius, std::move(stops));
-    g_radial_brush_cache.emplace(std::move(key), brush);
-    return brush;
-}
-static WUXM::Matrix mat_identity() {
-    WUXM::Matrix m{};
-    m.M11 = 1;
-    m.M22 = 1;
-    return m;
-}
-// Row-vector affine product "apply x, then y" (p' = p·x·y).
-static WUXM::Matrix mat_mul(WUXM::Matrix const& x, WUXM::Matrix const& y) {
-    WUXM::Matrix r{};
-    r.M11 = x.M11 * y.M11 + x.M12 * y.M21;
-    r.M12 = x.M11 * y.M12 + x.M12 * y.M22;
-    r.M21 = x.M21 * y.M11 + x.M22 * y.M21;
-    r.M22 = x.M21 * y.M12 + x.M22 * y.M22;
-    r.OffsetX = x.OffsetX * y.M11 + x.OffsetY * y.M21 + y.OffsetX;
-    r.OffsetY = x.OffsetX * y.M12 + x.OffsetY * y.M22 + y.OffsetY;
-    return r;
-}
-// ---- canvas fonts (docs/fonts.md) ---------------------------------------------------------
-
-// Put a canvas font on a TextBlock: the family (empty = the default face), the CSS weight
-// (0 = default; XAML's FontWeight IS the 1 … 999 OpenType weight) and the slant.
-static void canvas_font_apply(WUXC::TextBlock const& tb, int weight, bool italic,
-                              std::string const& family) {
-    if (!family.empty()) tb.FontFamily(WUXM::FontFamily(hs(family.c_str())));
-    if (weight > 0) {
-        winrt::Windows::UI::Text::FontWeight fw{};
-        fw.Weight = (uint16_t)(weight < 1 ? 1 : weight > 999 ? 999 : weight);
-        tb.FontWeight(fw);
-    }
-    tb.FontStyle(italic ? winrt::Windows::UI::Text::FontStyle::Italic
-                        : winrt::Windows::UI::Text::FontStyle::Normal);
-}
-
-// UTF-16 → UTF-8 for DirectWrite's localized strings.
+// DirectWrite font enumeration shared by native controls and canvas.
 static std::string dw_utf8(const std::wstring& w) {
     if (w.empty()) return std::string();
     int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), (int)w.size(), nullptr, 0, nullptr, nullptr);
@@ -486,85 +379,13 @@ char* day_xaml_font_families(void) try {
 // Release a string returned by day_xaml_font_families. Safe to call with null.
 void day_xaml_string_free(char* p) { free(p); }
 
-// Measure one line of canvas text as the replay draws it (a TextBlock with the same font):
-// `out` receives the desired width, the desired height (the line box), the baseline offset, the
-// cap height, and the ink box relative to the line box's top-leading corner. Returns 0 on success.
-//
-// Cap height and ink are both APPROXIMATED here, and this is the one backend where they are.
-// A WinUI TextBlock reports neither: its DesiredSize is the line box whatever the text, and there
-// is no tight-bounds call. The exact answers live in DirectWrite (`IDWriteFontFace::GetMetrics`
-// for the cap height, `GetGlyphRunMetrics` for the ink), which is a slab of COM this backend does
-// not otherwise touch and which nothing here can run to check. A documented approximation that
-// errs the safe way beats untested COM: the cap height matches `TextMetrics::approximate`'s own
-// 0.7 × em, and the ink box is the whole line box — the superset the contract allows.
-int day_xaml_measure_text(const char* text, double size, int weight, int italic,
-                          const char* family, double* out) try {
-    WUXC::TextBlock tb;
-    tb.Text(hs(text ? text : ""));
-    tb.FontSize(size);
-    canvas_font_apply(tb, weight, italic != 0, std::string(family ? family : ""));
-    tb.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
-                         std::numeric_limits<float>::infinity() });
-    auto ds = tb.DesiredSize();
-    out[0] = ds.Width;
-    out[1] = ds.Height;
-    out[2] = tb.BaselineOffset();
-    out[3] = 0.7 * size;
-    out[4] = 0.0;
-    out[5] = 0.0;
-    out[6] = ds.Width;
-    out[7] = ds.Height;
-    return 0;
-} catch (...) {
-    return 1;
-}
+#ifndef DAY_WINUI
+int day_xaml_measure_text(const char*, double, int, int, const char*, double*) { return 1; }
+#endif
 
 } // extern "C"
 
-static void place_shape(WUXC::Canvas const& canvas, WUXSh::Shape const& p, WUXM::Matrix const& cur) {
-    WUXC::Canvas::SetLeft(p, 0);
-    WUXC::Canvas::SetTop(p, 0);
-    WUXM::MatrixTransform mt;
-    mt.Matrix(cur);
-    p.RenderTransform(mt);
-    canvas.Children().Append(p);
-}
-// Windows.UI.Xaml.Media.RectangleGeometry has no corner radius (unlike WPF), so build a rounded
-// rect as a path of 4 lines + 4 quarter-arcs.
-static WUXM::PathGeometry rounded_rect_geo(double a, double b, double c, double d, double r) {
-    double half = (c < d ? c : d) / 2.0; // (windows.h defines min/max macros — avoid std::min)
-    if (half < 0) half = 0;
-    if (r > half) r = half;
-    if (r < 0) r = 0;
-    auto pt = [](double x, double y) { return WF::Point{ (float)x, (float)y }; };
-    auto line = [&](double x, double y) {
-        WUXM::LineSegment s;
-        s.Point(pt(x, y));
-        return s;
-    };
-    auto corner = [&](double x, double y) {
-        WUXM::ArcSegment s;
-        s.Point(pt(x, y));
-        s.Size(WF::Size{ (float)r, (float)r });
-        s.SweepDirection(WUXM::SweepDirection::Clockwise);
-        return s;
-    };
-    WUXM::PathFigure fig;
-    fig.StartPoint(pt(a + r, b));
-    fig.IsClosed(true);
-    auto segs = fig.Segments();
-    segs.Append(line(a + c - r, b));
-    segs.Append(corner(a + c, b + r));
-    segs.Append(line(a + c, b + d - r));
-    segs.Append(corner(a + c - r, b + d));
-    segs.Append(line(a + r, b + d));
-    segs.Append(corner(a, b + d - r));
-    segs.Append(line(a, b + r));
-    segs.Append(corner(a + r, b));
-    WUXM::PathGeometry pg;
-    pg.Figures().Append(fig);
-    return pg;
-}
+
 
 static WUI::Color color_argb(unsigned int argb) {
     WUI::Color c{};
@@ -2241,11 +2062,7 @@ static void relayout_sec_chrome(SecWindow* sw) {
                       static_cast<int>(std::lround(h / s)));
 }
 
-/// A decoded path: plain numbers, built into a fresh XAML PathGeometry on every use. The geometry
-/// itself cannot be what is reused. A XAML Geometry is owned by the element it is set on, and
-/// setting it on a second Path throws E_INVALIDARG, even once the first Path has been cleared off
-/// the canvas. A replay that re-records an unchanged chart (a pointer move drawing only its
-/// guides) would hit that on every cached path and abort the rest of the canvas.
+/// Decoded Day path segments, consumed by the Win2D path builder.
 struct GeoSeg {
     char op; // 'L' (x y), 'Q' (cx cy x y) or 'C' (ax ay bx by x y)
     float v[6];
@@ -2259,36 +2076,6 @@ struct GeoData {
     int rule = -1; // 1 even-odd, 0 nonzero, -1 left at XAML's default (a polygon names none)
     std::vector<GeoFigure> figs;
 };
-
-static WUXM::PathGeometry build_geometry(GeoData const &g) {
-    WUXM::PathGeometry pg;
-    if (g.rule >= 0) pg.FillRule(g.rule == 1 ? WUXM::FillRule::EvenOdd : WUXM::FillRule::Nonzero);
-    for (auto const &f : g.figs) {
-        WUXM::PathFigure fig;
-        fig.IsClosed(f.closed);
-        fig.StartPoint(WF::Point{ f.x, f.y });
-        for (auto const &s : f.segs) {
-            if (s.op == 'L') {
-                WUXM::LineSegment seg;
-                seg.Point(WF::Point{ s.v[0], s.v[1] });
-                fig.Segments().Append(seg);
-            } else if (s.op == 'Q') {
-                WUXM::QuadraticBezierSegment seg;
-                seg.Point1(WF::Point{ s.v[0], s.v[1] });
-                seg.Point2(WF::Point{ s.v[2], s.v[3] });
-                fig.Segments().Append(seg);
-            } else {
-                WUXM::BezierSegment seg;
-                seg.Point1(WF::Point{ s.v[0], s.v[1] });
-                seg.Point2(WF::Point{ s.v[2], s.v[3] });
-                seg.Point3(WF::Point{ s.v[4], s.v[5] });
-                fig.Segments().Append(seg);
-            }
-        }
-        pg.Figures().Append(fig);
-    }
-    return pg;
-}
 
 /// Parse "M x y L x y Q .. C .. Z" (day_spec::encode_path).
 static GeoData parse_path_data(const std::string &spec, int rule) {
@@ -2335,114 +2122,6 @@ static GeoData parse_path_data(const std::string &spec, int rule) {
         }
     }
     return out;
-}
-
-/// Decoded geometry, keyed by the encoder's content key (day_spec::geometry_key). Parsing a spec
-/// is what this removes; the geometry and its ELEMENT are built fresh every replay (see GeoData
-/// for why the XAML objects cannot be shared), since `set_ops` clears the canvas each time. The
-/// key IS the content, so an entry can never go stale. Capped so a long-lived process cannot
-/// grow without bound.
-static std::map<long long, GeoData> g_geo_cache;
-/// Clip payload BOUNDS under the same key. This backend clips to rectangles (see the kind-17
-/// case), so the box is all it needs — four doubles rather than a geometry.
-static std::map<long long, std::array<double, 4>> g_clip_bounds_cache;
-
-static WUXM::PathGeometry cached_path_geometry(const std::string &spec, int rule, double key) {
-    const long long k = static_cast<long long>(key);
-    if (k == 0) return build_geometry(parse_path_data(spec, rule));
-    auto it = g_geo_cache.find(k);
-    if (it == g_geo_cache.end()) {
-        if (g_geo_cache.size() > 512) g_geo_cache.clear();
-        it = g_geo_cache.emplace(k, parse_path_data(spec, rule)).first;
-    }
-    return build_geometry(it->second);
-}
-
-/// "x,y x,y …" as one closed figure, cached like a path. A null geometry means the payload held
-/// no points, which is what the caller already tests for.
-static WUXM::PathGeometry cached_polygon_geometry(const std::string &t, double key) {
-    const long long k = static_cast<long long>(key);
-    if (k != 0) {
-        auto it = g_geo_cache.find(k);
-        if (it != g_geo_cache.end()) return build_geometry(it->second);
-    }
-    GeoData data;
-    GeoFigure fig;
-    fig.closed = true;
-    bool first = true;
-    size_t pos = 0;
-    while (pos < t.size()) {
-        size_t sp = t.find(' ', pos);
-        std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
-        pos = sp == std::string::npos ? t.size() : sp + 1;
-        size_t comma = pair.find(',');
-        if (comma == std::string::npos || comma == 0) continue;
-        // std::from_chars: locale-independent (atof honors LC_NUMERIC).
-        float x = 0.0f, y = 0.0f;
-        std::from_chars(pair.data(), pair.data() + comma, x);
-        std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
-        if (first) {
-            fig.x = x;
-            fig.y = y;
-            first = false;
-        } else {
-            fig.segs.push_back(GeoSeg{ 'L', { x, y } });
-        }
-    }
-    if (first) return WUXM::PathGeometry{ nullptr };
-    data.figs.push_back(std::move(fig));
-    WUXM::PathGeometry pg = build_geometry(data);
-    if (k != 0) {
-        if (g_geo_cache.size() > 512) g_geo_cache.clear();
-        g_geo_cache.emplace(k, std::move(data));
-    }
-    return pg;
-}
-
-/// Bounding box of a clip payload: a path spec (kind 3) or "x,y x,y …" points (kind 4).
-/// Only the box is needed — see the kind-17 case for why this backend clips to rectangles.
-static void bounds_of_payload(const std::string &payload, int shapeKind, double &bx, double &by,
-                              double &bw, double &bh) {
-    double x0 = 1e30, y0 = 1e30, x1 = -1e30, y1 = -1e30;
-    auto see = [&](double x, double y) {
-        x0 = (std::min)(x0, x); y0 = (std::min)(y0, y);
-        x1 = (std::max)(x1, x); y1 = (std::max)(y1, y);
-    };
-    size_t pos = 0;
-    std::vector<std::string> tok;
-    while (pos < payload.size()) {
-        size_t sp = payload.find(' ', pos);
-        std::string s = payload.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
-        if (!s.empty()) tok.push_back(s);
-        if (sp == std::string::npos) break;
-        pos = sp + 1;
-    }
-    if (shapeKind == 4) {
-        for (const auto &pair : tok) {
-            size_t comma = pair.find(',');
-            if (comma == std::string::npos) continue;
-            float x = 0.0f, y = 0.0f;
-            std::from_chars(pair.data(), pair.data() + comma, x);
-            std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), y);
-            see(x, y);
-        }
-    } else {
-        // Path: every coordinate pair, control points included — a conservative box, which is
-        // what a bezier's control hull gives anyway.
-        for (size_t i = 0; i < tok.size();) {
-            const std::string &op = tok[i++];
-            int pairs = op == "M" || op == "L" ? 1 : op == "Q" ? 2 : op == "C" ? 3 : 0;
-            for (int k = 0; k < pairs && i + 1 < tok.size(); ++k) {
-                float x = 0.0f, y = 0.0f;
-                std::from_chars(tok[i].data(), tok[i].data() + tok[i].size(), x);
-                std::from_chars(tok[i + 1].data(), tok[i + 1].data() + tok[i + 1].size(), y);
-                i += 2;
-                see(x, y);
-            }
-        }
-    }
-    if (x0 > x1) return;
-    bx = x0; by = y0; bw = x1 - x0; bh = y1 - y0;
 }
 
 static LRESULT CALLBACK SecWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -3013,546 +2692,19 @@ static const char* day_xaml_key_name(winrt::Windows::System::VirtualKey k, int m
     return nullptr;
 }
 
-// A canvas that can hold the keyboard (docs/menus.md, docs/focus.md). A XAML Canvas is a Panel,
-// and in SYSTEM XAML focus is a Control affair: `IsTabStop` and `Focus` are members of
-// `Windows.UI.Xaml.Controls.Control`, NOT of `UIElement` — that is `Microsoft.UI.Xaml` (WinUI 3),
-// where both moved up to `UIElement`. So nothing an app DRAWS could ever hear a key without a
-// Control around it, and the canvas is handed out as a focusable `ContentControl` HOST whose
-// Content is a persistent hit-test panel around the drawing Canvas.
-//
-// The handle day holds is the HOST, so `day_xaml_set_geometry` positions and sizes that;
-// `Stretch` on both content alignments passes the size it is given straight through to the
-// drawing Canvas inside, which would otherwise measure to nothing and draw at 0x0. Every drawing entry
-// point unwraps the handle with `canvas_of`.
-//
-// `handles` asks Rust whether the app claimed this key: an unclaimed arrow is left unhandled so
-// XAML's own directional focus navigation still moves between controls.
-void* day_xaml_canvas_new(unsigned long long id,
-                          int (*handles)(unsigned long long),
-                          void (*cb)(unsigned long long, const char*, int)) try {
-    WUXC::Canvas c;
-    // The drawing is replaced every frame. Keep it entirely outside hit testing so
-    // XAML's press/release recognizer stays on a persistent surface while its children
-    // are repainted. Disabling individual shapes is insufficient: clearing the Canvas
-    // also invalidates gestures targeting that Canvas itself.
-    c.IsHitTestVisible(false);
-    // ContentControl's default WinUI template does not paint its Background. Give
-    // it a real, persistent panel to hit, including empty pixels. Repainting only
-    // clears c's children, so taps and ancestor drag sources survive animation.
-    WUXC::Grid surface;
-    surface.Background(WUXM::SolidColorBrush(color_argb(0x00'000000u)));
-    surface.Children().Append(c);
-    WUXC::ContentControl host;
-    host.IsTabStop(true);
-    host.HorizontalContentAlignment(WUX::HorizontalAlignment::Stretch);
-    host.VerticalContentAlignment(WUX::VerticalAlignment::Stretch);
-    host.Content(surface);
-    // A press focuses the persistent host, the way clicking a text box does.
-    host.PointerPressed([](WF::IInspectable const& s, WUXIn::PointerRoutedEventArgs const&) {
-        if (auto ctl = s.try_as<WUXC::Control>()) ctl.Focus(WUX::FocusState::Pointer);
-    });
-    host.KeyDown([id, handles, cb](WF::IInspectable const&, WUXIn::KeyRoutedEventArgs const& a) {
-        // Win32 key state, not CoreWindow: this is a XAML ISLAND in a desktop window, where
-        // `CoreWindow::GetForCurrentThread()` is null. The OEM-accelerator path above reads the
-        // modifiers the same way. The mask is day's `KeyEvent` one (shift 1, primary 2, alt 4).
-        int mods = 0;
-        if (GetKeyState(VK_SHIFT) & 0x8000) mods |= 1;
-        if (GetKeyState(VK_CONTROL) & 0x8000) mods |= 2;
-        if (GetKeyState(VK_MENU) & 0x8000) mods |= 4;
-        const char* name = day_xaml_key_name(a.Key(), mods);
-        if (!name) return;
-        if (!handles(id)) return;
-        cb(id, name, mods);
-        a.Handled(true);
-    });
-    return boxh(host);
-} catch (...) { WUXC::ContentControl host; return boxh(host); }
-
-// The Canvas a canvas handle draws into. The handle is the focusable ContentControl host built
-// above; a bare Canvas is still accepted, so a degraded handle (the `catch` fallback, or any
-// element day hands to a canvas entry point by mistake) resolves rather than crashes.
-static WUXC::Canvas canvas_of(void* h) {
-    auto& e = elem(h);
-    if (auto c = e.try_as<WUXC::Canvas>()) return c;
-    if (auto host = e.try_as<WUXC::ContentControl>()) {
-        if (auto content = host.Content()) {
-            if (auto c = content.try_as<WUXC::Canvas>()) return c;
-            if (auto surface = content.try_as<WUXC::Grid>(); surface && surface.Children().Size())
-                return surface.Children().GetAt(0).try_as<WUXC::Canvas>();
-        }
-    }
-    return nullptr;
-}
-
-// Shared with image widgets; definitions live in the raster-image section below. Keep these
-// declarations in the same extern "C" block as the definitions so canvas replay can use them.
+// The WinUI canvas uses Win2D for both screen drawing and PNG export.
+// The deprecated system-XAML target deliberately has no canvas renderer.
 static std::map<uint64_t, std::vector<uint8_t>>& xaml_bitmaps();
-static WUXM::Imaging::BitmapImage bitmap_from_bytes(const uint8_t* bytes, uint32_t len);
-
-// A function-try-block for the same reason `guard` exists: this repaints one canvas, a
-// best-effort side effect, and it is reached from Rust's non-unwindable post-trampoline, so a
-// WinRT HRESULT escaping here would abort the app. Degrade to a partly-drawn canvas instead.
-void day_xaml_canvas_set_ops(void* h, const double* nums, int n, const char* texts_joined) try {
-    auto canvas = canvas_of(h);
-    if (!canvas) return;
-    canvas.Children().Clear();
-
-    std::vector<std::string> texts;
-    {
-        std::string all = texts_joined ? texts_joined : "";
-        size_t start = 0;
-        while (start <= all.size()) {
-            size_t nl = all.find('\x1f', start);
-            texts.push_back(all.substr(start, nl == std::string::npos ? std::string::npos : nl - start));
-            if (nl == std::string::npos) break;
-            start = nl + 1;
-        }
-    }
-    size_t ti = 0;
-    std::vector<WUXM::Matrix> stack;
-    WUXM::Matrix cur = mat_identity();
-    const double DEG = 3.14159265358979323846 / 180.0;
-    // A decoded kind-14 record (set-gradient), consumed by the next fill-shape record. XAML's
-    // default MappingMode is RelativeToBoundingBox, so the encoded unit geometry maps onto each
-    // shape's bounds with no extra math; make_radial_brush mirrors that with Stretch::Fill so both
-    // gradient kinds turn naturally elliptical in non-square bounds, the shared rule.
-    WUXM::Brush gradPending{ nullptr };
-    // A decoded kind-18 record (stroke style), applied to the next stroke record only.
-    bool stylePending = false;
-    int sCap = 0, sJoin = 0;
-    double sMiter = 10.0, sPhase = 0.0;
-    std::vector<double> sDash;
-    // A decoded kind-19 record (font), applied to the next text record only (docs/fonts.md).
-    bool fontPending = false;
-    int fWeight = 0;
-    bool fItalic = false;
-    std::string fFamily;
-    // The current clip, as a RECTANGLE. See the kind-17 case: this backend is retained-mode and
-    // UIElement.Clip only accepts a RectangleGeometry, so a non-rectangular clip degrades to its
-    // bounding box (documented in docs/canvas.md).
-    bool clipActive = false;
-    double clipX = 0, clipY = 0, clipW = 0, clipH = 0;
-    std::vector<std::array<double, 5>> clipStack;
-    // Put the pending style (or Day's defaults) on a stroked shape.
-    // `Shape const&`, never `Shape&`. A cppwinrt projection is not a C++ class hierarchy: `Path`
-    // does not DERIVE from `Shape`, it CONVERTS to it, and that conversion yields a temporary —
-    // which cannot bind to a non-const reference. Taking it by const reference binds the temporary
-    // and costs nothing, since every projected setter is a const member function.
-    auto style_shape = [&](WUXSh::Shape const &sh, double width) {
-        sh.StrokeThickness(width);
-        if (!stylePending) return;
-        auto cap = sCap == 1 ? WUXM::PenLineCap::Round
-                 : sCap == 2 ? WUXM::PenLineCap::Square
-                             : WUXM::PenLineCap::Flat;
-        sh.StrokeStartLineCap(cap);
-        sh.StrokeEndLineCap(cap);
-        sh.StrokeDashCap(cap);
-        sh.StrokeLineJoin(sJoin == 1 ? WUXM::PenLineJoin::Round
-                        : sJoin == 2 ? WUXM::PenLineJoin::Bevel
-                                     : WUXM::PenLineJoin::Miter);
-        sh.StrokeMiterLimit(sMiter);
-        if (!sDash.empty()) {
-            // XAML's dash array is in units of STROKE THICKNESS, not pixels.
-            // A DoubleCollection, not a bare IVector<double>: the setter takes the projected
-            // collection TYPE, and `single_threaded_vector<double>` yields its base interface,
-            // which does not convert back down to it.
-            WUXM::DoubleCollection dc;
-            const double wdt = width > 0.0 ? width : 1.0;
-            for (double v : sDash) dc.Append(v / wdt);
-            sh.StrokeDashArray(dc);
-            sh.StrokeDashOffset(sPhase / wdt);
-        }
-    };
-    // Apply the active clip to a shape as it is placed.
-    auto clip_shape = [&](WUXSh::Shape const &sh) {
-        if (!clipActive) return;
-        WUXM::RectangleGeometry rg;
-        rg.Rect(WF::Rect{ static_cast<float>(clipX), static_cast<float>(clipY),
-                          static_cast<float>(clipW), static_cast<float>(clipH) });
-        sh.Clip(rg);
-    };
-    auto fill_brush = [&](unsigned col) -> WUXM::Brush {
-        if (gradPending) {
-            WUXM::Brush b = gradPending;
-            gradPending = nullptr;
-            return b;
-        }
-        return brush_bits(col);
-    };
-
-    // A decoded kind-20 record (stamp): the positions the next shape record is drawn at, once
-    // each. Empty means the ordinary one-shape-one-record case (docs/canvas.md "Stamping").
-    std::vector<std::pair<double, double>> stampAt;
-    int stampN = 0;
-    for (int i = 0; i + 8 < n; i += 9) {
-        int k = static_cast<int>(nums[i]);
-        double a = nums[i + 1], b = nums[i + 2], c = nums[i + 3], d = nums[i + 4];
-        double e = nums[i + 5], f = nums[i + 6], g = nums[i + 7];
-        unsigned col = static_cast<unsigned>(nums[i + 8]);
-        // Stamp prefix and its coordinate records: collected, never drawn on their own.
-        if (k == 20) { stampAt.clear(); stampN = (int)a; continue; }
-        if (k == 21) {
-            // Four points per record, in slot pairs (1,2) (3,4) (5,6) (7,8) — the fourth point's
-            // y rides the slot other records use for their color. The last record of a run is
-            // padded with zeros, so the header's count is what says where the real ones stop.
-            const double xs[4] = { a, c, e, g };
-            const double ys[4] = { b, d, f, nums[i + 8] };
-            for (int q = 0; q < 4 && (int)stampAt.size() < stampN; ++q)
-                stampAt.push_back({ xs[q], ys[q] });
-            continue;
-        }
-        // The template is replayed once per position under a translated CTM — this backend places
-        // every shape through `cur`, so the translation is a matrix rather than a context call.
-        // `ti` is rewound each time so a template with a texts payload reads the same entry every
-        // repetition and consumes it exactly once overall.
-        const int reps = stampAt.empty() ? 1 : (int)stampAt.size();
-        const size_t tiStart = ti;
-        const WUXM::Matrix curSaved = cur;
-        for (int rep = 0; rep < reps; ++rep) {
-        ti = tiStart;
-        if (!stampAt.empty()) {
-            WUXM::Matrix t = mat_identity();
-            t.OffsetX = stampAt[rep].first;
-            t.OffsetY = stampAt[rep].second;
-            cur = mat_mul(t, curSaved);
-        }
-        switch (k) {
-        case 8:
-            stack.push_back(cur);
-            // The clip rides the same stack: on a retained canvas it is our own state, so
-            // save/restore has to preserve it explicitly.
-            clipStack.push_back({ clipActive ? 1.0 : 0.0, clipX, clipY, clipW, clipH });
-            break;
-        case 9:
-            if (!stack.empty()) {
-                cur = stack.back();
-                stack.pop_back();
-            }
-            if (!clipStack.empty()) {
-                auto &cs = clipStack.back();
-                clipActive = cs[0] > 0.5;
-                clipX = cs[1]; clipY = cs[2]; clipW = cs[3]; clipH = cs[4];
-                clipStack.pop_back();
-            }
-            break;
-        case 10: {
-            WUXM::Matrix m{};
-            m.M11 = a;
-            m.M12 = b;
-            m.M21 = c;
-            m.M22 = d;
-            m.OffsetX = e;
-            m.OffsetY = f;
-            cur = mat_mul(m, cur);
-            break;
-        }
-        case 0:
-        case 1:
-        case 2:
-        case 13: {
-            WUXSh::Path p;
-            if (k == 2 || k == 13) {
-                p.Data(rounded_rect_geo(a, b, c, d, e));
-            } else {
-                WUXM::RectangleGeometry rg;
-                rg.Rect(WF::Rect{ (float)a, (float)b, (float)c, (float)d });
-                p.Data(rg);
-            }
-            if (k == 1 || k == 13) {
-                p.Stroke(brush_bits(col));
-                p.StrokeThickness(g);
-            } else {
-                p.Fill(fill_brush(col));
-            }
-            place_shape(canvas, p, cur);
-            break;
-        }
-        case 3:
-        case 4: {
-            WUXM::EllipseGeometry eg;
-            eg.Center(WF::Point{ (float)(a + c / 2), (float)(b + d / 2) });
-            eg.RadiusX(c / 2);
-            eg.RadiusY(d / 2);
-            WUXSh::Path p;
-            p.Data(eg);
-            if (k == 4) {
-                p.Stroke(brush_bits(col));
-                p.StrokeThickness(g);
-            } else {
-                p.Fill(fill_brush(col));
-            }
-            place_shape(canvas, p, cur);
-            break;
-        }
-        case 5: { // stroke arc (e=start°, f=sweep°); clockwise, 0=+x, in screen (y-down) space
-            double cx = a + c / 2, cy = b + d / 2, rx = c / 2, ry = d / 2;
-            double s = e * DEG, en = (e + f) * DEG;
-            WUXM::ArcSegment arc;
-            arc.Point(WF::Point{ (float)(cx + rx * cos(en)), (float)(cy + ry * sin(en)) });
-            arc.Size(WF::Size{ (float)rx, (float)ry });
-            arc.IsLargeArc(fabs(f) > 180.0);
-            arc.SweepDirection(f >= 0 ? WUXM::SweepDirection::Clockwise
-                                      : WUXM::SweepDirection::Counterclockwise);
-            WUXM::PathFigure fig;
-            fig.StartPoint(WF::Point{ (float)(cx + rx * cos(s)), (float)(cy + ry * sin(s)) });
-            fig.IsClosed(false);
-            fig.Segments().Append(arc);
-            WUXM::PathGeometry pg;
-            pg.Figures().Append(fig);
-            WUXSh::Path p;
-            p.Data(pg);
-            p.Stroke(brush_bits(col));
-            p.StrokeThickness(g);
-            p.StrokeStartLineCap(WUXM::PenLineCap::Round);
-            p.StrokeEndLineCap(WUXM::PenLineCap::Round);
-            place_shape(canvas, p, cur);
-            break;
-        }
-        case 6: { // line
-            WUXM::LineGeometry lg;
-            lg.StartPoint(WF::Point{ (float)a, (float)b });
-            lg.EndPoint(WF::Point{ (float)c, (float)d });
-            WUXSh::Path p;
-            p.Data(lg);
-            p.Stroke(brush_bits(col));
-            p.StrokeThickness(g);
-            p.StrokeStartLineCap(WUXM::PenLineCap::Round);
-            p.StrokeEndLineCap(WUXM::PenLineCap::Round);
-            place_shape(canvas, p, cur);
-            break;
-        }
-        case 7: { // text at (a,b); e=size, f=anchor packed as h*4+v (TextAnchor::pack)
-            std::string t = ti < texts.size() ? texts[ti++] : std::string();
-            // FontSize must be POSITIVE and finite: XAML throws E_INVALIDARG on 0, a negative,
-            // or a NaN, and that HRESULT unwinds out of this entry point through Rust's
-            // `extern "C"` post-trampoline, aborting the whole process (see `guard` above).
-            // Nothing is drawable at a non-positive size anyway, and the other backends render
-            // an empty run rather than failing (Qt's setPointSizeF ignores it), so drop the
-            // record and keep the same painted result. A canvas that sizes text off its OWN
-            // height — a Sudoku cell's `h * 0.55` — hits this on the first replay, before
-            // layout has given the canvas a height. The texts cursor is advanced above, so the
-            // stream stays in sync with the records that follow.
-            if (!(e > 0.0) || !std::isfinite(e)) break;
-            WUXC::TextBlock tb;
-            tb.Text(hs(t.c_str()));
-            tb.FontSize(e);
-            tb.Foreground(brush_bits(col));
-            if (fontPending) {
-                canvas_font_apply(tb, fWeight, fItalic, fFamily);
-            }
-            // A TextBlock's layout box IS the line box (ascent + descent), so the top-leading
-            // anchor is its top-left and every other one is an offset from it — the same
-            // arithmetic as TextAnchor::offset in day-spec, over metrics the block just laid out.
-            double ox = a, oy = b;
-            const int ah = (int)f / 4, av = (int)f % 4;
-            if (ah != 0 || av != 0) {
-                tb.Measure(WF::Size{ std::numeric_limits<float>::infinity(),
-                                     std::numeric_limits<float>::infinity() });
-                auto ds = tb.DesiredSize();
-                ox += ah == 1 ? -ds.Width / 2 : ah == 2 ? -ds.Width : 0.0;
-                oy += av == 1   ? -ds.Height / 2
-                      : av == 2 ? -tb.BaselineOffset()
-                      : av == 3 ? -ds.Height
-                                : 0.0;
-            }
-            // Placed under the CTM like a shape (place_shape), so text rotates and scales with
-            // the drawing instead of only having its anchor moved.
-            WUXM::Matrix local = mat_identity();
-            local.OffsetX = ox;
-            local.OffsetY = oy;
-            WUXC::Canvas::SetLeft(tb, 0);
-            WUXC::Canvas::SetTop(tb, 0);
-            WUXM::MatrixTransform mt;
-            mt.Matrix(mat_mul(local, cur));
-            tb.RenderTransform(mt);
-            canvas.Children().Append(tb);
-            break;
-        }
-        case 19: { // font for the next text: a weight (0 default), b italic; family on texts
-            fFamily = ti < texts.size() ? texts[ti++] : std::string();
-            fWeight = (int)a;
-            fItalic = b > 0.5;
-            fontPending = true;
-            break;
-        }
-        case 11:
-        case 12: { // polygon (11 fill / 12 stroke); points ride texts as "x,y x,y ..."
-            // The texts entry is consumed either way: that channel is positional, so a cache hit
-            // that skipped it would desynchronize every record after this one.
-            std::string t = ti < texts.size() ? texts[ti++] : std::string();
-            WUXM::PathGeometry pg = cached_polygon_geometry(t, a);
-            if (pg) {
-                WUXSh::Path p;
-                p.Data(pg);
-                if (k == 12) {
-                    p.Stroke(brush_bits(col));
-                    p.StrokeThickness(g);
-                } else {
-                    p.Fill(fill_brush(col));
-                }
-                place_shape(canvas, p, cur);
-            }
-            break;
-        }
-        case 15:
-        case 16: { // path (15 fill / 16 stroke); segments ride texts, f = fill rule
-            std::string spec = ti < texts.size() ? texts[ti++] : std::string();
-            WUXM::PathGeometry pg = cached_path_geometry(spec, static_cast<int>(f), a);
-            WUXSh::Path p;
-            p.Data(pg);
-            if (k == 16) {
-                p.Stroke(gradPending ? fill_brush(col) : brush_bits(col));
-                style_shape(p, g);
-            } else {
-                p.Fill(fill_brush(col));
-            }
-            clip_shape(p);
-            place_shape(canvas, p, cur);
-            break;
-        }
-        case 17: { // clip: f names the shape, a..d geometry, e radius or fill rule
-            // RECTANGLES ONLY. UIElement.Clip takes a RectangleGeometry and nothing else, so a
-            // path, ellipse or polygon clip degrades to its bounding box here. Everything is
-            // still confined — just not as tightly as on the other backends.
-            double bx = a, by = b, bw = c, bh = d;
-            int shapeKind = static_cast<int>(f);
-            if (shapeKind == 3 || shapeKind == 4) {
-                std::string payload = ti < texts.size() ? texts[ti++] : std::string();
-                // For these two sub-kinds slot a carries the content key, not geometry, so the
-                // box computed from the payload is cached under it rather than recomputed.
-                const long long ck = static_cast<long long>(a);
-                auto hit = ck ? g_clip_bounds_cache.find(ck) : g_clip_bounds_cache.end();
-                if (ck && hit != g_clip_bounds_cache.end()) {
-                    bx = hit->second[0]; by = hit->second[1];
-                    bw = hit->second[2]; bh = hit->second[3];
-                } else {
-                    bounds_of_payload(payload, shapeKind, bx, by, bw, bh);
-                    if (ck) {
-                        if (g_clip_bounds_cache.size() > 512) g_clip_bounds_cache.clear();
-                        g_clip_bounds_cache[ck] = { bx, by, bw, bh };
-                    }
-                }
-            }
-            // Intersect with any clip already in force, matching the spec's narrowing rule.
-            if (clipActive) {
-                double x1 = (std::max)(clipX, bx), y1 = (std::max)(clipY, by);
-                double x2 = (std::min)(clipX + clipW, bx + bw), y2 = (std::min)(clipY + clipH, by + bh);
-                bx = x1; by = y1; bw = (std::max)(0.0, x2 - x1); bh = (std::max)(0.0, y2 - y1);
-            }
-            clipX = bx; clipY = by; clipW = bw; clipH = bh;
-            clipActive = true;
-            break;
-        }
-        case 18: { // stroke style for the next stroke: a cap, b join, c miter, d phase
-            std::string t18 = ti < texts.size() ? texts[ti++] : std::string();
-            sCap = static_cast<int>(a);
-            sJoin = static_cast<int>(b);
-            sMiter = c;
-            sPhase = d;
-            sDash.clear();
-            size_t pos = 0;
-            while (pos < t18.size()) {
-                size_t sp = t18.find(' ', pos);
-                std::string tok = t18.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
-                if (!tok.empty()) {
-                    double v = 0.0;
-                    std::from_chars(tok.data(), tok.data() + tok.size(), v);
-                    sDash.push_back(v);
-                }
-                if (sp == std::string::npos) break;
-                pos = sp + 1;
-            }
-            stylePending = true;
-            break;
-        }
-        case 14: { // set-gradient (f = type): stops ride texts as "offset,aarrggbb offset,aarrggbb ..."
-            std::string t = ti < texts.size() ? texts[ti++] : std::string();
-            // Parse the shared stop format once, into whichever brush the type selects.
-            auto parse_stops = [&](auto appendStop) {
-                size_t pos = 0, count = 0;
-                while (pos < t.size()) {
-                    size_t sp = t.find(' ', pos);
-                    std::string pair = t.substr(pos, sp == std::string::npos ? std::string::npos : sp - pos);
-                    pos = sp == std::string::npos ? t.size() : sp + 1;
-                    size_t comma = pair.find(',');
-                    if (comma == std::string::npos || comma == 0) continue;
-                    float off = 0.0f;
-                    std::from_chars(pair.data(), pair.data() + comma, off);
-                    unsigned bits = 0;
-                    std::from_chars(pair.data() + comma + 1, pair.data() + pair.size(), bits, 16);
-                    WUXM::GradientStop gs;
-                    gs.Offset(off);
-                    WUI::Color cc;
-                    cc.A = static_cast<uint8_t>((bits >> 24) & 0xff);
-                    cc.R = static_cast<uint8_t>((bits >> 16) & 0xff);
-                    cc.G = static_cast<uint8_t>((bits >> 8) & 0xff);
-                    cc.B = static_cast<uint8_t>(bits & 0xff);
-                    gs.Color(cc);
-                    appendStop(gs);
-                    count++;
-                }
-                return count;
-            };
-            if ((int)f == 1) {
-                std::vector<std::pair<float, WUI::Color>> stops;
-                if (parse_stops([&](WUXM::GradientStop gs) {
-                        stops.emplace_back(static_cast<float>(gs.Offset()), gs.Color());
-                    }) >= 2)
-                    gradPending = cached_radial_brush(a, b, c, t, std::move(stops));
-            } else {
-                WUXM::LinearGradientBrush lgb;
-                lgb.StartPoint(WF::Point{ (float)a, (float)b });
-                lgb.EndPoint(WF::Point{ (float)c, (float)d });
-                if (parse_stops([&](WUXM::GradientStop gs) { lgb.GradientStops().Append(gs); }) >= 2)
-                    gradPending = lgb;
-            }
-            break;
-        }
-        case 22: { // image: a,b origin · c,d size · e the BitmapId · f opacity (docs/images.md)
-            auto it = xaml_bitmaps().find((uint64_t)e);
-            // A released bitmap draws nothing rather than a placeholder: the canvas re-records on
-            // every tracked read, so a handle can be dropped between the record and this replay.
-            if (it == xaml_bitmaps().end() || c <= 0 || d <= 0) break;
-            auto bmp = bitmap_from_bytes(it->second.data(), (uint32_t)it->second.size());
-            if (!bmp) break;
-            WUXC::Image img;
-            img.Stretch(WUXM::Stretch::Fill); // the op names an exact rect; day did the fitting
-            img.Source(bmp);
-            img.Width(c);
-            img.Height(d);
-            img.Opacity(f < 0.0 ? 0.0 : (f > 1.0 ? 1.0 : f));
-            // This canvas is RETAINED: an element is positioned by matrix rather than drawn, so
-            // the op's origin rides the transform the same way every shape's does.
-            // Translate the bitmap's local rectangle before the canvas transform, as text
-            // does above. Adding its origin to the final offsets leaves that origin unscaled
-            // and unrotated, moving images away from the shape/selection drawn over them.
-            WUXM::Matrix local = mat_identity();
-            local.OffsetX = a;
-            local.OffsetY = b;
-            WUXC::Canvas::SetLeft(img, 0);
-            WUXC::Canvas::SetTop(img, 0);
-            WUXM::MatrixTransform mt;
-            mt.Matrix(mat_mul(local, cur));
-            img.RenderTransform(mt);
-            canvas.Children().Append(img);
-            break;
-        }
-        }
-        } // the stamp repetition; its body keeps the switch's own indentation on purpose
-        if (!stampAt.empty()) { cur = curSaved; stampAt.clear(); }
-        // A style record applies to one stroke; anything else clears it. A font record
-        // likewise applies to one text.
-        if (k != 18) stylePending = false;
-        if (k != 19) fontPending = false;
-    }
-} catch (winrt::hresult_error const& e) {
-    // Still degrade to a partly-drawn canvas, but say so: the ops after the failing one are
-    // simply missing, which on screen looks like content vanishing for no reason.
-    std::fprintf(stderr, "day-xaml: canvas replay stopped early: hr=0x%08X %ls\n",
-                 static_cast<unsigned>(e.code()), e.message().c_str());
-} catch (...) {
-    std::fprintf(stderr, "day-xaml: canvas replay stopped early (unknown C++ exception)\n");
+#ifdef DAY_WINUI
+#include "canvas-winui.inc"
+#else
+void* day_xaml_canvas_new(unsigned long long, int (*)(unsigned long long),
+                          void (*)(unsigned long long, const char*, int)) {
+    std::fprintf(stderr, "day-xaml: canvas is unsupported on deprecated windows-xaml\n");
+    return day_xaml_container_new();
 }
+void day_xaml_canvas_set_ops(void*, const double*, int, const char*) {}
+#endif
 
 // Recycling-list host: a real ScrollViewer whose Content is a Canvas that holds the row cells
 // (day positions each cell by absolute frame). `out_content` receives a handle to that Canvas so
@@ -6163,7 +5315,12 @@ int day_xaml_image_bytes(unsigned long long id, unsigned char* out, int cap) {
 }
 
 /// Drop a decoded bitmap; day-core calls this when the app's last handle goes.
-void day_xaml_image_release(unsigned long long id) { xaml_bitmaps().erase(id); }
+void day_xaml_image_release(unsigned long long id) {
+    xaml_bitmaps().erase(id);
+#ifdef DAY_WINUI
+    canvas_images.erase(id);
+#endif
+}
 
 /// An `Image` element showing raw encoded bytes (an `ImageSource::Bytes` realize).
 void* day_xaml_image_bytes_new(const unsigned char* bytes, int len, int mode) {
@@ -6285,6 +5442,9 @@ static void picker_forget(void* h);
 void day_xaml_delete(void* h) {
     day_xaml_transfer_release(h);
     picker_forget(h);
+#ifdef DAY_WINUI
+    canvas_forget(h);
+#endif
     g_clip_geometry.erase(h);
     g_image_views.erase(h);
     g_field_live.erase(h);

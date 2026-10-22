@@ -10,7 +10,7 @@ description: "The canvas piece records a display list each backend replays throu
 
 The `canvas` piece records a display list (a `Vec<DrawOp>`) that each backend replays with its
 own native 2-D API: CoreGraphics on Apple, cairo on GTK, `QPainter` on Qt, `android.graphics` on
-Android, `OH_Drawing` on HarmonyOS, XAML shapes on Windows, and Canvas2D on the web. The closure
+Android, `OH_Drawing` on HarmonyOS, Win2D on Windows, and Canvas2D on the web. The closure
 re-records on any tracked read and on `FrameChanged`, and replay is equality-gated, so a canvas
 that draws the same list twice costs nothing the second time.
 
@@ -161,7 +161,7 @@ Everything above works on every backend except where noted.
 | Backend | Limitation |
 | --- | --- |
 | **web-dom** | A gradient stroke paints the gradient across the path's interior rather than only the stroked band. Canvas2D has no "convert stroke to path", so there is no region to clip to. It looks correct for thin lines and diverges as the width grows. |
-| **xaml** | Clipping is rectangular: `UIElement.Clip` accepts only a `RectangleGeometry`, so a path, ellipse or polygon clip degrades to its bounding box, and content is still confined, just less tightly. Escaping this means moving the canvas to `Windows.UI.Composition`, whose `CompositionGeometricClip` does take a path. |
+| **windows-winui** | Win2D supports geometric clips, including paths and ellipses, with the same painter for screen and bitmap export. Deprecated **windows-xaml** has no canvas support. |
 | **appkit** | Quadratic segments are elevated to cubics, exactly (`NSBezierPath`'s own quadratic API is macOS 14+). No visual difference. |
 | **gtk**, **arkui** | Same quadratic elevation, for the same reason: cairo and `OH_Drawing` have cubics. |
 | **web-dom** | `font_families()` is the CSS generic families plus the bundled fonts, not the machine's: a browser lists local fonts only through `queryLocalFonts()`, which is Chromium-only, asynchronous, and behind a permission prompt. `Cap::FontList` answers `Emulated`. |
@@ -445,7 +445,7 @@ A call the target cannot run answers `Err(ExportError::Unsupported)` without rea
 | **android-mdc** | yes | yes | A `Bitmap`-backed `Canvas`, and `android.graphics.pdf.PdfDocument`. It has no metadata API, so title and author are dropped, and page sizes round to whole points |
 | **harmony-arkui** | yes | no | An `OH_Drawing_Bitmap`; HarmonyOS has no PDF drawing context |
 | **web-dom** | yes | no | A detached `<canvas>` and `createImageBitmap`, the one backend that answers on a later turn; browsers have no PDF writer |
-| **windows-winui** | no | no | The canvas builds XAML shapes rather than painting, so there is no painter to point offscreen yet |
+| **windows-winui** | yes | no | Win2D drawing sessions on a `CanvasControl` or `CanvasRenderTarget`; WIC encodes PNG. Vector PDF is not implemented |
 | **mock** | synthetic | no | A bitmap of the right size and scale with no pixels, so app logic around export runs headless |
 
 ### Rules

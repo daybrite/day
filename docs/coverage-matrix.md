@@ -128,9 +128,9 @@ An app branches on this rather than on the target name.
 | `ReduceMotion` | N | N | N | – | N | N | ? | N |
 | `Announce` | N | N | ? | ? | N | N | ? | E |
 | `ImageDecode` | N | N | N | N | N | N | N | N |
-| `ImageEncode` | N | N | N | N | – | N | N | N |
+| `ImageEncode` | N | N | N | N | N | N | N | N |
 | `ImageProperties` | N | – | – | – | – | – | – | – |
-| `CanvasBitmap` | N | N | N | N | – | N | N | N |
+| `CanvasBitmap` | N | N | N | N | N | N | N | N |
 | `CanvasPdf` | N | N | N | N | – | N | – | – |
 | `WindowStates` | N | – | N | N | N | – | – | – |
 | `WindowFullscreen` | N | E | N | N | N | N | ? | ? |

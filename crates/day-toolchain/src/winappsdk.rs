@@ -43,6 +43,7 @@ pub const PACKAGES: &[(&str, &str)] = &[
     ("microsoft.windowsappsdk.winui", "2.3.9"),
     ("microsoft.windowsappsdk.interactiveexperiences", "2.1.9"),
     ("microsoft.web.webview2", "1.0.3719.77"),
+    ("microsoft.graphics.win2d", "1.4.0"),
 ];
 
 /// Where everything a WinUI shim build needs was found.
@@ -56,6 +57,8 @@ pub struct WinAppSdk {
     pub includes: Vec<PathBuf>,
     /// `Microsoft.WindowsAppRuntime.Bootstrap.dll` for the target architecture.
     pub bootstrap_dll: PathBuf,
+    /// Win2D's native implementation, deployed beside the executable.
+    pub canvas_dll: PathBuf,
 }
 
 fn arch_dir(target_arch: &str) -> Result<&'static str, String> {
@@ -96,6 +99,14 @@ pub fn resolve(cppwinrt_include: &Path, target_arch: &str) -> Result<WinAppSdk, 
     let winui = pkg("microsoft.windowsappsdk.winui");
     let ie = pkg("microsoft.windowsappsdk.interactiveexperiences");
     let wv2 = pkg("microsoft.web.webview2");
+    let win2d = pkg("microsoft.graphics.win2d");
+    let canvas_dll = win2d
+        .join("runtimes")
+        .join(format!("win-{arch}"))
+        .join("native/Microsoft.Graphics.Canvas.dll");
+    if !canvas_dll.exists() {
+        return Err(format!("{} is missing", canvas_dll.display()));
+    }
 
     let bootstrap_dll = foundation
         .join("runtimes")
@@ -123,7 +134,9 @@ pub fn resolve(cppwinrt_include: &Path, target_arch: &str) -> Result<WinAppSdk, 
         .iter()
         .find(|(id, _)| *id == "microsoft.windowsappsdk.winui")
         .map_or("", |(_, v)| *v);
-    let projection = root.join(format!("projection-{sdk_version}-winui{winui_version}"));
+    let projection = root.join(format!(
+        "projection-{sdk_version}-winui{winui_version}-win2d1.4.0"
+    ));
     if !projection
         .join("winrt")
         .join("Microsoft.UI.Xaml.Controls.h")
@@ -142,6 +155,8 @@ pub fn resolve(cppwinrt_include: &Path, target_arch: &str) -> Result<WinAppSdk, 
             .arg(foundation.join("metadata"))
             .arg("-in")
             .arg(wv2.join("lib").join("Microsoft.Web.WebView2.Core.winmd"))
+            .arg("-in")
+            .arg(win2d.join("lib/uap10.0/Microsoft.Graphics.Canvas.winmd"))
             .args(["-ref", "sdk", "-out"])
             .arg(&staging)
             .status()
@@ -160,6 +175,7 @@ pub fn resolve(cppwinrt_include: &Path, target_arch: &str) -> Result<WinAppSdk, 
         projection,
         includes: vec![foundation.join("include"), ie.join("include")],
         bootstrap_dll,
+        canvas_dll,
     })
 }
 
@@ -212,6 +228,13 @@ pub fn self_contained_payload(target_arch: &str) -> Result<Vec<(PathBuf, PathBuf
     let arch = arch_dir(target_arch)?;
     let root = packages_root()?;
     let mut out = Vec::new();
+    out.push((
+        package_dir(&root, "microsoft.graphics.win2d")
+            .join("runtimes")
+            .join(format!("win-{arch}"))
+            .join("native/Microsoft.Graphics.Canvas.dll"),
+        PathBuf::from("Microsoft.Graphics.Canvas.dll"),
+    ));
     for id in RUNTIME_PACKAGES {
         let pkg = package_dir(&root, id);
         let native = pkg

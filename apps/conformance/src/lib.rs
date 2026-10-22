@@ -24,6 +24,8 @@ use day_piece_texteditor as _;
 use day::prelude::*;
 
 mod vector_icons;
+#[cfg(all(target_os = "windows", feature = "winui"))]
+mod native_canvas;
 
 #[cfg(target_env = "ohos")]
 mod native_dialogs;
@@ -49,6 +51,10 @@ day::resources!();
 /// The first window's content: the registered GUI cases to browse, inside the test host that
 /// shows each case alone while `day test` drives it.
 pub fn root() -> impl Piece {
+    #[cfg(all(target_os = "windows", feature = "winui"))]
+    if std::env::var_os("DAY_NATIVE_CANVAS_TEST").is_some() {
+        return native_canvas::page().any();
+    }
     #[cfg(target_env = "ohos")]
     if std::env::var_os("DAY_NATIVE_LINK_TEST").is_some() {
         return native_links::page().any();
